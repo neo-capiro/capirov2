@@ -1,0 +1,71 @@
+# Builds the API container image and pushes it to ECR.
+# Deploys are NOT automated — `cdk deploy` runs interactively via Claude+MCP
+# per the architecture doc. This workflow only produces a build artifact.
+#
+# Auth uses OIDC -> assume role in the AWS account. Configure once:
+#   - Add an IAM role `capiro-gha-api` in the AWS account with a trust policy
+#     for token.actions.githubusercontent.com that scopes by repo + ref.
+#   - Grant it ecr:GetAuthorizationToken + push permissions on the api repo.
+#   - Set the role ARN in the repository variable AWS_GHA_ROLE_ARN.
+
+name: api-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/api/**'
+      - 'packages/shared/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/api-image.yml'
+  workflow_dispatch:
+    inputs:
+      env:
+        description: 'Target env (dev|staging|prod)'
+        required: true
+        default: 'dev'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  TARGET_ENV: ${{ github.event.inputs.env || 'dev' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GHA_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push (linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          platforms: linux/arm64
+          push: true
+          provenance: false
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/capiro/${{ env.TARGET_ENV }}/api:${{ github.sha }}
+            ${{ steps.ecr.outputs.registry }}/capiro/${{ env.TARGET_ENV }}/api:latest
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Output image digest
+        run: echo "Pushed capiro/${TARGET_ENV}/api:${GITHUB_SHA}"

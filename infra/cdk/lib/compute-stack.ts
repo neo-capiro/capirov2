@@ -25,6 +25,7 @@ export interface ComputeStackProps extends cdk.StackProps {
   serviceSecurityGroup: ec2.ISecurityGroup;
   dbCluster: rds.IDatabaseCluster;
   dbSecret: secretsmanager.ISecret;
+  appDbSecret: secretsmanager.ISecret;
   databaseName: string;
   dataKey: kms.IKey;
   secretsStack: SecretsStack;
@@ -59,6 +60,7 @@ export class ComputeStack extends cdk.Stack {
   public readonly webService: ecs.FargateService;
   public readonly marketingService: ecs.FargateService;
   public readonly apiMigrateTaskDefinition: ecs.FargateTaskDefinition;
+  public readonly apiBootstrapRolesTaskDefinition: ecs.FargateTaskDefinition;
   public readonly apiTargetGroup: elb.ApplicationTargetGroup;
   public readonly webTargetGroup: elb.ApplicationTargetGroup;
   public readonly marketingTargetGroup: elb.ApplicationTargetGroup;
@@ -72,6 +74,7 @@ export class ComputeStack extends cdk.Stack {
       serviceSecurityGroup,
       dbCluster,
       dbSecret,
+      appDbSecret,
       databaseName,
       dataKey,
       secretsStack,
@@ -93,6 +96,11 @@ export class ComputeStack extends cdk.Stack {
       this,
       'ImportedDbSecret',
       dbSecret.secretArn,
+    );
+    const appDbSecretImported = secretsmanager.Secret.fromSecretCompleteArn(
+      this,
+      'ImportedAppDbSecret',
+      appDbSecret.secretArn,
     );
     const clerkSecretKeyImported = secretsmanager.Secret.fromSecretCompleteArn(
       this,
@@ -174,6 +182,7 @@ export class ComputeStack extends cdk.Stack {
         actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
         resources: [
           dbSecretImported.secretArn,
+          appDbSecretImported.secretArn,
           clerkSecretKeyImported.secretArn,
           clerkWebhookImported.secretArn,
           clerkPubKeyImported.secretArn,
@@ -439,6 +448,54 @@ export class ComputeStack extends cdk.Stack {
       command: ['migrate'],
       environment: { ...apiSharedEnv, MIGRATE_ONLY: '1' },
       secrets: apiSecrets,
+      readonlyRootFilesystem: false,
+    });
+
+    // -------------------------------------------------------- bootstrap-roles task
+    // One-shot task that connects to Aurora as the master role and
+    // ALTER ROLEs `capiro_app` to whatever password is currently in the
+    // app secret. Run after every change to the app secret (rotation,
+    // initial bootstrap). Identity grants are the same as the migrate
+    // task — both need to talk to the DB.
+    this.apiBootstrapRolesTaskDefinition = new ecs.FargateTaskDefinition(
+      this,
+      'ApiBootstrapRolesTaskDef',
+      {
+        family: `capiro-${cfg.envName}-api-bootstrap-roles`,
+        cpu: 256,
+        memoryLimitMiB: 512,
+        runtimePlatform: {
+          cpuArchitecture: ecs.CpuArchitecture.ARM64,
+          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+        },
+        taskRole: apiTaskRole,
+      },
+    );
+    grantSecretsAndKmsToExecutionRole(
+      this.apiBootstrapRolesTaskDefinition,
+      [dbSecretImported.secretArn, appDbSecretImported.secretArn],
+      [dataKey.keyArn],
+    );
+    this.apiBootstrapRolesTaskDefinition.addContainer('api-bootstrap-roles', {
+      image: ecs.ContainerImage.fromEcrRepository(this.apiRepo, 'latest'),
+      essential: true,
+      logging: ecs.LogDrivers.awsLogs({ logGroup: migrateLogGroup, streamPrefix: 'bootstrap-roles' }),
+      command: ['bootstrap-roles'],
+      environment: apiSharedEnv,
+      // The bootstrap-roles script reads master + app credentials from env.
+      // The container's entrypoint already composes DATABASE_URL from DB_*,
+      // but bootstrap-roles uses MASTER_*/APP_* explicitly to keep the two
+      // credentials clearly named.
+      secrets: {
+        DB_HOST: ecs.Secret.fromSecretsManager(dbSecretImported, 'host'),
+        DB_PORT: ecs.Secret.fromSecretsManager(dbSecretImported, 'port'),
+        DB_PASSWORD: ecs.Secret.fromSecretsManager(dbSecretImported, 'password'),
+        DB_USER: ecs.Secret.fromSecretsManager(dbSecretImported, 'username'),
+        MASTER_USER: ecs.Secret.fromSecretsManager(dbSecretImported, 'username'),
+        MASTER_PASSWORD: ecs.Secret.fromSecretsManager(dbSecretImported, 'password'),
+        APP_USER: ecs.Secret.fromSecretsManager(appDbSecretImported, 'username'),
+        APP_PASSWORD: ecs.Secret.fromSecretsManager(appDbSecretImported, 'password'),
+      },
       readonlyRootFilesystem: false,
     });
 
