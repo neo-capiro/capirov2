@@ -10,7 +10,8 @@ const TABS = [
 
 export function AdminLayout() {
   const location = useLocation();
-  const active = TABS.find((t) => location.pathname.startsWith(t.key))?.key ?? TABS[0].key;
+  const active =
+    TABS.find((t) => location.pathname.startsWith(t.key))?.key ?? TABS[0]!.key;
   return (
     <>
       <Typography.Title level={3} style={{ marginTop: 0 }}>

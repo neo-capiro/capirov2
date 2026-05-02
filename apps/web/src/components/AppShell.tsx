@@ -1,17 +1,6 @@
 import { useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { OrganizationSwitcher, UserButton } from '@clerk/clerk-react';
-import {
-  ApiOutlined,
-  AppstoreOutlined,
-  BankOutlined,
-  BookOutlined,
-  ContactsOutlined,
-  DashboardOutlined,
-  SettingOutlined,
-  TeamOutlined,
-  ToolOutlined,
-} from '@ant-design/icons';
 import { Alert, Layout, Menu, Space, Tag, Typography } from 'antd';
 import { ROLE_RANK, type TenantRole } from '@capiro/shared';
 import { useMe } from '../lib/me.js';
@@ -19,70 +8,37 @@ import { useImpersonation } from '../state/impersonation.js';
 
 const { Header, Sider, Content } = Layout;
 
+// Brand palette per the Capiro Brand Book.
+const CAPIRO_BLUE = '#01226A';
+const CAPIRO_BLUE_DEEP = '#001650';
+const SOFT_WHITE = '#F4F6F8';
+
 interface NavItem {
   key: string;
   label: string;
   path: string;
-  icon: React.ReactNode;
-  active: boolean; // Whether the page is implemented for MVP
+  active: boolean;
   minRole?: TenantRole;
 }
 
 /**
- * Eight top-level destinations per the architecture doc §5.3. Five active
- * (Command Center, Clients, Engagement Manager, Directory, Settings); three
- * placeholder (Workspace, Intelligence Hub, Client Portal).
- *
- * Two extra admin destinations only render for the matching role:
- *   Admin Panel    user_admin+
- *   Capiro Admin   capiro_admin only
+ * Primary nav per the design mock (no icons; clean wordmark-only style).
+ * Active flag controls whether the route is implemented; greyed items render
+ * but route to a Coming Soon placeholder.
  */
 const NAV: NavItem[] = [
-  { key: 'home', label: 'Command Center', path: '/', icon: <DashboardOutlined />, active: true },
-  { key: 'clients', label: 'Clients', path: '/clients', icon: <ContactsOutlined />, active: true },
-  {
-    key: 'engagement',
-    label: 'Engagement Manager',
-    path: '/engagement',
-    icon: <ApiOutlined />,
-    active: true,
-  },
-  {
-    key: 'workspace',
-    label: 'Workspace',
-    path: '/workspace',
-    icon: <AppstoreOutlined />,
-    active: false,
-  },
-  { key: 'hub', label: 'Intelligence Hub', path: '/hub', icon: <BookOutlined />, active: false },
-  { key: 'directory', label: 'Directory', path: '/directory', icon: <TeamOutlined />, active: true },
-  {
-    key: 'portal',
-    label: 'Client Portal',
-    path: '/portal',
-    icon: <BankOutlined />,
-    active: false,
-  },
-  { key: 'settings', label: 'Settings', path: '/settings', icon: <SettingOutlined />, active: true },
+  { key: 'home', label: 'Command Center', path: '/', active: true },
+  { key: 'clients', label: 'Clients', path: '/clients', active: true },
+  { key: 'engagement', label: 'Engagement Manager', path: '/engagement', active: true },
+  { key: 'workspace', label: 'Workspace', path: '/workspace', active: false },
+  { key: 'intelligence', label: 'Intelligence', path: '/intelligence', active: false },
+  { key: 'directory', label: 'Directory', path: '/directory', active: true },
+  { key: 'portal', label: 'Client Portal', path: '/portal', active: false },
 ];
 
 const ADMIN_NAV: NavItem[] = [
-  {
-    key: 'admin',
-    label: 'Admin Panel',
-    path: '/admin',
-    icon: <ToolOutlined />,
-    active: true,
-    minRole: 'user_admin',
-  },
-  {
-    key: 'capiro-admin',
-    label: 'Capiro Admin',
-    path: '/capiro-admin',
-    icon: <BankOutlined />,
-    active: true,
-    minRole: 'capiro_admin',
-  },
+  { key: 'admin', label: 'Admin Panel', path: '/admin', active: true, minRole: 'user_admin' },
+  { key: 'capiro-admin', label: 'Capiro Admin', path: '/capiro-admin', active: true, minRole: 'capiro_admin' },
 ];
 
 export function AppShell() {
@@ -101,17 +57,13 @@ export function AppShell() {
     ];
     return visible.map((n) => ({
       key: n.key,
-      icon: n.icon,
       disabled: !n.active,
       label: n.active ? (
-        <Link to={n.path}>{n.label}</Link>
+        <Link to={n.path} style={{ color: 'inherit' }}>
+          {n.label}
+        </Link>
       ) : (
-        <Space size={6}>
-          <span>{n.label}</span>
-          <Tag color="default" style={{ fontSize: 10, lineHeight: '14px' }}>
-            soon
-          </Tag>
-        </Space>
+        <span style={{ color: 'rgba(255,255,255,0.45)' }}>{n.label}</span>
       ),
     }));
   }, [me.data]);
@@ -129,42 +81,58 @@ export function AppShell() {
       <Sider
         width={240}
         breakpoint="lg"
-        collapsedWidth={64}
-        style={{ background: '#01226a', color: '#fff' }}
+        collapsedWidth={0}
+        style={{
+          background: CAPIRO_BLUE,
+          color: '#fff',
+        }}
       >
         <div
+          onClick={() => navigate('/')}
           style={{
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'center',
-            height: 64,
-            color: '#fff',
-            fontWeight: 700,
-            letterSpacing: 0.6,
-            fontSize: 18,
+            justifyContent: 'flex-start',
+            height: 72,
+            padding: '0 24px',
             cursor: 'pointer',
+            borderBottom: `1px solid rgba(255,255,255,0.06)`,
           }}
-          onClick={() => navigate('/')}
         >
-          Capiro
+          <Typography.Text
+            style={{
+              color: '#fff',
+              fontSize: 24,
+              fontWeight: 700,
+              letterSpacing: 0.4,
+            }}
+          >
+            Capiro
+          </Typography.Text>
         </div>
         <Menu
           theme="dark"
           mode="inline"
           selectedKeys={[selectedKey]}
           items={items}
-          style={{ background: '#01226a', borderRight: 0 }}
+          inlineIndent={24}
+          style={{
+            background: CAPIRO_BLUE,
+            borderRight: 0,
+            paddingTop: 16,
+          }}
         />
       </Sider>
-      <Layout>
+      <Layout style={{ background: SOFT_WHITE }}>
         <Header
           style={{
             background: '#fff',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'space-between',
-            borderBottom: '1px solid #f0f0f0',
+            borderBottom: '1px solid #e3e6ec',
             padding: '0 24px',
+            height: 72,
           }}
         >
           <Space>
@@ -193,6 +161,7 @@ export function AppShell() {
               type="error"
               message="Could not load your profile"
               description={(me.error as Error).message}
+              style={{ marginBottom: 16 }}
             />
           ) : null}
           <Outlet />
