@@ -50,12 +50,17 @@ case "${1:-serve}" in
     echo "Running bootstrap-tenant $*"
     exec ./node_modules/.bin/tsx scripts/bootstrap-tenant.ts "$@"
     ;;
+  bootstrap-roles)
+    shift
+    echo "Running bootstrap-roles (rotate capiro_app password)"
+    exec ./node_modules/.bin/tsx scripts/bootstrap-roles.ts "$@"
+    ;;
   serve)
     echo "Starting Capiro API"
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | bootstrap-capiro-admin | bootstrap-tenant)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles)" >&2
     exit 1
     ;;
 esac

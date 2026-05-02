@@ -28,6 +28,13 @@ export class DataStack extends cdk.Stack {
   public readonly cluster: rds.DatabaseCluster;
   public readonly databaseName: string;
   public readonly secret: secretsmanager.ISecret;
+  /**
+   * Runtime application credential. The API connects as `capiro_app`, a
+   * non-DDL role created by migration 0005. The actual password is set by
+   * the `bootstrap-roles` ECS task (which connects as master and runs
+   * ALTER ROLE) — this Secret holds the source-of-truth value.
+   */
+  public readonly appSecret: secretsmanager.ISecret;
   public readonly key: kms.Key;
 
   constructor(scope: Construct, id: string, props: DataStackProps) {
@@ -135,7 +142,28 @@ export class DataStack extends cdk.Stack {
       automaticallyAfter: cdk.Duration.days(30),
     });
 
+    // App-role credential. Auto-generated password (32 chars, alphanumeric)
+    // so the bootstrap-roles task can use it as a SQL literal without extra
+    // escaping. The Secrets Manager value is the source of truth; the actual
+    // DB role's password is rotated to match by bootstrap-roles.
+    const appSecret = new secretsmanager.Secret(this, 'DbAppSecret', {
+      secretName: `/capiro/${cfg.envName}/aurora/app`,
+      description: 'Capiro Aurora capiro_app runtime credentials',
+      encryptionKey: this.key,
+      generateSecretString: {
+        secretStringTemplate: JSON.stringify({ username: 'capiro_app' }),
+        generateStringKey: 'password',
+        excludePunctuation: true,
+        passwordLength: 32,
+      },
+      removalPolicy: cfg.protectFromDestroy
+        ? cdk.RemovalPolicy.RETAIN
+        : cdk.RemovalPolicy.DESTROY,
+    });
+    this.appSecret = appSecret;
+
     new cdk.CfnOutput(this, 'AuroraEndpoint', { value: this.cluster.clusterEndpoint.hostname });
     new cdk.CfnOutput(this, 'AuroraSecretArn', { value: masterSecret.secretArn });
+    new cdk.CfnOutput(this, 'AuroraAppSecretArn', { value: appSecret.secretArn });
   }
 }

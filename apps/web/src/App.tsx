@@ -3,12 +3,14 @@ import { RedirectToSignIn, SignIn, SignedIn, SignedOut } from '@clerk/clerk-reac
 import { AppShell } from './components/AppShell.js';
 import { HomePage } from './pages/HomePage.js';
 import { PlaceholderPage } from './pages/PlaceholderPage.js';
-import { AdminLayout } from './pages/admin/AdminLayout.js';
+import { SettingsLayout } from './pages/settings/SettingsLayout.js';
+import { PersonalPage } from './pages/settings/PersonalPage.js';
 import { TeamPage } from './pages/admin/TeamPage.js';
 import { BrandingPage } from './pages/admin/BrandingPage.js';
 import { ClientsPage } from './pages/admin/ClientsPage.js';
 import { BillingPage } from './pages/admin/BillingPage.js';
 import { CapiroAdminPage } from './pages/capiro-admin/CapiroAdminPage.js';
+import { DirectoryPage } from './pages/directory/DirectoryPage.js';
 
 export function App() {
   return (
@@ -17,10 +19,7 @@ export function App() {
         path="/sign-in/*"
         element={<SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" />}
       />
-      <Route
-        path="/sign-up/*"
-        element={<SignIn routing="path" path="/sign-up" />}
-      />
+      <Route path="/sign-up/*" element={<SignIn routing="path" path="/sign-up" />} />
       <Route
         element={
           <>
@@ -43,26 +42,30 @@ export function App() {
           element={<PlaceholderPage title="Engagement Manager" description="Cross-client engagement workbench — calendars, meetings, outreach." />}
         />
         <Route path="/workspace" element={<PlaceholderPage title="Workspace" />} />
-        <Route path="/hub" element={<PlaceholderPage title="Intelligence Hub" />} />
+        <Route path="/intelligence" element={<PlaceholderPage title="Intelligence" />} />
         <Route
           path="/directory"
-          element={<PlaceholderPage title="Directory" description="Members, staffers, offices. Faceted search comes in a later session." />}
+          element={<DirectoryPage />}
         />
         <Route path="/portal" element={<PlaceholderPage title="Client Portal" />} />
-        <Route
-          path="/settings"
-          element={<PlaceholderPage title="Settings" description="Personal settings. Tenant-level controls live under Admin Panel." />}
-        />
 
-        <Route path="/admin" element={<AdminLayout />}>
-          <Route index element={<Navigate to="/admin/team" replace />} />
+        {/* Settings hosts personal + admin + capiro-admin tabs. Tabs are
+            role-filtered in SettingsLayout; the API enforces RolesGuard
+            on every endpoint as the security boundary. */}
+        <Route path="/settings" element={<SettingsLayout />}>
+          <Route index element={<Navigate to="/settings/personal" replace />} />
+          <Route path="personal" element={<PersonalPage />} />
           <Route path="team" element={<TeamPage />} />
           <Route path="branding" element={<BrandingPage />} />
           <Route path="clients" element={<ClientsPage />} />
           <Route path="billing" element={<BillingPage />} />
+          <Route path="tenants" element={<CapiroAdminPage />} />
         </Route>
 
-        <Route path="/capiro-admin" element={<CapiroAdminPage />} />
+        {/* Back-compat: old /admin/* and /capiro-admin URLs redirect into Settings. */}
+        <Route path="/admin" element={<Navigate to="/settings/team" replace />} />
+        <Route path="/admin/*" element={<Navigate to="/settings/team" replace />} />
+        <Route path="/capiro-admin" element={<Navigate to="/settings/tenants" replace />} />
 
         <Route path="*" element={<PlaceholderPage title="Not found" description="404 — this page doesn't exist." />} />
       </Route>

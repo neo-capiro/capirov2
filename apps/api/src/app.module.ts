@@ -14,6 +14,7 @@ import { CapiroAdminModule } from './capiro-admin/capiro-admin.module.js';
 import { TenantAdminModule } from './tenant-admin/tenant-admin.module.js';
 import { ClientsModule } from './clients/clients.module.js';
 import { BrandingModule } from './branding/branding.module.js';
+import { DirectoryModule } from './directory/directory.module.js';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { BrandingModule } from './branding/branding.module.js';
     TenantAdminModule,
     ClientsModule,
     BrandingModule,
+    DirectoryModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
