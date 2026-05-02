@@ -202,8 +202,20 @@ export class ComputeStack extends cdk.Stack {
     });
     // Web only needs to log + (if we add /healthz pinging) the basics.
 
-    // ------------------------------------------------------------------ Secrets shared by API + migration tasks
-    const apiSecrets = {
+    // ------------------------------------------------------------------ Task secret bundles
+    // The API runs as `capiro_app` (least-privilege, no DDL). Migrations
+    // continue to run as the master role because Prisma needs DDL.
+    // host/port/dbname come from the master secret (same Aurora cluster);
+    // only the username/password switch between the two tasks.
+    const apiServeSecrets = {
+      CLERK_SECRET_KEY: ecs.Secret.fromSecretsManager(clerkSecretKeyImported),
+      CLERK_WEBHOOK_SIGNING_SECRET: ecs.Secret.fromSecretsManager(clerkWebhookImported),
+      DB_HOST: ecs.Secret.fromSecretsManager(dbSecretImported, 'host'),
+      DB_PORT: ecs.Secret.fromSecretsManager(dbSecretImported, 'port'),
+      DB_USER: ecs.Secret.fromSecretsManager(appDbSecretImported, 'username'),
+      DB_PASSWORD: ecs.Secret.fromSecretsManager(appDbSecretImported, 'password'),
+    };
+    const apiMigrateSecrets = {
       CLERK_SECRET_KEY: ecs.Secret.fromSecretsManager(clerkSecretKeyImported),
       CLERK_WEBHOOK_SIGNING_SECRET: ecs.Secret.fromSecretsManager(clerkWebhookImported),
       DB_HOST: ecs.Secret.fromSecretsManager(dbSecretImported, 'host'),
@@ -256,7 +268,7 @@ export class ComputeStack extends cdk.Stack {
       essential: true,
       logging: ecs.LogDrivers.awsLogs({ logGroup: apiLogGroup, streamPrefix: 'api' }),
       environment: apiSharedEnv,
-      secrets: apiSecrets,
+      secrets: apiServeSecrets,
       readonlyRootFilesystem: true,
       // Container exposes 4000; ALB target group hits /health.
       portMappings: [{ containerPort: 4000, protocol: ecs.Protocol.TCP }],
@@ -447,7 +459,7 @@ export class ComputeStack extends cdk.Stack {
       logging: ecs.LogDrivers.awsLogs({ logGroup: migrateLogGroup, streamPrefix: 'migrate' }),
       command: ['migrate'],
       environment: { ...apiSharedEnv, MIGRATE_ONLY: '1' },
-      secrets: apiSecrets,
+      secrets: apiMigrateSecrets,
       readonlyRootFilesystem: false,
     });
 

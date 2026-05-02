@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { OrganizationSwitcher, UserButton } from '@clerk/clerk-react';
 import { Alert, Layout, Menu, Space, Tag, Typography } from 'antd';
-import { ROLE_RANK, type TenantRole } from '@capiro/shared';
 import { useMe } from '../lib/me.js';
 import { useImpersonation } from '../state/impersonation.js';
 
@@ -18,13 +17,16 @@ interface NavItem {
   label: string;
   path: string;
   active: boolean;
-  minRole?: TenantRole;
 }
 
 /**
  * Primary nav per the design mock (no icons; clean wordmark-only style).
  * Active flag controls whether the route is implemented; greyed items render
  * but route to a Coming Soon placeholder.
+ *
+ * Admin functions live INSIDE Settings as role-conditional tabs — a
+ * standard_user sees only "Personal", user_admin gains team/branding/etc.,
+ * capiro_admin also sees "Tenants". See pages/settings/SettingsLayout.tsx.
  */
 const NAV: NavItem[] = [
   { key: 'home', label: 'Command Center', path: '/', active: true },
@@ -34,11 +36,7 @@ const NAV: NavItem[] = [
   { key: 'intelligence', label: 'Intelligence', path: '/intelligence', active: false },
   { key: 'directory', label: 'Directory', path: '/directory', active: true },
   { key: 'portal', label: 'Client Portal', path: '/portal', active: false },
-];
-
-const ADMIN_NAV: NavItem[] = [
-  { key: 'admin', label: 'Admin Panel', path: '/admin', active: true, minRole: 'user_admin' },
-  { key: 'capiro-admin', label: 'Capiro Admin', path: '/capiro-admin', active: true, minRole: 'capiro_admin' },
+  { key: 'settings', label: 'Settings', path: '/settings', active: true },
 ];
 
 export function AppShell() {
@@ -47,32 +45,25 @@ export function AppShell() {
   const navigate = useNavigate();
   const { actAsTenantSlug, end: endImpersonation } = useImpersonation();
 
-  const items = useMemo(() => {
-    const visible = [
-      ...NAV,
-      ...ADMIN_NAV.filter((n) => {
-        if (!me.data) return false;
-        return n.minRole ? ROLE_RANK[me.data.role] >= ROLE_RANK[n.minRole] : true;
-      }),
-    ];
-    return visible.map((n) => ({
-      key: n.key,
-      disabled: !n.active,
-      label: n.active ? (
-        <Link to={n.path} style={{ color: 'inherit' }}>
-          {n.label}
-        </Link>
-      ) : (
-        <span style={{ color: 'rgba(255,255,255,0.45)' }}>{n.label}</span>
-      ),
-    }));
-  }, [me.data]);
+  const items = useMemo(
+    () =>
+      NAV.map((n) => ({
+        key: n.key,
+        disabled: !n.active,
+        label: n.active ? (
+          <Link to={n.path} style={{ color: 'inherit' }}>
+            {n.label}
+          </Link>
+        ) : (
+          <span style={{ color: 'rgba(255,255,255,0.45)' }}>{n.label}</span>
+        ),
+      })),
+    [],
+  );
 
   const selectedKey = useMemo(() => {
     const path = location.pathname;
-    const match = [...NAV, ...ADMIN_NAV].find(
-      (n) => path === n.path || (n.path !== '/' && path.startsWith(n.path)),
-    );
+    const match = NAV.find((n) => path === n.path || (n.path !== '/' && path.startsWith(n.path)));
     return match?.key ?? 'home';
   }, [location.pathname]);
 

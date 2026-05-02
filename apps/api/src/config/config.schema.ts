@@ -17,6 +17,8 @@ export const configSchema = z.object({
 
   // Tenant assets bucket (logos, future documents).
   ASSETS_BUCKET: z.string().optional(),
+  DIRECTORY_S3_BUCKET: z.string().optional(),
+  DIRECTORY_S3_PREFIX: z.string().optional(),
   AWS_REGION_DEFAULT: z.string().default('us-east-1'),
 });
 
