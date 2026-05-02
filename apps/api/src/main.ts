@@ -1,12 +1,26 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { json, raw } from 'express';
 import { AppModule } from './app.module.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const logger = new Logger('Bootstrap');
+
+  // Mount everything under `/api/*` to match the ALB listener rule. The ALB
+  // forwards `/api/*` to this service without stripping the prefix, so every
+  // controller route lives under `/api/...`. Two carve-outs:
+  //   - `/health`   — the ALB target group hits this (and also routes /health
+  //                   to the API), and we don't want it nested under /api.
+  //   - `/webhooks/*` — Clerk's webhook URL is `/webhooks/clerk` (no /api),
+  //                     so the route stays bare-mounted.
+  app.setGlobalPrefix('api', {
+    exclude: [
+      { path: 'health', method: RequestMethod.ALL },
+      { path: 'webhooks/(.*)', method: RequestMethod.ALL },
+    ],
+  });
 
   // Clerk webhook signature verification needs the raw body. Mount raw parser
   // ONLY on that path; everything else gets normal JSON.

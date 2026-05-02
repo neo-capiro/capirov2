@@ -1,0 +1,6 @@
+# Force LF on shell scripts and Dockerfiles so Windows checkouts don't break
+# container entrypoints. Without this, CRLF endings make the kernel try to
+# exec `/bin/sh\r` which fails with "No such file or directory".
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.Dockerfile text eol=lf

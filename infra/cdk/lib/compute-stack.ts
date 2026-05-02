@@ -239,6 +239,22 @@ export class ComputeStack extends cdk.Stack {
     // Identity-policy-only grant on the API task role for the assets bucket.
     assetsStack.grantApiAccess(apiTaskRole);
 
+    // Read-only access to the pre-existing Hill directory data bucket. The
+    // DirectoryService gunzips JSON snapshots out of this bucket on demand;
+    // the bucket itself is provisioned out-of-band (not owned by this CDK app).
+    apiTaskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:GetObject'],
+        resources: ['arn:aws:s3:::updated-directory-967807252336-us-east-1/*'],
+      }),
+    );
+    apiTaskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:ListBucket'],
+        resources: ['arn:aws:s3:::updated-directory-967807252336-us-east-1'],
+      }),
+    );
+
     // ------------------------------------------------------------------ API task definition + service
     const apiTaskDef = new ecs.FargateTaskDefinition(this, 'ApiTaskDef', {
       family: `capiro-${cfg.envName}-api`,

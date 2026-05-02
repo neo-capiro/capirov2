@@ -1,4 +1,4 @@
-import { gunzipSync } from 'node:zlib';
+﻿import { gunzipSync } from 'node:zlib';
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
@@ -8,7 +8,7 @@ type Chamber = 'House' | 'Senate' | 'Governor';
 type Party = 'D' | 'R' | 'I';
 type Region = 'Northeast' | 'South' | 'Midwest' | 'West';
 
-interface DirectoryContact {
+export interface DirectoryContact {
   id: string;
   fullName: string;
   photoUrl: string;
@@ -33,7 +33,7 @@ interface DirectoryContact {
 
 type DirectorySort = 'recent' | 'name-asc' | 'name-desc' | 'state-asc';
 
-interface DirectoryQuery {
+export interface DirectoryQuery {
   q?: string;
   chamber?: string;
   region?: string;
@@ -43,14 +43,14 @@ interface DirectoryQuery {
   pageSize?: string | number;
 }
 
-interface DirectoryTotals {
+export interface DirectoryTotals {
   all: number;
   house: number;
   senate: number;
   governors: number;
 }
 
-interface DirectoryPayload {
+export interface DirectoryPayload {
   sourceId: string;
   contacts: DirectoryContact[];
   total: number;
