@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Capiro</title>
+    <!--
+      Loaded BEFORE the Vite bundle so window.__CAPIRO_CONFIG__ is set when
+      env.ts evaluates. In local dev the file does not exist (404 is harmless;
+      env.ts falls back to import.meta.env). In ECS the web container's
+      entrypoint writes this file on boot.
+    -->
+    <script src="/runtime-config.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

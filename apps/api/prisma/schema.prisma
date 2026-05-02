@@ -1,0 +1,186 @@
+// Capiro identity / tenancy core schema.
+// Scope: tenants, users, tenant_memberships, clerk_events, audit_logs.
+// All tenant-scoped tables carry tenant_id NOT NULL and are protected by
+// Postgres Row-Level Security policies created in the SQL migration.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+  // Bookworm slim runtime is OpenSSL 3.x on linux-arm64. `native` covers the
+  // build host, the explicit target covers cross-arch builds (e.g. building
+  // the ARM64 image from an x86 dev machine via buildx).
+  binaryTargets   = ["native", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector"), pg_trgm, citext, uuidOssp(map: "uuid-ossp")]
+}
+
+enum TenantRole {
+  capiro_admin
+  user_admin
+  standard_user
+  client_portal_user
+
+  @@map("tenant_role")
+}
+
+enum TenantStatus {
+  active
+  suspended
+  pending
+
+  @@map("tenant_status")
+}
+
+enum MembershipStatus {
+  invited
+  active
+  removed
+
+  @@map("membership_status")
+}
+
+model Tenant {
+  id              String       @id @default(uuid()) @db.Uuid
+  slug            String       @unique @db.Citext
+  name            String
+  status          TenantStatus @default(pending)
+  plan            String?
+  settings        Json         @default("{}") @map("settings_jsonb")
+  kmsKeyArn       String?      @map("kms_key_arn")
+  soc2AuditWindow Json?        @map("soc2_audit_window")
+  // Clerk Organization id this tenant maps to. Populated by the
+  // bootstrap-tenant script and used by the middleware to cross-check the
+  // Clerk JWT's `org_id` claim against the tenant resolved via slug/UUID.
+  clerkOrgId      String?      @unique @map("clerk_org_id")
+  // Brand assets — logo lives in S3 under `tenants/{id}/branding/...`.
+  // Upload is gated to user_admin (own tenant) and capiro_admin (any tenant).
+  logoS3Key       String?      @map("logo_s3_key")
+  logoContentType String?      @map("logo_content_type")
+  logoUploadedAt  DateTime?    @map("logo_uploaded_at") @db.Timestamptz(6)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships         TenantMembership[]
+  auditLogs           AuditLog[]
+  clients             Client[]
+  impersonationSessions ImpersonationSession[]
+
+  @@map("tenants")
+}
+
+model User {
+  id          String    @id @default(uuid()) @db.Uuid
+  clerkUserId String    @unique @map("clerk_user_id")
+  email       String    @unique @db.Citext
+  firstName   String?   @map("first_name")
+  lastName    String?   @map("last_name")
+  lastSeenAt  DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships           TenantMembership[]
+  auditLogs             AuditLog[]             @relation("AuditActor")
+  impersonationSessions ImpersonationSession[] @relation("ImpersonationActor")
+
+  @@map("users")
+}
+
+model TenantMembership {
+  id         String           @id @default(uuid()) @db.Uuid
+  tenantId   String           @map("tenant_id") @db.Uuid
+  userId     String           @map("user_id") @db.Uuid
+  role       TenantRole
+  status     MembershipStatus @default(invited)
+  invitedBy  String?          @map("invited_by") @db.Uuid
+  joinedAt   DateTime?        @map("joined_at") @db.Timestamptz(6)
+  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId], map: "tenant_memberships_tenant_user_unique")
+  @@index([tenantId, role], map: "tenant_memberships_tenant_role_idx")
+  @@index([userId], map: "tenant_memberships_user_idx")
+  @@map("tenant_memberships")
+}
+
+model ClerkEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  eventId     String    @unique @map("event_id")
+  eventType   String    @map("event_type")
+  payload     Json      @map("payload_jsonb")
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(6)
+  error       String?
+
+  @@index([eventType], map: "clerk_events_event_type_idx")
+  @@map("clerk_events")
+}
+
+model Client {
+  id                  String   @id @default(uuid()) @db.Uuid
+  tenantId            String   @map("tenant_id") @db.Uuid
+  name                String
+  website             String?
+  description         String?
+  productDescription  String?  @map("product_description")
+  primaryContactName  String?  @map("primary_contact_name")
+  primaryContactEmail String?  @map("primary_contact_email") @db.Citext
+  primaryContactPhone String?  @map("primary_contact_phone")
+  intakeData          Json     @default("{}") @map("intake_data_jsonb")
+  status              String   @default("active")
+  createdByUserId     String?  @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId], map: "clients_tenant_idx")
+  @@index([tenantId, name], map: "clients_tenant_name_idx")
+  @@map("clients")
+}
+
+model ImpersonationSession {
+  id           String    @id @default(uuid()) @db.Uuid
+  actorUserId  String    @map("actor_user_id") @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  reason       String
+  startedAt    DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
+  endedAt      DateTime? @map("ended_at") @db.Timestamptz(6)
+  endedReason  String?   @map("ended_reason")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor  User   @relation("ImpersonationActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@index([actorUserId, expiresAt], map: "impersonation_sessions_actor_active_idx")
+  @@map("impersonation_sessions")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  actorUserId  String?  @map("actor_user_id") @db.Uuid
+  actorRole    String?  @map("actor_role")
+  action       String
+  entityType   String?  @map("entity_type")
+  entityId     String?  @map("entity_id")
+  before       Json?    @map("before_jsonb")
+  after        Json?    @map("after_jsonb")
+  ip           String?
+  userAgent    String?  @map("user_agent")
+  requestId    String?  @map("request_id")
+  occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor  User?  @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, occurredAt(sort: Desc)], map: "audit_logs_tenant_occurred_idx")
+  @@index([tenantId, action], map: "audit_logs_tenant_action_idx")
+  @@map("audit_logs")
+}

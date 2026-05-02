@@ -1,0 +1,27 @@
+{
+  "name": "@capiro/infra-cdk",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "capiro-cdk": "bin/capiro.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.161.1",
+    "constructs": "^10.4.2",
+    "source-map-support": "^0.5.21"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.10",
+    "aws-cdk": "^2.161.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}

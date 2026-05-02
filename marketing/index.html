@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Capiro — Agentic Congressional Workflows</title>
+<meta name="description" content="Capiro standardizes and automates how legislative information is submitted, processed, and understood." />
+<meta name="theme-color" content="#01226A" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%2301226A'/><path d='M44.5 22.5c-2.4-2.4-5.7-3.9-9.3-3.9-7.3 0-13.2 5.9-13.2 13.2s5.9 13.2 13.2 13.2c3.6 0 6.9-1.5 9.3-3.9' fill='none' stroke='%23F4F6F8' stroke-width='5' stroke-linecap='round'/></svg>" />
+<meta property="og:title" content="Capiro — Agentic Congressional Workflows" />
+<meta property="og:description" content="Capiro standardizes and automates how legislative information is submitted, processed, and understood." />
+<meta property="og:url" content="https://capiro.ai" />
+<meta property="og:type" content="website" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  /* Brand palette (Capiro Brand Book p.12) */
+  :root {
+    --capiro-blue: #01226a;
+    --capiro-blue-deep: #001650;
+    --signal-blue: #3a6ff7;
+    --signal-blue-soft: #d3deff;
+    --cool-grey: #6b7280;
+    --soft-white: #f4f6f8;
+    --white: #ffffff;
+    --ink: #0d1117;
+    --ink-soft: #2c3340;
+    --ink-muted: #5a6375;
+    --border: #e3e6ec;
+    --radius: 10px;
+    --max: 1120px;
+    --shadow-sm: 0 1px 4px rgba(0, 0, 0, .06);
+    --shadow-md: 0 4px 20px rgba(0, 0, 0, .09);
+    --shadow-lg: 0 16px 48px rgba(0, 0, 0, .12);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--white);
+    color: var(--ink);
+    font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--signal-blue); }
+  a:hover { color: var(--capiro-blue); }
+
+  /* Nav */
+  .lp-nav {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(255, 255, 255, .94);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner {
+    max-width: var(--max); margin: 0 auto;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 32px; height: 72px;
+  }
+  .logo-img { height: 36px; width: auto; display: block; }
+  .nav-links { display: flex; align-items: center; gap: 32px; list-style: none; padding: 0; margin: 0; }
+  .nav-links a { font-size: 14px; font-weight: 500; color: var(--ink-soft); text-decoration: none; transition: color .2s; }
+  .nav-links a:hover { color: var(--capiro-blue); }
+  .nav-links a.btn-nav,
+  .btn-nav {
+    background: var(--capiro-blue); color: #ffffff;
+    padding: 9px 20px; border-radius: 6px;
+    font-size: 14px; font-weight: 600;
+    transition: background .2s; cursor: pointer; border: none;
+    font-family: inherit; text-decoration: none;
+  }
+  .nav-links a.btn-nav:hover,
+  .btn-nav:hover { background: var(--signal-blue); color: #ffffff; }
+
+  /* Secondary nav action — outlined "Sign in", reads quieter than "Request a Demo". */
+  .nav-links a.nav-signin {
+    border: 1px solid var(--border);
+    color: var(--ink-soft);
+    padding: 8px 18px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    transition: border-color .2s, color .2s;
+  }
+  .nav-links a.nav-signin:hover {
+    border-color: var(--capiro-blue);
+    color: var(--capiro-blue);
+  }
+
+  /* Hero */
+  .hero {
+    background: linear-gradient(160deg, var(--capiro-blue-deep) 0%, var(--capiro-blue) 60%, #07307b 100%);
+    padding: 100px 32px 96px;
+    text-align: center; position: relative; overflow: hidden;
+  }
+  .hero::before {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(ellipse 70% 60% at 50% 0%, rgba(58, 111, 247, .18) 0%, transparent 70%);
+  }
+  .lp-container { max-width: var(--max); margin: 0 auto; position: relative; }
+  .hero-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(58, 111, 247, .18);
+    border: 1px solid rgba(58, 111, 247, .55);
+    color: #cdd9ff;
+    border-radius: 100px; padding: 7px 18px;
+    font-size: 12px; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase;
+    margin-bottom: 32px;
+  }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--signal-blue); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+  .hero h1 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: clamp(38px, 5.5vw, 68px);
+    font-weight: 800;
+    color: #fff;
+    line-height: 1.08;
+    letter-spacing: -.02em;
+    max-width: 880px;
+    margin: 0 auto 24px;
+  }
+  .hero h1 em { font-style: italic; font-weight: 700; color: var(--signal-blue-soft); }
+  .hero-sub {
+    font-size: clamp(16px, 2vw, 20px);
+    color: rgba(255, 255, 255, .75);
+    max-width: 640px; margin: 0 auto 44px;
+    line-height: 1.6;
+  }
+  .hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .btn-primary {
+    background: var(--signal-blue); color: #fff;
+    padding: 15px 32px; border-radius: 8px;
+    font-size: 15px; font-weight: 600; text-decoration: none;
+    transition: transform .15s, box-shadow .15s, background .15s;
+    box-shadow: 0 4px 20px rgba(58, 111, 247, .35);
+    cursor: pointer; border: none; font-family: inherit;
+    display: inline-block;
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(58, 111, 247, .45); background: #2858d8; color: #fff; }
+  .btn-ghost {
+    background: transparent; color: rgba(255, 255, 255, .9);
+    padding: 15px 28px; border-radius: 8px;
+    font-size: 15px; font-weight: 500; text-decoration: none;
+    border: 1px solid rgba(255, 255, 255, .3);
+    transition: border-color .2s, color .2s;
+    display: inline-flex; align-items: center;
+  }
+  .btn-ghost:hover { border-color: rgba(255, 255, 255, .65); color: #fff; }
+
+  .hero-stat-bar {
+    display: flex; justify-content: center; flex-wrap: wrap;
+    margin-top: 64px;
+    border-top: 1px solid rgba(255, 255, 255, .12);
+    padding-top: 40px;
+  }
+  .hero-stat { padding: 0 40px; text-align: center; border-right: 1px solid rgba(255, 255, 255, .12); }
+  .hero-stat:last-child { border-right: none; }
+  .hero-stat strong {
+    display: block; font-size: clamp(28px, 4vw, 44px);
+    font-weight: 800; color: var(--signal-blue-soft); line-height: 1;
+  }
+  .hero-stat span { display: block; font-size: 13px; color: rgba(255, 255, 255, .55); margin-top: 6px; }
+
+  section { padding: 96px 32px; }
+  .section-label {
+    font-size: 11px; font-weight: 700;
+    letter-spacing: .14em; text-transform: uppercase;
+    color: var(--signal-blue); margin-bottom: 14px;
+  }
+  .section-title {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: clamp(28px, 3.5vw, 42px);
+    font-weight: 700; color: var(--ink);
+    line-height: 1.15; letter-spacing: -.02em;
+    margin-bottom: 20px;
+  }
+  .section-body { font-size: 17px; color: var(--ink-muted); max-width: 600px; line-height: 1.7; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
+
+  /* How it works */
+  .workflow-steps { display: flex; flex-direction: column; margin-top: 56px; position: relative; }
+  .workflow-steps::before {
+    content: ''; position: absolute; left: 19px; top: 12px; bottom: 12px;
+    width: 2px; background: linear-gradient(to bottom, var(--signal-blue), var(--capiro-blue));
+  }
+  .workflow-step { display: flex; gap: 28px; align-items: flex-start; padding: 28px 28px 28px 0; position: relative; }
+  .workflow-step:not(:last-child) { border-bottom: 1px solid var(--border); }
+  .step-icon {
+    width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0;
+    background: var(--capiro-blue); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 15px; font-weight: 700;
+    position: relative; z-index: 1; box-shadow: 0 0 0 4px #fff;
+  }
+  .step-icon.accent { background: var(--signal-blue); }
+  .step-content { flex: 1; padding-top: 8px; }
+  .step-content h3 { font-size: 17px; font-weight: 700; color: var(--ink); margin: 0 0 6px; }
+  .step-content p { font-size: 15px; color: var(--ink-muted); line-height: 1.6; margin: 0; }
+  .step-tag {
+    display: inline-block; margin-top: 10px;
+    font-size: 11px; font-weight: 600;
+    letter-spacing: .08em; text-transform: uppercase;
+    padding: 4px 10px; border-radius: 4px;
+  }
+  .step-tag.ai { background: var(--signal-blue-soft); color: var(--capiro-blue); }
+  .step-tag.human { background: #eef0f4; color: var(--ink-soft); }
+  .step-tag.auto { background: #e6f3ee; color: #0e6b3e; }
+
+  /* Platform in Action */
+  .platform-section { background: var(--soft-white); border-top: 1px solid var(--border); }
+  .feature-row { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; margin-bottom: 80px; }
+  .feature-row--reverse { direction: rtl; }
+  .feature-row--reverse > * { direction: ltr; }
+  .feature-badge {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--signal-blue); background: var(--signal-blue-soft);
+    padding: 5px 12px; border-radius: 4px;
+    margin-bottom: 16px;
+  }
+  .feature-row__text h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: clamp(24px, 3vw, 32px);
+    font-weight: 700; color: var(--ink);
+    line-height: 1.2; margin: 0 0 16px;
+  }
+  .feature-row__text > p { font-size: 15px; color: var(--ink-muted); line-height: 1.7; margin-bottom: 20px; }
+  .feature-list { list-style: none; padding: 0; margin: 0; }
+  .feature-list li {
+    font-size: 14px; color: var(--ink-soft);
+    padding: 6px 0; display: flex; align-items: flex-start; gap: 10px;
+  }
+  .feature-list li::before { content: '✓'; font-weight: 700; color: var(--signal-blue); flex-shrink: 0; }
+  .feature-screenshot {
+    border-radius: 12px; overflow: hidden;
+    box-shadow: 0 8px 40px rgba(1, 34, 106, .12), 0 1px 3px rgba(0, 0, 0, .06);
+    border: 1px solid var(--border);
+    background: #fff;
+  }
+  .feature-screenshot img,
+  .feature-screenshot video { display: block; width: 100%; height: auto; }
+
+  /* AI Governance bar */
+  .ai-governance-bar {
+    background: #fff; border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 36px 40px; margin-top: 16px;
+  }
+  .ai-governance-bar__top {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 40px;
+    align-items: center; margin-bottom: 32px;
+  }
+  .ai-governance-bar__top h3 { font-size: 18px; font-weight: 700; color: var(--ink); margin: 0 0 6px; }
+  .ai-governance-bar__top > div > p { font-size: 14px; color: var(--ink-muted); line-height: 1.6; margin: 0; }
+  .ai-bar-compact { min-width: 200px; }
+  .ai-bar-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-muted); margin-bottom: 8px; }
+  .ai-bar { height: 10px; border-radius: 100px; background: #e8ecf1; overflow: hidden; }
+  .ai-bar-fill { height: 100%; border-radius: 100px; background: linear-gradient(90deg, var(--signal-blue) 0%, var(--capiro-blue) 100%); width: 80%; }
+  .ai-principle-row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .ai-principle-chip {
+    display: flex; align-items: flex-start; gap: 10px;
+    flex: 1; min-width: 180px;
+    padding: 12px 14px; background: var(--soft-white);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  .ai-principle-chip span:first-child { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+  .ai-principle-chip strong { font-size: 13px; color: var(--ink); display: block; margin-bottom: 2px; }
+  .ai-principle-chip p { font-size: 12px; color: var(--ink-muted); line-height: 1.45; margin: 0; }
+
+  /* Year-Round */
+  .year-section { background: var(--soft-white); padding: 96px 32px; }
+  .year-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0; margin-top: 52px;
+    border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+  }
+  .year-phase { padding: 28px 24px; border-right: 1px solid var(--border); text-align: left; background: #fff; }
+  .year-phase:last-child { border-right: none; }
+  .year-phase.active { background: var(--capiro-blue); color: #fff; }
+  .when {
+    font-size: 11px; font-weight: 700; letter-spacing: .12em;
+    text-transform: uppercase; margin-bottom: 8px; color: var(--signal-blue);
+  }
+  .year-phase.active .when { color: var(--signal-blue-soft); }
+  .year-phase h3 { font-size: 15px; font-weight: 700; margin: 0 0 10px; }
+  .year-phase p { font-size: 13px; color: var(--ink-muted); line-height: 1.6; margin: 0; }
+  .year-phase.active p { color: rgba(255, 255, 255, .7); }
+
+  /* Final CTA */
+  .final-cta { background: var(--soft-white); text-align: center; border-top: 1px solid var(--border); }
+  .final-cta .section-title { color: var(--ink); margin: 0 auto 20px; max-width: 760px; }
+  .final-cta .section-body { color: var(--ink-muted); margin: 0 auto 44px; }
+  .btn-cta-primary {
+    background: var(--capiro-blue); color: #fff;
+    padding: 15px 32px; border-radius: 8px;
+    font-size: 15px; font-weight: 600; text-decoration: none;
+    transition: transform .15s, box-shadow .15s;
+    box-shadow: 0 4px 20px rgba(1, 34, 106, .25);
+    cursor: pointer; display: inline-block; border: none; font-family: inherit;
+  }
+  .btn-cta-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 28px rgba(1, 34, 106, .35); background: var(--signal-blue); color: #fff; }
+  .btn-cta-outline {
+    background: transparent; color: var(--capiro-blue);
+    padding: 15px 28px; border-radius: 8px;
+    font-size: 15px; font-weight: 600; text-decoration: none;
+    border: 1.5px solid var(--capiro-blue);
+    transition: background .2s, color .2s;
+    display: inline-block;
+  }
+  .btn-cta-outline:hover { background: var(--capiro-blue); color: #fff; }
+
+  /* Footer */
+  .lp-footer { background: var(--ink); color: rgba(255, 255, 255, .42); padding: 48px 32px; font-size: 13px; }
+  .lp-footer a { color: rgba(255, 255, 255, .5); text-decoration: none; }
+  .lp-footer a:hover { color: rgba(255, 255, 255, .85); }
+  .footer-inner { max-width: var(--max); margin: 0 auto; }
+  .footer-top { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 32px; margin-bottom: 40px; text-align: left; }
+  .footer-brand p { margin-top: 10px; font-size: 13px; color: rgba(255, 255, 255, .35); max-width: 280px; }
+  .footer-links h4 {
+    color: rgba(255, 255, 255, .65); font-size: 12px; font-weight: 600;
+    letter-spacing: .1em; text-transform: uppercase; margin: 0 0 12px;
+  }
+  .footer-links ul { list-style: none; padding: 0; margin: 0; }
+  .footer-links ul li { margin-bottom: 8px; }
+  .footer-divider { border: none; border-top: 1px solid rgba(255, 255, 255, .08); margin-bottom: 20px; }
+
+  /* Demo modal */
+  .modal-backdrop {
+    position: fixed; inset: 0; z-index: 1000;
+    background: rgba(1, 22, 80, 0.55);
+    backdrop-filter: blur(6px);
+    display: none; align-items: center; justify-content: center;
+    padding: 24px; opacity: 0; transition: opacity .2s;
+  }
+  .modal-backdrop.open { display: flex; opacity: 1; }
+  .modal-card {
+    background: #fff; border-radius: 14px;
+    width: 100%; max-width: 480px;
+    padding: 32px 32px 28px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, .25);
+    position: relative;
+    transform: translateY(8px); transition: transform .2s;
+    max-height: calc(100vh - 48px); overflow-y: auto;
+  }
+  .modal-backdrop.open .modal-card { transform: translateY(0); }
+  .modal-close {
+    position: absolute; top: 14px; right: 14px;
+    background: transparent; border: none;
+    font-size: 22px; line-height: 1; color: var(--cool-grey);
+    cursor: pointer; padding: 6px 10px; border-radius: 6px;
+  }
+  .modal-close:hover { background: var(--soft-white); color: var(--ink); }
+  .modal-card h2 {
+    font-family: 'Inter', sans-serif; font-size: 22px; font-weight: 700;
+    color: var(--ink); margin: 0 0 6px; letter-spacing: -.01em;
+  }
+  .modal-card .modal-sub {
+    font-size: 14px; color: var(--ink-muted); margin: 0 0 22px; line-height: 1.5;
+  }
+  .modal-form { display: flex; flex-direction: column; gap: 14px; }
+  .modal-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .modal-field { display: flex; flex-direction: column; gap: 6px; }
+  .modal-field label {
+    font-size: 12px; font-weight: 600; color: var(--ink-soft);
+    letter-spacing: .02em;
+  }
+  .modal-field label .req { color: var(--signal-blue); margin-left: 2px; }
+  .modal-field input,
+  .modal-field textarea {
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 10px 12px; font-size: 14px;
+    font-family: inherit; color: var(--ink); background: #fff;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .modal-field input:focus,
+  .modal-field textarea:focus {
+    outline: none;
+    border-color: var(--signal-blue);
+    box-shadow: 0 0 0 3px rgba(58, 111, 247, .18);
+  }
+  .modal-field textarea { resize: vertical; min-height: 84px; }
+  .modal-submit {
+    background: var(--capiro-blue); color: #fff;
+    border: none; border-radius: 8px;
+    padding: 13px 18px; font-size: 15px; font-weight: 600;
+    font-family: inherit; cursor: pointer;
+    transition: background .15s, transform .15s;
+    margin-top: 4px;
+  }
+  .modal-submit:hover:not(:disabled) { background: var(--signal-blue); transform: translateY(-1px); }
+  .modal-submit:disabled { opacity: .55; cursor: not-allowed; }
+  .modal-status {
+    margin-top: 10px; font-size: 13px; line-height: 1.5;
+    padding: 10px 12px; border-radius: 8px; display: none;
+  }
+  .modal-status.error { display: block; background: #fdecec; color: #b42318; border: 1px solid #f4cdcd; }
+  .modal-status.success {
+    display: block; text-align: center; padding: 24px 12px 12px;
+    background: transparent; color: var(--ink); border: none;
+  }
+  .modal-status.success .check {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: #e6f3ee; color: #0e6b3e;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px; margin: 0 auto 12px;
+  }
+  .modal-status.success h3 {
+    font-size: 18px; font-weight: 700; color: var(--ink);
+    margin: 0 0 6px;
+  }
+  .modal-status.success p { font-size: 14px; color: var(--ink-muted); margin: 0; }
+
+  @media (max-width: 768px) {
+    .two-col { grid-template-columns: 1fr; gap: 40px; }
+    .hero-stat { padding: 16px 24px; border-right: none; border-bottom: 1px solid rgba(255, 255, 255, .1); }
+    .nav-links li:not(:last-child) { display: none; }
+    .feature-row, .feature-row--reverse { grid-template-columns: 1fr; gap: 40px; direction: ltr; }
+    .feature-row--reverse > * { direction: ltr; }
+    .ai-governance-bar__top { grid-template-columns: 1fr; gap: 24px; }
+    .ai-principle-row { flex-direction: column; }
+    .modal-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="lp-nav">
+  <div class="nav-inner">
+    <a href="#" aria-label="Capiro home"><img src="/assets/logo.png" alt="Capiro" class="logo-img" /></a>
+    <ul class="nav-links">
+      <li><a href="#how-it-works">How It Works</a></li>
+      <li><a href="#platform">Platform</a></li>
+      <li><a href="#year-round">Year-Round</a></li>
+      <li><a href="https://app.capiro.ai/sign-in" class="nav-signin">Sign in</a></li>
+      <li><a href="#" class="btn-nav" data-open-demo>Request a Demo</a></li>
+    </ul>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="lp-container">
+    <div class="hero-badge"><span class="dot"></span>Now accepting clients</div>
+    <h1>Stop filing.<br />Start <em>influencing.</em></h1>
+    <p class="hero-sub">Capiro standardizes and automates how legislative information is submitted, processed, and understood — so government affairs professionals spend their time on strategy, not copy-paste.</p>
+    <div class="hero-actions">
+      <a href="#" class="btn-primary" data-open-demo>Request a Demo</a>
+      <a href="#how-it-works" class="btn-ghost">See How It Works →</a>
+    </div>
+    <div class="hero-stat-bar">
+      <div class="hero-stat"><strong>~240K</strong><span>submissions filed per cycle</span></div>
+      <div class="hero-stat"><strong>$54M</strong><span>in professional time spent on forms annually</span></div>
+      <div class="hero-stat"><strong>535</strong><span>congressional offices, each with their own portal</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how-it-works">
+  <div class="lp-container">
+    <p class="section-label">The Solution</p>
+    <div class="two-col">
+      <div>
+        <h2 class="section-title">From raw client data to confirmed multi-office submission — in one workflow.</h2>
+        <p class="section-body">Capiro takes a government affairs professional from intake to delivery without breaking their flow. Every step is integrated. Nothing lives in a spreadsheet, an email thread, or a browser tab farm.</p>
+      </div>
+      <div>
+        <p style="font-size: 14px; color: var(--ink-muted); line-height: 1.7;">The platform serves two sides of the same broken process simultaneously — the firms and organizations submitting requests, and the congressional offices receiving and reviewing them. Both sides benefit from the same infrastructure.</p>
+      </div>
+    </div>
+    <div class="workflow-steps">
+      <div class="workflow-step"><div class="step-icon">1</div><div class="step-content"><h3>Build the client profile</h3><p>Drop in the client's URL. Capiro structures a baseline profile — company description, issue areas, organizational footprint — and enriches it with white papers, past submissions, and reference documents.</p><span class="step-tag human">One-time setup</span></div></div>
+      <div class="workflow-step"><div class="step-icon">2</div><div class="step-content"><h3>Create submission topics</h3><p>Define each request: submission type (NDAA, Appropriations, or both), request type (Funding, Report Language, Bill Language), and the relevant federal agency and program.</p><span class="step-tag human">Practitioner judgment</span></div></div>
+      <div class="workflow-step"><div class="step-icon accent">AI</div><div class="step-content"><h3>Co-write the white paper in-platform</h3><p>Capiro's drafting assistant pulls from the client profile, real-time intelligence feeds, PE line data, USASpending history, and prior NDAA language. You edit; Capiro drafts.</p><span class="step-tag ai">AI-assisted · Human-edited</span></div></div>
+      <div class="workflow-step"><div class="step-icon">4</div><div class="step-content"><h3>Select target offices from the directory</h3><p>A maintained, current directory of all congressional offices — with submission portal status, live deadlines, subcommittee memberships, and member priorities.</p><span class="step-tag auto">Live directory · Auto-maintained</span></div></div>
+      <div class="workflow-step"><div class="step-icon accent">AI</div><div class="step-content"><h3>Generate per-office submissions</h3><p>Every field across every selected office is pre-populated simultaneously. The district connection statement is generated fresh for each member.</p><span class="step-tag ai">AI-generated · Character-limit enforced</span></div></div>
+      <div class="workflow-step"><div class="step-icon">6</div><div class="step-content"><h3>Human review before every send</h3><p>Every submission is surfaced to you for review before delivery. Nothing leaves without your explicit approval. This is a core product principle.</p><span class="step-tag human">Human gate · No exceptions</span></div></div>
+      <div class="workflow-step"><div class="step-icon accent">AI</div><div class="step-content"><h3>Submit to all offices simultaneously</h3><p>Adopted offices receive submissions in a structured Capiro inbox. Non-adopted offices are handled by Capiro's agent, which navigates the portal and submits.</p><span class="step-tag auto">All channels covered</span></div></div>
+      <div class="workflow-step"><div class="step-icon">8</div><div class="step-content"><h3>Submission history builds automatically</h3><p>Every confirmed submission is logged. Future forms that ask "what other offices have you submitted this to?" auto-populate from your history.</p><span class="step-tag auto">Compounding intelligence</span></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- PLATFORM IN ACTION -->
+<section id="platform" class="platform-section">
+  <div class="lp-container">
+    <p class="section-label" style="text-align: center;">Platform in Action</p>
+    <h2 class="section-title" style="text-align: center; max-width: 720px; margin: 0 auto 16px;">See what Capiro does — not just what it promises.</h2>
+    <p class="section-body" style="text-align: center; margin: 0 auto 72px;">Two core capabilities that replace hundreds of hours of manual work every submission cycle.</p>
+
+    <!-- Feature 1: White Paper Drafting (with video) -->
+    <div class="feature-row">
+      <div class="feature-row__text">
+        <span class="feature-badge">Core Capability</span>
+        <h3>AI White Paper Drafting</h3>
+        <p>Co-write white papers with an assistant trained on legislative conventions. Capiro pulls from client profiles, real-time intelligence, and prior NDAA language to generate structured drafts you can edit with full formatting tools and team collaboration.</p>
+        <ul class="feature-list">
+          <li>AI-generated structured drafts from your documents</li>
+          <li>Real-time team collaboration and inline comments</li>
+          <li>Full formatting toolbar with word and character tracking</li>
+        </ul>
+      </div>
+      <div class="feature-row__media">
+        <div class="feature-screenshot">
+          <video src="/assets/final.mp4" autoplay muted loop playsinline preload="metadata"></video>
+        </div>
+      </div>
+    </div>
+
+    <!-- Feature 2: Member & Staff Directory -->
+    <div class="feature-row feature-row--reverse">
+      <div class="feature-row__text">
+        <span class="feature-badge">Core Capability</span>
+        <h3>Comprehensive Member &amp; Staff Directory</h3>
+        <p>A live, structured directory of every congressional member and the staff who shape their decisions — with activity scoring, peer rankings, and topic-level engagement signals updated daily. See who is active on your issues, who is rising in influence, and where your champions sit on the committee map.</p>
+        <ul class="feature-list">
+          <li>Activity scoring by topic, dynamic and refreshed daily</li>
+          <li>Peer rankings to surface the most active members on each issue</li>
+          <li>Staff coverage with role and tenure history</li>
+          <li>One-click jump from a member profile to outreach planning</li>
+        </ul>
+      </div>
+      <div class="feature-row__media">
+        <div class="feature-screenshot">
+          <img src="/assets/member-directory.png" alt="Capiro member and staff directory — Rep. Darin LaHood, Public participation and lobbying" />
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Governance bar -->
+    <div class="ai-governance-bar">
+      <div class="ai-governance-bar__top">
+        <div>
+          <h3>AI does the mechanical work. You own every decision.</h3>
+          <p>The mechanical work is automated. Strategy, judgment, and final approval stay with the practitioner.</p>
+        </div>
+        <div class="ai-bar-compact">
+          <div class="ai-bar-label"><span>Capiro (80%)</span><span>You (20%)</span></div>
+          <div class="ai-bar"><div class="ai-bar-fill"></div></div>
+        </div>
+      </div>
+      <div class="ai-principle-row">
+        <div class="ai-principle-chip"><span>🔍</span><div><strong>Full Transparency</strong><p>Every AI field visible before submission</p></div></div>
+        <div class="ai-principle-chip"><span>📋</span><div><strong>Legislative AI</strong><p>Trained on NDAA &amp; Appropriations language</p></div></div>
+        <div class="ai-principle-chip"><span>🔒</span><div><strong>Data Stays Yours</strong><p>Client data never trains shared models</p></div></div>
+        <div class="ai-principle-chip"><span>📊</span><div><strong>Auditable Record</strong><p>Every submission logged with full trail</p></div></div>
+        <div class="ai-principle-chip"><span>⚖️</span><div><strong>Expertise Preserved</strong><p>Strategy stays with the practitioner</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- YEAR-ROUND -->
+<section id="year-round" class="year-section">
+  <div class="lp-container" style="text-align: center;">
+    <p class="section-label">Year-Round Platform</p>
+    <h2 class="section-title">Submission season is the entry point. The value is twelve months long.</h2>
+    <div class="year-grid">
+      <div class="year-phase"><div class="when">Oct – Dec</div><h3>Off-Cycle Preparation</h3><p>Client profile building, white paper development, topic strategy, relationship tracking, and opportunity identification.</p></div>
+      <div class="year-phase active"><div class="when">Jan – Mar</div><h3>Submission Season</h3><p>Portal directory with live deadlines, AI form pre-population, multi-office routing, district localization, and submission delivery.</p></div>
+      <div class="year-phase"><div class="when">Apr – May</div><h3>Office Triage</h3><p>Structured submission inbox, comparative review tools, member priority alignment, and request synthesis for adopted offices.</p></div>
+      <div class="year-phase"><div class="when">Apr – Dec</div><h3>Post-Submission Strategy</h3><p>Champion identification, member priority ranking, follow-up tracking, conference monitoring, and outcome attribution.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section id="get-started" class="final-cta">
+  <div class="lp-container">
+    <p class="section-label">Get Started</p>
+    <h2 class="section-title">A structured system for managing legislative submissions and decision support.</h2>
+    <p class="section-body">A practitioner selects fifteen congressional offices, sees pre-populated submissions tailored to each, and submits simultaneously. The alternative is fifteen browser windows and thirty to sixty hours. That is what Capiro recovers.</p>
+    <div class="hero-actions">
+      <a href="#" class="btn-cta-primary" data-open-demo>Request a Demo</a>
+      <a href="https://app.capiro.ai/sign-in" class="btn-cta-outline">Sign In</a>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="lp-footer">
+  <div class="footer-inner">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <img src="/assets/logo.png" alt="Capiro" style="height: 28px; filter: invert(1) brightness(2);" />
+        <p>The infrastructure layer for legislative submissions and policy workflow intelligence.</p>
+      </div>
+      <div class="footer-links">
+        <h4>Product</h4>
+        <ul>
+          <li><a href="#how-it-works">How It Works</a></li>
+          <li><a href="#platform">Platform</a></li>
+          <li><a href="#year-round">Year-Round Value</a></li>
+        </ul>
+      </div>
+      <div class="footer-links">
+        <h4>Company</h4>
+        <ul>
+          <li><a href="mailto:info@capiro.ai">Contact</a></li>
+        </ul>
+      </div>
+      <div class="footer-links">
+        <h4>Legal</h4>
+        <ul>
+          <li><a href="#">Privacy Policy</a></li>
+          <li><a href="#">Terms of Service</a></li>
+          <li><a href="#">AI Use Policy</a></li>
+        </ul>
+      </div>
+    </div>
+    <hr class="footer-divider" />
+    <p>© 2026 Capiro, Inc. · capiro.ai · Agentic Congressional Workflows</p>
+  </div>
+</footer>
+
+<!-- DEMO REQUEST MODAL -->
+<div class="modal-backdrop" id="demoModal" role="dialog" aria-modal="true" aria-labelledby="demoModalTitle" hidden>
+  <div class="modal-card">
+    <button type="button" class="modal-close" id="demoModalClose" aria-label="Close">×</button>
+    <div id="demoModalBody">
+      <h2 id="demoModalTitle">Request a Demo</h2>
+      <p class="modal-sub">Tell us a little about your team and we'll be in touch within one business day.</p>
+      <form class="modal-form" id="demoForm" novalidate>
+        <div class="modal-row">
+          <div class="modal-field">
+            <label for="df-name">Name<span class="req">*</span></label>
+            <input id="df-name" name="name" type="text" required autocomplete="name" maxlength="200" />
+          </div>
+          <div class="modal-field">
+            <label for="df-email">Work email<span class="req">*</span></label>
+            <input id="df-email" name="email" type="email" required autocomplete="email" maxlength="320" />
+          </div>
+        </div>
+        <div class="modal-row">
+          <div class="modal-field">
+            <label for="df-company">Company<span class="req">*</span></label>
+            <input id="df-company" name="company" type="text" required autocomplete="organization" maxlength="200" />
+          </div>
+          <div class="modal-field">
+            <label for="df-role">Role</label>
+            <input id="df-role" name="role" type="text" autocomplete="organization-title" maxlength="200" />
+          </div>
+        </div>
+        <div class="modal-field">
+          <label for="df-message">What are you hoping to solve? (optional)</label>
+          <textarea id="df-message" name="message" maxlength="4000" rows="3"></textarea>
+        </div>
+        <button type="submit" class="modal-submit" id="demoSubmit">Send request</button>
+        <div class="modal-status" id="demoError" role="alert"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var API = 'https://app.capiro.ai/api/v1/demo-requests';
+  var modal    = document.getElementById('demoModal');
+  var body     = document.getElementById('demoModalBody');
+  var bodyHTML = body.innerHTML;
+  var closeBtn = document.getElementById('demoModalClose');
+
+  function open() {
+    modal.hidden = false;
+    requestAnimationFrame(function () { modal.classList.add('open'); });
+    document.body.style.overflow = 'hidden';
+    var first = modal.querySelector('input, textarea');
+    if (first) setTimeout(function () { first.focus(); }, 50);
+  }
+  function close() {
+    modal.classList.remove('open');
+    document.body.style.overflow = '';
+    setTimeout(function () {
+      modal.hidden = true;
+      body.innerHTML = bodyHTML;
+      bind();
+    }, 200);
+  }
+
+  function bind() {
+    var form    = document.getElementById('demoForm');
+    var submit  = document.getElementById('demoSubmit');
+    var errBox  = document.getElementById('demoError');
+
+    if (!form) return;
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      errBox.classList.remove('error');
+      errBox.textContent = '';
+
+      var data = {
+        name:    form.name.value.trim(),
+        email:   form.email.value.trim(),
+        company: form.company.value.trim(),
+        role:    form.role.value.trim() || undefined,
+        message: form.message.value.trim() || undefined,
+        source:  'capiro.ai/landing',
+      };
+
+      if (!data.name || !data.email || !data.company) {
+        errBox.classList.add('error');
+        errBox.textContent = 'Name, email, and company are required.';
+        return;
+      }
+
+      submit.disabled = true;
+      submit.textContent = 'Sending…';
+
+      fetch(API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+        .then(function (r) {
+          if (!r.ok) {
+            return r.text().then(function (t) {
+              throw new Error('Server returned ' + r.status + (t ? ': ' + t : ''));
+            });
+          }
+          return r.json();
+        })
+        .then(function () {
+          body.innerHTML =
+            '<div class="modal-status success">' +
+              '<div class="check">✓</div>' +
+              '<h3>Got it — thanks for reaching out.</h3>' +
+              '<p>We\'ll be in touch within one business day.</p>' +
+            '</div>';
+        })
+        .catch(function (err) {
+          submit.disabled = false;
+          submit.textContent = 'Send request';
+          errBox.classList.add('error');
+          errBox.textContent = 'Could not submit. Please try again or email sales@capiro.ai directly.';
+          console.error('demo request failed', err);
+        });
+    });
+  }
+
+  document.addEventListener('click', function (e) {
+    var trigger = e.target.closest('[data-open-demo]');
+    if (trigger) { e.preventDefault(); open(); return; }
+    if (e.target === modal) close();
+  });
+  closeBtn.addEventListener('click', close);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !modal.hidden) close();
+  });
+
+  bind();
+})();
+</script>
+
+</body>
+</html>

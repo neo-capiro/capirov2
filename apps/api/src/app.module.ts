@@ -1,0 +1,59 @@
+import { MiddlewareConsumer, Module, NestModule, RequestMethod } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { configSchema } from './config/config.schema.js';
+import { PrismaModule } from './prisma/prisma.module.js';
+import { AuthModule } from './auth/auth.module.js';
+import { TenantModule } from './tenant/tenant.module.js';
+import { TenantContextMiddleware } from './tenant/tenant-context.middleware.js';
+import { UsersModule } from './users/users.module.js';
+import { HealthController } from './health/health.controller.js';
+import { WebhooksModule } from './webhooks/webhooks.module.js';
+import { CapiroAdminModule } from './capiro-admin/capiro-admin.module.js';
+import { TenantAdminModule } from './tenant-admin/tenant-admin.module.js';
+import { ClientsModule } from './clients/clients.module.js';
+import { BrandingModule } from './branding/branding.module.js';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      cache: true,
+      validate: (raw) => configSchema.parse(raw),
+    }),
+    // Per-IP rate limiting at the application edge. WAF already drops
+    // sustained 2000 req/IP at the ALB; this is the second-layer defence
+    // that catches accidental client loops and bot-net-style fan-out within
+    // the WAF allowance. In-memory storage is per-task, which is fine while
+    // we run with a small task count; swap to Redis once ElastiCache lands.
+    ThrottlerModule.forRoot([
+      { name: 'short', ttl: 1_000, limit: 30 }, // 30 req / sec / IP
+      { name: 'long', ttl: 60_000, limit: 600 }, // 600 req / min / IP
+    ]),
+    PrismaModule,
+    AuthModule,
+    TenantModule,
+    UsersModule,
+    WebhooksModule,
+    CapiroAdminModule,
+    TenantAdminModule,
+    ClientsModule,
+    BrandingModule,
+  ],
+  controllers: [HealthController],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+})
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    // Tenant context resolution runs on every authenticated route.
+    // Webhooks and /health are explicitly excluded — they have no Clerk session.
+    consumer
+      .apply(TenantContextMiddleware)
+      .exclude(
+        { path: 'health', method: RequestMethod.ALL },
+        { path: 'webhooks/(.*)', method: RequestMethod.ALL },
+      )
+      .forRoutes('*');
+  }
+}
