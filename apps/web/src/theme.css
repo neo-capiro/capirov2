@@ -370,7 +370,7 @@ body {
 }
 
 .directory-profile-modal .ant-modal-close {
-  color: #344054;
+  color: #f8fafc;
 }
 
 .directory-profile-hero {
@@ -379,8 +379,8 @@ body {
   gap: 18px;
   align-items: center;
   padding: 38px 42px;
-  color: #111827;
-  background: linear-gradient(135deg, #f4f7fb 0%, #e5ebf4 58%, #d7e1ee 100%);
+  color: #f8fafc;
+  background: linear-gradient(135deg, #31465b 0%, #435d73 56%, #5f7184 100%);
 }
 
 .directory-profile-photo {
@@ -397,18 +397,18 @@ body {
 
 .directory-profile-main h2 {
   margin: 0;
-  color: #111827;
+  color: #f8fafc;
   letter-spacing: 0;
 }
 
 .directory-profile-main .ant-typography {
-  color: #344054;
+  color: #dce6ef;
 }
 
 .directory-profile-member-tag {
-  color: #243a73;
-  background: #eef3ff;
-  border-color: #cbd7ff;
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.28);
 }
 
 .directory-profile-actions {
@@ -416,9 +416,16 @@ body {
 }
 
 .directory-profile-actions .ant-btn {
-  border-color: #cbd5e1;
-  color: #243a73;
-  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.directory-profile-actions .ant-btn:hover,
+.directory-profile-actions .ant-btn:focus-visible {
+  border-color: rgba(255, 255, 255, 0.58) !important;
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.2) !important;
 }
 
 .directory-profile-tabs {
@@ -783,20 +790,22 @@ body {
   gap: 18px;
   align-items: center;
   padding: 38px 42px;
-  color: #111827;
-  background: linear-gradient(135deg, #f4f7fb 0%, #e5ebf4 58%, #d7e1ee 100%);
+  color: #f8fafc;
+  background: linear-gradient(135deg, #31465b 0%, #435d73 56%, #5f7184 100%);
 }
 
 .client-back-button {
   align-self: center;
-  color: #243a73;
-  background: rgba(255, 255, 255, 0.72);
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.32);
 }
 
 .client-back-button:hover,
 .client-back-button:focus-visible {
-  color: #111827 !important;
-  background: #fff !important;
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.2) !important;
+  border-color: rgba(255, 255, 255, 0.58) !important;
 }
 
 .client-profile-title {
@@ -808,25 +817,25 @@ body {
 
 .client-profile-title h3 {
   margin: 0;
-  color: #111827;
+  color: #f8fafc;
   letter-spacing: 0;
 }
 
 .client-profile-title .ant-typography {
-  color: #344054;
+  color: #dce6ef;
 }
 
 .client-profile-contact-strip {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 14px;
-  color: #344054;
+  color: #dce6ef;
   font-size: 13px;
   font-weight: 600;
 }
 
 .client-profile-contact-strip a {
-  color: #2454a6;
+  color: #f8fafc;
 }
 
 .client-profile-actions {
@@ -834,21 +843,35 @@ body {
 }
 
 .client-profile-actions .ant-btn {
-  border-color: #cbd5e1;
-  color: #243a73;
-  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .client-profile-actions .ant-btn-primary {
-  border-color: #243a73;
-  color: #fff;
-  background: #243a73;
+  border-color: #f8fafc;
+  color: #31465b;
+  background: #f8fafc;
+}
+
+.client-profile-actions .ant-btn:hover,
+.client-profile-actions .ant-btn:focus-visible {
+  border-color: rgba(255, 255, 255, 0.58) !important;
+  color: #fff !important;
+  background: rgba(255, 255, 255, 0.2) !important;
+}
+
+.client-profile-actions .ant-btn-primary:hover,
+.client-profile-actions .ant-btn-primary:focus-visible {
+  border-color: #fff !important;
+  color: #24384a !important;
+  background: #fff !important;
 }
 
 .client-profile-hero .client-tag-row .ant-tag {
-  color: #243a73;
-  background: rgba(255, 255, 255, 0.72);
-  border-color: #cbd5e1;
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .client-profile-tabs {
@@ -974,8 +997,9 @@ body {
 
 .client-engagement-row {
   display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
+  grid-template-columns: 42px minmax(0, 1fr) auto;
   gap: 12px;
+  align-items: center;
   padding: 12px;
   border: 1px solid #e4e9f2;
   border-radius: 8px;
@@ -1240,11 +1264,11 @@ body {
 }
 
 .engagement-calendar-row {
-  grid-template-columns: 86px minmax(0, 1fr);
+  grid-template-columns: 86px minmax(0, 1fr) auto;
 }
 
 .engagement-thread-row {
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .engagement-thread-row p {
@@ -1253,6 +1277,7 @@ body {
 
 .engagement-task-row > div,
 .engagement-calendar-row > div,
+.engagement-thread-row > div,
 .settings-integration-row > div {
   display: flex;
   min-width: 0;
@@ -1415,6 +1440,9 @@ body {
 
   .engagement-meeting-top,
   .engagement-task-row,
+  .engagement-calendar-row,
+  .engagement-thread-row,
+  .client-engagement-row,
   .settings-integration-row {
     grid-template-columns: 1fr;
   }

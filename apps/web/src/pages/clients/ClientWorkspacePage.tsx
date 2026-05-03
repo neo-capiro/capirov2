@@ -4,6 +4,7 @@ import {
   CalendarOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  ExportOutlined,
   LinkOutlined,
   MailOutlined,
   MoreOutlined,
@@ -631,9 +632,11 @@ function ClientOverview({ client, intake }: { client: Client; intake: Record<str
 interface ClientMeeting {
   id: string;
   subject: string;
+  source: string;
   location: string | null;
   startsAt: string;
   endsAt: string;
+  metadata: Record<string, unknown> | null;
   associationScore: number | null;
   associationReason: string | null;
   attendees: Array<{ id: string; email: string | null; name: string | null }>;
@@ -642,10 +645,17 @@ interface ClientMeeting {
 interface ClientMailThread {
   id: string;
   subject: string;
+  source: string;
   snippet: string | null;
   lastMessageAt: string | null;
   status: string;
-  messages: Array<{ id: string; fromEmail: string | null; receivedAt: string | null }>;
+  metadata: Record<string, unknown> | null;
+  messages: Array<{
+    id: string;
+    fromEmail: string | null;
+    receivedAt: string | null;
+    metadata: Record<string, unknown> | null;
+  }>;
 }
 
 function ClientMeetingsTab({ clientId }: { clientId: string }) {
@@ -688,6 +698,16 @@ function ClientMeetingsTab({ clientId }: { clientId: string }) {
                   <Typography.Paragraph>{meeting.associationReason}</Typography.Paragraph>
                 ) : null}
               </div>
+              <Button
+                size="small"
+                icon={<ExportOutlined />}
+                disabled={!openUrl(meeting)}
+                href={openUrl(meeting)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open
+              </Button>
             </div>
           ))}
         </div>
@@ -733,6 +753,16 @@ function ClientMailTab({ clientId }: { clientId: string }) {
                   <Typography.Paragraph>{thread.snippet}</Typography.Paragraph>
                 ) : null}
               </div>
+              <Button
+                size="small"
+                icon={<ExportOutlined />}
+                disabled={!openUrl(thread)}
+                href={openUrl(thread)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open
+              </Button>
             </div>
           ))}
         </div>
@@ -985,6 +1015,11 @@ function documentType(name: string): string {
 
 function externalUrl(value: string): string {
   return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+}
+
+function openUrl(item: { metadata?: Record<string, unknown> | null }): string | undefined {
+  const value = item.metadata?.webLink;
+  return typeof value === 'string' && /^https:\/\//i.test(value) ? value : undefined;
 }
 
 function todayInputValue(): string {

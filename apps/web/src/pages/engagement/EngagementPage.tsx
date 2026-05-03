@@ -3,6 +3,7 @@ import {
   CalendarOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  ExportOutlined,
   FileTextOutlined,
   MailOutlined,
   PlusOutlined,
@@ -10,19 +11,7 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  App,
-  Button,
-  Empty,
-  Form,
-  Input,
-  Modal,
-  Select,
-  Space,
-  Tabs,
-  Tag,
-  Typography,
-} from 'antd';
+import { App, Button, Empty, Form, Input, Modal, Select, Space, Tabs, Tag, Typography } from 'antd';
 import { useApi } from '../../lib/use-api.js';
 import type { Client } from '../clients/clientTypes.js';
 
@@ -54,14 +43,19 @@ interface MeetingPrep {
 interface Meeting {
   id: string;
   subject: string;
+  source: string;
   description: string | null;
   location: string | null;
   startsAt: string;
   endsAt: string;
   status: string;
+  metadata: Record<string, unknown> | null;
   associationScore: number | null;
   associationReason: string | null;
-  client: Pick<Client, 'id' | 'name' | 'website' | 'primaryContactName' | 'primaryContactEmail'> | null;
+  client: Pick<
+    Client,
+    'id' | 'name' | 'website' | 'primaryContactName' | 'primaryContactEmail'
+  > | null;
   attendees: MeetingAttendee[];
   preps: MeetingPrep[];
   notes: Array<{ id: string; confidential: boolean; createdAt: string }>;
@@ -80,11 +74,18 @@ interface EngagementTask {
 interface MailThread {
   id: string;
   subject: string;
+  source: string;
   snippet: string | null;
   lastMessageAt: string | null;
   status: string;
+  metadata: Record<string, unknown> | null;
   client: Pick<Client, 'id' | 'name'> | null;
-  messages: Array<{ id: string; fromEmail: string | null; receivedAt: string | null }>;
+  messages: Array<{
+    id: string;
+    fromEmail: string | null;
+    receivedAt: string | null;
+    metadata: Record<string, unknown> | null;
+  }>;
 }
 
 interface MeetingFormValues {
@@ -127,7 +128,8 @@ export function EngagementPage() {
 
   const capabilities = useQuery<EngagementCapabilities>({
     queryKey: ['engagement-capabilities'],
-    queryFn: async () => (await api.get<EngagementCapabilities>('/api/engagement/capabilities')).data,
+    queryFn: async () =>
+      (await api.get<EngagementCapabilities>('/api/engagement/capabilities')).data,
   });
 
   const meetings = useQuery<Meeting[]>({
@@ -317,7 +319,9 @@ export function EngagementPage() {
                           key={meeting.id}
                           meeting={meeting}
                           aiConfigured={Boolean(capabilities.data?.ai.activeProvider)}
-                          notesConfigured={Boolean(capabilities.data?.notes.encryptedNotesConfigured)}
+                          notesConfigured={Boolean(
+                            capabilities.data?.notes.encryptedNotesConfigured,
+                          )}
                           generating={generatePrep.isPending}
                           onGeneratePrep={() => generatePrep.mutate(meeting.id)}
                           onAddNote={() => setNoteMeeting(meeting)}
@@ -342,9 +346,9 @@ export function EngagementPage() {
             children: <CalendarView meetings={meetings.data ?? []} />,
           },
           {
-            key: 'outreach',
-            label: 'Outreach',
-            children: <OutreachView threads={mailThreads.data ?? []} />,
+            key: 'mail',
+            label: 'Mail',
+            children: <MailView threads={mailThreads.data ?? []} />,
           },
           {
             key: 'reports',
@@ -367,7 +371,11 @@ export function EngagementPage() {
         confirmLoading={createMeeting.isPending}
         width={680}
       >
-        <Form form={meetingForm} layout="vertical" onFinish={(values) => createMeeting.mutate(values)}>
+        <Form
+          form={meetingForm}
+          layout="vertical"
+          onFinish={(values) => createMeeting.mutate(values)}
+        >
           <Form.Item name="subject" label="Subject" rules={[{ required: true, min: 1 }]}>
             <Input />
           </Form.Item>
@@ -521,6 +529,15 @@ function MeetingCard({
 
       <Space wrap>
         <Button
+          icon={<ExportOutlined />}
+          disabled={!openUrl(meeting)}
+          href={openUrl(meeting)}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Open in Outlook
+        </Button>
+        <Button
           icon={<RobotOutlined />}
           disabled={!aiConfigured}
           loading={generating}
@@ -592,6 +609,16 @@ function CalendarView({ meetings }: { meetings: Meeting[] }) {
                   {meeting.client?.name ?? 'Unlinked'} · {meeting.location || 'No location'}
                 </Typography.Text>
               </div>
+              <Button
+                size="small"
+                icon={<ExportOutlined />}
+                disabled={!openUrl(meeting)}
+                href={openUrl(meeting)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open
+              </Button>
             </div>
           ))}
         </div>
@@ -602,21 +629,35 @@ function CalendarView({ meetings }: { meetings: Meeting[] }) {
   );
 }
 
-function OutreachView({ threads }: { threads: MailThread[] }) {
+function MailView({ threads }: { threads: MailThread[] }) {
   return (
     <div className="engagement-panel">
-      <PanelTitle icon={<MailOutlined />} title="Outreach" />
+      <PanelTitle icon={<MailOutlined />} title="Mail" />
       {threads.length ? (
         <div className="engagement-thread-list">
           {threads.map((thread) => (
             <div className="engagement-thread-row" key={thread.id}>
-              <Typography.Text strong>{thread.subject}</Typography.Text>
-              <Typography.Text type="secondary">
-                {[thread.client?.name, formatOptionalDate(thread.lastMessageAt), thread.status]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </Typography.Text>
-              {thread.snippet ? <Typography.Paragraph>{thread.snippet}</Typography.Paragraph> : null}
+              <div>
+                <Typography.Text strong>{thread.subject}</Typography.Text>
+                <Typography.Text type="secondary">
+                  {[thread.client?.name, formatOptionalDate(thread.lastMessageAt), thread.status]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Typography.Text>
+                {thread.snippet ? (
+                  <Typography.Paragraph>{thread.snippet}</Typography.Paragraph>
+                ) : null}
+              </div>
+              <Button
+                size="small"
+                icon={<ExportOutlined />}
+                disabled={!openUrl(thread)}
+                href={openUrl(thread)}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open
+              </Button>
             </div>
           ))}
         </div>
@@ -720,6 +761,11 @@ function formatOptionalDate(value: string | null): string {
   return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
     new Date(value),
   );
+}
+
+function openUrl(item: { metadata?: Record<string, unknown> | null }): string | undefined {
+  const value = item.metadata?.webLink;
+  return typeof value === 'string' && /^https:\/\//i.test(value) ? value : undefined;
 }
 
 function confidenceColor(value: number | null): string {
