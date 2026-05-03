@@ -42,7 +42,7 @@ export function CapiroAdminPage() {
     mutationFn: async (input: CreateTenantInput) =>
       (await api.post('/api/capiro-admin/tenants', input)).data,
     onSuccess: () => {
-      message.success('Tenant created and admin invited');
+      message.success('Tenant created and admin provisioned in Clerk');
       setOpen(false);
       form.resetFields();
       qc.invalidateQueries({ queryKey: ['capiro-admin', 'tenants'] });
@@ -125,12 +125,12 @@ export function CapiroAdminPage() {
 
       {/* Create tenant */}
       <Modal
-        title="Create tenant + invite admin"
+        title="Create tenant + provision admin"
         open={open}
         onCancel={() => setOpen(false)}
         onOk={() => form.submit()}
         confirmLoading={create.isPending}
-        okText="Create + invite"
+        okText="Create + provision"
       >
         <Form form={form} layout="vertical" onFinish={(v) => create.mutate(v)}>
           <Form.Item
@@ -152,7 +152,7 @@ export function CapiroAdminPage() {
           </Form.Item>
           <Form.Item
             name="adminEmail"
-            label="Admin email (will receive invitation)"
+            label="Admin email"
             rules={[{ required: true, type: 'email' }]}
           >
             <Input placeholder="admin@acme.com" />

@@ -1,4 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import type { TenantContext } from '@capiro/shared';
+import { ClerkProvisioningService } from '../auth/clerk-provisioning.service.js';
 import { ClerkService } from '../auth/clerk.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -21,6 +23,7 @@ export class CapiroAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clerk: ClerkService,
+    private readonly provisioning: ClerkProvisioningService,
   ) {}
 
   async listTenants() {
@@ -38,7 +41,9 @@ export class CapiroAdminService {
         where: { id: tenantId },
         include: {
           memberships: {
-            include: { user: { select: { id: true, email: true, firstName: true, lastName: true } } },
+            include: {
+              user: { select: { id: true, email: true, firstName: true, lastName: true } },
+            },
             orderBy: { createdAt: 'asc' },
           },
         },
@@ -48,7 +53,7 @@ export class CapiroAdminService {
     });
   }
 
-  async createTenantWithFirstAdmin(input: CreateTenantInput) {
+  async createTenantWithFirstAdmin(input: CreateTenantInput, actor?: TenantContext) {
     const slug = input.slug.toLowerCase();
     if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)) {
       throw new BadRequestException(
@@ -56,7 +61,7 @@ export class CapiroAdminService {
       );
     }
 
-    // Step 1 — Clerk org (no createdBy; first member is the invited admin).
+    // Step 1: Clerk org.
     const existingList = await this.clerk.backend.organizations.getOrganizationList({
       query: slug,
       limit: 50,
@@ -69,7 +74,7 @@ export class CapiroAdminService {
       });
     }
 
-    // Step 2 — DB tenant + Clerk metadata.
+    // Step 2: DB tenant + Clerk metadata.
     const tenant = await this.prisma.withSystem(async (tx) => {
       const t = await tx.tenant.upsert({
         where: { slug },
@@ -82,25 +87,17 @@ export class CapiroAdminService {
       publicMetadata: { capiro_tenant_id: tenant.id, capiro_tenant_slug: slug },
     });
 
-    // Step 3 — invitation. Skip if a pending invitation for this email exists.
-    const pending = await this.clerk.backend.organizations.getOrganizationInvitationList({
+    // Step 3: real Clerk user + org membership, mirrored back to Capiro.
+    const admin = await this.provisioning.provisionOrganizationMember({
+      tenantId: tenant.id,
       organizationId: org.id,
-      status: ['pending'],
+      email: input.adminEmail,
+      role: 'user_admin',
+      actorUserId: actor?.userId,
+      actorClerkUserId: actor?.clerkUserId,
     });
-    let invitationId: string | undefined = pending.data.find(
-      (inv) => inv.emailAddress.toLowerCase() === input.adminEmail.toLowerCase(),
-    )?.id;
-    if (!invitationId) {
-      const inv = await this.clerk.backend.organizations.createOrganizationInvitation({
-        organizationId: org.id,
-        emailAddress: input.adminEmail,
-        role: 'org:admin',
-        redirectUrl: input.redirectUrl ?? 'https://app.capiro.ai/sign-in',
-      });
-      invitationId = inv.id;
-    }
 
-    return { tenant, invitationId, clerkOrgId: org.id };
+    return { tenant, admin, clerkOrgId: org.id };
   }
 
   async resendAdminInvitation(tenantId: string, email: string, redirectUrl?: string) {
@@ -155,8 +152,8 @@ export class CapiroAdminService {
             userId: membership.user.clerkUserId,
           })
           .catch((err) => {
-            // If Clerk-side membership is already gone, that's fine — our DB
-            // is the source of truth for the `removed` state from this point.
+            // If Clerk-side membership is already gone, our DB still records
+            // the removed state from this point forward.
             this.logger.warn(`Clerk delete-membership failed: ${(err as Error).message}`);
           });
       }
@@ -165,8 +162,8 @@ export class CapiroAdminService {
   }
 
   /**
-   * Start an impersonation session per arch §8.2. Reason required + audit
-   * logged. Sessions auto-expire after 60 minutes.
+   * Start an impersonation session. Reason required + audit logged. Sessions
+   * auto-expire after 60 minutes.
    */
   async startImpersonation(actorUserId: string, tenantId: string, reason: string) {
     const trimmed = reason.trim();
@@ -215,13 +212,9 @@ export class CapiroAdminService {
   }
 
   async sendPasswordReset(clerkUserId: string) {
-    // Clerk's "create sign-in token" can be used as a one-time password reset
-    // entry point, but the standard flow is to use the user's email-based
-    // forgot-password. We trigger the Backend API's password-reset flow:
-    // delete current password and send the user a sign-in link.
-    // For MVP we just return the Clerk hosted "forgot password" URL — the
-    // user clicks it and resets via the standard email flow. Replace with a
-    // direct API call once Clerk's `createPasswordResetTicket` is in our SDK.
+    // The standard production path is Clerk's hosted forgot-password flow.
+    // Once the SDK exposes password reset tickets here, this method can issue
+    // a direct reset link instead of returning the hosted entry point.
     return {
       forgotPasswordUrl: `https://app.capiro.ai/sign-in#/factor-one`,
       note: 'Send the user the sign-in URL above; they use "Forgot password" on the Clerk hosted UI.',

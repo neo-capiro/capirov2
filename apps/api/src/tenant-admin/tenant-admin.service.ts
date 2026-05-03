@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { TenantContext } from '@capiro/shared';
+import { ClerkProvisioningService } from '../auth/clerk-provisioning.service.js';
 import { ClerkService } from '../auth/clerk.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -29,6 +30,7 @@ export class TenantAdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly clerk: ClerkService,
+    private readonly provisioning: ClerkProvisioningService,
   ) {}
 
   async listTeam(ctx: TenantContext) {
@@ -81,25 +83,15 @@ export class TenantAdminService {
     if (!tenant?.clerkOrgId) {
       throw new BadRequestException('Tenant has no Clerk organization linked');
     }
-    const clerkRole = input.role === 'user_admin' ? 'org:admin' : 'org:member';
-    // Skip if a pending invitation for this email already exists.
-    const existing = await this.clerk.backend.organizations.getOrganizationInvitationList({
+    const member = await this.provisioning.provisionOrganizationMember({
+      tenantId: ctx.tenantId,
       organizationId: tenant.clerkOrgId,
-      status: ['pending'],
+      email: input.email,
+      role: input.role,
+      actorUserId: ctx.userId,
+      actorClerkUserId: ctx.clerkUserId,
     });
-    const dup = existing.data.find(
-      (inv) => inv.emailAddress.toLowerCase() === input.email.toLowerCase(),
-    );
-    if (dup) {
-      return { invitationId: dup.id, status: 'already-pending' };
-    }
-    const inv = await this.clerk.backend.organizations.createOrganizationInvitation({
-      organizationId: tenant.clerkOrgId,
-      emailAddress: input.email,
-      role: clerkRole,
-      redirectUrl: input.redirectUrl ?? 'https://app.capiro.ai/sign-in',
-    });
-    return { invitationId: inv.id, status: 'sent' };
+    return { member, status: member.userCreated ? 'created' : 'updated' };
   }
 
   async resendInvitation(ctx: TenantContext, invitationId: string) {

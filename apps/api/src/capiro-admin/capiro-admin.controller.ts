@@ -4,15 +4,7 @@ import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { CapiroAdminService } from './capiro-admin.service.js';
-import {
-  IsEmail,
-  IsOptional,
-  IsString,
-  IsUrl,
-  IsUUID,
-  Length,
-  Matches,
-} from 'class-validator';
+import { IsEmail, IsOptional, IsString, IsUrl, IsUUID, Length, Matches } from 'class-validator';
 
 class CreateTenantDto {
   @IsString()
@@ -67,8 +59,8 @@ export class CapiroAdminController {
   }
 
   @Post('tenants')
-  createTenant(@Body() body: CreateTenantDto) {
-    return this.service.createTenantWithFirstAdmin(body);
+  createTenant(@CurrentTenant() ctx: TenantContext, @Body() body: CreateTenantDto) {
+    return this.service.createTenantWithFirstAdmin(body, ctx);
   }
 
   @Get('tenants/:tenantId')

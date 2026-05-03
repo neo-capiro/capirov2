@@ -1,17 +1,5 @@
 import { useState } from 'react';
-import {
-  App,
-  Button,
-  Form,
-  Input,
-  Modal,
-  Popconfirm,
-  Select,
-  Space,
-  Table,
-  Tabs,
-  Tag,
-} from 'antd';
+import { App, Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../lib/use-api.js';
 
@@ -55,9 +43,10 @@ export function TeamPage() {
     mutationFn: async (input: { email: string; role: 'user_admin' | 'standard_user' }) =>
       (await api.post('/api/tenant-admin/team/invite', input)).data,
     onSuccess: () => {
-      message.success('Invitation sent');
+      message.success('Team member provisioned in Clerk');
       setInviteOpen(false);
       form.resetFields();
+      qc.invalidateQueries({ queryKey: ['team'] });
       qc.invalidateQueries({ queryKey: ['team', 'invitations'] });
     },
     onError: (err) => message.error((err as Error).message),
@@ -85,7 +74,7 @@ export function TeamPage() {
     <>
       <Space style={{ marginBottom: 16, justifyContent: 'flex-end', width: '100%' }}>
         <Button type="primary" onClick={() => setInviteOpen(true)}>
-          Invite team member
+          Add team member
         </Button>
       </Space>
       <Tabs
@@ -181,12 +170,12 @@ export function TeamPage() {
         ]}
       />
       <Modal
-        title="Invite team member"
+        title="Add team member"
         open={inviteOpen}
         onCancel={() => setInviteOpen(false)}
         onOk={() => form.submit()}
         confirmLoading={invite.isPending}
-        okText="Send invitation"
+        okText="Add member"
       >
         <Form
           form={form}

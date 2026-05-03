@@ -51,7 +51,9 @@ body {
 
 .directory-grid {
   display: grid;
-  grid-template-columns: minmax(240px, 1.4fr) minmax(180px, 1fr) minmax(220px, 1.1fr) minmax(180px, 0.8fr) 140px;
+  grid-template-columns:
+    minmax(240px, 1.4fr) minmax(180px, 1fr) minmax(220px, 1.1fr) minmax(180px, 0.8fr)
+    140px;
   gap: 16px;
   align-items: start;
 }
@@ -74,6 +76,344 @@ body {
   background: rgba(255, 255, 255, 0.65);
 }
 
+.directory-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.directory-page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.directory-filter-panel {
+  position: sticky;
+  top: 84px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 20px;
+  background: #ffffff;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.05);
+}
+
+.directory-freshman-radio {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.directory-filter-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.directory-filter-block .ant-select {
+  width: 100%;
+}
+
+.directory-filter-label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #323846;
+}
+
+.directory-filter-panel .ant-select-selector,
+.directory-filter-panel .ant-input-affix-wrapper {
+  min-height: 38px;
+  border-radius: 8px;
+  background: #f4f6f9 !important;
+  border-color: #e4e8ef !important;
+}
+
+.directory-reset-button {
+  height: 42px;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  background: #252838;
+}
+
+.directory-reset-button:hover {
+  color: #fff !important;
+  background: #111827 !important;
+}
+
+.directory-stat-card {
+  min-height: 88px;
+  border-radius: 8px;
+}
+
+.directory-stat-card .ant-card-body {
+  padding: 14px 16px;
+}
+
+.directory-stat-card h4 {
+  margin: 4px 0 0;
+}
+
+.directory-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  background: #fff;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+}
+
+.directory-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.directory-person-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  text-align: left;
+  background: #fff;
+  border: 1px solid #d9e1ee;
+  border-radius: 8px;
+  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.05);
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.directory-person-card:hover,
+.directory-person-card:focus-visible {
+  border-color: #6076c8;
+  box-shadow: 0 12px 28px rgba(26, 38, 88, 0.14);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.directory-person-topline {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+}
+
+.directory-person-avatar {
+  background: #243a73;
+  font-weight: 800;
+}
+
+.directory-person-title {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.directory-person-title .ant-typography {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-card-tags,
+.directory-card-office,
+.directory-card-contact {
+  min-width: 0;
+}
+
+.directory-card-office {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.directory-card-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  background: #f7f9fc;
+  border-radius: 8px;
+  color: #344054;
+  font-size: 12px;
+}
+
+.directory-card-contact span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-card-meta {
+  min-height: 36px;
+  color: #5f6b7a;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.directory-pagination {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.directory-profile-modal .ant-modal-content {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 8px;
+}
+
+.directory-profile-modal .ant-modal-close {
+  color: #fff;
+}
+
+.directory-profile-hero {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 38px 42px;
+  color: #f8fafc;
+  background: linear-gradient(135deg, #141824 0%, #242839 60%, #303646 100%);
+}
+
+.directory-profile-photo {
+  border-radius: 8px;
+  background: #425ac7;
+}
+
+.directory-profile-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.directory-profile-main h2 {
+  margin: 0;
+  color: #fff;
+  letter-spacing: 0;
+}
+
+.directory-profile-main .ant-typography {
+  color: #dce3ef;
+}
+
+.directory-profile-member-tag {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.directory-profile-actions {
+  justify-content: flex-end;
+}
+
+.directory-profile-actions .ant-btn {
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.directory-profile-tabs {
+  padding: 0 42px 34px;
+}
+
+.directory-profile-tabs .ant-tabs-nav {
+  margin-bottom: 28px;
+}
+
+.directory-contact-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  padding: 20px 0;
+  border-top: 1px solid #edf1f7;
+  border-bottom: 1px solid #edf1f7;
+}
+
+.directory-address-list,
+.directory-staff-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.directory-address-row,
+.directory-staff-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) minmax(160px, 0.8fr);
+  gap: 12px;
+  align-items: start;
+  padding: 14px;
+  border: 1px solid #e5ebf4;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.directory-address-row {
+  grid-template-columns: 180px minmax(0, 1fr) 160px;
+}
+
+.directory-staff-row > div,
+.directory-staff-contact {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.directory-side-card,
+.directory-bio-card,
+.directory-leadership-card {
+  border-radius: 8px;
+}
+
+.directory-bio-card .ant-card-body {
+  min-height: 96px;
+}
+
+.directory-bio-card p {
+  margin: 6px 0 0;
+}
+
+.directory-large-tag {
+  padding: 8px 10px;
+  border-radius: 8px;
+  white-space: normal;
+}
+
+.directory-link-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.directory-link-grid a {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  color: #1d4ed8;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #f7f9fc;
+  border: 1px solid #e5ebf4;
+  border-radius: 8px;
+}
+
 @media (max-width: 991px) {
   .directory-grid {
     grid-template-columns: 1fr;
@@ -82,5 +422,45 @@ body {
 
   .directory-grid--header {
     display: none;
+  }
+
+  .directory-page-header,
+  .directory-search-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .directory-page-header {
+    flex-direction: column;
+  }
+
+  .directory-filter-panel {
+    position: static;
+  }
+
+  .directory-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .directory-profile-hero,
+  .directory-contact-panel,
+  .directory-address-row,
+  .directory-staff-row,
+  .directory-link-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .directory-profile-tabs {
+    padding: 0 20px 24px;
+  }
+
+  .directory-profile-hero {
+    padding: 28px 20px;
+  }
+}
+
+@media (min-width: 992px) and (max-width: 1320px) {
+  .directory-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

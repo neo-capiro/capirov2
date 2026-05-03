@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Alert,
   App,
@@ -6,59 +6,54 @@ import {
   Button,
   Card,
   Col,
-  Descriptions,
-  Drawer,
-  Divider,
+  Empty,
   Input,
+  Modal,
   Pagination,
+  Radio,
   Row,
   Select,
   Space,
   Spin,
+  Tabs,
   Tag,
   Typography,
 } from 'antd';
-import { LinkOutlined, MailOutlined, DownloadOutlined } from '@ant-design/icons';
-import { useSearchParams } from 'react-router-dom';
+import {
+  LinkOutlined,
+  MailOutlined,
+  PhoneOutlined,
+  SearchOutlined,
+  TeamOutlined,
+} from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from '../../lib/use-api.js';
-import { type Chamber, type DirectoryApiResponse, type DirectoryEntry } from './directoryData.js';
+import { type DirectoryApiResponse, type DirectoryEntry, type Party } from './directoryData.js';
 
-type ChamberFilter = Chamber | 'All';
-type RegionFilter = DirectoryEntry['region'] | 'All';
+type FreshmanFilter = 'All' | 'Freshman' | 'Non-Freshman';
+type ChamberFilter = DirectoryEntry['chamber'] | 'All';
+type GenderFilter = DirectoryEntry['gender'] | 'All';
 type SortOption = 'recent' | 'name-asc' | 'name-desc' | 'state-asc';
 
-interface DirectoryPreset {
-  name: string;
-  query: string;
-  chamber: ChamberFilter;
-  region: RegionFilter;
-  state: string;
-  sort: SortOption;
-}
+const PAGE_SIZE = 12;
+const emptyFilters = [] as string[];
 
-interface DirectoryEntryOverride {
-  owner?: string;
-  notes?: string;
-}
-
-const chamberOptions: ChamberFilter[] = ['All', 'House', 'Senate', 'Governor'];
-const regionOptions: RegionFilter[] = ['All', 'Northeast', 'South', 'Midwest', 'West'];
-const PAGE_SIZE = 25;
-const PRESET_STORAGE_KEY = 'capiro-directory-presets';
-const DIRECTORY_OVERRIDE_STORAGE_KEY = 'capiro-directory-overrides';
-const VALID_SORTS: SortOption[] = ['recent', 'name-asc', 'name-desc', 'state-asc'];
-
-function getPartyColor(party: DirectoryEntry['party']): string {
+function partyColor(party: Party): string {
   if (party === 'D') return 'blue';
   if (party === 'R') return 'red';
   return 'purple';
 }
 
-function getRelationshipColor(tier: DirectoryEntry['relationshipTier']): string {
-  if (tier === 'Core') return 'gold';
-  if (tier === 'Active') return 'green';
-  return 'default';
+function partyLabel(party: Party): string {
+  if (party === 'D') return 'Democrat';
+  if (party === 'R') return 'Republican';
+  return 'Independent';
+}
+
+function genderLabel(gender: DirectoryEntry['gender']): string {
+  if (gender === 'F') return 'Female';
+  if (gender === 'M') return 'Male';
+  return 'Unknown';
 }
 
 function initials(name: string): string {
@@ -70,39 +65,22 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-function readPresets(): DirectoryPreset[] {
-  if (typeof window === 'undefined') return [];
-
-  const raw = window.localStorage.getItem(PRESET_STORAGE_KEY);
-  if (!raw) return [];
-
-  try {
-    const parsed = JSON.parse(raw) as DirectoryPreset[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-function readOverrides(): Record<string, DirectoryEntryOverride> {
-  if (typeof window === 'undefined') return {};
-
-  const raw = window.localStorage.getItem(DIRECTORY_OVERRIDE_STORAGE_KEY);
-  if (!raw) return {};
-
-  try {
-    const parsed = JSON.parse(raw) as Record<string, DirectoryEntryOverride>;
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
+function yearFromDate(date: string): string {
+  if (!date) return 'Unknown';
+  return date.slice(0, 4);
 }
 
 function buildApiParams(filters: {
   query: string;
+  freshman: FreshmanFilter;
   chamber: ChamberFilter;
-  region: RegionFilter;
-  state: string;
+  party: Party[];
+  gender: GenderFilter;
+  leadership: string[];
+  caucus: string[];
+  state: string[];
+  district: string[];
+  education: string[];
   sort: SortOption;
   page: number;
   pageSize: number;
@@ -113,95 +91,82 @@ function buildApiParams(filters: {
     sort: filters.sort,
   };
 
-  if (filters.query) params.q = filters.query;
+  if (filters.query.trim()) params.q = filters.query.trim();
+  if (filters.freshman !== 'All') params.freshman = filters.freshman;
   if (filters.chamber !== 'All') params.chamber = filters.chamber;
-  if (filters.region !== 'All') params.region = filters.region;
-  if (filters.state !== 'All') params.state = filters.state;
+  if (filters.party.length > 0) params.party = filters.party.join(',');
+  if (filters.gender !== 'All') params.gender = filters.gender;
+  if (filters.leadership.length > 0) params.leadership = filters.leadership.join(',');
+  if (filters.caucus.length > 0) params.caucus = filters.caucus.join(',');
+  if (filters.state.length > 0) params.state = filters.state.join(',');
+  if (filters.district.length > 0) params.district = filters.district.join(',');
+  if (filters.education.length > 0) params.education = filters.education.join(',');
 
   return params;
 }
 
-function getSearchParamsFromFilters(filters: {
-  query: string;
-  chamber: ChamberFilter;
-  region: RegionFilter;
-  state: string;
-  sort: SortOption;
-  page: number;
-}): URLSearchParams {
-  const params = new URLSearchParams();
-
-  if (filters.query) params.set('q', filters.query);
-  if (filters.chamber !== 'All') params.set('chamber', filters.chamber);
-  if (filters.region !== 'All') params.set('region', filters.region);
-  if (filters.state !== 'All') params.set('state', filters.state);
-  if (filters.sort !== 'recent') params.set('sort', filters.sort);
-  if (filters.page > 1) params.set('page', String(filters.page));
-
-  return params;
+interface FilterBlockProps {
+  label: string;
+  children: React.ReactNode;
 }
 
-function buildCsv(entries: DirectoryEntry[]): string {
-  const header = [
-    'Full Name',
-    'Title',
-    'Office',
-    'Chamber',
-    'State',
-    'Party',
-    'Region',
-    'Focus Areas',
-    'Phone',
-    'Email',
-    'Last Touchpoint',
-  ];
-
-  const rows = entries.map((entry) => [
-    entry.fullName,
-    entry.title,
-    entry.office,
-    entry.chamber,
-    entry.state,
-    entry.party,
-    entry.region,
-    entry.focusAreas.join('; '),
-    entry.phone,
-    entry.email,
-    entry.lastTouchpoint,
-  ]);
-
-  return [header, ...rows]
-    .map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(','))
-    .join('\n');
+function FilterBlock({ label, children }: FilterBlockProps) {
+  return (
+    <div className="directory-filter-block">
+      <Typography.Text className="directory-filter-label">{label}</Typography.Text>
+      {children}
+    </div>
+  );
 }
 
 export function DirectoryPage() {
-  const { TextArea } = Input;
   const { message } = App.useApp();
   const api = useApi();
-  const [searchParams, setSearchParams] = useSearchParams();
 
   const [query, setQuery] = useState('');
+  const [freshman, setFreshman] = useState<FreshmanFilter>('All');
   const [chamber, setChamber] = useState<ChamberFilter>('All');
-  const [region, setRegion] = useState<RegionFilter>('All');
-  const [state, setState] = useState<string>('All');
+  const [party, setParty] = useState<Party[]>([]);
+  const [gender, setGender] = useState<GenderFilter>('All');
+  const [leadership, setLeadership] = useState<string[]>([]);
+  const [caucus, setCaucus] = useState<string[]>([]);
+  const [state, setState] = useState<string[]>([]);
+  const [district, setDistrict] = useState<string[]>([]);
+  const [education, setEducation] = useState<string[]>([]);
   const [sort, setSort] = useState<SortOption>('recent');
   const [page, setPage] = useState(1);
-  const [presetName, setPresetName] = useState('');
-  const [presets, setPresets] = useState<DirectoryPreset[]>(() => readPresets());
-  const [overrides, setOverrides] = useState<Record<string, DirectoryEntryOverride>>(() => readOverrides());
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
 
   const directoryQuery = useQuery({
-    queryKey: ['directory-contacts', query, chamber, region, state, sort, page],
+    queryKey: [
+      'directory-contacts',
+      query,
+      freshman,
+      chamber,
+      party,
+      gender,
+      leadership,
+      caucus,
+      state,
+      district,
+      education,
+      sort,
+      page,
+    ],
     queryFn: async () =>
       (
         await api.get<DirectoryApiResponse>('/api/directory/contacts', {
           params: buildApiParams({
             query,
+            freshman,
             chamber,
-            region,
+            party,
+            gender,
+            leadership,
+            caucus,
             state,
+            district,
+            education,
             sort,
             page,
             pageSize: PAGE_SIZE,
@@ -212,204 +177,46 @@ export function DirectoryPage() {
     retry: 1,
   });
 
-  const baseEntries = directoryQuery.data?.contacts ?? [];
+  const entries = directoryQuery.data?.contacts ?? [];
   const totalFiltered = directoryQuery.data?.total ?? 0;
   const totals =
     directoryQuery.data?.totals ??
-    ({ all: 0, house: 0, senate: 0, governors: 0 } as const);
-
-  const mergedEntries = useMemo(
-    () =>
-      baseEntries.map((entry) => ({
-        ...entry,
-        ...overrides[entry.id],
-      })),
-    [baseEntries, overrides],
-  );
-
-  const stateOptions = directoryQuery.data?.availableStates ?? [];
-
-  const ownerOptions = useMemo(
-    () => Array.from(new Set(mergedEntries.map((entry) => entry.owner).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
-    [mergedEntries],
-  );
-
+    ({
+      all: 0,
+      house: 0,
+      senate: 0,
+      governors: 0,
+    } as const);
+  const availableFilters = directoryQuery.data?.availableFilters;
   const selectedEntry = useMemo(
-    () => mergedEntries.find((entry) => entry.id === selectedEntryId) ?? null,
-    [mergedEntries, selectedEntryId],
+    () => entries.find((entry) => entry.id === selectedEntryId) ?? null,
+    [entries, selectedEntryId],
   );
-
-  useEffect(() => {
-    if (selectedEntryId && !selectedEntry) setSelectedEntryId(null);
-  }, [selectedEntry, selectedEntryId]);
-
-  useEffect(() => {
-    const nextQuery = searchParams.get('q') ?? '';
-    const nextChamber = (searchParams.get('chamber') as ChamberFilter | null) ?? 'All';
-    const nextRegion = (searchParams.get('region') as RegionFilter | null) ?? 'All';
-    const nextState = searchParams.get('state') ?? 'All';
-    const nextSortRaw = searchParams.get('sort');
-    const nextSort = VALID_SORTS.includes(nextSortRaw as SortOption) ? (nextSortRaw as SortOption) : 'recent';
-    const pageParam = Number(searchParams.get('page') ?? '1');
-
-    setQuery(nextQuery);
-    setChamber(chamberOptions.includes(nextChamber) ? nextChamber : 'All');
-    setRegion(regionOptions.includes(nextRegion) ? nextRegion : 'All');
-    setState(nextState || 'All');
-    setSort(nextSort);
-    setPage(Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1);
-  }, [searchParams]);
-
-  useEffect(() => {
-    const maxPage = Math.max(1, Math.ceil(totalFiltered / PAGE_SIZE));
-    if (page > maxPage) setPage(maxPage);
-  }, [page, totalFiltered]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets));
-  }, [presets]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    window.localStorage.setItem(DIRECTORY_OVERRIDE_STORAGE_KEY, JSON.stringify(overrides));
-  }, [overrides]);
-
-  useEffect(() => {
-    const nextParams = getSearchParamsFromFilters({ query, chamber, region, state, sort, page });
-    const current = searchParams.toString();
-    const next = nextParams.toString();
-    if (current !== next) setSearchParams(nextParams, { replace: true });
-  }, [chamber, page, query, region, searchParams, setSearchParams, sort, state]);
 
   function resetFilters() {
     setQuery('');
+    setFreshman('All');
     setChamber('All');
-    setRegion('All');
-    setState('All');
+    setParty([]);
+    setGender('All');
+    setLeadership([]);
+    setCaucus([]);
+    setState([]);
+    setDistrict([]);
+    setEducation([]);
     setSort('recent');
     setPage(1);
   }
 
-  function savePreset() {
-    const trimmed = presetName.trim();
-    if (!trimmed) return;
-
-    const nextPreset: DirectoryPreset = { name: trimmed, query, chamber, region, state, sort };
-
-    setPresets((current) => {
-      const filteredCurrent = current.filter((preset) => preset.name !== trimmed);
-      return [nextPreset, ...filteredCurrent].slice(0, 8);
-    });
-
-    setPresetName('');
-  }
-
-  function applyPreset(preset: DirectoryPreset) {
-    setQuery(preset.query);
-    setChamber(preset.chamber);
-    setRegion(preset.region);
-    setState(preset.state);
-    setSort(preset.sort);
-    setPage(1);
-  }
-
-  function deletePreset(name: string) {
-    setPresets((current) => current.filter((preset) => preset.name !== name));
-  }
-
-  function updateEntryOverride(entryId: string, patch: DirectoryEntryOverride) {
-    setOverrides((current) => ({
-      ...current,
-      [entryId]: {
-        ...current[entryId],
-        ...patch,
-      },
-    }));
-  }
-
-  async function fetchAllFilteredContacts(): Promise<DirectoryEntry[]> {
-    const allEntries: DirectoryEntry[] = [];
-    let nextPage = 1;
-    let total = 0;
-    const exportPageSize = 1000;
-
-    do {
-      const response = await api.get<DirectoryApiResponse>('/api/directory/contacts', {
-        params: buildApiParams({
-          query,
-          chamber,
-          region,
-          state,
-          sort,
-          page: nextPage,
-          pageSize: exportPageSize,
-        }),
-      });
-      allEntries.push(...response.data.contacts);
-      total = response.data.total;
-      nextPage += 1;
-      if (response.data.contacts.length === 0) break;
-    } while (allEntries.length < total);
-
-    return allEntries;
-  }
-
-  async function copyFilteredEmails() {
-    const allFiltered = await fetchAllFilteredContacts();
-    const emails = allFiltered.map((entry) => entry.email).filter(Boolean).join('; ');
-    if (!emails) {
-      message.warning('No filtered emails available to copy.');
+  async function copyContact(value: string, label: string) {
+    if (!value) {
+      message.warning(`No ${label.toLowerCase()} on this profile.`);
       return;
     }
 
     try {
-      await navigator.clipboard.writeText(emails);
-      message.success(`Copied ${allFiltered.length} email addresses.`);
-    } catch {
-      message.error('Clipboard copy failed in this browser context.');
-    }
-  }
-
-  async function exportCsv() {
-    const allFiltered = await fetchAllFilteredContacts();
-
-    if (allFiltered.length === 0) {
-      message.warning('No filtered contacts available to export.');
-      return;
-    }
-
-    const blob = new Blob([buildCsv(allFiltered)], { type: 'text/csv;charset=utf-8;' });
-    const url = window.URL.createObjectURL(blob);
-    const link = window.document.createElement('a');
-    link.href = url;
-    link.download = 'capiro-directory-export.csv';
-    link.click();
-    window.URL.revokeObjectURL(url);
-    message.success(`Exported ${allFiltered.length} contacts to CSV.`);
-  }
-
-  async function copyShareLink() {
-    const params = getSearchParamsFromFilters({ query, chamber, region, state, sort, page });
-    const shareUrl = `${window.location.origin}${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}`;
-
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      message.success('Copied shareable directory link.');
-    } catch {
-      message.error('Clipboard copy failed in this browser context.');
-    }
-  }
-
-  async function copySingleEmail(email: string) {
-    if (!email) {
-      message.warning('No email on this contact.');
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(email);
-      message.success('Copied contact email.');
+      await navigator.clipboard.writeText(value);
+      message.success(`Copied ${label.toLowerCase()}.`);
     } catch {
       message.error('Clipboard copy failed in this browser context.');
     }
@@ -420,7 +227,7 @@ export function DirectoryPage() {
       <Card>
         <Space>
           <Spin />
-          <Typography.Text>Loading real directory contacts...</Typography.Text>
+          <Typography.Text>Loading directory people from source snapshots...</Typography.Text>
         </Space>
       </Card>
     );
@@ -430,444 +237,590 @@ export function DirectoryPage() {
     return (
       <Alert
         type="error"
-        message="Unable to load directory contacts"
+        message="Unable to load directory"
         description={(directoryQuery.error as Error).message}
       />
     );
   }
 
   return (
-    <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-      <Row gutter={[12, 12]}>
-        <Col xs={24} sm={12} lg={6}>
-          <Card size="small" style={{ borderRadius: 12 }}>
-            <Typography.Text type="secondary">Total Contacts</Typography.Text>
-            <Typography.Title level={3} style={{ margin: '6px 0 0' }}>
-              {totals.all}
-            </Typography.Title>
-          </Card>
+    <div className="directory-page">
+      <section className="directory-page-header">
+        <div>
+          <Typography.Title level={3} style={{ margin: 0 }}>
+            Directory
+          </Typography.Title>
+          <Typography.Text type="secondary">
+            Members and staff details sourced from the active S3 directory snapshot.
+          </Typography.Text>
+        </div>
+        <Select
+          value={sort}
+          onChange={(value) => {
+            setSort(value);
+            setPage(1);
+          }}
+          style={{ width: 220 }}
+          options={[
+            { value: 'recent', label: 'Recently updated' },
+            { value: 'name-asc', label: 'Name A-Z' },
+            { value: 'name-desc', label: 'Name Z-A' },
+            { value: 'state-asc', label: 'State and district' },
+          ]}
+        />
+      </section>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} lg={6} xl={5}>
+          <aside className="directory-filter-panel">
+            <Radio.Group
+              value={freshman}
+              onChange={(event) => {
+                setFreshman(event.target.value);
+                setPage(1);
+              }}
+              className="directory-freshman-radio"
+            >
+              <Radio value="All">All</Radio>
+              <Radio value="Freshman">Freshman</Radio>
+              <Radio value="Non-Freshman">Non-Freshman</Radio>
+            </Radio.Group>
+
+            <FilterBlock label="Chamber">
+              <Select
+                value={chamber}
+                onChange={(value) => {
+                  setChamber(value);
+                  setPage(1);
+                }}
+                options={[
+                  { value: 'All', label: 'All' },
+                  ...(availableFilters?.chambers ?? []).map((value) => ({ value, label: value })),
+                ]}
+              />
+            </FilterBlock>
+
+            <FilterBlock label="Party">
+              <Select
+                mode="multiple"
+                value={party}
+                onChange={(value) => {
+                  setParty(value);
+                  setPage(1);
+                }}
+                placeholder="Type or Select Parties"
+                maxTagCount="responsive"
+                options={(availableFilters?.parties ?? []).map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                }))}
+              />
+            </FilterBlock>
+
+            <FilterBlock label="Gender">
+              <Select
+                value={gender}
+                onChange={(value) => {
+                  setGender(value);
+                  setPage(1);
+                }}
+                options={[
+                  { value: 'All', label: 'All' },
+                  ...(availableFilters?.genders ?? []).map((option) => ({
+                    value: option.value,
+                    label: option.label,
+                  })),
+                ]}
+              />
+            </FilterBlock>
+
+            <FilterBlock label="Leadership">
+              <Select
+                mode="multiple"
+                value={leadership}
+                onChange={(value) => {
+                  setLeadership(value);
+                  setPage(1);
+                }}
+                placeholder="Select Leadership Position(s)"
+                maxTagCount="responsive"
+                options={(availableFilters?.leadership ?? emptyFilters).map((value) => ({
+                  value,
+                  label: value,
+                }))}
+              />
+            </FilterBlock>
+
+            <FilterBlock label="Caucus">
+              <Select
+                mode="multiple"
+                value={caucus}
+                onChange={(value) => {
+                  setCaucus(value);
+                  setPage(1);
+                }}
+                placeholder={
+                  (availableFilters?.caucuses.length ?? 0) > 0
+                    ? 'Type or Select Caucuses'
+                    : 'No caucus data in source'
+                }
+                disabled={(availableFilters?.caucuses.length ?? 0) === 0}
+                maxTagCount="responsive"
+                options={(availableFilters?.caucuses ?? emptyFilters).map((value) => ({
+                  value,
+                  label: value,
+                }))}
+              />
+            </FilterBlock>
+
+            <FilterBlock label="State">
+              <Select
+                mode="multiple"
+                value={state}
+                onChange={(value) => {
+                  setState(value);
+                  setPage(1);
+                }}
+                placeholder="Type or Select State(s)"
+                maxTagCount="responsive"
+                options={(availableFilters?.states ?? emptyFilters).map((value) => ({
+                  value,
+                  label: value,
+                }))}
+              />
+            </FilterBlock>
+
+            <FilterBlock label="District">
+              <Select
+                mode="multiple"
+                value={district}
+                onChange={(value) => {
+                  setDistrict(value);
+                  setPage(1);
+                }}
+                placeholder="Type or Select District(s)"
+                maxTagCount="responsive"
+                options={(availableFilters?.districts ?? emptyFilters).map((value) => ({
+                  value,
+                  label: value,
+                }))}
+              />
+            </FilterBlock>
+
+            <FilterBlock label="Educational Institution">
+              <Select
+                mode="multiple"
+                value={education}
+                onChange={(value) => {
+                  setEducation(value);
+                  setPage(1);
+                }}
+                placeholder={
+                  (availableFilters?.educationInstitutions.length ?? 0) > 0
+                    ? 'Select Educational Institution(s)'
+                    : 'No education data in source'
+                }
+                disabled={(availableFilters?.educationInstitutions.length ?? 0) === 0}
+                maxTagCount="responsive"
+                options={(availableFilters?.educationInstitutions ?? emptyFilters).map((value) => ({
+                  value,
+                  label: value,
+                }))}
+              />
+            </FilterBlock>
+
+            <Button className="directory-reset-button" block onClick={resetFilters}>
+              Reset Filters
+            </Button>
+          </aside>
         </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card size="small" style={{ borderRadius: 12 }}>
-            <Typography.Text type="secondary">House</Typography.Text>
-            <Typography.Title level={3} style={{ margin: '6px 0 0' }}>
-              {totals.house}
-            </Typography.Title>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card size="small" style={{ borderRadius: 12 }}>
-            <Typography.Text type="secondary">Senate</Typography.Text>
-            <Typography.Title level={3} style={{ margin: '6px 0 0' }}>
-              {totals.senate}
-            </Typography.Title>
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card size="small" style={{ borderRadius: 12 }}>
-            <Typography.Text type="secondary">Governor Offices</Typography.Text>
-            <Typography.Title level={3} style={{ margin: '6px 0 0' }}>
-              {totals.governors}
-            </Typography.Title>
-          </Card>
+
+        <Col xs={24} lg={18} xl={19}>
+          <Space direction="vertical" size={16} style={{ display: 'flex' }}>
+            <Row gutter={[12, 12]}>
+              <Col xs={12} md={6}>
+                <Card className="directory-stat-card">
+                  <Typography.Text type="secondary">All people</Typography.Text>
+                  <Typography.Title level={4}>{totals.all}</Typography.Title>
+                </Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card className="directory-stat-card">
+                  <Typography.Text type="secondary">House</Typography.Text>
+                  <Typography.Title level={4}>{totals.house}</Typography.Title>
+                </Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card className="directory-stat-card">
+                  <Typography.Text type="secondary">Senate</Typography.Text>
+                  <Typography.Title level={4}>{totals.senate}</Typography.Title>
+                </Card>
+              </Col>
+              <Col xs={12} md={6}>
+                <Card className="directory-stat-card">
+                  <Typography.Text type="secondary">Governors</Typography.Text>
+                  <Typography.Title level={4}>{totals.governors}</Typography.Title>
+                </Card>
+              </Col>
+            </Row>
+
+            <div className="directory-search-row">
+              <Input
+                allowClear
+                size="large"
+                prefix={<SearchOutlined />}
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPage(1);
+                }}
+                placeholder="Search by name, office, committee, staff, phone, or email"
+              />
+              <Typography.Text type="secondary">
+                Showing {totalFiltered === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}-
+                {Math.min(page * PAGE_SIZE, totalFiltered)} of {totalFiltered}
+              </Typography.Text>
+            </div>
+
+            {entries.length === 0 ? (
+              <Card>
+                <Empty description="No people match these filters" />
+              </Card>
+            ) : (
+              <div className="directory-card-grid">
+                {entries.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    className="directory-person-card"
+                    onClick={() => setSelectedEntryId(entry.id)}
+                  >
+                    <div className="directory-person-topline">
+                      <Avatar
+                        src={entry.photoUrl || undefined}
+                        size={58}
+                        className="directory-person-avatar"
+                      >
+                        {initials(entry.memberName)}
+                      </Avatar>
+                      <div className="directory-person-title">
+                        <Typography.Text strong>{entry.fullName}</Typography.Text>
+                        <Typography.Text type="secondary">{entry.title}</Typography.Text>
+                      </div>
+                    </div>
+
+                    <Space size={[6, 6]} wrap className="directory-card-tags">
+                      <Tag color="geekblue">{entry.chamber}</Tag>
+                      <Tag color={partyColor(entry.party)}>{entry.party}</Tag>
+                      <Tag>{entry.district}</Tag>
+                      {entry.isFreshman ? <Tag color="green">Freshman</Tag> : null}
+                    </Space>
+
+                    <div className="directory-card-office">
+                      <Typography.Text>{entry.office}</Typography.Text>
+                      <Typography.Text type="secondary">
+                        Serving since {yearFromDate(entry.servingSince)}
+                      </Typography.Text>
+                    </div>
+
+                    <div className="directory-card-contact">
+                      <span>
+                        <PhoneOutlined /> {entry.phone || 'No public phone'}
+                      </span>
+                      <span>
+                        <MailOutlined /> {entry.email || entry.contactFormUrl || 'No public email'}
+                      </span>
+                    </div>
+
+                    <div className="directory-card-meta">
+                      {(entry.leadershipPositions[0] ||
+                        entry.committees[0] ||
+                        entry.focusAreas[0]) ??
+                        'No policy coverage listed'}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {totalFiltered > PAGE_SIZE ? (
+              <div className="directory-pagination">
+                <Pagination
+                  current={page}
+                  pageSize={PAGE_SIZE}
+                  total={totalFiltered}
+                  onChange={(nextPage) => setPage(nextPage)}
+                  showSizeChanger={false}
+                />
+              </div>
+            ) : null}
+          </Space>
         </Col>
       </Row>
 
-      <Card style={{ borderRadius: 14 }}>
-        <Space wrap style={{ marginBottom: 12 }}>
-          <Button icon={<MailOutlined />} onClick={copyFilteredEmails}>
-            Copy filtered emails
-          </Button>
-          <Button icon={<DownloadOutlined />} onClick={exportCsv}>
-            Export CSV
-          </Button>
-          <Button icon={<LinkOutlined />} onClick={copyShareLink}>
-            Copy share link
-          </Button>
-        </Space>
-
-        <Row gutter={[12, 12]} align="middle">
-          <Col xs={24} md={12} lg={10}>
-            <Input.Search
-              allowClear
-              value={query}
-              onChange={(event) => {
-                setQuery(event.target.value);
-                setPage(1);
-              }}
-              placeholder="Search by name, title, office, policy area"
-            />
-          </Col>
-          <Col xs={24} sm={8} md={4}>
-            <Select
-              value={chamber}
-              onChange={(value) => {
-                setChamber(value);
-                setPage(1);
-              }}
-              style={{ width: '100%' }}
-              options={chamberOptions.map((value) => ({ value, label: value }))}
-            />
-          </Col>
-          <Col xs={24} sm={8} md={4}>
-            <Select
-              value={region}
-              onChange={(value) => {
-                setRegion(value);
-                setPage(1);
-              }}
-              style={{ width: '100%' }}
-              options={regionOptions.map((value) => ({ value, label: value }))}
-            />
-          </Col>
-          <Col xs={24} sm={8} md={4}>
-            <Select
-              value={state}
-              onChange={(value) => {
-                setState(value);
-                setPage(1);
-              }}
-              style={{ width: '100%' }}
-              options={[
-                { value: 'All', label: 'All states' },
-                ...stateOptions.map((value) => ({ value, label: value })),
-              ]}
-            />
-          </Col>
-          <Col xs={24} md={2}>
-            <Button block onClick={resetFilters}>
-              Reset
-            </Button>
-          </Col>
-        </Row>
-
-        <Row gutter={[12, 12]} style={{ marginTop: 8 }} align="middle">
-          <Col xs={24} md={8} lg={6}>
-            <Select
-              value={sort}
-              onChange={(value) => {
-                setSort(value);
-                setPage(1);
-              }}
-              style={{ width: '100%' }}
-              options={[
-                { value: 'recent', label: 'Sort: recent touchpoint' },
-                { value: 'name-asc', label: 'Sort: name A-Z' },
-                { value: 'name-desc', label: 'Sort: name Z-A' },
-                { value: 'state-asc', label: 'Sort: state' },
-              ]}
-            />
-          </Col>
-          <Col xs={24} md={16} lg={18}>
-            <Space wrap style={{ width: '100%', justifyContent: 'space-between' }}>
-              <Space wrap>
-                <Input
-                  value={presetName}
-                  onChange={(event) => setPresetName(event.target.value)}
-                  onPressEnter={savePreset}
-                  placeholder="Save current filters as..."
-                  style={{ width: 220 }}
-                />
-                <Button type="primary" onClick={savePreset} disabled={presetName.trim().length === 0}>
-                  Save preset
-                </Button>
-              </Space>
-              <Space wrap>
-                {presets.length === 0 ? (
-                  <Typography.Text type="secondary">No saved presets yet</Typography.Text>
-                ) : (
-                  presets.map((preset) => (
-                    <Tag
-                      key={preset.name}
-                      style={{ paddingInline: 10, lineHeight: '28px', borderRadius: 999 }}
-                      closable
-                      onClose={(event) => {
-                        event.preventDefault();
-                        deletePreset(preset.name);
-                      }}
-                    >
-                      <a
-                        onClick={(event) => {
-                          event.preventDefault();
-                          applyPreset(preset);
-                        }}
-                        href="/directory"
-                        style={{ color: 'inherit' }}
-                      >
-                        {preset.name}
-                      </a>
-                    </Tag>
-                  ))
-                )}
-              </Space>
-            </Space>
-          </Col>
-        </Row>
-      </Card>
-
-      <Card style={{ borderRadius: 14 }}>
-        <Space direction="vertical" size={0} style={{ width: '100%' }}>
-          <Row justify="space-between" align="middle" gutter={[12, 12]}>
-            <Col>
-              <Typography.Text type="secondary">
-                Showing {totalFiltered === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}-{Math.min(page * PAGE_SIZE, totalFiltered)} of {totalFiltered} contacts
-              </Typography.Text>
-            </Col>
-            <Col>
-              <Typography.Text type="secondary">Page size {PAGE_SIZE}</Typography.Text>
-            </Col>
-          </Row>
-          <Divider style={{ margin: '12px 0' }} />
-
-          <div className="directory-grid directory-grid--header">
-            <div>Contact</div>
-            <div>Office</div>
-            <div>Coverage</div>
-            <div>Reach</div>
-            <div>Actions</div>
-          </div>
-
-          {mergedEntries.map((entry) => (
-            <div key={entry.id} className="directory-grid directory-grid--row">
-              <div>
-                <Space align="start">
-                  <Avatar src={entry.photoUrl || undefined} size={44} style={{ background: '#183D9E', fontWeight: 700 }}>
-                    {initials(entry.fullName)}
-                  </Avatar>
-                  <Space direction="vertical" size={1}>
-                    <Typography.Text strong style={{ fontSize: 16 }}>
-                      {entry.fullName}
-                    </Typography.Text>
-                    <Typography.Text>{entry.title}</Typography.Text>
-                    <Typography.Text type="secondary">
-                      {entry.region} region · owner {entry.owner || 'Unassigned'}
-                    </Typography.Text>
-                  </Space>
-                </Space>
-              </div>
-              <div>
-                <Space direction="vertical" size={2}>
-                  <Typography.Text>{entry.office}</Typography.Text>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {entry.memberName} · {entry.officeLocation}
-                  </Typography.Text>
-                </Space>
-              </div>
-              <div>
-                <Space size={[4, 8]} wrap>
-                  <Tag color="geekblue">{entry.chamber}</Tag>
-                  <Tag color={getPartyColor(entry.party)}>{entry.party}</Tag>
-                  <Tag>{entry.state}</Tag>
-                  <Tag color={getRelationshipColor(entry.relationshipTier)}>{entry.relationshipTier}</Tag>
-                  {entry.committees.slice(0, 1).map((committee) => (
-                    <Tag key={`${entry.id}-${committee}`}>{committee}</Tag>
-                  ))}
-                  {entry.focusAreas.slice(0, 3).map((focus) => (
-                    <Tag key={`${entry.id}-${focus}`}>{focus}</Tag>
-                  ))}
-                </Space>
-              </div>
-              <div>
-                <Space direction="vertical" size={1}>
-                  <Typography.Text style={{ fontSize: 12 }}>{entry.phone}</Typography.Text>
-                  <Typography.Text style={{ fontSize: 12 }} copyable={{ text: entry.email }}>
-                    {entry.email}
-                  </Typography.Text>
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    last touchpoint {entry.lastTouchpoint}
-                  </Typography.Text>
-                </Space>
-              </div>
-              <div>
-                <Space wrap>
-                  <Button size="small" onClick={() => setSelectedEntryId(entry.id)}>
-                    Open brief
-                  </Button>
-                  <Button size="small" type="text" onClick={() => copySingleEmail(entry.email)}>
-                    Copy email
-                  </Button>
-                </Space>
-              </div>
-            </div>
-          ))}
-
-          {totalFiltered === 0 ? (
-            <Typography.Paragraph type="secondary" style={{ margin: '4px 0 0' }}>
-              No contacts match this filter set. Try broadening the query or load a saved preset.
-            </Typography.Paragraph>
-          ) : null}
-
-          {totalFiltered > PAGE_SIZE ? (
-            <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 16 }}>
-              <Pagination
-                current={page}
-                pageSize={PAGE_SIZE}
-                total={totalFiltered}
-                onChange={(nextPage) => setPage(nextPage)}
-                showSizeChanger={false}
-              />
-            </div>
-          ) : null}
-        </Space>
-      </Card>
-
-      <Drawer
-        title={selectedEntry?.fullName}
-        placement="right"
-        width={420}
+      <Modal
+        className="directory-profile-modal"
+        width={1120}
         open={selectedEntry !== null}
-        onClose={() => setSelectedEntryId(null)}
+        onCancel={() => setSelectedEntryId(null)}
+        footer={null}
+        title={null}
+        destroyOnClose
       >
         {selectedEntry ? (
-          <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-            <Space align="start" size={12}>
-              <Avatar src={selectedEntry.photoUrl || undefined} size={64} style={{ background: '#183D9E' }}>
-                {initials(selectedEntry.fullName)}
+          <>
+            <section className="directory-profile-hero">
+              <Avatar
+                src={selectedEntry.photoUrl || undefined}
+                size={86}
+                shape="square"
+                className="directory-profile-photo"
+              >
+                {initials(selectedEntry.memberName)}
               </Avatar>
-              <div>
-                <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 4 }}>
-                  {selectedEntry.title}
-                </Typography.Title>
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 4 }}>
-                  {selectedEntry.office}
-                </Typography.Paragraph>
-                <Typography.Text type="secondary">{selectedEntry.memberName}</Typography.Text>
+              <div className="directory-profile-main">
+                <Space size={8} wrap>
+                  <Tag className="directory-profile-member-tag">Member</Tag>
+                  <Tag color={partyColor(selectedEntry.party)}>{selectedEntry.party}</Tag>
+                  <Tag>{selectedEntry.district}</Tag>
+                </Space>
+                <Typography.Title level={2}>{selectedEntry.fullName}</Typography.Title>
+                <Typography.Text>{selectedEntry.title}</Typography.Text>
+                <Typography.Text type="secondary">
+                  Serving in {selectedEntry.chamber} since{' '}
+                  {yearFromDate(selectedEntry.servingSince)}
+                </Typography.Text>
               </div>
-            </Space>
-
-            <Space wrap>
-              <Tag color="geekblue">{selectedEntry.chamber}</Tag>
-              <Tag color={getPartyColor(selectedEntry.party)}>{selectedEntry.party}</Tag>
-              <Tag>{selectedEntry.state}</Tag>
-              <Tag>{selectedEntry.region}</Tag>
-              <Tag color={getRelationshipColor(selectedEntry.relationshipTier)}>{selectedEntry.relationshipTier}</Tag>
-            </Space>
-
-            <Card size="small" title="Relationship Brief">
-              <Space direction="vertical" size={10} style={{ display: 'flex' }}>
-                <Descriptions column={1} size="small" bordered>
-                  <Descriptions.Item label="Owner">{selectedEntry.owner || 'Unassigned'}</Descriptions.Item>
-                  <Descriptions.Item label="Office Location">{selectedEntry.officeLocation}</Descriptions.Item>
-                  <Descriptions.Item label="Committees">{selectedEntry.committees.join(', ') || 'N/A'}</Descriptions.Item>
-                  <Descriptions.Item label="Last Touchpoint">{selectedEntry.lastTouchpoint}</Descriptions.Item>
-                </Descriptions>
-                <Typography.Paragraph style={{ marginBottom: 0 }}>
-                  {selectedEntry.notes || 'No relationship notes captured yet.'}
-                </Typography.Paragraph>
+              <Space className="directory-profile-actions" wrap>
+                <Button onClick={() => copyContact(selectedEntry.email, 'Email')}>
+                  <MailOutlined />
+                </Button>
+                <Button onClick={() => copyContact(selectedEntry.phone, 'Phone')}>
+                  <PhoneOutlined />
+                </Button>
+                {selectedEntry.contactFormUrl ? (
+                  <Button href={selectedEntry.contactFormUrl} target="_blank" rel="noreferrer">
+                    Contact Form
+                  </Button>
+                ) : null}
               </Space>
-            </Card>
+            </section>
 
-            <Card size="small" title="Edit Relationship">
-              <Space direction="vertical" size={10} style={{ display: 'flex' }}>
-                <div>
-                  <Typography.Text type="secondary">Owner</Typography.Text>
-                  <Select
-                    value={selectedEntry.owner || 'Unassigned'}
-                    style={{ width: '100%', marginTop: 8 }}
-                    onChange={(value) => {
-                      updateEntryOverride(selectedEntry.id, { owner: value });
-                      message.success('Owner updated.');
-                    }}
-                    options={[
-                      ...ownerOptions.map((owner) => ({ value: owner, label: owner })),
-                      { value: 'Unassigned', label: 'Unassigned' },
-                    ]}
-                  />
-                </div>
-                <div>
-                  <Typography.Text type="secondary">Relationship Notes</Typography.Text>
-                  <TextArea
-                    value={selectedEntry.notes}
-                    rows={5}
-                    style={{ marginTop: 8 }}
-                    onChange={(event) => {
-                      updateEntryOverride(selectedEntry.id, { notes: event.target.value });
-                    }}
-                    placeholder="Capture operating style, policy posture, and follow-up guidance"
-                  />
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    Notes save locally in this browser local storage layer.
-                  </Typography.Text>
-                </div>
-              </Space>
-            </Card>
+            <Tabs
+              className="directory-profile-tabs"
+              defaultActiveKey="contact"
+              items={[
+                {
+                  key: 'contact',
+                  label: 'Contact',
+                  children: (
+                    <Row gutter={[24, 24]}>
+                      <Col xs={24} lg={15}>
+                        <Typography.Title level={4}>Contact</Typography.Title>
+                        <div className="directory-contact-panel">
+                          <div>
+                            <Typography.Text strong>Main Office</Typography.Text>
+                            <Typography.Paragraph>
+                              {selectedEntry.officeLocation || 'No public office address listed'}
+                            </Typography.Paragraph>
+                            <Typography.Text>Phone: {selectedEntry.phone || 'N/A'}</Typography.Text>
+                            <br />
+                            <Typography.Text>Fax: {selectedEntry.fax || 'N/A'}</Typography.Text>
+                            <br />
+                            <Typography.Text>
+                              Email: {selectedEntry.email || 'No public email listed'}
+                            </Typography.Text>
+                          </div>
+                          <div>
+                            <Typography.Text strong>Official Links</Typography.Text>
+                            <Space
+                              direction="vertical"
+                              size={4}
+                              style={{ display: 'flex', marginTop: 8 }}
+                            >
+                              {selectedEntry.officialLinks.slice(0, 8).map((link) => (
+                                <a
+                                  key={`${link.type}-${link.url}`}
+                                  href={link.url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  {link.label}
+                                </a>
+                              ))}
+                            </Space>
+                          </div>
+                        </div>
 
-            <Card size="small" title="Contact">
-              <Space direction="vertical" size={8} style={{ display: 'flex' }}>
-                <Typography.Text copyable={{ text: selectedEntry.email }}>{selectedEntry.email || 'N/A'}</Typography.Text>
-                <Typography.Text copyable={{ text: selectedEntry.phone }}>{selectedEntry.phone || 'N/A'}</Typography.Text>
-                <Typography.Text type="secondary">Last touchpoint: {selectedEntry.lastTouchpoint}</Typography.Text>
-              </Space>
-            </Card>
-
-            <Card size="small" title="Policy Coverage">
-              <Space direction="vertical" size={10} style={{ display: 'flex' }}>
-                <div>
-                  <Typography.Text type="secondary">Focus Areas</Typography.Text>
-                  <div style={{ marginTop: 8 }}>
-                    <Space wrap>
-                      {selectedEntry.focusAreas.length > 0 ? (
-                        selectedEntry.focusAreas.map((focus) => (
-                          <Tag key={`${selectedEntry.id}-drawer-focus-${focus}`}>{focus}</Tag>
-                        ))
-                      ) : (
-                        <Typography.Text type="secondary">No focus areas listed</Typography.Text>
-                      )}
-                    </Space>
-                  </div>
-                </div>
-                <div>
-                  <Typography.Text type="secondary">Committees and Working Groups</Typography.Text>
-                  <div style={{ marginTop: 8 }}>
-                    <Space wrap>
+                        <Typography.Title level={4} style={{ marginTop: 28 }}>
+                          Office Locations
+                        </Typography.Title>
+                        <div className="directory-address-list">
+                          {selectedEntry.addresses.map((address) => (
+                            <div key={address.id} className="directory-address-row">
+                              <Typography.Text strong>{address.title || 'Office'}</Typography.Text>
+                              <Typography.Text>
+                                {[
+                                  address.address1,
+                                  address.address2,
+                                  address.city,
+                                  address.state,
+                                  address.zip,
+                                ]
+                                  .filter(Boolean)
+                                  .join(', ')}
+                              </Typography.Text>
+                              <Typography.Text type="secondary">
+                                {address.phone || 'No phone'}{' '}
+                                {address.fax ? `| Fax ${address.fax}` : ''}
+                              </Typography.Text>
+                            </div>
+                          ))}
+                        </div>
+                      </Col>
+                      <Col xs={24} lg={9}>
+                        <Card className="directory-side-card" title="Snapshot">
+                          <Space direction="vertical" size={10} style={{ display: 'flex' }}>
+                            <Typography.Text>
+                              Party: {selectedEntry.partyName} ({selectedEntry.party})
+                            </Typography.Text>
+                            <Typography.Text>
+                              Gender: {genderLabel(selectedEntry.gender)}
+                            </Typography.Text>
+                            <Typography.Text>Region: {selectedEntry.region}</Typography.Text>
+                            <Typography.Text>
+                              Last source update: {selectedEntry.lastTouchpoint}
+                            </Typography.Text>
+                          </Space>
+                        </Card>
+                      </Col>
+                    </Row>
+                  ),
+                },
+                {
+                  key: 'staff',
+                  label: 'Staff',
+                  children: (
+                    <div>
+                      <Typography.Title level={4}>
+                        {selectedEntry.fullName}'s Staff
+                      </Typography.Title>
+                      <div className="directory-staff-list">
+                        {selectedEntry.staff.length > 0 ? (
+                          selectedEntry.staff.map((staffer) => (
+                            <div key={staffer.id} className="directory-staff-row">
+                              <div>
+                                <Typography.Text strong>{staffer.fullName}</Typography.Text>
+                                <Typography.Text type="secondary">{staffer.title}</Typography.Text>
+                              </div>
+                              <Space size={[6, 6]} wrap>
+                                {staffer.roles.slice(0, 2).map((role) => (
+                                  <Tag key={`${staffer.id}-${role}`}>{role}</Tag>
+                                ))}
+                                {staffer.issueAreas.slice(0, 3).map((issue) => (
+                                  <Tag key={`${staffer.id}-${issue}`} color="blue">
+                                    {issue}
+                                  </Tag>
+                                ))}
+                              </Space>
+                              <div className="directory-staff-contact">
+                                <Typography.Text>
+                                  {staffer.phone || selectedEntry.phone || 'No phone'}
+                                </Typography.Text>
+                                <Typography.Text>
+                                  {staffer.email || 'No public email'}
+                                </Typography.Text>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <Empty description="No staff records in source snapshot" />
+                        )}
+                      </div>
+                    </div>
+                  ),
+                },
+                {
+                  key: 'bio',
+                  label: 'Bio',
+                  children: (
+                    <Row gutter={[24, 16]}>
+                      {[
+                        ['Born', selectedEntry.bio.dob],
+                        ['Birthplace', selectedEntry.bio.birthplace],
+                        ['Hometown', selectedEntry.bio.hometown],
+                        ['Occupation', selectedEntry.bio.occupation],
+                        ['Race', selectedEntry.bio.race],
+                        ['Religion', selectedEntry.bio.religion],
+                        ['Pronunciation', selectedEntry.bio.pronunciation],
+                      ].map(([label, value]) => (
+                        <Col xs={24} sm={12} lg={8} key={label}>
+                          <Card size="small" className="directory-bio-card">
+                            <Typography.Text type="secondary">{label}</Typography.Text>
+                            <Typography.Paragraph>{value || 'N/A'}</Typography.Paragraph>
+                          </Card>
+                        </Col>
+                      ))}
+                    </Row>
+                  ),
+                },
+                {
+                  key: 'committees',
+                  label: 'Committees',
+                  children: (
+                    <Space size={[8, 8]} wrap>
                       {selectedEntry.committees.length > 0 ? (
                         selectedEntry.committees.map((committee) => (
-                          <Tag key={`${selectedEntry.id}-drawer-committee-${committee}`} color="blue">
+                          <Tag key={committee} className="directory-large-tag">
                             {committee}
                           </Tag>
                         ))
                       ) : (
-                        <Typography.Text type="secondary">No committees listed</Typography.Text>
+                        <Empty description="No committee data in source snapshot" />
                       )}
                     </Space>
-                  </div>
-                </div>
-              </Space>
-            </Card>
-
-            <Card size="small" title="Recent Interactions">
-              <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-                {selectedEntry.recentInteractions.length > 0 ? (
-                  selectedEntry.recentInteractions.map((interaction) => (
-                    <div key={`${selectedEntry.id}-${interaction.date}-${interaction.channel}`}>
-                      <Space wrap size={[8, 8]}>
-                        <Tag color="geekblue">{interaction.channel}</Tag>
-                        <Typography.Text type="secondary">{interaction.date}</Typography.Text>
-                      </Space>
-                      <Typography.Paragraph style={{ margin: '6px 0 0' }}>
-                        {interaction.summary}
-                      </Typography.Paragraph>
+                  ),
+                },
+                {
+                  key: 'leadership',
+                  label: 'Leadership',
+                  children: (
+                    <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+                      {selectedEntry.leadershipPositions.length > 0 ? (
+                        selectedEntry.leadershipPositions.map((position) => (
+                          <Card key={position} size="small" className="directory-leadership-card">
+                            <Typography.Text strong>{position}</Typography.Text>
+                          </Card>
+                        ))
+                      ) : (
+                        <Empty description="No current leadership roles in source snapshot" />
+                      )}
+                    </Space>
+                  ),
+                },
+                {
+                  key: 'links',
+                  label: 'Links',
+                  children: (
+                    <div className="directory-link-grid">
+                      {selectedEntry.officialLinks.map((link) => (
+                        <a
+                          key={`${link.type}-${link.url}`}
+                          href={link.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <LinkOutlined /> {link.label}
+                        </a>
+                      ))}
                     </div>
-                  ))
-                ) : (
-                  <Typography.Text type="secondary">No interaction logs available for this contact yet.</Typography.Text>
-                )}
-              </Space>
-            </Card>
-
-            <Card size="small" title="Quick Actions">
-              <Space wrap>
-                <Button icon={<MailOutlined />} onClick={() => copySingleEmail(selectedEntry.email)}>
-                  Copy email
-                </Button>
-                <Button icon={<LinkOutlined />} onClick={copyShareLink}>
-                  Copy filtered link
-                </Button>
-              </Space>
-            </Card>
-          </Space>
+                  ),
+                },
+              ]}
+            />
+          </>
         ) : null}
-      </Drawer>
-    </Space>
+      </Modal>
+    </div>
   );
 }
