@@ -63,7 +63,7 @@ async function main() {
   if (!secretKey) throw new Error('CLERK_SECRET_KEY is not set');
   const clerk = createClerkClient({ secretKey });
 
-  // Step 1 — Clerk org
+  // Step 1 - Clerk org
   const orgList = await clerk.organizations.getOrganizationList({
     query: CAPIRO_INTERNAL_SLUG,
     limit: 10,
@@ -78,7 +78,7 @@ async function main() {
     console.log(`Created Clerk org ${org.id} (${org.slug})`);
   }
 
-  // Step 2 — DB tenant + metadata
+  // Step 2 - DB tenant + metadata
   const prisma = new PrismaClient();
   let tenantId: string;
   try {
@@ -106,7 +106,7 @@ async function main() {
     await prisma.$disconnect();
   }
 
-  // Step 3 — invitation
+  // Step 3 - invitation
   const pending = await clerk.organizations.getOrganizationInvitationList({
     organizationId: org.id,
     status: ['pending'],

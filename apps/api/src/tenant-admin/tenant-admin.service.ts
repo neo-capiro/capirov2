@@ -12,7 +12,7 @@ interface InviteTeamMemberInput {
 
 interface UpdateBrandingInput {
   name?: string;
-  // Logo upload itself is a separate presigned-URL flow — this only updates
+  // Logo upload itself is a separate presigned-URL flow - this only updates
   // the row metadata once the client has finished uploading.
   logoS3Key?: string;
   logoContentType?: string;

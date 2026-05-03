@@ -14,7 +14,7 @@ const queryClient = new QueryClient({
   },
 });
 
-// Brand palette — Capiro Brand Book.
+// Brand palette - Capiro Brand Book.
 const CAPIRO_BLUE = '#01226A';
 const CAPIRO_BLUE_DEEP = '#001650';
 const SIGNAL_BLUE = '#3A6FF7';
@@ -24,7 +24,13 @@ const TEXT_PRIMARY = '#111827';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ClerkProvider publishableKey={config.clerkPublishableKey}>
+    <ClerkProvider
+      publishableKey={config.clerkPublishableKey}
+      signInUrl="/sign-in"
+      signUpUrl="/sign-up"
+      signInFallbackRedirectUrl="/"
+      signUpFallbackRedirectUrl="/"
+    >
       <ConfigProvider
         theme={{
           algorithm: theme.defaultAlgorithm,

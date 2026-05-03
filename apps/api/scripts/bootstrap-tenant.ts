@@ -9,7 +9,7 @@
  *     [--redirect https://app.capiro.ai/sign-in]
  *
  * Steps (idempotent on slug):
- *   1. Create the Clerk Organization (no createdBy — first member is the
+ *   1. Create the Clerk Organization (no createdBy - first member is the
  *      invited admin once they accept). Reuse if a Clerk org with that slug
  *      already exists.
  *   2. Set the org's `public_metadata.capiro_tenant_id` so the JWT template
@@ -99,7 +99,7 @@ async function main() {
     org = await clerk.organizations.createOrganization({
       name: args.name,
       slug: args.slug,
-      // No createdBy — the first member is the admin who accepts the invite.
+      // No createdBy - the first member is the admin who accepts the invite.
     });
     // eslint-disable-next-line no-console
     console.log(`Created Clerk organization ${org.id} (${org.slug})`);

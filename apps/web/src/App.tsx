@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
-import { RedirectToSignIn, SignIn, SignedIn, SignedOut } from '@clerk/clerk-react';
+import { RedirectToSignIn, SignIn, SignedIn, SignedOut, SignUp } from '@clerk/clerk-react';
 import { AppShell } from './components/AppShell.js';
 import { HomePage } from './pages/HomePage.js';
 import { PlaceholderPage } from './pages/PlaceholderPage.js';
@@ -17,9 +17,16 @@ export function App() {
     <Routes>
       <Route
         path="/sign-in/*"
-        element={<SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" />}
+        element={
+          <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" fallbackRedirectUrl="/" />
+        }
       />
-      <Route path="/sign-up/*" element={<SignIn routing="path" path="/sign-up" />} />
+      <Route
+        path="/sign-up/*"
+        element={
+          <SignUp routing="path" path="/sign-up" signInUrl="/sign-in" fallbackRedirectUrl="/" />
+        }
+      />
       <Route
         element={
           <>
@@ -35,18 +42,25 @@ export function App() {
         <Route path="/" element={<HomePage />} />
         <Route
           path="/clients"
-          element={<PlaceholderPage title="Clients" description="Per-client view of activity. Adds detail tabs in the next session." />}
+          element={
+            <PlaceholderPage
+              title="Clients"
+              description="Per-client view of activity. Adds detail tabs in the next session."
+            />
+          }
         />
         <Route
           path="/engagement"
-          element={<PlaceholderPage title="Engagement Manager" description="Cross-client engagement workbench — calendars, meetings, outreach." />}
+          element={
+            <PlaceholderPage
+              title="Engagement Manager"
+              description="Cross-client engagement workbench - calendars, meetings, outreach."
+            />
+          }
         />
         <Route path="/workspace" element={<PlaceholderPage title="Workspace" />} />
         <Route path="/intelligence" element={<PlaceholderPage title="Intelligence" />} />
-        <Route
-          path="/directory"
-          element={<DirectoryPage />}
-        />
+        <Route path="/directory" element={<DirectoryPage />} />
         <Route path="/portal" element={<PlaceholderPage title="Client Portal" />} />
 
         {/* Settings hosts personal + admin + capiro-admin tabs. Tabs are
@@ -67,7 +81,12 @@ export function App() {
         <Route path="/admin/*" element={<Navigate to="/settings/team" replace />} />
         <Route path="/capiro-admin" element={<Navigate to="/settings/tenants" replace />} />
 
-        <Route path="*" element={<PlaceholderPage title="Not found" description="404 — this page doesn't exist." />} />
+        <Route
+          path="*"
+          element={
+            <PlaceholderPage title="Not found" description="404 - this page doesn't exist." />
+          }
+        />
       </Route>
     </Routes>
   );
