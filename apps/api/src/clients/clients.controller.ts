@@ -1,12 +1,15 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import {
   IsEmail,
+  IsIn,
+  IsInt,
   IsObject,
   IsOptional,
-  IsPhoneNumber,
   IsString,
   IsUrl,
   Length,
+  Max,
+  Min,
   MinLength,
 } from 'class-validator';
 import type { TenantContext } from '@capiro/shared';
@@ -88,6 +91,26 @@ class UpdateClientDto {
   status?: string;
 }
 
+class ClientLogoUploadUrlDto {
+  @IsString()
+  @IsIn(['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'])
+  contentType!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(2 * 1024 * 1024)
+  contentLength!: number;
+}
+
+class ConfirmClientLogoUploadDto {
+  @IsString()
+  s3Key!: string;
+
+  @IsString()
+  @IsIn(['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'])
+  contentType!: string;
+}
+
 /**
  * Clients API — the lobbying firm's customer records.
  *
@@ -130,5 +153,23 @@ export class ClientsController {
   @Roles('user_admin')
   archive(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.archive(ctx, id);
+  }
+
+  @Post(':id/logo/upload-url')
+  createLogoUploadUrl(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: ClientLogoUploadUrlDto,
+  ) {
+    return this.service.createLogoUploadUrl(ctx, id, body.contentType, body.contentLength);
+  }
+
+  @Post(':id/logo/confirm')
+  confirmLogoUpload(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: ConfirmClientLogoUploadDto,
+  ) {
+    return this.service.confirmLogoUpload(ctx, id, body.s3Key, body.contentType);
   }
 }

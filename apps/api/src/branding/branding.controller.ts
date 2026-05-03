@@ -28,7 +28,7 @@ class ConfirmUploadDto {
 
 @Controller('tenant-admin/branding')
 @UseGuards(RolesGuard)
-@Roles('user_admin')
+@Roles('standard_user')
 export class BrandingController {
   constructor(private readonly service: BrandingService) {}
 
@@ -38,11 +38,13 @@ export class BrandingController {
   }
 
   @Post('logo/upload-url')
+  @Roles('user_admin')
   uploadUrl(@CurrentTenant() ctx: TenantContext, @Body() body: UploadUrlDto) {
     return this.service.createLogoUploadUrl(ctx, body.contentType, body.contentLength);
   }
 
   @Post('logo/confirm')
+  @Roles('user_admin')
   confirm(@CurrentTenant() ctx: TenantContext, @Body() body: ConfirmUploadDto) {
     return this.service.confirmLogoUpload(ctx, body.s3Key, body.contentType);
   }

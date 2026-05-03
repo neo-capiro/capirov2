@@ -62,9 +62,17 @@ body {
   min-width: 0;
 }
 
+.app-header-tenant-logo {
+  display: block;
+  max-width: 42px;
+  height: 42px;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
 .app-header-tenant-name {
   color: #111827 !important;
-  font-size: 18px;
+  font-size: 20px;
   line-height: 1;
 }
 
@@ -362,7 +370,7 @@ body {
 }
 
 .directory-profile-modal .ant-modal-close {
-  color: #fff;
+  color: #344054;
 }
 
 .directory-profile-hero {
@@ -371,8 +379,8 @@ body {
   gap: 18px;
   align-items: center;
   padding: 38px 42px;
-  color: #f8fafc;
-  background: linear-gradient(135deg, #141824 0%, #242839 60%, #303646 100%);
+  color: #111827;
+  background: linear-gradient(135deg, #f4f7fb 0%, #e5ebf4 58%, #d7e1ee 100%);
 }
 
 .directory-profile-photo {
@@ -389,18 +397,18 @@ body {
 
 .directory-profile-main h2 {
   margin: 0;
-  color: #fff;
+  color: #111827;
   letter-spacing: 0;
 }
 
 .directory-profile-main .ant-typography {
-  color: #dce3ef;
+  color: #344054;
 }
 
 .directory-profile-member-tag {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.2);
+  color: #243a73;
+  background: #eef3ff;
+  border-color: #cbd7ff;
 }
 
 .directory-profile-actions {
@@ -408,9 +416,9 @@ body {
 }
 
 .directory-profile-actions .ant-btn {
-  border-color: rgba(255, 255, 255, 0.32);
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
+  border-color: #cbd5e1;
+  color: #243a73;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .directory-profile-tabs {
@@ -554,7 +562,17 @@ body {
 }
 
 .client-search {
+  max-width: 520px;
   border-radius: 8px;
+}
+
+.client-search-row {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.client-sort-select {
+  min-width: 190px;
 }
 
 .client-card-grid {
@@ -582,6 +600,7 @@ body {
   font: inherit;
   text-align: left;
   cursor: pointer;
+  user-select: none;
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
@@ -623,11 +642,17 @@ body {
 }
 
 .client-card-title .ant-typography,
+.client-card-title a,
 .client-detail-pair .ant-typography,
 .client-card-footer .ant-typography {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.client-card-title a {
+  color: #2454a6;
+  font-size: 13px;
 }
 
 .client-card-menu {
@@ -668,8 +693,8 @@ body {
 }
 
 .client-card-footer {
-  display: grid;
-  grid-template-columns: minmax(74px, auto) minmax(74px, 1fr) minmax(88px, 1fr);
+  display: flex;
+  justify-content: flex-end;
   gap: 10px;
   align-items: center;
   margin-top: auto;
@@ -758,20 +783,20 @@ body {
   gap: 18px;
   align-items: center;
   padding: 38px 42px;
-  color: #f8fafc;
-  background: linear-gradient(135deg, #141824 0%, #242839 60%, #303646 100%);
+  color: #111827;
+  background: linear-gradient(135deg, #f4f7fb 0%, #e5ebf4 58%, #d7e1ee 100%);
 }
 
 .client-back-button {
   align-self: center;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
+  color: #243a73;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .client-back-button:hover,
 .client-back-button:focus-visible {
-  color: #fff !important;
-  background: rgba(255, 255, 255, 0.16) !important;
+  color: #111827 !important;
+  background: #fff !important;
 }
 
 .client-profile-title {
@@ -783,12 +808,25 @@ body {
 
 .client-profile-title h3 {
   margin: 0;
-  color: #fff;
+  color: #111827;
   letter-spacing: 0;
 }
 
 .client-profile-title .ant-typography {
-  color: #dce3ef;
+  color: #344054;
+}
+
+.client-profile-contact-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.client-profile-contact-strip a {
+  color: #2454a6;
 }
 
 .client-profile-actions {
@@ -796,21 +834,21 @@ body {
 }
 
 .client-profile-actions .ant-btn {
-  border-color: rgba(255, 255, 255, 0.32);
-  color: #fff;
-  background: rgba(255, 255, 255, 0.08);
+  border-color: #cbd5e1;
+  color: #243a73;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .client-profile-actions .ant-btn-primary {
-  border-color: rgba(255, 255, 255, 0.32);
+  border-color: #243a73;
   color: #fff;
-  background: rgba(255, 255, 255, 0.12);
+  background: #243a73;
 }
 
 .client-profile-hero .client-tag-row .ant-tag {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.2);
+  color: #243a73;
+  background: rgba(255, 255, 255, 0.72);
+  border-color: #cbd5e1;
 }
 
 .client-profile-tabs {
@@ -823,7 +861,7 @@ body {
 
 .client-overview-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr) minmax(260px, 1fr);
+  grid-template-columns: minmax(320px, 1.2fr) minmax(320px, 1fr);
   gap: 16px;
 }
 
@@ -852,6 +890,18 @@ body {
   font-weight: 600;
 }
 
+.client-detail-pair .ant-typography:first-child,
+.client-profile-row .ant-typography:first-child {
+  color: #475467 !important;
+  font-weight: 800;
+}
+
+.client-profile-row .ant-typography:last-child {
+  max-height: 112px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+
 .client-document-list {
   display: flex;
   flex-direction: column;
@@ -867,6 +917,10 @@ body {
   border: 1px solid #e7edf5;
   border-radius: 8px;
   background: #fbfcfe;
+}
+
+.client-document-list--full .client-document-row {
+  grid-template-columns: 42px minmax(0, 1fr) auto;
 }
 
 .client-document-row > div {
@@ -890,6 +944,64 @@ body {
   background: #e9eef5;
   font-size: 11px;
   font-weight: 800;
+}
+
+.client-tab-panel {
+  box-shadow: none;
+}
+
+.client-tab-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.client-tab-toolbar h5 {
+  margin: 0;
+}
+
+.client-tab-toolbar .ant-input {
+  max-width: 180px;
+}
+
+.client-engagement-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.client-engagement-row {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.client-engagement-row > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.client-engagement-row p {
+  margin: 4px 0 0;
+  color: #5f6b7a;
+}
+
+.client-engagement-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  color: #243a73;
+  border-radius: 8px;
+  background: #eef3ff;
 }
 
 .client-timeline {

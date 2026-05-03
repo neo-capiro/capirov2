@@ -1,5 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { TenantContext } from '@capiro/shared';
+import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 export interface CreateClientInput {
@@ -15,19 +20,32 @@ export interface CreateClientInput {
 
 export type UpdateClientInput = Partial<CreateClientInput> & { status?: string };
 
+const ALLOWED_LOGO_MIME = new Set(['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp']);
+const MAX_LOGO_BYTES = 2 * 1024 * 1024;
+
 /**
- * The lobbying firm's book of business. Tenant-scoped via RLS — the database
+ * The lobbying firm's book of business. Tenant-scoped via RLS - the database
  * itself enforces isolation, the service just wires `withTenant` so the GUC
  * is set on every query.
  */
 @Injectable()
 export class ClientsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly s3: S3Client;
+  private readonly bucket?: string;
 
-  list(ctx: TenantContext) {
-    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+  constructor(
+    private readonly prisma: PrismaService,
+    config: ConfigService<AppConfig, true>,
+  ) {
+    this.bucket = config.get('ASSETS_BUCKET', { infer: true });
+    this.s3 = new S3Client({ region: config.get('AWS_REGION_DEFAULT', { infer: true }) });
+  }
+
+  async list(ctx: TenantContext) {
+    const clients = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.client.findMany({ orderBy: { createdAt: 'desc' } }),
     );
+    return this.withLogoUrls(clients);
   }
 
   async get(ctx: TenantContext, id: string) {
@@ -35,11 +53,11 @@ export class ClientsService {
       tx.client.findUnique({ where: { id } }),
     );
     if (!client) throw new NotFoundException('Client not found');
-    return client;
+    return this.withLogoUrl(client);
   }
 
-  create(ctx: TenantContext, input: CreateClientInput) {
-    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+  async create(ctx: TenantContext, input: CreateClientInput) {
+    const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.client.create({
         data: {
           tenantId: ctx.tenantId,
@@ -55,10 +73,11 @@ export class ClientsService {
         },
       }),
     );
+    return this.withLogoUrl(client);
   }
 
-  update(ctx: TenantContext, id: string, input: UpdateClientInput) {
-    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+  async update(ctx: TenantContext, id: string, input: UpdateClientInput) {
+    const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.client.update({
         where: { id },
         data: {
@@ -82,9 +101,99 @@ export class ClientsService {
         },
       }),
     );
+    return this.withLogoUrl(client);
   }
 
   archive(ctx: TenantContext, id: string) {
     return this.update(ctx, id, { status: 'archived' });
+  }
+
+  async createLogoUploadUrl(
+    ctx: TenantContext,
+    clientId: string,
+    contentType: string,
+    contentLength: number,
+  ) {
+    if (!this.bucket) throw new BadRequestException('Asset uploads are not configured');
+    if (!ALLOWED_LOGO_MIME.has(contentType)) {
+      throw new BadRequestException(`Unsupported logo content type: ${contentType}`);
+    }
+    if (contentLength > MAX_LOGO_BYTES) {
+      throw new BadRequestException(`Logo must be <= ${MAX_LOGO_BYTES} bytes`);
+    }
+
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const client = await tx.client.findUnique({ where: { id: clientId }, select: { id: true } });
+      if (!client) throw new NotFoundException('Client not found');
+    });
+
+    const ext = contentType === 'image/svg+xml' ? 'svg' : (contentType.split('/')[1] ?? 'png');
+    const s3Key = `tenants/${ctx.tenantId}/clients/${clientId}/logo.${ext}`;
+    const presigned = await createPresignedPost(this.s3, {
+      Bucket: this.bucket,
+      Key: s3Key,
+      Conditions: [
+        ['content-length-range', 1, MAX_LOGO_BYTES],
+        ['eq', '$Content-Type', contentType],
+        ['starts-with', '$key', `tenants/${ctx.tenantId}/clients/${clientId}/`],
+      ],
+      Fields: { 'Content-Type': contentType },
+      Expires: 300,
+    });
+    return { ...presigned, s3Key };
+  }
+
+  async confirmLogoUpload(
+    ctx: TenantContext,
+    clientId: string,
+    s3Key: string,
+    contentType: string,
+  ) {
+    if (!this.bucket) throw new BadRequestException('Assets bucket not configured');
+    if (!s3Key.startsWith(`tenants/${ctx.tenantId}/clients/${clientId}/`)) {
+      throw new BadRequestException('Logo key is outside the client tenant prefix');
+    }
+    if (!ALLOWED_LOGO_MIME.has(contentType)) {
+      throw new BadRequestException(`Unsupported logo content type: ${contentType}`);
+    }
+
+    const head = await this.s3
+      .send(new HeadObjectCommand({ Bucket: this.bucket, Key: s3Key }))
+      .catch(() => null);
+    if (!head) throw new BadRequestException('Uploaded logo not found in S3');
+
+    const updated = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.client.update({
+        where: { id: clientId },
+        data: {
+          logoS3Key: s3Key,
+          logoContentType: contentType,
+          logoUploadedAt: new Date(),
+        },
+      }),
+    );
+    return this.withLogoUrl(updated);
+  }
+
+  private async withLogoUrls<T extends { logoS3Key: string | null }>(
+    clients: T[],
+  ): Promise<Array<T & { logoUrl: string | null }>> {
+    return Promise.all(clients.map((client) => this.withLogoUrl(client)));
+  }
+
+  private async withLogoUrl<T extends { logoS3Key: string | null }>(
+    client: T,
+  ): Promise<T & { logoUrl: string | null }> {
+    return {
+      ...client,
+      logoUrl: client.logoS3Key ? await this.signedGetUrl(client.logoS3Key) : null,
+    };
+  }
+
+  private async signedGetUrl(s3Key: string, ttlSeconds = 300): Promise<string | null> {
+    if (!this.bucket) return null;
+    return getSignedUrl(this.s3, new GetObjectCommand({ Bucket: this.bucket, Key: s3Key }), {
+      expiresIn: ttlSeconds,
+    });
   }
 }

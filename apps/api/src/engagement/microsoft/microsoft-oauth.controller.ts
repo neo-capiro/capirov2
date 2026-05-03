@@ -3,6 +3,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  Param,
   Post,
   Query,
   Res,
@@ -14,6 +16,7 @@ import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../../auth/roles.decorator.js';
 import { RolesGuard } from '../../auth/roles.guard.js';
 import { CurrentTenant } from '../../tenant/current-tenant.decorator.js';
+import { MicrosoftGraphSyncService } from './microsoft-graph-sync.service.js';
 import { MicrosoftOAuthService } from './microsoft-oauth.service.js';
 
 class StartOAuthDto {
@@ -33,7 +36,10 @@ class StartOAuthDto {
 
 @Controller('engagement/integrations/microsoft')
 export class MicrosoftOAuthController {
-  constructor(private readonly oauth: MicrosoftOAuthService) {}
+  constructor(
+    private readonly oauth: MicrosoftOAuthService,
+    private readonly graphSync: MicrosoftGraphSyncService,
+  ) {}
 
   @Get('capabilities')
   @UseGuards(RolesGuard)
@@ -49,6 +55,55 @@ export class MicrosoftOAuthController {
   @Roles('user_admin')
   start(@CurrentTenant() ctx: TenantContext, @Body() body: StartOAuthDto) {
     return this.oauth.start(ctx, body);
+  }
+
+  @Post(':connectionId/sync')
+  @UseGuards(RolesGuard)
+  @Roles('user_admin')
+  sync(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('connectionId') connectionId: string,
+    @Query('reset') reset: string | undefined,
+  ): Promise<unknown> {
+    return this.graphSync.syncConnection(ctx, connectionId, {
+      reset: reset === '1' || reset === 'true',
+    });
+  }
+
+  @Post(':connectionId/subscriptions')
+  @UseGuards(RolesGuard)
+  @Roles('user_admin')
+  subscriptions(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('connectionId') connectionId: string,
+  ): Promise<unknown> {
+    return this.graphSync.configureSubscriptions(ctx, connectionId);
+  }
+
+  @Get('notifications')
+  validateGet(@Query('validationToken') validationToken: string | undefined, @Res() res: Response) {
+    if (validationToken) {
+      res.type('text/plain').status(200).send(validationToken);
+      return;
+    }
+    res.status(200).json({ ok: true });
+  }
+
+  @Post('notifications')
+  @HttpCode(202)
+  async notifications(
+    @Query('validationToken') validationToken: string | undefined,
+    @Body() body: unknown,
+    @Res() res: Response,
+  ): Promise<void> {
+    if (validationToken) {
+      res.type('text/plain').status(200).send(validationToken);
+      return;
+    }
+    const result = await this.graphSync.handleNotifications(
+      body && typeof body === 'object' ? (body as { value?: never[] }) : {},
+    );
+    res.status(202).json(result);
   }
 
   // Microsoft redirects the browser here with ?code&state. We exchange the

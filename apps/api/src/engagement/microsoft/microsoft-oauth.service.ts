@@ -11,18 +11,14 @@ import {
   type AuthenticationResult,
   type Configuration,
 } from '@azure/msal-node';
-import {
-  EngagementConnectionStatus,
-  EngagementProvider,
-  Prisma,
-} from '@prisma/client';
+import { EngagementConnectionStatus, EngagementProvider, Prisma } from '@prisma/client';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../../config/config.schema.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { TokenCryptoService } from './token-crypto.service.js';
 
-const MICROSOFT_SCOPES = ['offline_access', 'User.Read', 'Mail.Read', 'Calendars.Read'];
+export const MICROSOFT_SCOPES = ['offline_access', 'User.Read', 'Mail.Read', 'Calendars.Read'];
 const STATE_TTL_SECONDS = 600;
 
 export interface MicrosoftAuthStartInput {
@@ -74,11 +70,11 @@ export class MicrosoftOAuthService {
   capabilities() {
     const ready = Boolean(
       this.clientId &&
-        this.tenantId &&
-        this.thumbprint &&
-        this.privateKey &&
-        this.stateSecret &&
-        this.tokenCrypto.isConfigured(),
+      this.tenantId &&
+      this.thumbprint &&
+      this.privateKey &&
+      this.stateSecret &&
+      this.tokenCrypto.isConfigured(),
     );
     return {
       configured: ready,
@@ -246,7 +242,9 @@ export class MicrosoftOAuthService {
       const last = entries[entries.length - 1];
       return last?.secret;
     } catch (err) {
-      this.logger.warn(`Failed to extract refresh token from MSAL cache: ${(err as Error).message}`);
+      this.logger.warn(
+        `Failed to extract refresh token from MSAL cache: ${(err as Error).message}`,
+      );
       return undefined;
     } finally {
       // Discard the cache so the next OAuth flow starts clean.
@@ -314,7 +312,7 @@ export class MicrosoftOAuthService {
   }
 }
 
-function normalizePem(value: string): string {
+export function normalizePem(value: string): string {
   const trimmed = value.trim();
   if (trimmed.startsWith('-----BEGIN')) return trimmed;
   // Assume base64-encoded PEM transported via env var.

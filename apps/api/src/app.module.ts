@@ -69,6 +69,14 @@ export class AppModule implements NestModule {
           path: 'api/engagement/integrations/microsoft/callback',
           method: RequestMethod.GET,
         },
+        {
+          path: '/api/engagement/integrations/microsoft/notifications',
+          method: RequestMethod.ALL,
+        },
+        {
+          path: 'api/engagement/integrations/microsoft/notifications',
+          method: RequestMethod.ALL,
+        },
       )
       .forRoutes('*');
   }

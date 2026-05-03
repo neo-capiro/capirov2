@@ -1,6 +1,13 @@
-import { useEffect } from 'react';
-import { Col, Divider, Form, Input, Modal, Row } from 'antd';
-import type { Client, ClientDocument, ClientFormValues, ClientPayload } from './clientTypes.js';
+import { useEffect, useState } from 'react';
+import { UploadOutlined } from '@ant-design/icons';
+import { Button, Col, Divider, Form, Input, Modal, Row, Upload, type UploadFile } from 'antd';
+import type {
+  Client,
+  ClientDocument,
+  ClientFormSubmit,
+  ClientFormValues,
+  ClientPayload,
+} from './clientTypes.js';
 
 interface ClientFormModalProps {
   open: boolean;
@@ -8,7 +15,7 @@ interface ClientFormModalProps {
   client?: Client | null;
   submitting: boolean;
   onCancel: () => void;
-  onSubmit: (payload: ClientPayload) => void;
+  onSubmit: (submission: ClientFormSubmit) => void;
 }
 
 export function ClientFormModal({
@@ -20,11 +27,15 @@ export function ClientFormModal({
   onSubmit,
 }: ClientFormModalProps) {
   const [form] = Form.useForm<ClientFormValues>();
+  const [documentFiles, setDocumentFiles] = useState<UploadFile[]>([]);
+  const [logoFiles, setLogoFiles] = useState<UploadFile[]>([]);
 
   useEffect(() => {
     if (!open) return;
     form.resetFields();
     form.setFieldsValue(clientToFormValues(client ?? undefined));
+    setDocumentFiles([]);
+    setLogoFiles([]);
   }, [client, form, open]);
 
   return (
@@ -40,7 +51,15 @@ export function ClientFormModal({
       <Form
         form={form}
         layout="vertical"
-        onFinish={(values) => onSubmit(formValuesToClientPayload(values))}
+        onFinish={(values) =>
+          onSubmit({
+            payload: formValuesToClientPayload(values),
+            documents: documentFiles
+              .map(uploadFileToFile)
+              .filter((file): file is File => Boolean(file)),
+            logo: uploadFileToFile(logoFiles[0]),
+          })
+        }
       >
         <Row gutter={16}>
           <Col xs={24} md={12}>
@@ -69,7 +88,12 @@ export function ClientFormModal({
           </Col>
           <Col xs={24} md={12}>
             <Form.Item name="primaryContactPhone" label="Primary contact phone">
-              <Input />
+              <Input
+                placeholder="+1 202-555-0142"
+                onBlur={(event) =>
+                  form.setFieldValue('primaryContactPhone', formatPhone(event.target.value))
+                }
+              />
             </Form.Item>
           </Col>
           <Col xs={24} md={12}>
@@ -87,7 +111,12 @@ export function ClientFormModal({
           </Col>
           <Col xs={24} md={8}>
             <Form.Item name="fundingAsk" label="Funding ask">
-              <Input placeholder="$50M" />
+              <Input
+                placeholder="$15,000.00"
+                onBlur={(event) =>
+                  form.setFieldValue('fundingAsk', formatMoney(event.target.value))
+                }
+              />
             </Form.Item>
           </Col>
           <Col xs={24} md={8}>
@@ -112,10 +141,10 @@ export function ClientFormModal({
         </Form.Item>
 
         <Form.Item name="description" label="Description">
-          <Input.TextArea rows={3} />
+          <Input.TextArea rows={3} maxLength={600} showCount />
         </Form.Item>
         <Form.Item name="productDescription" label="Product / service description">
-          <Input.TextArea rows={3} />
+          <Input.TextArea rows={3} maxLength={600} showCount />
         </Form.Item>
 
         <Divider orientation="left" plain>
@@ -138,11 +167,38 @@ export function ClientFormModal({
             </Form.Item>
           </Col>
           <Col xs={24}>
-            <Form.Item name="documentsText" label="Documents">
-              <Input.TextArea
-                rows={3}
-                placeholder={'Foo Defense capabilities brief.pdf\nMeeting notes - Apr 14.docx'}
-              />
+            <Form.Item label="Client logo">
+              <Upload
+                accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                fileList={logoFiles}
+                maxCount={1}
+                beforeUpload={(file) => {
+                  setLogoFiles([file]);
+                  return false;
+                }}
+                onRemove={() => {
+                  setLogoFiles([]);
+                }}
+              >
+                <Button icon={<UploadOutlined />}>Select logo</Button>
+              </Upload>
+            </Form.Item>
+          </Col>
+          <Col xs={24}>
+            <Form.Item label="Documents">
+              <Upload
+                multiple
+                fileList={documentFiles}
+                beforeUpload={(file) => {
+                  setDocumentFiles((current) => [...current, file]);
+                  return false;
+                }}
+                onRemove={(file) => {
+                  setDocumentFiles((current) => current.filter((item) => item.uid !== file.uid));
+                }}
+              >
+                <Button icon={<UploadOutlined />}>Select documents</Button>
+              </Upload>
             </Form.Item>
           </Col>
         </Row>
@@ -161,12 +217,11 @@ export function formValuesToClientPayload(values: ClientFormValues): ClientPaylo
   const intakeData = compactObject({
     sector: optionalText(values.sector),
     trl: optionalText(values.trl),
-    fundingAsk: optionalText(values.fundingAsk),
+    fundingAsk: formatMoney(values.fundingAsk),
     requestType: optionalText(values.requestType),
     peNumber: optionalText(values.peNumber),
     engagement: optionalText(values.engagement),
     portfolio: parseCommaList(values.portfolioText),
-    documents: parseDocumentLines(values.documentsText),
     governmentHistory,
   });
 
@@ -178,7 +233,7 @@ export function formValuesToClientPayload(values: ClientFormValues): ClientPaylo
       productDescription: optionalText(values.productDescription),
       primaryContactName: optionalText(values.primaryContactName),
       primaryContactEmail: optionalText(values.primaryContactEmail),
-      primaryContactPhone: optionalText(values.primaryContactPhone),
+      primaryContactPhone: formatPhone(values.primaryContactPhone),
     }),
   };
   payload.intakeData = intakeData;
@@ -207,7 +262,6 @@ export function clientToFormValues(client?: Client): ClientFormValues {
     peNumber: readText(intake, ['peNumber', 'pe_number', 'PE number']),
     engagement: readText(intake, ['engagement']),
     portfolioText: readList(intake, ['portfolio', 'tags']).join(', '),
-    documentsText: documentsToText(readDocuments(intake)),
     priorContracts: readText(governmentHistory, ['priorContracts', 'prior_contracts']),
     grants: readText(governmentHistory, ['grants']),
     priorEngagement: readText(governmentHistory, ['priorEngagement', 'prior_engagement']),
@@ -217,6 +271,34 @@ export function clientToFormValues(client?: Client): ClientFormValues {
 function optionalText(value: unknown): string | undefined {
   const text = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
   return text.length ? text : undefined;
+}
+
+function uploadFileToFile(file?: UploadFile): File | undefined {
+  return (file?.originFileObj as File | undefined) ?? (file as unknown as File | undefined);
+}
+
+function formatMoney(value: unknown): string | undefined {
+  const text = optionalText(value);
+  if (!text) return undefined;
+  const compact = text.replace(/[$,\s]/g, '').toLowerCase();
+  const multiplier = compact.endsWith('k') ? 1_000 : compact.endsWith('m') ? 1_000_000 : 1;
+  const numeric = Number(compact.replace(/[km]$/, '')) * multiplier;
+  if (!Number.isFinite(numeric)) return text;
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(numeric);
+}
+
+function formatPhone(value: unknown): string | undefined {
+  const text = optionalText(value);
+  if (!text) return undefined;
+  const digits = text.replace(/\D/g, '');
+  const normalized = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+  if (normalized.length !== 10) return text;
+  return `+1 ${normalized.slice(0, 3)}-${normalized.slice(3, 6)}-${normalized.slice(6)}`;
 }
 
 function parseCommaList(value: unknown): string[] {

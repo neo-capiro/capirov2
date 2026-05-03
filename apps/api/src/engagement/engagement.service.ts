@@ -5,8 +5,14 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { S3Client, HeadObjectCommand } from '@aws-sdk/client-s3';
+import {
+  S3Client,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+} from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import {
   AssociationEntityType,
   EngagementConnectionStatus,
@@ -320,7 +326,10 @@ export class EngagementService {
           ...(query.clientId ? { clientId: query.clientId } : {}),
           status: { not: EngagementTaskStatus.canceled },
         },
-        include: { client: clientSummarySelect(), meeting: { select: { id: true, subject: true } } },
+        include: {
+          client: clientSummarySelect(),
+          meeting: { select: { id: true, subject: true } },
+        },
         orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
       }),
     );
@@ -397,7 +406,11 @@ export class EngagementService {
         include: {
           client: true,
           attendees: true,
-          tasks: { where: { status: { notIn: [EngagementTaskStatus.done, EngagementTaskStatus.canceled] } } },
+          tasks: {
+            where: {
+              status: { notIn: [EngagementTaskStatus.done, EngagementTaskStatus.canceled] },
+            },
+          },
         },
       });
       if (!meeting) throw new NotFoundException('Meeting not found');
@@ -467,12 +480,18 @@ export class EngagementService {
 
   async overrideAssociation(ctx: TenantContext, input: AssociationOverrideInput) {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
-      await ensureExists(tx.client.findUnique({ where: { id: input.clientId } }), 'Client not found');
+      await ensureExists(
+        tx.client.findUnique({ where: { id: input.clientId } }),
+        'Client not found',
+      );
 
       if (input.entityType === AssociationEntityType.meeting) {
         const existing = await tx.meeting.findUnique({ where: { id: input.entityId } });
         if (!existing) throw new NotFoundException('Meeting not found');
-        await tx.meeting.update({ where: { id: input.entityId }, data: { clientId: input.clientId } });
+        await tx.meeting.update({
+          where: { id: input.entityId },
+          data: { clientId: input.clientId },
+        });
         return tx.clientAssociationOverride.create({
           data: {
             tenantId: ctx.tenantId,
@@ -582,7 +601,9 @@ export class EngagementService {
       throw new BadRequestException(`Attachment must be <= ${MAX_ATTACHMENT_BYTES} bytes`);
     }
     if (!input.clientId && !input.meetingId && !input.mailMessageId) {
-      throw new BadRequestException('Attachment must be linked to a client, meeting, or mail message');
+      throw new BadRequestException(
+        'Attachment must be linked to a client, meeting, or mail message',
+      );
     }
 
     const safeName = safeFileName(input.fileName);
@@ -628,6 +649,58 @@ export class EngagementService {
         },
       }),
     );
+  }
+
+  async listAttachments(
+    ctx: TenantContext,
+    query: { clientId?: string; meetingId?: string; mailMessageId?: string },
+  ) {
+    if (!query.clientId && !query.meetingId && !query.mailMessageId) {
+      throw new BadRequestException('At least one attachment parent is required');
+    }
+    const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementAttachment.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          ...(query.clientId ? { clientId: query.clientId } : {}),
+          ...(query.meetingId ? { meetingId: query.meetingId } : {}),
+          ...(query.mailMessageId ? { mailMessageId: query.mailMessageId } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+    return Promise.all(
+      rows.map(async (row) => ({
+        ...row,
+        downloadUrl: await this.createAttachmentDownloadUrl(row.s3Key),
+      })),
+    );
+  }
+
+  async deleteAttachment(ctx: TenantContext, id: string) {
+    const attachment = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const row = await tx.engagementAttachment.findUnique({ where: { id } });
+      if (!row) throw new NotFoundException('Attachment not found');
+      return row;
+    });
+
+    if (this.bucket) {
+      await this.s3
+        .send(new DeleteObjectCommand({ Bucket: this.bucket, Key: attachment.s3Key }))
+        .catch(() => undefined);
+    }
+
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementAttachment.delete({ where: { id } }),
+    );
+    return { ok: true };
+  }
+
+  private async createAttachmentDownloadUrl(s3Key: string): Promise<string | null> {
+    if (!this.bucket) return null;
+    return getSignedUrl(this.s3, new GetObjectCommand({ Bucket: this.bucket, Key: s3Key }), {
+      expiresIn: 300,
+    });
   }
 
   private async upsertAttendeeContacts(

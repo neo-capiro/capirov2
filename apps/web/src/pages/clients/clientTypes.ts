@@ -26,6 +26,10 @@ export interface Client {
   primaryContactName: string | null;
   primaryContactEmail: string | null;
   primaryContactPhone: string | null;
+  logoS3Key: string | null;
+  logoContentType: string | null;
+  logoUploadedAt: string | null;
+  logoUrl?: string | null;
   intakeData: ClientIntakeData | null;
   status: string;
   createdAt: string;
@@ -43,6 +47,19 @@ export interface ClientPayload {
   intakeData?: Record<string, unknown>;
 }
 
+export interface ClientAttachment {
+  id: string;
+  clientId: string | null;
+  meetingId: string | null;
+  mailMessageId: string | null;
+  fileName: string;
+  contentType: string;
+  byteSize: number | null;
+  source: string;
+  createdAt: string;
+  downloadUrl: string | null;
+}
+
 export interface ClientFormValues {
   name?: string;
   website?: string;
@@ -58,8 +75,13 @@ export interface ClientFormValues {
   peNumber?: string;
   engagement?: string;
   portfolioText?: string;
-  documentsText?: string;
   priorContracts?: string;
   grants?: string;
   priorEngagement?: string;
+}
+
+export interface ClientFormSubmit {
+  payload: ClientPayload;
+  documents: File[];
+  logo?: File;
 }

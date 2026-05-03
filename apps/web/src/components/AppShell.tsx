@@ -12,9 +12,11 @@ import {
   SettingOutlined,
   UserSwitchOutlined,
 } from '@ant-design/icons';
-import { OrganizationSwitcher, UserButton, useUser } from '@clerk/clerk-react';
+import { UserButton, useUser } from '@clerk/clerk-react';
+import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Layout, Menu, Space, Tag, Tooltip, Typography } from 'antd';
 import { useMe } from '../lib/me.js';
+import { useApi } from '../lib/use-api.js';
 import { useImpersonation } from '../state/impersonation.js';
 
 const { Header, Sider, Content } = Layout;
@@ -121,6 +123,7 @@ const NAV: NavItem[] = [
 ];
 
 export function AppShell() {
+  const api = useApi();
   const me = useMe();
   const { user } = useUser();
   const location = useLocation();
@@ -134,6 +137,13 @@ export function AppShell() {
     user?.primaryEmailAddress?.emailAddress ||
     'Account';
   const tenantName = me.data?.tenant.name || me.data?.tenant.slug;
+  const branding = useQuery<{ name: string; logoUrl?: string | null }>({
+    queryKey: ['branding'],
+    queryFn: async () => (await api.get('/api/tenant-admin/branding')).data,
+    staleTime: 60_000,
+    enabled: Boolean(me.data),
+  });
+  const displayedTenantName = branding.data?.name || tenantName;
 
   const items = useMemo(
     () =>
@@ -257,22 +267,21 @@ export function AppShell() {
           <Space className="app-header-tenant" size={10} wrap>
             {me.data ? (
               <>
+                {branding.data?.logoUrl ? (
+                  <img src={branding.data.logoUrl} alt="" className="app-header-tenant-logo" />
+                ) : null}
                 <Typography.Text className="app-header-tenant-name" strong>
-                  {tenantName}
+                  {displayedTenantName}
                 </Typography.Text>
-                <Tag color={me.data.role === 'capiro_admin' ? 'gold' : 'default'}>
-                  {me.data.role.replace(/_/g, ' ')}
-                </Tag>
                 {actAsTenantSlug ? (
                   <Tag color="default" closable onClose={endImpersonation}>
-                    impersonating {actAsTenantSlug}
+                    Impersonation active
                   </Tag>
                 ) : null}
               </>
             ) : null}
           </Space>
           <Space className="app-header-account" size="middle">
-            <OrganizationSwitcher hidePersonal appearance={CLERK_APPEARANCE} />
             <div className="app-account-trigger">
               <Typography.Text className="app-account-name">{displayName}</Typography.Text>
               <UserButton afterSignOutUrl="/sign-in" appearance={CLERK_APPEARANCE} />

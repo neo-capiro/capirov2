@@ -55,9 +55,11 @@ export const configSchema = z.object({
     .string()
     .url()
     .default('https://app.capiro.ai/api/engagement/integrations/microsoft/callback'),
-  MICROSOFT_OAUTH_SUCCESS_REDIRECT: z
+  MICROSOFT_OAUTH_SUCCESS_REDIRECT: z.string().default('/settings/integrations'),
+  MICROSOFT_GRAPH_NOTIFICATION_URL: z
     .string()
-    .default('/settings/integrations'),
+    .url()
+    .default('https://app.capiro.ai/api/engagement/integrations/microsoft/notifications'),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

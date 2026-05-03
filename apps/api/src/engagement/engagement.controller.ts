@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -27,11 +28,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import {
-  AssociationEntityType,
-  EngagementProvider,
-  EngagementTaskStatus,
-} from '@prisma/client';
+import { AssociationEntityType, EngagementProvider, EngagementTaskStatus } from '@prisma/client';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
@@ -379,10 +376,7 @@ export class EngagementController {
   }
 
   @Post('associations/override')
-  overrideAssociation(
-    @CurrentTenant() ctx: TenantContext,
-    @Body() body: AssociationOverrideDto,
-  ) {
+  overrideAssociation(@CurrentTenant() ctx: TenantContext, @Body() body: AssociationOverrideDto) {
     return this.service.overrideAssociation(ctx, body);
   }
 
@@ -402,5 +396,20 @@ export class EngagementController {
   @Post('attachments/confirm')
   confirmAttachment(@CurrentTenant() ctx: TenantContext, @Body() body: ConfirmAttachmentDto) {
     return this.service.confirmAttachment(ctx, body);
+  }
+
+  @Get('attachments')
+  attachments(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('clientId') clientId?: string,
+    @Query('meetingId') meetingId?: string,
+    @Query('mailMessageId') mailMessageId?: string,
+  ) {
+    return this.service.listAttachments(ctx, { clientId, meetingId, mailMessageId });
+  }
+
+  @Delete('attachments/:id')
+  deleteAttachment(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.deleteAttachment(ctx, id);
   }
 }

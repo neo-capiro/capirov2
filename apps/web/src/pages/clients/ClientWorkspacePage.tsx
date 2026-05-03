@@ -1,12 +1,17 @@
 import { useMemo, useState } from 'react';
 import {
   ArrowLeftOutlined,
-  CheckOutlined,
-  ClockCircleOutlined,
+  CalendarOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  LinkOutlined,
+  MailOutlined,
   MoreOutlined,
+  PhoneOutlined,
   PlusOutlined,
   SearchOutlined,
   SlidersOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import { hasAtLeast } from '@capiro/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -16,24 +21,27 @@ import {
   Button,
   Empty,
   Input,
+  Select,
   Skeleton,
   Space,
   Tabs,
   Tag,
   Tooltip,
   Typography,
+  Upload,
 } from 'antd';
 import { useApi } from '../../lib/use-api.js';
 import { useMe } from '../../lib/me.js';
 import { ClientFormModal } from './ClientFormModal.js';
-import type { Client, ClientDocument, ClientPayload } from './clientTypes.js';
+import type { Client, ClientAttachment, ClientDocument, ClientFormSubmit } from './clientTypes.js';
 
 const PROFILE_TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'contacts', label: 'Contacts', disabled: true },
-  { key: 'meetings', label: 'Meetings', disabled: true },
+  { key: 'meetings', label: 'Meetings' },
+  { key: 'mail', label: 'Mail' },
   { key: 'workflows', label: 'Workflows', disabled: true },
-  { key: 'documents', label: 'Documents', disabled: true },
+  { key: 'documents', label: 'Documents' },
   { key: 'compliance', label: 'Compliance', disabled: true },
 ];
 
@@ -43,6 +51,7 @@ export function ClientWorkspacePage() {
   const qc = useQueryClient();
   const { message, modal } = AntApp.useApp();
   const [search, setSearch] = useState('');
+  const [sortMode, setSortMode] = useState<'updated' | 'name' | 'sector'>('updated');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
@@ -63,7 +72,7 @@ export function ClientWorkspacePage() {
 
   const visibleClients = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return (clients.data ?? [])
+    const filtered = (clients.data ?? [])
       .filter((client) => client.status !== 'archived')
       .filter((client) => {
         if (!needle) return true;
@@ -80,24 +89,81 @@ export function ClientWorkspacePage() {
           .toLowerCase();
         return haystack.includes(needle);
       });
-  }, [clients.data, search]);
+    return filtered.sort((left, right) => {
+      if (sortMode === 'name') return left.name.localeCompare(right.name);
+      if (sortMode === 'sector') {
+        return (readText(intakeRecord(left), ['sector']) ?? '').localeCompare(
+          readText(intakeRecord(right), ['sector']) ?? '',
+        );
+      }
+      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    });
+  }, [clients.data, search, sortMode]);
+
+  const uploadClientLogo = async (clientId: string, file: File) => {
+    const presigned = (
+      await api.post<{ url: string; fields: Record<string, string>; s3Key: string }>(
+        `/api/clients/${clientId}/logo/upload-url`,
+        { contentType: file.type, contentLength: file.size },
+      )
+    ).data;
+    await uploadToS3(presigned, file);
+    await api.post(`/api/clients/${clientId}/logo/confirm`, {
+      s3Key: presigned.s3Key,
+      contentType: file.type,
+    });
+  };
+
+  const uploadClientDocuments = async (clientId: string, files: File[]) => {
+    for (const file of files) {
+      const presigned = (
+        await api.post<{ url: string; fields: Record<string, string>; s3Key: string }>(
+          '/api/engagement/attachments/upload-url',
+          {
+            clientId,
+            fileName: file.name,
+            contentType: file.type || 'application/octet-stream',
+            contentLength: file.size,
+          },
+        )
+      ).data;
+      await uploadToS3(presigned, file);
+      await api.post('/api/engagement/attachments/confirm', {
+        clientId,
+        fileName: file.name,
+        contentType: file.type || 'application/octet-stream',
+        s3Key: presigned.s3Key,
+      });
+    }
+  };
 
   const createClient = useMutation({
-    mutationFn: async (payload: ClientPayload) =>
-      (await api.post<Client>('/api/clients', payload)).data,
+    mutationFn: async (submission: ClientFormSubmit) => {
+      const created = (await api.post<Client>('/api/clients', submission.payload)).data;
+      if (submission.logo) await uploadClientLogo(created.id, submission.logo);
+      if (submission.documents.length)
+        await uploadClientDocuments(created.id, submission.documents);
+      return (await api.get<Client>(`/api/clients/${created.id}`)).data;
+    },
     onSuccess: (created) => {
       message.success('Client added');
       setModalMode(null);
       setEditingClient(null);
       setSelectedId(created.id);
       qc.invalidateQueries({ queryKey: ['clients'] });
+      qc.invalidateQueries({ queryKey: ['client-documents', created.id] });
     },
     onError: (err) => message.error((err as Error).message),
   });
 
   const updateClient = useMutation({
-    mutationFn: async ({ id, payload }: { id: string; payload: ClientPayload }) =>
-      (await api.put<Client>(`/api/clients/${id}`, payload)).data,
+    mutationFn: async ({ id, submission }: { id: string; submission: ClientFormSubmit }) => {
+      const updated = (await api.put<Client>(`/api/clients/${id}`, submission.payload)).data;
+      if (submission.logo) await uploadClientLogo(updated.id, submission.logo);
+      if (submission.documents.length)
+        await uploadClientDocuments(updated.id, submission.documents);
+      return (await api.get<Client>(`/api/clients/${updated.id}`)).data;
+    },
     onSuccess: (updated) => {
       message.success('Client updated');
       setModalMode(null);
@@ -105,6 +171,7 @@ export function ClientWorkspacePage() {
       setSelectedId(updated.id);
       qc.invalidateQueries({ queryKey: ['clients'] });
       qc.invalidateQueries({ queryKey: ['client', updated.id] });
+      qc.invalidateQueries({ queryKey: ['client-documents', updated.id] });
     },
     onError: (err) => message.error((err as Error).message),
   });
@@ -153,6 +220,16 @@ export function ClientWorkspacePage() {
           onBack={() => setSelectedId(null)}
           onEdit={openEdit}
           onRemove={confirmRemove}
+          onUploadLogo={async (client, file) => {
+            try {
+              await uploadClientLogo(client.id, file);
+              message.success('Client logo uploaded');
+              qc.invalidateQueries({ queryKey: ['clients'] });
+              qc.invalidateQueries({ queryKey: ['client', client.id] });
+            } catch (err) {
+              message.error(errorMessage(err));
+            }
+          }}
         />
       ) : (
         <section className="client-page">
@@ -161,9 +238,17 @@ export function ClientWorkspacePage() {
               Clients
             </Typography.Title>
             <Space>
-              <Button icon={<SlidersOutlined />} disabled>
-                Filter / Sort
-              </Button>
+              <Select
+                value={sortMode}
+                onChange={setSortMode}
+                className="client-sort-select"
+                suffixIcon={<SlidersOutlined />}
+                options={[
+                  { value: 'updated', label: 'Recently updated' },
+                  { value: 'name', label: 'Client name' },
+                  { value: 'sector', label: 'Sector' },
+                ]}
+              />
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
@@ -175,15 +260,17 @@ export function ClientWorkspacePage() {
             </Space>
           </div>
 
-          <Input
-            size="large"
-            prefix={<SearchOutlined />}
-            placeholder="Search clients..."
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            allowClear
-            className="client-search"
-          />
+          <div className="client-search-row">
+            <Input
+              size="large"
+              prefix={<SearchOutlined />}
+              placeholder="Search clients..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              allowClear
+              className="client-search"
+            />
+          </div>
 
           {clients.isLoading ? (
             <div className="client-card-grid">
@@ -229,12 +316,12 @@ export function ClientWorkspacePage() {
           setModalMode(null);
           setEditingClient(null);
         }}
-        onSubmit={(payload) => {
+        onSubmit={(submission) => {
           if (modalMode === 'edit' && editingClient) {
-            updateClient.mutate({ id: editingClient.id, payload });
+            updateClient.mutate({ id: editingClient.id, submission });
             return;
           }
-          createClient.mutate(payload);
+          createClient.mutate(submission);
         }}
       />
     </>
@@ -244,19 +331,40 @@ export function ClientWorkspacePage() {
 function ClientCard({ client, onClick }: { client: Client; onClick: () => void }) {
   const intake = intakeRecord(client);
   const tags = portfolioTags(client).slice(0, 3);
-  const workflows = readNumber(intake, ['workflowsCount', 'workflows']) ?? 0;
 
   return (
-    <button className="client-card" type="button" onClick={onClick}>
+    <article
+      className="client-card"
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') onClick();
+      }}
+    >
       <div className="client-card-topline">
-        <Avatar shape="square" size={52} className="client-avatar">
+        <Avatar
+          shape="square"
+          size={52}
+          src={client.logoUrl || undefined}
+          className="client-avatar"
+        >
           {initials(client.name)}
         </Avatar>
         <div className="client-card-title">
           <Typography.Text strong>{client.name}</Typography.Text>
-          <Typography.Text type="secondary">
-            {client.website ?? 'No website recorded'}
-          </Typography.Text>
+          {client.website ? (
+            <a
+              href={externalUrl(client.website)}
+              target="_blank"
+              rel="noreferrer"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <LinkOutlined /> {client.website}
+            </a>
+          ) : (
+            <Typography.Text type="secondary">No website recorded</Typography.Text>
+          )}
         </div>
         <MoreOutlined className="client-card-menu" />
       </div>
@@ -276,14 +384,9 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
       </div>
 
       <div className="client-card-footer">
-        <span className="client-status-pill">
-          <CheckOutlined />
-          {client.status === 'active' ? 'Active' : titleCase(client.status)}
-        </span>
-        <Typography.Text type="secondary">{workflows} workflows</Typography.Text>
         <Typography.Text type="secondary">Updated {relativeTime(client.updatedAt)}</Typography.Text>
       </div>
-    </button>
+    </article>
   );
 }
 
@@ -320,6 +423,7 @@ function ClientProfileView({
   onBack,
   onEdit,
   onRemove,
+  onUploadLogo,
 }: {
   client?: Client;
   loading: boolean;
@@ -327,6 +431,7 @@ function ClientProfileView({
   onBack: () => void;
   onEdit: (client: Client) => void;
   onRemove: (client: Client) => void;
+  onUploadLogo: (client: Client, file: File) => Promise<void>;
 }) {
   if (loading) return <Skeleton active paragraph={{ rows: 10 }} />;
   if (!client) {
@@ -353,20 +458,34 @@ function ClientProfileView({
           onClick={onBack}
           className="client-back-button"
         />
-        <Avatar shape="square" size={86} className="client-profile-avatar">
+        <Avatar
+          shape="square"
+          size={86}
+          src={client.logoUrl || undefined}
+          className="client-profile-avatar"
+        >
           {initials(client.name)}
         </Avatar>
         <div className="client-profile-title">
           <Typography.Title level={3}>{client.name}</Typography.Title>
-          <Typography.Text type="secondary">
-            {[
-              client.website,
-              client.primaryContactName ? `POC: ${client.primaryContactName}` : null,
-              client.primaryContactEmail,
-            ]
-              .filter(Boolean)
-              .join(' - ')}
-          </Typography.Text>
+          <div className="client-profile-contact-strip">
+            {client.website ? (
+              <a href={externalUrl(client.website)} target="_blank" rel="noreferrer">
+                <LinkOutlined /> {client.website}
+              </a>
+            ) : null}
+            {client.primaryContactName ? <span>{client.primaryContactName}</span> : null}
+            {client.primaryContactEmail ? (
+              <a href={`mailto:${client.primaryContactEmail}`}>
+                <MailOutlined /> {client.primaryContactEmail}
+              </a>
+            ) : null}
+            {client.primaryContactPhone ? (
+              <a href={`tel:${client.primaryContactPhone.replace(/\s/g, '')}`}>
+                <PhoneOutlined /> {client.primaryContactPhone}
+              </a>
+            ) : null}
+          </div>
           <div className="client-tag-row">
             {tags.length ? (
               tags.map((tag) => <Tag key={tag}>{tag}</Tag>)
@@ -376,6 +495,16 @@ function ClientProfileView({
           </div>
         </div>
         <Space className="client-profile-actions">
+          <Upload
+            accept="image/png,image/jpeg,image/svg+xml,image/webp"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              void onUploadLogo(client, file as File);
+              return false;
+            }}
+          >
+            <Button icon={<UploadOutlined />}>Logo</Button>
+          </Upload>
           <Button disabled={!canManageClients} onClick={() => onEdit(client)}>
             Edit
           </Button>
@@ -394,7 +523,15 @@ function ClientProfileView({
         items={PROFILE_TABS.map((tab) => ({
           ...tab,
           children:
-            tab.key === 'overview' ? <ClientOverview client={client} intake={intake} /> : null,
+            tab.key === 'overview' ? (
+              <ClientOverview client={client} intake={intake} />
+            ) : tab.key === 'meetings' ? (
+              <ClientMeetingsTab clientId={client.id} />
+            ) : tab.key === 'mail' ? (
+              <ClientMailTab clientId={client.id} />
+            ) : tab.key === 'documents' ? (
+              <ClientDocumentsTab clientId={client.id} />
+            ) : null,
         }))}
       />
     </section>
@@ -487,21 +624,231 @@ function ClientOverview({ client, intake }: { client: Client; intake: Record<str
           ]}
         />
       </div>
+    </div>
+  );
+}
 
-      <div className="client-profile-panel client-profile-panel--muted">
-        <Typography.Title level={5}>Engagement Timeline</Typography.Title>
-        <div className="client-timeline">
-          {timelineItems(client).map((item) => (
-            <div className="client-timeline-item" key={`${item.title}-${item.date}`}>
-              <ClockCircleOutlined />
+interface ClientMeeting {
+  id: string;
+  subject: string;
+  location: string | null;
+  startsAt: string;
+  endsAt: string;
+  associationScore: number | null;
+  associationReason: string | null;
+  attendees: Array<{ id: string; email: string | null; name: string | null }>;
+}
+
+interface ClientMailThread {
+  id: string;
+  subject: string;
+  snippet: string | null;
+  lastMessageAt: string | null;
+  status: string;
+  messages: Array<{ id: string; fromEmail: string | null; receivedAt: string | null }>;
+}
+
+function ClientMeetingsTab({ clientId }: { clientId: string }) {
+  const api = useApi();
+  const [date, setDate] = useState(todayInputValue());
+  const window = useMemo(() => dateWindow(date), [date]);
+  const meetings = useQuery<ClientMeeting[]>({
+    queryKey: ['client-meetings', clientId, window.from, window.to],
+    queryFn: async () =>
+      (
+        await api.get<ClientMeeting[]>('/api/engagement/meetings', {
+          params: { clientId, from: window.from, to: window.to },
+        })
+      ).data,
+  });
+
+  return (
+    <div className="client-profile-panel client-tab-panel">
+      <div className="client-tab-toolbar">
+        <Typography.Title level={5}>Meetings</Typography.Title>
+        <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+      </div>
+      {meetings.isLoading ? (
+        <Skeleton active paragraph={{ rows: 4 }} />
+      ) : meetings.data?.length ? (
+        <div className="client-engagement-list">
+          {meetings.data.map((meeting) => (
+            <div className="client-engagement-row" key={meeting.id}>
+              <span className="client-engagement-icon">
+                <CalendarOutlined />
+              </span>
               <div>
-                <Typography.Text>{item.title}</Typography.Text>
-                <Typography.Text type="secondary">{item.date}</Typography.Text>
+                <Typography.Text strong>{meeting.subject}</Typography.Text>
+                <Typography.Text type="secondary">
+                  {[formatTimeRange(meeting.startsAt, meeting.endsAt), meeting.location]
+                    .filter(Boolean)
+                    .join(' | ')}
+                </Typography.Text>
+                {meeting.associationReason ? (
+                  <Typography.Paragraph>{meeting.associationReason}</Typography.Paragraph>
+                ) : null}
               </div>
             </div>
           ))}
         </div>
+      ) : (
+        <Empty description="No client-matched meetings for this date." />
+      )}
+    </div>
+  );
+}
+
+function ClientMailTab({ clientId }: { clientId: string }) {
+  const api = useApi();
+  const threads = useQuery<ClientMailThread[]>({
+    queryKey: ['client-mail-threads', clientId],
+    queryFn: async () =>
+      (
+        await api.get<ClientMailThread[]>('/api/engagement/mail-threads', {
+          params: { clientId },
+        })
+      ).data,
+  });
+
+  return (
+    <div className="client-profile-panel client-tab-panel">
+      <Typography.Title level={5}>Mail</Typography.Title>
+      {threads.isLoading ? (
+        <Skeleton active paragraph={{ rows: 4 }} />
+      ) : threads.data?.length ? (
+        <div className="client-engagement-list">
+          {threads.data.map((thread) => (
+            <div className="client-engagement-row" key={thread.id}>
+              <span className="client-engagement-icon">
+                <MailOutlined />
+              </span>
+              <div>
+                <Typography.Text strong>{thread.subject}</Typography.Text>
+                <Typography.Text type="secondary">
+                  {[formatOptionalDate(thread.lastMessageAt), thread.status]
+                    .filter(Boolean)
+                    .join(' | ')}
+                </Typography.Text>
+                {thread.snippet ? (
+                  <Typography.Paragraph>{thread.snippet}</Typography.Paragraph>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Empty description="No client-matched mail threads yet." />
+      )}
+    </div>
+  );
+}
+
+function ClientDocumentsTab({ clientId }: { clientId: string }) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const { message } = AntApp.useApp();
+  const documents = useQuery<ClientAttachment[]>({
+    queryKey: ['client-documents', clientId],
+    queryFn: async () =>
+      (
+        await api.get<ClientAttachment[]>('/api/engagement/attachments', {
+          params: { clientId },
+        })
+      ).data,
+  });
+
+  const uploadDocument = useMutation({
+    mutationFn: async (file: File) => {
+      const presigned = (
+        await api.post<{ url: string; fields: Record<string, string>; s3Key: string }>(
+          '/api/engagement/attachments/upload-url',
+          {
+            clientId,
+            fileName: file.name,
+            contentType: file.type || 'application/octet-stream',
+            contentLength: file.size,
+          },
+        )
+      ).data;
+      await uploadToS3(presigned, file);
+      return (
+        await api.post('/api/engagement/attachments/confirm', {
+          clientId,
+          fileName: file.name,
+          contentType: file.type || 'application/octet-stream',
+          s3Key: presigned.s3Key,
+        })
+      ).data;
+    },
+    onSuccess: () => {
+      message.success('Document uploaded');
+      qc.invalidateQueries({ queryKey: ['client-documents', clientId] });
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  const deleteDocument = useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/api/engagement/attachments/${id}`)).data,
+    onSuccess: () => {
+      message.success('Document removed');
+      qc.invalidateQueries({ queryKey: ['client-documents', clientId] });
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  return (
+    <div className="client-profile-panel client-tab-panel">
+      <div className="client-tab-toolbar">
+        <Typography.Title level={5}>Documents</Typography.Title>
+        <Upload
+          showUploadList={false}
+          beforeUpload={(file) => {
+            uploadDocument.mutate(file as File);
+            return false;
+          }}
+        >
+          <Button icon={<UploadOutlined />} loading={uploadDocument.isPending}>
+            Upload
+          </Button>
+        </Upload>
       </div>
+      {documents.isLoading ? (
+        <Skeleton active paragraph={{ rows: 4 }} />
+      ) : documents.data?.length ? (
+        <div className="client-document-list client-document-list--full">
+          {documents.data.map((document) => (
+            <div className="client-document-row" key={document.id}>
+              <span className="client-document-type">{documentType(document.fileName)}</span>
+              <div>
+                <Typography.Text>{document.fileName}</Typography.Text>
+                <Typography.Text type="secondary">
+                  {[formatBytes(document.byteSize), formatDate(document.createdAt)]
+                    .filter(Boolean)
+                    .join(' | ')}
+                </Typography.Text>
+              </div>
+              <Space>
+                <Button
+                  aria-label="Download document"
+                  icon={<DownloadOutlined />}
+                  disabled={!document.downloadUrl}
+                  href={document.downloadUrl ?? undefined}
+                  target="_blank"
+                />
+                <Button
+                  aria-label="Remove document"
+                  icon={<DeleteOutlined />}
+                  danger
+                  loading={deleteDocument.isPending}
+                  onClick={() => deleteDocument.mutate(document.id)}
+                />
+              </Space>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Empty description="No documents uploaded for this client." />
+      )}
     </div>
   );
 }
@@ -584,16 +931,6 @@ function readDocuments(intake: Record<string, unknown>): ClientDocument[] {
     .filter((item): item is ClientDocument => Boolean(item));
 }
 
-function timelineItems(client: Client) {
-  return [
-    { title: 'Meeting', date: 'Coming soon' },
-    { title: 'White paper draft', date: 'Coming soon' },
-    { title: 'Intake complete', date: formatDate(client.updatedAt) },
-    { title: 'Conflict check passed', date: 'Coming soon' },
-    { title: 'Client created', date: formatDate(client.createdAt) },
-  ];
-}
-
 function readList(record: Record<string, unknown>, keys: string[]): string[] {
   const raw = readFirst(record, keys);
   if (Array.isArray(raw)) {
@@ -616,12 +953,6 @@ function readText(record: Record<string, unknown>, keys: string[]): string | und
   if (typeof value === 'string') return value.trim() || undefined;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return undefined;
-}
-
-function readNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
-  const value = readFirst(record, keys);
-  const number = typeof value === 'number' ? value : Number(value);
-  return Number.isFinite(number) ? number : undefined;
 }
 
 function readFirst(record: Record<string, unknown>, keys: string[]): unknown {
@@ -650,6 +981,61 @@ function documentType(name: string): string {
   const ext = name.split('.').pop()?.toLowerCase();
   if (!ext || ext === name.toLowerCase()) return 'DOC';
   return ext.slice(0, 3).toUpperCase();
+}
+
+function externalUrl(value: string): string {
+  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+}
+
+function todayInputValue(): string {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${now.getFullYear()}-${month}-${day}`;
+}
+
+function dateWindow(date: string) {
+  const [year, month, day] = date.split('-').map(Number);
+  const from = new Date(year ?? new Date().getFullYear(), (month ?? 1) - 1, day ?? 1);
+  const to = new Date(from);
+  to.setDate(to.getDate() + 1);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
+function formatTimeRange(start: string, end: string): string {
+  const formatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+  return `${formatter.format(new Date(start))} - ${formatter.format(new Date(end))}`;
+}
+
+function formatOptionalDate(value: string | null): string {
+  if (!value) return '';
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
+    new Date(value),
+  );
+}
+
+function formatBytes(value: number | null): string {
+  if (!value) return '';
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function uploadToS3(presigned: { url: string; fields: Record<string, string> }, file: File) {
+  const form = new FormData();
+  for (const [key, value] of Object.entries(presigned.fields)) form.append(key, value);
+  form.append('file', file);
+  const response = await fetch(presigned.url, { method: 'POST', body: form });
+  if (!response.ok) throw new Error(`Upload failed: ${response.status}`);
+}
+
+function errorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const data = (error as { response?: { data?: { message?: unknown } } }).response?.data;
+    if (typeof data?.message === 'string') return data.message;
+    if (Array.isArray(data?.message)) return data.message.join(', ');
+  }
+  return error instanceof Error ? error.message : 'Request failed';
 }
 
 function valueToText(value: unknown): string {

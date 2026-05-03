@@ -99,6 +99,31 @@ export function IntegrationsPage() {
     onError: (err) => message.error(err instanceof Error ? err.message : 'OAuth start failed'),
   });
 
+  const syncMicrosoft = useMutation({
+    mutationFn: async (connectionId: string) =>
+      (await api.post(`/api/engagement/integrations/microsoft/${connectionId}/sync`)).data,
+    onSuccess: () => {
+      message.success('Microsoft sync complete');
+      qc.invalidateQueries({ queryKey: ['engagement-integrations'] });
+      qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
+      qc.invalidateQueries({ queryKey: ['engagement-mail-threads'] });
+      qc.invalidateQueries({ queryKey: ['client-meetings'] });
+      qc.invalidateQueries({ queryKey: ['client-mail-threads'] });
+    },
+    onError: (err) => message.error(err instanceof Error ? err.message : 'Sync failed'),
+  });
+
+  const enableMicrosoftRealtime = useMutation({
+    mutationFn: async (connectionId: string) =>
+      (await api.post(`/api/engagement/integrations/microsoft/${connectionId}/subscriptions`)).data,
+    onSuccess: () => {
+      message.success('Graph subscriptions configured');
+      qc.invalidateQueries({ queryKey: ['engagement-integrations'] });
+    },
+    onError: (err) =>
+      message.error(err instanceof Error ? err.message : 'Subscription setup failed'),
+  });
+
   // Surface success / error from the Microsoft OAuth callback redirect.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -155,10 +180,40 @@ export function IntegrationsPage() {
                           {connection.displayName || connection.accountEmail || 'Workspace'}
                         </Typography.Text>
                         <Typography.Text type="secondary">
-                          {connection.accountEmail || 'No account email'}
+                          {[
+                            connection.accountEmail || 'No account email',
+                            connection.lastSyncAt
+                              ? `Synced ${formatDateTime(connection.lastSyncAt)}`
+                              : 'Not synced yet',
+                          ].join(' | ')}
                         </Typography.Text>
+                        {connection.lastError ? (
+                          <Typography.Text type="danger">{connection.lastError}</Typography.Text>
+                        ) : null}
                       </div>
-                      <Tag color={statusColor(connection.status)}>{statusLabel(connection.status)}</Tag>
+                      <Space wrap>
+                        <Tag color={statusColor(connection.status)}>
+                          {statusLabel(connection.status)}
+                        </Tag>
+                        {provider.key === 'microsoft_365' && connection.status === 'connected' ? (
+                          <>
+                            <Button
+                              size="small"
+                              loading={syncMicrosoft.isPending}
+                              onClick={() => syncMicrosoft.mutate(connection.id)}
+                            >
+                              Sync now
+                            </Button>
+                            <Button
+                              size="small"
+                              loading={enableMicrosoftRealtime.isPending}
+                              onClick={() => enableMicrosoftRealtime.mutate(connection.id)}
+                            >
+                              Realtime
+                            </Button>
+                          </>
+                        ) : null}
+                      </Space>
                     </div>
                   ))
                 ) : (
@@ -233,4 +288,13 @@ function statusColor(status: IntegrationConnection['status']): string {
 
 function statusLabel(status: IntegrationConnection['status']): string {
   return status.replace(/_/g, ' ');
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
 }

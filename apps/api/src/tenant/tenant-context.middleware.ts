@@ -51,7 +51,16 @@ export class TenantContextMiddleware implements NestMiddleware {
     // the exclude path matcher misses for any reason (e.g. global prefix
     // interaction).
     const path = req.path;
-    if (path === '/api/engagement/integrations/microsoft/callback') {
+    const originalUrl = req.originalUrl ?? req.url ?? '';
+    const baseUrl = req.baseUrl ?? '';
+    const bypassPaths = [
+      '/api/engagement/integrations/microsoft/callback',
+      '/api/engagement/integrations/microsoft/notifications',
+    ];
+    if (bypassPaths.some((bypassPath) => isBypassPath(bypassPath, path, originalUrl, baseUrl))) {
+      this.logger.log(
+        `Bypassing tenant context for Microsoft external callback (path=${path}, originalUrl=${originalUrl}, baseUrl=${baseUrl})`,
+      );
       next();
       return;
     }
@@ -213,12 +222,7 @@ export class TenantContextMiddleware implements NestMiddleware {
     // {slug}.app.capiro.ai — only treat as a tenant slug when the shape AND
     // TLD match. Strict matching prevents a malicious host header from
     // injecting an arbitrary slug via a lookalike domain.
-    if (
-      parts.length === 4 &&
-      parts[1] === 'app' &&
-      parts[2] === 'capiro' &&
-      parts[3] === 'ai'
-    ) {
+    if (parts.length === 4 && parts[1] === 'app' && parts[2] === 'capiro' && parts[3] === 'ai') {
       return parts[0]?.toLowerCase();
     }
     return undefined;
@@ -232,4 +236,18 @@ function nonEmpty(value: string | undefined): string | undefined {
   if (value === undefined || value === null) return undefined;
   const trimmed = value.trim();
   return trimmed === '' ? undefined : trimmed;
+}
+
+function isBypassPath(
+  bypassPath: string,
+  path: string,
+  originalUrl: string,
+  baseUrl: string,
+): boolean {
+  return (
+    path === bypassPath ||
+    originalUrl === bypassPath ||
+    originalUrl.startsWith(`${bypassPath}?`) ||
+    `${baseUrl}${path}` === bypassPath
+  );
 }

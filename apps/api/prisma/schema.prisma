@@ -194,20 +194,23 @@ model ClerkEvent {
 }
 
 model Client {
-  id                  String   @id @default(uuid()) @db.Uuid
-  tenantId            String   @map("tenant_id") @db.Uuid
+  id                  String    @id @default(uuid()) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
   name                String
   website             String?
   description         String?
-  productDescription  String?  @map("product_description")
-  primaryContactName  String?  @map("primary_contact_name")
-  primaryContactEmail String?  @map("primary_contact_email") @db.Citext
-  primaryContactPhone String?  @map("primary_contact_phone")
-  intakeData          Json     @default("{}") @map("intake_data_jsonb")
-  status              String   @default("active")
-  createdByUserId     String?  @map("created_by_user_id") @db.Uuid
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  productDescription  String?   @map("product_description")
+  primaryContactName  String?   @map("primary_contact_name")
+  primaryContactEmail String?   @map("primary_contact_email") @db.Citext
+  primaryContactPhone String?   @map("primary_contact_phone")
+  logoS3Key           String?   @map("logo_s3_key")
+  logoContentType     String?   @map("logo_content_type")
+  logoUploadedAt      DateTime? @map("logo_uploaded_at") @db.Timestamptz(6)
+  intakeData          Json      @default("{}") @map("intake_data_jsonb")
+  status              String    @default("active")
+  createdByUserId     String?   @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant                Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   engagementContacts    EngagementContact[]
