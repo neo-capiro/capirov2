@@ -7,6 +7,13 @@ export default defineConfig({
     port: 5173,
     host: true,
   },
+  // The dev server uses esbuild's depOptimizer rather than Rollup's commonjs
+  // plugin, so the build-time `commonjsOptions` block below doesn't help.
+  // Explicitly pre-bundle @capiro/shared so esbuild rewrites the CJS
+  // `exports.X = ...` form into named ESM exports the browser can import.
+  optimizeDeps: {
+    include: ['@capiro/shared'],
+  },
   build: {
     // @capiro/shared compiles to CommonJS so that the NestJS CJS runtime can
     // `require()` it. Rollup's default commonjs handling skips workspace

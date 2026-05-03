@@ -47,6 +47,7 @@ export function ClientWorkspacePage() {
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
 
+  const canCreateClients = Boolean(me.data && hasAtLeast(me.data.role, 'standard_user'));
   const canManageClients = Boolean(me.data && hasAtLeast(me.data.role, 'user_admin'));
 
   const clients = useQuery<Client[]>({
@@ -119,7 +120,7 @@ export function ClientWorkspacePage() {
   });
 
   const openCreate = () => {
-    if (!canManageClients) return;
+    if (!canCreateClients) return;
     setEditingClient(null);
     setModalMode('create');
   };
@@ -166,7 +167,7 @@ export function ClientWorkspacePage() {
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
-                disabled={!canManageClients}
+                disabled={!canCreateClients}
                 onClick={openCreate}
               >
                 New Client
@@ -201,7 +202,7 @@ export function ClientWorkspacePage() {
                   onClick={() => setSelectedId(client.id)}
                 />
               ))}
-              <AddClientCard canManageClients={canManageClients} onClick={openCreate} />
+              <AddClientCard canCreateClients={canCreateClients} onClick={openCreate} />
             </div>
           ) : (
             <div className="client-empty-state">
@@ -209,7 +210,7 @@ export function ClientWorkspacePage() {
               <Button
                 type="primary"
                 icon={<PlusOutlined />}
-                disabled={!canManageClients}
+                disabled={!canCreateClients}
                 onClick={openCreate}
               >
                 Add client
@@ -287,17 +288,17 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
 }
 
 function AddClientCard({
-  canManageClients,
+  canCreateClients,
   onClick,
 }: {
-  canManageClients: boolean;
+  canCreateClients: boolean;
   onClick: () => void;
 }) {
   const card = (
     <button
       className="client-add-card"
       type="button"
-      disabled={!canManageClients}
+      disabled={!canCreateClients}
       onClick={onClick}
       aria-label="Add new client"
     >
@@ -308,8 +309,8 @@ function AddClientCard({
     </button>
   );
 
-  if (canManageClients) return card;
-  return <Tooltip title="Only user admins and Capiro admins can add clients.">{card}</Tooltip>;
+  if (canCreateClients) return card;
+  return <Tooltip title="Only signed-in tenant members can add clients.">{card}</Tooltip>;
 }
 
 function ClientProfileView({

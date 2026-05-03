@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   ApiOutlined,
   CloudSyncOutlined,
@@ -85,6 +85,38 @@ export function IntegrationsPage() {
     onError: (err) => message.error(err instanceof Error ? err.message : 'Request failed'),
   });
 
+  const startMicrosoftOAuth = useMutation({
+    mutationFn: async (connectionId?: string) =>
+      (
+        await api.post<{ authUrl: string; connectionId: string }>(
+          '/api/engagement/integrations/microsoft/start',
+          connectionId ? { connectionId } : {},
+        )
+      ).data,
+    onSuccess: ({ authUrl }) => {
+      window.location.href = authUrl;
+    },
+    onError: (err) => message.error(err instanceof Error ? err.message : 'OAuth start failed'),
+  });
+
+  // Surface success / error from the Microsoft OAuth callback redirect.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('provider') !== 'microsoft_365') return;
+    if (params.get('connected') === '1') {
+      message.success('Microsoft 365 connected');
+      qc.invalidateQueries({ queryKey: ['engagement-integrations'] });
+    } else if (params.get('error')) {
+      message.error(`Microsoft OAuth failed: ${params.get('error')}`);
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete('provider');
+    url.searchParams.delete('connected');
+    url.searchParams.delete('connectionId');
+    url.searchParams.delete('error');
+    window.history.replaceState({}, '', url.toString());
+  }, [message, qc]);
+
   return (
     <section className="settings-integrations">
       <div className="settings-integrations-header">
@@ -144,9 +176,24 @@ export function IntegrationsPage() {
                 >
                   Register account
                 </Button>
-                <Button icon={<ApiOutlined />} disabled>
-                  Connect OAuth
-                </Button>
+                {provider.key === 'microsoft_365' ? (
+                  <Button
+                    icon={<ApiOutlined />}
+                    type="primary"
+                    loading={startMicrosoftOAuth.isPending}
+                    onClick={() =>
+                      startMicrosoftOAuth.mutate(
+                        connections.find((c) => c.status !== 'connected')?.id,
+                      )
+                    }
+                  >
+                    Connect Microsoft 365
+                  </Button>
+                ) : (
+                  <Button icon={<ApiOutlined />} disabled>
+                    Connect OAuth
+                  </Button>
+                )}
               </Space>
             </article>
           );

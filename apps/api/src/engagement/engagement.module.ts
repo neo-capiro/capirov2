@@ -5,15 +5,20 @@ import { ClientAssociationService } from './client-association.service.js';
 import { EngagementAiService } from './engagement-ai.service.js';
 import { EngagementService } from './engagement.service.js';
 import { MeetingNotesCryptoService } from './meeting-notes-crypto.service.js';
+import { MicrosoftOAuthController } from './microsoft/microsoft-oauth.controller.js';
+import { MicrosoftOAuthService } from './microsoft/microsoft-oauth.service.js';
+import { TokenCryptoService } from './microsoft/token-crypto.service.js';
 
 @Module({
   imports: [PrismaModule],
-  controllers: [EngagementController],
+  controllers: [EngagementController, MicrosoftOAuthController],
   providers: [
     EngagementService,
     ClientAssociationService,
     EngagementAiService,
     MeetingNotesCryptoService,
+    MicrosoftOAuthService,
+    TokenCryptoService,
   ],
 })
 export class EngagementModule {}

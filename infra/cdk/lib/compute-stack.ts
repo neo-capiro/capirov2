@@ -118,6 +118,43 @@ export class ComputeStack extends cdk.Stack {
       secretsStack.clerkPublishableKey.secretArn,
     );
 
+    // Microsoft 365 Graph OAuth + token-at-rest crypto. These secrets are
+    // provisioned out-of-band (created by an operator with `aws secretsmanager
+    // create-secret`) so they're imported by name rather than CDK-owned. The
+    // CDK doesn't manage their values — this is intentional, since the cert
+    // private key + AES key are produced by the same human flow that
+    // registers the Entra app.
+    const microsoftClientIdSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'ImportedMicrosoftClientId',
+      `capiro/${cfg.envName}/microsoft-client-id`,
+    );
+    const microsoftTenantIdSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'ImportedMicrosoftTenantId',
+      `capiro/${cfg.envName}/microsoft-tenant-id`,
+    );
+    const microsoftCertThumbprintSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'ImportedMicrosoftCertThumbprint',
+      `capiro/${cfg.envName}/microsoft-cert-thumbprint`,
+    );
+    const microsoftCertPrivateKeySecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'ImportedMicrosoftCertPrivateKey',
+      `capiro/${cfg.envName}/microsoft-cert-private-key`,
+    );
+    const oauthTokenEncryptionKeySecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'ImportedOauthTokenEncryptionKey',
+      `capiro/${cfg.envName}/oauth-token-encryption-key`,
+    );
+    const oauthStateSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'ImportedOauthStateSecret',
+      `capiro/${cfg.envName}/oauth-state-secret`,
+    );
+
     // ------------------------------------------------------------------ ECR
     // Repos are pre-created out-of-band so images can be pushed BEFORE the
     // first ComputeStack deploy (otherwise the Fargate service has no image
@@ -186,6 +223,15 @@ export class ComputeStack extends cdk.Stack {
           clerkSecretKeyImported.secretArn,
           clerkWebhookImported.secretArn,
           clerkPubKeyImported.secretArn,
+          // Trailing `*` (no preceding dash) matches both the bare name and
+          // the auto-generated `-XXXXXX` version suffix Secrets Manager
+          // appends to every secret ARN.
+          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-client-id*`,
+          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-tenant-id*`,
+          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-cert-thumbprint*`,
+          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-cert-private-key*`,
+          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-token-encryption-key*`,
+          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-state-secret*`,
         ],
       }),
     );
@@ -214,6 +260,12 @@ export class ComputeStack extends cdk.Stack {
       DB_PORT: ecs.Secret.fromSecretsManager(dbSecretImported, 'port'),
       DB_USER: ecs.Secret.fromSecretsManager(appDbSecretImported, 'username'),
       DB_PASSWORD: ecs.Secret.fromSecretsManager(appDbSecretImported, 'password'),
+      MICROSOFT_CLIENT_ID: ecs.Secret.fromSecretsManager(microsoftClientIdSecret),
+      MICROSOFT_TENANT_ID: ecs.Secret.fromSecretsManager(microsoftTenantIdSecret),
+      MICROSOFT_CERT_THUMBPRINT: ecs.Secret.fromSecretsManager(microsoftCertThumbprintSecret),
+      MICROSOFT_CERT_PRIVATE_KEY: ecs.Secret.fromSecretsManager(microsoftCertPrivateKeySecret),
+      OAUTH_TOKEN_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(oauthTokenEncryptionKeySecret),
+      OAUTH_STATE_SECRET: ecs.Secret.fromSecretsManager(oauthStateSecret),
     };
     const apiMigrateSecrets = {
       CLERK_SECRET_KEY: ecs.Secret.fromSecretsManager(clerkSecretKeyImported),
@@ -273,10 +325,24 @@ export class ComputeStack extends cdk.Stack {
     // IMPORTED secrets it cannot, so we add it explicitly. Without these the
     // task fails to start with "ResourceInitializationError: unable to pull
     // secrets" and ECS deployment-circuit-breaker rolls the service back.
+    // ARN patterns for the out-of-band Microsoft + OAuth secrets. The trailing
+    // `*` (no preceding dash) matches BOTH the bare name (which `fromSecretNameV2`
+    // bakes into the task definition) AND the version-suffixed form Secrets
+    // Manager appends to every secret ARN.
+    const microsoftAndOauthSecretArnPatterns = [
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-client-id*`,
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-tenant-id*`,
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-cert-thumbprint*`,
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-cert-private-key*`,
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-token-encryption-key*`,
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-state-secret*`,
+    ];
+
     grantSecretsAndKmsToExecutionRole(apiTaskDef, [
       dbSecretImported.secretArn,
       clerkSecretKeyImported.secretArn,
       clerkWebhookImported.secretArn,
+      ...microsoftAndOauthSecretArnPatterns,
     ], [dataKey.keyArn, secretsStack.secretsKey.keyArn]);
 
     const apiContainer = apiTaskDef.addContainer('api', {

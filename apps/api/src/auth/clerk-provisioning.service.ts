@@ -5,6 +5,7 @@ import { ClerkService } from './clerk.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 type ProvisionableRole = Extract<TenantRole, 'capiro_admin' | 'user_admin' | 'standard_user'>;
+type SystemTx = Parameters<Parameters<PrismaService['withSystem']>[0]>[0];
 
 interface ProvisionOrganizationMemberInput {
   tenantId: string;
@@ -194,9 +195,16 @@ export class ClerkProvisioningService {
         firstName: input.user.firstName,
         lastName: input.user.lastName,
       };
-      const existingUser =
-        (await tx.user.findUnique({ where: { clerkUserId: input.user.id } })) ??
-        (await tx.user.findUnique({ where: { email } }));
+      const existingByClerkId = await tx.user.findUnique({
+        where: { clerkUserId: input.user.id },
+      });
+      const existingByEmail = await tx.user.findUnique({ where: { email } });
+
+      if (existingByClerkId && existingByEmail && existingByClerkId.id !== existingByEmail.id) {
+        await this.mergeUserIdentity(tx, existingByClerkId.id, existingByEmail.id);
+      }
+
+      const existingUser = existingByEmail ?? existingByClerkId;
       const user = existingUser
         ? await tx.user.update({ where: { id: existingUser.id }, data: userData })
         : await tx.user.create({ data: userData });
@@ -227,6 +235,51 @@ export class ClerkProvisioningService {
           });
 
       return { userId: user.id, membershipId: membership.id };
+    });
+  }
+
+  private async mergeUserIdentity(tx: SystemTx, sourceUserId: string, targetUserId: string) {
+    const sourceMemberships = await tx.tenantMembership.findMany({
+      where: { userId: sourceUserId },
+    });
+
+    for (const source of sourceMemberships) {
+      const target = await tx.tenantMembership.findUnique({
+        where: { tenantId_userId: { tenantId: source.tenantId, userId: targetUserId } },
+      });
+
+      if (!target) {
+        await tx.tenantMembership.update({
+          where: { id: source.id },
+          data: { userId: targetUserId },
+        });
+        continue;
+      }
+
+      if (source.status === 'active' && target.status !== 'active') {
+        await tx.tenantMembership.update({
+          where: { id: target.id },
+          data: {
+            role: source.role,
+            status: 'active',
+            joinedAt: source.joinedAt ?? target.joinedAt ?? new Date(),
+            invitedBy: source.invitedBy ?? target.invitedBy,
+          },
+        });
+      }
+
+      await tx.tenantMembership.update({
+        where: { id: source.id },
+        data: { status: 'removed' },
+      });
+    }
+
+    await tx.user.update({
+      where: { id: sourceUserId },
+      data: {
+        clerkUserId: `duplicate:${sourceUserId}:${Date.now()}`,
+        email: `duplicate+${sourceUserId}@deleted.capiro.local`,
+      },
     });
   }
 }

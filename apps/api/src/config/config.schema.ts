@@ -32,6 +32,32 @@ export const configSchema = z.object({
   // 32-byte base64 or hex key used for AES-256-GCM encrypted meeting notes.
   NOTES_ENCRYPTION_KEY: z.string().optional(),
   NOTES_ENCRYPTION_KEY_VERSION: z.string().default('v1'),
+
+  // 32-byte base64 or hex key for AES-256-GCM at-rest encryption of OAuth
+  // access/refresh tokens stored in engagement_connection_tokens. Distinct
+  // from NOTES_ENCRYPTION_KEY so a key compromise on either side is contained.
+  OAUTH_TOKEN_ENCRYPTION_KEY: z.string().optional(),
+  OAUTH_TOKEN_ENCRYPTION_KEY_VERSION: z.string().default('v1'),
+
+  // 32+ byte secret used to HMAC-sign the `state` parameter in OAuth flows so
+  // a callback can be tied back to the connection that started it.
+  OAUTH_STATE_SECRET: z.string().optional(),
+
+  // Microsoft 365 Graph OAuth (capiro-outlook app registration). Cert auth is
+  // used because the capiro.ai tenant blocks client secrets. The private key
+  // is a PEM string; if it doesn't start with "-----BEGIN" the loader treats
+  // it as base64-encoded PEM (handy for env-var transport).
+  MICROSOFT_CLIENT_ID: z.string().optional(),
+  MICROSOFT_TENANT_ID: z.string().optional(),
+  MICROSOFT_CERT_THUMBPRINT: z.string().optional(),
+  MICROSOFT_CERT_PRIVATE_KEY: z.string().optional(),
+  MICROSOFT_REDIRECT_URI: z
+    .string()
+    .url()
+    .default('https://app.capiro.ai/api/engagement/integrations/microsoft/callback'),
+  MICROSOFT_OAUTH_SUCCESS_REDIRECT: z
+    .string()
+    .default('/settings/integrations'),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

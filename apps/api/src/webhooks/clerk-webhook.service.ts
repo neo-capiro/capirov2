@@ -29,19 +29,24 @@ interface ClerkEvent {
   data: unknown;
 }
 
+type SystemTx = Parameters<Parameters<PrismaService['withSystem']>[0]>[0];
+
 /**
  * Reserved Clerk org slug for Capiro internal staff. Membership in this org
- * grants the `capiro_admin` role (cross-tenant powers); membership in any
- * other org grants either `user_admin` (Clerk role admin) or `standard_user`.
+ * can grant the `capiro_admin` role (cross-tenant powers), but only when the
+ * Clerk org role is admin; ordinary members remain `standard_user`.
  */
 const CAPIRO_INTERNAL_SLUG = 'capiro-internal';
 
 function mapClerkRoleToCapiro(orgSlug: string, clerkRole: string): TenantRole {
-  if (orgSlug === CAPIRO_INTERNAL_SLUG) return 'capiro_admin';
+  const normalizedRole = clerkRole.toLowerCase();
+  if (orgSlug === CAPIRO_INTERNAL_SLUG) {
+    return normalizedRole.includes('admin') ? 'capiro_admin' : 'standard_user';
+  }
   // Clerk's default org roles are `org:admin` and `org:member`. Some
   // instances customize them; we treat anything containing "admin" as
   // user_admin and everything else as standard_user.
-  return clerkRole.toLowerCase().includes('admin') ? 'user_admin' : 'standard_user';
+  return normalizedRole.includes('admin') ? 'user_admin' : 'standard_user';
 }
 
 /**
@@ -110,34 +115,33 @@ export class ClerkWebhookService {
           this.logger.warn(`Clerk ${event.type} for ${u.id} missing primary email — skipping`);
           return;
         }
-        await tx.user.upsert({
-          where: { clerkUserId: u.id },
-          create: {
-            clerkUserId: u.id,
-            email,
-            firstName: u.first_name ?? null,
-            lastName: u.last_name ?? null,
-          },
-          update: {
-            email,
-            firstName: u.first_name ?? null,
-            lastName: u.last_name ?? null,
-          },
+        await this.syncUserIdentity(tx, {
+          clerkUserId: u.id,
+          email,
+          firstName: u.first_name ?? null,
+          lastName: u.last_name ?? null,
         });
         return;
       }
       case 'user.deleted': {
         const u = event.data as { id: string; deleted?: boolean };
         // Soft handling: we don't hard-delete users because tenant_memberships
-        // and audit_logs reference them. Mark as deleted via email rewrite +
-        // null clerk_user_id so they cannot sign in. (Schema lacks a deleted_at
-        // here; revisit when offboarding workflow lands.)
-        await tx.user
-          .update({
-            where: { clerkUserId: u.id },
-            data: { clerkUserId: `deleted:${u.id}:${Date.now()}` },
-          })
-          .catch(() => undefined);
+        // and audit_logs reference them. Mark active memberships removed and
+        // rewrite identity fields so the same email can be invited again.
+        const existing = await tx.user.findUnique({ where: { clerkUserId: u.id } });
+        if (existing) {
+          await tx.tenantMembership.updateMany({
+            where: { userId: existing.id, status: { not: 'removed' } },
+            data: { status: 'removed' },
+          });
+          await tx.user.update({
+            where: { id: existing.id },
+            data: {
+              clerkUserId: deletedClerkUserId(u.id),
+              email: deletedEmail(existing.id),
+            },
+          });
+        }
         return;
       }
       case 'organizationMembership.created':
@@ -162,19 +166,11 @@ export class ClerkWebhookService {
           return;
         }
         const email = m.public_user_data?.identifier ?? `${clerkUserId}@unknown.invalid`;
-        const user = await tx.user.upsert({
-          where: { clerkUserId },
-          create: {
-            clerkUserId,
-            email,
-            firstName: m.public_user_data?.first_name ?? null,
-            lastName: m.public_user_data?.last_name ?? null,
-          },
-          update: {
-            email,
-            firstName: m.public_user_data?.first_name ?? null,
-            lastName: m.public_user_data?.last_name ?? null,
-          },
+        const user = await this.syncUserIdentity(tx, {
+          clerkUserId,
+          email,
+          firstName: m.public_user_data?.first_name ?? null,
+          lastName: m.public_user_data?.last_name ?? null,
         });
 
         const role = mapClerkRoleToCapiro(m.organization.slug, m.role);
@@ -223,6 +219,84 @@ export class ClerkWebhookService {
         return;
     }
   }
+
+  private async syncUserIdentity(
+    tx: SystemTx,
+    input: {
+      clerkUserId: string;
+      email: string;
+      firstName?: string | null;
+      lastName?: string | null;
+    },
+  ) {
+    const existingByClerkId = await tx.user.findUnique({
+      where: { clerkUserId: input.clerkUserId },
+    });
+    const existingByEmail = await tx.user.findUnique({ where: { email: input.email } });
+    const userData = {
+      clerkUserId: input.clerkUserId,
+      email: input.email,
+      firstName: input.firstName ?? null,
+      lastName: input.lastName ?? null,
+    };
+
+    if (existingByClerkId && existingByEmail && existingByClerkId.id !== existingByEmail.id) {
+      await this.mergeUserIdentity(tx, existingByClerkId.id, existingByEmail.id);
+      return tx.user.update({ where: { id: existingByEmail.id }, data: userData });
+    }
+
+    const existing = existingByClerkId ?? existingByEmail;
+    if (existing) {
+      return tx.user.update({ where: { id: existing.id }, data: userData });
+    }
+
+    return tx.user.create({ data: userData });
+  }
+
+  private async mergeUserIdentity(tx: SystemTx, sourceUserId: string, targetUserId: string) {
+    const sourceMemberships = await tx.tenantMembership.findMany({
+      where: { userId: sourceUserId },
+    });
+
+    for (const source of sourceMemberships) {
+      const target = await tx.tenantMembership.findUnique({
+        where: { tenantId_userId: { tenantId: source.tenantId, userId: targetUserId } },
+      });
+
+      if (!target) {
+        await tx.tenantMembership.update({
+          where: { id: source.id },
+          data: { userId: targetUserId },
+        });
+        continue;
+      }
+
+      if (source.status === 'active' && target.status !== 'active') {
+        await tx.tenantMembership.update({
+          where: { id: target.id },
+          data: {
+            role: source.role,
+            status: 'active',
+            joinedAt: source.joinedAt ?? target.joinedAt ?? new Date(),
+            invitedBy: source.invitedBy ?? target.invitedBy,
+          },
+        });
+      }
+
+      await tx.tenantMembership.update({
+        where: { id: source.id },
+        data: { status: 'removed' },
+      });
+    }
+
+    await tx.user.update({
+      where: { id: sourceUserId },
+      data: {
+        clerkUserId: `duplicate:${sourceUserId}:${Date.now()}`,
+        email: `duplicate+${sourceUserId}@deleted.capiro.local`,
+      },
+    });
+  }
 }
 
 function primaryEmail(u: ClerkUserPayload): string | undefined {
@@ -233,4 +307,12 @@ function primaryEmail(u: ClerkUserPayload): string | undefined {
     if (match) return match.email_address;
   }
   return list[0]?.email_address;
+}
+
+function deletedClerkUserId(clerkUserId: string): string {
+  return `deleted:${clerkUserId}:${Date.now()}`;
+}
+
+function deletedEmail(userId: string): string {
+  return `deleted+${userId}@deleted.capiro.local`;
 }

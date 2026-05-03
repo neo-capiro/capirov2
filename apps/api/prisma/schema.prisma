@@ -125,6 +125,7 @@ model Tenant {
   clients             Client[]
   impersonationSessions ImpersonationSession[]
   engagementConnections IntegrationConnection[]
+  engagementConnectionTokens IntegrationConnectionToken[]
   engagementContacts    EngagementContact[]
   meetings              Meeting[]
   meetingAttendees      MeetingAttendee[]
@@ -238,6 +239,7 @@ model IntegrationConnection {
   updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  token       IntegrationConnectionToken?
   meetings    Meeting[]
   mailThreads MailThread[]
   mailMessages MailMessage[]
@@ -245,6 +247,30 @@ model IntegrationConnection {
   @@unique([tenantId, provider, accountEmail], map: "engagement_connections_tenant_provider_account_key")
   @@index([tenantId, status], map: "engagement_connections_tenant_status_idx")
   @@map("engagement_connections")
+}
+
+model IntegrationConnectionToken {
+  id                     String   @id @default(uuid()) @db.Uuid
+  tenantId               String   @map("tenant_id") @db.Uuid
+  connectionId           String   @unique @map("connection_id") @db.Uuid
+  accessTokenCiphertext  String   @map("access_token_ciphertext")
+  accessTokenIv          String   @map("access_token_iv")
+  accessTokenAuthTag     String   @map("access_token_auth_tag")
+  refreshTokenCiphertext String?  @map("refresh_token_ciphertext")
+  refreshTokenIv         String?  @map("refresh_token_iv")
+  refreshTokenAuthTag    String?  @map("refresh_token_auth_tag")
+  keyVersion             String   @map("key_version")
+  scopes                 String[] @default([])
+  homeAccountId          String?  @map("home_account_id")
+  expiresAt              DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connection IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, connectionId], map: "engagement_connection_tokens_tenant_connection_idx")
+  @@map("engagement_connection_tokens")
 }
 
 model EngagementContact {

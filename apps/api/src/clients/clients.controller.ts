@@ -92,8 +92,8 @@ class UpdateClientDto {
  * Clients API — the lobbying firm's customer records.
  *
  * Read access: any tenant member (standard_user and above).
- * Mutate (create / update / archive): user_admin or capiro_admin only,
- * matching the user's spec ("Add clients" is in the Admin Panel).
+ * Create: any standard_user and above.
+ * Update / archive: user_admin or capiro_admin only.
  */
 @Controller('clients')
 @UseGuards(RolesGuard)
@@ -112,7 +112,6 @@ export class ClientsController {
   }
 
   @Post()
-  @Roles('user_admin')
   create(@CurrentTenant() ctx: TenantContext, @Body() body: CreateClientDto) {
     return this.service.create(ctx, body);
   }
