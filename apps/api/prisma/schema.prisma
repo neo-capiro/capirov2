@@ -120,23 +120,24 @@ model Tenant {
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships         TenantMembership[]
-  auditLogs           AuditLog[]
-  clients             Client[]
-  impersonationSessions ImpersonationSession[]
-  engagementConnections IntegrationConnection[]
+  memberships                TenantMembership[]
+  auditLogs                  AuditLog[]
+  clients                    Client[]
+  impersonationSessions      ImpersonationSession[]
+  engagementConnections      IntegrationConnection[]
   engagementConnectionTokens IntegrationConnectionToken[]
-  engagementContacts    EngagementContact[]
-  meetings              Meeting[]
-  meetingAttendees      MeetingAttendee[]
-  mailThreads           MailThread[]
-  mailMessages          MailMessage[]
-  engagementAttachments EngagementAttachment[]
-  meetingNotes          MeetingNote[]
-  meetingPreps          MeetingPrep[]
-  engagementTasks       EngagementTask[]
-  associationOverrides  ClientAssociationOverride[]
-  contextEmbeddings     ContextEmbedding[]
+  engagementContacts         EngagementContact[]
+  meetings                   Meeting[]
+  meetingAttendees           MeetingAttendee[]
+  mailThreads                MailThread[]
+  mailMessages               MailMessage[]
+  engagementAttachments      EngagementAttachment[]
+  meetingNotes               MeetingNote[]
+  meetingPreps               MeetingPrep[]
+  engagementTasks            EngagementTask[]
+  associationOverrides       ClientAssociationOverride[]
+  contextEmbeddings          ContextEmbedding[]
+  directoryContactNotes      DirectoryContactNote[]
 
   @@map("tenants")
 }
@@ -154,20 +155,21 @@ model User {
   memberships           TenantMembership[]
   auditLogs             AuditLog[]             @relation("AuditActor")
   impersonationSessions ImpersonationSession[] @relation("ImpersonationActor")
+  directoryContactNotes DirectoryContactNote[] @relation("DirectoryContactNoteAuthor")
 
   @@map("users")
 }
 
 model TenantMembership {
-  id         String           @id @default(uuid()) @db.Uuid
-  tenantId   String           @map("tenant_id") @db.Uuid
-  userId     String           @map("user_id") @db.Uuid
-  role       TenantRole
-  status     MembershipStatus @default(invited)
-  invitedBy  String?          @map("invited_by") @db.Uuid
-  joinedAt   DateTime?        @map("joined_at") @db.Timestamptz(6)
-  createdAt  DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id        String           @id @default(uuid()) @db.Uuid
+  tenantId  String           @map("tenant_id") @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  role      TenantRole
+  status    MembershipStatus @default(invited)
+  invitedBy String?          @map("invited_by") @db.Uuid
+  joinedAt  DateTime?        @map("joined_at") @db.Timestamptz(6)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -207,19 +209,37 @@ model Client {
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  engagementContacts EngagementContact[]
-  meetings           Meeting[]
-  mailThreads        MailThread[]
+  tenant                Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  engagementContacts    EngagementContact[]
+  meetings              Meeting[]
+  mailThreads           MailThread[]
   engagementAttachments EngagementAttachment[]
-  meetingNotes       MeetingNote[]
-  meetingPreps       MeetingPrep[]
-  engagementTasks    EngagementTask[]
-  associationOverrides ClientAssociationOverride[]
+  meetingNotes          MeetingNote[]
+  meetingPreps          MeetingPrep[]
+  engagementTasks       EngagementTask[]
+  associationOverrides  ClientAssociationOverride[]
 
   @@index([tenantId], map: "clients_tenant_idx")
   @@index([tenantId, name], map: "clients_tenant_name_idx")
   @@map("clients")
+}
+
+model DirectoryContactNote {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  directoryContactId   String   @map("directory_contact_id")
+  directoryContactName String?  @map("directory_contact_name")
+  body                 String   @db.Text
+  createdByUserId      String?  @map("created_by_user_id") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("DirectoryContactNoteAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, directoryContactId, createdAt], map: "directory_contact_notes_tenant_contact_created_idx")
+  @@index([createdByUserId], map: "directory_contact_notes_created_by_idx")
+  @@map("directory_contact_notes")
 }
 
 model IntegrationConnection {
@@ -238,10 +258,10 @@ model IntegrationConnection {
   createdAt       DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  token       IntegrationConnectionToken?
-  meetings    Meeting[]
-  mailThreads MailThread[]
+  tenant       Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  token        IntegrationConnectionToken?
+  meetings     Meeting[]
+  mailThreads  MailThread[]
   mailMessages MailMessage[]
 
   @@unique([tenantId, provider, accountEmail], map: "engagement_connections_tenant_provider_account_key")
@@ -379,11 +399,11 @@ model MailThread {
   createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  client      Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  connection  IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
-  messages    MailMessage[]
-  tasks       EngagementTask[]
+  tenant     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client     Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  connection IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  messages   MailMessage[]
+  tasks      EngagementTask[]
 
   @@unique([tenantId, source, externalId], map: "mail_threads_tenant_source_external_key")
   @@index([tenantId, clientId, lastMessageAt], map: "mail_threads_tenant_client_last_idx")
@@ -466,32 +486,32 @@ model MeetingNote {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  meeting Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  client  Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  client  Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, meetingId, createdAt], map: "meeting_notes_tenant_meeting_created_idx")
   @@map("meeting_notes")
 }
 
 model MeetingPrep {
-  id            String            @id @default(uuid()) @db.Uuid
-  tenantId      String            @map("tenant_id") @db.Uuid
-  meetingId     String            @map("meeting_id") @db.Uuid
-  clientId      String?           @map("client_id") @db.Uuid
-  status        MeetingPrepStatus @default(generated)
-  agenda        Json              @default("[]") @map("agenda_jsonb")
-  talkingPoints Json              @default("[]") @map("talking_points_jsonb")
-  risks         Json              @default("[]") @map("risks_jsonb")
-  followUps     Json              @default("[]") @map("follow_ups_jsonb")
-  summary       String?
-  provider      String?
-  model         String?
-  promptHash    String?           @map("prompt_hash")
-  generatedFrom Json              @default("{}") @map("generated_from_jsonb")
-  editedByUserId String?          @map("edited_by_user_id") @db.Uuid
-  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id             String            @id @default(uuid()) @db.Uuid
+  tenantId       String            @map("tenant_id") @db.Uuid
+  meetingId      String            @map("meeting_id") @db.Uuid
+  clientId       String?           @map("client_id") @db.Uuid
+  status         MeetingPrepStatus @default(generated)
+  agenda         Json              @default("[]") @map("agenda_jsonb")
+  talkingPoints  Json              @default("[]") @map("talking_points_jsonb")
+  risks          Json              @default("[]") @map("risks_jsonb")
+  followUps      Json              @default("[]") @map("follow_ups_jsonb")
+  summary        String?
+  provider       String?
+  model          String?
+  promptHash     String?           @map("prompt_hash")
+  generatedFrom  Json              @default("{}") @map("generated_from_jsonb")
+  editedByUserId String?           @map("edited_by_user_id") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
@@ -531,16 +551,16 @@ model EngagementTask {
 }
 
 model ClientAssociationOverride {
-  id                String                @id @default(uuid()) @db.Uuid
-  tenantId          String                @map("tenant_id") @db.Uuid
-  entityType        AssociationEntityType @map("entity_type")
-  entityId          String                @map("entity_id") @db.Uuid
-  clientId          String                @map("client_id") @db.Uuid
-  previousClientId  String?               @map("previous_client_id") @db.Uuid
-  confidenceBefore  Float?                @map("confidence_before")
-  reason            String?
-  userId            String?               @map("user_id") @db.Uuid
-  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  id               String                @id @default(uuid()) @db.Uuid
+  tenantId         String                @map("tenant_id") @db.Uuid
+  entityType       AssociationEntityType @map("entity_type")
+  entityId         String                @map("entity_id") @db.Uuid
+  clientId         String                @map("client_id") @db.Uuid
+  previousClientId String?               @map("previous_client_id") @db.Uuid
+  confidenceBefore Float?                @map("confidence_before")
+  reason           String?
+  userId           String?               @map("user_id") @db.Uuid
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -551,15 +571,15 @@ model ClientAssociationOverride {
 }
 
 model ContextEmbedding {
-  id          String   @id @default(uuid()) @db.Uuid
-  tenantId    String   @map("tenant_id") @db.Uuid
-  clientId    String?  @map("client_id") @db.Uuid
-  sourceType  String   @map("source_type")
-  sourceId    String   @map("source_id")
-  contentText String   @map("content_text")
+  id          String                 @id @default(uuid()) @db.Uuid
+  tenantId    String                 @map("tenant_id") @db.Uuid
+  clientId    String?                @map("client_id") @db.Uuid
+  sourceType  String                 @map("source_type")
+  sourceId    String                 @map("source_id")
+  contentText String                 @map("content_text")
   embedding   Unsupported("vector")?
-  metadata    Json     @default("{}") @map("metadata_jsonb")
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  metadata    Json                   @default("{}") @map("metadata_jsonb")
+  createdAt   DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
@@ -568,14 +588,14 @@ model ContextEmbedding {
 }
 
 model ImpersonationSession {
-  id           String    @id @default(uuid()) @db.Uuid
-  actorUserId  String    @map("actor_user_id") @db.Uuid
-  tenantId     String    @map("tenant_id") @db.Uuid
-  reason       String
-  startedAt    DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
-  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
-  endedAt      DateTime? @map("ended_at") @db.Timestamptz(6)
-  endedReason  String?   @map("ended_reason")
+  id          String    @id @default(uuid()) @db.Uuid
+  actorUserId String    @map("actor_user_id") @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  reason      String
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  endedAt     DateTime? @map("ended_at") @db.Timestamptz(6)
+  endedReason String?   @map("ended_reason")
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   actor  User   @relation("ImpersonationActor", fields: [actorUserId], references: [id], onDelete: Cascade)
@@ -585,19 +605,19 @@ model ImpersonationSession {
 }
 
 model AuditLog {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @map("tenant_id") @db.Uuid
-  actorUserId  String?  @map("actor_user_id") @db.Uuid
-  actorRole    String?  @map("actor_role")
-  action       String
-  entityType   String?  @map("entity_type")
-  entityId     String?  @map("entity_id")
-  before       Json?    @map("before_jsonb")
-  after        Json?    @map("after_jsonb")
-  ip           String?
-  userAgent    String?  @map("user_agent")
-  requestId    String?  @map("request_id")
-  occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  actorRole   String?  @map("actor_role")
+  action      String
+  entityType  String?  @map("entity_type")
+  entityId    String?  @map("entity_id")
+  before      Json?    @map("before_jsonb")
+  after       Json?    @map("after_jsonb")
+  ip          String?
+  userAgent   String?  @map("user_agent")
+  requestId   String?  @map("request_id")
+  occurredAt  DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   actor  User?  @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)

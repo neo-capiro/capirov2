@@ -12,7 +12,7 @@ import {
   SettingOutlined,
   UserSwitchOutlined,
 } from '@ant-design/icons';
-import { OrganizationSwitcher, UserButton } from '@clerk/clerk-react';
+import { OrganizationSwitcher, UserButton, useUser } from '@clerk/clerk-react';
 import { Alert, Button, Layout, Menu, Space, Tag, Tooltip, Typography } from 'antd';
 import { useMe } from '../lib/me.js';
 import { useImpersonation } from '../state/impersonation.js';
@@ -23,6 +23,25 @@ const { Header, Sider, Content } = Layout;
 const CAPIRO_BLUE = '#01226A';
 const CAPIRO_BLUE_DEEP = '#001650';
 const SOFT_WHITE = '#F4F6F8';
+const APP_FONT =
+  "'Public Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif";
+
+const CLERK_APPEARANCE = {
+  variables: {
+    colorPrimary: CAPIRO_BLUE,
+    fontFamily: APP_FONT,
+  },
+  elements: {
+    organizationSwitcherTrigger: {
+      fontFamily: APP_FONT,
+      color: '#111827',
+      borderRadius: '8px',
+    },
+    userButtonPopoverCard: {
+      fontFamily: APP_FONT,
+    },
+  },
+};
 
 interface NavItem {
   key: string;
@@ -103,10 +122,18 @@ const NAV: NavItem[] = [
 
 export function AppShell() {
   const me = useMe();
+  const { user } = useUser();
   const location = useLocation();
   const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
   const { actAsTenantSlug, end: endImpersonation } = useImpersonation();
+  const displayName =
+    user?.fullName ||
+    [me.data?.user.firstName, me.data?.user.lastName].filter(Boolean).join(' ') ||
+    me.data?.user.email ||
+    user?.primaryEmailAddress?.emailAddress ||
+    'Account';
+  const tenantName = me.data?.tenant.name || me.data?.tenant.slug;
 
   const items = useMemo(
     () =>
@@ -160,17 +187,11 @@ export function AppShell() {
             gap: 12,
           }}
         >
-          <Typography.Text
-            style={{
-              color: '#fff',
-              fontSize: collapsed ? 22 : 24,
-              fontWeight: 700,
-              letterSpacing: 0,
-              lineHeight: 1,
-            }}
-          >
-            {collapsed ? 'C' : 'Capiro'}
-          </Typography.Text>
+          <img
+            src="/logo.png"
+            alt="Capiro"
+            className={collapsed ? 'app-shell-logo app-shell-logo--collapsed' : 'app-shell-logo'}
+          />
           {!collapsed ? (
             <Tooltip title="Collapse navigation" placement="right">
               <Button
@@ -233,24 +254,29 @@ export function AppShell() {
             height: 72,
           }}
         >
-          <Space>
+          <Space className="app-header-tenant" size={10} wrap>
             {me.data ? (
               <>
-                <Typography.Text strong>{me.data.tenant.slug}</Typography.Text>
-                <Tag color={me.data.role === 'capiro_admin' ? 'volcano' : 'blue'}>
+                <Typography.Text className="app-header-tenant-name" strong>
+                  {tenantName}
+                </Typography.Text>
+                <Tag color={me.data.role === 'capiro_admin' ? 'gold' : 'default'}>
                   {me.data.role.replace(/_/g, ' ')}
                 </Tag>
                 {actAsTenantSlug ? (
-                  <Tag color="purple" closable onClose={endImpersonation}>
+                  <Tag color="default" closable onClose={endImpersonation}>
                     impersonating {actAsTenantSlug}
                   </Tag>
                 ) : null}
               </>
             ) : null}
           </Space>
-          <Space size="middle">
-            <OrganizationSwitcher hidePersonal />
-            <UserButton afterSignOutUrl="/sign-in" />
+          <Space className="app-header-account" size="middle">
+            <OrganizationSwitcher hidePersonal appearance={CLERK_APPEARANCE} />
+            <div className="app-account-trigger">
+              <Typography.Text className="app-account-name">{displayName}</Typography.Text>
+              <UserButton afterSignOutUrl="/sign-in" appearance={CLERK_APPEARANCE} />
+            </div>
           </Space>
         </Header>
         <Content style={{ padding: 24 }}>

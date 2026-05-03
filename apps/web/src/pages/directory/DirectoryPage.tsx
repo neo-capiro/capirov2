@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   Alert,
   App,
@@ -20,15 +20,21 @@ import {
   Typography,
 } from 'antd';
 import {
+  CopyOutlined,
   LinkOutlined,
   MailOutlined,
   PhoneOutlined,
   SearchOutlined,
-  TeamOutlined,
+  SendOutlined,
 } from '@ant-design/icons';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../lib/use-api.js';
-import { type DirectoryApiResponse, type DirectoryEntry, type Party } from './directoryData.js';
+import {
+  type DirectoryApiResponse,
+  type DirectoryContactNote,
+  type DirectoryEntry,
+  type Party,
+} from './directoryData.js';
 
 type FreshmanFilter = 'All' | 'Freshman' | 'Non-Freshman';
 type ChamberFilter = DirectoryEntry['chamber'] | 'All';
@@ -36,12 +42,13 @@ type GenderFilter = DirectoryEntry['gender'] | 'All';
 type SortOption = 'recent' | 'name-asc' | 'name-desc' | 'state-asc';
 
 const PAGE_SIZE = 12;
+const SEARCH_DEBOUNCE_MS = 300;
 const emptyFilters = [] as string[];
 
 function partyColor(party: Party): string {
   if (party === 'D') return 'blue';
   if (party === 'R') return 'red';
-  return 'purple';
+  return 'default';
 }
 
 function partyLabel(party: Party): string {
@@ -68,6 +75,21 @@ function initials(name: string): string {
 function yearFromDate(date: string): string {
   if (!date) return 'Unknown';
   return date.slice(0, 4);
+}
+
+function formatNoteDate(date: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(date));
+}
+
+function noteAuthor(note: DirectoryContactNote): string {
+  const fullName = [note.createdBy?.firstName, note.createdBy?.lastName].filter(Boolean).join(' ');
+  return fullName || note.createdBy?.email || 'Former user';
 }
 
 function buildApiParams(filters: {
@@ -123,6 +145,7 @@ export function DirectoryPage() {
   const { message } = App.useApp();
   const api = useApi();
 
+  const [searchText, setSearchText] = useState('');
   const [query, setQuery] = useState('');
   const [freshman, setFreshman] = useState<FreshmanFilter>('All');
   const [chamber, setChamber] = useState<ChamberFilter>('All');
@@ -136,6 +159,15 @@ export function DirectoryPage() {
   const [sort, setSort] = useState<SortOption>('recent');
   const [page, setPage] = useState(1);
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      setQuery(searchText);
+      setPage(1);
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(handle);
+  }, [searchText]);
 
   const directoryQuery = useQuery({
     queryKey: [
@@ -174,6 +206,7 @@ export function DirectoryPage() {
         })
       ).data,
     staleTime: 5 * 60_000,
+    placeholderData: (previous) => previous,
     retry: 1,
   });
 
@@ -194,6 +227,7 @@ export function DirectoryPage() {
   );
 
   function resetFilters() {
+    setSearchText('');
     setQuery('');
     setFreshman('All');
     setChamber('All');
@@ -222,7 +256,7 @@ export function DirectoryPage() {
     }
   }
 
-  if (directoryQuery.isLoading) {
+  if (directoryQuery.isLoading && !directoryQuery.data) {
     return (
       <Card>
         <Space>
@@ -250,9 +284,6 @@ export function DirectoryPage() {
           <Typography.Title level={3} style={{ margin: 0 }}>
             Directory
           </Typography.Title>
-          <Typography.Text type="secondary">
-            Members and staff details sourced from the active S3 directory snapshot.
-          </Typography.Text>
         </div>
         <Select
           value={sort}
@@ -469,9 +500,13 @@ export function DirectoryPage() {
                 allowClear
                 size="large"
                 prefix={<SearchOutlined />}
-                value={query}
+                suffix={directoryQuery.isFetching ? <Spin size="small" /> : null}
+                value={searchText}
                 onChange={(event) => {
-                  setQuery(event.target.value);
+                  setSearchText(event.target.value);
+                }}
+                onPressEnter={() => {
+                  setQuery(searchText);
                   setPage(1);
                 }}
                 placeholder="Search by name, office, committee, staff, phone, or email"
@@ -489,11 +524,18 @@ export function DirectoryPage() {
             ) : (
               <div className="directory-card-grid">
                 {entries.map((entry) => (
-                  <button
+                  <article
                     key={entry.id}
-                    type="button"
                     className="directory-person-card"
+                    role="button"
+                    tabIndex={0}
                     onClick={() => setSelectedEntryId(entry.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setSelectedEntryId(entry.id);
+                      }
+                    }}
                   >
                     <div className="directory-person-topline">
                       <Avatar
@@ -524,12 +566,20 @@ export function DirectoryPage() {
                     </div>
 
                     <div className="directory-card-contact">
-                      <span>
-                        <PhoneOutlined /> {entry.phone || 'No public phone'}
-                      </span>
-                      <span>
-                        <MailOutlined /> {entry.email || entry.contactFormUrl || 'No public email'}
-                      </span>
+                      <CopyContactLine
+                        icon={<PhoneOutlined />}
+                        value={entry.phone}
+                        emptyText="No public phone"
+                        label="Phone"
+                        onCopy={copyContact}
+                      />
+                      <CopyContactLine
+                        icon={<MailOutlined />}
+                        value={entry.email || entry.contactFormUrl}
+                        emptyText="No public email"
+                        label={entry.email ? 'Email' : 'Contact form'}
+                        onCopy={copyContact}
+                      />
                     </div>
 
                     <div className="directory-card-meta">
@@ -538,7 +588,7 @@ export function DirectoryPage() {
                         entry.focusAreas[0]) ??
                         'No policy coverage listed'}
                     </div>
-                  </button>
+                  </article>
                 ))}
               </div>
             )}
@@ -592,10 +642,16 @@ export function DirectoryPage() {
                 </Typography.Text>
               </div>
               <Space className="directory-profile-actions" wrap>
-                <Button onClick={() => copyContact(selectedEntry.email, 'Email')}>
+                <Button
+                  aria-label="Copy email"
+                  onClick={() => copyContact(selectedEntry.email, 'Email')}
+                >
                   <MailOutlined />
                 </Button>
-                <Button onClick={() => copyContact(selectedEntry.phone, 'Phone')}>
+                <Button
+                  aria-label="Copy phone"
+                  onClick={() => copyContact(selectedEntry.phone, 'Phone')}
+                >
                   <PhoneOutlined />
                 </Button>
                 {selectedEntry.contactFormUrl ? (
@@ -623,13 +679,21 @@ export function DirectoryPage() {
                             <Typography.Paragraph>
                               {selectedEntry.officeLocation || 'No public office address listed'}
                             </Typography.Paragraph>
-                            <Typography.Text>Phone: {selectedEntry.phone || 'N/A'}</Typography.Text>
-                            <br />
-                            <Typography.Text>Fax: {selectedEntry.fax || 'N/A'}</Typography.Text>
-                            <br />
-                            <Typography.Text>
-                              Email: {selectedEntry.email || 'No public email listed'}
-                            </Typography.Text>
+                            <div className="directory-profile-contact-lines">
+                              <CopyableTextRow
+                                label="Phone"
+                                value={selectedEntry.phone}
+                                emptyText="N/A"
+                                onCopy={copyContact}
+                              />
+                              <Typography.Text>Fax: {selectedEntry.fax || 'N/A'}</Typography.Text>
+                              <CopyableTextRow
+                                label="Email"
+                                value={selectedEntry.email}
+                                emptyText="No public email listed"
+                                onCopy={copyContact}
+                              />
+                            </div>
                           </div>
                           <div>
                             <Typography.Text strong>Official Links</Typography.Text>
@@ -693,6 +757,7 @@ export function DirectoryPage() {
                             </Typography.Text>
                           </Space>
                         </Card>
+                        <DirectoryNotesPanel entry={selectedEntry} />
                       </Col>
                     </Row>
                   ),
@@ -724,12 +789,20 @@ export function DirectoryPage() {
                                 ))}
                               </Space>
                               <div className="directory-staff-contact">
-                                <Typography.Text>
-                                  {staffer.phone || selectedEntry.phone || 'No phone'}
-                                </Typography.Text>
-                                <Typography.Text>
-                                  {staffer.email || 'No public email'}
-                                </Typography.Text>
+                                <CopyableTextRow
+                                  label="Phone"
+                                  value={staffer.phone || selectedEntry.phone}
+                                  emptyText="No phone"
+                                  onCopy={copyContact}
+                                  compact
+                                />
+                                <CopyableTextRow
+                                  label="Email"
+                                  value={staffer.email}
+                                  emptyText="No public email"
+                                  onCopy={copyContact}
+                                  compact
+                                />
                               </div>
                             </div>
                           ))
@@ -822,5 +895,165 @@ export function DirectoryPage() {
         ) : null}
       </Modal>
     </div>
+  );
+}
+
+function CopyContactLine({
+  icon,
+  value,
+  emptyText,
+  label,
+  onCopy,
+}: {
+  icon: ReactNode;
+  value: string;
+  emptyText: string;
+  label: string;
+  onCopy: (value: string, label: string) => Promise<void>;
+}) {
+  const copyValue = value.trim();
+  return (
+    <button
+      className="directory-copy-line"
+      type="button"
+      disabled={!copyValue}
+      onClick={(event) => {
+        event.stopPropagation();
+        void onCopy(copyValue, label);
+      }}
+      title={copyValue ? `Copy ${label.toLowerCase()}` : emptyText}
+    >
+      <span className="directory-copy-line-main">
+        {icon}
+        <span>{copyValue || emptyText}</span>
+      </span>
+      {copyValue ? <CopyOutlined /> : null}
+    </button>
+  );
+}
+
+function CopyableTextRow({
+  label,
+  value,
+  emptyText,
+  onCopy,
+  compact = false,
+}: {
+  label: string;
+  value: string;
+  emptyText: string;
+  onCopy: (value: string, label: string) => Promise<void>;
+  compact?: boolean;
+}) {
+  const copyValue = value.trim();
+  return (
+    <span
+      className={
+        compact
+          ? 'directory-copyable-text-row directory-copyable-text-row--compact'
+          : 'directory-copyable-text-row'
+      }
+    >
+      <Typography.Text>
+        {compact ? null : `${label}: `}
+        {copyValue || emptyText}
+      </Typography.Text>
+      {copyValue ? (
+        <Button
+          size="small"
+          type="text"
+          icon={<CopyOutlined />}
+          aria-label={`Copy ${label.toLowerCase()}`}
+          onClick={() => void onCopy(copyValue, label)}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+function DirectoryNotesPanel({ entry }: { entry: DirectoryEntry }) {
+  const { message } = App.useApp();
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const [body, setBody] = useState('');
+
+  const notes = useQuery<DirectoryContactNote[]>({
+    queryKey: ['directory-contact-notes', entry.id],
+    queryFn: async () =>
+      (
+        await api.get<DirectoryContactNote[]>(
+          `/api/directory/contacts/${encodeURIComponent(entry.id)}/notes`,
+        )
+      ).data,
+    staleTime: 15_000,
+  });
+
+  const createNote = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post<DirectoryContactNote>(
+          `/api/directory/contacts/${encodeURIComponent(entry.id)}/notes`,
+          {
+            body,
+            directoryContactName: entry.fullName,
+          },
+        )
+      ).data,
+    onSuccess: async () => {
+      setBody('');
+      await queryClient.invalidateQueries({ queryKey: ['directory-contact-notes', entry.id] });
+      message.success('Note added.');
+    },
+    onError: (error) => {
+      message.error((error as Error).message || 'Could not add note.');
+    },
+  });
+
+  const trimmedBody = body.trim();
+
+  return (
+    <Card className="directory-side-card directory-notes-card" title="Notes">
+      <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+        <Input.TextArea
+          value={body}
+          onChange={(event) => setBody(event.target.value)}
+          placeholder="Add a tenant-visible note"
+          maxLength={4000}
+          showCount
+          autoSize={{ minRows: 3, maxRows: 7 }}
+        />
+        <Button
+          type="primary"
+          icon={<SendOutlined />}
+          loading={createNote.isPending}
+          disabled={!trimmedBody}
+          onClick={() => createNote.mutate()}
+        >
+          Add note
+        </Button>
+
+        {notes.isLoading ? (
+          <Space>
+            <Spin size="small" />
+            <Typography.Text type="secondary">Loading notes...</Typography.Text>
+          </Space>
+        ) : null}
+
+        {!notes.isLoading && (notes.data?.length ?? 0) === 0 ? (
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No notes yet" />
+        ) : null}
+
+        <div className="directory-note-list">
+          {(notes.data ?? []).map((note) => (
+            <div key={note.id} className="directory-note-preview">
+              <Typography.Paragraph>{note.body}</Typography.Paragraph>
+              <Typography.Text type="secondary">
+                {formatNoteDate(note.createdAt)} by {noteAuthor(note)}
+              </Typography.Text>
+            </div>
+          ))}
+        </div>
+      </Space>
+    </Card>
   );
 }

@@ -1,8 +1,15 @@
 import { gunzipSync } from 'node:zlib';
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 
 type Chamber = 'House' | 'Senate' | 'Governor';
 type Party = 'D' | 'R' | 'I';
@@ -138,6 +145,11 @@ export interface DirectoryPayload {
   availableFilters: DirectoryAvailableFilters;
 }
 
+export interface CreateDirectoryContactNoteInput {
+  body: string;
+  directoryContactName?: string;
+}
+
 interface CachedContacts {
   expiresAt: number;
   data: {
@@ -168,7 +180,10 @@ export class DirectoryService {
   private readonly prefix: string;
   private cache: CachedContacts | null = null;
 
-  constructor(config: ConfigService<AppConfig, true>) {
+  constructor(
+    config: ConfigService<AppConfig, true>,
+    private readonly prisma: PrismaService,
+  ) {
     const region = config.get('AWS_REGION_DEFAULT', { infer: true });
     this.s3 = new S3Client({ region });
     this.bucket = process.env.DIRECTORY_S3_BUCKET ?? 'updated-directory-967807252336-us-east-1';
@@ -220,6 +235,92 @@ export class DirectoryService {
       );
       throw new ServiceUnavailableException('Directory data is temporarily unavailable');
     }
+  }
+
+  listContactNotes(ctx: TenantContext, contactId: string) {
+    const normalizedContactId = normalizeContactId(contactId);
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.directoryContactNote.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          directoryContactId: normalizedContactId,
+        },
+        select: {
+          id: true,
+          directoryContactId: true,
+          directoryContactName: true,
+          body: true,
+          createdAt: true,
+          createdBy: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+  }
+
+  async createContactNote(
+    ctx: TenantContext,
+    contactId: string,
+    input: CreateDirectoryContactNoteInput,
+  ) {
+    const normalizedContactId = normalizeContactId(contactId);
+    const body = input.body.trim();
+    if (!body) throw new BadRequestException('Note body is required');
+    if (body.length > 4000)
+      throw new BadRequestException('Note body must be 4000 characters or less');
+
+    const directoryContactName = input.directoryContactName?.trim().slice(0, 240) || null;
+
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const note = await tx.directoryContactNote.create({
+        data: {
+          tenantId: ctx.tenantId,
+          directoryContactId: normalizedContactId,
+          directoryContactName,
+          body,
+          createdByUserId: ctx.userId,
+        },
+        select: {
+          id: true,
+          directoryContactId: true,
+          directoryContactName: true,
+          body: true,
+          createdAt: true,
+          createdBy: {
+            select: {
+              id: true,
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          actorRole: ctx.role,
+          action: 'directory_contact_note.created',
+          entityType: 'directory_contact_note',
+          entityId: note.id,
+          after: {
+            directoryContactId: normalizedContactId,
+            directoryContactName,
+          },
+        },
+      });
+
+      return note;
+    });
   }
 
   private async fetchGzipJson<T>(key: string): Promise<T> {
@@ -887,6 +988,13 @@ function uniqueSorted<T extends string>(
   return Array.from(new Set(values.filter(Boolean))).sort(
     compareFn ?? ((left, right) => left.localeCompare(right)),
   );
+}
+
+function normalizeContactId(contactId: string): string {
+  const normalized = contactId.trim();
+  if (!normalized) throw new BadRequestException('Directory contact id is required');
+  if (normalized.length > 120) throw new BadRequestException('Directory contact id is too long');
+  return normalized;
 }
 
 function compareDistricts(left: string, right: string): number {

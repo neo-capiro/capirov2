@@ -31,6 +31,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 COPY packages/shared/src packages/shared/src
 COPY packages/shared/tsconfig.json packages/shared/tsconfig.json
 COPY apps/web/src apps/web/src
+COPY apps/web/public apps/web/public
 COPY apps/web/index.html apps/web/vite.config.ts apps/web/tsconfig.json apps/web/
 
 RUN pnpm --filter @capiro/shared build

@@ -110,3 +110,17 @@ export interface DirectoryApiResponse {
     educationInstitutions: string[];
   };
 }
+
+export interface DirectoryContactNote {
+  id: string;
+  directoryContactId: string;
+  directoryContactName: string | null;
+  body: string;
+  createdAt: string;
+  createdBy: {
+    id: string;
+    email: string;
+    firstName: string | null;
+    lastName: string | null;
+  } | null;
+}

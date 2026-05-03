@@ -17,10 +17,12 @@ const queryClient = new QueryClient({
 // Brand palette - Capiro Brand Book.
 const CAPIRO_BLUE = '#01226A';
 const CAPIRO_BLUE_DEEP = '#001650';
-const SIGNAL_BLUE = '#3A6FF7';
+const SIGNAL_BLUE = '#2456B8';
 const SOFT_WHITE = '#F4F6F8';
 const COOL_GRAY = '#6B7280';
 const TEXT_PRIMARY = '#111827';
+const APP_FONT =
+  "'Public Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif";
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -30,6 +32,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       signUpUrl="/sign-up"
       signInFallbackRedirectUrl="/"
       signUpFallbackRedirectUrl="/"
+      appearance={{
+        variables: {
+          colorPrimary: CAPIRO_BLUE,
+          colorText: TEXT_PRIMARY,
+          colorTextSecondary: COOL_GRAY,
+          fontFamily: APP_FONT,
+        },
+      }}
     >
       <ConfigProvider
         theme={{
@@ -42,8 +52,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             colorText: TEXT_PRIMARY,
             colorBgLayout: SOFT_WHITE,
             borderRadius: 10,
-            fontFamily:
-              "'Public Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif",
+            fontFamily: APP_FONT,
             fontFamilyCode:
               "'JetBrains Mono', 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', monospace",
           },

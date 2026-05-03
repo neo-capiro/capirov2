@@ -1,7 +1,21 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
+import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { DirectoryService } from './directory.service.js';
+
+class CreateDirectoryContactNoteDto {
+  @IsString()
+  @Length(1, 4000)
+  body!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  directoryContactName?: string;
+}
 
 @Controller('directory')
 @UseGuards(RolesGuard)
@@ -42,5 +56,19 @@ export class DirectoryController {
       page,
       pageSize,
     });
+  }
+
+  @Get('contacts/:contactId/notes')
+  contactNotes(@CurrentTenant() ctx: TenantContext, @Param('contactId') contactId: string) {
+    return this.service.listContactNotes(ctx, contactId);
+  }
+
+  @Post('contacts/:contactId/notes')
+  createContactNote(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('contactId') contactId: string,
+    @Body() body: CreateDirectoryContactNoteDto,
+  ) {
+    return this.service.createContactNote(ctx, contactId, body);
   }
 }

@@ -52,11 +52,23 @@ export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Tenant context resolution runs on every authenticated route.
     // Webhooks and /health are explicitly excluded — they have no Clerk session.
+    // The Microsoft OAuth callback is also excluded: Microsoft redirects the
+    // user's browser to it as a top-level navigation, which doesn't carry the
+    // Clerk bearer token. The callback authenticates via the HMAC-signed
+    // `state` parameter (which encodes tenantId + connectionId) instead.
     consumer
       .apply(TenantContextMiddleware)
       .exclude(
         { path: 'health', method: RequestMethod.ALL },
         { path: 'webhooks/(.*)', method: RequestMethod.ALL },
+        {
+          path: '/api/engagement/integrations/microsoft/callback',
+          method: RequestMethod.GET,
+        },
+        {
+          path: 'api/engagement/integrations/microsoft/callback',
+          method: RequestMethod.GET,
+        },
       )
       .forRoutes('*');
   }

@@ -17,15 +17,33 @@ export class UsersController {
   constructor(private readonly prisma: PrismaService) {}
 
   @Get('me')
-  me(@CurrentTenant() ctx: TenantContext) {
+  async me(@CurrentTenant() ctx: TenantContext) {
+    const profile = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const [user, tenant] = await Promise.all([
+        tx.user.findUnique({
+          where: { id: ctx.userId },
+          select: { email: true, firstName: true, lastName: true },
+        }),
+        tx.tenant.findUnique({
+          where: { id: ctx.tenantId },
+          select: { name: true },
+        }),
+      ]);
+      return { user, tenant };
+    });
+
     return {
       user: {
         id: ctx.userId,
         clerkUserId: ctx.clerkUserId,
+        email: profile.user?.email ?? null,
+        firstName: profile.user?.firstName ?? null,
+        lastName: profile.user?.lastName ?? null,
       },
       tenant: {
         id: ctx.tenantId,
         slug: ctx.tenantSlug,
+        name: profile.tenant?.name ?? ctx.tenantSlug,
       },
       role: ctx.role,
     };

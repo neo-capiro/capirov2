@@ -43,6 +43,19 @@ export class TenantContextMiddleware implements NestMiddleware {
   ) {}
 
   async use(req: Request, res: Response, next: NextFunction): Promise<void> {
+    // Belt-and-suspenders bypass for paths that authenticate via a different
+    // channel than the Clerk session. The OAuth callback is reached via a
+    // top-level browser redirect from Microsoft and authenticates via the
+    // HMAC-signed `state` parameter. The middleware-level `.exclude()` in
+    // app.module.ts is the primary mechanism; this is the fallback in case
+    // the exclude path matcher misses for any reason (e.g. global prefix
+    // interaction).
+    const path = req.path;
+    if (path === '/api/engagement/integrations/microsoft/callback') {
+      next();
+      return;
+    }
+
     // Step 1 — verify Clerk JWT.
     const auth = req.headers.authorization;
     if (!auth || !auth.toLowerCase().startsWith('bearer ')) {

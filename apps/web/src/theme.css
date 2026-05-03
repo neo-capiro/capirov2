@@ -44,6 +44,62 @@ body {
   font-weight: 700;
 }
 
+.app-shell-logo {
+  display: block;
+  width: 142px;
+  max-width: 100%;
+  height: 42px;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+}
+
+.app-shell-logo--collapsed {
+  width: 46px;
+  height: 36px;
+}
+
+.app-header-tenant {
+  min-width: 0;
+}
+
+.app-header-tenant-name {
+  color: #111827 !important;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.app-header-account {
+  margin-left: auto;
+  font-family:
+    'Public Sans',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+.app-account-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 38px;
+  padding: 4px 4px 4px 10px;
+  border: 1px solid #e0e7f1;
+  border-radius: 999px;
+  background: #fbfcfe;
+}
+
+.app-account-name {
+  max-width: 180px;
+  overflow: hidden;
+  color: #111827 !important;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .ant-typography,
 .ant-typography-secondary {
   color: var(--ink-700);
@@ -188,7 +244,9 @@ body {
   border: 1px solid #d9e1ee;
   border-radius: 8px;
   box-shadow: 0 8px 22px rgba(17, 24, 39, 0.05);
+  color: inherit;
   cursor: pointer;
+  font: inherit;
   transition:
     border-color 160ms ease,
     box-shadow 160ms ease,
@@ -251,10 +309,37 @@ body {
   font-size: 12px;
 }
 
-.directory-card-contact span {
+.directory-copy-line-main span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.directory-copy-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.directory-copy-line:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.directory-copy-line-main {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
 }
 
 .directory-card-meta {
@@ -343,6 +428,47 @@ body {
   padding: 20px 0;
   border-top: 1px solid #edf1f7;
   border-bottom: 1px solid #edf1f7;
+}
+
+.directory-profile-contact-lines,
+.directory-note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.directory-copyable-text-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.directory-copyable-text-row--compact {
+  grid-template-columns: minmax(0, 1fr) 26px;
+}
+
+.directory-copyable-text-row .ant-typography {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.directory-notes-card {
+  margin-top: 14px;
+}
+
+.directory-note-preview {
+  padding: 12px;
+  border: 1px solid #e5ebf4;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.directory-note-preview p {
+  margin-bottom: 8px;
+  white-space: pre-wrap;
 }
 
 .directory-address-list,
@@ -1121,6 +1247,14 @@ body {
   .directory-staff-row,
   .directory-link-grid {
     grid-template-columns: 1fr;
+  }
+
+  .app-account-name {
+    display: none;
+  }
+
+  .app-header-account {
+    gap: 8px !important;
   }
 
   .directory-profile-tabs {

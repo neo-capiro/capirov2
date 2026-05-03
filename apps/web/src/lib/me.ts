@@ -3,8 +3,14 @@ import type { TenantRole } from '@capiro/shared';
 import { useApi } from './use-api.js';
 
 export interface MeResponse {
-  user: { id: string; clerkUserId: string };
-  tenant: { id: string; slug: string };
+  user: {
+    id: string;
+    clerkUserId: string;
+    email: string | null;
+    firstName: string | null;
+    lastName: string | null;
+  };
+  tenant: { id: string; slug: string; name: string };
   role: TenantRole;
 }
 
