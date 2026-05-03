@@ -20,6 +20,18 @@ export const configSchema = z.object({
   DIRECTORY_S3_BUCKET: z.string().optional(),
   DIRECTORY_S3_PREFIX: z.string().optional(),
   AWS_REGION_DEFAULT: z.string().default('us-east-1'),
+
+  // Optional AI providers. Meeting prep endpoints fail closed with 503 until
+  // one provider key is configured; they never return canned prep.
+  AI_PROVIDER: z.enum(['openai', 'anthropic']).optional(),
+  OPENAI_API_KEY: z.string().optional(),
+  OPENAI_MODEL: z.string().default('gpt-4.1-mini'),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-5'),
+
+  // 32-byte base64 or hex key used for AES-256-GCM encrypted meeting notes.
+  NOTES_ENCRYPTION_KEY: z.string().optional(),
+  NOTES_ENCRYPTION_KEY_VERSION: z.string().default('v1'),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

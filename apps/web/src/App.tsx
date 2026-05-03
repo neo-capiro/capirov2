@@ -10,7 +10,10 @@ import { BrandingPage } from './pages/admin/BrandingPage.js';
 import { ClientsPage } from './pages/admin/ClientsPage.js';
 import { BillingPage } from './pages/admin/BillingPage.js';
 import { CapiroAdminPage } from './pages/capiro-admin/CapiroAdminPage.js';
+import { ClientWorkspacePage } from './pages/clients/ClientWorkspacePage.js';
 import { DirectoryPage } from './pages/directory/DirectoryPage.js';
+import { EngagementPage } from './pages/engagement/EngagementPage.js';
+import { IntegrationsPage } from './pages/settings/IntegrationsPage.js';
 
 export function App() {
   return (
@@ -40,24 +43,8 @@ export function App() {
         }
       >
         <Route path="/" element={<HomePage />} />
-        <Route
-          path="/clients"
-          element={
-            <PlaceholderPage
-              title="Clients"
-              description="Per-client view of activity. Adds detail tabs in the next session."
-            />
-          }
-        />
-        <Route
-          path="/engagement"
-          element={
-            <PlaceholderPage
-              title="Engagement Manager"
-              description="Cross-client engagement workbench - calendars, meetings, outreach."
-            />
-          }
-        />
+        <Route path="/clients" element={<ClientWorkspacePage />} />
+        <Route path="/engagement" element={<EngagementPage />} />
         <Route path="/workspace" element={<PlaceholderPage title="Workspace" />} />
         <Route path="/intelligence" element={<PlaceholderPage title="Intelligence" />} />
         <Route path="/directory" element={<DirectoryPage />} />
@@ -72,6 +59,7 @@ export function App() {
           <Route path="team" element={<TeamPage />} />
           <Route path="branding" element={<BrandingPage />} />
           <Route path="clients" element={<ClientsPage />} />
+          <Route path="integrations" element={<IntegrationsPage />} />
           <Route path="billing" element={<BillingPage />} />
           <Route path="tenants" element={<CapiroAdminPage />} />
         </Route>

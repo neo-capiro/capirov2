@@ -15,6 +15,7 @@ import { TenantAdminModule } from './tenant-admin/tenant-admin.module.js';
 import { ClientsModule } from './clients/clients.module.js';
 import { BrandingModule } from './branding/branding.module.js';
 import { DirectoryModule } from './directory/directory.module.js';
+import { EngagementModule } from './engagement/engagement.module.js';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { DirectoryModule } from './directory/directory.module.js';
     ClientsModule,
     BrandingModule,
     DirectoryModule,
+    EngagementModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

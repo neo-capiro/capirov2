@@ -15,6 +15,7 @@ const TABS: Tab[] = [
   { key: '/settings/team', label: 'Team', minRole: 'user_admin' },
   { key: '/settings/branding', label: 'Branding', minRole: 'user_admin' },
   { key: '/settings/clients', label: 'Clients', minRole: 'user_admin' },
+  { key: '/settings/integrations', label: 'Integrations', minRole: 'user_admin' },
   { key: '/settings/billing', label: 'Billing', minRole: 'user_admin' },
   { key: '/settings/tenants', label: 'Tenants', minRole: 'capiro_admin' },
 ];
