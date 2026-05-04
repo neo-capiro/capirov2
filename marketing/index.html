@@ -257,6 +257,12 @@
     background: var(--soft-white);
   }
 
+  .capability-media--screenshot {
+    aspect-ratio: 1425 / 903;
+    object-fit: contain;
+    background: #f7f9fc;
+  }
+
   .capability-copy {
     padding: 24px;
   }
@@ -726,7 +732,7 @@
         </article>
 
         <article class="capability-card">
-          <img class="capability-media" src="/assets/member-directory.png" alt="Capiro member and staff directory interface" />
+          <img class="capability-media capability-media--screenshot" src="/assets/member-directory.png" alt="Capiro member and staff directory interface" />
           <div class="capability-copy">
             <h3>Member &amp; Staff Intelligence</h3>
             <p>Use a maintained congressional directory with member context, staff coverage, activity signals, and issue-level intelligence for targeted outreach.</p>
