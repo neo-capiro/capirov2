@@ -64,10 +64,33 @@ export class MicrosoftOAuthController {
     @CurrentTenant() ctx: TenantContext,
     @Param('connectionId') connectionId: string,
     @Query('reset') reset: string | undefined,
+    @Query('calendar') calendar: string | undefined,
+    @Query('mail') mail: string | undefined,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
   ): Promise<unknown> {
     return this.graphSync.syncConnection(ctx, connectionId, {
       reset: reset === '1' || reset === 'true',
+      calendar: calendar === undefined ? undefined : calendar !== '0' && calendar !== 'false',
+      mail: mail === undefined ? undefined : mail !== '0' && mail !== 'false',
+      from,
+      to,
     });
+  }
+
+  @Post(':connectionId/calendar-window')
+  @UseGuards(RolesGuard)
+  @Roles('standard_user')
+  syncCalendarWindow(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('connectionId') connectionId: string,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+  ): Promise<unknown> {
+    if (!from || !to) {
+      throw new BadRequestException('from and to query parameters are required');
+    }
+    return this.graphSync.syncCalendarWindow(ctx, connectionId, { from, to });
   }
 
   @Post(':connectionId/subscriptions')

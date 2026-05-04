@@ -156,6 +156,7 @@ model User {
   auditLogs             AuditLog[]             @relation("AuditActor")
   impersonationSessions ImpersonationSession[] @relation("ImpersonationActor")
   directoryContactNotes DirectoryContactNote[] @relation("DirectoryContactNoteAuthor")
+  meetingNotes          MeetingNote[]          @relation("MeetingNoteAuthor")
 
   @@map("users")
 }
@@ -492,6 +493,7 @@ model MeetingNote {
   tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
   client  Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  author  User?   @relation("MeetingNoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, meetingId, createdAt], map: "meeting_notes_tenant_meeting_created_idx")
   @@map("meeting_notes")

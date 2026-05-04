@@ -382,7 +382,9 @@ export class EngagementService {
   ) {
     const encrypted = this.notesCrypto.encrypt(input.body);
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
-      const meeting = await tx.meeting.findUnique({ where: { id: meetingId } });
+      const meeting = await tx.meeting.findFirst({
+        where: { id: meetingId, tenantId: ctx.tenantId },
+      });
       if (!meeting) throw new NotFoundException('Meeting not found');
       return tx.meetingNote.create({
         data: {
@@ -399,6 +401,48 @@ export class EngagementService {
         },
         select: noteMetadataSelect(),
       });
+    });
+  }
+
+  async listMeetingNotes(ctx: TenantContext, meetingId: string) {
+    const notes = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const meeting = await tx.meeting.findFirst({
+        where: { id: meetingId, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
+      if (!meeting) throw new NotFoundException('Meeting not found');
+
+      return tx.meetingNote.findMany({
+        where: { tenantId: ctx.tenantId, meetingId },
+        include: {
+          author: { select: { id: true, email: true, firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    return notes.map((note) => {
+      const canReadBody = canReadNoteBody(ctx, note);
+      return {
+        id: note.id,
+        meetingId: note.meetingId,
+        clientId: note.clientId,
+        body: canReadBody
+          ? this.notesCrypto.decrypt({
+              bodyCiphertext: note.bodyCiphertext,
+              iv: note.iv,
+              authTag: note.authTag,
+            })
+          : null,
+        confidential: note.confidential,
+        accessLevel: note.accessLevel,
+        keyVersion: note.keyVersion,
+        authorUserId: note.authorUserId,
+        author: note.author,
+        createdAt: note.createdAt,
+        updatedAt: note.updatedAt,
+        restricted: !canReadBody,
+      };
     });
   }
 
@@ -770,12 +814,23 @@ function noteMetadataSelect() {
     meetingId: true,
     clientId: true,
     authorUserId: true,
+    author: { select: { id: true, email: true, firstName: true, lastName: true } },
     confidential: true,
     accessLevel: true,
     keyVersion: true,
     createdAt: true,
     updatedAt: true,
   };
+}
+
+function canReadNoteBody(
+  ctx: TenantContext,
+  note: { confidential: boolean; accessLevel: string; authorUserId: string | null },
+): boolean {
+  if (!note.confidential) return true;
+  if (note.authorUserId === ctx.userId) return true;
+  if (ctx.role === 'user_admin' || ctx.role === 'capiro_admin') return true;
+  return note.accessLevel === 'tenant_members';
 }
 
 function defaultScopes(provider: EngagementProvider): string[] {

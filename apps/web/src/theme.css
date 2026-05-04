@@ -1508,6 +1508,359 @@ body {
   gap: 12px;
 }
 
+.engagement-meeting-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.8fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.engagement-schedule-panel,
+.engagement-detail-panel {
+  padding: 0;
+  overflow: hidden;
+}
+
+.engagement-schedule-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 20px;
+  border-bottom: 1px solid #e4e9f2;
+  background: #fbfcfe;
+}
+
+.engagement-schedule-head .engagement-panel-title {
+  margin-bottom: 0;
+}
+
+.engagement-view-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 3px;
+  border: 1px solid #cfd8e6;
+  border-radius: 999px;
+  background: #fff;
+}
+
+.engagement-view-toggle button {
+  min-height: 30px;
+  padding: 0 14px;
+  color: #475467;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.engagement-view-toggle button.active {
+  color: #111827;
+  background: #e9eef5;
+}
+
+.engagement-agenda-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.engagement-agenda-item {
+  display: grid;
+  grid-template-columns: 72px 4px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  min-height: 116px;
+  padding: 18px 20px;
+  border: 0;
+  border-bottom: 1px solid #e7edf5;
+  background: #fff;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.engagement-agenda-item:hover,
+.engagement-agenda-item:focus-visible,
+.engagement-agenda-item.selected {
+  background: #f7f9fc;
+  outline: none;
+}
+
+.engagement-agenda-item.selected {
+  box-shadow: inset 4px 0 0 #243a73;
+}
+
+.engagement-agenda-time {
+  color: #475467;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.engagement-agenda-marker {
+  width: 4px;
+  min-height: 72px;
+  border-radius: 999px;
+  background: #cfd8e6;
+}
+
+.engagement-agenda-item.selected .engagement-agenda-marker {
+  background: #243a73;
+}
+
+.engagement-agenda-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.engagement-agenda-body .ant-typography {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engagement-agenda-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.engagement-agenda-tags .ant-tag {
+  margin: 0;
+  border-radius: 999px;
+}
+
+.engagement-day-calendar {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 18px;
+}
+
+.engagement-day-calendar button {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 108px;
+  padding: 14px;
+  color: #344054;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.engagement-day-calendar button.selected,
+.engagement-day-calendar button:hover,
+.engagement-day-calendar button:focus-visible {
+  border-color: #243a73;
+  outline: none;
+}
+
+.engagement-day-calendar span {
+  color: #475467;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.engagement-day-calendar strong,
+.engagement-day-calendar small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.engagement-detail-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 20px;
+  border-bottom: 1px solid #e4e9f2;
+  background: #fbfcfe;
+}
+
+.engagement-detail-head h5 {
+  margin: 0 0 4px;
+}
+
+.engagement-detail-tabs {
+  padding: 0 20px 20px;
+}
+
+.engagement-detail-tabs .ant-tabs-nav {
+  margin-bottom: 18px;
+}
+
+.engagement-detail-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.engagement-detail-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.engagement-detail-block > .ant-typography:first-child {
+  color: #323846;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.engagement-detail-block p {
+  margin: 0;
+  color: #344054;
+}
+
+.engagement-bullet-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #344054;
+}
+
+.engagement-bullet-list li + li {
+  margin-top: 6px;
+}
+
+.engagement-empty-prep {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 16px;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #f7f9fc;
+}
+
+.engagement-empty-prep > .anticon {
+  color: #243a73;
+  font-size: 22px;
+}
+
+.engagement-participant-list,
+.engagement-note-history,
+.engagement-intel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.engagement-participant-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 9px 0;
+  border-bottom: 1px solid #edf1f7;
+}
+
+.engagement-participant-row > div,
+.engagement-intel-list > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.engagement-participant-avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: #243a73;
+  border-radius: 999px;
+  background: #eef3ff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.engagement-note-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.engagement-note-entry > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.engagement-note-entry p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.engagement-transcript-disabled {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  opacity: 0.66;
+  border: 1px dashed #cfd8e6;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.engagement-transcript-disabled > .anticon {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: #64748b;
+  border-radius: 999px;
+  background: #e9eef5;
+}
+
+.engagement-transcript-disabled > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.engagement-context-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.engagement-context-pill {
+  display: flex;
+  min-height: 72px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 12px;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
+.engagement-context-pill strong {
+  color: #111827;
+  font-size: 22px;
+  line-height: 1;
+}
+
 .settings-integrations {
   display: flex;
   flex-direction: column;
@@ -1663,17 +2016,33 @@ body {
   }
 
   .engagement-work-grid,
+  .engagement-meeting-shell,
   .engagement-form-grid,
   .settings-integration-grid {
     grid-template-columns: 1fr;
   }
 
   .engagement-meeting-top,
+  .engagement-agenda-item,
+  .engagement-detail-head,
   .engagement-task-row,
   .engagement-calendar-row,
   .engagement-thread-row,
   .client-engagement-row,
   .settings-integration-row {
+    grid-template-columns: 1fr;
+  }
+
+  .engagement-agenda-marker {
+    display: none;
+  }
+
+  .engagement-agenda-item {
+    align-items: stretch;
+  }
+
+  .engagement-day-calendar,
+  .engagement-context-metrics {
     grid-template-columns: 1fr;
   }
 }

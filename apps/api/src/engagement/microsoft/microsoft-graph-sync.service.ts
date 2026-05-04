@@ -200,6 +200,54 @@ export class MicrosoftGraphSyncService {
     return this.syncConnectionByTenant(ctx.tenantId, connectionId, input);
   }
 
+  async syncCalendarWindow(
+    ctx: TenantContext,
+    connectionId: string,
+    input: { from: string; to: string },
+  ): Promise<SyncStats> {
+    await this.assertConnectionAccess(ctx, connectionId);
+    const window = calendarWindow(input.from, input.to);
+
+    try {
+      const { connection, token } = await this.loadConnection(ctx.tenantId, connectionId);
+      const accessToken = await this.getValidAccessToken(ctx.tenantId, connectionId, token);
+      const stats = emptyStats();
+      let nextUrl = calendarViewUrl(window.from, window.to);
+
+      for (let page = 0; page < MAX_CALENDAR_PAGES_PER_RUN && nextUrl; page += 1) {
+        stats.pages += 1;
+        const response = await this.graphGet<GraphDeltaResponse<GraphEvent>>(nextUrl, accessToken, {
+          Prefer: 'outlook.timezone="UTC", odata.maxpagesize=50',
+        });
+        for (const event of response.value ?? []) {
+          stats.scanned += 1;
+          const outcome = await this.persistGraphEvent(ctx.tenantId, connection.id, event);
+          stats.matched += outcome === 'matched' ? 1 : 0;
+          stats.skipped += outcome === 'skipped' ? 1 : 0;
+          stats.removed += outcome === 'removed' ? 1 : 0;
+        }
+        nextUrl = response['@odata.nextLink'] ?? '';
+        if (!nextUrl) break;
+      }
+
+      stats.hasMore = Boolean(nextUrl);
+      await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.integrationConnection.update({
+          where: { id: connectionId },
+          data: {
+            status: EngagementConnectionStatus.connected,
+            lastSyncAt: new Date(),
+            lastError: null,
+          },
+        }),
+      );
+      return stats;
+    } catch (err) {
+      await this.markSyncError(ctx.tenantId, connectionId, err);
+      throw err;
+    }
+  }
+
   async configureSubscriptions(ctx: TenantContext, connectionId: string) {
     if (!this.notificationUrl) {
       throw new ServiceUnavailableException('MICROSOFT_GRAPH_NOTIFICATION_URL is not configured');
@@ -517,7 +565,6 @@ export class MicrosoftGraphSyncService {
         ],
       });
       const clientId = existing?.clientId ?? association.clientId;
-      if (!clientId) return 'skipped';
 
       const contactsByEmail = await upsertContacts(tx, tenantId, attendees, clientId);
       const baseData = {
@@ -567,7 +614,7 @@ export class MicrosoftGraphSyncService {
           },
         });
       }
-      return 'matched';
+      return 'matched' as const;
     });
   }
 
@@ -999,7 +1046,7 @@ async function upsertContacts(
     email: string | null;
     name: string | null;
   }>,
-  clientId: string,
+  clientId: string | null,
 ) {
   const contacts = new Map<string, { id: string }>();
   for (const attendee of attendees) {
@@ -1008,7 +1055,7 @@ async function upsertContacts(
       where: { tenantId_email: { tenantId, email: attendee.email } },
       update: {
         fullName: attendee.name ?? undefined,
-        clientId,
+        ...(clientId ? { clientId } : {}),
       },
       create: {
         tenantId,
@@ -1074,6 +1121,15 @@ function calendarWindow(from?: string, to?: string): { from: string; to: string 
 function calendarDeltaUrl(from: string, to: string): string {
   const params = new URLSearchParams({ startDateTime: from, endDateTime: to });
   return `/me/calendarView/delta?${params.toString()}`;
+}
+
+function calendarViewUrl(from: string, to: string): string {
+  const params = new URLSearchParams({
+    startDateTime: from,
+    endDateTime: to,
+    $top: '50',
+  });
+  return `/me/calendarView?${params.toString()}`;
 }
 
 function mailDeltaUrl(folder: string, since: Date): string {

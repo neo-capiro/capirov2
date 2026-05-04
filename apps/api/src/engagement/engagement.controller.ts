@@ -346,6 +346,11 @@ export class EngagementController {
     return this.service.createMeetingNote(ctx, meetingId, body);
   }
 
+  @Get('meetings/:id/notes')
+  meetingNotes(@CurrentTenant() ctx: TenantContext, @Param('id') meetingId: string) {
+    return this.service.listMeetingNotes(ctx, meetingId);
+  }
+
   @Post('meetings/:id/prep')
   generatePrep(@CurrentTenant() ctx: TenantContext, @Param('id') meetingId: string) {
     return this.service.generateMeetingPrep(ctx, meetingId);
