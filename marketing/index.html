@@ -139,7 +139,7 @@
   }
 
   .hero-logo {
-    width: min(360px, 76vw);
+    width: min(460px, 82vw);
     height: auto;
     filter: invert(1) brightness(8) drop-shadow(0 10px 28px rgba(0, 0, 0, .35));
   }
@@ -157,12 +157,24 @@
     max-width: 740px;
     margin: 0;
     color: #fff;
-    font-size: clamp(32px, 5vw, 64px);
+    font-size: clamp(30px, 4vw, 48px);
     font-weight: 800;
-    line-height: 1.06;
+    line-height: 1.1;
     letter-spacing: 0;
     text-wrap: balance;
     text-shadow: 0 14px 32px rgba(0, 0, 0, .35);
+  }
+
+  .hero-subline {
+    max-width: 720px;
+    margin: 14px 0 0;
+    color: rgba(255, 255, 255, .88);
+    font-size: clamp(20px, 2.8vw, 32px);
+    font-style: italic;
+    font-weight: 500;
+    line-height: 1.36;
+    text-wrap: balance;
+    text-shadow: 0 10px 24px rgba(0, 0, 0, .32);
   }
 
   .hero-actions {
@@ -604,7 +616,8 @@
     <div class="hero-inner">
       <img src="/assets/logo.png" alt="Capiro" class="hero-logo" />
       <div class="hero-rule" aria-hidden="true"></div>
-      <h1>Modernizing Congress &bull; A Shift in How Information is Received &amp; Processed</h1>
+      <h1>Modernizing Congress</h1>
+      <p class="hero-subline">A Shift in How Information is Received &amp; Processed</p>
       <div class="hero-actions">
         <a href="#" class="btn btn-primary" data-open-demo>Request demo</a>
         <a href="https://app.capiro.ai/sign-in" class="btn btn-ghost">Sign in</a>
