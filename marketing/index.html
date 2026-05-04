@@ -566,11 +566,18 @@
   }
 
   @media (max-width: 900px) {
-    .hero { min-height: 700px; }
+    .hero {
+      min-height: 700px;
+      background-position: 58% center;
+    }
     .platform-head,
     .capability-grid,
     .year-grid {
       grid-template-columns: 1fr;
+    }
+    .platform-head {
+      gap: 24px;
+      margin-bottom: 36px;
     }
     .year-phase,
     .year-phase:last-child {
@@ -582,25 +589,99 @@
 
   @media (max-width: 640px) {
     .top-actions {
-      justify-content: center;
-      padding: 18px 18px 0;
+      display: none;
     }
     .hero {
-      min-height: 650px;
-      padding: 106px 20px 84px;
+      min-height: min(680px, 100svh);
+      padding: 78px 18px 64px;
+      background-position: 57% center;
+    }
+    .hero-inner {
+      width: 100%;
+    }
+    .hero-logo {
+      width: min(360px, 88vw);
+    }
+    .hero-rule {
+      width: min(300px, 72vw);
+      height: 2px;
+      margin: 20px 0 18px;
+    }
+    .hero h1 {
+      max-width: 340px;
+      font-size: clamp(26px, 7vw, 34px);
+      line-height: 1.08;
+    }
+    .hero-subline {
+      max-width: 330px;
+      margin-top: 8px;
+      font-size: clamp(17px, 5vw, 22px);
+      line-height: 1.34;
     }
     .hero-actions,
     .footer-actions {
       width: 100%;
       flex-direction: column;
     }
-    .btn { width: 100%; }
-    section { padding: 72px 20px; }
+    .hero-actions {
+      width: min(320px, 100%);
+      margin-top: 26px;
+      gap: 10px;
+    }
+    .btn {
+      width: 100%;
+      min-height: 46px;
+    }
+    section { padding: 60px 18px; }
+    .section-title {
+      font-size: clamp(25px, 8vw, 34px);
+    }
+    .section-body {
+      margin-top: 14px;
+      font-size: 15px;
+      line-height: 1.62;
+    }
+    .platform-head {
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .capability-grid {
+      gap: 16px;
+    }
+    .capability-copy {
+      padding: 18px;
+    }
+    .year-grid {
+      margin-top: 28px;
+    }
+    .year-phase {
+      padding: 22px 18px;
+    }
     .modal-row { grid-template-columns: 1fr; }
+    .lp-footer {
+      padding: 32px 20px;
+    }
     .footer-inner {
       flex-direction: column;
       align-items: stretch;
       text-align: center;
+    }
+  }
+
+  @media (max-width: 390px) {
+    .hero {
+      min-height: 620px;
+      padding-top: 68px;
+      padding-bottom: 56px;
+    }
+    .hero-logo {
+      width: min(320px, 86vw);
+    }
+    .hero h1 {
+      font-size: 26px;
+    }
+    .hero-subline {
+      font-size: 17px;
     }
   }
 </style>
