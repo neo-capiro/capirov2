@@ -278,29 +278,6 @@ export function EngagementPage() {
         </Space>
       </div>
 
-      <div className="engagement-status-row">
-        <StatusPill
-          icon={<CalendarOutlined />}
-          label={`${meetings.data?.length ?? 0} meetings`}
-          tone="blue"
-        />
-        <StatusPill
-          icon={<MailOutlined />}
-          label={`${mailThreads.data?.length ?? 0} open threads`}
-          tone="slate"
-        />
-        <StatusPill
-          icon={<CheckCircleOutlined />}
-          label={`${tasks.data?.filter((task) => task.status !== 'done').length ?? 0} follow-ups`}
-          tone="green"
-        />
-        <StatusPill
-          icon={<RobotOutlined />}
-          label={capabilities.data?.ai.activeProvider ?? 'AI not configured'}
-          tone={capabilities.data?.ai.activeProvider ? 'green' : 'muted'}
-        />
-      </div>
-
       <Tabs
         className="engagement-tabs"
         defaultActiveKey="meetings"
@@ -664,23 +641,6 @@ function MailView({ threads }: { threads: MailThread[] }) {
       ) : (
         <Empty description="No synced email threads yet." />
       )}
-    </div>
-  );
-}
-
-function StatusPill({
-  icon,
-  label,
-  tone,
-}: {
-  icon: ReactNode;
-  label: string;
-  tone: 'blue' | 'slate' | 'green' | 'muted';
-}) {
-  return (
-    <div className={`engagement-status-pill engagement-status-pill--${tone}`}>
-      {icon}
-      <span>{label}</span>
     </div>
   );
 }

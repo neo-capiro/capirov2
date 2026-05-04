@@ -772,40 +772,48 @@ export function DirectoryPage() {
                       </Typography.Title>
                       <div className="directory-staff-list">
                         {selectedEntry.staff.length > 0 ? (
-                          selectedEntry.staff.map((staffer) => (
-                            <div key={staffer.id} className="directory-staff-row">
-                              <div>
-                                <Typography.Text strong>{staffer.fullName}</Typography.Text>
-                                <Typography.Text type="secondary">{staffer.title}</Typography.Text>
-                              </div>
-                              <Space size={[6, 6]} wrap>
-                                {staffer.roles.slice(0, 2).map((role) => (
-                                  <Tag key={`${staffer.id}-${role}`}>{role}</Tag>
-                                ))}
-                                {staffer.issueAreas.slice(0, 3).map((issue) => (
-                                  <Tag key={`${staffer.id}-${issue}`} color="blue">
-                                    {issue}
-                                  </Tag>
-                                ))}
-                              </Space>
-                              <div className="directory-staff-contact">
-                                <CopyableTextRow
+                          <>
+                            <div className="directory-staff-header" aria-hidden="true">
+                              <span>Staffer</span>
+                              <span>Roles &amp; Issue Areas</span>
+                              <span>Phone</span>
+                              <span>Email</span>
+                            </div>
+                            {selectedEntry.staff.map((staffer) => (
+                              <div key={staffer.id} className="directory-staff-row">
+                                <div className="directory-staff-person">
+                                  <Typography.Text strong>{staffer.fullName}</Typography.Text>
+                                  <Typography.Text type="secondary">
+                                    {staffer.title}
+                                  </Typography.Text>
+                                </div>
+                                <Space className="directory-staff-tags" size={[6, 6]} wrap>
+                                  {staffer.roles.slice(0, 2).map((role) => (
+                                    <Tag key={`${staffer.id}-${role}`}>{role}</Tag>
+                                  ))}
+                                  {staffer.issueAreas.slice(0, 3).map((issue) => (
+                                    <Tag key={`${staffer.id}-${issue}`} color="blue">
+                                      {issue}
+                                    </Tag>
+                                  ))}
+                                </Space>
+                                <StaffContactValue
+                                  icon={<PhoneOutlined />}
                                   label="Phone"
                                   value={staffer.phone || selectedEntry.phone}
-                                  emptyText="No phone"
+                                  emptyText="None listed"
                                   onCopy={copyContact}
-                                  compact
                                 />
-                                <CopyableTextRow
+                                <StaffContactValue
+                                  icon={<MailOutlined />}
                                   label="Email"
                                   value={staffer.email}
-                                  emptyText="No public email"
+                                  emptyText="None listed"
                                   onCopy={copyContact}
-                                  compact
                                 />
                               </div>
-                            </div>
-                          ))
+                            ))}
+                          </>
                         ) : (
                           <Empty description="No staff records in source snapshot" />
                         )}
@@ -958,6 +966,41 @@ function CopyableTextRow({
         {compact ? null : `${label}: `}
         {copyValue || emptyText}
       </Typography.Text>
+      {copyValue ? (
+        <Button
+          size="small"
+          type="text"
+          icon={<CopyOutlined />}
+          aria-label={`Copy ${label.toLowerCase()}`}
+          onClick={() => void onCopy(copyValue, label)}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+function StaffContactValue({
+  icon,
+  label,
+  value,
+  emptyText,
+  onCopy,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+  emptyText: string;
+  onCopy: (value: string, label: string) => Promise<void>;
+}) {
+  const copyValue = value.trim();
+  return (
+    <span className="directory-staff-contact-value" title={copyValue ? `Copy ${label}` : emptyText}>
+      <span className="directory-staff-contact-main">
+        {icon}
+        <Typography.Text type={copyValue ? undefined : 'secondary'}>
+          {copyValue || emptyText}
+        </Typography.Text>
+      </span>
       {copyValue ? (
         <Button
           size="small"

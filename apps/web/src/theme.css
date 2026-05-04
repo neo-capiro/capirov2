@@ -494,11 +494,27 @@ body {
 }
 
 .directory-address-row,
+.directory-staff-header,
 .directory-staff-row {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) minmax(160px, 0.8fr);
+  grid-template-columns:
+    minmax(170px, 0.9fr) minmax(220px, 1.15fr) minmax(150px, 0.75fr)
+    minmax(190px, 0.9fr);
   gap: 12px;
   align-items: start;
+}
+
+.directory-staff-header {
+  padding: 0 14px 4px;
+  color: #475467;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.directory-address-row,
+.directory-staff-row {
   padding: 14px;
   border: 1px solid #e5ebf4;
   border-radius: 8px;
@@ -509,12 +525,45 @@ body {
   grid-template-columns: 180px minmax(0, 1fr) 160px;
 }
 
-.directory-staff-row > div,
-.directory-staff-contact {
+.directory-staff-person,
+.directory-staff-tags,
+.directory-staff-contact-value {
   display: flex;
   min-width: 0;
+}
+
+.directory-staff-person {
   flex-direction: column;
   gap: 2px;
+}
+
+.directory-staff-tags {
+  align-items: flex-start;
+}
+
+.directory-staff-contact-value {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 6px;
+  align-items: center;
+}
+
+.directory-staff-contact-main {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: #344054;
+}
+
+.directory-staff-contact-main .anticon {
+  color: #667085;
+}
+
+.directory-staff-contact-main .ant-typography {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .directory-side-card,
@@ -1094,49 +1143,6 @@ body {
   min-width: 220px;
 }
 
-.engagement-status-row {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.engagement-status-pill {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid #d9e1ee;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.05);
-  color: #344054;
-  font-weight: 700;
-}
-
-.engagement-status-pill span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.engagement-status-pill--blue {
-  border-color: #b9c8ee;
-}
-
-.engagement-status-pill--green {
-  border-color: #bddcc8;
-}
-
-.engagement-status-pill--slate {
-  border-color: #cbd5e1;
-}
-
-.engagement-status-pill--muted {
-  color: #7a8493;
-  background: #f7f9fc;
-}
-
 .engagement-tabs {
   padding: 0 2px;
 }
@@ -1381,9 +1387,14 @@ body {
   .directory-profile-hero,
   .directory-contact-panel,
   .directory-address-row,
+  .directory-staff-header,
   .directory-staff-row,
   .directory-link-grid {
     grid-template-columns: 1fr;
+  }
+
+  .directory-staff-header {
+    display: none;
   }
 
   .app-account-name {
@@ -1431,7 +1442,6 @@ body {
     align-items: stretch;
   }
 
-  .engagement-status-row,
   .engagement-work-grid,
   .engagement-form-grid,
   .settings-integration-grid {
