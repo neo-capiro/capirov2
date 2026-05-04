@@ -152,7 +152,10 @@ export class EngagementService {
   listIntegrations(ctx: TenantContext) {
     return this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.integrationConnection.findMany({
-        where: { tenantId: ctx.tenantId },
+        where: {
+          tenantId: ctx.tenantId,
+          ...(ctx.role === 'standard_user' ? { createdByUserId: ctx.userId } : {}),
+        },
         orderBy: [{ provider: 'asc' }, { createdAt: 'desc' }],
       }),
     );

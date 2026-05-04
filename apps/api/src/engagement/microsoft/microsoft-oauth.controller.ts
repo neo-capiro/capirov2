@@ -43,7 +43,7 @@ export class MicrosoftOAuthController {
 
   @Get('capabilities')
   @UseGuards(RolesGuard)
-  @Roles('user_admin')
+  @Roles('standard_user')
   capabilities() {
     return this.oauth.capabilities();
   }
@@ -52,14 +52,14 @@ export class MicrosoftOAuthController {
   // the integrations UI in response to the user clicking "Connect Microsoft".
   @Post('start')
   @UseGuards(RolesGuard)
-  @Roles('user_admin')
+  @Roles('standard_user')
   start(@CurrentTenant() ctx: TenantContext, @Body() body: StartOAuthDto) {
     return this.oauth.start(ctx, body);
   }
 
   @Post(':connectionId/sync')
   @UseGuards(RolesGuard)
-  @Roles('user_admin')
+  @Roles('standard_user')
   sync(
     @CurrentTenant() ctx: TenantContext,
     @Param('connectionId') connectionId: string,
@@ -72,7 +72,7 @@ export class MicrosoftOAuthController {
 
   @Post(':connectionId/subscriptions')
   @UseGuards(RolesGuard)
-  @Roles('user_admin')
+  @Roles('standard_user')
   subscriptions(
     @CurrentTenant() ctx: TenantContext,
     @Param('connectionId') connectionId: string,

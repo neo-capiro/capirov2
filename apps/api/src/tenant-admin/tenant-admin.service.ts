@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import type { TenantContext } from '@capiro/shared';
 import { ClerkProvisioningService } from '../auth/clerk-provisioning.service.js';
 import { ClerkService } from '../auth/clerk.service.js';
@@ -145,6 +151,41 @@ export class TenantAdminService {
       }
       return { ok: true };
     });
+  }
+
+  async updateMemberRole(ctx: TenantContext, userId: string, role: 'user_admin' | 'standard_user') {
+    if (userId === ctx.userId) {
+      throw new BadRequestException('Cannot change your own role');
+    }
+
+    const membership = await this.prisma.withTenant(ctx.tenantId, async (tx) =>
+      tx.tenantMembership.findUnique({
+        where: { tenantId_userId: { tenantId: ctx.tenantId, userId } },
+        include: { user: true, tenant: true },
+      }),
+    );
+
+    if (!membership) throw new NotFoundException('Membership not found');
+    if (membership.status !== 'active') {
+      throw new BadRequestException('Only active members can have their role changed');
+    }
+    if (membership.role === 'capiro_admin') {
+      throw new ForbiddenException('Capiro admin roles are managed separately');
+    }
+    if (!membership.tenant.clerkOrgId) {
+      throw new BadRequestException('Tenant has no Clerk organization linked');
+    }
+
+    const member = await this.provisioning.provisionOrganizationMember({
+      tenantId: ctx.tenantId,
+      organizationId: membership.tenant.clerkOrgId,
+      email: membership.user.email,
+      role,
+      actorUserId: ctx.userId,
+      actorClerkUserId: ctx.clerkUserId,
+    });
+
+    return { member, role };
   }
 
   async updateBranding(ctx: TenantContext, input: UpdateBrandingInput) {

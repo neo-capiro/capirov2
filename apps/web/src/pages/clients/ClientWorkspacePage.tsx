@@ -59,6 +59,7 @@ export function ClientWorkspacePage() {
 
   const canCreateClients = Boolean(me.data && hasAtLeast(me.data.role, 'standard_user'));
   const canManageClients = Boolean(me.data && hasAtLeast(me.data.role, 'user_admin'));
+  const canRemoveClients = Boolean(me.data && hasAtLeast(me.data.role, 'standard_user'));
 
   const clients = useQuery<Client[]>({
     queryKey: ['clients'],
@@ -200,7 +201,7 @@ export function ClientWorkspacePage() {
   };
 
   const confirmRemove = (client: Client) => {
-    if (!canManageClients) return;
+    if (!canRemoveClients) return;
     modal.confirm({
       title: `Remove ${client.name}?`,
       content:
@@ -218,6 +219,7 @@ export function ClientWorkspacePage() {
           client={selectedClient.data}
           loading={selectedClient.isLoading}
           canManageClients={canManageClients}
+          canRemoveClients={canRemoveClients}
           onBack={() => setSelectedId(null)}
           onEdit={openEdit}
           onRemove={confirmRemove}
@@ -421,6 +423,7 @@ function ClientProfileView({
   client,
   loading,
   canManageClients,
+  canRemoveClients,
   onBack,
   onEdit,
   onRemove,
@@ -429,6 +432,7 @@ function ClientProfileView({
   client?: Client;
   loading: boolean;
   canManageClients: boolean;
+  canRemoveClients: boolean;
   onBack: () => void;
   onEdit: (client: Client) => void;
   onRemove: (client: Client) => void;
@@ -509,7 +513,7 @@ function ClientProfileView({
           <Button disabled={!canManageClients} onClick={() => onEdit(client)}>
             Edit
           </Button>
-          <Button disabled={!canManageClients} onClick={() => onRemove(client)}>
+          <Button disabled={!canRemoveClients} onClick={() => onRemove(client)}>
             Remove
           </Button>
           <Button type="primary" icon={<PlusOutlined />} disabled>

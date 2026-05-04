@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -101,6 +102,9 @@ export class MicrosoftOAuthService {
         if (!existing) throw new NotFoundException('Integration connection not found');
         if (existing.provider !== EngagementProvider.microsoft_365) {
           throw new BadRequestException('Connection is not a Microsoft 365 integration');
+        }
+        if (ctx.role === 'standard_user' && existing.createdByUserId !== ctx.userId) {
+          throw new ForbiddenException('You can only connect your own Microsoft account');
         }
         return existing;
       }

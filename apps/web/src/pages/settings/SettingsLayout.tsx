@@ -15,7 +15,7 @@ const TABS: Tab[] = [
   { key: '/settings/team', label: 'Team', minRole: 'user_admin' },
   { key: '/settings/branding', label: 'Branding', minRole: 'user_admin' },
   { key: '/settings/clients', label: 'Clients', minRole: 'user_admin' },
-  { key: '/settings/integrations', label: 'Integrations', minRole: 'user_admin' },
+  { key: '/settings/integrations', label: 'Integrations' },
   { key: '/settings/billing', label: 'Billing', minRole: 'user_admin' },
   { key: '/settings/tenants', label: 'Tenants', minRole: 'capiro_admin' },
 ];
@@ -23,7 +23,8 @@ const TABS: Tab[] = [
 /**
  * Settings is the single home for both personal and admin configuration.
  * Tabs are filtered by the caller's role: standard_user sees just Personal;
- * user_admin gains Team / Branding / Clients / Billing; capiro_admin also
+ * standard_user can connect personal email integrations; user_admin gains
+ * Team / Branding / Clients / Billing; capiro_admin also
  * sees Tenants (cross-tenant management + impersonation).
  *
  * The server-side RolesGuard on every endpoint is the security boundary;
@@ -41,7 +42,8 @@ export function SettingsLayout() {
   }, [me.data]);
   const active =
     visibleTabs.find((t) => location.pathname.startsWith(t.key))?.key ??
-    visibleTabs[0]?.key ?? '/settings/personal';
+    visibleTabs[0]?.key ??
+    '/settings/personal';
   return (
     <>
       <Typography.Title level={3} style={{ marginTop: 0 }}>

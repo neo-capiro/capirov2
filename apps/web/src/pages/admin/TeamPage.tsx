@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { App, Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tabs, Tag } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../lib/use-api.js';
+import { useMe } from '../../lib/me.js';
 
 interface TeamRow {
   membershipId: string;
@@ -25,6 +26,7 @@ interface InvitationRow {
 
 export function TeamPage() {
   const api = useApi();
+  const me = useMe();
   const qc = useQueryClient();
   const { message } = App.useApp();
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -59,6 +61,16 @@ export function TeamPage() {
       message.success('Member removed');
       qc.invalidateQueries({ queryKey: ['team'] });
     },
+  });
+
+  const updateRole = useMutation({
+    mutationFn: async (input: { userId: string; role: 'user_admin' | 'standard_user' }) =>
+      (await api.put(`/api/tenant-admin/team/${input.userId}/role`, { role: input.role })).data,
+    onSuccess: () => {
+      message.success('Member role updated');
+      qc.invalidateQueries({ queryKey: ['team'] });
+    },
+    onError: (err) => message.error((err as Error).message),
   });
 
   const resend = useMutation({
@@ -101,7 +113,26 @@ export function TeamPage() {
                     title: 'Role',
                     dataIndex: 'role',
                     width: 160,
-                    render: (v) => <Tag>{v.replace(/_/g, ' ')}</Tag>,
+                    render: (v: TeamRow['role'], r) =>
+                      r.status === 'active' &&
+                      (v === 'standard_user' || v === 'user_admin') &&
+                      r.userId !== me.data?.user.id ? (
+                        <Select
+                          size="small"
+                          value={v}
+                          disabled={updateRole.isPending}
+                          onChange={(role: 'user_admin' | 'standard_user') =>
+                            updateRole.mutate({ userId: r.userId, role })
+                          }
+                          options={[
+                            { value: 'standard_user', label: 'Standard user' },
+                            { value: 'user_admin', label: 'User admin' },
+                          ]}
+                          style={{ width: 150 }}
+                        />
+                      ) : (
+                        <Tag>{v.replace(/_/g, ' ')}</Tag>
+                      ),
                   },
                   {
                     title: 'Status',

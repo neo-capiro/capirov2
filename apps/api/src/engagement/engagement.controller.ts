@@ -297,13 +297,13 @@ export class EngagementController {
   }
 
   @Get('integrations')
-  @Roles('user_admin')
+  @Roles('standard_user')
   integrations(@CurrentTenant() ctx: TenantContext) {
     return this.service.listIntegrations(ctx);
   }
 
   @Post('integrations')
-  @Roles('user_admin')
+  @Roles('standard_user')
   createIntegration(@CurrentTenant() ctx: TenantContext, @Body() body: CreateIntegrationDto) {
     return this.service.createIntegration(ctx, body);
   }

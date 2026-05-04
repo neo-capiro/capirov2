@@ -1,13 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
-import {
-  IsEmail,
-  IsIn,
-  IsOptional,
-  IsString,
-  IsUrl,
-  Length,
-  MinLength,
-} from 'class-validator';
+import { IsEmail, IsIn, IsOptional, IsString, IsUrl, Length, MinLength } from 'class-validator';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
@@ -25,6 +17,12 @@ class InviteDto {
   @IsOptional()
   @IsUrl()
   redirectUrl?: string;
+}
+
+class UpdateTeamMemberRoleDto {
+  @IsString()
+  @IsIn(['user_admin', 'standard_user'])
+  role!: 'user_admin' | 'standard_user';
 }
 
 class UpdateBrandingDto {
@@ -76,6 +74,15 @@ export class TenantAdminController {
   @Delete('team/:userId')
   remove(@CurrentTenant() ctx: TenantContext, @Param('userId') userId: string) {
     return this.service.removeMember(ctx, userId);
+  }
+
+  @Put('team/:userId/role')
+  updateRole(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('userId') userId: string,
+    @Body() body: UpdateTeamMemberRoleDto,
+  ) {
+    return this.service.updateMemberRole(ctx, userId, body.role);
   }
 
   @Put('branding')

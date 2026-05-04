@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -195,6 +196,7 @@ export class MicrosoftGraphSyncService {
     connectionId: string,
     input: { calendar?: boolean; mail?: boolean; reset?: boolean; from?: string; to?: string } = {},
   ): Promise<SyncResult> {
+    await this.assertConnectionAccess(ctx, connectionId);
     return this.syncConnectionByTenant(ctx.tenantId, connectionId, input);
   }
 
@@ -203,6 +205,7 @@ export class MicrosoftGraphSyncService {
       throw new ServiceUnavailableException('MICROSOFT_GRAPH_NOTIFICATION_URL is not configured');
     }
     this.assertTokenRefreshConfigured();
+    await this.assertConnectionAccess(ctx, connectionId);
 
     const { connection, token } = await this.loadConnection(ctx.tenantId, connectionId);
     const accessToken = await this.getValidAccessToken(ctx.tenantId, connectionId, token);
@@ -761,6 +764,24 @@ export class MicrosoftGraphSyncService {
       return { connection, token: connection.token };
     });
     return loaded;
+  }
+
+  private async assertConnectionAccess(ctx: TenantContext, connectionId: string): Promise<void> {
+    if (ctx.role !== 'standard_user') return;
+
+    const connection = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.integrationConnection.findUnique({
+        where: { id: connectionId },
+        select: { createdByUserId: true, provider: true },
+      }),
+    );
+    if (!connection) throw new NotFoundException('Microsoft connection not found');
+    if (connection.provider !== EngagementProvider.microsoft_365) {
+      throw new BadRequestException('Connection is not a Microsoft 365 integration');
+    }
+    if (connection.createdByUserId !== ctx.userId) {
+      throw new ForbiddenException('You can only sync your own Microsoft account');
+    }
   }
 
   private async getValidAccessToken(

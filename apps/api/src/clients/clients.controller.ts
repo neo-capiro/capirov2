@@ -116,7 +116,8 @@ class ConfirmClientLogoUploadDto {
  *
  * Read access: any tenant member (standard_user and above).
  * Create: any standard_user and above.
- * Update / archive: user_admin or capiro_admin only.
+ * Update: user_admin or capiro_admin only.
+ * Archive/remove: any standard_user and above.
  */
 @Controller('clients')
 @UseGuards(RolesGuard)
@@ -150,7 +151,7 @@ export class ClientsController {
   }
 
   @Delete(':id')
-  @Roles('user_admin')
+  @Roles('standard_user')
   archive(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.archive(ctx, id);
   }
