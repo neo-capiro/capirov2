@@ -16,6 +16,7 @@ import { ClientsModule } from './clients/clients.module.js';
 import { BrandingModule } from './branding/branding.module.js';
 import { DirectoryModule } from './directory/directory.module.js';
 import { EngagementModule } from './engagement/engagement.module.js';
+import { DemoRequestsModule } from './demo-requests/demo-requests.module.js';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { EngagementModule } from './engagement/engagement.module.js';
     BrandingModule,
     DirectoryModule,
     EngagementModule,
+    DemoRequestsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
@@ -61,6 +63,8 @@ export class AppModule implements NestModule {
       .exclude(
         { path: 'health', method: RequestMethod.ALL },
         { path: 'webhooks/(.*)', method: RequestMethod.ALL },
+        { path: '/api/v1/demo-requests', method: RequestMethod.POST },
+        { path: 'api/v1/demo-requests', method: RequestMethod.POST },
         {
           path: '/api/engagement/integrations/microsoft/callback',
           method: RequestMethod.GET,

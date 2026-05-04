@@ -46,20 +46,22 @@ export class TenantContextMiddleware implements NestMiddleware {
     // Belt-and-suspenders bypass for paths that authenticate via a different
     // channel than the Clerk session. The OAuth callback is reached via a
     // top-level browser redirect from Microsoft and authenticates via the
-    // HMAC-signed `state` parameter. The middleware-level `.exclude()` in
-    // app.module.ts is the primary mechanism; this is the fallback in case
-    // the exclude path matcher misses for any reason (e.g. global prefix
+    // HMAC-signed `state` parameter. Public marketing lead capture has no
+    // tenant context by design. The middleware-level `.exclude()` in
+    // app.module.ts is the primary mechanism; this is the fallback in case the
+    // exclude path matcher misses for any reason (e.g. global prefix
     // interaction).
     const path = req.path;
     const originalUrl = req.originalUrl ?? req.url ?? '';
     const baseUrl = req.baseUrl ?? '';
     const bypassPaths = [
+      '/api/v1/demo-requests',
       '/api/engagement/integrations/microsoft/callback',
       '/api/engagement/integrations/microsoft/notifications',
     ];
     if (bypassPaths.some((bypassPath) => isBypassPath(bypassPath, path, originalUrl, baseUrl))) {
       this.logger.log(
-        `Bypassing tenant context for Microsoft external callback (path=${path}, originalUrl=${originalUrl}, baseUrl=${baseUrl})`,
+        `Bypassing tenant context for public/external route (path=${path}, originalUrl=${originalUrl}, baseUrl=${baseUrl})`,
       );
       next();
       return;

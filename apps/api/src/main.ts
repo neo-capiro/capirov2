@@ -39,8 +39,24 @@ async function bootstrap() {
     }),
   );
 
+  const allowedOrigins = new Set(
+    [
+      ...(process.env.WEB_ORIGIN?.split(',') ?? ['http://localhost:5173']),
+      'https://capiro.ai',
+      'https://www.capiro.ai',
+    ]
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  );
+
   app.enableCors({
-    origin: process.env.WEB_ORIGIN?.split(',') ?? ['http://localhost:5173'],
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error('Origin is not allowed by CORS'));
+    },
     credentials: true,
   });
 

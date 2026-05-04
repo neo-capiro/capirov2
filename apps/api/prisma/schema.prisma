@@ -607,6 +607,25 @@ model ImpersonationSession {
   @@map("impersonation_sessions")
 }
 
+model DemoRequest {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  email     String   @db.Citext
+  company   String
+  role      String?
+  message   String?  @db.Text
+  source    String?
+  status    String   @default("new")
+  ip        String?
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)], map: "demo_requests_created_idx")
+  @@index([email, createdAt(sort: Desc)], map: "demo_requests_email_created_idx")
+  @@map("demo_requests")
+}
+
 model AuditLog {
   id          String   @id @default(uuid()) @db.Uuid
   tenantId    String   @map("tenant_id") @db.Uuid
