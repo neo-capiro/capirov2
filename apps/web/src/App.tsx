@@ -18,18 +18,8 @@ import { IntegrationsPage } from './pages/settings/IntegrationsPage.js';
 export function App() {
   return (
     <Routes>
-      <Route
-        path="/sign-in/*"
-        element={
-          <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" fallbackRedirectUrl="/" />
-        }
-      />
-      <Route
-        path="/sign-up/*"
-        element={
-          <SignUp routing="path" path="/sign-up" signInUrl="/sign-in" fallbackRedirectUrl="/" />
-        }
-      />
+      <Route path="/sign-in/*" element={<AuthPage mode="sign-in" />} />
+      <Route path="/sign-up/*" element={<AuthPage mode="sign-up" />} />
       <Route
         element={
           <>
@@ -77,5 +67,22 @@ export function App() {
         />
       </Route>
     </Routes>
+  );
+}
+
+function AuthPage({ mode }: { mode: 'sign-in' | 'sign-up' }) {
+  return (
+    <main className="auth-page">
+      <section className="auth-shell" aria-label={mode === 'sign-in' ? 'Sign in' : 'Sign up'}>
+        <img src="/logo.png" alt="Capiro" className="auth-logo" />
+        <div className="auth-clerk-frame">
+          {mode === 'sign-in' ? (
+            <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" fallbackRedirectUrl="/" />
+          ) : (
+            <SignUp routing="path" path="/sign-up" signInUrl="/sign-in" fallbackRedirectUrl="/" />
+          )}
+        </div>
+      </section>
+    </main>
   );
 }

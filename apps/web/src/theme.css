@@ -40,6 +40,46 @@ body {
   box-shadow: 0 8px 24px rgba(17, 24, 39, 0.05);
 }
 
+.auth-page {
+  display: grid;
+  min-height: 100vh;
+  min-height: 100dvh;
+  place-items: center;
+  padding: 48px 24px;
+}
+
+.auth-shell {
+  display: flex;
+  width: min(100%, 470px);
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.auth-logo {
+  display: block;
+  width: min(220px, 68vw);
+  height: 64px;
+  object-fit: contain;
+}
+
+.auth-clerk-frame {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+}
+
+.auth-clerk-frame .cl-rootBox {
+  width: 100%;
+}
+
+.auth-clerk-frame .cl-cardBox,
+.auth-clerk-frame .cl-card {
+  width: 100%;
+  max-width: 470px;
+  margin: 0 auto;
+}
+
 .ant-menu-dark .ant-menu-item-selected {
   font-weight: 700;
 }
@@ -1455,6 +1495,28 @@ body {
   .client-engagement-row,
   .settings-integration-row {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .auth-page {
+    align-items: start;
+    padding: max(22px, env(safe-area-inset-top)) 14px max(22px, env(safe-area-inset-bottom));
+  }
+
+  .auth-shell {
+    width: 100%;
+    gap: 16px;
+  }
+
+  .auth-logo {
+    width: min(190px, 62vw);
+    height: 54px;
+  }
+
+  .auth-clerk-frame .cl-cardBox,
+  .auth-clerk-frame .cl-card {
+    max-width: 100%;
   }
 }
 
