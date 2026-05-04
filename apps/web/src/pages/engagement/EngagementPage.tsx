@@ -12,7 +12,9 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Empty, Form, Input, Modal, Select, Space, Tabs, Tag, Typography } from 'antd';
+import { GlobalClientPicker } from '../../components/GlobalClientPicker.js';
 import { useApi } from '../../lib/use-api.js';
+import { useClientFilter } from '../../state/client-filter.js';
 import type { Client } from '../clients/clientTypes.js';
 
 interface EngagementCapabilities {
@@ -109,7 +111,7 @@ export function EngagementPage() {
   const api = useApi();
   const qc = useQueryClient();
   const { message } = App.useApp();
-  const [clientId, setClientId] = useState<string>('all');
+  const { selectedClientId } = useClientFilter();
   const [date, setDate] = useState(todayInputValue());
   const [meetingModalOpen, setMeetingModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
@@ -118,7 +120,6 @@ export function EngagementPage() {
   const [taskForm] = Form.useForm<TaskFormValues>();
   const [noteForm] = Form.useForm<{ body: string }>();
 
-  const selectedClientId = clientId === 'all' ? undefined : clientId;
   const window = useMemo(() => dateWindow(date), [date]);
 
   const clients = useQuery<Client[]>({
@@ -137,7 +138,7 @@ export function EngagementPage() {
     queryFn: async () =>
       (
         await api.get<Meeting[]>('/api/engagement/meetings', {
-          params: { clientId: selectedClientId, from: window.from, to: window.to },
+          params: { clientId: selectedClientId ?? undefined, from: window.from, to: window.to },
         })
       ).data,
   });
@@ -147,7 +148,7 @@ export function EngagementPage() {
     queryFn: async () =>
       (
         await api.get<EngagementTask[]>('/api/engagement/tasks', {
-          params: { clientId: selectedClientId },
+          params: { clientId: selectedClientId ?? undefined },
         })
       ).data,
   });
@@ -157,7 +158,7 @@ export function EngagementPage() {
     queryFn: async () =>
       (
         await api.get<MailThread[]>('/api/engagement/mail-threads', {
-          params: { clientId: selectedClientId },
+          params: { clientId: selectedClientId ?? undefined },
         })
       ).data,
   });
@@ -166,7 +167,7 @@ export function EngagementPage() {
     mutationFn: async (values: MeetingFormValues) =>
       (
         await api.post('/api/engagement/meetings', {
-          clientId: values.clientId || selectedClientId,
+          clientId: values.clientId || selectedClientId || undefined,
           subject: values.subject,
           description: optionalText(values.description),
           location: optionalText(values.location),
@@ -189,7 +190,7 @@ export function EngagementPage() {
     mutationFn: async (values: TaskFormValues) =>
       (
         await api.post('/api/engagement/tasks', {
-          clientId: selectedClientId,
+          clientId: selectedClientId ?? undefined,
           title: values.title,
           description: optionalText(values.description),
           dueDate: values.dueDate ? localDateTimeToIso(values.dueDate, '12:00') : undefined,
@@ -245,17 +246,6 @@ export function EngagementPage() {
           </Typography.Text>
         </div>
         <Space wrap>
-          <Select
-            value={clientId}
-            onChange={setClientId}
-            className="engagement-client-select"
-            options={[
-              { value: 'all', label: 'All clients' },
-              ...(clients.data ?? [])
-                .filter((client) => client.status !== 'archived')
-                .map((client) => ({ value: client.id, label: client.name })),
-            ]}
-          />
           <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
           <Button icon={<PlusOutlined />} onClick={() => setTaskModalOpen(true)}>
             Task
@@ -268,7 +258,7 @@ export function EngagementPage() {
                 date,
                 startsAt: '09:00',
                 endsAt: '09:30',
-                clientId: selectedClientId,
+                clientId: selectedClientId ?? undefined,
               });
               setMeetingModalOpen(true);
             }}
@@ -277,6 +267,8 @@ export function EngagementPage() {
           </Button>
         </Space>
       </div>
+
+      <GlobalClientPicker />
 
       <Tabs
         className="engagement-tabs"
