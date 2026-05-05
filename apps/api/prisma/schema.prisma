@@ -83,6 +83,7 @@ enum AssociationEntityType {
 enum MeetingPrepStatus {
   generated
   edited
+  approved
   stale
   failed
 
@@ -138,6 +139,7 @@ model Tenant {
   associationOverrides       ClientAssociationOverride[]
   contextEmbeddings          ContextEmbedding[]
   directoryContactNotes      DirectoryContactNote[]
+  MeetingDebrief             MeetingDebrief[]
 
   @@map("tenants")
 }
@@ -157,6 +159,7 @@ model User {
   impersonationSessions ImpersonationSession[] @relation("ImpersonationActor")
   directoryContactNotes DirectoryContactNote[] @relation("DirectoryContactNoteAuthor")
   meetingNotes          MeetingNote[]          @relation("MeetingNoteAuthor")
+  meetingDebriefs       MeetingDebrief[]       @relation("MeetingDebriefAuthor")
 
   @@map("users")
 }
@@ -219,6 +222,7 @@ model Client {
   mailThreads           MailThread[]
   engagementAttachments EngagementAttachment[]
   meetingNotes          MeetingNote[]
+  meetingDebriefs       MeetingDebrief[]
   meetingPreps          MeetingPrep[]
   engagementTasks       EngagementTask[]
   associationOverrides  ClientAssociationOverride[]
@@ -353,6 +357,7 @@ model Meeting {
   attendees   MeetingAttendee[]
   attachments EngagementAttachment[]
   notes       MeetingNote[]
+  debriefs    MeetingDebrief[]
   preps       MeetingPrep[]
   tasks       EngagementTask[]
 
@@ -524,6 +529,30 @@ model MeetingPrep {
 
   @@index([tenantId, meetingId, createdAt], map: "meeting_preps_tenant_meeting_created_idx")
   @@map("meeting_preps")
+}
+
+model MeetingDebrief {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  meetingId      String   @map("meeting_id") @db.Uuid
+  clientId       String?  @map("client_id") @db.Uuid
+  authorUserId   String?  @map("author_user_id") @db.Uuid
+  bodyCiphertext String   @map("body_ciphertext")
+  iv             String
+  authTag        String   @map("auth_tag")
+  keyVersion     String?  @map("key_version")
+  confidential   Boolean  @default(true)
+  accessLevel    String   @default("tenant_members") @map("access_level")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  client  Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  author  User?   @relation("MeetingDebriefAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, meetingId, createdAt], map: "meeting_debriefs_tenant_meeting_created_idx")
+  @@map("meeting_debriefs")
 }
 
 model EngagementTask {

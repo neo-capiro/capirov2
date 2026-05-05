@@ -19,6 +19,7 @@ import {
   EngagementProvider,
   EngagementSource,
   EngagementTaskStatus,
+  MeetingPrepStatus,
   Prisma,
 } from '@prisma/client';
 import { createHash, randomUUID } from 'node:crypto';
@@ -81,6 +82,14 @@ export interface UpdateTaskInput {
   ownerUserId?: string | null;
   dueDate?: string | null;
   status?: EngagementTaskStatus;
+}
+
+export interface UpdateMeetingPrepInput {
+  summary?: string | null;
+  agenda?: string[];
+  talkingPoints?: string[];
+  risks?: string[];
+  followUps?: string[];
 }
 
 export interface AssociationOverrideInput {
@@ -404,6 +413,35 @@ export class EngagementService {
     });
   }
 
+  async createMeetingDebrief(
+    ctx: TenantContext,
+    meetingId: string,
+    input: { body: string; confidential?: boolean; accessLevel?: string },
+  ) {
+    const encrypted = this.notesCrypto.encrypt(input.body);
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const meeting = await tx.meeting.findFirst({
+        where: { id: meetingId, tenantId: ctx.tenantId },
+      });
+      if (!meeting) throw new NotFoundException('Meeting not found');
+      return tx.meetingDebrief.create({
+        data: {
+          tenantId: ctx.tenantId,
+          meetingId,
+          clientId: meeting.clientId,
+          authorUserId: ctx.userId,
+          bodyCiphertext: encrypted.bodyCiphertext,
+          iv: encrypted.iv,
+          authTag: encrypted.authTag,
+          keyVersion: encrypted.keyVersion,
+          confidential: input.confidential ?? true,
+          accessLevel: input.accessLevel ?? 'tenant_members',
+        },
+        select: debriefMetadataSelect(),
+      });
+    });
+  }
+
   async listMeetingNotes(ctx: TenantContext, meetingId: string) {
     const notes = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const meeting = await tx.meeting.findFirst({
@@ -422,7 +460,7 @@ export class EngagementService {
     });
 
     return notes.map((note) => {
-      const canReadBody = canReadNoteBody(ctx, note);
+      const canReadBody = canReadEncryptedEntry(ctx, note);
       return {
         id: note.id,
         meetingId: note.meetingId,
@@ -446,10 +484,52 @@ export class EngagementService {
     });
   }
 
+  async listMeetingDebriefs(ctx: TenantContext, meetingId: string) {
+    const debriefs = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const meeting = await tx.meeting.findFirst({
+        where: { id: meetingId, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
+      if (!meeting) throw new NotFoundException('Meeting not found');
+
+      return tx.meetingDebrief.findMany({
+        where: { tenantId: ctx.tenantId, meetingId },
+        include: {
+          author: { select: { id: true, email: true, firstName: true, lastName: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    return debriefs.map((debrief) => {
+      const canReadBody = canReadEncryptedEntry(ctx, debrief);
+      return {
+        id: debrief.id,
+        meetingId: debrief.meetingId,
+        clientId: debrief.clientId,
+        body: canReadBody
+          ? this.notesCrypto.decrypt({
+              bodyCiphertext: debrief.bodyCiphertext,
+              iv: debrief.iv,
+              authTag: debrief.authTag,
+            })
+          : null,
+        confidential: debrief.confidential,
+        accessLevel: debrief.accessLevel,
+        keyVersion: debrief.keyVersion,
+        authorUserId: debrief.authorUserId,
+        author: debrief.author,
+        createdAt: debrief.createdAt,
+        updatedAt: debrief.updatedAt,
+        restricted: !canReadBody,
+      };
+    });
+  }
+
   async generateMeetingPrep(ctx: TenantContext, meetingId: string) {
     const context = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
-      const meeting = await tx.meeting.findUnique({
-        where: { id: meetingId },
+      const meeting = await tx.meeting.findFirst({
+        where: { id: meetingId, tenantId: ctx.tenantId },
         include: {
           client: true,
           attendees: true,
@@ -523,6 +603,49 @@ export class EngagementService {
         },
       }),
     );
+  }
+
+  async updateMeetingPrep(ctx: TenantContext, prepId: string, input: UpdateMeetingPrepInput) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const prep = await tx.meetingPrep.findFirst({
+        where: { id: prepId, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
+      if (!prep) throw new NotFoundException('Meeting prep not found');
+
+      return tx.meetingPrep.update({
+        where: { id: prepId },
+        data: {
+          ...('summary' in input ? { summary: input.summary?.trim() || null } : {}),
+          ...('agenda' in input ? { agenda: normalizeStringArray(input.agenda) } : {}),
+          ...('talkingPoints' in input
+            ? { talkingPoints: normalizeStringArray(input.talkingPoints) }
+            : {}),
+          ...('risks' in input ? { risks: normalizeStringArray(input.risks) } : {}),
+          ...('followUps' in input ? { followUps: normalizeStringArray(input.followUps) } : {}),
+          status: MeetingPrepStatus.edited,
+          editedByUserId: ctx.userId,
+        },
+      });
+    });
+  }
+
+  async approveMeetingPrep(ctx: TenantContext, prepId: string) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const prep = await tx.meetingPrep.findFirst({
+        where: { id: prepId, tenantId: ctx.tenantId },
+        select: { id: true },
+      });
+      if (!prep) throw new NotFoundException('Meeting prep not found');
+
+      return tx.meetingPrep.update({
+        where: { id: prepId },
+        data: {
+          status: MeetingPrepStatus.approved,
+          editedByUserId: ctx.userId,
+        },
+      });
+    });
   }
 
   async overrideAssociation(ctx: TenantContext, input: AssociationOverrideInput) {
@@ -787,6 +910,7 @@ function meetingInclude() {
     attendees: { include: { contact: true }, orderBy: { createdAt: 'asc' as const } },
     attachments: { orderBy: { createdAt: 'desc' as const } },
     notes: { select: noteMetadataSelect(), orderBy: { createdAt: 'desc' as const } },
+    debriefs: { select: debriefMetadataSelect(), orderBy: { createdAt: 'desc' as const } },
     preps: { orderBy: { createdAt: 'desc' as const }, take: 1 },
     tasks: {
       where: { status: { not: EngagementTaskStatus.canceled } },
@@ -823,7 +947,22 @@ function noteMetadataSelect() {
   };
 }
 
-function canReadNoteBody(
+function debriefMetadataSelect() {
+  return {
+    id: true,
+    meetingId: true,
+    clientId: true,
+    authorUserId: true,
+    author: { select: { id: true, email: true, firstName: true, lastName: true } },
+    confidential: true,
+    accessLevel: true,
+    keyVersion: true,
+    createdAt: true,
+    updatedAt: true,
+  };
+}
+
+function canReadEncryptedEntry(
   ctx: TenantContext,
   note: { confidential: boolean; accessLevel: string; authorUserId: string | null },
 ): boolean {
@@ -831,6 +970,13 @@ function canReadNoteBody(
   if (note.authorUserId === ctx.userId) return true;
   if (ctx.role === 'user_admin' || ctx.role === 'capiro_admin') return true;
   return note.accessLevel === 'tenant_members';
+}
+
+function normalizeStringArray(value?: string[]): string[] {
+  return (value ?? [])
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 80);
 }
 
 function defaultScopes(provider: EngagementProvider): string[] {

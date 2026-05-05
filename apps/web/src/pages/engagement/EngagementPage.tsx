@@ -3,12 +3,15 @@ import {
   CalendarOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  DownloadOutlined,
+  EditOutlined,
   ExportOutlined,
   FileTextOutlined,
   LockOutlined,
   MailOutlined,
   PlusOutlined,
   RobotOutlined,
+  SaveOutlined,
   SyncOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
@@ -43,6 +46,7 @@ interface MeetingAttendee {
 
 interface MeetingPrep {
   id: string;
+  status: 'generated' | 'edited' | 'approved' | 'stale' | 'failed';
   agenda: string[];
   talkingPoints: string[];
   risks: string[];
@@ -51,6 +55,7 @@ interface MeetingPrep {
   provider: string | null;
   model: string | null;
   createdAt: string;
+  updatedAt: string;
 }
 
 interface Meeting {
@@ -74,6 +79,7 @@ interface Meeting {
   attendees: MeetingAttendee[];
   preps: MeetingPrep[];
   notes: MeetingNoteSummary[];
+  debriefs: MeetingDebriefSummary[];
 }
 
 interface MeetingNoteSummary {
@@ -86,6 +92,21 @@ interface MeetingNoteSummary {
 }
 
 interface MeetingNote extends MeetingNoteSummary {
+  body: string | null;
+  restricted: boolean;
+  updatedAt: string;
+}
+
+interface MeetingDebriefSummary {
+  id: string;
+  confidential: boolean;
+  accessLevel?: string;
+  authorUserId?: string | null;
+  author?: NoteAuthor | null;
+  createdAt: string;
+}
+
+interface MeetingDebrief extends MeetingDebriefSummary {
   body: string | null;
   restricted: boolean;
   updatedAt: string;
@@ -167,6 +188,14 @@ interface TaskFormValues {
   dueDate?: string;
 }
 
+interface PrepFormValues {
+  summary?: string;
+  agendaText?: string;
+  talkingPointsText?: string;
+  risksText?: string;
+  followUpsText?: string;
+}
+
 export function EngagementPage() {
   const api = useApi();
   const qc = useQueryClient();
@@ -178,11 +207,17 @@ export function EngagementPage() {
   const [meetingViewMode, setMeetingViewMode] = useState<'list' | 'calendar'>('list');
   const [meetingModalOpen, setMeetingModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [editingPrep, setEditingPrep] = useState<{ meeting: Meeting; prep: MeetingPrep } | null>(
+    null,
+  );
   const [meetingForm] = Form.useForm<MeetingFormValues>();
   const [taskForm] = Form.useForm<TaskFormValues>();
   const [noteForm] = Form.useForm<{ body: string }>();
+  const [debriefForm] = Form.useForm<{ body: string }>();
+  const [prepForm] = Form.useForm<PrepFormValues>();
 
   const window = useMemo(() => dateWindow(date), [date]);
+  const calendarWindow = useMemo(() => workWeekWindow(date), [date]);
 
   const clients = useQuery<Client[]>({
     queryKey: ['clients'],
@@ -211,14 +246,38 @@ export function EngagementPage() {
       ).data,
   });
 
+  const calendarMeetings = useQuery<Meeting[]>({
+    queryKey: [
+      'engagement-calendar-meetings',
+      selectedClientId,
+      calendarWindow.from,
+      calendarWindow.to,
+    ],
+    queryFn: async () =>
+      (
+        await api.get<Meeting[]>('/api/engagement/meetings', {
+          params: {
+            clientId: selectedClientId ?? undefined,
+            from: calendarWindow.from,
+            to: calendarWindow.to,
+          },
+        })
+      ).data,
+    enabled: meetingViewMode === 'calendar',
+  });
+
+  const visibleMeetings = useMemo(
+    () => (meetingViewMode === 'calendar' ? (calendarMeetings.data ?? []) : (meetings.data ?? [])),
+    [calendarMeetings.data, meetingViewMode, meetings.data],
+  );
   const selectedMeeting = useMemo(
-    () => (meetings.data ?? []).find((meeting) => meeting.id === selectedMeetingId) ?? null,
-    [meetings.data, selectedMeetingId],
+    () => visibleMeetings.find((meeting) => meeting.id === selectedMeetingId) ?? null,
+    [visibleMeetings, selectedMeetingId],
   );
   const contextClientId = selectedClientId ?? selectedMeeting?.client?.id ?? null;
 
   useEffect(() => {
-    const rows = meetings.data ?? [];
+    const rows = visibleMeetings;
     if (!rows.length) {
       setSelectedMeetingId(null);
       return;
@@ -226,7 +285,7 @@ export function EngagementPage() {
     if (!selectedMeetingId || !rows.some((meeting) => meeting.id === selectedMeetingId)) {
       setSelectedMeetingId(rows[0]?.id ?? null);
     }
-  }, [meetings.data, selectedMeetingId]);
+  }, [selectedMeetingId, visibleMeetings]);
 
   const clientContext = useQuery<ClientContext>({
     queryKey: ['engagement-client-context', contextClientId],
@@ -239,6 +298,14 @@ export function EngagementPage() {
     queryKey: ['engagement-meeting-notes', selectedMeeting?.id],
     queryFn: async () =>
       (await api.get<MeetingNote[]>(`/api/engagement/meetings/${selectedMeeting?.id}/notes`)).data,
+    enabled: Boolean(selectedMeeting?.id),
+  });
+
+  const meetingDebriefs = useQuery<MeetingDebrief[]>({
+    queryKey: ['engagement-meeting-debriefs', selectedMeeting?.id],
+    queryFn: async () =>
+      (await api.get<MeetingDebrief[]>(`/api/engagement/meetings/${selectedMeeting?.id}/debriefs`))
+        .data,
     enabled: Boolean(selectedMeeting?.id),
   });
 
@@ -284,6 +351,7 @@ export function EngagementPage() {
     onSuccess: () => {
       message.success('Outlook schedule refreshed');
       qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
+      qc.invalidateQueries({ queryKey: ['engagement-calendar-meetings'] });
       qc.invalidateQueries({ queryKey: ['engagement-mail-threads'] });
       qc.invalidateQueries({ queryKey: ['engagement-client-context'] });
       qc.invalidateQueries({ queryKey: ['client-meetings'] });
@@ -347,7 +415,40 @@ export function EngagementPage() {
     onSuccess: () => {
       message.success('Meeting prep generated');
       qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
+      qc.invalidateQueries({ queryKey: ['engagement-calendar-meetings'] });
       qc.invalidateQueries({ queryKey: ['engagement-client-context'] });
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  const updatePrep = useMutation({
+    mutationFn: async ({ prepId, values }: { prepId: string; values: PrepFormValues }) =>
+      (
+        await api.patch(`/api/engagement/meeting-preps/${prepId}`, {
+          summary: optionalText(values.summary) ?? null,
+          agenda: linesToArray(values.agendaText),
+          talkingPoints: linesToArray(values.talkingPointsText),
+          risks: linesToArray(values.risksText),
+          followUps: linesToArray(values.followUpsText),
+        })
+      ).data,
+    onSuccess: () => {
+      message.success('Meeting prep saved');
+      setEditingPrep(null);
+      prepForm.resetFields();
+      qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
+      qc.invalidateQueries({ queryKey: ['engagement-calendar-meetings'] });
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  const approvePrep = useMutation({
+    mutationFn: async (prepId: string) =>
+      (await api.post(`/api/engagement/meeting-preps/${prepId}/approve`)).data,
+    onSuccess: () => {
+      message.success('Meeting prep approved');
+      qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
+      qc.invalidateQueries({ queryKey: ['engagement-calendar-meetings'] });
     },
     onError: (err) => message.error(errorMessage(err)),
   });
@@ -365,7 +466,27 @@ export function EngagementPage() {
       message.success('Encrypted note saved');
       noteForm.resetFields();
       qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
+      qc.invalidateQueries({ queryKey: ['engagement-calendar-meetings'] });
       qc.invalidateQueries({ queryKey: ['engagement-meeting-notes'] });
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  const createDebrief = useMutation({
+    mutationFn: async ({ meetingId, body }: { meetingId: string; body: string }) =>
+      (
+        await api.post(`/api/engagement/meetings/${meetingId}/debriefs`, {
+          body,
+          confidential: true,
+          accessLevel: 'tenant_members',
+        })
+      ).data,
+    onSuccess: () => {
+      message.success('Debrief saved');
+      debriefForm.resetFields();
+      qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
+      qc.invalidateQueries({ queryKey: ['engagement-calendar-meetings'] });
+      qc.invalidateQueries({ queryKey: ['engagement-meeting-debriefs'] });
     },
     onError: (err) => message.error(errorMessage(err)),
   });
@@ -443,12 +564,14 @@ export function EngagementPage() {
                     </div>
                   </div>
 
-                  {meetings.isLoading ? (
+                  {(
+                    meetingViewMode === 'calendar' ? calendarMeetings.isLoading : meetings.isLoading
+                  ) ? (
                     <Empty description="Loading Outlook meetings..." />
-                  ) : meetings.data?.length ? (
+                  ) : visibleMeetings.length ? (
                     meetingViewMode === 'list' ? (
                       <div className="engagement-agenda-list">
-                        {meetings.data.map((meeting) => (
+                        {visibleMeetings.map((meeting) => (
                           <MeetingListItem
                             key={meeting.id}
                             meeting={meeting}
@@ -465,9 +588,17 @@ export function EngagementPage() {
                       </div>
                     ) : (
                       <MeetingCalendarList
-                        meetings={meetings.data}
+                        meetings={visibleMeetings}
                         selectedId={selectedMeeting?.id ?? null}
-                        onSelect={setSelectedMeetingId}
+                        weekStart={calendarWindow.weekStart}
+                        weekEnd={calendarWindow.weekEnd}
+                        onSelect={(meetingId) => {
+                          setSelectedMeetingId(meetingId);
+                          const meeting = visibleMeetings.find((item) => item.id === meetingId);
+                          setMeetingDetailTab(meeting?.preps[0] ? 'prep' : 'intel');
+                        }}
+                        onPreviousWeek={() => setDate(shiftDate(date, -7))}
+                        onNextWeek={() => setDate(shiftDate(date, 7))}
                       />
                     )
                   ) : (
@@ -481,16 +612,43 @@ export function EngagementPage() {
                   contextLoading={clientContext.isLoading}
                   notes={meetingNotes.data ?? []}
                   notesLoading={meetingNotes.isLoading}
+                  debriefs={meetingDebriefs.data ?? []}
+                  debriefsLoading={meetingDebriefs.isLoading}
                   activeTab={meetingDetailTab}
                   onTabChange={setMeetingDetailTab}
                   noteForm={noteForm}
+                  debriefForm={debriefForm}
                   notesConfigured={Boolean(capabilities.data?.notes.encryptedNotesConfigured)}
                   aiConfigured={Boolean(capabilities.data?.ai.activeProvider)}
                   generating={generatePrep.isPending}
                   savingNote={createNote.isPending}
+                  savingDebrief={createDebrief.isPending}
+                  approving={approvePrep.isPending}
                   onGeneratePrep={(meeting) => generatePrep.mutate(meeting.id)}
                   onCreateNote={(meeting, body) =>
                     createNote.mutate({ meetingId: meeting.id, body })
+                  }
+                  onCreateDebrief={(meeting, body) =>
+                    createDebrief.mutate({ meetingId: meeting.id, body })
+                  }
+                  onEditPrep={(meeting, prep) => {
+                    prepForm.setFieldsValue({
+                      summary: prep.summary ?? '',
+                      agendaText: prep.agenda.join('\n'),
+                      talkingPointsText: prep.talkingPoints.join('\n'),
+                      risksText: prep.risks.join('\n'),
+                      followUpsText: prep.followUps.join('\n'),
+                    });
+                    setEditingPrep({ meeting, prep });
+                  }}
+                  onApprovePrep={(prep) => approvePrep.mutate(prep.id)}
+                  onExportPdf={(meeting) =>
+                    exportMeetingPdf({
+                      meeting,
+                      notes: meetingNotes.data ?? [],
+                      debriefs: meetingDebriefs.data ?? [],
+                      context: clientContext.data,
+                    })
                   }
                 />
               </div>
@@ -585,6 +743,39 @@ export function EngagementPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <Modal
+        title={editingPrep ? `Edit prep - ${editingPrep.meeting.subject}` : 'Edit prep'}
+        open={Boolean(editingPrep)}
+        onCancel={() => setEditingPrep(null)}
+        onOk={() => prepForm.submit()}
+        confirmLoading={updatePrep.isPending}
+        width={760}
+      >
+        <Form
+          form={prepForm}
+          layout="vertical"
+          onFinish={(values) => {
+            if (editingPrep) updatePrep.mutate({ prepId: editingPrep.prep.id, values });
+          }}
+        >
+          <Form.Item name="summary" label="Context summary">
+            <Input.TextArea rows={3} maxLength={2000} showCount />
+          </Form.Item>
+          <Form.Item name="agendaText" label="Agenda">
+            <Input.TextArea rows={5} placeholder="One agenda item per line" />
+          </Form.Item>
+          <Form.Item name="talkingPointsText" label="Talking points">
+            <Input.TextArea rows={5} placeholder="One talking point per line" />
+          </Form.Item>
+          <Form.Item name="risksText" label="Risks">
+            <Input.TextArea rows={3} placeholder="One risk per line" />
+          </Form.Item>
+          <Form.Item name="followUpsText" label="Follow-ups">
+            <Input.TextArea rows={3} placeholder="One follow-up per line" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </section>
   );
 }
@@ -648,26 +839,90 @@ function MeetingListItem({
 function MeetingCalendarList({
   meetings,
   selectedId,
+  weekStart,
+  weekEnd,
   onSelect,
+  onPreviousWeek,
+  onNextWeek,
 }: {
   meetings: Meeting[];
   selectedId: string | null;
+  weekStart: Date;
+  weekEnd: Date;
   onSelect: (id: string) => void;
+  onPreviousWeek: () => void;
+  onNextWeek: () => void;
 }) {
+  const days = workWeekDays(weekStart);
+  const grouped = groupMeetingsByDate(meetings);
+  const counts = meetingStatusCounts(meetings);
+
   return (
-    <div className="engagement-day-calendar">
-      {meetings.map((meeting) => (
-        <button
-          key={meeting.id}
-          type="button"
-          className={meeting.id === selectedId ? 'selected' : ''}
-          onClick={() => onSelect(meeting.id)}
-        >
-          <span>{formatTime(meeting.startsAt)}</span>
-          <strong>{meeting.subject}</strong>
-          <small>{[meeting.client?.name, meeting.location].filter(Boolean).join(' | ')}</small>
-        </button>
-      ))}
+    <div className="engagement-week-calendar">
+      <div className="engagement-week-toolbar">
+        <Typography.Text strong>{formatCalendarRange(weekStart, weekEnd)}</Typography.Text>
+        <Space size={8}>
+          <Button size="small" onClick={onPreviousWeek}>
+            {'<'}
+          </Button>
+          <Button size="small" onClick={onNextWeek}>
+            {'>'}
+          </Button>
+        </Space>
+      </div>
+      <div className="engagement-week-grid">
+        {days.map((day) => {
+          const key = localDateKey(day);
+          const dayMeetings = grouped.get(key) ?? [];
+          return (
+            <section className="engagement-week-day" key={key}>
+              <div className="engagement-week-day-head">
+                <Typography.Text>{weekdayShort(day)}</Typography.Text>
+                <span className={localDateKey(new Date()) === key ? 'today' : ''}>
+                  {day.getDate()}
+                </span>
+              </div>
+              <div className="engagement-week-items">
+                {dayMeetings.length ? (
+                  dayMeetings.map((meeting) => {
+                    const status = meetingStatus(meeting);
+                    return (
+                      <button
+                        key={meeting.id}
+                        type="button"
+                        className={`engagement-week-event engagement-week-event--${status.kind}${
+                          meeting.id === selectedId ? ' selected' : ''
+                        }`}
+                        onClick={() => onSelect(meeting.id)}
+                      >
+                        <span>{formatTime(meeting.startsAt)}</span>
+                        <strong>{meeting.subject}</strong>
+                        <small>
+                          {meeting.client?.name ?? meeting.location ?? sourceLabel(meeting.source)}
+                        </small>
+                        {status.label ? <em>{status.label}</em> : null}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <Typography.Text type="secondary">No meetings</Typography.Text>
+                )}
+              </div>
+            </section>
+          );
+        })}
+      </div>
+      <div className="engagement-week-legend">
+        <span>
+          <i className="missing" /> {counts.debriefMissing} debrief missing
+        </span>
+        <span>
+          <i className="needs-prep" /> {counts.needsPrep} need prep
+        </span>
+        <span>
+          <i className="prepped" /> {counts.prepped} prepped
+        </span>
+      </div>
     </div>
   );
 }
@@ -678,30 +933,48 @@ function MeetingDetailPanel({
   contextLoading,
   notes,
   notesLoading,
+  debriefs,
+  debriefsLoading,
   activeTab,
   onTabChange,
   noteForm,
+  debriefForm,
   notesConfigured,
   aiConfigured,
   generating,
   savingNote,
+  savingDebrief,
+  approving,
   onGeneratePrep,
   onCreateNote,
+  onCreateDebrief,
+  onEditPrep,
+  onApprovePrep,
+  onExportPdf,
 }: {
   meeting: Meeting | null;
   context?: ClientContext;
   contextLoading: boolean;
   notes: MeetingNote[];
   notesLoading: boolean;
+  debriefs: MeetingDebrief[];
+  debriefsLoading: boolean;
   activeTab: string;
   onTabChange: (key: string) => void;
   noteForm: ReturnType<typeof Form.useForm<{ body: string }>>[0];
+  debriefForm: ReturnType<typeof Form.useForm<{ body: string }>>[0];
   notesConfigured: boolean;
   aiConfigured: boolean;
   generating: boolean;
   savingNote: boolean;
+  savingDebrief: boolean;
+  approving: boolean;
   onGeneratePrep: (meeting: Meeting) => void;
   onCreateNote: (meeting: Meeting, body: string) => void;
+  onCreateDebrief: (meeting: Meeting, body: string) => void;
+  onEditPrep: (meeting: Meeting, prep: MeetingPrep) => void;
+  onApprovePrep: (prep: MeetingPrep) => void;
+  onExportPdf: (meeting: Meeting) => void;
 }) {
   if (!meeting) {
     return (
@@ -741,142 +1014,221 @@ function MeetingDetailPanel({
         </Button>
       </div>
 
-      <Tabs
-        activeKey={activeTab}
-        onChange={onTabChange}
-        className="engagement-detail-tabs"
-        items={[
-          {
-            key: 'prep',
-            label: 'Prep',
-            children: (
-              <div className="engagement-detail-stack">
-                {prep ? (
-                  <>
-                    <DetailBlock title="Context">
-                      <Typography.Paragraph>
-                        {prep.summary || contextSummary(context, contextLoading)}
-                      </Typography.Paragraph>
-                    </DetailBlock>
-                    <DetailBlock title="Agenda">
-                      <BulletList items={prep.agenda} empty="No agenda generated yet." />
-                    </DetailBlock>
-                    <DetailBlock title="Talking Points">
-                      <BulletList
-                        items={prep.talkingPoints}
-                        empty="No talking points generated yet."
+      <div className="engagement-detail-scroll">
+        <Tabs
+          activeKey={activeTab}
+          onChange={onTabChange}
+          className="engagement-detail-tabs"
+          items={[
+            {
+              key: 'prep',
+              label: 'Prep',
+              children: (
+                <div className="engagement-detail-stack">
+                  {prep ? (
+                    <>
+                      <DetailBlock title="Context">
+                        <Typography.Paragraph>
+                          {prep.summary || contextSummary(context, contextLoading)}
+                        </Typography.Paragraph>
+                      </DetailBlock>
+                      <DetailBlock title="Agenda">
+                        <BulletList items={prep.agenda} empty="No agenda generated yet." />
+                      </DetailBlock>
+                      <DetailBlock title="Talking Points">
+                        <BulletList
+                          items={prep.talkingPoints}
+                          empty="No talking points generated yet."
+                        />
+                      </DetailBlock>
+                    </>
+                  ) : (
+                    <div className="engagement-empty-prep">
+                      <RobotOutlined />
+                      <Typography.Text strong>
+                        Prep has not been generated for this meeting.
+                      </Typography.Text>
+                      <Button
+                        type="primary"
+                        disabled={!aiConfigured}
+                        loading={generating}
+                        onClick={() => onGeneratePrep(meeting)}
+                      >
+                        Generate agenda and talking points
+                      </Button>
+                    </div>
+                  )}
+                  <ParticipantsList participants={participants} />
+                </div>
+              ),
+            },
+            {
+              key: 'notes',
+              label: 'Notes',
+              children: (
+                <div className="engagement-detail-stack">
+                  <Form
+                    form={noteForm}
+                    layout="vertical"
+                    onFinish={(values) => onCreateNote(meeting, values.body)}
+                  >
+                    <Form.Item
+                      name="body"
+                      label="Confidential meeting notes"
+                      rules={[{ required: true, min: 1 }]}
+                    >
+                      <Input.TextArea
+                        rows={7}
+                        placeholder="Capture decisions, commitments, follow-ups, and sensitive context..."
+                        disabled={!notesConfigured}
                       />
-                    </DetailBlock>
-                  </>
-                ) : (
-                  <div className="engagement-empty-prep">
-                    <RobotOutlined />
-                    <Typography.Text strong>
-                      Prep has not been generated for this meeting.
-                    </Typography.Text>
+                    </Form.Item>
                     <Button
                       type="primary"
-                      disabled={!aiConfigured}
-                      loading={generating}
-                      onClick={() => onGeneratePrep(meeting)}
-                    >
-                      Generate agenda and talking points
-                    </Button>
-                  </div>
-                )}
-                <ParticipantsList participants={participants} />
-              </div>
-            ),
-          },
-          {
-            key: 'notes',
-            label: 'Notes',
-            children: (
-              <div className="engagement-detail-stack">
-                <Form
-                  form={noteForm}
-                  layout="vertical"
-                  onFinish={(values) => onCreateNote(meeting, values.body)}
-                >
-                  <Form.Item
-                    name="body"
-                    label="Confidential meeting notes"
-                    rules={[{ required: true, min: 1 }]}
-                  >
-                    <Input.TextArea
-                      rows={7}
-                      placeholder="Capture decisions, commitments, follow-ups, and sensitive context..."
+                      htmlType="submit"
+                      icon={<LockOutlined />}
+                      loading={savingNote}
                       disabled={!notesConfigured}
-                    />
-                  </Form.Item>
-                  <Button
-                    type="primary"
-                    htmlType="submit"
-                    icon={<LockOutlined />}
-                    loading={savingNote}
-                    disabled={!notesConfigured}
-                  >
-                    Save encrypted note
-                  </Button>
-                  {!notesConfigured ? (
-                    <Typography.Text type="secondary">
-                      Encrypted notes require NOTES_ENCRYPTION_KEY on the API.
-                    </Typography.Text>
-                  ) : null}
-                </Form>
+                    >
+                      Save encrypted note
+                    </Button>
+                    {!notesConfigured ? (
+                      <Typography.Text type="secondary">
+                        Encrypted notes require NOTES_ENCRYPTION_KEY on the API.
+                      </Typography.Text>
+                    ) : null}
+                  </Form>
 
-                <div className="engagement-note-history">
-                  <Typography.Text strong>Previous notes</Typography.Text>
-                  {notesLoading ? (
-                    <Typography.Text type="secondary">Loading notes...</Typography.Text>
-                  ) : notes.length ? (
-                    notes.map((note) => (
-                      <article className="engagement-note-entry" key={note.id}>
-                        <div>
-                          <Typography.Text strong>{noteAuthor(note)}</Typography.Text>
-                          <Typography.Text type="secondary">
-                            {formatDateTime(note.createdAt)}
-                          </Typography.Text>
-                        </div>
-                        <Typography.Paragraph>
-                          {note.restricted
-                            ? 'This confidential note is restricted to its author and tenant admins.'
-                            : note.body}
-                        </Typography.Paragraph>
-                      </article>
-                    ))
-                  ) : (
-                    <Typography.Text type="secondary">No notes captured yet.</Typography.Text>
-                  )}
-                </div>
+                  <div className="engagement-note-history">
+                    <Typography.Text strong>Previous notes</Typography.Text>
+                    {notesLoading ? (
+                      <Typography.Text type="secondary">Loading notes...</Typography.Text>
+                    ) : notes.length ? (
+                      notes.map((note) => (
+                        <article className="engagement-note-entry" key={note.id}>
+                          <div>
+                            <Typography.Text strong>{noteAuthor(note)}</Typography.Text>
+                            <Typography.Text type="secondary">
+                              {formatDateTime(note.createdAt)}
+                            </Typography.Text>
+                          </div>
+                          <Typography.Paragraph>
+                            {note.restricted
+                              ? 'This confidential note is restricted to its author and tenant admins.'
+                              : note.body}
+                          </Typography.Paragraph>
+                        </article>
+                      ))
+                    ) : (
+                      <Typography.Text type="secondary">No notes captured yet.</Typography.Text>
+                    )}
+                  </div>
 
-                <div className="engagement-transcript-disabled">
-                  <LockOutlined />
-                  <div>
-                    <Typography.Text strong>Transcripts</Typography.Text>
-                    <Typography.Text type="secondary">
-                      Transcript upload and transcription capture are disabled for now.
-                    </Typography.Text>
+                  <div className="engagement-transcript-disabled">
+                    <LockOutlined />
+                    <div>
+                      <Typography.Text strong>Transcripts</Typography.Text>
+                      <Typography.Text type="secondary">
+                        Transcript upload and transcription capture are disabled for now.
+                      </Typography.Text>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ),
-          },
-          {
-            key: 'debrief',
-            label: 'Debrief',
-            disabled: true,
-            children: null,
-          },
-          {
-            key: 'intel',
-            label: 'Intel',
-            children: (
-              <ClientIntelPanel context={context} loading={contextLoading} meeting={meeting} />
-            ),
-          },
-        ]}
-      />
+              ),
+            },
+            {
+              key: 'debrief',
+              label: 'Debrief',
+              children: (
+                <div className="engagement-detail-stack">
+                  <Form
+                    form={debriefForm}
+                    layout="vertical"
+                    onFinish={(values) => onCreateDebrief(meeting, values.body)}
+                  >
+                    <Form.Item
+                      name="body"
+                      label="Meeting debrief"
+                      rules={[{ required: true, min: 1 }]}
+                    >
+                      <Input.TextArea
+                        rows={7}
+                        placeholder="Capture outcomes, decisions, commitments, and next steps..."
+                        disabled={!notesConfigured}
+                      />
+                    </Form.Item>
+                    <Button
+                      type="primary"
+                      htmlType="submit"
+                      icon={<SaveOutlined />}
+                      loading={savingDebrief}
+                      disabled={!notesConfigured}
+                    >
+                      Save debrief
+                    </Button>
+                  </Form>
+
+                  <div className="engagement-note-history">
+                    <Typography.Text strong>Previous debriefs</Typography.Text>
+                    {debriefsLoading ? (
+                      <Typography.Text type="secondary">Loading debriefs...</Typography.Text>
+                    ) : debriefs.length ? (
+                      debriefs.map((debrief) => (
+                        <article className="engagement-note-entry" key={debrief.id}>
+                          <div>
+                            <Typography.Text strong>{noteAuthor(debrief)}</Typography.Text>
+                            <Typography.Text type="secondary">
+                              {formatDateTime(debrief.createdAt)}
+                            </Typography.Text>
+                          </div>
+                          <Typography.Paragraph>
+                            {debrief.restricted
+                              ? 'This confidential debrief is restricted to its author and tenant admins.'
+                              : debrief.body}
+                          </Typography.Paragraph>
+                        </article>
+                      ))
+                    ) : (
+                      <Typography.Text type="secondary">No debriefs captured yet.</Typography.Text>
+                    )}
+                  </div>
+                </div>
+              ),
+            },
+            {
+              key: 'intel',
+              label: 'Intel',
+              children: (
+                <ClientIntelPanel context={context} loading={contextLoading} meeting={meeting} />
+              ),
+            },
+          ]}
+        />
+      </div>
+      <div className="engagement-detail-actions">
+        <Button
+          icon={<EditOutlined />}
+          disabled={!prep}
+          onClick={() => {
+            if (prep) onEditPrep(meeting, prep);
+          }}
+        >
+          Edit
+        </Button>
+        <Button icon={<DownloadOutlined />} onClick={() => onExportPdf(meeting)}>
+          Export PDF
+        </Button>
+        <Button
+          type="primary"
+          disabled={!prep || prep.status === 'approved'}
+          loading={approving}
+          onClick={() => {
+            if (prep) onApprovePrep(prep);
+          }}
+        >
+          {prep?.status === 'approved' ? 'Approved' : 'Approve'}
+        </Button>
+      </div>
     </aside>
   );
 }
@@ -1250,12 +1602,35 @@ function PanelTitle({ icon, title }: { icon: ReactNode; title: string }) {
   );
 }
 
+function linesToArray(value?: string): string[] {
+  return (value ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 80);
+}
+
 function formatMeetingDay(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
   }).format(new Date(value));
+}
+
+function formatCalendarRange(start: Date, end: Date): string {
+  const sameMonth =
+    start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
+  const startText = new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+  }).format(start);
+  const endText = new Intl.DateTimeFormat(undefined, {
+    ...(sameMonth ? {} : { month: 'short' as const }),
+    day: 'numeric',
+    year: 'numeric',
+  }).format(end);
+  return `${startText} - ${endText}`;
 }
 
 function formatTimeRange(start: string, end: string): string {
@@ -1289,7 +1664,9 @@ function contextSummary(context: ClientContext | undefined, loading: boolean): s
   ].join(' | ');
 }
 
-function noteAuthor(note: MeetingNote | MeetingNoteSummary): string {
+function noteAuthor(
+  note: MeetingNote | MeetingNoteSummary | MeetingDebrief | MeetingDebriefSummary,
+): string {
   const author = note.author;
   const name = [author?.firstName, author?.lastName].filter(Boolean).join(' ').trim();
   return name || author?.email || 'Unknown user';
@@ -1299,6 +1676,97 @@ function initials(value: string): string {
   const parts = value.trim().split(/\s+/).filter(Boolean).slice(0, 2);
   const text = parts.map((part) => part[0]?.toUpperCase()).join('');
   return text || '??';
+}
+
+function workWeekWindow(date: string) {
+  const selected = localDateFromInput(date);
+  const weekday = selected.getDay();
+  const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
+  const weekStart = addLocalDays(selected, mondayOffset);
+  const weekEnd = addLocalDays(weekStart, 4);
+  const toExclusive = addLocalDays(weekStart, 5);
+  return {
+    from: weekStart.toISOString(),
+    to: toExclusive.toISOString(),
+    weekStart,
+    weekEnd,
+  };
+}
+
+function workWeekDays(weekStart: Date): Date[] {
+  return Array.from({ length: 5 }, (_, index) => addLocalDays(weekStart, index));
+}
+
+function addLocalDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function shiftDate(date: string, days: number): string {
+  const next = addLocalDays(localDateFromInput(date), days);
+  return inputValueFromDate(next);
+}
+
+function localDateFromInput(date: string): Date {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(year ?? new Date().getFullYear(), (month ?? 1) - 1, day ?? 1);
+}
+
+function inputValueFromDate(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+function localDateKey(value: Date | string): string {
+  const date = typeof value === 'string' ? new Date(value) : value;
+  return inputValueFromDate(date);
+}
+
+function weekdayShort(date: Date): string {
+  return new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(date);
+}
+
+function groupMeetingsByDate(meetings: Meeting[]): Map<string, Meeting[]> {
+  const grouped = new Map<string, Meeting[]>();
+  for (const meeting of meetings) {
+    const key = localDateKey(meeting.startsAt);
+    const rows = grouped.get(key) ?? [];
+    rows.push(meeting);
+    grouped.set(key, rows);
+  }
+  for (const rows of grouped.values()) {
+    rows.sort(
+      (left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime(),
+    );
+  }
+  return grouped;
+}
+
+function meetingStatus(meeting: Meeting): {
+  kind: 'missing' | 'needs-prep' | 'prepped';
+  label: string;
+} {
+  const hasDebrief = meeting.debriefs.length > 0;
+  const hasEnded = new Date(meeting.endsAt).getTime() < Date.now();
+  if (hasEnded && !hasDebrief) return { kind: 'missing', label: 'Debrief missing' };
+  const prep = meeting.preps[0];
+  if (!prep) return { kind: 'needs-prep', label: 'Needs prep' };
+  return { kind: 'prepped', label: prep.status === 'approved' ? 'Approved' : 'Prepped' };
+}
+
+function meetingStatusCounts(meetings: Meeting[]) {
+  return meetings.reduce(
+    (counts, meeting) => {
+      const status = meetingStatus(meeting).kind;
+      if (status === 'missing') counts.debriefMissing += 1;
+      if (status === 'needs-prep') counts.needsPrep += 1;
+      if (status === 'prepped') counts.prepped += 1;
+      return counts;
+    },
+    { debriefMissing: 0, needsPrep: 0, prepped: 0 },
+  );
 }
 
 function dateWindow(date: string) {
@@ -1389,4 +1857,167 @@ function errorMessage(error: unknown): string {
     if (Array.isArray(data?.message)) return data.message.join(', ');
   }
   return error instanceof Error ? error.message : 'Request failed';
+}
+
+function exportMeetingPdf({
+  meeting,
+  notes,
+  debriefs,
+  context,
+}: {
+  meeting: Meeting;
+  notes: MeetingNote[];
+  debriefs: MeetingDebrief[];
+  context?: ClientContext;
+}) {
+  const prep = meeting.preps[0];
+  const lines = [
+    'Capiro Meeting Prep',
+    '',
+    meeting.subject,
+    `${formatLongDate(meeting.startsAt)} | ${formatTimeRange(meeting.startsAt, meeting.endsAt)}`,
+    `Client: ${meeting.client?.name ?? 'Unlinked'}`,
+    `Location: ${meeting.location || 'No location'}`,
+    '',
+    'Context',
+    prep?.summary || contextSummary(context, false),
+    '',
+    'Agenda',
+    ...(prep?.agenda.length ? prep.agenda.map((item) => `- ${item}`) : ['No agenda saved.']),
+    '',
+    'Talking Points',
+    ...(prep?.talkingPoints.length
+      ? prep.talkingPoints.map((item) => `- ${item}`)
+      : ['No talking points saved.']),
+    '',
+    'Participants',
+    ...meetingParticipants(meeting).map(
+      (participant) =>
+        `- ${participant.name}${participant.role ? `, ${participant.role}` : ''}${
+          participant.email ? ` (${participant.email})` : ''
+        }`,
+    ),
+    '',
+    'Visible Notes',
+    ...(notes.filter((note) => !note.restricted && note.body).length
+      ? notes
+          .filter((note) => !note.restricted && note.body)
+          .flatMap((note) => [
+            `${formatDateTime(note.createdAt)} by ${noteAuthor(note)}`,
+            note.body ?? '',
+          ])
+      : ['No visible notes saved.']),
+    '',
+    'Debriefs',
+    ...(debriefs.filter((debrief) => !debrief.restricted && debrief.body).length
+      ? debriefs
+          .filter((debrief) => !debrief.restricted && debrief.body)
+          .flatMap((debrief) => [
+            `${formatDateTime(debrief.createdAt)} by ${noteAuthor(debrief)}`,
+            debrief.body ?? '',
+          ])
+      : ['No debriefs saved.']),
+  ];
+
+  const pdf = buildSimplePdf(lines.flatMap((line) => wrapPdfLine(line)));
+  const url = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${safeFileName(meeting.subject)}-prep.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function wrapPdfLine(line: string, max = 88): string[] {
+  if (line.length <= max) return [line];
+  const words = line.split(/\s+/);
+  const rows: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length > max && current) {
+      rows.push(current);
+      current = word;
+    } else {
+      current = next;
+    }
+  }
+  if (current) rows.push(current);
+  return rows;
+}
+
+function buildSimplePdf(lines: string[]): string {
+  const linesPerPage = 48;
+  const pages = chunk(lines, linesPerPage);
+  const objects: string[] = [];
+  objects.push('<< /Type /Catalog /Pages 2 0 R >>');
+  objects.push('');
+  objects.push('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
+
+  const pageObjectIds: number[] = [];
+  for (const [pageIndex, pageLines] of pages.entries()) {
+    const pageObjectId = objects.length + 1;
+    const contentObjectId = objects.length + 2;
+    pageObjectIds.push(pageObjectId);
+    const content = [
+      'BT',
+      '/F1 11 Tf',
+      '54 738 Td',
+      '14 TL',
+      ...pageLines.map((line, index) =>
+        index === 0 ? `(${escapePdfText(line)}) Tj` : `T* (${escapePdfText(line)}) Tj`,
+      ),
+      `T* (Page ${pageIndex + 1} of ${pages.length}) Tj`,
+      'ET',
+    ].join('\n');
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObjectId} 0 R >>`,
+    );
+    objects.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  }
+
+  objects[1] = `<< /Type /Pages /Kids [${pageObjectIds
+    .map((id) => `${id} 0 R`)
+    .join(' ')}] /Count ${pageObjectIds.length} >>`;
+
+  let pdf = '%PDF-1.4\n';
+  const offsets = [0];
+  objects.forEach((object, index) => {
+    offsets.push(pdf.length);
+    pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+  });
+  const xrefOffset = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets.slice(1)) {
+    pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+  return pdf;
+}
+
+function escapePdfText(value: string): string {
+  return value
+    .replace(/[^\x09\x0a\x0d\x20-\x7e]/g, '?')
+    .replace(/\\/g, '\\\\')
+    .replace(/\(/g, '\\(')
+    .replace(/\)/g, '\\)');
+}
+
+function chunk<T>(values: T[], size: number): T[][] {
+  const rows: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    rows.push(values.slice(index, index + size));
+  }
+  return rows.length ? rows : [[]];
+}
+
+function safeFileName(value: string): string {
+  return (
+    value
+      .replace(/[^a-z0-9._-]+/gi, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'meeting'
+  );
 }

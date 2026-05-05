@@ -157,6 +157,38 @@ class CreateNoteDto {
   accessLevel?: string;
 }
 
+class CreateDebriefDto extends CreateNoteDto {}
+
+class UpdateMeetingPrepDto {
+  @IsOptional()
+  @IsString()
+  summary?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(80)
+  @IsString({ each: true })
+  agenda?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(80)
+  @IsString({ each: true })
+  talkingPoints?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(80)
+  @IsString({ each: true })
+  risks?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(80)
+  @IsString({ each: true })
+  followUps?: string[];
+}
+
 class CreateTaskDto {
   @IsOptional()
   @IsUUID()
@@ -351,9 +383,37 @@ export class EngagementController {
     return this.service.listMeetingNotes(ctx, meetingId);
   }
 
+  @Post('meetings/:id/debriefs')
+  createDebrief(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') meetingId: string,
+    @Body() body: CreateDebriefDto,
+  ) {
+    return this.service.createMeetingDebrief(ctx, meetingId, body);
+  }
+
+  @Get('meetings/:id/debriefs')
+  meetingDebriefs(@CurrentTenant() ctx: TenantContext, @Param('id') meetingId: string) {
+    return this.service.listMeetingDebriefs(ctx, meetingId);
+  }
+
   @Post('meetings/:id/prep')
   generatePrep(@CurrentTenant() ctx: TenantContext, @Param('id') meetingId: string) {
     return this.service.generateMeetingPrep(ctx, meetingId);
+  }
+
+  @Patch('meeting-preps/:id')
+  updatePrep(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') prepId: string,
+    @Body() body: UpdateMeetingPrepDto,
+  ) {
+    return this.service.updateMeetingPrep(ctx, prepId, body);
+  }
+
+  @Post('meeting-preps/:id/approve')
+  approvePrep(@CurrentTenant() ctx: TenantContext, @Param('id') prepId: string) {
+    return this.service.approveMeetingPrep(ctx, prepId);
   }
 
   @Get('mail-threads')

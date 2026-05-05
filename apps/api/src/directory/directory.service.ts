@@ -170,6 +170,122 @@ interface StaffDetail {
   officeLocation: string;
 }
 
+const TEST_DIRECTORY_CONTACT: DirectoryContact = {
+  id: 'test-member-capiro-profile',
+  memberId: -1001,
+  bioguideId: 'TEST001',
+  fullName: 'Rep. Avery Testwell',
+  memberName: 'Avery Testwell',
+  honorific: 'Rep.',
+  photoUrl: '',
+  title: 'Member of Congress - Test Profile',
+  office: 'Avery Testwell office (TS-1)',
+  chamber: 'House',
+  state: 'TS',
+  district: 'TS-1',
+  party: 'I',
+  partyName: 'Independent',
+  gender: 'Unknown',
+  region: 'South',
+  isFreshman: false,
+  servingSince: '2021-01-03',
+  focusAreas: ['Defense Innovation', 'Federal Procurement', 'Small Business'],
+  committees: ['House Committee on Armed Services', 'House Committee on Small Business'],
+  leadershipPositions: ['Testing Caucus Co-Chair'],
+  caucuses: ['Congressional Test Data Caucus', 'Defense Innovation Caucus'],
+  educationInstitutions: ['Example State University', 'National Policy Institute'],
+  officeLocation: '123 Test House Office Building, Washington, DC 20515',
+  phone: '202-555-0147',
+  fax: '202-555-0199',
+  email: 'avery.testwell@example.invalid',
+  contactFormUrl: 'https://example.invalid/contact/avery-testwell',
+  officialLinks: [
+    {
+      label: 'Website, official',
+      url: 'https://example.invalid/avery-testwell',
+      type: 'Website',
+    },
+    {
+      label: 'Contact form',
+      url: 'https://example.invalid/contact/avery-testwell',
+      type: 'Email Form',
+    },
+    {
+      label: 'Email, test',
+      url: 'mailto:avery.testwell@example.invalid',
+      type: 'Email',
+    },
+  ],
+  addresses: [
+    {
+      id: 'test-main-office',
+      title: 'Main Office',
+      address1: '123 Test House Office Building',
+      address2: '',
+      city: 'Washington',
+      state: 'DC',
+      zip: '20515',
+      phone: '202-555-0147',
+      fax: '202-555-0199',
+      isMain: true,
+    },
+    {
+      id: 'test-district-office',
+      title: 'District Office',
+      address1: '456 Constituent Avenue',
+      address2: 'Suite 200',
+      city: 'Testville',
+      state: 'TS',
+      zip: '00001',
+      phone: '202-555-0188',
+      fax: '',
+      isMain: false,
+    },
+  ],
+  staff: [
+    {
+      id: 'test-staff-chief',
+      fullName: 'Jordan Sample',
+      title: 'Chief of Staff',
+      roles: ['Chief of Staff', 'Leadership'],
+      issueAreas: ['Defense Innovation', 'Appropriations'],
+      email: 'jordan.sample@example.invalid',
+      phone: '202-555-0151',
+      officeLocation: '123 Test House Office Building',
+    },
+    {
+      id: 'test-staff-leg',
+      fullName: 'Morgan Example',
+      title: 'Legislative Assistant',
+      roles: ['Legislative Assistant'],
+      issueAreas: ['Federal Procurement', 'Small Business', 'Technology'],
+      email: 'morgan.example@example.invalid',
+      phone: '202-555-0152',
+      officeLocation: '123 Test House Office Building',
+    },
+  ],
+  bio: {
+    dob: '1979-05-15',
+    hometown: 'Testville, TS',
+    birthplace: 'Example City, TS',
+    occupation: 'Attorney; former technology policy advisor',
+    race: 'Not specified',
+    religion: 'Not specified',
+    pronunciation: 'AY-vuh-ree TEST-well',
+  },
+  lastTouchpoint: '2026-05-04',
+  owner: 'Capiro Test Data',
+  relationshipTier: 'Watch',
+  notes: 'Synthetic directory profile for QA only.',
+  recentInteractions: [
+    {
+      date: '2026-04-29',
+      channel: 'Email',
+      summary: 'Synthetic outreach record for interface testing.',
+    },
+  ],
+};
+
 @Injectable()
 export class DirectoryService {
   private static readonly DEFAULT_PAGE_SIZE = 24;
@@ -626,6 +742,8 @@ export class DirectoryService {
         recentInteractions: [],
       });
     }
+
+    contacts.push(TEST_DIRECTORY_CONTACT);
 
     return contacts.sort((a, b) => a.memberName.localeCompare(b.memberName));
   }
