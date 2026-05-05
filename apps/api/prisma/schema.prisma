@@ -139,6 +139,7 @@ model Tenant {
   associationOverrides       ClientAssociationOverride[]
   contextEmbeddings          ContextEmbedding[]
   directoryContactNotes      DirectoryContactNote[]
+  engagementReportTargets    EngagementReportTargetOffice[]
   MeetingDebrief             MeetingDebrief[]
 
   @@map("tenants")
@@ -154,12 +155,13 @@ model User {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships           TenantMembership[]
-  auditLogs             AuditLog[]             @relation("AuditActor")
-  impersonationSessions ImpersonationSession[] @relation("ImpersonationActor")
-  directoryContactNotes DirectoryContactNote[] @relation("DirectoryContactNoteAuthor")
-  meetingNotes          MeetingNote[]          @relation("MeetingNoteAuthor")
-  meetingDebriefs       MeetingDebrief[]       @relation("MeetingDebriefAuthor")
+  memberships             TenantMembership[]
+  auditLogs               AuditLog[]                     @relation("AuditActor")
+  impersonationSessions   ImpersonationSession[]         @relation("ImpersonationActor")
+  directoryContactNotes   DirectoryContactNote[]         @relation("DirectoryContactNoteAuthor")
+  meetingNotes            MeetingNote[]                  @relation("MeetingNoteAuthor")
+  meetingDebriefs         MeetingDebrief[]               @relation("MeetingDebriefAuthor")
+  engagementReportTargets EngagementReportTargetOffice[] @relation("EngagementReportTargetOfficeAuthor")
 
   @@map("users")
 }
@@ -216,16 +218,17 @@ model Client {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant                Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  engagementContacts    EngagementContact[]
-  meetings              Meeting[]
-  mailThreads           MailThread[]
-  engagementAttachments EngagementAttachment[]
-  meetingNotes          MeetingNote[]
-  meetingDebriefs       MeetingDebrief[]
-  meetingPreps          MeetingPrep[]
-  engagementTasks       EngagementTask[]
-  associationOverrides  ClientAssociationOverride[]
+  tenant                  Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  engagementContacts      EngagementContact[]
+  meetings                Meeting[]
+  mailThreads             MailThread[]
+  engagementAttachments   EngagementAttachment[]
+  meetingNotes            MeetingNote[]
+  meetingDebriefs         MeetingDebrief[]
+  meetingPreps            MeetingPrep[]
+  engagementTasks         EngagementTask[]
+  associationOverrides    ClientAssociationOverride[]
+  engagementReportTargets EngagementReportTargetOffice[]
 
   @@index([tenantId], map: "clients_tenant_idx")
   @@index([tenantId, name], map: "clients_tenant_name_idx")
@@ -582,6 +585,34 @@ model EngagementTask {
   @@index([tenantId, clientId, status], map: "engagement_tasks_tenant_client_status_idx")
   @@index([tenantId, dueDate], map: "engagement_tasks_tenant_due_idx")
   @@map("engagement_tasks")
+}
+
+model EngagementReportTargetOffice {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  clientId         String?  @map("client_id") @db.Uuid
+  scopeKey         String   @map("scope_key")
+  officeKey        String   @map("office_key")
+  memberPrincipal  String   @map("member_principal")
+  committee        String?
+  staffer          String?
+  building         String?
+  leadOwner        String?  @map("lead_owner")
+  prepStatus       String   @default("auto") @map("prep_status")
+  outreachStatus   String   @default("auto") @map("outreach_status")
+  submissionStatus String   @default("auto") @map("submission_status")
+  source           String   @default("manual")
+  createdByUserId  String?  @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client    Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  createdBy User?   @relation("EngagementReportTargetOfficeAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, scopeKey, officeKey], map: "engagement_report_targets_tenant_scope_office_key")
+  @@index([tenantId, clientId, prepStatus], map: "engagement_report_targets_tenant_client_prep_idx")
+  @@map("engagement_report_target_offices")
 }
 
 model ClientAssociationOverride {

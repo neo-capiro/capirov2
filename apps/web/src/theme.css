@@ -1502,6 +1502,228 @@ body {
   background: #fafafa;
 }
 
+.engagement-report-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.engagement-report-topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid #d9e1ee;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.05);
+}
+
+.engagement-report-topline .engagement-panel-title {
+  margin-bottom: 4px;
+}
+
+.engagement-report-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.engagement-report-metric {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 116px;
+  padding: 18px;
+  border: 1px solid #d9e1ee;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.05);
+}
+
+.engagement-report-metric strong {
+  color: #111827;
+  font-size: 34px;
+  line-height: 1;
+}
+
+.engagement-report-metric span:last-child {
+  color: #667085;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.engagement-report-tracker {
+  padding: 0;
+  overflow: hidden;
+}
+
+.engagement-report-tracker-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid #e4e9f2;
+  background: #fbfcfe;
+}
+
+.engagement-report-tracker-head h5 {
+  margin: 0 0 10px;
+}
+
+.engagement-report-period-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.engagement-report-period-tabs button {
+  min-height: 34px;
+  padding: 0 14px;
+  color: #475467;
+  border: 1px solid #cfd8e6;
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.engagement-report-period-tabs button.active {
+  color: #fff;
+  border-color: #243a73;
+  background: #243a73;
+}
+
+.engagement-report-controls .ant-select {
+  min-width: 180px;
+}
+
+.engagement-report-table-wrap {
+  overflow-x: auto;
+}
+
+.engagement-report-table {
+  width: 100%;
+  min-width: 1120px;
+  border-collapse: collapse;
+}
+
+.engagement-report-table th,
+.engagement-report-table td {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e7edf5;
+  color: #344054;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.engagement-report-table th {
+  color: #667085;
+  background: #fbfcfe;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.engagement-report-table td:first-child {
+  display: flex;
+  min-width: 240px;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.engagement-report-link {
+  padding: 0;
+  color: #243a73;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 900;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.engagement-report-link::after {
+  content: ' ->';
+}
+
+.engagement-report-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 126px;
+  padding: 6px 9px;
+  color: #475467;
+  border: 1px solid #d9e1ee;
+  border-radius: 999px;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.engagement-report-status:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.engagement-report-status i,
+.engagement-report-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: #d0d5dd;
+}
+
+.engagement-report-status--complete i,
+.engagement-report-legend i.complete {
+  background: #344054;
+}
+
+.engagement-report-status--in_progress i,
+.engagement-report-legend i.in-progress {
+  background: #98a2b3;
+}
+
+.engagement-report-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  padding: 13px 20px;
+  background: #fbfcfe;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.engagement-report-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.engagement-report-legend em {
+  margin-left: auto;
+  color: #8a94a6;
+  font-style: italic;
+}
+
+.engagement-report-meeting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .engagement-form-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2207,6 +2429,8 @@ body {
   }
 
   .engagement-hero,
+  .engagement-report-topline,
+  .engagement-report-tracker-head,
   .settings-integrations-header {
     flex-direction: column;
     align-items: stretch;
@@ -2215,6 +2439,7 @@ body {
   .engagement-work-grid,
   .engagement-meeting-shell,
   .engagement-form-grid,
+  .engagement-report-metrics,
   .settings-integration-grid {
     grid-template-columns: 1fr;
   }
@@ -2265,6 +2490,20 @@ body {
 
   .engagement-week-day-head {
     min-height: 64px;
+  }
+
+  .engagement-report-controls {
+    width: 100%;
+  }
+
+  .engagement-report-controls .ant-select,
+  .engagement-report-controls .ant-btn {
+    width: 100%;
+  }
+
+  .engagement-report-legend em {
+    width: 100%;
+    margin-left: 0;
   }
 }
 

@@ -355,7 +355,7 @@ export class DirectoryService {
     return this.toPagedPayload(base, query, page, pageSize);
   }
 
-  async findContactsByEmails(emails: string[]): Promise<DirectoryEmailMatch[]> {
+  async findContactsByEmails(emails: string[], limit = 10): Promise<DirectoryEmailMatch[]> {
     const normalizedEmails = uniqueSorted(
       emails
         .map((email) => normalizeEmailAddress(email))
@@ -410,7 +410,7 @@ export class DirectoryService {
       }
     }
 
-    return matches.slice(0, 10);
+    return matches.slice(0, Math.max(1, Math.min(limit, 500)));
   }
 
   private async getDirectoryData(): Promise<CachedContacts['data']> {

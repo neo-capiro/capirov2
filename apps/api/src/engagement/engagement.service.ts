@@ -27,7 +27,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { DirectoryService } from '../directory/directory.service.js';
+import { DirectoryService, type DirectoryEmailMatch } from '../directory/directory.service.js';
 import { ClientAssociationService } from './client-association.service.js';
 import { EngagementAiService } from './engagement-ai.service.js';
 import { MeetingNotesCryptoService } from './meeting-notes-crypto.service.js';
@@ -120,7 +120,68 @@ export interface ConfirmAttachmentInput {
   checksumSha256?: string;
 }
 
+export interface EngagementReportQuery {
+  clientId?: string;
+  period?: string;
+}
+
+export interface CreateReportTargetOfficeInput {
+  clientId?: string | null;
+  memberPrincipal: string;
+  committee?: string | null;
+  staffer?: string | null;
+  building?: string | null;
+  leadOwner?: string | null;
+}
+
+export interface UpsertReportTargetOfficeInput extends CreateReportTargetOfficeInput {
+  officeKey: string;
+  prepStatus?: ReportStatus;
+  outreachStatus?: ReportStatus;
+  submissionStatus?: ReportStatus;
+  source?: string;
+}
+
+export type ReportPeriod = 'current' | 'previous' | 'all';
+export type ReportStatus = 'auto' | 'not_started' | 'in_progress' | 'complete';
+
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const REPORT_STATUSES: ReportStatus[] = ['auto', 'not_started', 'in_progress', 'complete'];
+
+interface ReportTargetDraft {
+  targetId: string | null;
+  clientId: string | null;
+  clientName: string | null;
+  scopeKey: string;
+  officeKey: string;
+  memberPrincipal: string;
+  committee: string | null;
+  staffer: string | null;
+  building: string | null;
+  leadOwner: string | null;
+  source: string;
+  storedPrepStatus: ReportStatus;
+  storedOutreachStatus: ReportStatus;
+  storedSubmissionStatus: ReportStatus;
+  meetingIds: Set<string>;
+  heldMeetingIds: Set<string>;
+  preparedMeetingIds: Set<string>;
+  approvedPrepMeetingIds: Set<string>;
+  meetings: Map<
+    string,
+    {
+      id: string;
+      subject: string;
+      startsAt: Date;
+      endsAt: Date;
+      location: string | null;
+      externalUrl: string | null;
+    }
+  >;
+  threadIds: Set<string>;
+  sentMessageIds: Set<string>;
+  pendingActionIds: Set<string>;
+}
 
 @Injectable()
 export class EngagementService {
@@ -349,6 +410,440 @@ export class EngagementService {
         orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
       }),
     );
+  }
+
+  async reportOverview(ctx: TenantContext, query: EngagementReportQuery) {
+    const period = normalizeReportPeriod(query.period);
+    const cycle = reportPeriodWindow(period);
+    const clientId = query.clientId?.trim() || undefined;
+    const dateWhere =
+      cycle.from && cycle.to
+        ? {
+            gte: cycle.from,
+            lt: cycle.to,
+          }
+        : undefined;
+
+    const data = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      if (clientId) {
+        await ensureExists(
+          tx.client.findFirst({
+            where: { id: clientId, tenantId: ctx.tenantId },
+            select: { id: true },
+          }),
+          'Client not found',
+        );
+      }
+
+      const [storedTargets, meetings, messages, tasks] = await Promise.all([
+        tx.engagementReportTargetOffice.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            ...(clientId ? { OR: [{ clientId }, { scopeKey: 'all' }] } : {}),
+          },
+          include: { client: { select: { id: true, name: true } } },
+          orderBy: [{ memberPrincipal: 'asc' }, { createdAt: 'asc' }],
+        }),
+        tx.meeting.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            ...(clientId ? { clientId } : {}),
+            ...(dateWhere ? { startsAt: dateWhere } : {}),
+          },
+          include: {
+            client: { select: { id: true, name: true } },
+            connection: { select: { accountEmail: true, displayName: true } },
+            attendees: { select: { email: true, name: true, role: true } },
+            preps: {
+              select: { status: true },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            },
+            tasks: {
+              where: {
+                status: { notIn: [EngagementTaskStatus.done, EngagementTaskStatus.canceled] },
+              },
+              select: { id: true, status: true },
+            },
+          },
+          orderBy: { startsAt: 'asc' },
+        }),
+        tx.mailMessage.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            ...(dateWhere
+              ? {
+                  OR: [{ sentAt: dateWhere }, { receivedAt: dateWhere }],
+                }
+              : {}),
+            ...(clientId ? { thread: { clientId } } : {}),
+          },
+          select: {
+            id: true,
+            threadId: true,
+            fromEmail: true,
+            toRecipients: true,
+            ccRecipients: true,
+            bccRecipients: true,
+            sentAt: true,
+            receivedAt: true,
+            metadata: true,
+            connection: { select: { accountEmail: true, displayName: true } },
+            thread: { select: { id: true, subject: true, clientId: true } },
+          },
+          orderBy: [{ sentAt: 'desc' }, { receivedAt: 'desc' }],
+        }),
+        tx.engagementTask.findMany({
+          where: {
+            tenantId: ctx.tenantId,
+            ...(clientId ? { clientId } : {}),
+            status: { notIn: [EngagementTaskStatus.done, EngagementTaskStatus.canceled] },
+          },
+          select: {
+            id: true,
+            title: true,
+            clientId: true,
+            meetingId: true,
+            status: true,
+          },
+        }),
+      ]);
+
+      return { storedTargets, meetings, messages, tasks };
+    });
+
+    const emailUniverse = unique([
+      ...data.meetings.flatMap((meeting) => [
+        meeting.organizerEmail ?? '',
+        ...meeting.attendees.map((attendee) => attendee.email ?? ''),
+      ]),
+      ...data.messages.flatMap((message) => mailMessageEmails(message)),
+    ]).filter((email): email is string => Boolean(email));
+    const directoryMatches = await this.directoryMatchesForReport(emailUniverse);
+    const matchesByEmail = new Map<string, DirectoryEmailMatch[]>();
+    for (const match of directoryMatches) {
+      const email = normalizeEmailAddress(match.attendeeEmail);
+      if (!email) continue;
+      const matches = matchesByEmail.get(email) ?? [];
+      matches.push(match);
+      matchesByEmail.set(email, matches);
+    }
+
+    const rows = new Map<string, ReportTargetDraft>();
+    const rowKey = (scopeKey: string, officeKey: string) => `${scopeKey}:${officeKey}`;
+    const ensureRow = (input: {
+      targetId?: string | null;
+      clientId?: string | null;
+      clientName?: string | null;
+      scopeKey: string;
+      officeKey: string;
+      memberPrincipal: string;
+      committee?: string | null;
+      staffer?: string | null;
+      building?: string | null;
+      leadOwner?: string | null;
+      source: string;
+      storedPrepStatus?: ReportStatus;
+      storedOutreachStatus?: ReportStatus;
+      storedSubmissionStatus?: ReportStatus;
+    }) => {
+      const key = rowKey(input.scopeKey, input.officeKey);
+      const existing = rows.get(key);
+      if (existing) {
+        existing.targetId = existing.targetId ?? input.targetId ?? null;
+        existing.clientId = existing.clientId ?? input.clientId ?? null;
+        existing.clientName = existing.clientName ?? input.clientName ?? null;
+        existing.committee = existing.committee || input.committee || null;
+        existing.staffer = existing.staffer || input.staffer || null;
+        existing.building = existing.building || input.building || null;
+        existing.leadOwner = existing.leadOwner || input.leadOwner || null;
+        existing.source = existing.source === 'manual' ? existing.source : input.source;
+        existing.storedPrepStatus = mergeStoredStatus(
+          existing.storedPrepStatus,
+          input.storedPrepStatus,
+        );
+        existing.storedOutreachStatus = mergeStoredStatus(
+          existing.storedOutreachStatus,
+          input.storedOutreachStatus,
+        );
+        existing.storedSubmissionStatus = mergeStoredStatus(
+          existing.storedSubmissionStatus,
+          input.storedSubmissionStatus,
+        );
+        return existing;
+      }
+
+      const created: ReportTargetDraft = {
+        targetId: input.targetId ?? null,
+        clientId: input.clientId ?? null,
+        clientName: input.clientName ?? null,
+        scopeKey: input.scopeKey,
+        officeKey: input.officeKey,
+        memberPrincipal: input.memberPrincipal,
+        committee: input.committee ?? null,
+        staffer: input.staffer ?? null,
+        building: input.building ?? null,
+        leadOwner: input.leadOwner ?? null,
+        source: input.source,
+        storedPrepStatus: input.storedPrepStatus ?? 'auto',
+        storedOutreachStatus: input.storedOutreachStatus ?? 'auto',
+        storedSubmissionStatus: input.storedSubmissionStatus ?? 'auto',
+        meetingIds: new Set(),
+        heldMeetingIds: new Set(),
+        preparedMeetingIds: new Set(),
+        approvedPrepMeetingIds: new Set(),
+        meetings: new Map(),
+        threadIds: new Set(),
+        sentMessageIds: new Set(),
+        pendingActionIds: new Set(),
+      };
+      rows.set(key, created);
+      return created;
+    };
+
+    for (const target of data.storedTargets) {
+      ensureRow({
+        targetId: target.id,
+        clientId: target.clientId,
+        clientName: target.client?.name ?? null,
+        scopeKey: target.scopeKey,
+        officeKey: target.officeKey,
+        memberPrincipal: target.memberPrincipal,
+        committee: target.committee,
+        staffer: target.staffer,
+        building: target.building,
+        leadOwner: target.leadOwner,
+        source: target.source,
+        storedPrepStatus: normalizeReportStatus(target.prepStatus),
+        storedOutreachStatus: normalizeReportStatus(target.outreachStatus),
+        storedSubmissionStatus: normalizeReportStatus(target.submissionStatus),
+      });
+    }
+
+    const now = new Date();
+    for (const meeting of data.meetings) {
+      const meetingEmails = unique([
+        meeting.organizerEmail ?? '',
+        ...meeting.attendees.map((attendee) => attendee.email ?? ''),
+      ]).filter((email): email is string => Boolean(email));
+      const matches = uniqueDirectoryMatches(
+        meetingEmails.flatMap(
+          (email) => matchesByEmail.get(normalizeEmailAddress(email) ?? '') ?? [],
+        ),
+      );
+      const meetingScopeKey = reportScopeKey(clientId ?? meeting.clientId ?? null);
+      for (const match of matches) {
+        const row = ensureRow({
+          clientId: clientId ?? meeting.clientId,
+          clientName: meeting.client?.name ?? null,
+          scopeKey: meetingScopeKey,
+          officeKey: reportOfficeKey(match),
+          ...reportTargetDetails(match),
+          leadOwner:
+            meeting.connection?.displayName || meeting.connection?.accountEmail || undefined,
+          source: 'directory',
+        });
+        row.meetingIds.add(meeting.id);
+        if (meeting.endsAt <= now && meeting.status !== 'canceled')
+          row.heldMeetingIds.add(meeting.id);
+        if (meeting.preps[0]) row.preparedMeetingIds.add(meeting.id);
+        if (meeting.preps[0]?.status === MeetingPrepStatus.approved) {
+          row.approvedPrepMeetingIds.add(meeting.id);
+        }
+        for (const task of meeting.tasks) row.pendingActionIds.add(task.id);
+        row.meetings.set(meeting.id, {
+          id: meeting.id,
+          subject: meeting.subject,
+          startsAt: meeting.startsAt,
+          endsAt: meeting.endsAt,
+          location: meeting.location,
+          externalUrl: readWebLink(meeting.metadata),
+        });
+      }
+    }
+
+    for (const message of data.messages) {
+      const messageEmails = unique(mailMessageEmails(message)).filter((email): email is string =>
+        Boolean(email),
+      );
+      const matches = uniqueDirectoryMatches(
+        messageEmails.flatMap(
+          (email) => matchesByEmail.get(normalizeEmailAddress(email) ?? '') ?? [],
+        ),
+      );
+      if (!matches.length) continue;
+      const messageScopeKey = reportScopeKey(clientId ?? message.thread.clientId ?? null);
+      const isSent = isSentMailMessage(message.metadata);
+      for (const match of matches) {
+        const row = ensureRow({
+          clientId: clientId ?? message.thread.clientId,
+          scopeKey: messageScopeKey,
+          officeKey: reportOfficeKey(match),
+          ...reportTargetDetails(match),
+          leadOwner:
+            message.connection?.displayName || message.connection?.accountEmail || undefined,
+          source: 'directory',
+        });
+        row.threadIds.add(message.threadId);
+        if (isSent) row.sentMessageIds.add(message.id);
+      }
+    }
+
+    const openTaskCount = data.tasks.length;
+    const sentMessageIds = new Set(
+      data.messages
+        .filter((message) => isSentMailMessage(message.metadata))
+        .map((message) => message.id),
+    );
+    const heldMeetingIds = new Set(
+      data.meetings
+        .filter((meeting) => meeting.endsAt <= now && meeting.status !== 'canceled')
+        .map((meeting) => meeting.id),
+    );
+
+    const rowsOut = Array.from(rows.values())
+      .map((row) => {
+        const prepStatus = resolveReportStatus(row.storedPrepStatus, autoPrepStatus(row));
+        const outreachStatus = resolveReportStatus(
+          row.storedOutreachStatus,
+          autoOutreachStatus(row),
+        );
+        const submissionStatus = resolveReportStatus(row.storedSubmissionStatus, 'not_started');
+        return {
+          targetId: row.targetId,
+          clientId: row.clientId,
+          clientName: row.clientName,
+          scopeKey: row.scopeKey,
+          officeKey: row.officeKey,
+          memberPrincipal: row.memberPrincipal,
+          committee: row.committee,
+          staffer: row.staffer,
+          building: row.building,
+          leadOwner: row.leadOwner,
+          meetingsHeld: row.heldMeetingIds.size,
+          outreachSent: row.sentMessageIds.size,
+          pendingActions: row.pendingActionIds.size,
+          prepStatus,
+          outreachStatus,
+          submissionStatus,
+          source: row.source,
+          manuallyOverridden:
+            row.storedPrepStatus !== 'auto' ||
+            row.storedOutreachStatus !== 'auto' ||
+            row.storedSubmissionStatus !== 'auto',
+          meetings: Array.from(row.meetings.values()).sort(
+            (left, right) => left.startsAt.getTime() - right.startsAt.getTime(),
+          ),
+        };
+      })
+      .sort((left, right) => left.memberPrincipal.localeCompare(right.memberPrincipal));
+
+    return {
+      cycle,
+      summary: {
+        targetOffices: rowsOut.length,
+        meetingsHeld: heldMeetingIds.size,
+        outreachSent: sentMessageIds.size,
+        submissionsFiled: rowsOut.filter((row) => row.submissionStatus === 'complete').length,
+        pendingActions: openTaskCount,
+      },
+      rows: rowsOut,
+    };
+  }
+
+  async createReportTargetOffice(ctx: TenantContext, input: CreateReportTargetOfficeInput) {
+    const clientId = input.clientId?.trim() || null;
+    const scopeKey = reportScopeKey(clientId);
+    const memberPrincipal = requiredReportText(input.memberPrincipal, 'memberPrincipal', 240);
+    const officeKey = `manual:${randomUUID()}`;
+
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      if (clientId) {
+        await ensureExists(
+          tx.client.findFirst({
+            where: { id: clientId, tenantId: ctx.tenantId },
+            select: { id: true },
+          }),
+          'Client not found',
+        );
+      }
+
+      return tx.engagementReportTargetOffice.create({
+        data: {
+          tenantId: ctx.tenantId,
+          clientId,
+          scopeKey,
+          officeKey,
+          memberPrincipal,
+          committee: optionalReportText(input.committee, 120),
+          staffer: optionalReportText(input.staffer, 160),
+          building: optionalReportText(input.building, 120),
+          leadOwner: optionalReportText(input.leadOwner, 120),
+          source: 'manual',
+          createdByUserId: ctx.userId,
+        },
+      });
+    });
+  }
+
+  async upsertReportTargetOffice(ctx: TenantContext, input: UpsertReportTargetOfficeInput) {
+    const clientId = input.clientId?.trim() || null;
+    const scopeKey = reportScopeKey(clientId);
+    const officeKey = requiredReportText(input.officeKey, 'officeKey', 240);
+    const memberPrincipal = requiredReportText(input.memberPrincipal, 'memberPrincipal', 240);
+
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      if (clientId) {
+        await ensureExists(
+          tx.client.findFirst({
+            where: { id: clientId, tenantId: ctx.tenantId },
+            select: { id: true },
+          }),
+          'Client not found',
+        );
+      }
+
+      return tx.engagementReportTargetOffice.upsert({
+        where: {
+          tenantId_scopeKey_officeKey: {
+            tenantId: ctx.tenantId,
+            scopeKey,
+            officeKey,
+          },
+        },
+        update: {
+          memberPrincipal,
+          committee: optionalReportText(input.committee, 120),
+          staffer: optionalReportText(input.staffer, 160),
+          building: optionalReportText(input.building, 120),
+          leadOwner: optionalReportText(input.leadOwner, 120),
+          ...(input.prepStatus ? { prepStatus: normalizeReportStatus(input.prepStatus) } : {}),
+          ...(input.outreachStatus
+            ? { outreachStatus: normalizeReportStatus(input.outreachStatus) }
+            : {}),
+          ...(input.submissionStatus
+            ? { submissionStatus: normalizeReportStatus(input.submissionStatus) }
+            : {}),
+          source: input.source?.trim().slice(0, 80) || 'manual_override',
+        },
+        create: {
+          tenantId: ctx.tenantId,
+          clientId,
+          scopeKey,
+          officeKey,
+          memberPrincipal,
+          committee: optionalReportText(input.committee, 120),
+          staffer: optionalReportText(input.staffer, 160),
+          building: optionalReportText(input.building, 120),
+          leadOwner: optionalReportText(input.leadOwner, 120),
+          prepStatus: normalizeReportStatus(input.prepStatus),
+          outreachStatus: normalizeReportStatus(input.outreachStatus),
+          submissionStatus: normalizeReportStatus(input.submissionStatus),
+          source: input.source?.trim().slice(0, 80) || 'manual_override',
+          createdByUserId: ctx.userId,
+        },
+      });
+    });
   }
 
   createTask(ctx: TenantContext, input: CreateTaskInput) {
@@ -675,6 +1170,20 @@ export class EngagementService {
     } catch (error) {
       this.logger.warn(
         `Could not enrich meeting ${meeting.id} with congressional directory context: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return [];
+    }
+  }
+
+  private async directoryMatchesForReport(emails: string[]) {
+    if (!emails.length) return [];
+    try {
+      return await this.directory.findContactsByEmails(emails, 500);
+    } catch (error) {
+      this.logger.warn(
+        `Could not enrich engagement report with congressional directory context: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
@@ -1011,6 +1520,180 @@ function normalizeStringArray(value?: string[]): string[] {
     .map((item) => item.trim())
     .filter(Boolean)
     .slice(0, 80);
+}
+
+function normalizeReportPeriod(value?: string): ReportPeriod {
+  if (value === 'previous' || value === 'all') return value;
+  return 'current';
+}
+
+function reportPeriodWindow(period: ReportPeriod) {
+  if (period === 'all') return { period, label: 'All time', from: null, to: null };
+
+  const now = new Date();
+  const year = now.getUTCFullYear() + (period === 'previous' ? -1 : 0);
+  const from = new Date(Date.UTC(year, 0, 1));
+  const to = new Date(Date.UTC(year + 1, 0, 1));
+  return {
+    period,
+    label: period === 'previous' ? `Previous cycle (${year})` : `Current cycle (${year})`,
+    from,
+    to,
+  };
+}
+
+function reportScopeKey(clientId: string | null | undefined): string {
+  return clientId || 'all';
+}
+
+function normalizeReportStatus(value?: string | null): ReportStatus {
+  return REPORT_STATUSES.includes(value as ReportStatus) ? (value as ReportStatus) : 'auto';
+}
+
+function mergeStoredStatus(current: ReportStatus, next?: ReportStatus): ReportStatus {
+  if (current !== 'auto') return current;
+  return next && next !== 'auto' ? next : current;
+}
+
+function resolveReportStatus(stored: ReportStatus, automatic: Exclude<ReportStatus, 'auto'>) {
+  return stored === 'auto' ? automatic : stored;
+}
+
+function autoPrepStatus(row: ReportTargetDraft): Exclude<ReportStatus, 'auto'> {
+  if (row.meetingIds.size === 0) return 'not_started';
+  if (row.preparedMeetingIds.size >= row.meetingIds.size) return 'complete';
+  if (row.preparedMeetingIds.size > 0 || row.approvedPrepMeetingIds.size > 0) return 'in_progress';
+  return 'not_started';
+}
+
+function autoOutreachStatus(row: ReportTargetDraft): Exclude<ReportStatus, 'auto'> {
+  if (row.sentMessageIds.size > 0) return 'complete';
+  if (row.threadIds.size > 0) return 'in_progress';
+  return 'not_started';
+}
+
+function reportOfficeKey(match: DirectoryEmailMatch): string {
+  return `directory:${match.directoryContactId}`;
+}
+
+function reportTargetDetails(match: DirectoryEmailMatch) {
+  return {
+    memberPrincipal: reportMemberPrincipal(match),
+    committee: match.member.committees[0] ?? null,
+    staffer: match.staff?.fullName ?? null,
+    building: reportBuilding(match),
+  };
+}
+
+function reportMemberPrincipal(match: DirectoryEmailMatch): string {
+  const member = match.member;
+  const district = member.chamber === 'House' ? `${member.state}-${member.district}` : member.state;
+  return `${member.fullName} (${partyInitial(member.partyName)}-${district})`;
+}
+
+function partyInitial(partyName: string): string {
+  const normalized = partyName.toLowerCase();
+  if (normalized.startsWith('dem')) return 'D';
+  if (normalized.startsWith('rep')) return 'R';
+  if (normalized.startsWith('ind')) return 'I';
+  return partyName.slice(0, 1).toUpperCase() || '?';
+}
+
+function reportBuilding(match: DirectoryEmailMatch): string | null {
+  const value =
+    match.staff?.officeLocation ||
+    match.member.officeLocation ||
+    match.member.addresses.find((address) => address.isMain)?.title ||
+    '';
+  if (!value) return null;
+  if (/rayburn/i.test(value)) return 'Rayburn';
+  if (/cannon/i.test(value)) return 'Cannon';
+  if (/longworth/i.test(value)) return 'Longworth';
+  if (/russell/i.test(value)) return 'Russell';
+  if (/dirksen/i.test(value)) return 'Dirksen';
+  if (/hart/i.test(value)) return 'Hart';
+  return value.slice(0, 120);
+}
+
+function uniqueDirectoryMatches(matches: DirectoryEmailMatch[]): DirectoryEmailMatch[] {
+  const seen = new Set<string>();
+  const next: DirectoryEmailMatch[] = [];
+  for (const match of matches) {
+    const key = `${match.directoryContactId}:${match.staff?.id ?? 'member'}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push(match);
+  }
+  return next;
+}
+
+function mailMessageEmails(message: {
+  fromEmail: string | null;
+  toRecipients: Prisma.JsonValue;
+  ccRecipients: Prisma.JsonValue;
+  bccRecipients: Prisma.JsonValue;
+}): string[] {
+  return unique([
+    message.fromEmail ?? '',
+    ...recipientEmails(message.toRecipients),
+    ...recipientEmails(message.ccRecipients),
+    ...recipientEmails(message.bccRecipients),
+  ]).filter(Boolean);
+}
+
+function recipientEmails(value: Prisma.JsonValue): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+      const record = entry as Record<string, unknown>;
+      const email =
+        typeof record.email === 'string'
+          ? record.email
+          : typeof record.address === 'string'
+            ? record.address
+            : null;
+      return normalizeEmailAddress(email);
+    })
+    .filter((email): email is string => Boolean(email));
+}
+
+function isSentMailMessage(metadata: Prisma.JsonValue): boolean {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return false;
+  const record = metadata as Record<string, unknown>;
+  const folder = typeof record.folder === 'string' ? record.folder.toLowerCase() : '';
+  const folders = Array.isArray(record.folders)
+    ? record.folders
+        .map((entry) => (typeof entry === 'string' ? entry.toLowerCase() : ''))
+        .filter(Boolean)
+    : [];
+  return folder === 'sentitems' || folder === 'sent items' || folders.includes('sentitems');
+}
+
+function readWebLink(metadata: Prisma.JsonValue): string | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const value = (metadata as Record<string, unknown>).webLink;
+  return typeof value === 'string' && /^https:\/\//i.test(value) ? value : null;
+}
+
+function requiredReportText(value: string | undefined | null, field: string, max: number): string {
+  const text = value?.trim();
+  if (!text) throw new BadRequestException(`${field} is required`);
+  return text.slice(0, max);
+}
+
+function optionalReportText(value: string | undefined | null, max: number): string | null {
+  const text = value?.trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function normalizeEmailAddress(value?: string | null): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && normalized.includes('@') ? normalized : null;
+}
+
+function unique<T>(values: T[]): T[] {
+  return Array.from(new Set(values));
 }
 
 function defaultScopes(provider: EngagementProvider): string[] {

@@ -171,6 +171,58 @@ interface ClientContext {
   };
 }
 
+type ReportPeriod = 'current' | 'previous' | 'all';
+type ReportStatus = 'not_started' | 'in_progress' | 'complete';
+type ReportStatusField = 'prepStatus' | 'outreachStatus' | 'submissionStatus';
+
+interface EngagementReportMeeting {
+  id: string;
+  subject: string;
+  startsAt: string;
+  endsAt: string;
+  location: string | null;
+  externalUrl: string | null;
+}
+
+interface EngagementReportRow {
+  targetId: string | null;
+  clientId: string | null;
+  clientName: string | null;
+  scopeKey: string;
+  officeKey: string;
+  memberPrincipal: string;
+  committee: string | null;
+  staffer: string | null;
+  building: string | null;
+  leadOwner: string | null;
+  meetingsHeld: number;
+  outreachSent: number;
+  pendingActions: number;
+  prepStatus: ReportStatus;
+  outreachStatus: ReportStatus;
+  submissionStatus: ReportStatus;
+  source: string;
+  manuallyOverridden: boolean;
+  meetings: EngagementReportMeeting[];
+}
+
+interface EngagementReport {
+  cycle: {
+    period: ReportPeriod;
+    label: string;
+    from: string | null;
+    to: string | null;
+  };
+  summary: {
+    targetOffices: number;
+    meetingsHeld: number;
+    outreachSent: number;
+    submissionsFiled: number;
+    pendingActions: number;
+  };
+  rows: EngagementReportRow[];
+}
+
 interface MeetingFormValues {
   clientId?: string;
   subject: string;
@@ -196,6 +248,15 @@ interface PrepFormValues {
   followUpsText?: string;
 }
 
+interface TargetOfficeFormValues {
+  clientId?: string;
+  memberPrincipal: string;
+  committee?: string;
+  staffer?: string;
+  building?: string;
+  leadOwner?: string;
+}
+
 export function EngagementPage() {
   const api = useApi();
   const qc = useQueryClient();
@@ -204,9 +265,15 @@ export function EngagementPage() {
   const [date, setDate] = useState(todayInputValue());
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [meetingDetailTab, setMeetingDetailTab] = useState('prep');
+  const [activeEngagementTab, setActiveEngagementTab] = useState('meetings');
   const [meetingViewMode, setMeetingViewMode] = useState<'list' | 'calendar'>('list');
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('current');
+  const [reportStatusFilter, setReportStatusFilter] = useState<'all' | ReportStatus>('all');
+  const [reportSort, setReportSort] = useState('member-asc');
   const [meetingModalOpen, setMeetingModalOpen] = useState(false);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
+  const [targetOfficeModalOpen, setTargetOfficeModalOpen] = useState(false);
+  const [reportMeetingRow, setReportMeetingRow] = useState<EngagementReportRow | null>(null);
   const [editingPrep, setEditingPrep] = useState<{ meeting: Meeting; prep: MeetingPrep } | null>(
     null,
   );
@@ -215,6 +282,7 @@ export function EngagementPage() {
   const [noteForm] = Form.useForm<{ body: string }>();
   const [debriefForm] = Form.useForm<{ body: string }>();
   const [prepForm] = Form.useForm<PrepFormValues>();
+  const [targetOfficeForm] = Form.useForm<TargetOfficeFormValues>();
 
   const window = useMemo(() => dateWindow(date), [date]);
   const calendarWindow = useMemo(() => workWeekWindow(date), [date]);
@@ -329,6 +397,16 @@ export function EngagementPage() {
       ).data,
   });
 
+  const report = useQuery<EngagementReport>({
+    queryKey: ['engagement-report', selectedClientId, reportPeriod],
+    queryFn: async () =>
+      (
+        await api.get<EngagementReport>('/api/engagement/reports/overview', {
+          params: { clientId: selectedClientId ?? undefined, period: reportPeriod },
+        })
+      ).data,
+  });
+
   const syncOutlookDay = useMutation({
     mutationFn: async () => {
       const connections = (integrations.data ?? []).filter(
@@ -356,6 +434,7 @@ export function EngagementPage() {
       qc.invalidateQueries({ queryKey: ['engagement-client-context'] });
       qc.invalidateQueries({ queryKey: ['client-meetings'] });
       qc.invalidateQueries({ queryKey: ['client-mail-threads'] });
+      qc.invalidateQueries({ queryKey: ['engagement-report'] });
     },
     onError: (err) => message.error(errorMessage(err)),
   });
@@ -399,6 +478,55 @@ export function EngagementPage() {
       taskForm.resetFields();
       qc.invalidateQueries({ queryKey: ['engagement-tasks'] });
     },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  const createTargetOffice = useMutation({
+    mutationFn: async (values: TargetOfficeFormValues) =>
+      (
+        await api.post('/api/engagement/reports/target-offices', {
+          clientId: values.clientId || selectedClientId || undefined,
+          memberPrincipal: values.memberPrincipal,
+          committee: optionalText(values.committee),
+          staffer: optionalText(values.staffer),
+          building: optionalText(values.building),
+          leadOwner: optionalText(values.leadOwner),
+        })
+      ).data,
+    onSuccess: () => {
+      message.success('Target office added');
+      setTargetOfficeModalOpen(false);
+      targetOfficeForm.resetFields();
+      qc.invalidateQueries({ queryKey: ['engagement-report'] });
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  const updateReportTarget = useMutation({
+    mutationFn: async ({
+      row,
+      field,
+      status,
+    }: {
+      row: EngagementReportRow;
+      field: ReportStatusField;
+      status: ReportStatus;
+    }) =>
+      (
+        await api.post('/api/engagement/reports/target-offices/overrides', {
+          clientId:
+            row.scopeKey === 'all' ? undefined : (row.clientId ?? selectedClientId ?? undefined),
+          officeKey: row.officeKey,
+          memberPrincipal: row.memberPrincipal,
+          committee: row.committee,
+          staffer: row.staffer,
+          building: row.building,
+          leadOwner: row.leadOwner,
+          [field]: status,
+          source: row.source === 'manual' ? 'manual' : 'manual_override',
+        })
+      ).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['engagement-report'] }),
     onError: (err) => message.error(errorMessage(err)),
   });
 
@@ -536,7 +664,8 @@ export function EngagementPage() {
 
       <Tabs
         className="engagement-tabs"
-        defaultActiveKey="meetings"
+        activeKey={activeEngagementTab}
+        onChange={setActiveEngagementTab}
         items={[
           {
             key: 'meetings',
@@ -668,10 +797,30 @@ export function EngagementPage() {
             key: 'reports',
             label: 'Reports',
             children: (
-              <div className="engagement-panel engagement-muted-panel">
-                <PanelTitle icon={<FileTextOutlined />} title="Reports" />
-                <Empty description="Reports will activate after synced engagement history exists." />
-              </div>
+              <ReportsView
+                report={report.data}
+                loading={report.isLoading}
+                period={reportPeriod}
+                onPeriodChange={setReportPeriod}
+                statusFilter={reportStatusFilter}
+                onStatusFilterChange={setReportStatusFilter}
+                sort={reportSort}
+                onSortChange={setReportSort}
+                updating={updateReportTarget.isPending}
+                onAddTarget={() => {
+                  targetOfficeForm.setFieldsValue({ clientId: selectedClientId ?? undefined });
+                  setTargetOfficeModalOpen(true);
+                }}
+                onExport={() => report.data && exportEngagementReportPdf(report.data)}
+                onViewMeetings={setReportMeetingRow}
+                onStatusChange={(row, field) =>
+                  updateReportTarget.mutate({
+                    row,
+                    field,
+                    status: nextReportStatus(row[field]),
+                  })
+                }
+              />
             ),
           },
         ]}
@@ -742,6 +891,89 @@ export function EngagementPage() {
             <Input.TextArea rows={3} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="Add target office"
+        open={targetOfficeModalOpen}
+        onCancel={() => setTargetOfficeModalOpen(false)}
+        onOk={() => targetOfficeForm.submit()}
+        confirmLoading={createTargetOffice.isPending}
+        width={640}
+      >
+        <Form
+          form={targetOfficeForm}
+          layout="vertical"
+          onFinish={(values) => createTargetOffice.mutate(values)}
+        >
+          <Form.Item name="clientId" label="Client">
+            <Select
+              allowClear
+              options={(clients.data ?? [])
+                .filter((client) => client.status !== 'archived')
+                .map((client) => ({ value: client.id, label: client.name }))}
+            />
+          </Form.Item>
+          <Form.Item
+            name="memberPrincipal"
+            label="Member / Principal"
+            rules={[{ required: true, min: 1 }]}
+          >
+            <Input placeholder="Rep. Jane Smith (D-CA-12)" />
+          </Form.Item>
+          <div className="engagement-form-grid">
+            <Form.Item name="committee" label="Committee">
+              <Input placeholder="HASC" />
+            </Form.Item>
+            <Form.Item name="building" label="Building">
+              <Input placeholder="Rayburn" />
+            </Form.Item>
+            <Form.Item name="leadOwner" label="Lead">
+              <Input placeholder="Owner" />
+            </Form.Item>
+          </div>
+          <Form.Item name="staffer" label="Staffer">
+            <Input placeholder="Staffer name" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={reportMeetingRow ? `${reportMeetingRow.memberPrincipal} meetings` : 'Meetings'}
+        open={Boolean(reportMeetingRow)}
+        onCancel={() => setReportMeetingRow(null)}
+        footer={null}
+        width={720}
+      >
+        <div className="engagement-report-meeting-list">
+          {reportMeetingRow?.meetings.length ? (
+            reportMeetingRow.meetings.map((meeting) => (
+              <div className="engagement-calendar-row" key={meeting.id}>
+                <span>{formatDateTime(meeting.startsAt)}</span>
+                <div>
+                  <Typography.Text strong>{meeting.subject}</Typography.Text>
+                  <Typography.Text type="secondary">
+                    {[formatTimeRange(meeting.startsAt, meeting.endsAt), meeting.location]
+                      .filter(Boolean)
+                      .join(' | ')}
+                  </Typography.Text>
+                </div>
+                <Button
+                  size="small"
+                  icon={<ExportOutlined />}
+                  disabled={!meeting.externalUrl}
+                  href={meeting.externalUrl ?? undefined}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open
+                </Button>
+              </div>
+            ))
+          ) : (
+            <Empty description="No meetings are linked to this target office yet." />
+          )}
+        </div>
       </Modal>
 
       <Modal
@@ -1593,6 +1825,283 @@ function MailView({ threads }: { threads: MailThread[] }) {
   );
 }
 
+function ReportsView({
+  report,
+  loading,
+  period,
+  onPeriodChange,
+  statusFilter,
+  onStatusFilterChange,
+  sort,
+  onSortChange,
+  updating,
+  onAddTarget,
+  onExport,
+  onViewMeetings,
+  onStatusChange,
+}: {
+  report?: EngagementReport;
+  loading: boolean;
+  period: ReportPeriod;
+  onPeriodChange: (period: ReportPeriod) => void;
+  statusFilter: 'all' | ReportStatus;
+  onStatusFilterChange: (status: 'all' | ReportStatus) => void;
+  sort: string;
+  onSortChange: (sort: string) => void;
+  updating: boolean;
+  onAddTarget: () => void;
+  onExport: () => void;
+  onViewMeetings: (row: EngagementReportRow) => void;
+  onStatusChange: (row: EngagementReportRow, field: ReportStatusField) => void;
+}) {
+  const rows = useMemo(() => {
+    const base = report?.rows ?? [];
+    const filtered =
+      statusFilter === 'all'
+        ? base
+        : base.filter(
+            (row) =>
+              row.prepStatus === statusFilter ||
+              row.outreachStatus === statusFilter ||
+              row.submissionStatus === statusFilter,
+          );
+    return [...filtered].sort((left, right) => {
+      if (sort === 'meetings-desc') return right.meetingsHeld - left.meetingsHeld;
+      if (sort === 'outreach-desc') return right.outreachSent - left.outreachSent;
+      if (sort === 'pending-desc') return right.pendingActions - left.pendingActions;
+      if (sort === 'member-desc') return right.memberPrincipal.localeCompare(left.memberPrincipal);
+      return left.memberPrincipal.localeCompare(right.memberPrincipal);
+    });
+  }, [report?.rows, sort, statusFilter]);
+
+  const totalTargets = report?.summary.targetOffices ?? 0;
+
+  return (
+    <div className="engagement-report-page">
+      <div className="engagement-report-topline">
+        <div>
+          <PanelTitle icon={<FileTextOutlined />} title="Reports" />
+          <Typography.Text type="secondary">
+            {report?.cycle.label ?? 'Current cycle'} engagement activity overview
+          </Typography.Text>
+        </div>
+        <Space wrap>
+          <Button icon={<DownloadOutlined />} disabled={!report} onClick={onExport}>
+            Export
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={onAddTarget}>
+            Add target office
+          </Button>
+        </Space>
+      </div>
+
+      <div className="engagement-report-metrics">
+        <ReportMetric
+          label="Target offices"
+          value={report?.summary.targetOffices ?? 0}
+          meta="this cycle"
+        />
+        <ReportMetric
+          label="Meetings held"
+          value={report?.summary.meetingsHeld ?? 0}
+          meta={`of ${totalTargets} targets`}
+        />
+        <ReportMetric
+          label="Outreach sent"
+          value={report?.summary.outreachSent ?? 0}
+          meta={`of ${totalTargets} targets`}
+        />
+        <ReportMetric
+          label="Submissions filed"
+          value={report?.summary.submissionsFiled ?? 0}
+          meta={`of ${totalTargets} targets`}
+        />
+        <ReportMetric
+          label="Pending actions"
+          value={report?.summary.pendingActions ?? 0}
+          meta="need follow-up"
+        />
+      </div>
+
+      <div className="engagement-panel engagement-report-tracker">
+        <div className="engagement-report-tracker-head">
+          <div>
+            <Typography.Title level={5}>Office engagement tracker</Typography.Title>
+            <div className="engagement-report-period-tabs" aria-label="Report period">
+              {(['current', 'previous', 'all'] as ReportPeriod[]).map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  className={period === item ? 'active' : ''}
+                  onClick={() => onPeriodChange(item)}
+                >
+                  {item === 'current'
+                    ? 'Current cycle'
+                    : item === 'previous'
+                      ? 'Previous cycle'
+                      : 'All time'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Space wrap className="engagement-report-controls">
+            <Select
+              value={statusFilter}
+              onChange={onStatusFilterChange}
+              options={[
+                { value: 'all', label: 'Filter: All statuses' },
+                { value: 'complete', label: 'Filter: Complete' },
+                { value: 'in_progress', label: 'Filter: In progress' },
+                { value: 'not_started', label: 'Filter: Not started' },
+              ]}
+            />
+            <Select
+              value={sort}
+              onChange={onSortChange}
+              options={[
+                { value: 'member-asc', label: 'Sort: Member A-Z' },
+                { value: 'member-desc', label: 'Sort: Member Z-A' },
+                { value: 'meetings-desc', label: 'Sort: Meetings held' },
+                { value: 'outreach-desc', label: 'Sort: Outreach sent' },
+                { value: 'pending-desc', label: 'Sort: Pending actions' },
+              ]}
+            />
+            <Button
+              type="primary"
+              icon={<DownloadOutlined />}
+              disabled={!report}
+              onClick={onExport}
+            >
+              Export to PDF
+            </Button>
+          </Space>
+        </div>
+
+        {loading ? (
+          <Empty description="Loading report activity..." />
+        ) : rows.length ? (
+          <>
+            <div className="engagement-report-table-wrap">
+              <table className="engagement-report-table">
+                <thead>
+                  <tr>
+                    <th>Member / Principal</th>
+                    <th>Committee</th>
+                    <th>Staffer</th>
+                    <th>Building</th>
+                    <th>Lead</th>
+                    <th>Meetings held</th>
+                    <th>Prep done</th>
+                    <th>Outreach sent</th>
+                    <th>Submission filed</th>
+                    <th>Pending actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => (
+                    <tr key={`${row.scopeKey}:${row.officeKey}`}>
+                      <td>
+                        <Typography.Text strong>{row.memberPrincipal}</Typography.Text>
+                        <Typography.Text type="secondary">
+                          {[row.clientName, row.committee, row.building]
+                            .filter(Boolean)
+                            .join(' | ')}
+                        </Typography.Text>
+                      </td>
+                      <td>{row.committee || '-'}</td>
+                      <td>{row.staffer || '-'}</td>
+                      <td>{row.building || '-'}</td>
+                      <td>{row.leadOwner || '-'}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="engagement-report-link"
+                          onClick={() => onViewMeetings(row)}
+                        >
+                          {row.meetingsHeld} view
+                        </button>
+                      </td>
+                      <td>
+                        <ReportStatusButton
+                          status={row.prepStatus}
+                          disabled={updating}
+                          onClick={() => onStatusChange(row, 'prepStatus')}
+                        />
+                      </td>
+                      <td>
+                        <ReportStatusButton
+                          status={row.outreachStatus}
+                          disabled={updating}
+                          onClick={() => onStatusChange(row, 'outreachStatus')}
+                        />
+                      </td>
+                      <td>
+                        <ReportStatusButton
+                          status={row.submissionStatus}
+                          disabled={updating}
+                          onClick={() => onStatusChange(row, 'submissionStatus')}
+                        />
+                      </td>
+                      <td>{row.pendingActions}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="engagement-report-legend">
+              <span>
+                <i className="complete" /> Complete
+              </span>
+              <span>
+                <i className="in-progress" /> In progress
+              </span>
+              <span>
+                <i /> Not started
+              </span>
+              <em>Auto-populated from Capiro. Click a status dot to override manually.</em>
+            </div>
+          </>
+        ) : (
+          <Empty description="No target offices are linked to this reporting period yet." />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ReportMetric({ label, value, meta }: { label: string; value: number; meta: string }) {
+  return (
+    <div className="engagement-report-metric">
+      <Typography.Text type="secondary">{label}</Typography.Text>
+      <strong>{value}</strong>
+      <span>{meta}</span>
+    </div>
+  );
+}
+
+function ReportStatusButton({
+  status,
+  disabled,
+  onClick,
+}: {
+  status: ReportStatus;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={`engagement-report-status engagement-report-status--${status}`}
+      disabled={disabled}
+      onClick={onClick}
+      title="Click to override"
+    >
+      <i />
+      <span>{reportStatusLabel(status)}</span>
+    </button>
+  );
+}
+
 function PanelTitle({ icon, title }: { icon: ReactNode; title: string }) {
   return (
     <div className="engagement-panel-title">
@@ -1816,6 +2325,18 @@ function optionalText(value?: string | null): string | undefined {
   return text ? text : undefined;
 }
 
+function nextReportStatus(status: ReportStatus): ReportStatus {
+  if (status === 'not_started') return 'in_progress';
+  if (status === 'in_progress') return 'complete';
+  return 'not_started';
+}
+
+function reportStatusLabel(status: ReportStatus): string {
+  if (status === 'complete') return 'Complete';
+  if (status === 'in_progress') return 'In progress';
+  return 'Not started';
+}
+
 function formatTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
     new Date(value),
@@ -1857,6 +2378,43 @@ function errorMessage(error: unknown): string {
     if (Array.isArray(data?.message)) return data.message.join(', ');
   }
   return error instanceof Error ? error.message : 'Request failed';
+}
+
+function exportEngagementReportPdf(report: EngagementReport) {
+  const lines = [
+    'Capiro Engagement Report',
+    '',
+    report.cycle.label,
+    '',
+    'Overview',
+    `Target offices: ${report.summary.targetOffices}`,
+    `Meetings held: ${report.summary.meetingsHeld}`,
+    `Outreach sent: ${report.summary.outreachSent}`,
+    `Submissions filed: ${report.summary.submissionsFiled}`,
+    `Pending actions: ${report.summary.pendingActions}`,
+    '',
+    'Office Engagement Tracker',
+    ...report.rows.flatMap((row) => [
+      `${row.memberPrincipal}${row.clientName ? ` | ${row.clientName}` : ''}`,
+      `Committee: ${row.committee || '-'} | Staffer: ${row.staffer || '-'} | Building: ${
+        row.building || '-'
+      } | Lead: ${row.leadOwner || '-'}`,
+      `Meetings: ${row.meetingsHeld} | Outreach: ${row.outreachSent} | Prep: ${reportStatusLabel(
+        row.prepStatus,
+      )} | Submission: ${reportStatusLabel(row.submissionStatus)} | Pending: ${row.pendingActions}`,
+      '',
+    ]),
+  ];
+
+  const pdf = buildSimplePdf(lines.flatMap((line) => wrapPdfLine(line)));
+  const url = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `engagement-report-${report.cycle.period}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 function exportMeetingPdf({

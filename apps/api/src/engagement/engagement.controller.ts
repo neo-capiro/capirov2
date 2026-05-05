@@ -19,6 +19,7 @@ import {
   IsEmail,
   IsEnum,
   IsInt,
+  IsIn,
   IsOptional,
   IsString,
   IsUUID,
@@ -317,6 +318,61 @@ class ConfirmAttachmentDto {
   checksumSha256?: string;
 }
 
+const reportStatuses = ['auto', 'not_started', 'in_progress', 'complete'] as const;
+
+class CreateReportTargetOfficeDto {
+  @IsOptional()
+  @IsUUID()
+  clientId?: string | null;
+
+  @IsString()
+  @Length(1, 240)
+  memberPrincipal!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  committee?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 160)
+  staffer?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  building?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  leadOwner?: string | null;
+}
+
+class UpsertReportTargetOfficeDto extends CreateReportTargetOfficeDto {
+  @IsString()
+  @Length(1, 240)
+  officeKey!: string;
+
+  @IsOptional()
+  @IsIn(reportStatuses)
+  prepStatus?: (typeof reportStatuses)[number];
+
+  @IsOptional()
+  @IsIn(reportStatuses)
+  outreachStatus?: (typeof reportStatuses)[number];
+
+  @IsOptional()
+  @IsIn(reportStatuses)
+  submissionStatus?: (typeof reportStatuses)[number];
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  source?: string;
+}
+
 @Controller('engagement')
 @UseGuards(RolesGuard)
 @Roles('standard_user')
@@ -419,6 +475,31 @@ export class EngagementController {
   @Get('mail-threads')
   mailThreads(@CurrentTenant() ctx: TenantContext, @Query('clientId') clientId?: string) {
     return this.service.listMailThreads(ctx, { clientId });
+  }
+
+  @Get('reports/overview')
+  reportOverview(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('clientId') clientId?: string,
+    @Query('period') period?: string,
+  ) {
+    return this.service.reportOverview(ctx, { clientId, period });
+  }
+
+  @Post('reports/target-offices')
+  createReportTargetOffice(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: CreateReportTargetOfficeDto,
+  ) {
+    return this.service.createReportTargetOffice(ctx, body);
+  }
+
+  @Post('reports/target-offices/overrides')
+  upsertReportTargetOffice(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: UpsertReportTargetOfficeDto,
+  ) {
+    return this.service.upsertReportTargetOffice(ctx, body);
   }
 
   @Get('tasks')
