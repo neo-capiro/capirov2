@@ -104,6 +104,7 @@ export interface DirectoryApiResponse {
     parties: Array<{ value: Party; label: string }>;
     genders: Array<{ value: 'F' | 'M'; label: string }>;
     leadership: string[];
+    committees: string[];
     caucuses: string[];
     states: string[];
     districts: string[];

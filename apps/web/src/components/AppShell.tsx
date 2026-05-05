@@ -7,7 +7,6 @@ import {
   CheckOutlined,
   DashboardOutlined,
   DownOutlined,
-  FileAddOutlined,
   FolderOpenOutlined,
   IdcardOutlined,
   PlusOutlined,
@@ -101,6 +100,16 @@ export function AppShell() {
   const { selectedClientId, setSelectedClientId, clearClientFilter } = useClientFilter();
   const previousSection = useRef<AppSection | null>(null);
   const [lastManualSyncAt, setLastManualSyncAt] = useState<string | null>(null);
+  const [workflowLocked, setWorkflowLocked] = useState(false);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ locked?: boolean }>).detail;
+      setWorkflowLocked(Boolean(detail?.locked));
+    };
+    window.addEventListener('capiro:workflow-lock', handler);
+    return () => window.removeEventListener('capiro:workflow-lock', handler);
+  }, []);
 
   const displayName =
     user?.fullName ||
@@ -128,7 +137,12 @@ export function AppShell() {
   const selectedClient = visibleClients.find((client) => client.id === selectedClientId) ?? null;
 
   useEffect(() => {
-    if (previousSection.current && previousSection.current !== page.key) {
+    if (
+      previousSection.current &&
+      previousSection.current !== page.key &&
+      previousSection.current !== 'directory' &&
+      page.key !== 'directory'
+    ) {
       clearClientFilter();
     }
     previousSection.current = page.key;
@@ -202,6 +216,18 @@ export function AppShell() {
     return () => window.clearInterval(timer);
   }, [connectedInboxConnections.length, syncInbox.mutate]);
 
+  useEffect(() => {
+    const handler = () => {
+      if (!connectedInboxConnections.length) {
+        navigate('/settings/integrations');
+        return;
+      }
+      syncInbox.mutate({ silent: false });
+    };
+    window.addEventListener('capiro:sync-inbox', handler);
+    return () => window.removeEventListener('capiro:sync-inbox', handler);
+  }, [connectedInboxConnections.length, navigate, syncInbox]);
+
   const items = useMemo(
     () =>
       NAV.map((n) => ({
@@ -210,12 +236,20 @@ export function AppShell() {
         title: n.label,
         className: n.nested ? 'app-nav-item--nested' : undefined,
         label: (
-          <Link to={n.path} style={{ color: 'inherit' }}>
+          <Link
+            to={n.path}
+            style={{ color: 'inherit' }}
+            onClick={(event) => {
+              if (!workflowLocked) return;
+              event.preventDefault();
+              message.info('Cancel or complete the outreach workflow before navigating away.');
+            }}
+          >
             {n.label}
           </Link>
         ),
       })),
-    [],
+    [message, workflowLocked],
   );
 
   const selectedKey = page.key === 'not-found' ? 'home' : page.key;
@@ -238,7 +272,17 @@ export function AppShell() {
     <Layout className="app-shell">
       <Sider width={240} className="app-shell-sider">
         <nav className="app-shell-nav" aria-label="Primary navigation">
-          <button className="app-shell-brand" type="button" onClick={() => navigate('/')}>
+          <button
+            className="app-shell-brand"
+            type="button"
+            onClick={() => {
+              if (workflowLocked) {
+                message.info('Cancel or complete the outreach workflow before navigating away.');
+                return;
+              }
+              navigate('/');
+            }}
+          >
             <img src="/logo.png" alt="Capiro" className="app-shell-logo" />
           </button>
 
@@ -271,6 +315,11 @@ export function AppShell() {
             <Link
               to="/settings"
               className={`app-bottom-nav-item${selectedKey === 'settings' ? ' is-active' : ''}`}
+              onClick={(event) => {
+                if (!workflowLocked) return;
+                event.preventDefault();
+                message.info('Cancel or complete the outreach workflow before navigating away.');
+              }}
             >
               <SettingOutlined />
               <span>Settings</span>
@@ -305,7 +354,12 @@ export function AppShell() {
             </>
           ) : null}
           <span className="app-topbar-spacer" />
-          <PageActions page={page.key} />
+          <PageActions
+            page={page.key}
+            accountMenu={accountMenu}
+            displayName={displayName}
+            imageUrl={user?.imageUrl || undefined}
+          />
         </Header>
 
         {page.showClientDropdown && selectedClient ? (
@@ -445,7 +499,17 @@ function ClientContextBanner({ client, onClear }: { client: Client; onClear: () 
   );
 }
 
-function PageActions({ page }: { page: AppSection }) {
+function PageActions({
+  page,
+  accountMenu,
+  displayName,
+  imageUrl,
+}: {
+  page: AppSection;
+  accountMenu: MenuProps;
+  displayName: string;
+  imageUrl?: string;
+}) {
   if (page === 'clients') {
     return (
       <Space size={10}>
@@ -462,12 +526,15 @@ function PageActions({ page }: { page: AppSection }) {
       </Space>
     );
   }
-
-  if (page === 'directory') {
+  if (page === 'engagement') {
     return (
-      <Button icon={<FileAddOutlined />} disabled title="Directory contacts are source-managed.">
-        Add contact
-      </Button>
+      <Dropdown menu={accountMenu} trigger={['click']} placement="bottomRight">
+        <button className="app-topbar-account" type="button">
+          <Avatar size={30} src={imageUrl} icon={<UserOutlined />}>
+            {initials(displayName)}
+          </Avatar>
+        </button>
+      </Dropdown>
     );
   }
 
@@ -562,7 +629,6 @@ function pageConfigFor(pathname: string): PageConfig {
   };
   const showClientDropdown =
     key === 'home' ||
-    key === 'engagement' ||
     pathname.startsWith('/workspace/library') ||
     pathname.startsWith('/workspace/submissions');
   return { key, title: titleByKey[key], showClientDropdown };

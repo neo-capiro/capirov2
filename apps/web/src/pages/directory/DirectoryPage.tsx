@@ -1,26 +1,27 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  Alert,
   App,
   Avatar,
   Button,
   Card,
   Col,
+  Dropdown,
   Empty,
   Input,
   Modal,
   Pagination,
-  Radio,
+  Popover,
   Row,
-  Select,
   Space,
   Spin,
   Tabs,
   Tag,
   Typography,
+  type MenuProps,
 } from 'antd';
 import {
   CopyOutlined,
+  DownOutlined,
   LinkOutlined,
   MailOutlined,
   PhoneOutlined,
@@ -28,6 +29,7 @@ import {
   SendOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { useApi } from '../../lib/use-api.js';
 import {
   type DirectoryApiResponse,
@@ -37,13 +39,22 @@ import {
 } from './directoryData.js';
 
 type FreshmanFilter = 'All' | 'Freshman' | 'Non-Freshman';
-type ChamberFilter = DirectoryEntry['chamber'] | 'All';
+type ChamberFilter = DirectoryEntry['chamber'];
 type GenderFilter = DirectoryEntry['gender'] | 'All';
-type SortOption = 'recent' | 'name-asc' | 'name-desc' | 'state-asc';
+type SortOption = 'recent' | 'name-asc' | 'name-desc' | 'state-asc' | 'chamber' | 'party';
 
 const PAGE_SIZE = 12;
 const SEARCH_DEBOUNCE_MS = 300;
 const emptyFilters = [] as string[];
+
+const SORT_OPTIONS: Array<{ value: SortOption; label: string; shortLabel: string }> = [
+  { value: 'recent', label: 'Recently Updated', shortLabel: 'Recently Updated' },
+  { value: 'name-asc', label: 'A–Z (Last Name)', shortLabel: 'A–Z' },
+  { value: 'name-desc', label: 'Z–A (Last Name)', shortLabel: 'Z–A' },
+  { value: 'chamber', label: 'Chamber', shortLabel: 'Chamber' },
+  { value: 'party', label: 'Party', shortLabel: 'Party' },
+  { value: 'state-asc', label: 'State', shortLabel: 'State' },
+];
 
 function partyColor(party: Party): string {
   if (party === 'D') return 'blue';
@@ -95,10 +106,11 @@ function noteAuthor(note: DirectoryContactNote): string {
 function buildApiParams(filters: {
   query: string;
   freshman: FreshmanFilter;
-  chamber: ChamberFilter;
+  chamber: ChamberFilter[];
   party: Party[];
   gender: GenderFilter;
   leadership: string[];
+  committee: string[];
   caucus: string[];
   state: string[];
   district: string[];
@@ -115,10 +127,11 @@ function buildApiParams(filters: {
 
   if (filters.query.trim()) params.q = filters.query.trim();
   if (filters.freshman !== 'All') params.freshman = filters.freshman;
-  if (filters.chamber !== 'All') params.chamber = filters.chamber;
+  if (filters.chamber.length > 0) params.chamber = filters.chamber.join(',');
   if (filters.party.length > 0) params.party = filters.party.join(',');
   if (filters.gender !== 'All') params.gender = filters.gender;
   if (filters.leadership.length > 0) params.leadership = filters.leadership.join(',');
+  if (filters.committee.length > 0) params.committee = filters.committee.join(',');
   if (filters.caucus.length > 0) params.caucus = filters.caucus.join(',');
   if (filters.state.length > 0) params.state = filters.state.join(',');
   if (filters.district.length > 0) params.district = filters.district.join(',');
@@ -127,38 +140,26 @@ function buildApiParams(filters: {
   return params;
 }
 
-interface FilterBlockProps {
-  label: string;
-  children: React.ReactNode;
-}
-
-function FilterBlock({ label, children }: FilterBlockProps) {
-  return (
-    <div className="directory-filter-block">
-      <Typography.Text className="directory-filter-label">{label}</Typography.Text>
-      {children}
-    </div>
-  );
-}
-
 export function DirectoryPage() {
   const { message } = App.useApp();
   const api = useApi();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [searchText, setSearchText] = useState('');
   const [query, setQuery] = useState('');
   const [freshman, setFreshman] = useState<FreshmanFilter>('All');
-  const [chamber, setChamber] = useState<ChamberFilter>('All');
+  const [chamber, setChamber] = useState<ChamberFilter[]>([]);
   const [party, setParty] = useState<Party[]>([]);
   const [gender, setGender] = useState<GenderFilter>('All');
   const [leadership, setLeadership] = useState<string[]>([]);
+  const [committee, setCommittee] = useState<string[]>([]);
   const [caucus, setCaucus] = useState<string[]>([]);
   const [state, setState] = useState<string[]>([]);
   const [district, setDistrict] = useState<string[]>([]);
   const [education, setEducation] = useState<string[]>([]);
   const [sort, setSort] = useState<SortOption>('recent');
   const [page, setPage] = useState(1);
-  const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const selectedEntryId = searchParams.get('profile');
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -178,6 +179,7 @@ export function DirectoryPage() {
       party,
       gender,
       leadership,
+      committee,
       caucus,
       state,
       district,
@@ -195,6 +197,7 @@ export function DirectoryPage() {
             party,
             gender,
             leadership,
+            committee,
             caucus,
             state,
             district,
@@ -212,6 +215,7 @@ export function DirectoryPage() {
 
   const entries = directoryQuery.data?.contacts ?? [];
   const totalFiltered = directoryQuery.data?.total ?? 0;
+  const currentPage = directoryQuery.data?.page ?? page;
   const totals =
     directoryQuery.data?.totals ??
     ({
@@ -221,25 +225,62 @@ export function DirectoryPage() {
       governors: 0,
     } as const);
   const availableFilters = directoryQuery.data?.availableFilters;
+  const hasSearch = Boolean(searchText.trim() || query.trim());
+  const hasFilters =
+    chamber.length > 0 ||
+    party.length > 0 ||
+    state.length > 0 ||
+    committee.length > 0 ||
+    district.length > 0 ||
+    leadership.length > 0 ||
+    caucus.length > 0 ||
+    gender !== 'All' ||
+    education.length > 0 ||
+    freshman !== 'All';
+  const initialLoading = directoryQuery.isLoading && !directoryQuery.data;
+  const directoryUnavailable =
+    directoryQuery.isError || (!initialLoading && !directoryQuery.isFetching && totals.all === 0);
+  const filtersDisabled = initialLoading || directoryUnavailable;
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.id === selectedEntryId) ?? null,
     [entries, selectedEntryId],
   );
 
-  function resetFilters() {
-    setSearchText('');
-    setQuery('');
+  function openEntryProfile(entryId: string) {
+    const next = new URLSearchParams(searchParams);
+    next.set('profile', entryId);
+    setSearchParams(next);
+  }
+
+  function closeEntryProfile() {
+    const next = new URLSearchParams(searchParams);
+    next.delete('profile');
+    setSearchParams(next);
+  }
+
+  function clearFilters() {
     setFreshman('All');
-    setChamber('All');
+    setChamber([]);
     setParty([]);
     setGender('All');
     setLeadership([]);
+    setCommittee([]);
     setCaucus([]);
     setState([]);
     setDistrict([]);
     setEducation([]);
-    setSort('recent');
     setPage(1);
+  }
+
+  function clearSearch() {
+    setSearchText('');
+    setQuery('');
+    setPage(1);
+  }
+
+  function clearEmptyState() {
+    if (hasFilters) clearFilters();
+    if (hasSearch) clearSearch();
   }
 
   async function copyContact(value: string, label: string) {
@@ -256,358 +297,284 @@ export function DirectoryPage() {
     }
   }
 
-  if (directoryQuery.isLoading && !directoryQuery.data) {
-    return (
-      <Card>
-        <Space>
-          <Spin />
-          <Typography.Text>Loading directory people from source snapshots...</Typography.Text>
-        </Space>
-      </Card>
-    );
-  }
-
-  if (directoryQuery.isError) {
-    return (
-      <Alert
-        type="error"
-        message="Unable to load directory"
-        description={(directoryQuery.error as Error).message}
-      />
-    );
-  }
-
   return (
     <div className="directory-page">
-      <section className="directory-page-header">
-        <Select
-          value={sort}
-          onChange={(value) => {
-            setSort(value);
+      <DirectoryStatsRow totals={totals} loading={initialLoading || directoryUnavailable} />
+
+      <div className="directory-filter-bar" aria-label="Directory filters">
+        <FilterPill
+          label="Chamber"
+          values={chamber}
+          options={(availableFilters?.chambers ?? emptyFilters).map((value) => ({
+            value,
+            label: value,
+          }))}
+          disabled={filtersDisabled}
+          onSelect={(value) => {
+            setChamber((current) => toggleValue(current, value as ChamberFilter));
             setPage(1);
           }}
-          style={{ width: 220 }}
-          options={[
-            { value: 'recent', label: 'Recently updated' },
-            { value: 'name-asc', label: 'Name A-Z' },
-            { value: 'name-desc', label: 'Name Z-A' },
-            { value: 'state-asc', label: 'State and district' },
-          ]}
+          onClear={() => {
+            setChamber([]);
+            setPage(1);
+          }}
         />
-      </section>
-
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={6} xl={5}>
-          <aside className="directory-filter-panel">
-            <Radio.Group
-              value={freshman}
-              onChange={(event) => {
-                setFreshman(event.target.value);
-                setPage(1);
-              }}
-              className="directory-freshman-radio"
-            >
-              <Radio value="All">All</Radio>
-              <Radio value="Freshman">Freshman</Radio>
-              <Radio value="Non-Freshman">Non-Freshman</Radio>
-            </Radio.Group>
-
-            <FilterBlock label="Chamber">
-              <Select
-                value={chamber}
-                onChange={(value) => {
-                  setChamber(value);
-                  setPage(1);
-                }}
-                options={[
-                  { value: 'All', label: 'All' },
-                  ...(availableFilters?.chambers ?? []).map((value) => ({ value, label: value })),
-                ]}
-              />
-            </FilterBlock>
-
-            <FilterBlock label="Party">
-              <Select
-                mode="multiple"
-                value={party}
-                onChange={(value) => {
-                  setParty(value);
-                  setPage(1);
-                }}
-                placeholder="Type or Select Parties"
-                maxTagCount="responsive"
-                options={(availableFilters?.parties ?? []).map((option) => ({
-                  value: option.value,
-                  label: option.label,
-                }))}
-              />
-            </FilterBlock>
-
-            <FilterBlock label="Gender">
-              <Select
-                value={gender}
-                onChange={(value) => {
-                  setGender(value);
-                  setPage(1);
-                }}
-                options={[
-                  { value: 'All', label: 'All' },
-                  ...(availableFilters?.genders ?? []).map((option) => ({
-                    value: option.value,
-                    label: option.label,
-                  })),
-                ]}
-              />
-            </FilterBlock>
-
-            <FilterBlock label="Leadership">
-              <Select
-                mode="multiple"
-                value={leadership}
-                onChange={(value) => {
-                  setLeadership(value);
-                  setPage(1);
-                }}
-                placeholder="Select Leadership Position(s)"
-                maxTagCount="responsive"
-                options={(availableFilters?.leadership ?? emptyFilters).map((value) => ({
-                  value,
-                  label: value,
-                }))}
-              />
-            </FilterBlock>
-
-            <FilterBlock label="Caucus">
-              <Select
-                mode="multiple"
-                value={caucus}
-                onChange={(value) => {
-                  setCaucus(value);
-                  setPage(1);
-                }}
-                placeholder={
-                  (availableFilters?.caucuses.length ?? 0) > 0
-                    ? 'Type or Select Caucuses'
-                    : 'No caucus data in source'
-                }
-                disabled={(availableFilters?.caucuses.length ?? 0) === 0}
-                maxTagCount="responsive"
-                options={(availableFilters?.caucuses ?? emptyFilters).map((value) => ({
-                  value,
-                  label: value,
-                }))}
-              />
-            </FilterBlock>
-
-            <FilterBlock label="State">
-              <Select
-                mode="multiple"
-                value={state}
-                onChange={(value) => {
-                  setState(value);
-                  setPage(1);
-                }}
-                placeholder="Type or Select State(s)"
-                maxTagCount="responsive"
-                options={(availableFilters?.states ?? emptyFilters).map((value) => ({
-                  value,
-                  label: value,
-                }))}
-              />
-            </FilterBlock>
-
-            <FilterBlock label="District">
-              <Select
-                mode="multiple"
-                value={district}
-                onChange={(value) => {
-                  setDistrict(value);
-                  setPage(1);
-                }}
-                placeholder="Type or Select District(s)"
-                maxTagCount="responsive"
+        <FilterPill
+          label="Party"
+          values={party}
+          options={(availableFilters?.parties ?? []).map((option) => ({
+            value: option.value,
+            label: option.label,
+          }))}
+          disabled={filtersDisabled}
+          onSelect={(value) => {
+            setParty((current) => toggleValue(current, value as Party));
+            setPage(1);
+          }}
+          onClear={() => {
+            setParty([]);
+            setPage(1);
+          }}
+        />
+        <FilterPill
+          label="State"
+          values={state}
+          options={(availableFilters?.states ?? emptyFilters).map((value) => ({
+            value,
+            label: value,
+          }))}
+          disabled={filtersDisabled}
+          onSelect={(value) => {
+            setState((current) => toggleValue(current, value));
+            setPage(1);
+          }}
+          onClear={() => {
+            setState([]);
+            setPage(1);
+          }}
+        />
+        <FilterPill
+          label="Committee"
+          values={committee}
+          options={(availableFilters?.committees ?? emptyFilters).map((value) => ({
+            value,
+            label: value,
+          }))}
+          disabled={filtersDisabled}
+          onSelect={(value) => {
+            setCommittee((current) => toggleValue(current, value));
+            setPage(1);
+          }}
+          onClear={() => {
+            setCommittee([]);
+            setPage(1);
+          }}
+        />
+        <Popover
+          trigger="click"
+          placement="bottomLeft"
+          content={
+            <div className="directory-more-filter-panel">
+              <FilterPill
+                label="District"
+                values={district}
                 options={(availableFilters?.districts ?? emptyFilters).map((value) => ({
                   value,
                   label: value,
                 }))}
-              />
-            </FilterBlock>
-
-            <FilterBlock label="Educational Institution">
-              <Select
-                mode="multiple"
-                value={education}
-                onChange={(value) => {
-                  setEducation(value);
+                disabled={filtersDisabled}
+                onSelect={(value) => {
+                  setDistrict((current) => toggleValue(current, value));
                   setPage(1);
                 }}
-                placeholder={
-                  (availableFilters?.educationInstitutions.length ?? 0) > 0
-                    ? 'Select Educational Institution(s)'
-                    : 'No education data in source'
-                }
-                disabled={(availableFilters?.educationInstitutions.length ?? 0) === 0}
-                maxTagCount="responsive"
+                onClear={() => {
+                  setDistrict([]);
+                  setPage(1);
+                }}
+              />
+              <FilterPill
+                label="Leadership"
+                values={leadership}
+                options={(availableFilters?.leadership ?? emptyFilters).map((value) => ({
+                  value,
+                  label: value,
+                }))}
+                disabled={filtersDisabled}
+                onSelect={(value) => {
+                  setLeadership((current) => toggleValue(current, value));
+                  setPage(1);
+                }}
+                onClear={() => {
+                  setLeadership([]);
+                  setPage(1);
+                }}
+              />
+              <FilterPill
+                label="Caucus"
+                values={caucus}
+                options={(availableFilters?.caucuses ?? emptyFilters).map((value) => ({
+                  value,
+                  label: value,
+                }))}
+                disabled={filtersDisabled || (availableFilters?.caucuses.length ?? 0) === 0}
+                onSelect={(value) => {
+                  setCaucus((current) => toggleValue(current, value));
+                  setPage(1);
+                }}
+                onClear={() => {
+                  setCaucus([]);
+                  setPage(1);
+                }}
+              />
+              <FilterPill
+                label="Gender"
+                values={gender === 'All' ? [] : [gender]}
+                options={(availableFilters?.genders ?? []).map((option) => ({
+                  value: option.value,
+                  label: option.label,
+                }))}
+                disabled={filtersDisabled}
+                onSelect={(value) => {
+                  setGender(value as GenderFilter);
+                  setPage(1);
+                }}
+                onClear={() => {
+                  setGender('All');
+                  setPage(1);
+                }}
+              />
+              <FilterPill
+                label="Educational Institution"
+                values={education}
                 options={(availableFilters?.educationInstitutions ?? emptyFilters).map((value) => ({
                   value,
                   label: value,
                 }))}
-              />
-            </FilterBlock>
-
-            <Button className="directory-reset-button" block onClick={resetFilters}>
-              Reset Filters
-            </Button>
-          </aside>
-        </Col>
-
-        <Col xs={24} lg={18} xl={19}>
-          <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-            <Row gutter={[12, 12]}>
-              <Col xs={12} md={6}>
-                <Card className="directory-stat-card">
-                  <Typography.Text type="secondary">All people</Typography.Text>
-                  <Typography.Title level={4}>{totals.all}</Typography.Title>
-                </Card>
-              </Col>
-              <Col xs={12} md={6}>
-                <Card className="directory-stat-card">
-                  <Typography.Text type="secondary">House</Typography.Text>
-                  <Typography.Title level={4}>{totals.house}</Typography.Title>
-                </Card>
-              </Col>
-              <Col xs={12} md={6}>
-                <Card className="directory-stat-card">
-                  <Typography.Text type="secondary">Senate</Typography.Text>
-                  <Typography.Title level={4}>{totals.senate}</Typography.Title>
-                </Card>
-              </Col>
-              <Col xs={12} md={6}>
-                <Card className="directory-stat-card">
-                  <Typography.Text type="secondary">Governors</Typography.Text>
-                  <Typography.Title level={4}>{totals.governors}</Typography.Title>
-                </Card>
-              </Col>
-            </Row>
-
-            <div className="directory-search-row">
-              <Input
-                allowClear
-                size="large"
-                prefix={<SearchOutlined />}
-                suffix={directoryQuery.isFetching ? <Spin size="small" /> : null}
-                value={searchText}
-                onChange={(event) => {
-                  setSearchText(event.target.value);
-                }}
-                onPressEnter={() => {
-                  setQuery(searchText);
+                disabled={
+                  filtersDisabled || (availableFilters?.educationInstitutions.length ?? 0) === 0
+                }
+                onSelect={(value) => {
+                  setEducation((current) => toggleValue(current, value));
                   setPage(1);
                 }}
-                placeholder="Search by name, office, committee, staff, phone, or email"
+                onClear={() => {
+                  setEducation([]);
+                  setPage(1);
+                }}
               />
-              <Typography.Text type="secondary">
-                Showing {totalFiltered === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}-
-                {Math.min(page * PAGE_SIZE, totalFiltered)} of {totalFiltered}
-              </Typography.Text>
+              <FilterPill
+                label="Freshman Status"
+                values={freshman === 'All' ? [] : [freshman]}
+                options={[
+                  { value: 'Freshman', label: 'Freshman' },
+                  { value: 'Non-Freshman', label: 'Non-Freshman' },
+                ]}
+                disabled={filtersDisabled}
+                onSelect={(value) => {
+                  setFreshman(value as FreshmanFilter);
+                  setPage(1);
+                }}
+                onClear={() => {
+                  setFreshman('All');
+                  setPage(1);
+                }}
+              />
             </div>
+          }
+        >
+          <button className="directory-filter-pill" type="button" disabled={filtersDisabled}>
+            + More Filters <DownOutlined />
+          </button>
+        </Popover>
+        <span className="directory-filter-spacer" />
+        {hasFilters ? (
+          <button className="directory-clear-filter-button" type="button" onClick={clearFilters}>
+            Clear All
+          </button>
+        ) : null}
+        <SortDropdown
+          sort={sort}
+          disabled={filtersDisabled}
+          onChange={(value) => {
+            setSort(value);
+            setPage(1);
+          }}
+        />
+      </div>
 
-            {entries.length === 0 ? (
-              <Card>
-                <Empty description="No people match these filters" />
-              </Card>
-            ) : (
-              <div className="directory-card-grid">
-                {entries.map((entry) => (
-                  <article
-                    key={entry.id}
-                    className="directory-person-card"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedEntryId(entry.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        setSelectedEntryId(entry.id);
-                      }
-                    }}
-                  >
-                    <div className="directory-person-topline">
-                      <Avatar
-                        src={entry.photoUrl || undefined}
-                        size={58}
-                        className="directory-person-avatar"
-                      >
-                        {initials(entry.memberName)}
-                      </Avatar>
-                      <div className="directory-person-title">
-                        <Typography.Text strong>{entry.fullName}</Typography.Text>
-                        <Typography.Text type="secondary">{entry.title}</Typography.Text>
-                      </div>
-                    </div>
+      <div className="directory-search-row">
+        <Input
+          allowClear
+          size="large"
+          prefix={<SearchOutlined />}
+          value={searchText}
+          disabled={filtersDisabled}
+          onChange={(event) => {
+            setSearchText(event.target.value);
+          }}
+          onPressEnter={() => {
+            setQuery(searchText);
+            setPage(1);
+          }}
+          placeholder="Search by name, office, committee, staff, phone, or email"
+        />
+        <Typography.Text className="directory-result-count" type="secondary">
+          {resultCountText(totalFiltered, currentPage)}
+        </Typography.Text>
+      </div>
 
-                    <Space size={[6, 6]} wrap className="directory-card-tags">
-                      <Tag color="geekblue">{entry.chamber}</Tag>
-                      <Tag color={partyColor(entry.party)}>{entry.party}</Tag>
-                      <Tag>{entry.district}</Tag>
-                      {entry.isFreshman ? <Tag color="green">Freshman</Tag> : null}
-                    </Space>
-
-                    <div className="directory-card-office">
-                      <Typography.Text>{entry.office}</Typography.Text>
-                      <Typography.Text type="secondary">
-                        Serving since {yearFromDate(entry.servingSince)}
-                      </Typography.Text>
-                    </div>
-
-                    <div className="directory-card-contact">
-                      <CopyContactLine
-                        icon={<PhoneOutlined />}
-                        value={entry.phone}
-                        emptyText="No public phone"
-                        label="Phone"
-                        onCopy={copyContact}
-                      />
-                      <CopyContactLine
-                        icon={<MailOutlined />}
-                        value={entry.email || entry.contactFormUrl}
-                        emptyText="No public email"
-                        label={entry.email ? 'Email' : 'Contact form'}
-                        onCopy={copyContact}
-                      />
-                    </div>
-
-                    <div className="directory-card-meta">
-                      {(entry.leadershipPositions[0] ||
-                        entry.committees[0] ||
-                        entry.focusAreas[0]) ??
-                        'No policy coverage listed'}
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-
-            {totalFiltered > PAGE_SIZE ? (
-              <div className="directory-pagination">
-                <Pagination
-                  current={page}
-                  pageSize={PAGE_SIZE}
-                  total={totalFiltered}
-                  onChange={(nextPage) => setPage(nextPage)}
-                  showSizeChanger={false}
-                />
-              </div>
-            ) : null}
-          </Space>
-        </Col>
-      </Row>
+      {initialLoading ? (
+        <DirectoryLoadingState />
+      ) : directoryUnavailable ? (
+        <DirectoryEmptyState
+          heading="Directory Unavailable"
+          subtext="We couldn't load the directory. Please try again."
+          actionLabel="Retry"
+          onAction={() => directoryQuery.refetch()}
+        />
+      ) : entries.length === 0 ? (
+        <DirectoryEmptyState
+          heading="No Results Found"
+          subtext={emptyStateSubtext(hasFilters, hasSearch)}
+          actionLabel={emptyStateActionLabel(hasFilters)}
+          onAction={hasFilters ? clearEmptyState : clearSearch}
+        />
+      ) : (
+        <>
+          {directoryQuery.isFetching ? (
+            <div className="directory-grid-loading" aria-hidden="true">
+              <Spin size="small" />
+            </div>
+          ) : null}
+          <div className="directory-card-grid">
+            {entries.map((entry) => (
+              <DirectoryMemberCard
+                key={entry.id}
+                entry={entry}
+                onOpen={() => openEntryProfile(entry.id)}
+                onCopy={copyContact}
+              />
+            ))}
+          </div>
+          {totalFiltered > PAGE_SIZE ? (
+            <div className="directory-pagination">
+              <Pagination
+                current={currentPage}
+                pageSize={PAGE_SIZE}
+                total={totalFiltered}
+                onChange={(nextPage) => setPage(nextPage)}
+                showSizeChanger={false}
+              />
+            </div>
+          ) : null}
+        </>
+      )}
 
       <Modal
         className="directory-profile-modal"
         width={1120}
         open={selectedEntry !== null}
-        onCancel={() => setSelectedEntryId(null)}
+        onCancel={closeEntryProfile}
         footer={null}
         title={null}
         destroyOnClose
@@ -901,6 +868,272 @@ export function DirectoryPage() {
   );
 }
 
+function DirectoryStatsRow({
+  totals,
+  loading,
+}: {
+  totals: DirectoryApiResponse['totals'];
+  loading: boolean;
+}) {
+  const stats = [
+    ['All Members', totals.all],
+    ['House', totals.house],
+    ['Senate', totals.senate],
+    ['Governors', totals.governors],
+  ] as const;
+
+  return (
+    <div className="directory-stats-row">
+      {stats.map(([label, value]) => (
+        <div
+          className={loading ? 'directory-stat-cell is-loading' : 'directory-stat-cell'}
+          key={label}
+        >
+          <Typography.Text>{label}</Typography.Text>
+          <strong>{loading ? '—' : value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FilterPill({
+  label,
+  values,
+  options,
+  disabled,
+  onSelect,
+  onClear,
+}: {
+  label: string;
+  values: string[];
+  options: Array<{ value: string; label: string }>;
+  disabled: boolean;
+  onSelect: (value: string) => void;
+  onClear: () => void;
+}) {
+  const active = values.length > 0;
+  const menu = filterMenu(values, options, onSelect);
+  const text = active ? activeFilterLabel(label, values, options) : label;
+
+  if (active) {
+    return (
+      <span className="directory-filter-pill-wrap is-active">
+        <button
+          className="directory-filter-pill directory-filter-pill--active"
+          type="button"
+          disabled={disabled}
+          onClick={onClear}
+          title={`Clear ${label}`}
+        >
+          {text}
+        </button>
+        <Dropdown menu={menu} trigger={['click']} disabled={disabled}>
+          <button
+            className="directory-filter-pill-caret"
+            type="button"
+            disabled={disabled}
+            aria-label={`Open ${label} filter options`}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <DownOutlined />
+          </button>
+        </Dropdown>
+      </span>
+    );
+  }
+
+  return (
+    <Dropdown menu={menu} trigger={['click']} disabled={disabled}>
+      <button className="directory-filter-pill" type="button" disabled={disabled}>
+        {label} <DownOutlined />
+      </button>
+    </Dropdown>
+  );
+}
+
+function SortDropdown({
+  sort,
+  disabled,
+  onChange,
+}: {
+  sort: SortOption;
+  disabled: boolean;
+  onChange: (value: SortOption) => void;
+}) {
+  const selected = SORT_OPTIONS.find((option) => option.value === sort) ?? SORT_OPTIONS[0];
+  const menu: MenuProps = {
+    items: SORT_OPTIONS.map((option) => ({
+      key: option.value,
+      label: option.label,
+    })),
+    onClick: ({ key }) => onChange(key as SortOption),
+  };
+
+  return (
+    <Dropdown menu={menu} trigger={['click']} disabled={disabled}>
+      <button className="directory-sort-pill" type="button" disabled={disabled}>
+        Sort: {selected?.shortLabel ?? 'Recently Updated'} <DownOutlined />
+      </button>
+    </Dropdown>
+  );
+}
+
+function DirectoryLoadingState() {
+  return (
+    <div className="directory-loading-state">
+      <Spin />
+      <Typography.Text>Loading Directory...</Typography.Text>
+    </div>
+  );
+}
+
+function DirectoryEmptyState({
+  heading,
+  subtext,
+  actionLabel,
+  onAction,
+}: {
+  heading: string;
+  subtext: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  return (
+    <div className="directory-empty-state">
+      <Typography.Title level={4}>{heading}</Typography.Title>
+      <Typography.Text type="secondary">{subtext}</Typography.Text>
+      <Button onClick={onAction}>{actionLabel}</Button>
+    </div>
+  );
+}
+
+function DirectoryMemberCard({
+  entry,
+  onOpen,
+  onCopy,
+}: {
+  entry: DirectoryEntry;
+  onOpen: () => void;
+  onCopy: (value: string, label: string) => Promise<void>;
+}) {
+  return (
+    <article
+      className="directory-person-card"
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <div className="directory-person-topline">
+        <Avatar src={entry.photoUrl || undefined} size={58} className="directory-person-avatar">
+          {initials(entry.memberName)}
+        </Avatar>
+        <div className="directory-person-title">
+          <Typography.Text strong>{entry.fullName}</Typography.Text>
+          <Typography.Text type="secondary">{entry.title}</Typography.Text>
+        </div>
+      </div>
+
+      <div className="directory-card-office">
+        <Typography.Text>{properCaseOfficeLine(entry.office)}</Typography.Text>
+        <Typography.Text type="secondary">
+          {[entry.chamber, partyLabel(entry.party), entry.district].filter(Boolean).join(' | ')}
+        </Typography.Text>
+        <Typography.Text type="secondary">
+          Serving Since {yearFromDate(entry.servingSince)}
+        </Typography.Text>
+      </div>
+
+      <div className="directory-card-contact">
+        <CopyContactLine
+          icon={<PhoneOutlined />}
+          value={entry.phone}
+          emptyText="No Public Phone"
+          label="Phone"
+          onCopy={onCopy}
+        />
+        <CopyContactLine
+          icon={<MailOutlined />}
+          value={entry.email || entry.contactFormUrl}
+          emptyText="No Public Email"
+          label={entry.email ? 'Email' : 'Contact Form'}
+          onCopy={onCopy}
+        />
+      </div>
+
+      <div className="directory-card-meta">
+        {(entry.leadershipPositions[0] || entry.committees[0] || entry.focusAreas[0]) ??
+          'No Policy Coverage Listed'}
+      </div>
+    </article>
+  );
+}
+
+function filterMenu(
+  values: string[],
+  options: Array<{ value: string; label: string }>,
+  onSelect: (value: string) => void,
+): MenuProps {
+  return {
+    items: options.length
+      ? options.map((option) => ({
+          key: option.value,
+          label: values.includes(option.value) ? `${option.label} Selected` : option.label,
+        }))
+      : [{ key: 'empty', label: 'No Options', disabled: true }],
+    onClick: ({ key }) => {
+      if (key !== 'empty') onSelect(String(key));
+    },
+  };
+}
+
+function activeFilterLabel(
+  label: string,
+  values: string[],
+  options: Array<{ value: string; label: string }>,
+): string {
+  if (values.length > 1) return `${label}: ${values.length} Selected`;
+  const value = values[0] ?? '';
+  const optionLabel = options.find((option) => option.value === value)?.label ?? value;
+  return `${label}: ${optionLabel}`;
+}
+
+function resultCountText(total: number, page: number): string {
+  if (total === 0) return '0 results';
+  const start = (page - 1) * PAGE_SIZE + 1;
+  const end = Math.min(page * PAGE_SIZE, total);
+  return `Showing ${start}–${end} of ${total}`;
+}
+
+function emptyStateSubtext(hasFilters: boolean, hasSearch: boolean): string {
+  if (hasFilters && hasSearch) return 'Try adjusting your filters or search terms';
+  if (hasFilters) return 'Try adjusting your filters';
+  return 'Try adjusting your search terms';
+}
+
+function emptyStateActionLabel(hasFilters: boolean): string {
+  return hasFilters ? 'Clear All Filters' : 'Clear Search';
+}
+
+function toggleValue<T extends string>(values: T[], value: T): T[] {
+  return values.includes(value)
+    ? values.filter((entry) => entry !== value)
+    : [...values, value].sort((left, right) => left.localeCompare(right));
+}
+
+function properCaseOfficeLine(value: string): string {
+  return value
+    .replace(/\boffice\b/g, 'Office')
+    .replace(/\bsenate\b/g, 'Senate')
+    .replace(/\bgovernor\b/g, 'Governor');
+}
+
 function CopyContactLine({
   icon,
   value,
@@ -1070,12 +1303,7 @@ function DirectoryNotesPanel({ entry }: { entry: DirectoryEntry }) {
           Add note
         </Button>
 
-        {notes.isLoading ? (
-          <Space>
-            <Spin size="small" />
-            <Typography.Text type="secondary">Loading notes...</Typography.Text>
-          </Space>
-        ) : null}
+        {notes.isLoading ? <Spin size="small" /> : null}
 
         {!notes.isLoading && (notes.data?.length ?? 0) === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No notes yet" />

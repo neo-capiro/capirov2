@@ -21,6 +21,7 @@ import {
   IsInt,
   IsIn,
   IsOptional,
+  IsObject,
   IsString,
   IsUUID,
   Length,
@@ -159,6 +160,15 @@ class CreateNoteDto {
 }
 
 class CreateDebriefDto extends CreateNoteDto {}
+
+class GenerateDebriefDraftDto {
+  @IsIn(['upload', 'manual', 'voice'])
+  method!: 'upload' | 'manual' | 'voice';
+
+  @IsString()
+  @MinLength(1)
+  sourceText!: string;
+}
 
 class UpdateMeetingPrepDto {
   @IsOptional()
@@ -319,6 +329,8 @@ class ConfirmAttachmentDto {
 }
 
 const reportStatuses = ['auto', 'not_started', 'in_progress', 'complete'] as const;
+const outreachTypes = ['campaign', 'follow_up', 'prep'] as const;
+const outreachStatuses = ['draft', 'sent', 'opened_in_email', 'failed'] as const;
 
 class CreateReportTargetOfficeDto {
   @IsOptional()
@@ -371,6 +383,172 @@ class UpsertReportTargetOfficeDto extends CreateReportTargetOfficeDto {
   @IsString()
   @Length(1, 80)
   source?: string;
+}
+
+class OutreachRecipientDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 160)
+  name?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  office?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 160)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  state?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  district?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  party?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  directoryContactId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  directoryContactName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 160)
+  committee?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  relevanceReason?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 500)
+  personalNote?: string;
+}
+
+class CreateOutreachRecordDto {
+  @IsIn(outreachTypes)
+  type!: (typeof outreachTypes)[number];
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  meetingId?: string;
+
+  @IsString()
+  @Length(1, 240)
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 300)
+  subject?: string;
+
+  @IsOptional()
+  @IsString()
+  body?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachRecipientDto)
+  recipients?: OutreachRecipientDto[];
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  lastStep?: number;
+}
+
+class UpdateOutreachRecordDto {
+  @IsOptional()
+  @IsUUID()
+  clientId?: string | null;
+
+  @IsOptional()
+  @IsUUID()
+  meetingId?: string | null;
+
+  @IsOptional()
+  @IsIn(outreachStatuses)
+  status?: (typeof outreachStatuses)[number];
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 300)
+  subject?: string | null;
+
+  @IsOptional()
+  @IsString()
+  body?: string | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachRecipientDto)
+  recipients?: OutreachRecipientDto[];
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  lastStep?: number;
+}
+
+class GenerateOutreachDraftDto {
+  @IsOptional()
+  @IsString()
+  objective?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachRecipientDto)
+  recipients?: OutreachRecipientDto[];
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
 }
 
 @Controller('engagement')
@@ -439,6 +617,16 @@ export class EngagementController {
     return this.service.listMeetingNotes(ctx, meetingId);
   }
 
+  @Patch('meetings/:id/notes/:noteId')
+  updateNote(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') meetingId: string,
+    @Param('noteId') noteId: string,
+    @Body() body: CreateNoteDto,
+  ) {
+    return this.service.updateMeetingNote(ctx, meetingId, noteId, body);
+  }
+
   @Post('meetings/:id/debriefs')
   createDebrief(
     @CurrentTenant() ctx: TenantContext,
@@ -451,6 +639,15 @@ export class EngagementController {
   @Get('meetings/:id/debriefs')
   meetingDebriefs(@CurrentTenant() ctx: TenantContext, @Param('id') meetingId: string) {
     return this.service.listMeetingDebriefs(ctx, meetingId);
+  }
+
+  @Post('meetings/:id/debrief-draft')
+  generateDebriefDraft(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') meetingId: string,
+    @Body() body: GenerateDebriefDraftDto,
+  ) {
+    return this.service.generateMeetingDebriefDraft(ctx, meetingId, body);
   }
 
   @Post('meetings/:id/prep')
@@ -475,6 +672,56 @@ export class EngagementController {
   @Get('mail-threads')
   mailThreads(@CurrentTenant() ctx: TenantContext, @Query('clientId') clientId?: string) {
     return this.service.listMailThreads(ctx, { clientId });
+  }
+
+  @Get('outreach')
+  outreachRecords(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('clientId') clientId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('type') type?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.listOutreachRecords(ctx, { clientId, from, to, type, limit });
+  }
+
+  @Get('outreach/:id')
+  outreachRecord(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.getOutreachRecord(ctx, id);
+  }
+
+  @Post('outreach')
+  createOutreachRecord(@CurrentTenant() ctx: TenantContext, @Body() body: CreateOutreachRecordDto) {
+    return this.service.createOutreachRecord(ctx, body);
+  }
+
+  @Patch('outreach/:id')
+  updateOutreachRecord(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: UpdateOutreachRecordDto,
+  ) {
+    return this.service.updateOutreachRecord(ctx, id, body);
+  }
+
+  @Post('outreach/:id/generate-draft')
+  generateOutreachDraft(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: GenerateOutreachDraftDto,
+  ) {
+    return this.service.generateOutreachDraft(ctx, id, body);
+  }
+
+  @Post('outreach/:id/open-email')
+  openOutreachEmail(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.openOutreachInConnectedEmail(ctx, id);
+  }
+
+  @Post('outreach/:id/send-campaign')
+  sendCampaign(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.sendCampaign(ctx, id);
   }
 
   @Get('reports/overview')

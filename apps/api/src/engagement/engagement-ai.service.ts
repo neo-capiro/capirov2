@@ -23,6 +23,48 @@ export interface MeetingPrepResult {
   raw: unknown;
 }
 
+export interface OutreachDraftInput {
+  workflow: 'campaign' | 'follow_up' | 'prep';
+  client: Record<string, unknown> | null;
+  meeting?: Record<string, unknown> | null;
+  objective?: string | null;
+  recipients: Array<Record<string, unknown>>;
+  context: Record<string, unknown>;
+  existingSubject?: string | null;
+  existingBody?: string | null;
+}
+
+export interface OutreachDraftResult {
+  subject: string;
+  body: string;
+  contextNote: string;
+  provider: 'openai' | 'anthropic';
+  model: string;
+  raw: unknown;
+}
+
+export interface MeetingDebriefDraftInput {
+  meeting: Record<string, unknown>;
+  client: Record<string, unknown> | null;
+  attendees: Array<Record<string, unknown>>;
+  prep: Record<string, unknown> | null;
+  source: { method: 'upload' | 'manual' | 'voice'; text: string };
+  visibleNotes: Array<Record<string, unknown>>;
+  clientContext: Record<string, unknown> | null;
+  congressionalDirectoryMatches: Array<Record<string, unknown>>;
+  recentMeetings: Array<Record<string, unknown>>;
+  recentThreads: Array<Record<string, unknown>>;
+}
+
+export interface MeetingDebriefDraftResult {
+  recap: string;
+  actionItems: string[];
+  notes: string;
+  provider: 'openai' | 'anthropic';
+  model: string;
+  raw: unknown;
+}
+
 const meetingPrepJsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -33,6 +75,28 @@ const meetingPrepJsonSchema = {
     risks: { type: 'array', items: { type: 'string' } },
     followUps: { type: 'array', items: { type: 'string' } },
     summary: { type: 'string' },
+  },
+};
+
+const outreachDraftJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['subject', 'body', 'contextNote'],
+  properties: {
+    subject: { type: 'string' },
+    body: { type: 'string' },
+    contextNote: { type: 'string' },
+  },
+};
+
+const meetingDebriefJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['recap', 'actionItems', 'notes'],
+  properties: {
+    recap: { type: 'string' },
+    actionItems: { type: 'array', items: { type: 'string' } },
+    notes: { type: 'string' },
   },
 };
 
@@ -72,6 +136,32 @@ export class EngagementAiService {
 
     if (provider === 'openai') return this.generateWithOpenAi(input);
     return this.generateWithAnthropic(input);
+  }
+
+  async generateOutreachDraft(input: OutreachDraftInput): Promise<OutreachDraftResult> {
+    const provider = this.resolveProvider();
+    if (!provider) {
+      throw new ServiceUnavailableException(
+        'AI outreach drafting is not configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.',
+      );
+    }
+
+    if (provider === 'openai') return this.generateOutreachWithOpenAi(input);
+    return this.generateOutreachWithAnthropic(input);
+  }
+
+  async generateMeetingDebrief(
+    input: MeetingDebriefDraftInput,
+  ): Promise<MeetingDebriefDraftResult> {
+    const provider = this.resolveProvider();
+    if (!provider) {
+      throw new ServiceUnavailableException(
+        'AI debrief generation is not configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.',
+      );
+    }
+
+    if (provider === 'openai') return this.generateDebriefWithOpenAi(input);
+    return this.generateDebriefWithAnthropic(input);
   }
 
   private resolveProvider(): 'openai' | 'anthropic' | null {
@@ -173,12 +263,219 @@ export class EngagementAiService {
     };
   }
 
+  private async generateOutreachWithOpenAi(input: OutreachDraftInput): Promise<OutreachDraftResult> {
+    if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
+
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.openaiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.openaiModel,
+        input: this.buildOutreachPrompt(input),
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'outreach_draft',
+            strict: true,
+            schema: outreachDraftJsonSchema,
+          },
+        },
+      }),
+    });
+
+    const json = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        `OpenAI outreach draft failed: ${readProviderError(json, response.status)}`,
+      );
+    }
+
+    const parsed = parseJsonObject(extractOpenAiText(json));
+    return {
+      subject: typeof parsed.subject === 'string' ? parsed.subject.trim() : '',
+      body: typeof parsed.body === 'string' ? parsed.body.trim() : '',
+      contextNote: typeof parsed.contextNote === 'string' ? parsed.contextNote.trim() : '',
+      provider: 'openai',
+      model: this.openaiModel,
+      raw: json,
+    };
+  }
+
+  private async generateOutreachWithAnthropic(
+    input: OutreachDraftInput,
+  ): Promise<OutreachDraftResult> {
+    if (!this.anthropicKey) {
+      throw new ServiceUnavailableException('ANTHROPIC_API_KEY is not configured');
+    }
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.anthropicModel,
+        max_tokens: 2400,
+        system:
+          'You draft precise lobbying outreach from supplied CRM context. Return only valid JSON that matches the requested schema.',
+        messages: [
+          {
+            role: 'user',
+            content: `${this.buildOutreachPrompt(input)}\n\nJSON schema:\n${JSON.stringify(
+              outreachDraftJsonSchema,
+            )}`,
+          },
+        ],
+      }),
+    });
+
+    const json = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        `Anthropic outreach draft failed: ${readProviderError(json, response.status)}`,
+      );
+    }
+
+    const parsed = parseJsonObject(extractAnthropicText(json));
+    return {
+      subject: typeof parsed.subject === 'string' ? parsed.subject.trim() : '',
+      body: typeof parsed.body === 'string' ? parsed.body.trim() : '',
+      contextNote: typeof parsed.contextNote === 'string' ? parsed.contextNote.trim() : '',
+      provider: 'anthropic',
+      model: this.anthropicModel,
+      raw: json,
+    };
+  }
+
+  private async generateDebriefWithOpenAi(
+    input: MeetingDebriefDraftInput,
+  ): Promise<MeetingDebriefDraftResult> {
+    if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
+
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.openaiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.openaiModel,
+        input: this.buildDebriefPrompt(input),
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'meeting_debrief',
+            strict: true,
+            schema: meetingDebriefJsonSchema,
+          },
+        },
+      }),
+    });
+
+    const json = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        `OpenAI debrief generation failed: ${readProviderError(json, response.status)}`,
+      );
+    }
+
+    const parsed = parseJsonObject(extractOpenAiText(json));
+    return {
+      recap: typeof parsed.recap === 'string' ? parsed.recap.trim() : '',
+      actionItems: toStringList(parsed.actionItems),
+      notes: typeof parsed.notes === 'string' ? parsed.notes.trim() : '',
+      provider: 'openai',
+      model: this.openaiModel,
+      raw: json,
+    };
+  }
+
+  private async generateDebriefWithAnthropic(
+    input: MeetingDebriefDraftInput,
+  ): Promise<MeetingDebriefDraftResult> {
+    if (!this.anthropicKey) {
+      throw new ServiceUnavailableException('ANTHROPIC_API_KEY is not configured');
+    }
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.anthropicModel,
+        max_tokens: 1800,
+        system:
+          'You generate accurate lobbying meeting debriefs from supplied tenant CRM context. Return only valid JSON that matches the requested schema.',
+        messages: [
+          {
+            role: 'user',
+            content: `${this.buildDebriefPrompt(input)}\n\nJSON schema:\n${JSON.stringify(
+              meetingDebriefJsonSchema,
+            )}`,
+          },
+        ],
+      }),
+    });
+
+    const json = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        `Anthropic debrief generation failed: ${readProviderError(json, response.status)}`,
+      );
+    }
+
+    const parsed = parseJsonObject(extractAnthropicText(json));
+    return {
+      recap: typeof parsed.recap === 'string' ? parsed.recap.trim() : '',
+      actionItems: toStringList(parsed.actionItems),
+      notes: typeof parsed.notes === 'string' ? parsed.notes.trim() : '',
+      provider: 'anthropic',
+      model: this.anthropicModel,
+      raw: json,
+    };
+  }
+
   private buildPrompt(input: MeetingPrepInput): string {
     return [
       'Create meeting prep for this lobbying interaction.',
       'Use the client context, past meetings, email threads, and open tasks. Do not invent facts.',
       'If congressionalDirectoryMatches are present, use those matched member and staff profiles as attendee context, including member bio, committee assignments, and office/location details.',
       'Return JSON with agenda, talkingPoints, risks, followUps, and summary.',
+      JSON.stringify(input, null, 2),
+    ].join('\n\n');
+  }
+
+  private buildOutreachPrompt(input: OutreachDraftInput): string {
+    const workflowGuidance = {
+      campaign:
+        'Draft a campaign email for many congressional recipients. Keep {district}, {committee}, {member_priority}, and {personal_note} placeholders when useful. Do not invent recipient-specific facts not present in the supplied recipient context.',
+      follow_up:
+        'Draft a post-meeting follow-up email. Include a brief recap, action items, and next steps from the supplied debrief/prep/context.',
+      prep: 'Draft a clean prep distribution summary suitable for a colleague or client before the meeting. Include logistics, context, talking points, and participants from the approved prep.',
+    }[input.workflow];
+
+    return [
+      workflowGuidance,
+      'Use only the provided client, meeting, recipient, and engagement context. Do not invent facts.',
+      'Return JSON with subject, body, and contextNote. The body must be directly editable by the user.',
+      JSON.stringify(input, null, 2),
+    ].join('\n\n');
+  }
+
+  private buildDebriefPrompt(input: MeetingDebriefDraftInput): string {
+    return [
+      'Generate a post-meeting debrief for a lobbying CRM.',
+      'Use only the supplied source text and tenant context. Do not invent commitments, attendees, dates, votes, or facts.',
+      'The recap should be concise and readable. Action items should be specific next steps when the source supports them. Notes should preserve important details for internal reference.',
+      'Return JSON with recap, actionItems, and notes.',
       JSON.stringify(input, null, 2),
     ].join('\n\n');
   }

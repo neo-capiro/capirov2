@@ -140,6 +140,7 @@ model Tenant {
   contextEmbeddings          ContextEmbedding[]
   directoryContactNotes      DirectoryContactNote[]
   engagementReportTargets    EngagementReportTargetOffice[]
+  outreachRecords            OutreachRecord[]
   MeetingDebrief             MeetingDebrief[]
 
   @@map("tenants")
@@ -162,6 +163,7 @@ model User {
   meetingNotes            MeetingNote[]                  @relation("MeetingNoteAuthor")
   meetingDebriefs         MeetingDebrief[]               @relation("MeetingDebriefAuthor")
   engagementReportTargets EngagementReportTargetOffice[] @relation("EngagementReportTargetOfficeAuthor")
+  outreachRecords         OutreachRecord[]               @relation("OutreachRecordAuthor")
 
   @@map("users")
 }
@@ -229,6 +231,7 @@ model Client {
   engagementTasks         EngagementTask[]
   associationOverrides    ClientAssociationOverride[]
   engagementReportTargets EngagementReportTargetOffice[]
+  outreachRecords         OutreachRecord[]
 
   @@index([tenantId], map: "clients_tenant_idx")
   @@index([tenantId, name], map: "clients_tenant_name_idx")
@@ -363,6 +366,7 @@ model Meeting {
   debriefs    MeetingDebrief[]
   preps       MeetingPrep[]
   tasks       EngagementTask[]
+  outreachRecords OutreachRecord[]
 
   @@unique([tenantId, source, externalId], map: "meetings_tenant_source_external_key")
   @@index([tenantId, startsAt], map: "meetings_tenant_starts_idx")
@@ -613,6 +617,38 @@ model EngagementReportTargetOffice {
   @@unique([tenantId, scopeKey, officeKey], map: "engagement_report_targets_tenant_scope_office_key")
   @@index([tenantId, clientId, prepStatus], map: "engagement_report_targets_tenant_client_prep_idx")
   @@map("engagement_report_target_offices")
+}
+
+model OutreachRecord {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  clientId        String?   @map("client_id") @db.Uuid
+  meetingId       String?   @map("meeting_id") @db.Uuid
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  type            String
+  status          String    @default("draft")
+  title           String
+  subject         String?
+  body            String?   @db.Text
+  recipients      Json      @default("[]") @map("recipients_jsonb")
+  recipientCount  Int       @default(0) @map("recipient_count")
+  stats           Json      @default("{}") @map("stats_jsonb")
+  metadata        Json      @default("{}") @map("metadata_jsonb")
+  lastStep        Int       @default(1) @map("last_step")
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  openedInEmailAt DateTime? @map("opened_in_email_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  meeting   Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  createdBy User?    @relation("OutreachRecordAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, type, status, createdAt], map: "outreach_records_tenant_type_status_created_idx")
+  @@index([tenantId, clientId, createdAt], map: "outreach_records_tenant_client_created_idx")
+  @@index([tenantId, meetingId], map: "outreach_records_tenant_meeting_idx")
+  @@map("outreach_records")
 }
 
 model ClientAssociationOverride {

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -31,6 +32,7 @@ import { DirectoryService, type DirectoryEmailMatch } from '../directory/directo
 import { ClientAssociationService } from './client-association.service.js';
 import { EngagementAiService } from './engagement-ai.service.js';
 import { MeetingNotesCryptoService } from './meeting-notes-crypto.service.js';
+import { MicrosoftGraphSyncService } from './microsoft/microsoft-graph-sync.service.js';
 
 export interface CreateIntegrationInput {
   provider: EngagementProvider;
@@ -144,6 +146,55 @@ export interface UpsertReportTargetOfficeInput extends CreateReportTargetOfficeI
 
 export type ReportPeriod = 'current' | 'previous' | 'all';
 export type ReportStatus = 'auto' | 'not_started' | 'in_progress' | 'complete';
+export type OutreachType = 'campaign' | 'follow_up' | 'prep';
+export type OutreachStatus = 'draft' | 'sent' | 'opened_in_email' | 'failed';
+
+export interface OutreachRecipientInput {
+  name?: string;
+  email?: string;
+  office?: string;
+  title?: string;
+  state?: string;
+  district?: string;
+  party?: string;
+  directoryContactId?: string;
+  directoryContactName?: string;
+  committee?: string;
+  relevanceReason?: string;
+  personalNote?: string;
+}
+
+export interface CreateOutreachRecordInput {
+  type: OutreachType;
+  clientId?: string;
+  meetingId?: string;
+  title: string;
+  subject?: string;
+  body?: string;
+  recipients?: OutreachRecipientInput[];
+  metadata?: Record<string, unknown>;
+  lastStep?: number;
+}
+
+export interface UpdateOutreachRecordInput {
+  clientId?: string | null;
+  meetingId?: string | null;
+  status?: OutreachStatus;
+  title?: string;
+  subject?: string | null;
+  body?: string | null;
+  recipients?: OutreachRecipientInput[];
+  metadata?: Record<string, unknown>;
+  lastStep?: number;
+}
+
+export interface OutreachQuery {
+  clientId?: string;
+  from?: string;
+  to?: string;
+  type?: string;
+  limit?: string;
+}
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const REPORT_STATUSES: ReportStatus[] = ['auto', 'not_started', 'in_progress', 'complete'];
@@ -195,6 +246,7 @@ export class EngagementService {
     private readonly ai: EngagementAiService,
     private readonly notesCrypto: MeetingNotesCryptoService,
     private readonly directory: DirectoryService,
+    private readonly microsoftGraph: MicrosoftGraphSyncService,
     config: ConfigService<AppConfig, true>,
   ) {
     this.bucket = config.get('ASSETS_BUCKET', { infer: true });
@@ -206,6 +258,12 @@ export class EngagementService {
       ai: this.ai.capabilities(),
       notes: this.notesCrypto.capabilities(),
       attachments: { s3Configured: Boolean(this.bucket), maxBytes: MAX_ATTACHMENT_BYTES },
+      outreach: {
+        emailDraftHandoff: true,
+        campaignSendingConfigured: true,
+        campaignSendingProvider: 'microsoft_365',
+        campaignSendingScopes: ['Mail.Send'],
+      },
       integrations: {
         microsoft365: {
           status: 'requires_oauth_configuration',
@@ -393,6 +451,300 @@ export class EngagementService {
         take: 50,
       }),
     );
+  }
+
+  listOutreachRecords(ctx: TenantContext, query: OutreachQuery) {
+    const type = normalizeOutreachType(query.type);
+    const limit = clampInt(query.limit, 50, 1, 100);
+    const createdAt =
+      query.from || query.to
+        ? {
+            ...(query.from ? { gte: parseDate(query.from, 'from') } : {}),
+            ...(query.to ? { lt: parseDate(query.to, 'to') } : {}),
+          }
+        : undefined;
+
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.outreachRecord.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          ...(query.clientId ? { clientId: query.clientId } : {}),
+          ...(type ? { type } : {}),
+          ...(createdAt ? { createdAt } : {}),
+        },
+        include: outreachInclude(),
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      }),
+    );
+  }
+
+  async getOutreachRecord(ctx: TenantContext, id: string) {
+    const row = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.outreachRecord.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        include: outreachInclude(),
+      }),
+    );
+    if (!row) throw new NotFoundException('Outreach record not found');
+    return row;
+  }
+
+  async createOutreachRecord(ctx: TenantContext, input: CreateOutreachRecordInput) {
+    const type = normalizeOutreachType(input.type);
+    if (!type) throw new BadRequestException('type must be campaign, follow_up, or prep');
+    const recipients = normalizeOutreachRecipients(input.recipients);
+    const clientId = input.clientId?.trim() || null;
+    const meetingId = input.meetingId?.trim() || null;
+
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await this.validateOutreachParents(tx, ctx.tenantId, clientId, meetingId);
+
+      return tx.outreachRecord.create({
+        data: {
+          tenantId: ctx.tenantId,
+          clientId,
+          meetingId,
+          createdByUserId: ctx.userId,
+          type,
+          status: 'draft',
+          title: requiredReportText(input.title, 'title', 240),
+          subject: optionalReportText(input.subject, 300),
+          body: optionalText(input.body) ?? null,
+          recipients: recipients as unknown as Prisma.InputJsonValue,
+          recipientCount: recipients.length,
+          metadata: sanitizeOutreachMetadata(input.metadata) as Prisma.InputJsonValue,
+          lastStep: clampInt(input.lastStep, 1, 1, 5),
+        },
+        include: outreachInclude(),
+      });
+    });
+  }
+
+  async updateOutreachRecord(ctx: TenantContext, id: string, input: UpdateOutreachRecordInput) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const existing = await tx.outreachRecord.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+      });
+      if (!existing) throw new NotFoundException('Outreach record not found');
+      if (existing.status !== 'draft' && input.status === 'draft') {
+        throw new BadRequestException('Sent outreach cannot be moved back to draft');
+      }
+
+      const nextClientId =
+        'clientId' in input ? input.clientId?.trim() || null : existing.clientId;
+      const nextMeetingId =
+        'meetingId' in input ? input.meetingId?.trim() || null : existing.meetingId;
+      await this.validateOutreachParents(tx, ctx.tenantId, nextClientId, nextMeetingId);
+      const recipients =
+        'recipients' in input
+          ? normalizeOutreachRecipients(input.recipients)
+          : normalizeOutreachRecipients(existing.recipients);
+
+      return tx.outreachRecord.update({
+        where: { id },
+        data: {
+          ...('clientId' in input ? { clientId: nextClientId } : {}),
+          ...('meetingId' in input ? { meetingId: nextMeetingId } : {}),
+          ...('status' in input ? { status: normalizeOutreachStatus(input.status) } : {}),
+          ...('title' in input ? { title: requiredReportText(input.title, 'title', 240) } : {}),
+          ...('subject' in input ? { subject: optionalReportText(input.subject, 300) } : {}),
+          ...('body' in input ? { body: optionalText(input.body) ?? null } : {}),
+          ...('recipients' in input
+            ? {
+                recipients: recipients as unknown as Prisma.InputJsonValue,
+                recipientCount: recipients.length,
+              }
+            : {}),
+          ...('metadata' in input
+            ? {
+                metadata: mergeJsonObjects(
+                  existing.metadata,
+                  sanitizeOutreachMetadata(input.metadata),
+                ) as Prisma.InputJsonValue,
+              }
+            : {}),
+          ...('lastStep' in input ? { lastStep: clampInt(input.lastStep, 1, 1, 5) } : {}),
+        },
+        include: outreachInclude(),
+      });
+    });
+  }
+
+  async generateOutreachDraft(
+    ctx: TenantContext,
+    id: string,
+    input: {
+      objective?: string;
+      recipients?: OutreachRecipientInput[];
+      metadata?: Record<string, unknown>;
+    },
+  ) {
+    const record = await this.getOutreachRecord(ctx, id);
+    if (record.status !== 'draft') {
+      throw new BadRequestException('Only draft outreach can be regenerated');
+    }
+
+    const recipients = normalizeOutreachRecipients(input.recipients ?? record.recipients);
+    if (record.type === 'campaign' && !recipients.length) {
+      throw new BadRequestException('At least one recipient is required before drafting');
+    }
+    const context = await this.outreachContext(ctx, record, recipients, input.metadata);
+    const generated = await this.ai.generateOutreachDraft({
+      workflow: record.type as OutreachType,
+      client: record.client ? pruneForAi(record.client) : null,
+      meeting: record.meeting ? pruneForAi(record.meeting) : null,
+      objective: input.objective ?? readMetadataString(record.metadata, 'objective'),
+      recipients: recipients.map(pruneForAi),
+      context,
+      existingSubject: record.subject,
+      existingBody: record.body,
+    });
+
+    const nextMetadata = mergeJsonObjects(record.metadata, {
+      ...(input.metadata ?? {}),
+      objective: input.objective ?? readMetadataString(record.metadata, 'objective') ?? null,
+      clioContextNote: generated.contextNote,
+      ai: {
+        provider: generated.provider,
+        model: generated.model,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+
+    return this.updateOutreachRecord(ctx, id, {
+      subject: generated.subject,
+      body: generated.body,
+      recipients,
+      metadata: nextMetadata,
+      lastStep: Math.max(record.lastStep, record.type === 'campaign' ? 3 : 3),
+    });
+  }
+
+  async openOutreachInConnectedEmail(ctx: TenantContext, id: string) {
+    const record = await this.getOutreachRecord(ctx, id);
+    if (record.type === 'campaign') {
+      throw new BadRequestException('Campaigns send from Capiro and do not open in email');
+    }
+    const connected = await this.hasConnectedInbox(ctx);
+    if (!connected) {
+      throw new BadRequestException('Connect your email in Settings to use this feature');
+    }
+    const recipients = normalizeOutreachRecipients(record.recipients);
+    if (!recipients.length) throw new BadRequestException('At least one recipient is required');
+    if (!record.subject || !record.body) throw new BadRequestException('Draft subject and body are required');
+
+    const openedAt = new Date();
+    const updated = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.outreachRecord.update({
+        where: { id },
+        data: {
+          status: 'opened_in_email',
+          openedInEmailAt: openedAt,
+          metadata: mergeJsonObjects(record.metadata, {
+            openedInEmailAt: openedAt.toISOString(),
+          }) as Prisma.InputJsonValue,
+        },
+        include: outreachInclude(),
+      }),
+    );
+
+    return {
+      record: updated,
+      mailtoUrl: buildMailtoUrl(recipients, record.subject, record.body),
+    };
+  }
+
+  async sendCampaign(ctx: TenantContext, id: string) {
+    const record = await this.getOutreachRecord(ctx, id);
+    if (record.type !== 'campaign') throw new BadRequestException('Only campaigns can be sent');
+
+    if (record.status !== 'draft') {
+      throw new BadRequestException('Only draft campaigns can be sent');
+    }
+    if (!record.subject?.trim() || !record.body?.trim()) {
+      throw new BadRequestException('Campaign subject and body are required');
+    }
+
+    const recipients = normalizeOutreachRecipients(record.recipients);
+    if (!recipients.length) throw new BadRequestException('At least one recipient is required');
+    const missingEmailRecipients = recipients.filter((recipient) => !recipient.email);
+    if (missingEmailRecipients.length) {
+      throw new BadRequestException(
+        `Every campaign recipient must have an email address. Missing: ${missingEmailRecipients
+          .map(outreachRecipientLabel)
+          .join(', ')}`,
+      );
+    }
+
+    const connection = await this.findCampaignSendConnection(ctx);
+    const sent: Array<{ email: string; name: string | null; sentAt: string }> = [];
+    const errors: Array<{ email: string; message: string }> = [];
+
+    for (const recipient of recipients) {
+      const email = recipient.email!;
+      try {
+        await this.microsoftGraph.sendMail(ctx, connection.id, {
+          subject: record.subject,
+          body: assembleCampaignBody(record.body, recipient),
+          toRecipients: [{ email, name: recipient.name ?? null }],
+        });
+        sent.push({
+          email,
+          name: recipient.name ?? null,
+          sentAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        errors.push({
+          email,
+          message: error instanceof Error ? error.message : 'Microsoft Graph send failed',
+        });
+      }
+    }
+
+    const now = new Date();
+    const stats = {
+      provider: 'microsoft_graph',
+      connectionId: connection.id,
+      accountEmail: connection.accountEmail ?? null,
+      recipientsAttempted: recipients.length,
+      recipientsSent: sent.length,
+      recipientsFailed: errors.length,
+      openRate: '0%',
+      replyCount: 0,
+      sent,
+      ...(errors.length ? { errors } : {}),
+    };
+
+    const updated = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.outreachRecord.update({
+        where: { id },
+        data: {
+          status: errors.length ? 'failed' : 'sent',
+          sentAt: errors.length ? null : now,
+          stats: stats as Prisma.InputJsonValue,
+          metadata: mergeJsonObjects(record.metadata, {
+            campaignSend: {
+              provider: 'microsoft_graph',
+              connectionId: connection.id,
+              accountEmail: connection.accountEmail ?? null,
+              completedAt: now.toISOString(),
+              status: errors.length ? 'failed' : 'sent',
+            },
+          }) as Prisma.InputJsonValue,
+          lastStep: 5,
+        },
+        include: outreachInclude(),
+      }),
+    );
+
+    if (errors.length) {
+      throw new ServiceUnavailableException(
+        `Campaign send failed for ${errors.length} of ${recipients.length} recipients. Successful sends and Graph errors were recorded on the campaign.`,
+      );
+    }
+
+    return updated;
   }
 
   listTasks(ctx: TenantContext, query: { clientId?: string }) {
@@ -912,6 +1264,38 @@ export class EngagementService {
     });
   }
 
+  async updateMeetingNote(
+    ctx: TenantContext,
+    meetingId: string,
+    noteId: string,
+    input: { body: string; confidential?: boolean; accessLevel?: string },
+  ) {
+    const encrypted = this.notesCrypto.encrypt(input.body);
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const note = await tx.meetingNote.findFirst({
+        where: { id: noteId, tenantId: ctx.tenantId, meetingId },
+        select: { id: true, authorUserId: true },
+      });
+      if (!note) throw new NotFoundException('Meeting note not found');
+      if (!canEditEncryptedEntry(ctx, note)) {
+        throw new ForbiddenException('You can only edit your own meeting notes');
+      }
+
+      return tx.meetingNote.update({
+        where: { id: noteId },
+        data: {
+          bodyCiphertext: encrypted.bodyCiphertext,
+          iv: encrypted.iv,
+          authTag: encrypted.authTag,
+          keyVersion: encrypted.keyVersion,
+          ...(input.confidential === undefined ? {} : { confidential: input.confidential }),
+          ...(input.accessLevel === undefined ? {} : { accessLevel: input.accessLevel }),
+        },
+        select: noteMetadataSelect(),
+      });
+    });
+  }
+
   async createMeetingDebrief(
     ctx: TenantContext,
     meetingId: string,
@@ -938,6 +1322,83 @@ export class EngagementService {
         },
         select: debriefMetadataSelect(),
       });
+    });
+  }
+
+  async generateMeetingDebriefDraft(
+    ctx: TenantContext,
+    meetingId: string,
+    input: { method: 'upload' | 'manual' | 'voice'; sourceText: string },
+  ) {
+    const sourceText = input.sourceText.trim();
+    if (!sourceText) throw new BadRequestException('sourceText is required');
+
+    const context = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const meeting = await tx.meeting.findFirst({
+        where: { id: meetingId, tenantId: ctx.tenantId },
+        include: {
+          client: true,
+          attendees: true,
+          attachments: { orderBy: { createdAt: 'desc' } },
+          preps: { orderBy: { createdAt: 'desc' }, take: 1 },
+          tasks: {
+            where: {
+              status: { notIn: [EngagementTaskStatus.done, EngagementTaskStatus.canceled] },
+            },
+          },
+        },
+      });
+      if (!meeting) throw new NotFoundException('Meeting not found');
+
+      const recentMeetings = meeting.clientId
+        ? await tx.meeting.findMany({
+            where: { tenantId: ctx.tenantId, clientId: meeting.clientId, id: { not: meeting.id } },
+            select: {
+              id: true,
+              subject: true,
+              startsAt: true,
+              endsAt: true,
+              location: true,
+              associationReason: true,
+            },
+            orderBy: { startsAt: 'desc' },
+            take: 5,
+          })
+        : [];
+
+      const recentThreads = meeting.clientId
+        ? await tx.mailThread.findMany({
+            where: { tenantId: ctx.tenantId, clientId: meeting.clientId },
+            select: { id: true, subject: true, snippet: true, lastMessageAt: true, status: true },
+            orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
+            take: 5,
+          })
+        : [];
+
+      return { meeting, recentMeetings, recentThreads };
+    });
+
+    const [visibleNotes, clientContext, directoryProfiles] = await Promise.all([
+      this.listMeetingNotes(ctx, meetingId)
+        .then((notes) => notes.filter((note) => !note.restricted))
+        .catch(() => []),
+      context.meeting.clientId
+        ? this.clientContext(ctx, context.meeting.clientId).catch(() => null)
+        : Promise.resolve(null),
+      this.directoryProfilesForMeeting(context.meeting).catch(() => []),
+    ]);
+
+    return this.ai.generateMeetingDebrief({
+      meeting: pruneForAi(context.meeting),
+      client: context.meeting.client ? pruneForAi(context.meeting.client) : null,
+      attendees: context.meeting.attendees.map(pruneForAi),
+      prep: context.meeting.preps[0] ? pruneForAi(context.meeting.preps[0]) : null,
+      source: { method: input.method, text: sourceText },
+      visibleNotes: visibleNotes.map(pruneForAi),
+      clientContext: clientContext ? pruneForAi(clientContext) : null,
+      congressionalDirectoryMatches: directoryProfiles.map(pruneForAi),
+      recentMeetings: context.recentMeetings.map(pruneForAi),
+      recentThreads: context.recentThreads.map(pruneForAi),
     });
   }
 
@@ -1445,6 +1906,108 @@ export class EngagementService {
     }
     return contacts;
   }
+
+  private async validateOutreachParents(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    clientId: string | null,
+    meetingId: string | null,
+  ) {
+    if (clientId) {
+      await ensureExists(
+        tx.client.findFirst({ where: { id: clientId, tenantId }, select: { id: true } }),
+        'Client not found',
+      );
+    }
+    if (meetingId) {
+      const meeting = await tx.meeting.findFirst({
+        where: { id: meetingId, tenantId },
+        select: { clientId: true },
+      });
+      if (!meeting) throw new NotFoundException('Meeting not found');
+      if (clientId && meeting.clientId && meeting.clientId !== clientId) {
+        throw new BadRequestException('Meeting belongs to a different client');
+      }
+    }
+  }
+
+  private async hasConnectedInbox(ctx: TenantContext): Promise<boolean> {
+    const count = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.integrationConnection.count({
+        where: {
+          tenantId: ctx.tenantId,
+          status: EngagementConnectionStatus.connected,
+          provider: { in: [EngagementProvider.microsoft_365, EngagementProvider.google_workspace] },
+          ...(ctx.role === 'standard_user' ? { createdByUserId: ctx.userId } : {}),
+        },
+      }),
+    );
+    return count > 0;
+  }
+
+  private async findCampaignSendConnection(ctx: TenantContext) {
+    const connection = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.integrationConnection.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          provider: EngagementProvider.microsoft_365,
+          status: EngagementConnectionStatus.connected,
+          createdByUserId: ctx.userId,
+          token: { isNot: null },
+        },
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true, accountEmail: true, displayName: true },
+      }),
+    );
+    if (!connection) {
+      throw new BadRequestException(
+        'Connect your Microsoft 365 inbox in Settings before sending campaigns from Capiro',
+      );
+    }
+    return connection;
+  }
+
+  private async outreachContext(
+    ctx: TenantContext,
+    record: {
+      clientId: string | null;
+      meetingId: string | null;
+      metadata: Prisma.JsonValue;
+      meeting?: {
+        clientId: string | null;
+        organizerEmail: string | null;
+        attendees: Array<{ email: string | null }>;
+      } | null;
+    },
+    recipients: OutreachRecipientInput[],
+    extraMetadata?: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> {
+    const meetingId = record.meetingId;
+    const clientId = record.clientId ?? record.meeting?.clientId ?? null;
+    const [notes, debriefs, clientContext, directoryMatches] = await Promise.all([
+      meetingId ? this.listMeetingNotes(ctx, meetingId).catch(() => []) : Promise.resolve([]),
+      meetingId ? this.listMeetingDebriefs(ctx, meetingId).catch(() => []) : Promise.resolve([]),
+      clientId ? this.clientContext(ctx, clientId).catch(() => null) : Promise.resolve(null),
+      this.directory
+        .findContactsByEmails(
+          unique([
+            ...recipients.map((recipient) => recipient.email ?? ''),
+            ...(record.meeting?.attendees ?? []).map((attendee) => attendee.email ?? ''),
+            record.meeting?.organizerEmail ?? '',
+          ]).filter(Boolean),
+          50,
+        )
+        .catch(() => []),
+    ]);
+
+    return pruneForAi({
+      notes: notes.filter((note) => !note.restricted),
+      debriefs: debriefs.filter((debrief) => !debrief.restricted),
+      clientContext,
+      directoryMatches,
+      metadata: mergeJsonObjects(record.metadata, extraMetadata ?? {}),
+    });
+  }
 }
 
 function meetingInclude() {
@@ -1459,6 +2022,40 @@ function meetingInclude() {
       where: { status: { not: EngagementTaskStatus.canceled } },
       orderBy: [{ dueDate: 'asc' as const }, { createdAt: 'desc' as const }],
     },
+  };
+}
+
+function outreachInclude() {
+  return {
+    client: clientSummarySelect(),
+    meeting: {
+      select: {
+        id: true,
+        clientId: true,
+        subject: true,
+        startsAt: true,
+        endsAt: true,
+        location: true,
+        organizerEmail: true,
+        organizerName: true,
+        metadata: true,
+        client: clientSummarySelect(),
+        attendees: {
+          select: { id: true, email: true, name: true, role: true },
+          orderBy: { createdAt: 'asc' as const },
+        },
+        preps: {
+          orderBy: { createdAt: 'desc' as const },
+          take: 1,
+        },
+        debriefs: {
+          select: debriefMetadataSelect(),
+          orderBy: { createdAt: 'desc' as const },
+          take: 1,
+        },
+      },
+    },
+    createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
   };
 }
 
@@ -1513,6 +2110,14 @@ function canReadEncryptedEntry(
   if (note.authorUserId === ctx.userId) return true;
   if (ctx.role === 'user_admin' || ctx.role === 'capiro_admin') return true;
   return note.accessLevel === 'tenant_members';
+}
+
+function canEditEncryptedEntry(
+  ctx: TenantContext,
+  note: { authorUserId: string | null },
+): boolean {
+  if (note.authorUserId === ctx.userId) return true;
+  return ctx.role === 'user_admin' || ctx.role === 'capiro_admin';
 }
 
 function normalizeStringArray(value?: string[]): string[] {
@@ -1687,6 +2292,121 @@ function optionalReportText(value: string | undefined | null, max: number): stri
   return text ? text.slice(0, max) : null;
 }
 
+function optionalText(value?: string | null): string | undefined {
+  const text = value?.trim();
+  return text ? text : undefined;
+}
+
+function normalizeOutreachType(value?: string | null): OutreachType | null {
+  if (value === 'campaign' || value === 'follow_up' || value === 'prep') return value;
+  if (!value || value === 'all') return null;
+  throw new BadRequestException('type must be campaign, follow_up, prep, or all');
+}
+
+function normalizeOutreachStatus(value?: string | null): OutreachStatus {
+  if (
+    value === 'draft' ||
+    value === 'sent' ||
+    value === 'opened_in_email' ||
+    value === 'failed'
+  ) {
+    return value;
+  }
+  throw new BadRequestException('status must be draft, sent, opened_in_email, or failed');
+}
+
+function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+      const record = entry as Record<string, unknown>;
+      const email = normalizeEmailAddress(readString(record.email));
+      const name = readString(record.name);
+      const office = readString(record.office);
+      const title = readString(record.title);
+      const state = readString(record.state);
+      const district = readString(record.district);
+      const party = readString(record.party);
+      const directoryContactId = readString(record.directoryContactId);
+      const directoryContactName = readString(record.directoryContactName);
+      const committee = readString(record.committee);
+      const relevanceReason = readString(record.relevanceReason);
+      const personalNote = readString(record.personalNote);
+      if (!email && !name) return null;
+      return {
+        ...(name ? { name: name.slice(0, 160) } : {}),
+        ...(email ? { email } : {}),
+        ...(office ? { office: office.slice(0, 240) } : {}),
+        ...(title ? { title: title.slice(0, 160) } : {}),
+        ...(state ? { state: state.slice(0, 80) } : {}),
+        ...(district ? { district: district.slice(0, 80) } : {}),
+        ...(party ? { party: party.slice(0, 80) } : {}),
+        ...(directoryContactId ? { directoryContactId: directoryContactId.slice(0, 240) } : {}),
+        ...(directoryContactName
+          ? { directoryContactName: directoryContactName.slice(0, 240) }
+          : {}),
+        ...(committee ? { committee: committee.slice(0, 160) } : {}),
+        ...(relevanceReason ? { relevanceReason: relevanceReason.slice(0, 240) } : {}),
+        ...(personalNote ? { personalNote: personalNote.slice(0, 500) } : {}),
+      };
+    })
+    .filter((entry): entry is OutreachRecipientInput => Boolean(entry))
+    .slice(0, 500);
+}
+
+function sanitizeOutreachMetadata(value?: Record<string, unknown>): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
+}
+
+function mergeJsonObjects(
+  base: Prisma.JsonValue | Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const baseRecord =
+    base && typeof base === 'object' && !Array.isArray(base)
+      ? (base as Record<string, unknown>)
+      : {};
+  return { ...baseRecord, ...next };
+}
+
+function readMetadataString(metadata: Prisma.JsonValue, key: string): string | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  return readString((metadata as Record<string, unknown>)[key]);
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function clampInt(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.floor(parsed)));
+}
+
+function buildMailtoUrl(recipients: OutreachRecipientInput[], subject: string, body: string) {
+  const to = recipients
+    .map((recipient) => normalizeEmailAddress(recipient.email))
+    .filter((email): email is string => Boolean(email))
+    .join(',');
+  const params = new URLSearchParams({ subject, body });
+  return `mailto:${encodeURIComponent(to)}?${params.toString()}`;
+}
+
+function assembleCampaignBody(body: string, recipient: OutreachRecipientInput): string {
+  return body
+    .replaceAll('{district}', recipient.district || recipient.state || '')
+    .replaceAll('{committee}', recipient.committee || '')
+    .replaceAll('{member_priority}', recipient.relevanceReason || '')
+    .replaceAll('{personal_note}', recipient.personalNote || '');
+}
+
+function outreachRecipientLabel(recipient: OutreachRecipientInput): string {
+  return recipient.name || recipient.directoryContactName || recipient.office || 'Unnamed recipient';
+}
+
 function normalizeEmailAddress(value?: string | null): string | null {
   const normalized = value?.trim().toLowerCase();
   return normalized && normalized.includes('@') ? normalized : null;
@@ -1698,7 +2418,7 @@ function unique<T>(values: T[]): T[] {
 
 function defaultScopes(provider: EngagementProvider): string[] {
   if (provider === EngagementProvider.microsoft_365) {
-    return ['offline_access', 'User.Read', 'Mail.Read', 'Calendars.Read'];
+    return ['offline_access', 'User.Read', 'Mail.Read', 'Mail.Send', 'Calendars.Read'];
   }
   if (provider === EngagementProvider.google_workspace) {
     return [

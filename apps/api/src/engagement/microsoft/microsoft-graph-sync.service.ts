@@ -164,6 +164,12 @@ interface GraphNotification {
   lifecycleEvent?: string;
 }
 
+export interface MicrosoftGraphSendMailInput {
+  subject: string;
+  body: string;
+  toRecipients: Array<{ email: string; name?: string | null }>;
+}
+
 @Injectable()
 export class MicrosoftGraphSyncService {
   private readonly logger = new Logger(MicrosoftGraphSyncService.name);
@@ -313,6 +319,29 @@ export class MicrosoftGraphSyncService {
     );
 
     return { configured: true, subscriptions };
+  }
+
+  async sendMail(ctx: TenantContext, connectionId: string, input: MicrosoftGraphSendMailInput) {
+    await this.assertConnectionAccess(ctx, connectionId);
+    const { token } = await this.loadConnection(ctx.tenantId, connectionId);
+    const accessToken = await this.getValidAccessToken(ctx.tenantId, connectionId, token);
+    await this.graphPostNoContent('/me/sendMail', accessToken, {
+      message: {
+        subject: input.subject,
+        body: {
+          contentType: 'Text',
+          content: input.body,
+        },
+        toRecipients: input.toRecipients.map((recipient) => ({
+          emailAddress: {
+            address: recipient.email,
+            ...(recipient.name ? { name: recipient.name } : {}),
+          },
+        })),
+      },
+      saveToSentItems: true,
+    });
+    return { ok: true };
   }
 
   async handleNotifications(payload: GraphNotificationPayload) {
@@ -836,7 +865,8 @@ export class MicrosoftGraphSyncService {
     connectionId: string,
     token: IntegrationConnectionToken,
   ): Promise<string> {
-    if (token.expiresAt.getTime() > Date.now() + TOKEN_REFRESH_SKEW_MS) {
+    const hasRequiredScopes = MICROSOFT_SCOPES.every((scope) => token.scopes.includes(scope));
+    if (hasRequiredScopes && token.expiresAt.getTime() > Date.now() + TOKEN_REFRESH_SKEW_MS) {
       return this.tokenCrypto.decrypt({
         ciphertext: token.accessTokenCiphertext,
         iv: token.accessTokenIv,
@@ -910,12 +940,21 @@ export class MicrosoftGraphSyncService {
     return this.graphFetch<T>('POST', url, accessToken, body);
   }
 
+  private async graphPostNoContent(
+    url: string,
+    accessToken: string,
+    body: unknown,
+  ): Promise<void> {
+    await this.graphFetch<void>('POST', url, accessToken, body, {}, false);
+  }
+
   private async graphFetch<T>(
     method: 'GET' | 'POST',
     url: string,
     accessToken: string,
     body?: unknown,
     headers: Record<string, string> = {},
+    parseJson = true,
   ): Promise<T> {
     const target = url.startsWith('https://') ? url : `${GRAPH_BASE_URL}${url}`;
     const response = await fetch(target, {
@@ -942,6 +981,9 @@ export class MicrosoftGraphSyncService {
       throw new ServiceUnavailableException(
         `Microsoft Graph ${method} ${target} failed (${response.status}): ${text.slice(0, 500)}`,
       );
+    }
+    if (!parseJson || response.status === 202 || response.status === 204) {
+      return undefined as T;
     }
     return (await response.json()) as T;
   }

@@ -97,7 +97,7 @@ export interface DirectoryContact {
   }>;
 }
 
-type DirectorySort = 'recent' | 'name-asc' | 'name-desc' | 'state-asc';
+type DirectorySort = 'recent' | 'name-asc' | 'name-desc' | 'state-asc' | 'chamber' | 'party';
 
 export interface DirectoryQuery {
   q?: string;
@@ -107,6 +107,7 @@ export interface DirectoryQuery {
   gender?: string;
   leadership?: string | string[];
   caucus?: string | string[];
+  committee?: string | string[];
   state?: string | string[];
   district?: string | string[];
   education?: string | string[];
@@ -128,6 +129,7 @@ export interface DirectoryAvailableFilters {
   parties: Array<{ value: Party; label: string }>;
   genders: Array<{ value: 'F' | 'M'; label: string }>;
   leadership: string[];
+  committees: string[];
   caucuses: string[];
   states: string[];
   districts: string[];
@@ -586,6 +588,7 @@ export class DirectoryService {
     const region = this.normalizeFilter(query.region);
     const parties = this.normalizeMultiFilter(query.party);
     const leadership = this.normalizeMultiFilter(query.leadership);
+    const committees = this.normalizeMultiFilter(query.committee);
     const caucuses = this.normalizeMultiFilter(query.caucus);
     const states = this.normalizeMultiFilter(query.state);
     const districts = this.normalizeMultiFilter(query.district);
@@ -629,6 +632,9 @@ export class DirectoryService {
       const matchesLeadership =
         leadership.length === 0 ||
         contact.leadershipPositions.some((position) => leadership.includes(position));
+      const matchesCommittee =
+        committees.length === 0 ||
+        contact.committees.some((committee) => committees.includes(committee));
       const matchesCaucus =
         caucuses.length === 0 || contact.caucuses.some((caucus) => caucuses.includes(caucus));
       const matchesEducation =
@@ -645,6 +651,7 @@ export class DirectoryService {
         matchesState &&
         matchesDistrict &&
         matchesLeadership &&
+        matchesCommittee &&
         matchesCaucus &&
         matchesEducation
       );
@@ -673,21 +680,48 @@ export class DirectoryService {
     const next = [...entries];
 
     if (sort === 'name-asc') {
-      return next.sort((left, right) => left.memberName.localeCompare(right.memberName));
+      return next.sort((left, right) => this.compareLastName(left, right));
     }
 
     if (sort === 'name-desc') {
-      return next.sort((left, right) => right.memberName.localeCompare(left.memberName));
+      return next.sort((left, right) => this.compareLastName(right, left));
     }
 
     if (sort === 'state-asc') {
       return next.sort((left, right) => {
         const stateCompare = left.state.localeCompare(right.state);
-        return stateCompare !== 0 ? stateCompare : left.memberName.localeCompare(right.memberName);
+        return stateCompare !== 0 ? stateCompare : this.compareLastName(left, right);
+      });
+    }
+
+    if (sort === 'chamber') {
+      return next.sort((left, right) => {
+        const chamberCompare = left.chamber.localeCompare(right.chamber);
+        return chamberCompare !== 0 ? chamberCompare : this.compareLastName(left, right);
+      });
+    }
+
+    if (sort === 'party') {
+      return next.sort((left, right) => {
+        const partyCompare = left.partyName.localeCompare(right.partyName);
+        return partyCompare !== 0 ? partyCompare : this.compareLastName(left, right);
       });
     }
 
     return next.sort((left, right) => right.lastTouchpoint.localeCompare(left.lastTouchpoint));
+  }
+
+  private compareLastName(left: DirectoryContact, right: DirectoryContact): number {
+    return this.lastNameSortKey(left.memberName).localeCompare(
+      this.lastNameSortKey(right.memberName),
+    );
+  }
+
+  private lastNameSortKey(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+    const last = parts.at(-1) ?? name;
+    const first = parts.slice(0, -1).join(' ');
+    return `${last} ${first}`.toLowerCase();
   }
 
   private buildAvailableFilters(contacts: DirectoryContact[]): DirectoryAvailableFilters {
@@ -705,6 +739,7 @@ export class DirectoryService {
         { value: 'M' as const, label: 'Male' },
       ].filter((gender) => contacts.some((contact) => contact.gender === gender.value)),
       leadership: uniqueSorted(contacts.flatMap((contact) => contact.leadershipPositions)),
+      committees: uniqueSorted(contacts.flatMap((contact) => contact.committees)),
       caucuses: uniqueSorted(contacts.flatMap((contact) => contact.caucuses)),
       states: uniqueSorted(contacts.map((contact) => contact.state)),
       districts: uniqueSorted(
@@ -719,7 +754,14 @@ export class DirectoryService {
 
   private normalizeSort(raw: unknown): DirectorySort {
     const value = String(raw ?? 'recent');
-    if (value === 'name-asc' || value === 'name-desc' || value === 'state-asc') return value;
+    if (
+      value === 'name-asc' ||
+      value === 'name-desc' ||
+      value === 'state-asc' ||
+      value === 'chamber' ||
+      value === 'party'
+    )
+      return value;
     return 'recent';
   }
 

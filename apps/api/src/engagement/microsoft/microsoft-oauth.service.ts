@@ -19,7 +19,13 @@ import type { AppConfig } from '../../config/config.schema.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { TokenCryptoService } from './token-crypto.service.js';
 
-export const MICROSOFT_SCOPES = ['offline_access', 'User.Read', 'Mail.Read', 'Calendars.Read'];
+export const MICROSOFT_SCOPES = [
+  'offline_access',
+  'User.Read',
+  'Mail.Read',
+  'Mail.Send',
+  'Calendars.Read',
+];
 const STATE_TTL_SECONDS = 600;
 
 export interface MicrosoftAuthStartInput {
