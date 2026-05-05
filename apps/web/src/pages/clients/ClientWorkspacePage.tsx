@@ -1,10 +1,8 @@
 import { useMemo, useState } from 'react';
 import {
   ArrowLeftOutlined,
-  CalendarOutlined,
   DeleteOutlined,
   DownloadOutlined,
-  ExportOutlined,
   LinkOutlined,
   MailOutlined,
   MoreOutlined,
@@ -39,8 +37,6 @@ import type { Client, ClientAttachment, ClientDocument, ClientFormSubmit } from 
 const PROFILE_TABS = [
   { key: 'overview', label: 'Overview' },
   { key: 'contacts', label: 'Contacts', disabled: true },
-  { key: 'meetings', label: 'Meetings' },
-  { key: 'mail', label: 'Mail' },
   { key: 'workflows', label: 'Workflows', disabled: true },
   { key: 'documents', label: 'Documents' },
   { key: 'compliance', label: 'Compliance', disabled: true },
@@ -530,10 +526,6 @@ function ClientProfileView({
           children:
             tab.key === 'overview' ? (
               <ClientOverview client={client} intake={intake} />
-            ) : tab.key === 'meetings' ? (
-              <ClientMeetingsTab clientId={client.id} />
-            ) : tab.key === 'mail' ? (
-              <ClientMailTab clientId={client.id} />
             ) : tab.key === 'documents' ? (
               <ClientDocumentsTab clientId={client.id} />
             ) : null,
@@ -629,150 +621,6 @@ function ClientOverview({ client, intake }: { client: Client; intake: Record<str
           ]}
         />
       </div>
-    </div>
-  );
-}
-
-interface ClientMeeting {
-  id: string;
-  subject: string;
-  source: string;
-  location: string | null;
-  startsAt: string;
-  endsAt: string;
-  metadata: Record<string, unknown> | null;
-  associationScore: number | null;
-  associationReason: string | null;
-  attendees: Array<{ id: string; email: string | null; name: string | null }>;
-}
-
-interface ClientMailThread {
-  id: string;
-  subject: string;
-  source: string;
-  snippet: string | null;
-  lastMessageAt: string | null;
-  status: string;
-  metadata: Record<string, unknown> | null;
-  messages: Array<{
-    id: string;
-    fromEmail: string | null;
-    receivedAt: string | null;
-    metadata: Record<string, unknown> | null;
-  }>;
-}
-
-function ClientMeetingsTab({ clientId }: { clientId: string }) {
-  const api = useApi();
-  const [date, setDate] = useState(todayInputValue());
-  const window = useMemo(() => dateWindow(date), [date]);
-  const meetings = useQuery<ClientMeeting[]>({
-    queryKey: ['client-meetings', clientId, window.from, window.to],
-    queryFn: async () =>
-      (
-        await api.get<ClientMeeting[]>('/api/engagement/meetings', {
-          params: { clientId, from: window.from, to: window.to },
-        })
-      ).data,
-  });
-
-  return (
-    <div className="client-profile-panel client-tab-panel">
-      <div className="client-tab-toolbar">
-        <Typography.Title level={5}>Meetings</Typography.Title>
-        <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-      </div>
-      {meetings.isLoading ? (
-        <Skeleton active paragraph={{ rows: 4 }} />
-      ) : meetings.data?.length ? (
-        <div className="client-engagement-list">
-          {meetings.data.map((meeting) => (
-            <div className="client-engagement-row" key={meeting.id}>
-              <span className="client-engagement-icon">
-                <CalendarOutlined />
-              </span>
-              <div>
-                <Typography.Text strong>{meeting.subject}</Typography.Text>
-                <Typography.Text type="secondary">
-                  {[formatTimeRange(meeting.startsAt, meeting.endsAt), meeting.location]
-                    .filter(Boolean)
-                    .join(' | ')}
-                </Typography.Text>
-                {meeting.associationReason ? (
-                  <Typography.Paragraph>{meeting.associationReason}</Typography.Paragraph>
-                ) : null}
-              </div>
-              <Button
-                size="small"
-                icon={<ExportOutlined />}
-                disabled={!openUrl(meeting)}
-                href={openUrl(meeting)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open
-              </Button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <Empty description="No client-matched meetings for this date." />
-      )}
-    </div>
-  );
-}
-
-function ClientMailTab({ clientId }: { clientId: string }) {
-  const api = useApi();
-  const threads = useQuery<ClientMailThread[]>({
-    queryKey: ['client-mail-threads', clientId],
-    queryFn: async () =>
-      (
-        await api.get<ClientMailThread[]>('/api/engagement/mail-threads', {
-          params: { clientId },
-        })
-      ).data,
-  });
-
-  return (
-    <div className="client-profile-panel client-tab-panel">
-      <Typography.Title level={5}>Mail</Typography.Title>
-      {threads.isLoading ? (
-        <Skeleton active paragraph={{ rows: 4 }} />
-      ) : threads.data?.length ? (
-        <div className="client-engagement-list">
-          {threads.data.map((thread) => (
-            <div className="client-engagement-row" key={thread.id}>
-              <span className="client-engagement-icon">
-                <MailOutlined />
-              </span>
-              <div>
-                <Typography.Text strong>{thread.subject}</Typography.Text>
-                <Typography.Text type="secondary">
-                  {[formatOptionalDate(thread.lastMessageAt), thread.status]
-                    .filter(Boolean)
-                    .join(' | ')}
-                </Typography.Text>
-                {thread.snippet ? (
-                  <Typography.Paragraph>{thread.snippet}</Typography.Paragraph>
-                ) : null}
-              </div>
-              <Button
-                size="small"
-                icon={<ExportOutlined />}
-                disabled={!openUrl(thread)}
-                href={openUrl(thread)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open
-              </Button>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <Empty description="No client-matched mail threads yet." />
-      )}
     </div>
   );
 }
@@ -1019,38 +867,6 @@ function documentType(name: string): string {
 
 function externalUrl(value: string): string {
   return /^https?:\/\//i.test(value) ? value : `https://${value}`;
-}
-
-function openUrl(item: { metadata?: Record<string, unknown> | null }): string | undefined {
-  const value = item.metadata?.webLink;
-  return typeof value === 'string' && /^https:\/\//i.test(value) ? value : undefined;
-}
-
-function todayInputValue(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${now.getFullYear()}-${month}-${day}`;
-}
-
-function dateWindow(date: string) {
-  const [year, month, day] = date.split('-').map(Number);
-  const from = new Date(year ?? new Date().getFullYear(), (month ?? 1) - 1, day ?? 1);
-  const to = new Date(from);
-  to.setDate(to.getDate() + 1);
-  return { from: from.toISOString(), to: to.toISOString() };
-}
-
-function formatTimeRange(start: string, end: string): string {
-  const formatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
-  return `${formatter.format(new Date(start))} - ${formatter.format(new Date(end))}`;
-}
-
-function formatOptionalDate(value: string | null): string {
-  if (!value) return '';
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
-    new Date(value),
-  );
 }
 
 function formatBytes(value: number | null): string {

@@ -60,6 +60,11 @@ export const configSchema = z.object({
     .string()
     .url()
     .default('https://app.capiro.ai/api/engagement/integrations/microsoft/notifications'),
+
+  // Public landing page demo requests are stored in Postgres and emailed via
+  // Amazon SES. The source address must be a verified SES identity.
+  DEMO_REQUEST_EMAIL_FROM: z.string().email().default('sales@capiro.ai'),
+  DEMO_REQUEST_EMAIL_TO: z.string().email().default('sales@capiro.ai'),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

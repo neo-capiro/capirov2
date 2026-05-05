@@ -6,6 +6,7 @@ export interface MeetingPrepInput {
   meeting: Record<string, unknown>;
   client: Record<string, unknown> | null;
   attendees: Array<Record<string, unknown>>;
+  congressionalDirectoryMatches: Array<Record<string, unknown>>;
   recentMeetings: Array<Record<string, unknown>>;
   recentThreads: Array<Record<string, unknown>>;
   tasks: Array<Record<string, unknown>>;
@@ -176,6 +177,7 @@ export class EngagementAiService {
     return [
       'Create meeting prep for this lobbying interaction.',
       'Use the client context, past meetings, email threads, and open tasks. Do not invent facts.',
+      'If congressionalDirectoryMatches are present, use those matched member and staff profiles as attendee context, including member bio, committee assignments, and office/location details.',
       'Return JSON with agenda, talkingPoints, risks, followUps, and summary.',
       JSON.stringify(input, null, 2),
     ].join('\n\n');

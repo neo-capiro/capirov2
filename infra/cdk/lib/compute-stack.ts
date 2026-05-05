@@ -11,6 +11,7 @@ import * as kms from 'aws-cdk-lib/aws-kms';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
+import * as ses from 'aws-cdk-lib/aws-ses';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
@@ -160,16 +161,8 @@ export class ComputeStack extends cdk.Stack {
     // first ComputeStack deploy (otherwise the Fargate service has no image
     // to pull on first boot). CDK imports the existing repos and references
     // their `:latest` tag for the task definitions.
-    this.apiRepo = ecr.Repository.fromRepositoryName(
-      this,
-      'ApiRepo',
-      `capiro/${cfg.envName}/api`,
-    );
-    this.webRepo = ecr.Repository.fromRepositoryName(
-      this,
-      'WebRepo',
-      `capiro/${cfg.envName}/web`,
-    );
+    this.apiRepo = ecr.Repository.fromRepositoryName(this, 'ApiRepo', `capiro/${cfg.envName}/api`);
+    this.webRepo = ecr.Repository.fromRepositoryName(this, 'WebRepo', `capiro/${cfg.envName}/web`);
 
     // ------------------------------------------------------------------ ECS cluster
     this.cluster = new ecs.Cluster(this, 'Cluster', {
@@ -195,9 +188,7 @@ export class ComputeStack extends cdk.Stack {
     const migrateLogGroup = new logs.LogGroup(this, 'ApiMigrateLogs', {
       logGroupName: `/capiro/${cfg.envName}/api-migrate`,
       retention: logs.RetentionDays.ONE_YEAR,
-      removalPolicy: cfg.protectFromDestroy
-        ? cdk.RemovalPolicy.RETAIN
-        : cdk.RemovalPolicy.DESTROY,
+      removalPolicy: cfg.protectFromDestroy ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     });
 
     // ------------------------------------------------------------------ Task roles
@@ -206,6 +197,9 @@ export class ComputeStack extends cdk.Stack {
     const apiTaskRole = new iam.Role(this, 'ApiTaskRole', {
       assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
       description: 'Capiro API task role',
+    });
+    const demoRequestEmailIdentity = new ses.EmailIdentity(this, 'DemoRequestEmailIdentity', {
+      identity: ses.Identity.publicHostedZone(hostedZone),
     });
 
     // Grants below use explicit policy statements rather than `secret.grantRead()`
@@ -239,6 +233,12 @@ export class ComputeStack extends cdk.Stack {
       new iam.PolicyStatement({
         actions: ['kms:Decrypt', 'kms:DescribeKey'],
         resources: [dataKey.keyArn, secretsStack.secretsKey.keyArn],
+      }),
+    );
+    apiTaskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['ses:SendEmail'],
+        resources: [demoRequestEmailIdentity.emailIdentityArn],
       }),
     );
 
@@ -338,12 +338,16 @@ export class ComputeStack extends cdk.Stack {
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-state-secret*`,
     ];
 
-    grantSecretsAndKmsToExecutionRole(apiTaskDef, [
-      dbSecretImported.secretArn,
-      clerkSecretKeyImported.secretArn,
-      clerkWebhookImported.secretArn,
-      ...microsoftAndOauthSecretArnPatterns,
-    ], [dataKey.keyArn, secretsStack.secretsKey.keyArn]);
+    grantSecretsAndKmsToExecutionRole(
+      apiTaskDef,
+      [
+        dbSecretImported.secretArn,
+        clerkSecretKeyImported.secretArn,
+        clerkWebhookImported.secretArn,
+        ...microsoftAndOauthSecretArnPatterns,
+      ],
+      [dataKey.keyArn, secretsStack.secretsKey.keyArn],
+    );
 
     const apiContainer = apiTaskDef.addContainer('api', {
       image: ecs.ContainerImage.fromEcrRepository(this.apiRepo, 'latest'),
@@ -573,7 +577,10 @@ export class ComputeStack extends cdk.Stack {
     this.apiBootstrapRolesTaskDefinition.addContainer('api-bootstrap-roles', {
       image: ecs.ContainerImage.fromEcrRepository(this.apiRepo, 'latest'),
       essential: true,
-      logging: ecs.LogDrivers.awsLogs({ logGroup: migrateLogGroup, streamPrefix: 'bootstrap-roles' }),
+      logging: ecs.LogDrivers.awsLogs({
+        logGroup: migrateLogGroup,
+        streamPrefix: 'bootstrap-roles',
+      }),
       command: ['bootstrap-roles'],
       environment: apiSharedEnv,
       // The bootstrap-roles script reads master + app credentials from env.
@@ -671,7 +678,10 @@ export class ComputeStack extends cdk.Stack {
       protocol: elb.ApplicationProtocol.HTTP,
       targetType: elb.TargetType.IP,
       targets: [
-        this.marketingService.loadBalancerTarget({ containerName: 'marketing', containerPort: 8080 }),
+        this.marketingService.loadBalancerTarget({
+          containerName: 'marketing',
+          containerPort: 8080,
+        }),
       ],
       healthCheck: {
         path: '/healthz',
@@ -701,9 +711,7 @@ export class ComputeStack extends cdk.Stack {
     });
     httpsListener.addAction('WebDefault', {
       priority: 20,
-      conditions: [
-        elb.ListenerCondition.hostHeaders([cfg.appHost, cfg.wildcardHost]),
-      ],
+      conditions: [elb.ListenerCondition.hostHeaders([cfg.appHost, cfg.wildcardHost])],
       action: elb.ListenerAction.forward([this.webTargetGroup]),
     });
 

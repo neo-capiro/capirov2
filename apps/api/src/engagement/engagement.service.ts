@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
@@ -26,6 +27,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { DirectoryService } from '../directory/directory.service.js';
 import { ClientAssociationService } from './client-association.service.js';
 import { EngagementAiService } from './engagement-ai.service.js';
 import { MeetingNotesCryptoService } from './meeting-notes-crypto.service.js';
@@ -122,6 +124,7 @@ const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 @Injectable()
 export class EngagementService {
+  private readonly logger = new Logger(EngagementService.name);
   private readonly s3: S3Client;
   private readonly bucket?: string;
 
@@ -130,6 +133,7 @@ export class EngagementService {
     private readonly association: ClientAssociationService,
     private readonly ai: EngagementAiService,
     private readonly notesCrypto: MeetingNotesCryptoService,
+    private readonly directory: DirectoryService,
     config: ConfigService<AppConfig, true>,
   ) {
     this.bucket = config.get('ASSETS_BUCKET', { infer: true });
@@ -569,10 +573,12 @@ export class EngagementService {
       return { meeting, recentMeetings, recentThreads };
     });
 
+    const directoryProfiles = await this.directoryProfilesForMeeting(context.meeting);
     const promptContext = {
       meeting: pruneForAi(context.meeting),
       client: context.meeting.client ? pruneForAi(context.meeting.client) : null,
       attendees: context.meeting.attendees.map(pruneForAi),
+      congressionalDirectoryMatches: directoryProfiles.map(pruneForAi),
       recentMeetings: context.recentMeetings.map(pruneForAi),
       recentThreads: context.recentThreads.map(pruneForAi),
       tasks: context.meeting.tasks.map(pruneForAi),
@@ -599,6 +605,9 @@ export class EngagementService {
             meetingId,
             recentMeetings: context.recentMeetings.map((meeting) => meeting.id),
             recentThreads: context.recentThreads.map((thread) => thread.id),
+            congressionalDirectoryContactIds: directoryProfiles.map(
+              (profile) => profile.directoryContactId,
+            ),
           },
         },
       }),
@@ -646,6 +655,31 @@ export class EngagementService {
         },
       });
     });
+  }
+
+  private async directoryProfilesForMeeting(
+    meeting: Prisma.MeetingGetPayload<{
+      include: { attendees: true };
+    }>,
+  ) {
+    const attendeeEmails = meeting.attendees
+      .map((attendee) => attendee.email)
+      .filter((email): email is string => Boolean(email));
+    const emails = [meeting.organizerEmail, ...attendeeEmails].filter((email): email is string =>
+      Boolean(email),
+    );
+    if (!emails.length) return [];
+
+    try {
+      return await this.directory.findContactsByEmails(emails);
+    } catch (error) {
+      this.logger.warn(
+        `Could not enrich meeting ${meeting.id} with congressional directory context: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return [];
+    }
   }
 
   async overrideAssociation(ctx: TenantContext, input: AssociationOverrideInput) {

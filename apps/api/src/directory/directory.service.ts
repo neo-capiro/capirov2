@@ -145,6 +145,42 @@ export interface DirectoryPayload {
   availableFilters: DirectoryAvailableFilters;
 }
 
+export interface DirectoryEmailMatch {
+  attendeeEmail: string;
+  matchKind: 'member' | 'staff';
+  directoryContactId: string;
+  directoryContactName: string;
+  member: {
+    id: string;
+    bioguideId: string;
+    fullName: string;
+    memberName: string;
+    title: string;
+    chamber: Chamber;
+    state: string;
+    district: string;
+    partyName: string;
+    officeLocation: string;
+    phone: string;
+    email: string;
+    bio: DirectoryContact['bio'];
+    committees: string[];
+    leadershipPositions: string[];
+    focusAreas: string[];
+    addresses: DirectoryAddress[];
+  };
+  staff?: {
+    id: string;
+    fullName: string;
+    title: string;
+    email: string;
+    phone: string;
+    officeLocation: string;
+    issueAreas: string[];
+    roles: string[];
+  };
+}
+
 export interface CreateDirectoryContactNoteInput {
   body: string;
   directoryContactName?: string;
@@ -315,9 +351,72 @@ export class DirectoryService {
       DirectoryService.DEFAULT_PAGE_SIZE,
       DirectoryService.MAX_PAGE_SIZE,
     );
+    const base = await this.getDirectoryData();
+    return this.toPagedPayload(base, query, page, pageSize);
+  }
+
+  async findContactsByEmails(emails: string[]): Promise<DirectoryEmailMatch[]> {
+    const normalizedEmails = uniqueSorted(
+      emails
+        .map((email) => normalizeEmailAddress(email))
+        .filter((email): email is string => Boolean(email)),
+    );
+    if (!normalizedEmails.length) return [];
+
+    const emailSet = new Set(normalizedEmails);
+    const base = await this.getDirectoryData();
+    const matches: DirectoryEmailMatch[] = [];
+    const seen = new Set<string>();
+
+    for (const contact of base.contacts) {
+      const memberEmail = normalizeEmailAddress(contact.email);
+      if (memberEmail && emailSet.has(memberEmail)) {
+        const key = `${memberEmail}:${contact.id}:member`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          matches.push({
+            attendeeEmail: memberEmail,
+            matchKind: 'member',
+            directoryContactId: contact.id,
+            directoryContactName: contact.fullName,
+            member: this.toDirectoryMemberContext(contact),
+          });
+        }
+      }
+
+      for (const staffer of contact.staff) {
+        const staffEmail = normalizeEmailAddress(staffer.email);
+        if (!staffEmail || !emailSet.has(staffEmail)) continue;
+        const key = `${staffEmail}:${contact.id}:${staffer.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        matches.push({
+          attendeeEmail: staffEmail,
+          matchKind: 'staff',
+          directoryContactId: contact.id,
+          directoryContactName: contact.fullName,
+          member: this.toDirectoryMemberContext(contact),
+          staff: {
+            id: staffer.id,
+            fullName: staffer.fullName,
+            title: staffer.title,
+            email: staffer.email,
+            phone: staffer.phone,
+            officeLocation: staffer.officeLocation || contact.officeLocation,
+            issueAreas: staffer.issueAreas,
+            roles: staffer.roles,
+          },
+        });
+      }
+    }
+
+    return matches.slice(0, 10);
+  }
+
+  private async getDirectoryData(): Promise<CachedContacts['data']> {
     const now = Date.now();
     if (this.cache && this.cache.expiresAt > now) {
-      return this.toPagedPayload(this.cache.data, query, page, pageSize);
+      return this.cache.data;
     }
 
     try {
@@ -343,7 +442,7 @@ export class DirectoryService {
         expiresAt: now + 5 * 60_000,
       };
 
-      return this.toPagedPayload(payload, query, page, pageSize);
+      return payload;
     } catch (error) {
       this.logger.error(
         `Failed to load directory contacts from S3 bucket=${this.bucket} prefix=${this.prefix}`,
@@ -351,6 +450,28 @@ export class DirectoryService {
       );
       throw new ServiceUnavailableException('Directory data is temporarily unavailable');
     }
+  }
+
+  private toDirectoryMemberContext(contact: DirectoryContact): DirectoryEmailMatch['member'] {
+    return {
+      id: contact.id,
+      bioguideId: contact.bioguideId,
+      fullName: contact.fullName,
+      memberName: contact.memberName,
+      title: contact.title,
+      chamber: contact.chamber,
+      state: contact.state,
+      district: contact.district,
+      partyName: contact.partyName,
+      officeLocation: contact.officeLocation,
+      phone: contact.phone,
+      email: contact.email,
+      bio: contact.bio,
+      committees: contact.committees,
+      leadershipPositions: contact.leadershipPositions,
+      focusAreas: contact.focusAreas,
+      addresses: contact.addresses,
+    };
   }
 
   listContactNotes(ctx: TenantContext, contactId: string) {
@@ -1113,6 +1234,16 @@ function normalizeContactId(contactId: string): string {
   if (!normalized) throw new BadRequestException('Directory contact id is required');
   if (normalized.length > 120) throw new BadRequestException('Directory contact id is too long');
   return normalized;
+}
+
+function normalizeEmailAddress(value: string | null | undefined): string | null {
+  const normalized = value
+    ?.trim()
+    .toLowerCase()
+    .replace(/^mailto:/, '');
+  if (!normalized) return null;
+  const match = normalized.match(/[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+/);
+  return match?.[0] ?? null;
 }
 
 function compareDistricts(left: string, right: string): number {
