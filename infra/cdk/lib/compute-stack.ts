@@ -120,40 +120,44 @@ export class ComputeStack extends cdk.Stack {
     );
 
     // Microsoft 365 Graph OAuth + token-at-rest crypto. These secrets are
-    // provisioned out-of-band (created by an operator with `aws secretsmanager
-    // create-secret`) so they're imported by name rather than CDK-owned. The
-    // CDK doesn't manage their values — this is intentional, since the cert
-    // private key + AES key are produced by the same human flow that
-    // registers the Entra app.
-    const microsoftClientIdSecret = secretsmanager.Secret.fromSecretNameV2(
+    // provisioned out-of-band and imported by complete ARN when available. ECS
+    // task secret injection requires complete ARNs for these slash-delimited
+    // names; partial ARNs caused new API tasks to fail before startup.
+    const microsoftClientIdSecret = importExternalSecret(
       this,
       'ImportedMicrosoftClientId',
       `capiro/${cfg.envName}/microsoft-client-id`,
+      cfg.externalSecretArns?.microsoftClientId,
     );
-    const microsoftTenantIdSecret = secretsmanager.Secret.fromSecretNameV2(
+    const microsoftTenantIdSecret = importExternalSecret(
       this,
       'ImportedMicrosoftTenantId',
       `capiro/${cfg.envName}/microsoft-tenant-id`,
+      cfg.externalSecretArns?.microsoftTenantId,
     );
-    const microsoftCertThumbprintSecret = secretsmanager.Secret.fromSecretNameV2(
+    const microsoftCertThumbprintSecret = importExternalSecret(
       this,
       'ImportedMicrosoftCertThumbprint',
       `capiro/${cfg.envName}/microsoft-cert-thumbprint`,
+      cfg.externalSecretArns?.microsoftCertThumbprint,
     );
-    const microsoftCertPrivateKeySecret = secretsmanager.Secret.fromSecretNameV2(
+    const microsoftCertPrivateKeySecret = importExternalSecret(
       this,
       'ImportedMicrosoftCertPrivateKey',
       `capiro/${cfg.envName}/microsoft-cert-private-key`,
+      cfg.externalSecretArns?.microsoftCertPrivateKey,
     );
-    const oauthTokenEncryptionKeySecret = secretsmanager.Secret.fromSecretNameV2(
+    const oauthTokenEncryptionKeySecret = importExternalSecret(
       this,
       'ImportedOauthTokenEncryptionKey',
       `capiro/${cfg.envName}/oauth-token-encryption-key`,
+      cfg.externalSecretArns?.oauthTokenEncryptionKey,
     );
-    const oauthStateSecret = secretsmanager.Secret.fromSecretNameV2(
+    const oauthStateSecret = importExternalSecret(
       this,
       'ImportedOauthStateSecret',
       `capiro/${cfg.envName}/oauth-state-secret`,
+      cfg.externalSecretArns?.oauthStateSecret,
     );
 
     // ------------------------------------------------------------------ ECR
@@ -827,6 +831,17 @@ export class ComputeStack extends cdk.Stack {
       value: this.apiMigrateTaskDefinition.taskDefinitionArn,
     });
   }
+}
+
+function importExternalSecret(
+  scope: Construct,
+  id: string,
+  secretName: string,
+  completeArn?: string,
+): secretsmanager.ISecret {
+  return completeArn
+    ? secretsmanager.Secret.fromSecretCompleteArn(scope, id, completeArn)
+    : secretsmanager.Secret.fromSecretNameV2(scope, id, secretName);
 }
 
 /**

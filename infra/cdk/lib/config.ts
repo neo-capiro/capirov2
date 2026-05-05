@@ -30,6 +30,14 @@ export interface EnvConfig {
   // Hardening
   protectFromDestroy: boolean; // true for prod, false for dev to allow iteration
   logRetentionDays: number;
+  externalSecretArns?: {
+    microsoftClientId: string;
+    microsoftTenantId: string;
+    microsoftCertThumbprint: string;
+    microsoftCertPrivateKey: string;
+    oauthTokenEncryptionKey: string;
+    oauthStateSecret: string;
+  };
 }
 
 const BASE: Omit<EnvConfig, 'envName' | 'account' | 'region'> = {
@@ -61,8 +69,7 @@ export function loadConfig(app: cdk.App): EnvConfig {
     throw new Error(`Unknown env=${envName}`);
   }
   const account =
-    (app.node.tryGetContext('account') as string | undefined) ??
-    process.env.CDK_DEFAULT_ACCOUNT;
+    (app.node.tryGetContext('account') as string | undefined) ?? process.env.CDK_DEFAULT_ACCOUNT;
   if (!account) {
     throw new Error(
       'AWS account not set. Pass --context account=<id> or export CDK_DEFAULT_ACCOUNT.',
@@ -87,7 +94,22 @@ export function loadConfig(app: cdk.App): EnvConfig {
         }
       : envName === 'staging'
         ? { protectFromDestroy: true }
-        : {};
+        : {
+            externalSecretArns: {
+              microsoftClientId:
+                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-client-id-AU8xuO',
+              microsoftTenantId:
+                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-tenant-id-cC9TIB',
+              microsoftCertThumbprint:
+                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-cert-thumbprint-gJsG0v',
+              microsoftCertPrivateKey:
+                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-cert-private-key-rW9ERB',
+              oauthTokenEncryptionKey:
+                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/oauth-token-encryption-key-VQCjD8',
+              oauthStateSecret:
+                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/oauth-state-secret-XOOzYB',
+            },
+          };
 
   return { ...BASE, envName, account, region, ...overrides };
 }
