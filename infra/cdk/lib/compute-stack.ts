@@ -11,7 +11,6 @@ import * as kms from 'aws-cdk-lib/aws-kms';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
-import * as ses from 'aws-cdk-lib/aws-ses';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
@@ -202,9 +201,10 @@ export class ComputeStack extends cdk.Stack {
       assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
       description: 'Capiro API task role',
     });
-    const demoRequestEmailIdentity = new ses.EmailIdentity(this, 'DemoRequestEmailIdentity', {
-      identity: ses.Identity.publicHostedZone(hostedZone),
-    });
+    // The capiro.ai SES identity and DKIM Route 53 records are operationally
+    // managed so we can preserve the verified identity across Compute stack
+    // updates. The API only needs permission to send through those identities.
+    const demoRequestDomainIdentityArn = `arn:aws:ses:${this.region}:${this.account}:identity/${cfg.rootDomain}`;
 
     // Grants below use explicit policy statements rather than `secret.grantRead()`
     // / `key.grantDecrypt()`. The convenience helpers mutate the *resource*
@@ -243,7 +243,7 @@ export class ComputeStack extends cdk.Stack {
       new iam.PolicyStatement({
         actions: ['ses:SendEmail'],
         resources: [
-          demoRequestEmailIdentity.emailIdentityArn,
+          demoRequestDomainIdentityArn,
           `arn:aws:ses:${this.region}:${this.account}:identity/sales@capiro.ai`,
         ],
       }),
