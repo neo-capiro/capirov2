@@ -286,7 +286,7 @@ export class EngagementService {
       tx.integrationConnection.findMany({
         where: {
           tenantId: ctx.tenantId,
-          ...(ctx.role === 'standard_user' ? { createdByUserId: ctx.userId } : {}),
+          createdByUserId: ctx.userId,
         },
         orderBy: [{ provider: 'asc' }, { createdAt: 'desc' }],
       }),
@@ -320,6 +320,7 @@ export class EngagementService {
       tx.meeting.findMany({
         where: {
           tenantId: ctx.tenantId,
+          ...ownMeetingWhere(ctx.userId),
           ...(query.clientId ? { clientId: query.clientId } : {}),
           startsAt: { gte: from, lt: to },
         },
@@ -331,7 +332,10 @@ export class EngagementService {
 
   async getMeeting(ctx: TenantContext, id: string) {
     const meeting = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.meeting.findUnique({ where: { id }, include: meetingInclude() }),
+      tx.meeting.findFirst({
+        where: { id, tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
+        include: meetingInclude(),
+      }),
     );
     if (!meeting) throw new NotFoundException('Meeting not found');
     return meeting;
@@ -403,7 +407,9 @@ export class EngagementService {
 
   async updateMeeting(ctx: TenantContext, id: string, input: UpdateMeetingInput) {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
-      const existing = await tx.meeting.findUnique({ where: { id } });
+      const existing = await tx.meeting.findFirst({
+        where: { id, tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
+      });
       if (!existing) throw new NotFoundException('Meeting not found');
 
       const updated = await tx.meeting.update({
@@ -442,7 +448,11 @@ export class EngagementService {
   listMailThreads(ctx: TenantContext, query: { clientId?: string }) {
     return this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.mailThread.findMany({
-        where: { tenantId: ctx.tenantId, ...(query.clientId ? { clientId: query.clientId } : {}) },
+        where: {
+          tenantId: ctx.tenantId,
+          ...ownMailThreadWhere(ctx.userId),
+          ...(query.clientId ? { clientId: query.clientId } : {}),
+        },
         include: {
           client: clientSummarySelect(),
           messages: { orderBy: { receivedAt: 'desc' }, take: 3 },
@@ -498,7 +508,7 @@ export class EngagementService {
     const meetingId = input.meetingId?.trim() || null;
 
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
-      await this.validateOutreachParents(tx, ctx.tenantId, clientId, meetingId);
+      await this.validateOutreachParents(tx, ctx, clientId, meetingId);
 
       return tx.outreachRecord.create({
         data: {
@@ -531,11 +541,10 @@ export class EngagementService {
         throw new BadRequestException('Sent outreach cannot be moved back to draft');
       }
 
-      const nextClientId =
-        'clientId' in input ? input.clientId?.trim() || null : existing.clientId;
+      const nextClientId = 'clientId' in input ? input.clientId?.trim() || null : existing.clientId;
       const nextMeetingId =
         'meetingId' in input ? input.meetingId?.trim() || null : existing.meetingId;
-      await this.validateOutreachParents(tx, ctx.tenantId, nextClientId, nextMeetingId);
+      await this.validateOutreachParents(tx, ctx, nextClientId, nextMeetingId);
       const recipients =
         'recipients' in input
           ? normalizeOutreachRecipients(input.recipients)
@@ -632,7 +641,8 @@ export class EngagementService {
     }
     const recipients = normalizeOutreachRecipients(record.recipients);
     if (!recipients.length) throw new BadRequestException('At least one recipient is required');
-    if (!record.subject || !record.body) throw new BadRequestException('Draft subject and body are required');
+    if (!record.subject || !record.body)
+      throw new BadRequestException('Draft subject and body are required');
 
     const openedAt = new Date();
     const updated = await this.prisma.withTenant(ctx.tenantId, (tx) =>
@@ -799,6 +809,7 @@ export class EngagementService {
         tx.meeting.findMany({
           where: {
             tenantId: ctx.tenantId,
+            ...ownMeetingWhere(ctx.userId),
             ...(clientId ? { clientId } : {}),
             ...(dateWhere ? { startsAt: dateWhere } : {}),
           },
@@ -823,6 +834,7 @@ export class EngagementService {
         tx.mailMessage.findMany({
           where: {
             tenantId: ctx.tenantId,
+            ...ownMailMessageWhere(ctx.userId),
             ...(dateWhere
               ? {
                   OR: [{ sentAt: dateWhere }, { receivedAt: dateWhere }],
@@ -1243,7 +1255,7 @@ export class EngagementService {
     const encrypted = this.notesCrypto.encrypt(input.body);
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const meeting = await tx.meeting.findFirst({
-        where: { id: meetingId, tenantId: ctx.tenantId },
+        where: { id: meetingId, tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
       });
       if (!meeting) throw new NotFoundException('Meeting not found');
       return tx.meetingNote.create({
@@ -1272,6 +1284,7 @@ export class EngagementService {
   ) {
     const encrypted = this.notesCrypto.encrypt(input.body);
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await this.ensureOwnMeeting(tx, ctx, meetingId);
       const note = await tx.meetingNote.findFirst({
         where: { id: noteId, tenantId: ctx.tenantId, meetingId },
         select: { id: true, authorUserId: true },
@@ -1304,7 +1317,7 @@ export class EngagementService {
     const encrypted = this.notesCrypto.encrypt(input.body);
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const meeting = await tx.meeting.findFirst({
-        where: { id: meetingId, tenantId: ctx.tenantId },
+        where: { id: meetingId, tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
       });
       if (!meeting) throw new NotFoundException('Meeting not found');
       return tx.meetingDebrief.create({
@@ -1335,7 +1348,7 @@ export class EngagementService {
 
     const context = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const meeting = await tx.meeting.findFirst({
-        where: { id: meetingId, tenantId: ctx.tenantId },
+        where: { id: meetingId, tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
         include: {
           client: true,
           attendees: true,
@@ -1352,7 +1365,12 @@ export class EngagementService {
 
       const recentMeetings = meeting.clientId
         ? await tx.meeting.findMany({
-            where: { tenantId: ctx.tenantId, clientId: meeting.clientId, id: { not: meeting.id } },
+            where: {
+              tenantId: ctx.tenantId,
+              clientId: meeting.clientId,
+              id: { not: meeting.id },
+              ...ownMeetingWhere(ctx.userId),
+            },
             select: {
               id: true,
               subject: true,
@@ -1368,7 +1386,11 @@ export class EngagementService {
 
       const recentThreads = meeting.clientId
         ? await tx.mailThread.findMany({
-            where: { tenantId: ctx.tenantId, clientId: meeting.clientId },
+            where: {
+              tenantId: ctx.tenantId,
+              clientId: meeting.clientId,
+              ...ownMailThreadWhere(ctx.userId),
+            },
             select: { id: true, subject: true, snippet: true, lastMessageAt: true, status: true },
             orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
             take: 5,
@@ -1405,7 +1427,7 @@ export class EngagementService {
   async listMeetingNotes(ctx: TenantContext, meetingId: string) {
     const notes = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const meeting = await tx.meeting.findFirst({
-        where: { id: meetingId, tenantId: ctx.tenantId },
+        where: { id: meetingId, tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
         select: { id: true },
       });
       if (!meeting) throw new NotFoundException('Meeting not found');
@@ -1447,7 +1469,7 @@ export class EngagementService {
   async listMeetingDebriefs(ctx: TenantContext, meetingId: string) {
     const debriefs = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const meeting = await tx.meeting.findFirst({
-        where: { id: meetingId, tenantId: ctx.tenantId },
+        where: { id: meetingId, tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
         select: { id: true },
       });
       if (!meeting) throw new NotFoundException('Meeting not found');
@@ -1489,7 +1511,7 @@ export class EngagementService {
   async generateMeetingPrep(ctx: TenantContext, meetingId: string) {
     const context = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const meeting = await tx.meeting.findFirst({
-        where: { id: meetingId, tenantId: ctx.tenantId },
+        where: { id: meetingId, tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
         include: {
           client: true,
           attendees: true,
@@ -1504,7 +1526,12 @@ export class EngagementService {
 
       const recentMeetings = meeting.clientId
         ? await tx.meeting.findMany({
-            where: { tenantId: ctx.tenantId, clientId: meeting.clientId, id: { not: meeting.id } },
+            where: {
+              tenantId: ctx.tenantId,
+              clientId: meeting.clientId,
+              id: { not: meeting.id },
+              ...ownMeetingWhere(ctx.userId),
+            },
             select: {
               id: true,
               subject: true,
@@ -1519,7 +1546,11 @@ export class EngagementService {
 
       const recentThreads = meeting.clientId
         ? await tx.mailThread.findMany({
-            where: { tenantId: ctx.tenantId, clientId: meeting.clientId },
+            where: {
+              tenantId: ctx.tenantId,
+              clientId: meeting.clientId,
+              ...ownMailThreadWhere(ctx.userId),
+            },
             select: { id: true, subject: true, snippet: true, lastMessageAt: true, status: true },
             orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
             take: 5,
@@ -1574,9 +1605,10 @@ export class EngagementService {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const prep = await tx.meetingPrep.findFirst({
         where: { id: prepId, tenantId: ctx.tenantId },
-        select: { id: true },
+        select: { id: true, meetingId: true },
       });
       if (!prep) throw new NotFoundException('Meeting prep not found');
+      await this.ensureOwnMeeting(tx, ctx, prep.meetingId);
 
       return tx.meetingPrep.update({
         where: { id: prepId },
@@ -1599,9 +1631,10 @@ export class EngagementService {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const prep = await tx.meetingPrep.findFirst({
         where: { id: prepId, tenantId: ctx.tenantId },
-        select: { id: true },
+        select: { id: true, meetingId: true },
       });
       if (!prep) throw new NotFoundException('Meeting prep not found');
+      await this.ensureOwnMeeting(tx, ctx, prep.meetingId);
 
       return tx.meetingPrep.update({
         where: { id: prepId },
@@ -1660,7 +1693,13 @@ export class EngagementService {
       );
 
       if (input.entityType === AssociationEntityType.meeting) {
-        const existing = await tx.meeting.findUnique({ where: { id: input.entityId } });
+        const existing = await tx.meeting.findFirst({
+          where: {
+            id: input.entityId,
+            tenantId: ctx.tenantId,
+            ...ownMeetingWhere(ctx.userId),
+          },
+        });
         if (!existing) throw new NotFoundException('Meeting not found');
         await tx.meeting.update({
           where: { id: input.entityId },
@@ -1681,7 +1720,13 @@ export class EngagementService {
       }
 
       if (input.entityType === AssociationEntityType.mail_thread) {
-        const existing = await tx.mailThread.findUnique({ where: { id: input.entityId } });
+        const existing = await tx.mailThread.findFirst({
+          where: {
+            id: input.entityId,
+            tenantId: ctx.tenantId,
+            ...ownMailThreadWhere(ctx.userId),
+          },
+        });
         if (!existing) throw new NotFoundException('Mail thread not found');
         await tx.mailThread.update({
           where: { id: input.entityId },
@@ -1711,13 +1756,13 @@ export class EngagementService {
       if (!client) throw new NotFoundException('Client not found');
       const [meetings, threads, contacts, tasks] = await Promise.all([
         tx.meeting.findMany({
-          where: { tenantId: ctx.tenantId, clientId },
+          where: { tenantId: ctx.tenantId, clientId, ...ownMeetingWhere(ctx.userId) },
           include: { attendees: true },
           orderBy: { startsAt: 'desc' },
           take: 10,
         }),
         tx.mailThread.findMany({
-          where: { tenantId: ctx.tenantId, clientId },
+          where: { tenantId: ctx.tenantId, clientId, ...ownMailThreadWhere(ctx.userId) },
           orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
           take: 10,
         }),
@@ -1779,6 +1824,7 @@ export class EngagementService {
         'Attachment must be linked to a client, meeting, or mail message',
       );
     }
+    await this.validateAttachmentParents(ctx, input);
 
     const safeName = safeFileName(input.fileName);
     const s3Key = `tenants/${ctx.tenantId}/engagement/${randomUUID()}/${safeName}`;
@@ -1805,6 +1851,7 @@ export class EngagementService {
       .send(new HeadObjectCommand({ Bucket: this.bucket, Key: input.s3Key }))
       .catch(() => null);
     if (!head) throw new BadRequestException('Uploaded attachment not found in S3');
+    await this.validateAttachmentParents(ctx, input);
 
     return this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.engagementAttachment.create({
@@ -1832,6 +1879,7 @@ export class EngagementService {
     if (!query.clientId && !query.meetingId && !query.mailMessageId) {
       throw new BadRequestException('At least one attachment parent is required');
     }
+    await this.validateAttachmentParents(ctx, query);
     const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.engagementAttachment.findMany({
         where: {
@@ -1853,9 +1901,16 @@ export class EngagementService {
 
   async deleteAttachment(ctx: TenantContext, id: string) {
     const attachment = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
-      const row = await tx.engagementAttachment.findUnique({ where: { id } });
+      const row = await tx.engagementAttachment.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+      });
       if (!row) throw new NotFoundException('Attachment not found');
       return row;
+    });
+    await this.validateAttachmentParents(ctx, {
+      clientId: attachment.clientId ?? undefined,
+      meetingId: attachment.meetingId ?? undefined,
+      mailMessageId: attachment.mailMessageId ?? undefined,
     });
 
     if (this.bucket) {
@@ -1909,19 +1964,26 @@ export class EngagementService {
 
   private async validateOutreachParents(
     tx: Prisma.TransactionClient,
-    tenantId: string,
+    ctx: TenantContext,
     clientId: string | null,
     meetingId: string | null,
   ) {
     if (clientId) {
       await ensureExists(
-        tx.client.findFirst({ where: { id: clientId, tenantId }, select: { id: true } }),
+        tx.client.findFirst({
+          where: { id: clientId, tenantId: ctx.tenantId },
+          select: { id: true },
+        }),
         'Client not found',
       );
     }
     if (meetingId) {
       const meeting = await tx.meeting.findFirst({
-        where: { id: meetingId, tenantId },
+        where: {
+          id: meetingId,
+          tenantId: ctx.tenantId,
+          ...ownMeetingWhere(ctx.userId),
+        },
         select: { clientId: true },
       });
       if (!meeting) throw new NotFoundException('Meeting not found');
@@ -1931,6 +1993,55 @@ export class EngagementService {
     }
   }
 
+  private async validateAttachmentParents(
+    ctx: TenantContext,
+    input: { clientId?: string | null; meetingId?: string | null; mailMessageId?: string | null },
+  ) {
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      if (input.clientId) {
+        await ensureExists(
+          tx.client.findFirst({
+            where: { id: input.clientId, tenantId: ctx.tenantId },
+            select: { id: true },
+          }),
+          'Client not found',
+        );
+      }
+      if (input.meetingId) {
+        await this.ensureOwnMeeting(tx, ctx, input.meetingId);
+      }
+      if (input.mailMessageId) {
+        await this.ensureOwnMailMessage(tx, ctx, input.mailMessageId);
+      }
+    });
+  }
+
+  private async ensureOwnMeeting(
+    tx: Prisma.TransactionClient,
+    ctx: TenantContext,
+    meetingId: string,
+  ) {
+    const meeting = await tx.meeting.findFirst({
+      where: { id: meetingId, tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
+      select: { id: true, clientId: true },
+    });
+    if (!meeting) throw new NotFoundException('Meeting not found');
+    return meeting;
+  }
+
+  private async ensureOwnMailMessage(
+    tx: Prisma.TransactionClient,
+    ctx: TenantContext,
+    mailMessageId: string,
+  ) {
+    const message = await tx.mailMessage.findFirst({
+      where: { id: mailMessageId, tenantId: ctx.tenantId, ...ownMailMessageWhere(ctx.userId) },
+      select: { id: true },
+    });
+    if (!message) throw new NotFoundException('Mail message not found');
+    return message;
+  }
+
   private async hasConnectedInbox(ctx: TenantContext): Promise<boolean> {
     const count = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.integrationConnection.count({
@@ -1938,7 +2049,7 @@ export class EngagementService {
           tenantId: ctx.tenantId,
           status: EngagementConnectionStatus.connected,
           provider: { in: [EngagementProvider.microsoft_365, EngagementProvider.google_workspace] },
-          ...(ctx.role === 'standard_user' ? { createdByUserId: ctx.userId } : {}),
+          createdByUserId: ctx.userId,
         },
       }),
     );
@@ -2022,6 +2133,24 @@ function meetingInclude() {
       where: { status: { not: EngagementTaskStatus.canceled } },
       orderBy: [{ dueDate: 'asc' as const }, { createdAt: 'desc' as const }],
     },
+  };
+}
+
+function ownMeetingWhere(userId: string): Prisma.MeetingWhereInput {
+  return {
+    OR: [{ createdByUserId: userId }, { connection: { createdByUserId: userId } }],
+  };
+}
+
+function ownMailThreadWhere(userId: string): Prisma.MailThreadWhereInput {
+  return {
+    connection: { createdByUserId: userId },
+  };
+}
+
+function ownMailMessageWhere(userId: string): Prisma.MailMessageWhereInput {
+  return {
+    connection: { createdByUserId: userId },
   };
 }
 
@@ -2112,10 +2241,7 @@ function canReadEncryptedEntry(
   return note.accessLevel === 'tenant_members';
 }
 
-function canEditEncryptedEntry(
-  ctx: TenantContext,
-  note: { authorUserId: string | null },
-): boolean {
+function canEditEncryptedEntry(ctx: TenantContext, note: { authorUserId: string | null }): boolean {
   if (note.authorUserId === ctx.userId) return true;
   return ctx.role === 'user_admin' || ctx.role === 'capiro_admin';
 }
@@ -2304,12 +2430,7 @@ function normalizeOutreachType(value?: string | null): OutreachType | null {
 }
 
 function normalizeOutreachStatus(value?: string | null): OutreachStatus {
-  if (
-    value === 'draft' ||
-    value === 'sent' ||
-    value === 'opened_in_email' ||
-    value === 'failed'
-  ) {
+  if (value === 'draft' || value === 'sent' || value === 'opened_in_email' || value === 'failed') {
     return value;
   }
   throw new BadRequestException('status must be draft, sent, opened_in_email, or failed');
@@ -2404,7 +2525,9 @@ function assembleCampaignBody(body: string, recipient: OutreachRecipientInput): 
 }
 
 function outreachRecipientLabel(recipient: OutreachRecipientInput): string {
-  return recipient.name || recipient.directoryContactName || recipient.office || 'Unnamed recipient';
+  return (
+    recipient.name || recipient.directoryContactName || recipient.office || 'Unnamed recipient'
+  );
 }
 
 function normalizeEmailAddress(value?: string | null): string | null {

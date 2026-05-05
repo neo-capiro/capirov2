@@ -843,8 +843,6 @@ export class MicrosoftGraphSyncService {
   }
 
   private async assertConnectionAccess(ctx: TenantContext, connectionId: string): Promise<void> {
-    if (ctx.role !== 'standard_user') return;
-
     const connection = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.integrationConnection.findUnique({
         where: { id: connectionId },
@@ -886,10 +884,21 @@ export class MicrosoftGraphSyncService {
       iv: token.refreshTokenIv,
       authTag: token.refreshTokenAuthTag,
     });
-    const result = await this.getMsal().acquireTokenByRefreshToken({
-      refreshToken,
-      scopes: MICROSOFT_SCOPES,
-    });
+    let result: AuthenticationResult | null;
+    try {
+      result = await this.getMsal().acquireTokenByRefreshToken({
+        refreshToken,
+        scopes: MICROSOFT_SCOPES,
+      });
+    } catch (error) {
+      if (requiresInteractiveMicrosoftConsent(error)) {
+        await this.markConnectionNeedsReconnect(tenantId, connectionId, error);
+        throw new BadRequestException(
+          'Reconnect Microsoft 365 in Settings to grant the updated Outlook permissions',
+        );
+      }
+      throw error;
+    }
     if (!result?.accessToken) {
       throw new ServiceUnavailableException(
         'Microsoft token refresh failed; reconnect Microsoft 365',
@@ -897,6 +906,28 @@ export class MicrosoftGraphSyncService {
     }
     await this.persistRefreshedAccessToken(tenantId, connectionId, result);
     return result.accessToken;
+  }
+
+  private async markConnectionNeedsReconnect(
+    tenantId: string,
+    connectionId: string,
+    error: unknown,
+  ) {
+    const message = error instanceof Error ? error.message : String(error);
+    await this.prisma.withTenant(tenantId, async (tx) => {
+      await tx.integrationConnection
+        .update({
+          where: { id: connectionId },
+          data: {
+            status: EngagementConnectionStatus.needs_configuration,
+            lastError: `Reconnect Microsoft 365 to grant updated permissions. ${message.slice(
+              0,
+              850,
+            )}`,
+          },
+        })
+        .catch(() => undefined);
+    });
   }
 
   private async persistRefreshedAccessToken(
@@ -940,11 +971,7 @@ export class MicrosoftGraphSyncService {
     return this.graphFetch<T>('POST', url, accessToken, body);
   }
 
-  private async graphPostNoContent(
-    url: string,
-    accessToken: string,
-    body: unknown,
-  ): Promise<void> {
+  private async graphPostNoContent(url: string, accessToken: string, body: unknown): Promise<void> {
     await this.graphFetch<void>('POST', url, accessToken, body, {}, false);
   }
 
@@ -1261,6 +1288,11 @@ function addDays(date: Date, days: number): Date {
 
 function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+function requiresInteractiveMicrosoftConsent(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /AADSTS65001|invalid_grant|consent/i.test(message);
 }
 
 function sleep(ms: number): Promise<void> {

@@ -109,17 +109,29 @@ export class MicrosoftOAuthService {
         if (existing.provider !== EngagementProvider.microsoft_365) {
           throw new BadRequestException('Connection is not a Microsoft 365 integration');
         }
-        if (ctx.role === 'standard_user' && existing.createdByUserId !== ctx.userId) {
+        if (existing.createdByUserId !== ctx.userId) {
           throw new ForbiddenException('You can only connect your own Microsoft account');
         }
         return existing;
       }
 
+      const accountEmail = input.accountEmail?.trim().toLowerCase() || undefined;
+      const existing = await tx.integrationConnection.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          provider: EngagementProvider.microsoft_365,
+          createdByUserId: ctx.userId,
+          ...(accountEmail ? { accountEmail } : {}),
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+      if (existing) return existing;
+
       return tx.integrationConnection.create({
         data: {
           tenantId: ctx.tenantId,
           provider: EngagementProvider.microsoft_365,
-          accountEmail: input.accountEmail?.trim().toLowerCase() || null,
+          accountEmail: accountEmail ?? null,
           displayName: input.displayName?.trim() || null,
           status: EngagementConnectionStatus.needs_configuration,
           scopes: MICROSOFT_SCOPES,
@@ -144,7 +156,7 @@ export class MicrosoftOAuthService {
       scopes: MICROSOFT_SCOPES,
       redirectUri: this.redirectUri,
       state,
-      prompt: 'select_account',
+      prompt: 'consent',
     });
 
     return { authUrl, connectionId: connection.id };
