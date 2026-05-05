@@ -12,12 +12,10 @@ import {
   PlusOutlined,
   RobotOutlined,
   SaveOutlined,
-  SyncOutlined,
   TeamOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Empty, Form, Input, Modal, Select, Space, Tabs, Tag, Typography } from 'antd';
-import { GlobalClientPicker } from '../../components/GlobalClientPicker.js';
 import { useApi } from '../../lib/use-api.js';
 import { useClientFilter } from '../../state/client-filter.js';
 import type { Client } from '../clients/clientTypes.js';
@@ -26,15 +24,6 @@ interface EngagementCapabilities {
   ai: { activeProvider: 'openai' | 'anthropic' | null };
   notes: { encryptedNotesConfigured: boolean };
   attachments: { s3Configured: boolean; maxBytes: number };
-}
-
-interface IntegrationConnection {
-  id: string;
-  provider: 'microsoft_365' | 'google_workspace' | 'imap_caldav' | 'manual';
-  accountEmail: string | null;
-  displayName: string | null;
-  status: 'needs_configuration' | 'connected' | 'error' | 'disabled';
-  lastSyncAt: string | null;
 }
 
 interface MeetingAttendee {
@@ -298,12 +287,6 @@ export function EngagementPage() {
       (await api.get<EngagementCapabilities>('/api/engagement/capabilities')).data,
   });
 
-  const integrations = useQuery<IntegrationConnection[]>({
-    queryKey: ['engagement-integrations'],
-    queryFn: async () =>
-      (await api.get<IntegrationConnection[]>('/api/engagement/integrations')).data,
-  });
-
   const meetings = useQuery<Meeting[]>({
     queryKey: ['engagement-meetings', selectedClientId, window.from, window.to],
     queryFn: async () =>
@@ -405,38 +388,6 @@ export function EngagementPage() {
           params: { clientId: selectedClientId ?? undefined, period: reportPeriod },
         })
       ).data,
-  });
-
-  const syncOutlookDay = useMutation({
-    mutationFn: async () => {
-      const connections = (integrations.data ?? []).filter(
-        (connection) =>
-          connection.provider === 'microsoft_365' && connection.status === 'connected',
-      );
-      if (!connections.length) throw new Error('Connect Microsoft 365 before syncing Outlook.');
-
-      for (const connection of connections) {
-        await api.post(
-          `/api/engagement/integrations/microsoft/${connection.id}/calendar-window`,
-          undefined,
-          { params: { from: window.from, to: window.to } },
-        );
-        await api.post(`/api/engagement/integrations/microsoft/${connection.id}/sync`, undefined, {
-          params: { calendar: 'false', mail: 'true' },
-        });
-      }
-    },
-    onSuccess: () => {
-      message.success('Outlook schedule refreshed');
-      qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
-      qc.invalidateQueries({ queryKey: ['engagement-calendar-meetings'] });
-      qc.invalidateQueries({ queryKey: ['engagement-mail-threads'] });
-      qc.invalidateQueries({ queryKey: ['engagement-client-context'] });
-      qc.invalidateQueries({ queryKey: ['client-meetings'] });
-      qc.invalidateQueries({ queryKey: ['client-mail-threads'] });
-      qc.invalidateQueries({ queryKey: ['engagement-report'] });
-    },
-    onError: (err) => message.error(errorMessage(err)),
   });
 
   const createMeeting = useMutation({
@@ -619,53 +570,40 @@ export function EngagementPage() {
     onError: (err) => message.error(errorMessage(err)),
   });
 
-  const activeClient = clients.data?.find((client) => client.id === selectedClientId);
-
   return (
     <section className="engagement-page">
-      <div className="engagement-hero">
-        <div>
-          <Typography.Title level={3}>Engagement Manager</Typography.Title>
-          <Typography.Text>
-            {activeClient ? activeClient.name : 'All clients'} · {formatLongDate(window.from)}
-          </Typography.Text>
-        </div>
-        <Space wrap>
-          <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-          <Button
-            icon={<SyncOutlined />}
-            loading={syncOutlookDay.isPending}
-            onClick={() => syncOutlookDay.mutate()}
-          >
-            Sync Outlook
-          </Button>
-          <Button icon={<PlusOutlined />} onClick={() => setTaskModalOpen(true)}>
-            Task
-          </Button>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              meetingForm.setFieldsValue({
-                date,
-                startsAt: '09:00',
-                endsAt: '09:30',
-                clientId: selectedClientId ?? undefined,
-              });
-              setMeetingModalOpen(true);
-            }}
-          >
-            Meeting
-          </Button>
-        </Space>
-      </div>
-
-      <GlobalClientPicker />
-
       <Tabs
         className="engagement-tabs"
         activeKey={activeEngagementTab}
         onChange={setActiveEngagementTab}
+        tabBarExtraContent={
+          activeEngagementTab === 'meetings'
+            ? {
+                right: (
+                  <Space className="engagement-tab-actions" wrap>
+                    <Button icon={<PlusOutlined />} onClick={() => setTaskModalOpen(true)}>
+                      Task
+                    </Button>
+                    <Button
+                      type="primary"
+                      icon={<PlusOutlined />}
+                      onClick={() => {
+                        meetingForm.setFieldsValue({
+                          date,
+                          startsAt: '09:00',
+                          endsAt: '09:30',
+                          clientId: selectedClientId ?? undefined,
+                        });
+                        setMeetingModalOpen(true);
+                      }}
+                    >
+                      Meeting
+                    </Button>
+                  </Space>
+                ),
+              }
+            : undefined
+        }
         items={[
           {
             key: 'meetings',
@@ -675,21 +613,29 @@ export function EngagementPage() {
                 <div className="engagement-panel engagement-schedule-panel">
                   <div className="engagement-schedule-head">
                     <PanelTitle icon={<CalendarOutlined />} title={formatMeetingDay(window.from)} />
-                    <div className="engagement-view-toggle" aria-label="Meeting view">
-                      <button
-                        type="button"
-                        className={meetingViewMode === 'list' ? 'active' : ''}
-                        onClick={() => setMeetingViewMode('list')}
-                      >
-                        List
-                      </button>
-                      <button
-                        type="button"
-                        className={meetingViewMode === 'calendar' ? 'active' : ''}
-                        onClick={() => setMeetingViewMode('calendar')}
-                      >
-                        Calendar
-                      </button>
+                    <div className="engagement-schedule-tools">
+                      <Input
+                        type="date"
+                        value={date}
+                        onChange={(event) => setDate(event.target.value)}
+                        className="engagement-date-input"
+                      />
+                      <div className="engagement-view-toggle" aria-label="Meeting view">
+                        <button
+                          type="button"
+                          className={meetingViewMode === 'list' ? 'active' : ''}
+                          onClick={() => setMeetingViewMode('list')}
+                        >
+                          List
+                        </button>
+                        <button
+                          type="button"
+                          className={meetingViewMode === 'calendar' ? 'active' : ''}
+                          onClick={() => setMeetingViewMode('calendar')}
+                        >
+                          Calendar
+                        </button>
+                      </div>
                     </div>
                   </div>
 

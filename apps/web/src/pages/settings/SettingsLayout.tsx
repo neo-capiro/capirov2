@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { Card, Tabs, Typography } from 'antd';
+import { Card, Tabs } from 'antd';
 import { ROLE_RANK, type TenantRole } from '@capiro/shared';
 import { useMe } from '../../lib/me.js';
 
@@ -45,20 +45,15 @@ export function SettingsLayout() {
     visibleTabs[0]?.key ??
     '/settings/personal';
   return (
-    <>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>
-        Settings
-      </Typography.Title>
-      <Card>
-        <Tabs
-          activeKey={active}
-          items={visibleTabs.map((t) => ({
-            key: t.key,
-            label: <Link to={t.key}>{t.label}</Link>,
-          }))}
-        />
-        <Outlet />
-      </Card>
-    </>
+    <Card>
+      <Tabs
+        activeKey={active}
+        items={visibleTabs.map((t) => ({
+          key: t.key,
+          label: <Link to={t.key}>{t.label}</Link>,
+        }))}
+      />
+      <Outlet />
+    </Card>
   );
 }

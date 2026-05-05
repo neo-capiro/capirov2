@@ -7,7 +7,6 @@ import {
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, Empty, List, Spin, Typography } from 'antd';
-import { GlobalClientPicker } from '../components/GlobalClientPicker.js';
 import { useApi } from '../lib/use-api.js';
 import { useClientFilter } from '../state/client-filter.js';
 import type { Client } from './clients/clientTypes.js';
@@ -83,19 +82,6 @@ export function HomePage() {
 
   return (
     <section className="command-page">
-      <div className="command-page-header">
-        <div>
-          <Typography.Title level={3}>Command Center</Typography.Title>
-          <Typography.Text type="secondary">
-            {selectedClient
-              ? `Viewing meetings, follow-ups, and mail for ${selectedClient.name}.`
-              : 'Viewing meetings, follow-ups, and mail across all clients.'}
-          </Typography.Text>
-        </div>
-      </div>
-
-      <GlobalClientPicker />
-
       <div className="command-summary-grid">
         <CommandMetricCard
           icon={<CalendarOutlined />}

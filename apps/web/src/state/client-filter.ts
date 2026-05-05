@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * Global client-view filter for top-level work surfaces.
@@ -20,6 +20,8 @@ function write(clientId: string | null) {
 
 export function useClientFilter() {
   const [selected, setSelected] = useState<string | null>(selectedClientId);
+  const setSelectedClientId = useCallback((clientId: string | null) => write(clientId), []);
+  const clearClientFilter = useCallback(() => write(null), []);
 
   useEffect(() => {
     const listener = () => setSelected(selectedClientId);
@@ -31,7 +33,7 @@ export function useClientFilter() {
 
   return {
     selectedClientId: selected,
-    setSelectedClientId: write,
-    clearClientFilter: () => write(null),
+    setSelectedClientId,
+    clearClientFilter,
   };
 }

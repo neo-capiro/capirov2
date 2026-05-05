@@ -1,300 +1,335 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   ApartmentOutlined,
   BulbOutlined,
   CalendarOutlined,
+  CheckOutlined,
   DashboardOutlined,
+  DownOutlined,
+  FileAddOutlined,
   FolderOpenOutlined,
   IdcardOutlined,
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
+  PlusOutlined,
   SettingOutlined,
+  SyncOutlined,
+  UserOutlined,
   UserSwitchOutlined,
 } from '@ant-design/icons';
-import { UserButton, useUser } from '@clerk/clerk-react';
-import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Layout, Menu, Space, Tag, Tooltip, Typography } from 'antd';
+import { useClerk, useUser } from '@clerk/clerk-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  Alert,
+  App as AntApp,
+  Avatar,
+  Button,
+  Dropdown,
+  Layout,
+  Menu,
+  Space,
+  Typography,
+  type MenuProps,
+} from 'antd';
 import { useMe } from '../lib/me.js';
 import { useApi } from '../lib/use-api.js';
+import { useClientFilter } from '../state/client-filter.js';
 import { useImpersonation } from '../state/impersonation.js';
+import type { Client } from '../pages/clients/clientTypes.js';
 
 const { Header, Sider, Content } = Layout;
 
-// Brand palette per the Capiro Brand Book.
-const CAPIRO_BLUE = '#01226A';
-const CAPIRO_BLUE_DEEP = '#001650';
-const SOFT_WHITE = '#F4F6F8';
-const APP_FONT =
-  "'Public Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif";
-
-const CLERK_APPEARANCE = {
-  variables: {
-    colorPrimary: CAPIRO_BLUE,
-    fontFamily: APP_FONT,
-  },
-  elements: {
-    organizationSwitcherTrigger: {
-      fontFamily: APP_FONT,
-      color: '#111827',
-      borderRadius: '8px',
-    },
-    userButtonPopoverCard: {
-      fontFamily: APP_FONT,
-    },
-  },
-};
-
 interface NavItem {
-  key: string;
+  key: AppSection;
   label: string;
   path: string;
-  active: boolean;
   icon: ReactNode;
+  nested?: boolean;
 }
 
-/**
- * Primary app navigation. Icons keep the collapsed rail usable while labels
- * stay available in the expanded state.
- * Active flag controls whether the route is implemented; greyed items render
- * but route to a Coming Soon placeholder.
- *
- * Admin functions live INSIDE Settings as role-conditional tabs - a
- * standard_user sees only "Personal", user_admin gains team/branding/etc.,
- * capiro_admin also sees "Tenants". See pages/settings/SettingsLayout.tsx.
- */
+type AppSection =
+  | 'home'
+  | 'clients'
+  | 'engagement'
+  | 'workspace'
+  | 'intelligence'
+  | 'directory'
+  | 'portal'
+  | 'settings'
+  | 'not-found';
+
+interface PageConfig {
+  key: AppSection;
+  title: string;
+  showClientDropdown: boolean;
+}
+
+interface IntegrationConnection {
+  id: string;
+  provider: 'microsoft_365' | 'google_workspace' | 'imap_caldav' | 'manual';
+  accountEmail: string | null;
+  displayName: string | null;
+  status: 'needs_configuration' | 'connected' | 'error' | 'disabled';
+  lastSyncAt: string | null;
+}
+
 const NAV: NavItem[] = [
-  {
-    key: 'home',
-    label: 'Command Center',
-    path: '/',
-    active: true,
-    icon: <DashboardOutlined />,
-  },
-  {
-    key: 'clients',
-    label: 'Clients',
-    path: '/clients',
-    active: true,
-    icon: <ApartmentOutlined />,
-  },
+  { key: 'home', label: 'Command Center', path: '/', icon: <DashboardOutlined /> },
+  { key: 'clients', label: 'Clients', path: '/clients', icon: <ApartmentOutlined /> },
   {
     key: 'engagement',
     label: 'Engagement Manager',
     path: '/engagement',
-    active: true,
     icon: <CalendarOutlined />,
+    nested: true,
   },
-  {
-    key: 'workspace',
-    label: 'Workspace',
-    path: '/workspace',
-    active: false,
-    icon: <FolderOpenOutlined />,
-  },
-  {
-    key: 'intelligence',
-    label: 'Intelligence',
-    path: '/intelligence',
-    active: false,
-    icon: <BulbOutlined />,
-  },
-  {
-    key: 'directory',
-    label: 'Directory',
-    path: '/directory',
-    active: true,
-    icon: <IdcardOutlined />,
-  },
-  {
-    key: 'portal',
-    label: 'Client Portal',
-    path: '/portal',
-    active: false,
-    icon: <UserSwitchOutlined />,
-  },
-  {
-    key: 'settings',
-    label: 'Settings',
-    path: '/settings',
-    active: true,
-    icon: <SettingOutlined />,
-  },
+  { key: 'workspace', label: 'Workspace', path: '/workspace', icon: <FolderOpenOutlined /> },
+  { key: 'intelligence', label: 'Intelligence', path: '/intelligence', icon: <BulbOutlined /> },
+  { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
+  { key: 'portal', label: 'Client Portal', path: '/portal', icon: <UserSwitchOutlined /> },
 ];
 
 export function AppShell() {
   const api = useApi();
   const me = useMe();
+  const qc = useQueryClient();
+  const { message } = AntApp.useApp();
+  const { signOut, openUserProfile } = useClerk();
   const { user } = useUser();
   const location = useLocation();
   const navigate = useNavigate();
-  const [collapsed, setCollapsed] = useState(false);
   const { actAsTenantSlug, end: endImpersonation } = useImpersonation();
+  const { selectedClientId, setSelectedClientId, clearClientFilter } = useClientFilter();
+  const previousSection = useRef<AppSection | null>(null);
+  const [lastManualSyncAt, setLastManualSyncAt] = useState<string | null>(null);
+
   const displayName =
     user?.fullName ||
     [me.data?.user.firstName, me.data?.user.lastName].filter(Boolean).join(' ') ||
     me.data?.user.email ||
     user?.primaryEmailAddress?.emailAddress ||
     'Account';
-  const tenantName = me.data?.tenant.name || me.data?.tenant.slug;
-  const branding = useQuery<{ name: string; logoUrl?: string | null }>({
-    queryKey: ['branding'],
-    queryFn: async () => (await api.get('/api/tenant-admin/branding')).data,
-    staleTime: 60_000,
+
+  const page = useMemo(() => pageConfigFor(location.pathname), [location.pathname]);
+
+  const clients = useQuery<Client[]>({
+    queryKey: ['clients'],
+    queryFn: async () => (await api.get<Client[]>('/api/clients')).data,
     enabled: Boolean(me.data),
+    staleTime: 60_000,
   });
-  const displayedTenantName = branding.data?.name || tenantName;
+
+  const visibleClients = useMemo(
+    () =>
+      (clients.data ?? [])
+        .filter((client) => client.status !== 'archived')
+        .sort((left, right) => left.name.localeCompare(right.name)),
+    [clients.data],
+  );
+  const selectedClient = visibleClients.find((client) => client.id === selectedClientId) ?? null;
+
+  useEffect(() => {
+    if (previousSection.current && previousSection.current !== page.key) {
+      clearClientFilter();
+    }
+    previousSection.current = page.key;
+  }, [clearClientFilter, page.key]);
+
+  useEffect(() => {
+    if (!selectedClientId || clients.isLoading) return;
+    if (!visibleClients.some((client) => client.id === selectedClientId)) {
+      clearClientFilter();
+    }
+  }, [clearClientFilter, clients.isLoading, selectedClientId, visibleClients]);
+
+  const integrationConnections = useQuery<IntegrationConnection[]>({
+    queryKey: ['engagement-integrations'],
+    queryFn: async () =>
+      (await api.get<IntegrationConnection[]>('/api/engagement/integrations')).data,
+    enabled: Boolean(me.data),
+    staleTime: 30_000,
+  });
+
+  const connectedInboxConnections = useMemo(
+    () =>
+      (integrationConnections.data ?? []).filter(
+        (connection) =>
+          connection.provider === 'microsoft_365' && connection.status === 'connected',
+      ),
+    [integrationConnections.data],
+  );
+
+  const syncInbox = useMutation({
+    mutationFn: async (_options?: { silent?: boolean }) => {
+      if (!connectedInboxConnections.length) {
+        throw new Error('Connect your inbox before syncing.');
+      }
+      const syncWindow = defaultInboxSyncWindow();
+      for (const connection of connectedInboxConnections) {
+        await api.post(
+          `/api/engagement/integrations/microsoft/${connection.id}/calendar-window`,
+          undefined,
+          { params: { from: syncWindow.from, to: syncWindow.to } },
+        );
+        await api.post(`/api/engagement/integrations/microsoft/${connection.id}/sync`, undefined, {
+          params: { calendar: 'false', mail: 'true' },
+        });
+      }
+    },
+    onSuccess: (_data, options) => {
+      setLastManualSyncAt(new Date().toISOString());
+      if (!options?.silent) message.success('Inbox synced');
+      qc.invalidateQueries({ queryKey: ['engagement-integrations'] });
+      qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
+      qc.invalidateQueries({ queryKey: ['engagement-calendar-meetings'] });
+      qc.invalidateQueries({ queryKey: ['engagement-mail-threads'] });
+      qc.invalidateQueries({ queryKey: ['engagement-client-context'] });
+      qc.invalidateQueries({ queryKey: ['engagement-report'] });
+      qc.invalidateQueries({ queryKey: ['command-meetings'] });
+      qc.invalidateQueries({ queryKey: ['command-tasks'] });
+      qc.invalidateQueries({ queryKey: ['command-mail-threads'] });
+      qc.invalidateQueries({ queryKey: ['client-meetings'] });
+      qc.invalidateQueries({ queryKey: ['client-mail-threads'] });
+    },
+    onError: (err, options) => {
+      if (!options?.silent) message.error(errorMessage(err));
+    },
+  });
+
+  useEffect(() => {
+    if (!connectedInboxConnections.length) return undefined;
+    syncInbox.mutate({ silent: true });
+    const timer = window.setInterval(() => syncInbox.mutate({ silent: true }), 15 * 60_000);
+    return () => window.clearInterval(timer);
+  }, [connectedInboxConnections.length, syncInbox.mutate]);
 
   const items = useMemo(
     () =>
       NAV.map((n) => ({
         key: n.key,
-        disabled: !n.active,
         icon: n.icon,
         title: n.label,
-        label: n.active ? (
+        className: n.nested ? 'app-nav-item--nested' : undefined,
+        label: (
           <Link to={n.path} style={{ color: 'inherit' }}>
             {n.label}
           </Link>
-        ) : (
-          <span style={{ color: 'rgba(255,255,255,0.45)' }}>{n.label}</span>
         ),
       })),
     [],
   );
 
-  const selectedKey = useMemo(() => {
-    const path = location.pathname;
-    const match = NAV.find((n) => path === n.path || (n.path !== '/' && path.startsWith(n.path)));
-    return match?.key ?? 'home';
-  }, [location.pathname]);
+  const selectedKey = page.key === 'not-found' ? 'home' : page.key;
+
+  const accountMenu: MenuProps = {
+    items: [
+      { key: 'profile', label: 'Profile' },
+      { key: 'logout', label: 'Log out' },
+    ],
+    onClick: ({ key }) => {
+      if (key === 'profile') {
+        openUserProfile();
+        return;
+      }
+      void signOut({ redirectUrl: '/sign-in' });
+    },
+  };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider
-        width={240}
-        collapsed={collapsed}
-        collapsedWidth={76}
-        collapsible
-        trigger={null}
-        breakpoint="lg"
-        onBreakpoint={setCollapsed}
-        style={{
-          background: CAPIRO_BLUE,
-          color: '#fff',
-        }}
-      >
-        <div
-          onClick={() => navigate('/')}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: collapsed ? 'center' : 'space-between',
-            height: 72,
-            padding: collapsed ? '0 12px' : '0 18px 0 24px',
-            cursor: 'pointer',
-            borderBottom: `1px solid rgba(255,255,255,0.06)`,
-            gap: 12,
-          }}
-        >
-          <img
-            src="/logo.png"
-            alt="Capiro"
-            className={collapsed ? 'app-shell-logo app-shell-logo--collapsed' : 'app-shell-logo'}
+    <Layout className="app-shell">
+      <Sider width={240} className="app-shell-sider">
+        <nav className="app-shell-nav" aria-label="Primary navigation">
+          <button className="app-shell-brand" type="button" onClick={() => navigate('/')}>
+            <img src="/logo.png" alt="Capiro" className="app-shell-logo" />
+          </button>
+
+          <Menu
+            theme="dark"
+            mode="inline"
+            selectedKeys={[selectedKey]}
+            items={items}
+            inlineIndent={24}
+            className="app-nav-menu"
           />
-          {!collapsed ? (
-            <Tooltip title="Collapse navigation" placement="right">
-              <Button
-                aria-label="Collapse navigation"
-                icon={<MenuFoldOutlined />}
-                type="text"
-                size="small"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setCollapsed(true);
-                }}
-                style={{
-                  color: '#fff',
-                  background: 'rgba(255,255,255,0.08)',
-                  borderRadius: 8,
-                }}
-              />
-            </Tooltip>
-          ) : null}
-        </div>
-        {collapsed ? (
-          <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 12 }}>
-            <Tooltip title="Expand navigation" placement="right">
-              <Button
-                aria-label="Expand navigation"
-                icon={<MenuUnfoldOutlined />}
-                type="text"
-                onClick={() => setCollapsed(false)}
-                style={{
-                  color: '#fff',
-                  background: 'rgba(255,255,255,0.08)',
-                  borderRadius: 8,
-                }}
-              />
-            </Tooltip>
+
+          <div className="app-shell-bottom">
+            <SyncInboxControl
+              connections={connectedInboxConnections}
+              loading={integrationConnections.isLoading}
+              queryError={integrationConnections.isError}
+              syncing={syncInbox.isPending}
+              syncError={syncInbox.isError}
+              lastManualSyncAt={lastManualSyncAt}
+              onClick={() => {
+                if (!connectedInboxConnections.length) {
+                  navigate('/settings/integrations');
+                  return;
+                }
+                syncInbox.mutate({ silent: false });
+              }}
+            />
+
+            <Link
+              to="/settings"
+              className={`app-bottom-nav-item${selectedKey === 'settings' ? ' is-active' : ''}`}
+            >
+              <SettingOutlined />
+              <span>Settings</span>
+            </Link>
+
+            <Dropdown menu={accountMenu} trigger={['click']} placement="topLeft">
+              <button className="app-user-nav" type="button">
+                <Avatar size={34} src={user?.imageUrl || undefined} icon={<UserOutlined />}>
+                  {initials(displayName)}
+                </Avatar>
+                <span>{displayName}</span>
+              </button>
+            </Dropdown>
           </div>
-        ) : null}
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          items={items}
-          inlineIndent={24}
-          style={{
-            background: CAPIRO_BLUE,
-            borderRight: 0,
-            paddingTop: collapsed ? 12 : 16,
-          }}
-        />
+        </nav>
       </Sider>
-      <Layout style={{ background: SOFT_WHITE }}>
-        <Header
-          style={{
-            background: '#fff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            borderBottom: '1px solid #e3e6ec',
-            padding: '0 24px',
-            height: 72,
-          }}
-        >
-          <Space className="app-header-tenant" size={10} wrap>
-            {me.data ? (
-              <>
-                {branding.data?.logoUrl ? (
-                  <img src={branding.data.logoUrl} alt="" className="app-header-tenant-logo" />
-                ) : null}
-                <Typography.Text className="app-header-tenant-name" strong>
-                  {displayedTenantName}
-                </Typography.Text>
-                {actAsTenantSlug ? (
-                  <Tag color="default" closable onClose={endImpersonation}>
-                    Impersonation active
-                  </Tag>
-                ) : null}
-              </>
-            ) : null}
-          </Space>
-          <Space className="app-header-account" size="middle">
-            <div className="app-account-trigger">
-              <Typography.Text className="app-account-name">{displayName}</Typography.Text>
-              <UserButton afterSignOutUrl="/sign-in" appearance={CLERK_APPEARANCE} />
-            </div>
-          </Space>
+
+      <Layout className="app-main-layout">
+        <Header className="app-topbar">
+          <Typography.Text className="app-topbar-title">{page.title}</Typography.Text>
+          {page.showClientDropdown ? (
+            <>
+              <span className="app-topbar-divider" aria-hidden="true" />
+              <ClientDropdown
+                clients={visibleClients}
+                selectedClient={selectedClient}
+                selectedClientId={selectedClientId}
+                loading={clients.isLoading}
+                onSelect={setSelectedClientId}
+                onNavigateToClients={() => navigate('/clients')}
+              />
+            </>
+          ) : null}
+          <span className="app-topbar-spacer" />
+          <PageActions page={page.key} />
         </Header>
-        <Content style={{ padding: 24 }}>
+
+        {page.showClientDropdown && selectedClient ? (
+          <ClientContextBanner client={selectedClient} onClear={clearClientFilter} />
+        ) : null}
+
+        <Content className="app-content">
           {me.error ? (
             <Alert
               type="error"
               message="Could not load your profile"
               description={(me.error as Error).message}
-              style={{ marginBottom: 16 }}
+              className="app-content-alert"
+            />
+          ) : null}
+          {actAsTenantSlug ? (
+            <Alert
+              type="info"
+              showIcon
+              closable
+              message="Impersonation active"
+              description={`You are viewing ${actAsTenantSlug}.`}
+              onClose={endImpersonation}
+              className="app-content-alert"
             />
           ) : null}
           <Outlet />
@@ -302,4 +337,279 @@ export function AppShell() {
       </Layout>
     </Layout>
   );
+}
+
+function ClientDropdown({
+  clients,
+  selectedClient,
+  selectedClientId,
+  loading,
+  onSelect,
+  onNavigateToClients,
+}: {
+  clients: Client[];
+  selectedClient: Client | null;
+  selectedClientId: string | null;
+  loading: boolean;
+  onSelect: (clientId: string | null) => void;
+  onNavigateToClients: () => void;
+}) {
+  const menuItems: MenuProps['items'] = [
+    {
+      key: 'all',
+      label: (
+        <span className="app-client-menu-row">
+          <span>All clients</span>
+          {!selectedClientId ? <CheckOutlined /> : null}
+        </span>
+      ),
+    },
+    { type: 'divider' },
+    ...clients.map((client) => ({
+      key: client.id,
+      label: (
+        <span className="app-client-menu-row">
+          <span className="app-client-menu-name">
+            <Avatar size={22} src={client.logoUrl || undefined}>
+              {initials(client.name)}
+            </Avatar>
+            <span>{client.name}</span>
+          </span>
+          {selectedClientId === client.id ? <CheckOutlined /> : null}
+        </span>
+      ),
+    })),
+    ...(clients.length
+      ? []
+      : [
+          {
+            key: 'empty',
+            label: (
+              <span className="app-client-menu-empty">
+                No clients yet - add one in the Clients section
+              </span>
+            ),
+          },
+        ]),
+  ];
+
+  const menu: MenuProps = {
+    items: menuItems,
+    onClick: ({ key }) => {
+      if (key === 'all') {
+        onSelect(null);
+        return;
+      }
+      if (key === 'empty') {
+        onNavigateToClients();
+        return;
+      }
+      onSelect(String(key));
+    },
+  };
+
+  return (
+    <Dropdown menu={menu} trigger={['click']} placement="bottomLeft">
+      <button className="app-client-dropdown-trigger" type="button">
+        {selectedClient ? (
+          <>
+            <Avatar size={24} src={selectedClient.logoUrl || undefined}>
+              {initials(selectedClient.name)}
+            </Avatar>
+            <span>{selectedClient.name}</span>
+          </>
+        ) : (
+          <span>{loading ? 'Loading clients...' : 'All clients'}</span>
+        )}
+        <DownOutlined />
+      </button>
+    </Dropdown>
+  );
+}
+
+function ClientContextBanner({ client, onClear }: { client: Client; onClear: () => void }) {
+  return (
+    <div className="app-client-context-banner">
+      <span className="app-client-context-label">Viewing:</span>
+      <Avatar size={22} src={client.logoUrl || undefined}>
+        {initials(client.name)}
+      </Avatar>
+      <strong>{client.name}</strong>
+      <span aria-hidden="true">·</span>
+      <button type="button" onClick={onClear}>
+        Clear filter
+      </button>
+      <span className="app-client-context-spacer" />
+      <span className="app-client-context-count">Showing data for 1 client</span>
+    </div>
+  );
+}
+
+function PageActions({ page }: { page: AppSection }) {
+  if (page === 'clients') {
+    return (
+      <Space size={10}>
+        <Button onClick={() => window.dispatchEvent(new Event('capiro:client-filter-sort'))}>
+          Filter / Sort
+        </Button>
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => window.dispatchEvent(new Event('capiro:new-client'))}
+        >
+          New Client
+        </Button>
+      </Space>
+    );
+  }
+
+  if (page === 'directory') {
+    return (
+      <Button icon={<FileAddOutlined />} disabled title="Directory contacts are source-managed.">
+        Add contact
+      </Button>
+    );
+  }
+
+  return null;
+}
+
+function SyncInboxControl({
+  connections,
+  loading,
+  queryError,
+  syncing,
+  syncError,
+  lastManualSyncAt,
+  onClick,
+}: {
+  connections: IntegrationConnection[];
+  loading: boolean;
+  queryError: boolean;
+  syncing: boolean;
+  syncError: boolean;
+  lastManualSyncAt: string | null;
+  onClick: () => void;
+}) {
+  const connected = connections.length > 0;
+  const lastSyncAt = latestSyncAt(connections, lastManualSyncAt);
+  const status = syncStatus({ connected, loading, queryError, syncing, syncError, lastSyncAt });
+
+  return (
+    <button className="app-sync-control" type="button" onClick={onClick}>
+      {status.dot ? <span className={`app-sync-dot app-sync-dot--${status.dot}`} /> : null}
+      <span>
+        <span className="app-sync-label">{status.label}</span>
+        {status.text ? <span className="app-sync-status">{status.text}</span> : null}
+      </span>
+      {connected ? <SyncOutlined className="app-sync-icon" /> : null}
+    </button>
+  );
+}
+
+function syncStatus({
+  connected,
+  loading,
+  queryError,
+  syncing,
+  syncError,
+  lastSyncAt,
+}: {
+  connected: boolean;
+  loading: boolean;
+  queryError: boolean;
+  syncing: boolean;
+  syncError: boolean;
+  lastSyncAt: string | null;
+}): { label: string; text: string; dot: 'green' | 'yellow' | 'red' | null } {
+  if (loading) return { label: 'Connect inbox', text: '', dot: null };
+  if (!connected && !queryError) return { label: 'Connect inbox', text: '', dot: null };
+  if (syncing) return { label: 'Sync Inbox', text: 'Syncing inbox...', dot: 'yellow' };
+  if (queryError || syncError) {
+    return {
+      label: connected ? 'Sync Inbox' : 'Connect inbox',
+      text: 'Sync failed - tap to retry',
+      dot: 'red',
+    };
+  }
+  return { label: 'Sync Inbox', text: lastSyncText(lastSyncAt), dot: 'green' };
+}
+
+function pageKeyFor(pathname: string): AppSection {
+  if (pathname === '/') return 'home';
+  if (pathname.startsWith('/clients')) return 'clients';
+  if (pathname.startsWith('/engagement')) return 'engagement';
+  if (pathname.startsWith('/workspace')) return 'workspace';
+  if (pathname.startsWith('/intelligence')) return 'intelligence';
+  if (pathname.startsWith('/directory')) return 'directory';
+  if (pathname.startsWith('/portal')) return 'portal';
+  if (pathname.startsWith('/settings')) return 'settings';
+  return 'not-found';
+}
+
+function pageConfigFor(pathname: string): PageConfig {
+  const key = pageKeyFor(pathname);
+  const titleByKey: Record<AppSection, string> = {
+    home: 'Command Center',
+    clients: 'Clients',
+    engagement: 'Engagement Manager',
+    workspace: 'Workspace',
+    intelligence: 'Intelligence',
+    directory: 'Directory',
+    portal: 'Client Portal',
+    settings: 'Settings',
+    'not-found': 'Not found',
+  };
+  const showClientDropdown =
+    key === 'home' ||
+    key === 'engagement' ||
+    pathname.startsWith('/workspace/library') ||
+    pathname.startsWith('/workspace/submissions');
+  return { key, title: titleByKey[key], showClientDropdown };
+}
+
+function latestSyncAt(
+  connections: IntegrationConnection[],
+  lastManualSyncAt: string | null,
+): string | null {
+  const timestamps = [...connections.map((connection) => connection.lastSyncAt), lastManualSyncAt]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => new Date(value).getTime())
+    .filter((value) => Number.isFinite(value));
+  if (!timestamps.length) return null;
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function lastSyncText(value: string | null): string {
+  if (!value) return 'Not yet synced';
+  const diffMs = Math.max(0, Date.now() - new Date(value).getTime());
+  const diffMinutes = Math.floor(diffMs / 60_000);
+  if (diffMinutes < 1) return 'Last synced: just now';
+  if (diffMinutes < 60) return `Last synced: ${diffMinutes} min ago`;
+  const diffHours = Math.floor(diffMinutes / 60);
+  return `Last synced: ${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+}
+
+function defaultInboxSyncWindow(): { from: string; to: string } {
+  const from = new Date();
+  from.setHours(0, 0, 0, 0);
+  const to = new Date(from);
+  to.setDate(to.getDate() + 14);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
+
+function initials(value: string): string {
+  const parts = value.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return 'C';
+  if (parts.length === 1) return parts[0]?.slice(0, 2).toUpperCase() || 'C';
+  return `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}`.toUpperCase() || 'C';
+}
+
+function errorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'response' in error) {
+    const data = (error as { response?: { data?: { message?: unknown } } }).response?.data;
+    if (typeof data?.message === 'string') return data.message;
+    if (Array.isArray(data?.message)) return data.message.join(', ');
+  }
+  return error instanceof Error ? error.message : 'Request failed';
 }

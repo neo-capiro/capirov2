@@ -280,11 +280,6 @@ export function DirectoryPage() {
   return (
     <div className="directory-page">
       <section className="directory-page-header">
-        <div>
-          <Typography.Title level={3} style={{ margin: 0 }}>
-            Directory
-          </Typography.Title>
-        </div>
         <Select
           value={sort}
           onChange={(value) => {

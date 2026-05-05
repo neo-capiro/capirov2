@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
@@ -208,6 +208,24 @@ export function ClientWorkspacePage() {
     });
   };
 
+  useEffect(() => {
+    const handleNewClient = () => {
+      if (!canCreateClients) return;
+      setEditingClient(null);
+      setModalMode('create');
+    };
+    const handleFilterSort = () => {
+      document.querySelector<HTMLElement>('.client-sort-select .ant-select-selector')?.focus();
+    };
+
+    window.addEventListener('capiro:new-client', handleNewClient);
+    window.addEventListener('capiro:client-filter-sort', handleFilterSort);
+    return () => {
+      window.removeEventListener('capiro:new-client', handleNewClient);
+      window.removeEventListener('capiro:client-filter-sort', handleFilterSort);
+    };
+  }, [canCreateClients]);
+
   return (
     <>
       {selectedId ? (
@@ -232,31 +250,18 @@ export function ClientWorkspacePage() {
         />
       ) : (
         <section className="client-page">
-          <div className="client-page-header">
-            <Typography.Title level={3} style={{ margin: 0 }}>
-              Clients
-            </Typography.Title>
-            <Space>
-              <Select
-                value={sortMode}
-                onChange={setSortMode}
-                className="client-sort-select"
-                suffixIcon={<SlidersOutlined />}
-                options={[
-                  { value: 'updated', label: 'Recently updated' },
-                  { value: 'name', label: 'Client name' },
-                  { value: 'sector', label: 'Sector' },
-                ]}
-              />
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                disabled={!canCreateClients}
-                onClick={openCreate}
-              >
-                New Client
-              </Button>
-            </Space>
+          <div className="client-page-controls">
+            <Select
+              value={sortMode}
+              onChange={setSortMode}
+              className="client-sort-select"
+              suffixIcon={<SlidersOutlined />}
+              options={[
+                { value: 'updated', label: 'Recently updated' },
+                { value: 'name', label: 'Client name' },
+                { value: 'sector', label: 'Sector' },
+              ]}
+            />
           </div>
 
           <div className="client-search-row">

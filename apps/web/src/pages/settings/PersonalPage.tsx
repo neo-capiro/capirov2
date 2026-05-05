@@ -1,5 +1,4 @@
 import { Alert, Card, Descriptions } from 'antd';
-import { UserButton } from '@clerk/clerk-react';
 import { useMe } from '../../lib/me.js';
 
 /**
@@ -25,10 +24,9 @@ export function PersonalPage() {
           type="info"
           showIcon
           message="Email, password, and MFA settings are managed in Clerk."
-          description="Click your avatar in the top-right header to open Clerk's account settings."
+          description="Click your account in the bottom-left navigation to open Clerk's account settings."
           style={{ marginBottom: 16 }}
         />
-        <UserButton afterSignOutUrl="/sign-in" />
       </Card>
     </>
   );
