@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   CalendarOutlined,
   CheckCircleOutlined,
@@ -259,6 +259,12 @@ interface PrepFormValues {
   followUpsText?: string;
 }
 
+interface DebriefDraftState {
+  recap: string;
+  actionItems: string[];
+  notes: string;
+}
+
 interface TargetOfficeFormValues {
   clientId?: string;
   memberPrincipal: string;
@@ -283,7 +289,6 @@ export function EngagementPage() {
   const [activeEngagementTab, setActiveEngagementTab] = useState('meetings');
   const [meetingViewMode, setMeetingViewMode] = useState<'list' | 'calendar'>('list');
   const [historyBatch, setHistoryBatch] = useState(0);
-  const [debriefFlowMeeting, setDebriefFlowMeeting] = useState<Meeting | null>(null);
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('current');
   const [reportStatusFilter, setReportStatusFilter] = useState<'all' | ReportStatus>('all');
   const [reportSort, setReportSort] = useState('member-asc');
@@ -363,8 +368,7 @@ export function EngagementPage() {
       meetingViewMode === 'calendar'
         ? (calendarMeetings.data ?? [])
         : [...(meetings.data ?? [])].sort(
-            (left, right) =>
-              new Date(right.startsAt).getTime() - new Date(left.startsAt).getTime(),
+            (left, right) => new Date(right.startsAt).getTime() - new Date(left.startsAt).getTime(),
           ),
     [calendarMeetings.data, meetingViewMode, meetings.data],
   );
@@ -545,11 +549,11 @@ export function EngagementPage() {
   const generatePrep = useMutation({
     mutationFn: async (meetingId: string) =>
       (await api.post(`/api/engagement/meetings/${meetingId}/prep`)).data,
-    onSuccess: () => {
+    onSuccess: (_prep, meetingId) => {
       message.success('Meeting prep generated');
+      qc.invalidateQueries({ queryKey: ['engagement-meeting', meetingId] });
       qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
       qc.invalidateQueries({ queryKey: ['engagement-calendar-meetings'] });
-      qc.invalidateQueries({ queryKey: ['engagement-client-context'] });
     },
     onError: (err) => message.error(errorMessage(err)),
   });
@@ -658,10 +662,10 @@ export function EngagementPage() {
       sourceText: string;
     }) =>
       (
-        await api.post<MeetingDebriefDraft>(
-          `/api/engagement/meetings/${meetingId}/debrief-draft`,
-          { method, sourceText },
-        )
+        await api.post<MeetingDebriefDraft>(`/api/engagement/meetings/${meetingId}/debrief-draft`, {
+          method,
+          sourceText,
+        })
       ).data,
     onError: (err) => message.error(errorMessage(err)),
   });
@@ -724,49 +728,24 @@ export function EngagementPage() {
     return () => window.removeEventListener('capiro:open-outreach', handler);
   }, []);
 
-  useEffect(() => {
-    window.dispatchEvent(
-      new CustomEvent('capiro:workflow-lock', { detail: { locked: Boolean(debriefFlowMeeting) } }),
-    );
-    return () => {
-      window.dispatchEvent(new CustomEvent('capiro:workflow-lock', { detail: { locked: false } }));
-    };
-  }, [debriefFlowMeeting]);
+  const generatingPrepMeetingId = generatePrep.isPending ? (generatePrep.variables ?? null) : null;
+  const detailTab = meetingDetailTab === 'notes' ? 'prep' : meetingDetailTab;
 
-  if (debriefFlowMeeting) {
-    return (
-      <section className="engagement-page">
-        <DebriefWizard
-          meeting={debriefFlowMeeting}
-          context={clientContext.data}
-          prep={debriefFlowMeeting.preps[0]}
-          notesConfigured={Boolean(capabilities.data?.notes.encryptedNotesConfigured)}
-          aiConfigured={Boolean(capabilities.data?.ai.activeProvider)}
-          generating={generateDebriefDraft.isPending}
-          saving={createDebrief.isPending}
-          onCancel={() => setDebriefFlowMeeting(null)}
-          onGenerate={(method, sourceText) =>
-            generateDebriefDraft.mutateAsync({
-              meetingId: debriefFlowMeeting.id,
-              method,
-              sourceText,
-            })
-          }
-          onFinish={(body) => {
-            createDebrief.mutate(
-              { meetingId: debriefFlowMeeting.id, body },
-              {
-                onSuccess: () => {
-                  setMeetingDetailTab('debrief');
-                  setDebriefFlowMeeting(null);
-                },
-              },
-            );
-          }}
-        />
-      </section>
-    );
-  }
+  const openMeetingModal = () => {
+    meetingForm.setFieldsValue({
+      date: todayInputValue(),
+      startsAt: '09:00',
+      endsAt: '09:30',
+      clientId: selectedClientId ?? undefined,
+    });
+    setMeetingModalOpen(true);
+  };
+
+  const handleGeneratePrep = (meeting: Meeting) => {
+    setSelectedMeetingId(meeting.id);
+    setMeetingDetailTab('prep');
+    generatePrep.mutate(meeting.id);
+  };
 
   return (
     <section className="engagement-page">
@@ -783,22 +762,14 @@ export function EngagementPage() {
           activeEngagementTab === 'meetings'
             ? {
                 right: (
-                  <div className="engagement-view-toggle" aria-label="Meeting view">
-                    <button
-                      type="button"
-                      className={meetingViewMode === 'list' ? 'active' : ''}
-                      onClick={() => setMeetingViewMode('list')}
-                    >
-                      List
-                    </button>
-                    <button
-                      type="button"
-                      className={meetingViewMode === 'calendar' ? 'active' : ''}
-                      onClick={() => setMeetingViewMode('calendar')}
-                    >
-                      Calendar
-                    </button>
-                  </div>
+                  <Space size={10} className="engagement-tab-actions">
+                    <Button icon={<PlusOutlined />} onClick={() => setTaskModalOpen(true)}>
+                      Task
+                    </Button>
+                    <Button type="primary" icon={<PlusOutlined />} onClick={openMeetingModal}>
+                      Meeting
+                    </Button>
+                  </Space>
                 ),
               }
             : undefined
@@ -812,25 +783,21 @@ export function EngagementPage() {
                 <div className="engagement-panel engagement-schedule-panel">
                   <div className="engagement-schedule-head">
                     <PanelTitle icon={<CalendarOutlined />} title="Meetings" />
-                    <div className="engagement-schedule-tools">
-                      <Button icon={<PlusOutlined />} onClick={() => setTaskModalOpen(true)}>
-                        Task
-                      </Button>
-                      <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={() => {
-                          meetingForm.setFieldsValue({
-                            date: todayInputValue(),
-                            startsAt: '09:00',
-                            endsAt: '09:30',
-                            clientId: selectedClientId ?? undefined,
-                          });
-                          setMeetingModalOpen(true);
-                        }}
+                    <div className="engagement-view-toggle" aria-label="Meeting view">
+                      <button
+                        type="button"
+                        className={meetingViewMode === 'list' ? 'active' : ''}
+                        onClick={() => setMeetingViewMode('list')}
                       >
-                        Meeting
-                      </Button>
+                        List
+                      </button>
+                      <button
+                        type="button"
+                        className={meetingViewMode === 'calendar' ? 'active' : ''}
+                        onClick={() => setMeetingViewMode('calendar')}
+                      >
+                        Calendar
+                      </button>
                     </div>
                   </div>
 
@@ -847,7 +814,7 @@ export function EngagementPage() {
                         rangeEnd={rangeEnd}
                         defaultRange={defaultRange}
                         historyBatch={historyBatch}
-                        generating={generatePrep.isPending}
+                        generatingMeetingId={generatingPrepMeetingId}
                         aiConfigured={Boolean(capabilities.data?.ai.activeProvider)}
                         onRangeStart={setRangeStart}
                         onRangeEnd={setRangeEnd}
@@ -861,9 +828,7 @@ export function EngagementPage() {
                           setMeetingDetailTab(tab ?? 'prep');
                         }}
                         onGeneratePrep={(meeting) => {
-                          setSelectedMeetingId(meeting.id);
-                          setMeetingDetailTab('prep');
-                          generatePrep.mutate(meeting.id);
+                          handleGeneratePrep(meeting);
                         }}
                         onLoadMore={() => setHistoryBatch((value) => value + 1)}
                       />
@@ -899,20 +864,18 @@ export function EngagementPage() {
                   contextLoading={clientContext.isLoading}
                   notes={meetingNotes.data ?? []}
                   notesLoading={meetingNotes.isLoading}
-                  attachments={
-                    meetingAttachments.data ?? selectedMeeting?.attachments ?? []
-                  }
+                  attachments={meetingAttachments.data ?? selectedMeeting?.attachments ?? []}
                   attachmentsLoading={meetingAttachments.isLoading}
                   debriefs={meetingDebriefs.data ?? []}
                   debriefsLoading={meetingDebriefs.isLoading}
-                  activeTab={meetingDetailTab}
+                  activeTab={detailTab}
                   onTabChange={setMeetingDetailTab}
                   debriefForm={debriefForm}
                   currentUserId={me.data?.user.id ?? null}
                   notesConfigured={Boolean(capabilities.data?.notes.encryptedNotesConfigured)}
                   attachmentsConfigured={Boolean(capabilities.data?.attachments.s3Configured)}
                   aiConfigured={Boolean(capabilities.data?.ai.activeProvider)}
-                  generating={generatePrep.isPending}
+                  generating={generatingPrepMeetingId === selectedMeeting?.id}
                   savingNote={createNote.isPending || updateNote.isPending}
                   uploadingTranscript={uploadTranscript.isPending}
                   deletingAttachmentId={
@@ -921,19 +884,25 @@ export function EngagementPage() {
                       : null
                   }
                   savingDebrief={createDebrief.isPending}
+                  generatingDebrief={generateDebriefDraft.isPending}
                   approving={approvePrep.isPending}
-                  onGeneratePrep={(meeting) => generatePrep.mutate(meeting.id)}
+                  onGeneratePrep={handleGeneratePrep}
                   onSaveNote={(meeting, noteId, body) =>
                     noteId
                       ? updateNote.mutateAsync({ meetingId: meeting.id, noteId, body })
                       : createNote.mutateAsync({ meetingId: meeting.id, body })
                   }
-                  onUploadTranscript={(meeting, file) =>
-                    uploadTranscript.mutate({ meeting, file })
-                  }
+                  onUploadTranscript={(meeting, file) => uploadTranscript.mutate({ meeting, file })}
                   onRemoveAttachment={(attachmentId) => deleteAttachment.mutate(attachmentId)}
                   onCreateDebrief={(meeting, body) =>
                     createDebrief.mutate({ meetingId: meeting.id, body })
+                  }
+                  onGenerateDebrief={(meeting, method, sourceText) =>
+                    generateDebriefDraft.mutateAsync({
+                      meetingId: meeting.id,
+                      method,
+                      sourceText,
+                    })
                   }
                   onEditPrep={(meeting, prep) => {
                     prepForm.setFieldsValue({
@@ -946,7 +915,6 @@ export function EngagementPage() {
                     setEditingPrep({ meeting, prep });
                   }}
                   onApprovePrep={(prep) => approvePrep.mutate(prep.id)}
-                  onStartDebrief={(meeting) => setDebriefFlowMeeting(meeting)}
                   onExportPdf={(meeting) =>
                     exportMeetingPdf({
                       meeting,
@@ -1238,7 +1206,7 @@ function MeetingListView({
   defaultRange,
   historyBatch,
   aiConfigured,
-  generating,
+  generatingMeetingId,
   onRangeStart,
   onRangeEnd,
   onClearRange,
@@ -1253,7 +1221,7 @@ function MeetingListView({
   defaultRange: { start: string; end: string };
   historyBatch: number;
   aiConfigured: boolean;
-  generating: boolean;
+  generatingMeetingId: string | null;
   onRangeStart: (value: string) => void;
   onRangeEnd: (value: string) => void;
   onClearRange: () => void;
@@ -1268,7 +1236,11 @@ function MeetingListView({
     <div className="engagement-list-view">
       <div className="engagement-date-filter">
         <span>Date range</span>
-        <Input type="date" value={rangeStart} onChange={(event) => onRangeStart(event.target.value)} />
+        <Input
+          type="date"
+          value={rangeStart}
+          onChange={(event) => onRangeStart(event.target.value)}
+        />
         <Input type="date" value={rangeEnd} onChange={(event) => onRangeEnd(event.target.value)} />
         {hasCustomRange ? (
           <button type="button" onClick={onClearRange}>
@@ -1295,7 +1267,7 @@ function MeetingListView({
                 meeting={meeting}
                 selected={meeting.id === selectedId}
                 aiConfigured={aiConfigured}
-                generating={generating}
+                generating={generatingMeetingId === meeting.id}
                 onSelect={(tab) => onSelect(meeting, tab)}
                 onGeneratePrep={() => onGeneratePrep(meeting)}
               />
@@ -1560,15 +1532,16 @@ function MeetingDetailPanel({
   uploadingTranscript,
   deletingAttachmentId,
   savingDebrief,
+  generatingDebrief,
   approving,
   onGeneratePrep,
   onSaveNote,
   onUploadTranscript,
   onRemoveAttachment,
   onCreateDebrief,
+  onGenerateDebrief,
   onEditPrep,
   onApprovePrep,
-  onStartDebrief,
   onExportPdf,
 }: {
   meeting: Meeting | null;
@@ -1592,15 +1565,20 @@ function MeetingDetailPanel({
   uploadingTranscript: boolean;
   deletingAttachmentId: string | null;
   savingDebrief: boolean;
+  generatingDebrief: boolean;
   approving: boolean;
   onGeneratePrep: (meeting: Meeting) => void;
   onSaveNote: (meeting: Meeting, noteId: string | null, body: string) => Promise<MeetingNote>;
   onUploadTranscript: (meeting: Meeting, file: File) => void;
   onRemoveAttachment: (attachmentId: string) => void;
   onCreateDebrief: (meeting: Meeting, body: string) => void;
+  onGenerateDebrief: (
+    meeting: Meeting,
+    method: 'upload' | 'manual' | 'voice',
+    sourceText: string,
+  ) => Promise<MeetingDebriefDraft>;
   onEditPrep: (meeting: Meeting, prep: MeetingPrep) => void;
   onApprovePrep: (prep: MeetingPrep) => void;
-  onStartDebrief: (meeting: Meeting) => void;
   onExportPdf: (meeting: Meeting) => void;
 }) {
   if (!meeting) {
@@ -1670,6 +1648,9 @@ function MeetingDetailPanel({
                           {prep.summary || contextSummary(context, contextLoading)}
                         </Typography.Paragraph>
                       </DetailBlock>
+                      <DetailBlock title="Agenda">
+                        <BulletList items={prep.agenda} empty="No agenda generated yet." />
+                      </DetailBlock>
                       <DetailBlock title="Talking Points">
                         <BulletList
                           items={prep.talkingPoints}
@@ -1688,8 +1669,8 @@ function MeetingDetailPanel({
                         </Typography.Text>
                       ) : (
                         <Typography.Text type="secondary">
-                          Generate prep from the client profile, participant profiles, prior
-                          meeting history, and congressional context.
+                          Generate prep from the client profile, participant profiles, prior meeting
+                          history, and congressional context.
                         </Typography.Text>
                       )}
                       <Button
@@ -1707,55 +1688,30 @@ function MeetingDetailPanel({
               ),
             },
             {
-              key: 'notes',
-              label: 'Notes',
-              children: (
-                <MeetingNotesEditor
-                  meeting={meeting}
-                  notes={notes}
-                  notesLoading={notesLoading}
-                  attachments={attachments}
-                  attachmentsLoading={attachmentsLoading}
-                  currentUserId={currentUserId}
-                  notesConfigured={notesConfigured}
-                  attachmentsConfigured={attachmentsConfigured}
-                  meetingHasEnded={meetingHasEnded}
-                  saving={savingNote}
-                  uploadingTranscript={uploadingTranscript}
-                  deletingAttachmentId={deletingAttachmentId}
-                  onSave={(noteId, body) => onSaveNote(meeting, noteId, body)}
-                  onUpload={(file) => onUploadTranscript(meeting, file)}
-                  onRemoveAttachment={onRemoveAttachment}
-                />
-              ),
-            },
-            {
               key: 'debrief',
               label: 'Debrief',
               children: (
-                <div className="engagement-detail-stack">
-                  {!meetingHasEnded ? (
-                    <div className="engagement-empty-prep">
-                      <ClockCircleOutlined />
-                      <Typography.Text strong>This meeting hasn't taken place yet</Typography.Text>
-                      <Typography.Text type="secondary">
-                        Come back after the meeting to complete your debrief.
-                      </Typography.Text>
-                    </div>
-                  ) : debriefs.length ? (
-                    <DebriefCompleteView debriefs={debriefs} loading={debriefsLoading} />
-                  ) : (
-                    <DebriefStartView
-                      prep={prep}
-                      meeting={meeting}
-                      saving={savingDebrief}
-                      notesConfigured={notesConfigured}
-                      onStart={() => onStartDebrief(meeting)}
-                      fallbackForm={debriefForm}
-                      onCreate={(body) => onCreateDebrief(meeting, body)}
-                    />
-                  )}
-                </div>
+                <DebriefPanel
+                  meeting={meeting}
+                  prep={prep}
+                  debriefs={debriefs}
+                  loading={debriefsLoading}
+                  aiConfigured={aiConfigured}
+                  notesConfigured={notesConfigured}
+                  attachmentsConfigured={attachmentsConfigured}
+                  attachments={attachments}
+                  attachmentsLoading={attachmentsLoading}
+                  uploadingTranscript={uploadingTranscript}
+                  deletingAttachmentId={deletingAttachmentId}
+                  saving={savingDebrief}
+                  generating={generatingDebrief}
+                  onUpload={(file) => onUploadTranscript(meeting, file)}
+                  onRemoveAttachment={onRemoveAttachment}
+                  onGenerate={(method, sourceText) =>
+                    onGenerateDebrief(meeting, method, sourceText)
+                  }
+                  onApprove={(body) => onCreateDebrief(meeting, body)}
+                />
               ),
             },
             {
@@ -1770,7 +1726,11 @@ function MeetingDetailPanel({
       </div>
       {activeTab === 'prep' && prep ? (
         <div className="engagement-detail-actions">
-          <Button icon={<RobotOutlined />} loading={generating} onClick={() => onGeneratePrep(meeting)}>
+          <Button
+            icon={<RobotOutlined />}
+            loading={generating}
+            onClick={() => onGeneratePrep(meeting)}
+          >
             Regenerate
           </Button>
           <Button
@@ -1786,20 +1746,13 @@ function MeetingDetailPanel({
           </Button>
           <Button
             type="primary"
-            disabled={prep.status === 'approved'}
+            className={prep.status === 'approved' ? 'engagement-approved-button' : undefined}
             loading={approving}
-            onClick={() => onApprovePrep(prep)}
+            onClick={() => {
+              if (prep.status !== 'approved') onApprovePrep(prep);
+            }}
           >
-            {prep.status === 'approved' ? 'Approved' : 'Approve & use'}
-          </Button>
-        </div>
-      ) : activeTab === 'debrief' && debriefs.length ? (
-        <div className="engagement-detail-actions engagement-detail-actions--two">
-          <Button icon={<MailOutlined />} onClick={() => window.dispatchEvent(new Event('capiro:open-outreach'))}>
-            Send via Outreach -&gt;
-          </Button>
-          <Button icon={<DownloadOutlined />} onClick={() => onExportPdf(meeting)}>
-            Export PDF
+            {prep.status === 'approved' ? 'Approved' : 'Approve'}
           </Button>
         </div>
       ) : null}
@@ -1964,7 +1917,9 @@ function MeetingNotesEditor({
                     <Typography.Text>{attachment.fileName}</Typography.Text>
                   )}
                   <Typography.Text type="secondary">
-                    {[attachment.contentType, formatBytes(attachment.byteSize)].filter(Boolean).join(' | ')}
+                    {[attachment.contentType, formatBytes(attachment.byteSize)]
+                      .filter(Boolean)
+                      .join(' | ')}
                   </Typography.Text>
                 </div>
                 <Button
@@ -2055,84 +2010,343 @@ function ParticipantsList({ participants }: { participants: MeetingParticipant[]
   );
 }
 
-function DebriefStartView({
+function DebriefPanel({
   meeting,
   prep,
+  debriefs,
+  loading,
+  aiConfigured,
   saving,
   notesConfigured,
-  onStart,
-  fallbackForm,
-  onCreate,
+  attachmentsConfigured,
+  attachments,
+  attachmentsLoading,
+  uploadingTranscript,
+  deletingAttachmentId,
+  generating,
+  onUpload,
+  onRemoveAttachment,
+  onGenerate,
+  onApprove,
 }: {
   meeting: Meeting;
   prep?: MeetingPrep;
+  debriefs: MeetingDebrief[];
+  loading: boolean;
+  aiConfigured: boolean;
   saving: boolean;
+  generating: boolean;
   notesConfigured: boolean;
-  onStart: () => void;
-  fallbackForm: ReturnType<typeof Form.useForm<{ body: string }>>[0];
-  onCreate: (body: string) => void;
+  attachmentsConfigured: boolean;
+  attachments: EngagementAttachment[];
+  attachmentsLoading: boolean;
+  uploadingTranscript: boolean;
+  deletingAttachmentId: string | null;
+  onUpload: (file: File) => void;
+  onRemoveAttachment: (attachmentId: string) => void;
+  onGenerate: (
+    method: 'upload' | 'manual' | 'voice',
+    sourceText: string,
+  ) => Promise<MeetingDebriefDraft>;
+  onApprove: (body: string) => void;
 }) {
+  const { message } = App.useApp();
+  const meetingHasEnded = new Date(meeting.endsAt).getTime() < Date.now();
+  const latestDebrief = debriefs[0];
+  const initialDraft = useMemo(
+    () => parseDebriefBody(latestDebrief?.body ?? ''),
+    [latestDebrief?.body],
+  );
+  const [method, setMethod] = useState<'upload' | 'manual' | 'voice'>('manual');
+  const [sourceText, setSourceText] = useState('');
+  const [draft, setDraft] = useState(initialDraft);
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [uploadHint, setUploadHint] = useState('');
+  const [recording, setRecording] = useState(false);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const transcriptInputId = `debrief-transcript-${meeting.id}`;
+
+  useEffect(() => {
+    setMethod('manual');
+    setSourceText('');
+    setDraft(parseDebriefBody(latestDebrief?.body ?? ''));
+    setDraftDirty(false);
+    setEditing(false);
+    setUploadHint('');
+  }, [latestDebrief?.body, meeting.id]);
+
+  const hasOutput = Boolean(draft.recap || draft.actionItems.length || draft.notes);
+  const approved = Boolean(latestDebrief) && !draftDirty && !editing;
+
+  const handleUpload = async (file: File) => {
+    setMethod('upload');
+    setUploadHint('');
+    onUpload(file);
+    if (file.type.startsWith('text/') || /\.txt$/i.test(file.name)) {
+      setSourceText(await file.text());
+      return;
+    }
+    setUploadHint(
+      'File uploaded. Paste transcript text or type meeting notes below before generating.',
+    );
+  };
+
+  const startRecording = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      message.error('Voice memo recording is not supported in this browser.');
+      return;
+    }
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (error) {
+      message.error(errorMessage(error));
+      return;
+    }
+    const recorder = new MediaRecorder(stream);
+    chunksRef.current = [];
+    recorderRef.current = recorder;
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunksRef.current.push(event.data);
+    };
+    recorder.onstop = () => {
+      stream.getTracks().forEach((track) => track.stop());
+      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
+      const file = new File([blob], `${safeFileName(meeting.subject)}-voice-memo.webm`, {
+        type: blob.type || 'audio/webm',
+      });
+      onUpload(file);
+      setRecording(false);
+      setUploadHint('Voice memo saved. Type meeting notes below before generating a debrief.');
+    };
+    setMethod('voice');
+    setRecording(true);
+    recorder.start();
+  };
+
+  const stopRecording = () => {
+    recorderRef.current?.stop();
+  };
+
+  const generate = async () => {
+    const source = sourceText.trim() || formatDebriefBody(draft).trim();
+    if (!source) {
+      message.warning('Add meeting notes or transcript text before generating a debrief.');
+      return;
+    }
+    const next = await onGenerate(method, source);
+    setDraft({
+      recap: next.recap,
+      actionItems: next.actionItems,
+      notes: next.notes,
+    });
+    setDraftDirty(true);
+    setEditing(false);
+  };
+
+  if (!meetingHasEnded) {
+    return (
+      <div className="engagement-detail-stack">
+        <div className="engagement-empty-prep">
+          <ClockCircleOutlined />
+          <Typography.Text strong>This meeting hasn't taken place yet</Typography.Text>
+          <Typography.Text type="secondary">
+            Come back after the meeting to complete your debrief.
+          </Typography.Text>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="engagement-debrief-start">
-      <div>
-        <Typography.Title level={5}>Complete your debrief</Typography.Title>
+    <div className="engagement-debrief-panel">
+      <div className="engagement-detail-stack engagement-debrief-scroll">
         <Typography.Text type="secondary">
-          Choose how to provide context. Clio will use it with the meeting context already saved in
-          Capiro.
+          Input notes from your completed meeting to generate a debrief.
         </Typography.Text>
-      </div>
-      <div className="engagement-debrief-option-grid">
-        <button type="button" className="recommended" onClick={onStart}>
-          <strong>Upload recording or transcript</strong>
-          <span>Audio, video, or .txt/.docx transcript. Richest output.</span>
-        </button>
-        <button type="button" onClick={onStart}>
-          <strong>Record voice memo</strong>
-          <span>Speak your notes. Clio transcribes and extracts.</span>
-        </button>
-        <button type="button" onClick={onStart}>
-          <strong>Type notes manually</strong>
-          <span>Clio uses your notes plus pre-loaded meeting context.</span>
-        </button>
-      </div>
-      <div className="outreach-context-note">
-        <RobotOutlined />
-        <span>
-          Already available to Clio: {prep ? 'approved or saved prep notes, ' : ''}
-          {meeting.attendees.length} participant profiles, {meeting.client ? 'client profile, ' : ''}
-          prior meeting history.
-        </span>
-      </div>
-      <Button type="primary" block onClick={onStart}>
-        Start debrief -&gt;
-      </Button>
-      {!notesConfigured ? (
-        <Typography.Text type="secondary">
-          Encrypted debrief storage requires NOTES_ENCRYPTION_KEY on the API.
-        </Typography.Text>
-      ) : null}
-      <Form
-        form={fallbackForm}
-        layout="vertical"
-        onFinish={(values) => onCreate(values.body)}
-        className="engagement-debrief-quick-form"
-      >
-        <Form.Item name="body" label="Quick manual debrief" rules={[{ required: true, min: 1 }]}>
-          <Input.TextArea
-            rows={4}
-            placeholder="Capture outcomes, decisions, commitments, and next steps..."
-            disabled={!notesConfigured}
-          />
-        </Form.Item>
+        <div className="engagement-debrief-option-grid">
+          <button
+            type="button"
+            className={method === 'upload' ? 'selected' : ''}
+            onClick={() => {
+              setMethod('upload');
+              document.getElementById(transcriptInputId)?.click();
+            }}
+          >
+            <strong>Upload recording or transcript</strong>
+            <span>Accepts audio, video, .txt, or .docx files.</span>
+          </button>
+          <button
+            type="button"
+            className={method === 'voice' ? 'selected' : ''}
+            onClick={recording ? stopRecording : startRecording}
+          >
+            <strong>Record voice memo</strong>
+            <span>
+              {recording ? 'Recording... click to stop.' : 'Capture audio directly in the browser.'}
+            </span>
+          </button>
+          <button
+            type="button"
+            className={method === 'manual' ? 'selected' : ''}
+            onClick={() => setMethod('manual')}
+          >
+            <strong>Type notes manually</strong>
+            <span>Use written context for the generated debrief.</span>
+          </button>
+        </div>
+        <input
+          id={transcriptInputId}
+          className="engagement-file-input"
+          type="file"
+          accept=".txt,.docx,audio/*,video/*"
+          disabled={!attachmentsConfigured || uploadingTranscript}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) void handleUpload(file);
+          }}
+        />
+        {uploadHint ? <Typography.Text type="secondary">{uploadHint}</Typography.Text> : null}
+
+        <Input.TextArea
+          rows={5}
+          value={sourceText}
+          onChange={(event) => setSourceText(event.target.value)}
+          placeholder="Capture outcomes, decisions, commitments, and next steps..."
+        />
+
         <Button
-          htmlType="submit"
-          icon={<SaveOutlined />}
-          loading={saving}
-          disabled={!notesConfigured}
+          type="primary"
+          block
+          loading={generating}
+          disabled={!aiConfigured}
+          onClick={generate}
         >
-          Save manual debrief
+          Generate debrief
         </Button>
-      </Form>
+
+        <div className="outreach-context-note">
+          <RobotOutlined />
+          <span>
+            Already available to Clio: {prep ? 'approved or saved prep notes, ' : ''}
+            {meeting.attendees.length} participant profiles,{' '}
+            {meeting.client ? 'client profile, ' : ''}
+            prior meeting history.
+          </span>
+        </div>
+
+        <div className="engagement-attachment-list">
+          {attachmentsLoading ? (
+            <Typography.Text type="secondary">Loading uploaded files...</Typography.Text>
+          ) : attachments.length ? (
+            attachments.map((attachment) => (
+              <article className="engagement-attachment-entry" key={attachment.id}>
+                <FileTextOutlined />
+                <div>
+                  {attachment.downloadUrl ? (
+                    <a href={attachment.downloadUrl} target="_blank" rel="noreferrer">
+                      {attachment.fileName}
+                    </a>
+                  ) : (
+                    <Typography.Text>{attachment.fileName}</Typography.Text>
+                  )}
+                  <Typography.Text type="secondary">
+                    {[attachment.contentType, formatBytes(attachment.byteSize)]
+                      .filter(Boolean)
+                      .join(' | ')}
+                  </Typography.Text>
+                </div>
+                <Button
+                  type="link"
+                  danger
+                  loading={deletingAttachmentId === attachment.id}
+                  onClick={() => onRemoveAttachment(attachment.id)}
+                >
+                  Remove
+                </Button>
+              </article>
+            ))
+          ) : null}
+        </div>
+
+        {loading ? <Typography.Text type="secondary">Loading debrief...</Typography.Text> : null}
+        {hasOutput ? (
+          <div className="engagement-debrief-output">
+            <DetailBlock title="Recap">
+              {editing ? (
+                <Input.TextArea
+                  rows={4}
+                  value={draft.recap}
+                  onChange={(event) => {
+                    setDraft({ ...draft, recap: event.target.value });
+                    setDraftDirty(true);
+                  }}
+                />
+              ) : (
+                <Typography.Paragraph>{draft.recap || 'No recap saved.'}</Typography.Paragraph>
+              )}
+            </DetailBlock>
+            <DetailBlock title="Action Items">
+              {editing ? (
+                <Input.TextArea
+                  rows={5}
+                  value={draft.actionItems.join('\n')}
+                  onChange={(event) => {
+                    setDraft({ ...draft, actionItems: linesToArray(event.target.value) });
+                    setDraftDirty(true);
+                  }}
+                />
+              ) : (
+                <BulletList items={draft.actionItems} empty="No action items generated yet." />
+              )}
+            </DetailBlock>
+            <DetailBlock title="Notes">
+              {editing ? (
+                <Input.TextArea
+                  rows={5}
+                  value={draft.notes}
+                  onChange={(event) => {
+                    setDraft({ ...draft, notes: event.target.value });
+                    setDraftDirty(true);
+                  }}
+                />
+              ) : (
+                <Typography.Paragraph>{draft.notes || 'No notes saved.'}</Typography.Paragraph>
+              )}
+            </DetailBlock>
+          </div>
+        ) : null}
+      </div>
+
+      {hasOutput ? (
+        <div className="engagement-detail-actions engagement-debrief-actions">
+          <Button icon={<RobotOutlined />} loading={generating} onClick={generate}>
+            Regenerate
+          </Button>
+          <Button icon={<EditOutlined />} onClick={() => setEditing(true)}>
+            Edit
+          </Button>
+          <Button icon={<DownloadOutlined />} onClick={() => exportDebriefPdf({ meeting, draft })}>
+            Export PDF
+          </Button>
+          <Button
+            type="primary"
+            className={approved ? 'engagement-approved-button' : undefined}
+            loading={saving}
+            disabled={!notesConfigured}
+            onClick={() => {
+              if (approved) return;
+              onApprove(formatDebriefBody(draft));
+              setEditing(false);
+            }}
+          >
+            {approved ? 'Approved' : 'Approve'}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -2166,7 +2380,9 @@ function DebriefCompleteView({
             <article className="engagement-note-entry" key={debrief.id}>
               <div>
                 <Typography.Text strong>{noteAuthor(debrief)}</Typography.Text>
-                <Typography.Text type="secondary">{formatDateTime(debrief.createdAt)}</Typography.Text>
+                <Typography.Text type="secondary">
+                  {formatDateTime(debrief.createdAt)}
+                </Typography.Text>
               </div>
               <Typography.Paragraph>
                 {debrief.restricted
@@ -2406,7 +2622,10 @@ function DebriefWorkflowSteps({
       {steps.map(([title, description], index) => {
         const step = index + 1;
         return (
-          <div className={step === current ? 'active' : step < current ? 'complete' : ''} key={title}>
+          <div
+            className={step === current ? 'active' : step < current ? 'complete' : ''}
+            key={title}
+          >
             <span>{step < current ? <CheckCircleOutlined /> : step}</span>
             <strong>{title}</strong>
             <small>{description}</small>
@@ -3610,6 +3829,83 @@ function exportMeetingPdf({
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
+}
+
+function exportDebriefPdf({ meeting, draft }: { meeting: Meeting; draft: DebriefDraftState }) {
+  const lines = [
+    'Capiro Meeting Debrief',
+    '',
+    meeting.subject,
+    `${formatLongDate(meeting.startsAt)} | ${formatTimeRange(meeting.startsAt, meeting.endsAt)}`,
+    `Client: ${meeting.client?.name ?? 'Unlinked'}`,
+    `Location: ${meeting.location || 'No location'}`,
+    '',
+    'Recap',
+    draft.recap || 'No recap saved.',
+    '',
+    'Action Items',
+    ...(draft.actionItems.length
+      ? draft.actionItems.map((item) => `- ${item}`)
+      : ['No action items saved.']),
+    '',
+    'Notes',
+    draft.notes || 'No notes saved.',
+  ];
+
+  const pdf = buildSimplePdf(lines.flatMap((line) => wrapPdfLine(line)));
+  const url = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${safeFileName(meeting.subject)}-debrief.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function parseDebriefBody(body: string): DebriefDraftState {
+  const fallback = { recap: body.trim(), actionItems: [], notes: '' };
+  if (!body.trim()) return { recap: '', actionItems: [], notes: '' };
+  const recap = sectionText(body, 'Recap', 'Action Items');
+  const actionItems = sectionText(body, 'Action Items', 'Notes');
+  const notes = sectionText(body, 'Notes');
+  if (!recap && !actionItems && !notes) return fallback;
+  return {
+    recap: recap || fallback.recap,
+    actionItems: linesToArray(actionItems.replace(/^- /gm, '')),
+    notes,
+  };
+}
+
+function formatDebriefBody(draft: DebriefDraftState): string {
+  return [
+    'Recap',
+    draft.recap.trim() || 'No recap saved.',
+    '',
+    'Action Items',
+    ...(draft.actionItems.length
+      ? draft.actionItems.map((item) => `- ${item}`)
+      : ['No action items saved.']),
+    '',
+    'Notes',
+    draft.notes.trim() || 'No notes saved.',
+  ].join('\n');
+}
+
+function sectionText(body: string, start: string, end?: string): string {
+  const startPattern = new RegExp(`(?:^|\\n)${escapeRegExp(start)}\\s*\\n`, 'i');
+  const startMatch = body.match(startPattern);
+  if (!startMatch || startMatch.index === undefined) return '';
+  const contentStart = startMatch.index + startMatch[0].length;
+  const rest = body.slice(contentStart);
+  if (!end) return rest.trim();
+  const endPattern = new RegExp(`\\n${escapeRegExp(end)}\\s*\\n`, 'i');
+  const endMatch = rest.match(endPattern);
+  return (endMatch?.index === undefined ? rest : rest.slice(0, endMatch.index)).trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function wrapPdfLine(line: string, max = 88): string[] {

@@ -2541,7 +2541,7 @@ function unique<T>(values: T[]): T[] {
 
 function defaultScopes(provider: EngagementProvider): string[] {
   if (provider === EngagementProvider.microsoft_365) {
-    return ['offline_access', 'User.Read', 'Mail.Read', 'Mail.Send', 'Calendars.Read'];
+    return ['offline_access', 'User.Read', 'Mail.Read', 'Mail.ReadWrite', 'Mail.Send', 'Calendars.Read'];
   }
   if (provider === EngagementProvider.google_workspace) {
     return [

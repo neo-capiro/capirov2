@@ -23,6 +23,7 @@ export const MICROSOFT_SCOPES = [
   'offline_access',
   'User.Read',
   'Mail.Read',
+  'Mail.ReadWrite',
   'Mail.Send',
   'Calendars.Read',
 ];

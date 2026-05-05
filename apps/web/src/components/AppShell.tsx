@@ -9,6 +9,8 @@ import {
   DownOutlined,
   FolderOpenOutlined,
   IdcardOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
   PlusOutlined,
   SettingOutlined,
   SyncOutlined,
@@ -101,6 +103,7 @@ export function AppShell() {
   const previousSection = useRef<AppSection | null>(null);
   const [lastManualSyncAt, setLastManualSyncAt] = useState<string | null>(null);
   const [workflowLocked, setWorkflowLocked] = useState(false);
+  const [navCollapsed, setNavCollapsed] = useState(false);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -270,21 +273,42 @@ export function AppShell() {
 
   return (
     <Layout className="app-shell">
-      <Sider width={240} className="app-shell-sider">
+      <Sider
+        width={240}
+        collapsedWidth={72}
+        collapsed={navCollapsed}
+        trigger={null}
+        className="app-shell-sider"
+      >
         <nav className="app-shell-nav" aria-label="Primary navigation">
-          <button
-            className="app-shell-brand"
-            type="button"
-            onClick={() => {
-              if (workflowLocked) {
-                message.info('Cancel or complete the outreach workflow before navigating away.');
-                return;
-              }
-              navigate('/');
-            }}
-          >
-            <img src="/logo.png" alt="Capiro" className="app-shell-logo" />
-          </button>
+          <div className="app-shell-brand-row">
+            <button
+              className="app-shell-brand"
+              type="button"
+              onClick={() => {
+                if (workflowLocked) {
+                  message.info('Cancel or complete the outreach workflow before navigating away.');
+                  return;
+                }
+                navigate('/');
+              }}
+              aria-label="Go to Command Center"
+            >
+              {navCollapsed ? (
+                <span className="app-shell-logo-mark">C</span>
+              ) : (
+                <img src="/logo.png" alt="Capiro" className="app-shell-logo" />
+              )}
+            </button>
+            <button
+              className="app-shell-collapse"
+              type="button"
+              aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+              onClick={() => setNavCollapsed((value) => !value)}
+            >
+              {navCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+            </button>
+          </div>
 
           <Menu
             theme="dark"
@@ -324,15 +348,6 @@ export function AppShell() {
               <SettingOutlined />
               <span>Settings</span>
             </Link>
-
-            <Dropdown menu={accountMenu} trigger={['click']} placement="topLeft">
-              <button className="app-user-nav" type="button">
-                <Avatar size={34} src={user?.imageUrl || undefined} icon={<UserOutlined />}>
-                  {initials(displayName)}
-                </Avatar>
-                <span>{displayName}</span>
-              </button>
-            </Dropdown>
           </div>
         </nav>
       </Sider>
@@ -354,12 +369,14 @@ export function AppShell() {
             </>
           ) : null}
           <span className="app-topbar-spacer" />
-          <PageActions
-            page={page.key}
-            accountMenu={accountMenu}
-            displayName={displayName}
-            imageUrl={user?.imageUrl || undefined}
-          />
+          <PageActions page={page.key} />
+          <Dropdown menu={accountMenu} trigger={['click']} placement="bottomRight">
+            <button className="app-topbar-account" type="button" aria-label="Open account menu">
+              <Avatar size={30} src={user?.imageUrl || undefined} icon={<UserOutlined />}>
+                {initials(displayName)}
+              </Avatar>
+            </button>
+          </Dropdown>
         </Header>
 
         {page.showClientDropdown && selectedClient ? (
@@ -499,17 +516,7 @@ function ClientContextBanner({ client, onClear }: { client: Client; onClear: () 
   );
 }
 
-function PageActions({
-  page,
-  accountMenu,
-  displayName,
-  imageUrl,
-}: {
-  page: AppSection;
-  accountMenu: MenuProps;
-  displayName: string;
-  imageUrl?: string;
-}) {
+function PageActions({ page }: { page: AppSection }) {
   if (page === 'clients') {
     return (
       <Space size={10}>
@@ -526,18 +533,6 @@ function PageActions({
       </Space>
     );
   }
-  if (page === 'engagement') {
-    return (
-      <Dropdown menu={accountMenu} trigger={['click']} placement="bottomRight">
-        <button className="app-topbar-account" type="button">
-          <Avatar size={30} src={imageUrl} icon={<UserOutlined />}>
-            {initials(displayName)}
-          </Avatar>
-        </button>
-      </Dropdown>
-    );
-  }
-
   return null;
 }
 
