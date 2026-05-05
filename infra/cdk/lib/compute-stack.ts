@@ -238,7 +238,10 @@ export class ComputeStack extends cdk.Stack {
     apiTaskRole.addToPolicy(
       new iam.PolicyStatement({
         actions: ['ses:SendEmail'],
-        resources: [demoRequestEmailIdentity.emailIdentityArn],
+        resources: [
+          demoRequestEmailIdentity.emailIdentityArn,
+          `arn:aws:ses:${this.region}:${this.account}:identity/sales@capiro.ai`,
+        ],
       }),
     );
 
