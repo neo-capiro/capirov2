@@ -37,6 +37,8 @@ export interface EnvConfig {
     microsoftCertPrivateKey: string;
     oauthTokenEncryptionKey: string;
     oauthStateSecret: string;
+    openaiApiKey: string;
+    anthropicApiKey: string;
   };
 }
 
@@ -108,6 +110,10 @@ export function loadConfig(app: cdk.App): EnvConfig {
                 'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/oauth-token-encryption-key-VQCjD8',
               oauthStateSecret:
                 'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/oauth-state-secret-XOOzYB',
+              openaiApiKey:
+                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/openai-api-key-7nAmib',
+              anthropicApiKey:
+                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/anthropic-api-key-3nhKhF',
             },
           };
 

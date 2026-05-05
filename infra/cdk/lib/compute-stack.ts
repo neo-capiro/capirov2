@@ -158,6 +158,18 @@ export class ComputeStack extends cdk.Stack {
       `capiro/${cfg.envName}/oauth-state-secret`,
       cfg.externalSecretArns?.oauthStateSecret,
     );
+    const openaiApiKeySecret = importExternalSecret(
+      this,
+      'ImportedOpenAiApiKey',
+      `capiro/${cfg.envName}/openai-api-key`,
+      cfg.externalSecretArns?.openaiApiKey,
+    );
+    const anthropicApiKeySecret = importExternalSecret(
+      this,
+      'ImportedAnthropicApiKey',
+      `capiro/${cfg.envName}/anthropic-api-key`,
+      cfg.externalSecretArns?.anthropicApiKey,
+    );
 
     // ------------------------------------------------------------------ ECR
     // Repos are pre-created out-of-band so images can be pushed BEFORE the
@@ -230,6 +242,8 @@ export class ComputeStack extends cdk.Stack {
           `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-cert-private-key*`,
           `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-token-encryption-key*`,
           `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-state-secret*`,
+          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
+          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
         ],
       }),
     );
@@ -273,6 +287,8 @@ export class ComputeStack extends cdk.Stack {
       MICROSOFT_CERT_PRIVATE_KEY: ecs.Secret.fromSecretsManager(microsoftCertPrivateKeySecret),
       OAUTH_TOKEN_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(oauthTokenEncryptionKeySecret),
       OAUTH_STATE_SECRET: ecs.Secret.fromSecretsManager(oauthStateSecret),
+      OPENAI_API_KEY: ecs.Secret.fromSecretsManager(openaiApiKeySecret),
+      ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(anthropicApiKeySecret),
     };
     const apiMigrateSecrets = {
       CLERK_SECRET_KEY: ecs.Secret.fromSecretsManager(clerkSecretKeyImported),
@@ -332,17 +348,19 @@ export class ComputeStack extends cdk.Stack {
     // IMPORTED secrets it cannot, so we add it explicitly. Without these the
     // task fails to start with "ResourceInitializationError: unable to pull
     // secrets" and ECS deployment-circuit-breaker rolls the service back.
-    // ARN patterns for the out-of-band Microsoft + OAuth secrets. The trailing
+    // ARN patterns for the out-of-band Microsoft, OAuth, and AI secrets. The trailing
     // `*` (no preceding dash) matches BOTH the bare name (which `fromSecretNameV2`
     // bakes into the task definition) AND the version-suffixed form Secrets
     // Manager appends to every secret ARN.
-    const microsoftAndOauthSecretArnPatterns = [
+    const externalRuntimeSecretArnPatterns = [
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-client-id*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-tenant-id*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-cert-thumbprint*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-cert-private-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-token-encryption-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-state-secret*`,
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
     ];
 
     grantSecretsAndKmsToExecutionRole(
@@ -351,7 +369,7 @@ export class ComputeStack extends cdk.Stack {
         dbSecretImported.secretArn,
         clerkSecretKeyImported.secretArn,
         clerkWebhookImported.secretArn,
-        ...microsoftAndOauthSecretArnPatterns,
+        ...externalRuntimeSecretArnPatterns,
       ],
       [dataKey.keyArn, secretsStack.secretsKey.keyArn],
     );
