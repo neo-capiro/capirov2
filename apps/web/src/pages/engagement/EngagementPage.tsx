@@ -186,6 +186,36 @@ type ReportPeriod = 'current' | 'previous' | 'all';
 type ReportStatus = 'not_started' | 'in_progress' | 'complete';
 type ReportStatusField = 'prepStatus' | 'outreachStatus' | 'submissionStatus';
 
+const REPORT_STATUS_OPTIONS: Array<{ value: ReportStatus; label: ReactNode }> = [
+  {
+    value: 'complete',
+    label: (
+      <span className="engagement-report-status-option status-complete">
+        <i />
+        Complete
+      </span>
+    ),
+  },
+  {
+    value: 'in_progress',
+    label: (
+      <span className="engagement-report-status-option status-in_progress">
+        <i />
+        In Progress
+      </span>
+    ),
+  },
+  {
+    value: 'not_started',
+    label: (
+      <span className="engagement-report-status-option status-not_started">
+        <i />
+        Not Started
+      </span>
+    ),
+  },
+];
+
 interface EngagementReportMeeting {
   id: string;
   subject: string;
@@ -891,18 +921,20 @@ export function EngagementPage() {
                 onStatusFilterChange={setReportStatusFilter}
                 sort={reportSort}
                 onSortChange={setReportSort}
-                updating={updateReportTarget.isPending}
-                onAddTarget={() => {
-                  targetOfficeForm.setFieldsValue({ clientId: selectedClientId ?? undefined });
-                  setTargetOfficeModalOpen(true);
-                }}
-                onExport={() => report.data && exportEngagementReportPdf(report.data)}
+                updatingCell={
+                  updateReportTarget.isPending && updateReportTarget.variables
+                    ? reportCellKey(
+                        updateReportTarget.variables.row,
+                        updateReportTarget.variables.field,
+                      )
+                    : null
+                }
                 onViewMeetings={setReportMeetingRow}
-                onStatusChange={(row, field) =>
+                onStatusChange={(row, field, status) =>
                   updateReportTarget.mutate({
                     row,
                     field,
-                    status: nextReportStatus(row[field]),
+                    status,
                   })
                 }
               />
@@ -2381,9 +2413,7 @@ function ReportsView({
   onStatusFilterChange,
   sort,
   onSortChange,
-  updating,
-  onAddTarget,
-  onExport,
+  updatingCell,
   onViewMeetings,
   onStatusChange,
 }: {
@@ -2395,11 +2425,13 @@ function ReportsView({
   onStatusFilterChange: (status: 'all' | ReportStatus) => void;
   sort: string;
   onSortChange: (sort: string) => void;
-  updating: boolean;
-  onAddTarget: () => void;
-  onExport: () => void;
+  updatingCell: string | null;
   onViewMeetings: (row: EngagementReportRow) => void;
-  onStatusChange: (row: EngagementReportRow, field: ReportStatusField) => void;
+  onStatusChange: (
+    row: EngagementReportRow,
+    field: ReportStatusField,
+    status: ReportStatus,
+  ) => void;
 }) {
   const rows = useMemo(() => {
     const base = report?.rows ?? [];
@@ -2421,59 +2453,19 @@ function ReportsView({
     });
   }, [report?.rows, sort, statusFilter]);
 
-  const totalTargets = report?.summary.targetOffices ?? 0;
-
   return (
     <div className="engagement-report-page">
-      <div className="engagement-report-topline">
-        <div>
-          <PanelTitle icon={<FileTextOutlined />} title="Reports" />
-          <Typography.Text type="secondary">
-            {report?.cycle.label ?? 'Current cycle'} engagement activity overview
-          </Typography.Text>
-        </div>
-        <Space wrap>
-          <Button icon={<DownloadOutlined />} disabled={!report} onClick={onExport}>
-            Export
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={onAddTarget}>
-            Add target office
-          </Button>
-        </Space>
-      </div>
-
-      <div className="engagement-report-metrics">
-        <ReportMetric
-          label="Target offices"
-          value={report?.summary.targetOffices ?? 0}
-          meta="this cycle"
-        />
-        <ReportMetric
-          label="Meetings held"
-          value={report?.summary.meetingsHeld ?? 0}
-          meta={`of ${totalTargets} targets`}
-        />
-        <ReportMetric
-          label="Outreach sent"
-          value={report?.summary.outreachSent ?? 0}
-          meta={`of ${totalTargets} targets`}
-        />
-        <ReportMetric
-          label="Submissions filed"
-          value={report?.summary.submissionsFiled ?? 0}
-          meta={`of ${totalTargets} targets`}
-        />
-        <ReportMetric
-          label="Pending actions"
-          value={report?.summary.pendingActions ?? 0}
-          meta="need follow-up"
-        />
+      <div className="engagement-tab-heading">
+        <Typography.Title level={3}>Reports</Typography.Title>
+        <Typography.Text type="secondary">
+          {report?.cycle.label ?? 'Current Cycle (2026)'} Engagement Activity Overview
+        </Typography.Text>
       </div>
 
       <div className="engagement-panel engagement-report-tracker">
         <div className="engagement-report-tracker-head">
           <div>
-            <Typography.Title level={5}>Office engagement tracker</Typography.Title>
+            <Typography.Title level={5}>Office Engagement Tracker</Typography.Title>
             <div className="engagement-report-period-tabs" aria-label="Report period">
               {(['current', 'previous', 'all'] as ReportPeriod[]).map((item) => (
                 <button
@@ -2483,10 +2475,10 @@ function ReportsView({
                   onClick={() => onPeriodChange(item)}
                 >
                   {item === 'current'
-                    ? 'Current cycle'
+                    ? 'Current Cycle'
                     : item === 'previous'
-                      ? 'Previous cycle'
-                      : 'All time'}
+                      ? 'Previous Cycle'
+                      : 'All Time'}
                 </button>
               ))}
             </div>
@@ -2496,10 +2488,10 @@ function ReportsView({
               value={statusFilter}
               onChange={onStatusFilterChange}
               options={[
-                { value: 'all', label: 'Filter: All statuses' },
+                { value: 'all', label: 'Filter: All Statuses' },
                 { value: 'complete', label: 'Filter: Complete' },
-                { value: 'in_progress', label: 'Filter: In progress' },
-                { value: 'not_started', label: 'Filter: Not started' },
+                { value: 'in_progress', label: 'Filter: In Progress' },
+                { value: 'not_started', label: 'Filter: Not Started' },
               ]}
             />
             <Select
@@ -2508,24 +2500,16 @@ function ReportsView({
               options={[
                 { value: 'member-asc', label: 'Sort: Member A-Z' },
                 { value: 'member-desc', label: 'Sort: Member Z-A' },
-                { value: 'meetings-desc', label: 'Sort: Meetings held' },
-                { value: 'outreach-desc', label: 'Sort: Outreach sent' },
-                { value: 'pending-desc', label: 'Sort: Pending actions' },
+                { value: 'meetings-desc', label: 'Sort: Meetings Held' },
+                { value: 'outreach-desc', label: 'Sort: Outreach Sent' },
+                { value: 'pending-desc', label: 'Sort: Pending Actions' },
               ]}
             />
-            <Button
-              type="primary"
-              icon={<DownloadOutlined />}
-              disabled={!report}
-              onClick={onExport}
-            >
-              Export to PDF
-            </Button>
           </Space>
         </div>
 
         {loading ? (
-          <Empty description="Loading report activity..." />
+          <Empty description="Loading Report Activity..." />
         ) : rows.length ? (
           <>
             <div className="engagement-report-table-wrap">
@@ -2537,11 +2521,11 @@ function ReportsView({
                     <th>Staffer</th>
                     <th>Building</th>
                     <th>Lead</th>
-                    <th>Meetings held</th>
-                    <th>Prep done</th>
-                    <th>Outreach sent</th>
-                    <th>Submission filed</th>
-                    <th>Pending actions</th>
+                    <th>Meetings Held</th>
+                    <th>Prep Done</th>
+                    <th>Outreach Sent</th>
+                    <th>Submission Filed</th>
+                    <th>Pending Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2565,28 +2549,28 @@ function ReportsView({
                           className="engagement-report-link"
                           onClick={() => onViewMeetings(row)}
                         >
-                          {row.meetingsHeld} view
+                          {row.meetingsHeld} View
                         </button>
                       </td>
                       <td>
-                        <ReportStatusButton
+                        <ReportStatusSelect
                           status={row.prepStatus}
-                          disabled={updating}
-                          onClick={() => onStatusChange(row, 'prepStatus')}
+                          disabled={updatingCell === reportCellKey(row, 'prepStatus')}
+                          onChange={(status) => onStatusChange(row, 'prepStatus', status)}
                         />
                       </td>
                       <td>
-                        <ReportStatusButton
+                        <ReportStatusSelect
                           status={row.outreachStatus}
-                          disabled={updating}
-                          onClick={() => onStatusChange(row, 'outreachStatus')}
+                          disabled={updatingCell === reportCellKey(row, 'outreachStatus')}
+                          onChange={(status) => onStatusChange(row, 'outreachStatus', status)}
                         />
                       </td>
                       <td>
-                        <ReportStatusButton
+                        <ReportStatusSelect
                           status={row.submissionStatus}
-                          disabled={updating}
-                          onClick={() => onStatusChange(row, 'submissionStatus')}
+                          disabled={updatingCell === reportCellKey(row, 'submissionStatus')}
+                          onChange={(status) => onStatusChange(row, 'submissionStatus', status)}
                         />
                       </td>
                       <td>{row.pendingActions}</td>
@@ -2600,52 +2584,41 @@ function ReportsView({
                 <i className="complete" /> Complete
               </span>
               <span>
-                <i className="in-progress" /> In progress
+                <i className="in-progress" /> In Progress
               </span>
               <span>
-                <i /> Not started
+                <i /> Not Started
               </span>
-              <em>Auto-populated from Capiro. Click a status dot to override manually.</em>
+              <em>Auto-populated from Capiro. Use each status menu to override manually.</em>
             </div>
           </>
         ) : (
-          <Empty description="No target offices are linked to this reporting period yet." />
+          <Empty description="No Target Offices Are Linked To This Reporting Period Yet." />
         )}
       </div>
     </div>
   );
 }
 
-function ReportMetric({ label, value, meta }: { label: string; value: number; meta: string }) {
-  return (
-    <div className="engagement-report-metric">
-      <Typography.Text type="secondary">{label}</Typography.Text>
-      <strong>{value}</strong>
-      <span>{meta}</span>
-    </div>
-  );
-}
-
-function ReportStatusButton({
+function ReportStatusSelect({
   status,
   disabled,
-  onClick,
+  onChange,
 }: {
   status: ReportStatus;
   disabled: boolean;
-  onClick: () => void;
+  onChange: (status: ReportStatus) => void;
 }) {
   return (
-    <button
-      type="button"
-      className={`engagement-report-status engagement-report-status--${status}`}
+    <Select<ReportStatus>
+      size="small"
+      popupMatchSelectWidth={false}
+      className={`engagement-report-status-select engagement-report-status-select--${status}`}
       disabled={disabled}
-      onClick={onClick}
-      title="Click to override"
-    >
-      <i />
-      <span>{reportStatusLabel(status)}</span>
-    </button>
+      value={status}
+      onChange={onChange}
+      options={REPORT_STATUS_OPTIONS}
+    />
   );
 }
 
@@ -2975,10 +2948,8 @@ function optionalText(value?: string | null): string | undefined {
   return text ? text : undefined;
 }
 
-function nextReportStatus(status: ReportStatus): ReportStatus {
-  if (status === 'not_started') return 'in_progress';
-  if (status === 'in_progress') return 'complete';
-  return 'not_started';
+function reportCellKey(row: EngagementReportRow, field: ReportStatusField): string {
+  return `${row.scopeKey}:${row.officeKey}:${field}`;
 }
 
 function reportStatusLabel(status: ReportStatus): string {

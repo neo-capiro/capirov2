@@ -392,10 +392,15 @@ export function AppShell() {
             <SettingOutlined />
           </button>
           <Dropdown menu={accountMenu} trigger={['click']} placement="bottomRight">
-            <button className="app-topbar-account" type="button" aria-label="Open account menu">
+            <button
+              className="app-topbar-account"
+              type="button"
+              aria-label={`Open account menu for ${displayName}`}
+            >
               <Avatar size={30} src={user?.imageUrl || undefined} icon={<UserOutlined />}>
                 {initials(displayName)}
               </Avatar>
+              <span className="app-topbar-account-name">{displayName}</span>
             </button>
           </Dropdown>
         </Header>

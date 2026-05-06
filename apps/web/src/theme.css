@@ -277,12 +277,13 @@ body {
 }
 
 .app-sync-status {
-  overflow: hidden;
+  overflow: visible;
   color: rgba(255, 255, 255, 0.58);
   font-size: 11px;
   line-height: 1.2;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .app-sync-icon {
@@ -644,22 +645,44 @@ body {
 }
 
 .app-topbar-account {
-  display: inline-grid;
-  place-items: center;
-  width: 36px;
+  display: inline-flex;
+  max-width: min(260px, 30vw);
   height: 36px;
-  padding: 0;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px 3px 3px;
+  color: #1f2937;
   border: 1px solid #d7dfea;
   border-radius: 999px;
   background: #fff;
+  font: inherit;
   cursor: pointer;
 }
 
+.app-topbar-account:hover,
+.app-topbar-account:focus-visible {
+  border-color: #b8c6dc;
+  background: #f7f9fc;
+  outline: none;
+}
+
 .app-topbar-account .ant-avatar {
+  flex: 0 0 auto;
   background: #243a73;
   color: #fff;
   font-size: 12px;
   font-weight: 900;
+}
+
+.app-topbar-account-name {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-content {
@@ -2107,50 +2130,25 @@ body {
   overflow-y: auto;
 }
 
-.engagement-report-topline {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px;
-  border: 1px solid #d9e1ee;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.05);
-}
-
-.engagement-report-topline .engagement-panel-title {
-  margin-bottom: 4px;
-}
-
-.engagement-report-metrics {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.engagement-report-metric {
+.engagement-tab-heading {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 4px;
-  min-height: 116px;
-  padding: 18px;
-  border: 1px solid #d9e1ee;
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.05);
+  gap: 3px;
+  padding: 2px 2px 0;
 }
 
-.engagement-report-metric strong {
+.engagement-tab-heading h3.ant-typography {
+  margin: 0;
   color: #111827;
-  font-size: 34px;
-  line-height: 1;
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1.15;
 }
 
-.engagement-report-metric span:last-child {
+.engagement-tab-heading .ant-typography-secondary {
   color: #667085;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 
@@ -2203,13 +2201,18 @@ body {
 }
 
 .engagement-report-table-wrap {
+  width: 100%;
+  max-width: 100%;
   min-height: 0;
-  overflow: auto;
+  padding-bottom: 10px;
+  overflow-x: auto;
+  overflow-y: visible;
+  scrollbar-gutter: stable;
 }
 
 .engagement-report-table {
   width: 100%;
-  min-width: 1120px;
+  min-width: 1360px;
   border-collapse: collapse;
 }
 
@@ -2253,28 +2256,31 @@ body {
   content: ' ->';
 }
 
-.engagement-report-status {
+.engagement-report-status-select {
+  min-width: 150px;
+}
+
+.engagement-report-status-select .ant-select-selector {
+  min-height: 32px !important;
+  border-radius: 999px !important;
+  border-color: #d9e1ee !important;
+  background: #fff !important;
+}
+
+.engagement-report-status-select .ant-select-selection-item {
+  display: inline-flex !important;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.engagement-report-status-option {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  min-width: 126px;
-  padding: 6px 9px;
-  color: #475467;
-  border: 1px solid #d9e1ee;
-  border-radius: 999px;
-  background: #fff;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
 }
 
-.engagement-report-status:disabled {
-  cursor: wait;
-  opacity: 0.6;
-}
-
-.engagement-report-status i,
+.engagement-report-status-option i,
 .engagement-report-legend i {
   display: inline-block;
   width: 10px;
@@ -2284,12 +2290,12 @@ body {
   background: #d0d5dd;
 }
 
-.engagement-report-status--complete i,
+.engagement-report-status-option.status-complete i,
 .engagement-report-legend i.complete {
   background: #344054;
 }
 
-.engagement-report-status--in_progress i,
+.engagement-report-status-option.status-in_progress i,
 .engagement-report-legend i.in-progress {
   background: #98a2b3;
 }
@@ -3973,7 +3979,6 @@ body {
     padding: 0 18px 20px;
   }
 
-  .engagement-report-topline,
   .engagement-report-tracker-head,
   .settings-integrations-header {
     flex-direction: column;
@@ -3983,7 +3988,6 @@ body {
   .engagement-work-grid,
   .engagement-meeting-shell,
   .engagement-form-grid,
-  .engagement-report-metrics,
   .settings-integration-grid {
     grid-template-columns: 1fr;
   }
