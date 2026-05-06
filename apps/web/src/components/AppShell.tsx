@@ -145,7 +145,8 @@ export function AppShell() {
 
   const branding = useQuery<BrandingResponse | null>({
     queryKey: ['branding'],
-    queryFn: async () => (await api.get<BrandingResponse | null>('/api/tenant-admin/branding')).data,
+    queryFn: async () =>
+      (await api.get<BrandingResponse | null>('/api/tenant-admin/branding')).data,
     enabled: Boolean(me.data),
     staleTime: 240_000,
     refetchInterval: 240_000,
@@ -161,12 +162,7 @@ export function AppShell() {
   const selectedClient = visibleClients.find((client) => client.id === selectedClientId) ?? null;
 
   useEffect(() => {
-    if (
-      previousSection.current &&
-      previousSection.current !== page.key &&
-      previousSection.current !== 'directory' &&
-      page.key !== 'directory'
-    ) {
+    if (previousSection.current && previousSection.current !== page.key) {
       clearClientFilter();
     }
     previousSection.current = page.key;
@@ -336,6 +332,7 @@ export function AppShell() {
             mode="inline"
             selectedKeys={[selectedKey]}
             items={items}
+            inlineCollapsed={navCollapsed}
             inlineIndent={24}
             className="app-nav-menu"
           />
@@ -656,7 +653,7 @@ function SyncInboxControl({
         <span className="app-sync-label">{status.label}</span>
         {status.text ? <span className="app-sync-status">{status.text}</span> : null}
       </span>
-      {connected ? <SyncOutlined className="app-sync-icon" /> : null}
+      <SyncOutlined className="app-sync-icon" />
     </button>
   );
 }

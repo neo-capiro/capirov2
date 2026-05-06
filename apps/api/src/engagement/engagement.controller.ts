@@ -331,6 +331,15 @@ class ConfirmAttachmentDto {
 const reportStatuses = ['auto', 'not_started', 'in_progress', 'complete'] as const;
 const outreachTypes = ['campaign', 'follow_up', 'prep'] as const;
 const outreachStatuses = ['draft', 'sent', 'opened_in_email', 'failed'] as const;
+const outreachPromptTemplates = [
+  'custom',
+  'thank_you',
+  'follow_up',
+  'memo',
+  'introduction',
+  'meeting_request',
+  'status_update',
+] as const;
 
 class CreateReportTargetOfficeDto {
   @IsOptional()
@@ -545,6 +554,10 @@ class GenerateOutreachDraftDto {
   @ValidateNested({ each: true })
   @Type(() => OutreachRecipientDto)
   recipients?: OutreachRecipientDto[];
+
+  @IsOptional()
+  @IsIn(outreachPromptTemplates)
+  promptTemplate?: (typeof outreachPromptTemplates)[number];
 
   @IsOptional()
   @IsObject()
@@ -799,6 +812,11 @@ export class EngagementController {
     @Query('mailMessageId') mailMessageId?: string,
   ) {
     return this.service.listAttachments(ctx, { clientId, meetingId, mailMessageId });
+  }
+
+  @Post('attachments/:id/extract-text')
+  extractAttachmentText(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.extractAttachmentText(ctx, id);
   }
 
   @Delete('attachments/:id')

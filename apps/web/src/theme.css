@@ -324,8 +324,25 @@ body {
 
 .app-shell-sider.ant-layout-sider-collapsed .app-nav-menu.ant-menu-dark .ant-menu-item {
   display: flex;
+  align-items: center;
   justify-content: center;
   padding-inline: 0 !important;
+}
+
+.app-shell-sider.ant-layout-sider-collapsed .app-nav-menu .ant-menu-item-icon {
+  display: inline-flex !important;
+  margin-inline-end: 0 !important;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 16px;
+  opacity: 1;
+}
+
+.app-shell-sider.ant-layout-sider-collapsed .app-nav-menu .ant-menu-title-content {
+  display: none !important;
+}
+
+.app-shell-sider.ant-layout-sider-collapsed .app-nav-menu .app-nav-item--nested::before {
+  display: none;
 }
 
 .app-shell-sider.ant-layout-sider-collapsed .app-shell-bottom {
@@ -2084,6 +2101,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  height: 100%;
+  min-height: 0;
+  padding: 0 2px 18px;
+  overflow-y: auto;
 }
 
 .engagement-report-topline {
@@ -2182,7 +2203,8 @@ body {
 }
 
 .engagement-report-table-wrap {
-  overflow-x: auto;
+  min-height: 0;
+  overflow: auto;
 }
 
 .engagement-report-table {
@@ -3118,20 +3140,18 @@ body {
 }
 
 .engagement-detail-actions {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: nowrap;
   gap: 10px;
   padding: 16px 20px;
+  overflow-x: auto;
   border-top: 1px solid #e4e9f2;
   background: #fff;
 }
 
-.engagement-detail-actions--two {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .engagement-detail-actions .ant-btn {
-  min-width: 0;
+  flex: 1 0 96px;
+  min-width: 96px;
   min-height: 44px;
   padding-inline: 8px;
   border-radius: 8px;
@@ -3989,7 +4009,6 @@ body {
 
   .engagement-day-calendar,
   .engagement-week-grid,
-  .engagement-detail-actions,
   .engagement-context-metrics {
     grid-template-columns: 1fr;
   }

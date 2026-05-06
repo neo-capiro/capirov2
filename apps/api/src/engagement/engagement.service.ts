@@ -24,6 +24,7 @@ import {
   MeetingPrepStatus,
   Prisma,
 } from '@prisma/client';
+import mammoth from 'mammoth';
 import { createHash, randomUUID } from 'node:crypto';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
@@ -239,6 +240,7 @@ export class EngagementService {
   private readonly logger = new Logger(EngagementService.name);
   private readonly s3: S3Client;
   private readonly bucket?: string;
+  private readonly openAiApiKey?: string;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -250,6 +252,7 @@ export class EngagementService {
     config: ConfigService<AppConfig, true>,
   ) {
     this.bucket = config.get('ASSETS_BUCKET', { infer: true });
+    this.openAiApiKey = config.get('OPENAI_API_KEY', { infer: true });
     this.s3 = new S3Client({ region: config.get('AWS_REGION_DEFAULT', { infer: true }) });
   }
 
@@ -586,6 +589,7 @@ export class EngagementService {
     input: {
       objective?: string;
       recipients?: OutreachRecipientInput[];
+      promptTemplate?: string;
       metadata?: Record<string, unknown>;
     },
   ) {
@@ -599,6 +603,8 @@ export class EngagementService {
       throw new BadRequestException('At least one recipient is required before drafting');
     }
     const context = await this.outreachContext(ctx, record, recipients, input.metadata);
+    const promptTemplate =
+      input.promptTemplate ?? readMetadataString(record.metadata, 'promptTemplate') ?? null;
     const generated = await this.ai.generateOutreachDraft({
       workflow: record.type as OutreachType,
       client: record.client ? pruneForAi(record.client) : null,
@@ -606,6 +612,7 @@ export class EngagementService {
       objective: input.objective ?? readMetadataString(record.metadata, 'objective'),
       recipients: recipients.map(pruneForAi),
       context,
+      promptTemplate,
       existingSubject: record.subject,
       existingBody: record.body,
     });
@@ -613,6 +620,7 @@ export class EngagementService {
     const nextMetadata = mergeJsonObjects(record.metadata, {
       ...(input.metadata ?? {}),
       objective: input.objective ?? readMetadataString(record.metadata, 'objective') ?? null,
+      promptTemplate,
       clioContextNote: generated.contextNote,
       ai: {
         provider: generated.provider,
@@ -1899,6 +1907,59 @@ export class EngagementService {
     );
   }
 
+  async extractAttachmentText(ctx: TenantContext, id: string) {
+    if (!this.bucket) throw new ServiceUnavailableException('ASSETS_BUCKET is not configured');
+
+    const attachment = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementAttachment.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+      }),
+    );
+    if (!attachment) throw new NotFoundException('Attachment not found');
+    if (!attachment.meetingId) {
+      throw new BadRequestException('Only meeting attachments can be used for debrief extraction');
+    }
+
+    await this.validateAttachmentParents(ctx, {
+      clientId: attachment.clientId ?? undefined,
+      meetingId: attachment.meetingId,
+    });
+
+    const bytes = await this.readAttachmentBytes(attachment.s3Key);
+    const contentType = attachment.contentType || 'application/octet-stream';
+    const fileName = attachment.fileName || 'attachment';
+    let source: 'text' | 'docx' | 'transcription';
+    let text: string;
+
+    if (isPlainTextAttachment(fileName, contentType)) {
+      source = 'text';
+      text = bytes.toString('utf8').trim();
+    } else if (isDocxAttachment(fileName, contentType)) {
+      source = 'docx';
+      const result = await mammoth.extractRawText({ buffer: bytes });
+      text = result.value.trim();
+    } else if (isTranscribableAttachment(fileName, contentType)) {
+      source = 'transcription';
+      text = await this.transcribeAttachmentWithOpenAi(bytes, fileName, contentType);
+    } else {
+      throw new BadRequestException(
+        'Unsupported debrief source. Upload .txt, .docx, audio, or video.',
+      );
+    }
+
+    if (!text) {
+      throw new BadRequestException('No usable text could be extracted from this attachment');
+    }
+
+    return {
+      attachmentId: attachment.id,
+      fileName,
+      contentType,
+      source,
+      text,
+    };
+  }
+
   async deleteAttachment(ctx: TenantContext, id: string) {
     const attachment = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const row = await tx.engagementAttachment.findFirst({
@@ -1930,6 +1991,57 @@ export class EngagementService {
     return getSignedUrl(this.s3, new GetObjectCommand({ Bucket: this.bucket, Key: s3Key }), {
       expiresIn: 300,
     });
+  }
+
+  private async readAttachmentBytes(s3Key: string): Promise<Buffer> {
+    if (!this.bucket) throw new ServiceUnavailableException('ASSETS_BUCKET is not configured');
+    const object = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: s3Key }));
+    const body = object.Body as { transformToByteArray?: () => Promise<Uint8Array> } | undefined;
+    if (!body?.transformToByteArray) {
+      throw new BadRequestException('Could not read uploaded attachment from S3');
+    }
+    return Buffer.from(await body.transformToByteArray());
+  }
+
+  private async transcribeAttachmentWithOpenAi(
+    bytes: Buffer,
+    fileName: string,
+    contentType: string,
+  ): Promise<string> {
+    if (!this.openAiApiKey) {
+      throw new ServiceUnavailableException(
+        'OPENAI_API_KEY is required to transcribe audio and video debrief sources',
+      );
+    }
+
+    const arrayBuffer = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
+    const form = new FormData();
+    form.append('model', 'whisper-1');
+    form.append(
+      'file',
+      new Blob([arrayBuffer], { type: contentType || 'application/octet-stream' }),
+      fileName,
+    );
+
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.openAiApiKey}` },
+      body: form,
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      text?: unknown;
+      error?: { message?: string };
+    };
+    if (!response.ok) {
+      throw new BadRequestException(payload.error?.message || 'OpenAI transcription failed');
+    }
+
+    const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+    if (!text) throw new BadRequestException('OpenAI transcription returned no text');
+    return text;
   }
 
   private async upsertAttendeeContacts(
@@ -2134,6 +2246,32 @@ function meetingInclude() {
       orderBy: [{ dueDate: 'asc' as const }, { createdAt: 'desc' as const }],
     },
   };
+}
+
+function isPlainTextAttachment(fileName: string, contentType: string): boolean {
+  const normalized = contentType.toLowerCase();
+  return (
+    normalized.startsWith('text/') ||
+    /\.(txt|text|md|csv|log)$/i.test(fileName) ||
+    normalized === 'application/json'
+  );
+}
+
+function isDocxAttachment(fileName: string, contentType: string): boolean {
+  const normalized = contentType.toLowerCase();
+  return (
+    /\.docx$/i.test(fileName) ||
+    normalized === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  );
+}
+
+function isTranscribableAttachment(fileName: string, contentType: string): boolean {
+  const normalized = contentType.toLowerCase();
+  return (
+    normalized.startsWith('audio/') ||
+    normalized.startsWith('video/') ||
+    /\.(mp3|mp4|mpeg|mpga|m4a|wav|webm)$/i.test(fileName)
+  );
 }
 
 function ownMeetingWhere(userId: string): Prisma.MeetingWhereInput {
@@ -2541,7 +2679,14 @@ function unique<T>(values: T[]): T[] {
 
 function defaultScopes(provider: EngagementProvider): string[] {
   if (provider === EngagementProvider.microsoft_365) {
-    return ['offline_access', 'User.Read', 'Mail.Read', 'Mail.ReadWrite', 'Mail.Send', 'Calendars.Read'];
+    return [
+      'offline_access',
+      'User.Read',
+      'Mail.Read',
+      'Mail.ReadWrite',
+      'Mail.Send',
+      'Calendars.Read',
+    ];
   }
   if (provider === EngagementProvider.google_workspace) {
     return [

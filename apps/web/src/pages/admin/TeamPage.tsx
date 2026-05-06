@@ -44,8 +44,8 @@ export function TeamPage() {
   const invite = useMutation({
     mutationFn: async (input: { email: string; role: 'user_admin' | 'standard_user' }) =>
       (await api.post('/api/tenant-admin/team/invite', input)).data,
-    onSuccess: () => {
-      message.success('Team member provisioned in Clerk');
+    onSuccess: (_data, variables) => {
+      message.success(`Invitation sent to ${variables.email}`);
       setInviteOpen(false);
       form.resetFields();
       qc.invalidateQueries({ queryKey: ['team'] });
@@ -80,6 +80,7 @@ export function TeamPage() {
       message.success('Invitation re-sent');
       qc.invalidateQueries({ queryKey: ['team', 'invitations'] });
     },
+    onError: (err) => message.error((err as Error).message),
   });
 
   return (
@@ -206,7 +207,7 @@ export function TeamPage() {
         onCancel={() => setInviteOpen(false)}
         onOk={() => form.submit()}
         confirmLoading={invite.isPending}
-        okText="Add member"
+        okText="Send invitation"
       >
         <Form
           form={form}

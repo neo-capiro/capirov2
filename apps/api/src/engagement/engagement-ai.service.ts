@@ -30,9 +30,25 @@ export interface OutreachDraftInput {
   objective?: string | null;
   recipients: Array<Record<string, unknown>>;
   context: Record<string, unknown>;
+  promptTemplate?: string | null;
   existingSubject?: string | null;
   existingBody?: string | null;
 }
+
+const PROMPT_TEMPLATE_GUIDANCE: Record<string, string> = {
+  thank_you:
+    'Tone: warm, gracious thank-you. Acknowledge the recipient\'s recent action or support, name the specific reason for thanks, and close with a brief offer to stay in touch. No new asks.',
+  follow_up:
+    'Tone: polite follow-up. Reference the prior touchpoint or meeting (use supplied notes/debriefs if present), restate one clear ask or next step, and propose a concrete next action.',
+  memo:
+    'Format as a concise memo / position paper. Lead with a one-line summary, then short Background, Ask, and Supporting Points sections. Keep under 300 words; use plain language.',
+  introduction:
+    'Tone: introductory, professional. Briefly introduce the client and why you are reaching out, the relevance to the recipient\'s portfolio, and a low-friction first ask (e.g., a 15-minute conversation).',
+  meeting_request:
+    'Goal: request a meeting. State the reason for meeting, suggested 2-3 scheduling windows, who would attend, and a one-sentence agenda. Keep it short.',
+  status_update:
+    'Tone: brief progress update. List 2-4 short bullets on activity since last contact, current status, and next planned step. No new asks unless directly tied to the update.',
+};
 
 export interface OutreachDraftResult {
   subject: string;
@@ -462,12 +478,20 @@ export class EngagementAiService {
       prep: 'Draft a clean prep distribution summary suitable for a colleague or client before the meeting. Include logistics, context, talking points, and participants from the approved prep.',
     }[input.workflow];
 
+    const templateGuidance =
+      input.promptTemplate && input.promptTemplate !== 'custom'
+        ? PROMPT_TEMPLATE_GUIDANCE[input.promptTemplate]
+        : null;
+
     return [
       workflowGuidance,
+      templateGuidance ? `Prompt template: ${input.promptTemplate}. ${templateGuidance}` : null,
       'Use only the provided client, meeting, recipient, and engagement context. Do not invent facts.',
       'Return JSON with subject, body, and contextNote. The body must be directly editable by the user.',
       JSON.stringify(input, null, 2),
-    ].join('\n\n');
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join('\n\n');
   }
 
   private buildDebriefPrompt(input: MeetingDebriefDraftInput): string {

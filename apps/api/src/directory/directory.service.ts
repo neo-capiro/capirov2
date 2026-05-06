@@ -613,7 +613,9 @@ export class DirectoryService {
         contact.focusAreas.join(' '),
         contact.committees.join(' '),
         contact.leadershipPositions.join(' '),
-        contact.staff.map((staff) => `${staff.fullName} ${staff.title} ${staff.email}`).join(' '),
+        contact.staff
+          .map((staff) => `${staff.fullName} ${staff.title} ${staff.email} ${staff.phone}`)
+          .join(' '),
       ]
         .join(' ')
         .toLowerCase();

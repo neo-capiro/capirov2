@@ -6,8 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { TenantContext } from '@capiro/shared';
+import { ConfigService } from '@nestjs/config';
+import type { OrganizationMembershipRole } from '@clerk/backend';
 import { ClerkProvisioningService } from '../auth/clerk-provisioning.service.js';
 import { ClerkService } from '../auth/clerk.service.js';
+import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 interface InviteTeamMemberInput {
@@ -37,6 +40,7 @@ export class TenantAdminService {
     private readonly prisma: PrismaService,
     private readonly clerk: ClerkService,
     private readonly provisioning: ClerkProvisioningService,
+    private readonly config: ConfigService<AppConfig, true>,
   ) {}
 
   async listTeam(ctx: TenantContext) {
@@ -83,21 +87,46 @@ export class TenantAdminService {
   }
 
   async inviteTeamMember(ctx: TenantContext, input: InviteTeamMemberInput) {
+    const email = normalizeEmail(input.email);
     const tenant = await this.prisma.withSystem(async (tx) =>
       tx.tenant.findUnique({ where: { id: ctx.tenantId } }),
     );
     if (!tenant?.clerkOrgId) {
       throw new BadRequestException('Tenant has no Clerk organization linked');
     }
-    const member = await this.provisioning.provisionOrganizationMember({
-      tenantId: ctx.tenantId,
+
+    const existingMember = await this.prisma.withTenant(ctx.tenantId, async (tx) =>
+      tx.tenantMembership.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          user: { email },
+          status: 'active',
+        },
+        select: { id: true },
+      }),
+    );
+    if (existingMember) {
+      throw new BadRequestException('This person is already an active team member');
+    }
+
+    await this.revokePendingInvitationForEmail(tenant.clerkOrgId, email, ctx.clerkUserId);
+    const invitation = await this.clerk.backend.organizations.createOrganizationInvitation({
       organizationId: tenant.clerkOrgId,
-      email: input.email,
-      role: input.role,
-      actorUserId: ctx.userId,
-      actorClerkUserId: ctx.clerkUserId,
+      emailAddress: email,
+      role: toClerkOrganizationRole(input.role),
+      redirectUrl: input.redirectUrl ?? this.defaultInvitationRedirectUrl(),
     });
-    return { member, status: member.userCreated ? 'created' : 'updated' };
+
+    return {
+      status: 'invited',
+      invitation: {
+        id: invitation.id,
+        email: invitation.emailAddress,
+        role: input.role,
+        createdAt: new Date(invitation.createdAt).toISOString(),
+        expiresAt: invitation.expiresAt ? new Date(invitation.expiresAt).toISOString() : null,
+      },
+    };
   }
 
   async resendInvitation(ctx: TenantContext, invitationId: string) {
@@ -114,13 +143,13 @@ export class TenantAdminService {
     await this.clerk.backend.organizations.revokeOrganizationInvitation({
       organizationId: tenant.clerkOrgId,
       invitationId: found.id,
-      requestingUserId: tenant.clerkOrgId,
+      requestingUserId: ctx.clerkUserId,
     });
     const fresh = await this.clerk.backend.organizations.createOrganizationInvitation({
       organizationId: tenant.clerkOrgId,
       emailAddress: found.emailAddress,
       role: found.role,
-      redirectUrl: 'https://app.capiro.ai/sign-in',
+      redirectUrl: this.defaultInvitationRedirectUrl(),
     });
     return { invitationId: fresh.id };
   }
@@ -224,4 +253,40 @@ export class TenantAdminService {
       };
     });
   }
+
+  private async revokePendingInvitationForEmail(
+    organizationId: string,
+    email: string,
+    requestingUserId: string,
+  ) {
+    const pending = await this.clerk.backend.organizations.getOrganizationInvitationList({
+      organizationId,
+      status: ['pending'],
+      limit: 100,
+    });
+    const existing = pending.data.find(
+      (invitation) => invitation.emailAddress.toLowerCase() === email,
+    );
+    if (!existing) return;
+    await this.clerk.backend.organizations.revokeOrganizationInvitation({
+      organizationId,
+      invitationId: existing.id,
+      requestingUserId,
+    });
+  }
+
+  private defaultInvitationRedirectUrl() {
+    const origin = this.config.get('WEB_ORIGIN', { infer: true }) ?? 'https://app.capiro.ai';
+    return `${origin.replace(/\/$/, '')}/sign-in`;
+  }
+}
+
+function normalizeEmail(email: string): string {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) throw new BadRequestException('Email is required');
+  return normalized;
+}
+
+function toClerkOrganizationRole(role: 'user_admin' | 'standard_user'): OrganizationMembershipRole {
+  return (role === 'standard_user' ? 'org:member' : 'org:admin') as OrganizationMembershipRole;
 }
