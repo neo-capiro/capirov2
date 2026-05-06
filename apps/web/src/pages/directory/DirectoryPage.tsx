@@ -21,6 +21,7 @@ import {
 } from 'antd';
 import {
   CopyOutlined,
+  CheckOutlined,
   DownOutlined,
   LinkOutlined,
   MailOutlined,
@@ -912,9 +913,27 @@ function FilterPill({
   onSelect: (value: string) => void;
   onClear: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const active = values.length > 0;
-  const menu = filterMenu(values, options, onSelect);
   const text = active ? activeFilterLabel(label, values, options) : label;
+  const content = (
+    <SearchableFilterMenu
+      label={label}
+      values={values}
+      options={options}
+      search={search}
+      onSearch={setSearch}
+      onSelect={(value) => {
+        onSelect(value);
+        setOpen(false);
+      }}
+    />
+  );
+  const handleOpenChange = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (nextOpen) setSearch('');
+  };
 
   if (active) {
     return (
@@ -928,7 +947,15 @@ function FilterPill({
         >
           {text}
         </button>
-        <Dropdown menu={menu} trigger={['click']} disabled={disabled}>
+        <Popover
+          arrow={false}
+          content={content}
+          open={open}
+          overlayClassName="directory-filter-popover"
+          placement="bottomLeft"
+          trigger="click"
+          onOpenChange={handleOpenChange}
+        >
           <button
             className="directory-filter-pill-caret"
             type="button"
@@ -938,17 +965,25 @@ function FilterPill({
           >
             <DownOutlined />
           </button>
-        </Dropdown>
+        </Popover>
       </span>
     );
   }
 
   return (
-    <Dropdown menu={menu} trigger={['click']} disabled={disabled}>
+    <Popover
+      arrow={false}
+      content={content}
+      open={open}
+      overlayClassName="directory-filter-popover"
+      placement="bottomLeft"
+      trigger="click"
+      onOpenChange={handleOpenChange}
+    >
       <button className="directory-filter-pill" type="button" disabled={disabled}>
         {label} <DownOutlined />
       </button>
-    </Dropdown>
+    </Popover>
   );
 }
 
@@ -1075,22 +1110,77 @@ function DirectoryMemberCard({
   );
 }
 
-function filterMenu(
-  values: string[],
-  options: Array<{ value: string; label: string }>,
-  onSelect: (value: string) => void,
-): MenuProps {
-  return {
-    items: options.length
-      ? options.map((option) => ({
-          key: option.value,
-          label: values.includes(option.value) ? `${option.label} Selected` : option.label,
-        }))
-      : [{ key: 'empty', label: 'No Options', disabled: true }],
-    onClick: ({ key }) => {
-      if (key !== 'empty') onSelect(String(key));
-    },
-  };
+function SearchableFilterMenu({
+  label,
+  values,
+  options,
+  search,
+  onSearch,
+  onSelect,
+}: {
+  label: string;
+  values: string[];
+  options: Array<{ value: string; label: string }>;
+  search: string;
+  onSearch: (value: string) => void;
+  onSelect: (value: string) => void;
+}) {
+  const searchable = options.length > 10;
+  const normalizedSearch = search.trim().toLowerCase();
+  const visibleOptions = normalizedSearch
+    ? options.filter(
+        (option) =>
+          option.label.toLowerCase().includes(normalizedSearch) ||
+          option.value.toLowerCase().includes(normalizedSearch),
+      )
+    : options;
+
+  return (
+    <div
+      className="directory-filter-menu"
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      {searchable ? (
+        <Input
+          allowClear
+          autoFocus
+          className="directory-filter-menu-search"
+          placeholder={`Search ${label.toLowerCase()}...`}
+          prefix={<SearchOutlined />}
+          size="small"
+          value={search}
+          onChange={(event) => onSearch(event.target.value)}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        />
+      ) : null}
+      <div className="directory-filter-option-list">
+        {visibleOptions.length ? (
+          visibleOptions.map((option) => {
+            const selected = values.includes(option.value);
+            return (
+              <button
+                className={
+                  selected ? 'directory-filter-option is-selected' : 'directory-filter-option'
+                }
+                key={option.value}
+                type="button"
+                onClick={() => onSelect(option.value)}
+              >
+                <span>{option.label}</span>
+                {selected ? <CheckOutlined /> : null}
+              </button>
+            );
+          })
+        ) : (
+          <Typography.Text className="directory-filter-menu-empty" type="secondary">
+            {options.length ? 'No matching options' : 'No Options'}
+          </Typography.Text>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function activeFilterLabel(

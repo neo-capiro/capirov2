@@ -664,6 +664,8 @@ function CampaignWorkflow({
                     Client
                     <Select
                       value={workflow.clientId ?? undefined}
+                      showSearch={clients.length > 10}
+                      optionFilterProp="label"
                       options={clients.map((client) => ({ value: client.id, label: client.name }))}
                       onChange={(clientId) =>
                         onWorkflowChange({

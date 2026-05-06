@@ -12,6 +12,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   PlusOutlined,
+  SearchOutlined,
   SettingOutlined,
   SyncOutlined,
   UserOutlined,
@@ -25,8 +26,10 @@ import {
   Avatar,
   Button,
   Dropdown,
+  Input,
   Layout,
   Menu,
+  Popover,
   Space,
   Typography,
   type MenuProps,
@@ -71,6 +74,16 @@ interface IntegrationConnection {
   displayName: string | null;
   status: 'needs_configuration' | 'connected' | 'error' | 'disabled';
   lastSyncAt: string | null;
+}
+
+interface BrandingResponse {
+  id: string;
+  slug: string;
+  name: string;
+  logoS3Key: string | null;
+  logoContentType: string | null;
+  logoUploadedAt: string | null;
+  logoUrl?: string | null;
 }
 
 const NAV: NavItem[] = [
@@ -128,6 +141,14 @@ export function AppShell() {
     queryFn: async () => (await api.get<Client[]>('/api/clients')).data,
     enabled: Boolean(me.data),
     staleTime: 60_000,
+  });
+
+  const branding = useQuery<BrandingResponse | null>({
+    queryKey: ['branding'],
+    queryFn: async () => (await api.get<BrandingResponse | null>('/api/tenant-admin/branding')).data,
+    enabled: Boolean(me.data),
+    staleTime: 240_000,
+    refetchInterval: 240_000,
   });
 
   const visibleClients = useMemo(
@@ -354,10 +375,41 @@ export function AppShell() {
 
       <Layout className="app-main-layout">
         <Header className="app-topbar">
-          <Typography.Text className="app-topbar-title">{page.title}</Typography.Text>
+          <TopbarTenantBrand
+            logoUrl={branding.data?.logoUrl ?? null}
+            name={branding.data?.name ?? me.data?.tenant.name ?? 'Capiro'}
+          />
+          <span className="app-topbar-spacer" />
+          <button
+            className="app-topbar-icon-button"
+            type="button"
+            aria-label="Open settings"
+            onClick={() => {
+              if (workflowLocked) {
+                message.info('Cancel or complete the outreach workflow before navigating away.');
+                return;
+              }
+              navigate('/settings');
+            }}
+          >
+            <SettingOutlined />
+          </button>
+          <Dropdown menu={accountMenu} trigger={['click']} placement="bottomRight">
+            <button className="app-topbar-account" type="button" aria-label="Open account menu">
+              <Avatar size={30} src={user?.imageUrl || undefined} icon={<UserOutlined />}>
+                {initials(displayName)}
+              </Avatar>
+            </button>
+          </Dropdown>
+        </Header>
+
+        <div className="app-page-header">
+          <Typography.Text className="app-page-title" role="heading" aria-level={1}>
+            {page.title}
+          </Typography.Text>
           {page.showClientDropdown ? (
             <>
-              <span className="app-topbar-divider" aria-hidden="true" />
+              <span className="app-page-header-divider" aria-hidden="true" />
               <ClientDropdown
                 clients={visibleClients}
                 selectedClient={selectedClient}
@@ -368,16 +420,9 @@ export function AppShell() {
               />
             </>
           ) : null}
-          <span className="app-topbar-spacer" />
+          <span className="app-page-header-spacer" />
           <PageActions page={page.key} />
-          <Dropdown menu={accountMenu} trigger={['click']} placement="bottomRight">
-            <button className="app-topbar-account" type="button" aria-label="Open account menu">
-              <Avatar size={30} src={user?.imageUrl || undefined} icon={<UserOutlined />}>
-                {initials(displayName)}
-              </Avatar>
-            </button>
-          </Dropdown>
-        </Header>
+        </div>
 
         {page.showClientDropdown && selectedClient ? (
           <ClientContextBanner client={selectedClient} onClear={clearClientFilter} />
@@ -410,6 +455,17 @@ export function AppShell() {
   );
 }
 
+function TopbarTenantBrand({ logoUrl, name }: { logoUrl: string | null; name: string }) {
+  return (
+    <div className="app-topbar-tenant-brand" aria-label={`Current company: ${name}`}>
+      <span className="app-topbar-tenant-logo">
+        {logoUrl ? <img src={logoUrl} alt={`${name} logo`} /> : initials(name)}
+      </span>
+      <span className="app-topbar-tenant-name">{name}</span>
+    </div>
+  );
+}
+
 function ClientDropdown({
   clients,
   selectedClient,
@@ -425,62 +481,98 @@ function ClientDropdown({
   onSelect: (clientId: string | null) => void;
   onNavigateToClients: () => void;
 }) {
-  const menuItems: MenuProps['items'] = [
-    {
-      key: 'all',
-      label: (
-        <span className="app-client-menu-row">
-          <span>All clients</span>
-          {!selectedClientId ? <CheckOutlined /> : null}
-        </span>
-      ),
-    },
-    { type: 'divider' },
-    ...clients.map((client) => ({
-      key: client.id,
-      label: (
-        <span className="app-client-menu-row">
-          <span className="app-client-menu-name">
-            <Avatar size={22} src={client.logoUrl || undefined}>
-              {initials(client.name)}
-            </Avatar>
-            <span>{client.name}</span>
-          </span>
-          {selectedClientId === client.id ? <CheckOutlined /> : null}
-        </span>
-      ),
-    })),
-    ...(clients.length
-      ? []
-      : [
-          {
-            key: 'empty',
-            label: (
-              <span className="app-client-menu-empty">
-                No clients yet - add one in the Clients section
-              </span>
-            ),
-          },
-        ]),
-  ];
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const searchable = clients.length > 10;
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredClients = normalizedSearch
+    ? clients.filter((client) => client.name.toLowerCase().includes(normalizedSearch))
+    : clients;
 
-  const menu: MenuProps = {
-    items: menuItems,
-    onClick: ({ key }) => {
-      if (key === 'all') {
-        onSelect(null);
-        return;
-      }
-      if (key === 'empty') {
-        onNavigateToClients();
-        return;
-      }
-      onSelect(String(key));
-    },
+  const handleSelect = (clientId: string | null) => {
+    onSelect(clientId);
+    setOpen(false);
   };
 
+  const content = (
+    <div
+      className="app-client-menu"
+      onClick={(event) => event.stopPropagation()}
+      onMouseDown={(event) => event.stopPropagation()}
+    >
+      <button
+        className="app-client-menu-row-button"
+        type="button"
+        onClick={() => handleSelect(null)}
+      >
+        <span>All clients</span>
+        {!selectedClientId ? <CheckOutlined /> : null}
+      </button>
+      <span className="app-client-menu-divider" />
+      {searchable ? (
+        <Input
+          allowClear
+          autoFocus
+          className="app-client-menu-search"
+          placeholder="Search clients..."
+          prefix={<SearchOutlined />}
+          size="small"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => event.stopPropagation()}
+        />
+      ) : null}
+      <div className="app-client-menu-list">
+        {clients.length ? (
+          filteredClients.length ? (
+            filteredClients.map((client) => (
+              <button
+                className="app-client-menu-row-button"
+                key={client.id}
+                type="button"
+                onClick={() => handleSelect(client.id)}
+              >
+                <span className="app-client-menu-name">
+                  <Avatar size={22} src={client.logoUrl || undefined}>
+                    {initials(client.name)}
+                  </Avatar>
+                  <span>{client.name}</span>
+                </span>
+                {selectedClientId === client.id ? <CheckOutlined /> : null}
+              </button>
+            ))
+          ) : (
+            <Typography.Text className="app-client-menu-empty" type="secondary">
+              No matching clients
+            </Typography.Text>
+          )
+        ) : (
+          <button
+            className="app-client-menu-empty-button"
+            type="button"
+            onClick={onNavigateToClients}
+          >
+            No clients yet - add one in the Clients section
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
   return (
-    <Dropdown menu={menu} trigger={['click']} placement="bottomLeft">
+    <Popover
+      arrow={false}
+      content={content}
+      open={open}
+      overlayClassName="app-client-popover"
+      placement="bottomLeft"
+      trigger="click"
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen) setSearch('');
+      }}
+    >
       <button className="app-client-dropdown-trigger" type="button">
         {selectedClient ? (
           <>
@@ -494,7 +586,7 @@ function ClientDropdown({
         )}
         <DownOutlined />
       </button>
-    </Dropdown>
+    </Popover>
   );
 }
 
@@ -624,6 +716,7 @@ function pageConfigFor(pathname: string): PageConfig {
   };
   const showClientDropdown =
     key === 'home' ||
+    key === 'engagement' ||
     pathname.startsWith('/workspace/library') ||
     pathname.startsWith('/workspace/submissions');
   return { key, title: titleByKey[key], showClientDropdown };

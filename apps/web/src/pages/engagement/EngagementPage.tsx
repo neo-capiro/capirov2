@@ -283,7 +283,6 @@ export function EngagementPage() {
   const defaultRange = useMemo(() => defaultMeetingRange(), []);
   const [rangeStart, setRangeStart] = useState(defaultRange.start);
   const [rangeEnd, setRangeEnd] = useState(defaultRange.end);
-  const [calendarDate, setCalendarDate] = useState(todayInputValue());
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [meetingDetailTab, setMeetingDetailTab] = useState('prep');
   const [activeEngagementTab, setActiveEngagementTab] = useState('meetings');
@@ -309,7 +308,8 @@ export function EngagementPage() {
     () => dateRangeWindow(rangeStart, rangeEnd, historyBatch),
     [historyBatch, rangeEnd, rangeStart],
   );
-  const calendarWindow = useMemo(() => workWeekWindow(calendarDate), [calendarDate]);
+  const hasCustomMeetingRange =
+    rangeStart !== defaultRange.start || rangeEnd !== defaultRange.end || historyBatch > 0;
 
   const clients = useQuery<Client[]>({
     queryKey: ['clients'],
@@ -321,6 +321,10 @@ export function EngagementPage() {
         .filter((client) => client.status !== 'archived')
         .sort((left, right) => left.name.localeCompare(right.name)),
     [clients.data],
+  );
+  const clientSelectOptions = useMemo(
+    () => activeClients.map((client) => ({ value: client.id, label: client.name })),
+    [activeClients],
   );
 
   const capabilities = useQuery<EngagementCapabilities>({
@@ -343,34 +347,14 @@ export function EngagementPage() {
       ).data,
   });
 
-  const calendarMeetings = useQuery<Meeting[]>({
-    queryKey: [
-      'engagement-calendar-meetings',
-      selectedClientId,
-      calendarWindow.from,
-      calendarWindow.to,
-    ],
-    queryFn: async () =>
-      (
-        await api.get<Meeting[]>('/api/engagement/meetings', {
-          params: {
-            clientId: selectedClientId ?? undefined,
-            from: calendarWindow.from,
-            to: calendarWindow.to,
-          },
-        })
-      ).data,
-    enabled: meetingViewMode === 'calendar',
-  });
-
   const visibleMeetings = useMemo(
     () =>
-      meetingViewMode === 'calendar'
-        ? (calendarMeetings.data ?? [])
-        : [...(meetings.data ?? [])].sort(
-            (left, right) => new Date(right.startsAt).getTime() - new Date(left.startsAt).getTime(),
-          ),
-    [calendarMeetings.data, meetingViewMode, meetings.data],
+      [...(meetings.data ?? [])].sort((left, right) => {
+        const leftTime = new Date(left.startsAt).getTime();
+        const rightTime = new Date(right.startsAt).getTime();
+        return meetingViewMode === 'calendar' ? leftTime - rightTime : rightTime - leftTime;
+      }),
+    [meetingViewMode, meetings.data],
   );
   const selectedMeetingFromVisible = useMemo(
     () => visibleMeetings.find((meeting) => meeting.id === selectedMeetingId) ?? null,
@@ -749,11 +733,6 @@ export function EngagementPage() {
 
   return (
     <section className="engagement-page">
-      <ClientSelectorBar
-        clients={activeClients}
-        selectedClientId={selectedClientId}
-        onSelect={setSelectedClientId}
-      />
       <Tabs
         className="engagement-tabs"
         activeKey={activeEngagementTab}
@@ -801,28 +780,38 @@ export function EngagementPage() {
                     </div>
                   </div>
 
-                  {(
-                    meetingViewMode === 'calendar' ? calendarMeetings.isLoading : meetings.isLoading
-                  ) ? (
+                  <MeetingDateRangeSelector
+                    rangeStart={rangeStart}
+                    rangeEnd={rangeEnd}
+                    defaultRange={defaultRange}
+                    hasCustomRange={hasCustomMeetingRange}
+                    onRangeStart={(value) => {
+                      setHistoryBatch(0);
+                      setRangeStart(value);
+                      if (value > rangeEnd) setRangeEnd(value);
+                    }}
+                    onRangeEnd={(value) => {
+                      setHistoryBatch(0);
+                      setRangeEnd(value);
+                      if (value < rangeStart) setRangeStart(value);
+                    }}
+                    onClear={() => {
+                      setHistoryBatch(0);
+                      setRangeStart(defaultRange.start);
+                      setRangeEnd(defaultRange.end);
+                    }}
+                  />
+
+                  {meetings.isLoading ? (
                     <Empty description="Loading Outlook meetings..." />
                   ) : visibleMeetings.length ? (
                     meetingViewMode === 'list' ? (
                       <MeetingListView
                         meetings={visibleMeetings}
                         selectedId={selectedMeeting?.id ?? null}
-                        rangeStart={rangeStart}
-                        rangeEnd={rangeEnd}
-                        defaultRange={defaultRange}
                         historyBatch={historyBatch}
                         generatingMeetingId={generatingPrepMeetingId}
                         aiConfigured={Boolean(capabilities.data?.ai.activeProvider)}
-                        onRangeStart={setRangeStart}
-                        onRangeEnd={setRangeEnd}
-                        onClearRange={() => {
-                          setHistoryBatch(0);
-                          setRangeStart(defaultRange.start);
-                          setRangeEnd(defaultRange.end);
-                        }}
                         onSelect={(meeting, tab) => {
                           setSelectedMeetingId(meeting.id);
                           setMeetingDetailTab(tab ?? 'prep');
@@ -836,8 +825,8 @@ export function EngagementPage() {
                       <MeetingCalendarList
                         meetings={visibleMeetings}
                         selectedId={selectedMeeting?.id ?? null}
-                        weekStart={calendarWindow.weekStart}
-                        weekEnd={calendarWindow.weekEnd}
+                        rangeStart={rangeStart}
+                        rangeEnd={rangeEnd}
                         onSelect={(meetingId) => {
                           setSelectedMeetingId(meetingId);
                           setMeetingDetailTab('prep');
@@ -846,13 +835,11 @@ export function EngagementPage() {
                           setSelectedMeetingId(meetingId);
                           setMeetingDetailTab(tab);
                         }}
-                        onPreviousWeek={() => setCalendarDate(shiftDate(calendarDate, -7))}
-                        onNextWeek={() => setCalendarDate(shiftDate(calendarDate, 7))}
                       />
                     )
                   ) : (
                     <MeetingListEmpty
-                      hasAnySyncedMeetings={Boolean((meetings.data ?? []).length)}
+                      hasAnySyncedMeetings={hasCustomMeetingRange}
                       onSync={() => window.dispatchEvent(new Event('capiro:sync-inbox'))}
                     />
                   )}
@@ -990,9 +977,9 @@ export function EngagementPage() {
           <Form.Item name="clientId" label="Client">
             <Select
               allowClear
-              options={(clients.data ?? [])
-                .filter((client) => client.status !== 'archived')
-                .map((client) => ({ value: client.id, label: client.name }))}
+              showSearch={clientSelectOptions.length > 10}
+              optionFilterProp="label"
+              options={clientSelectOptions}
             />
           </Form.Item>
           <div className="engagement-form-grid">
@@ -1054,9 +1041,9 @@ export function EngagementPage() {
           <Form.Item name="clientId" label="Client">
             <Select
               allowClear
-              options={(clients.data ?? [])
-                .filter((client) => client.status !== 'archived')
-                .map((client) => ({ value: client.id, label: client.name }))}
+              showSearch={clientSelectOptions.length > 10}
+              optionFilterProp="label"
+              options={clientSelectOptions}
             />
           </Form.Item>
           <Form.Item
@@ -1157,42 +1144,45 @@ export function EngagementPage() {
   );
 }
 
-function ClientSelectorBar({
-  clients,
-  selectedClientId,
-  onSelect,
+function MeetingDateRangeSelector({
+  rangeStart,
+  rangeEnd,
+  defaultRange,
+  hasCustomRange,
+  onRangeStart,
+  onRangeEnd,
+  onClear,
 }: {
-  clients: Client[];
-  selectedClientId: string | null;
-  onSelect: (clientId: string | null) => void;
+  rangeStart: string;
+  rangeEnd: string;
+  defaultRange: { start: string; end: string };
+  hasCustomRange: boolean;
+  onRangeStart: (value: string) => void;
+  onRangeEnd: (value: string) => void;
+  onClear: () => void;
 }) {
-  const selected = selectedClientId ?? 'all';
   return (
-    <div className="engagement-client-selector">
-      <span>Client</span>
-      <button
-        type="button"
-        className={selected === 'all' ? 'active' : ''}
-        onClick={() => onSelect(null)}
-      >
-        <i />
-        All
-      </button>
-      {clients.map((client) => (
-        <button
-          key={client.id}
-          type="button"
-          className={selected === client.id ? 'active' : ''}
-          onClick={() => onSelect(client.id)}
-        >
-          <i>{initials(client.name).slice(0, 2)}</i>
-          {client.name}
+    <div className="engagement-date-filter" aria-label="Meetings date range">
+      <span className="engagement-date-filter-label">Date Range</span>
+      <Input
+        aria-label="Start date"
+        className="engagement-date-input"
+        type="date"
+        value={rangeStart}
+        onChange={(event) => onRangeStart(event.target.value || defaultRange.start)}
+      />
+      <span className="engagement-date-filter-separator">To</span>
+      <Input
+        aria-label="End date"
+        className="engagement-date-input"
+        type="date"
+        value={rangeEnd}
+        onChange={(event) => onRangeEnd(event.target.value || defaultRange.end)}
+      />
+      {hasCustomRange ? (
+        <button type="button" onClick={onClear}>
+          Clear
         </button>
-      ))}
-      {!clients.length ? (
-        <Typography.Text type="secondary">
-          Add a client to filter your view in the <a href="/clients">Clients</a> section.
-        </Typography.Text>
       ) : null}
     </div>
   );
@@ -1201,53 +1191,25 @@ function ClientSelectorBar({
 function MeetingListView({
   meetings,
   selectedId,
-  rangeStart,
-  rangeEnd,
-  defaultRange,
   historyBatch,
   aiConfigured,
   generatingMeetingId,
-  onRangeStart,
-  onRangeEnd,
-  onClearRange,
   onSelect,
   onGeneratePrep,
   onLoadMore,
 }: {
   meetings: Meeting[];
   selectedId: string | null;
-  rangeStart: string;
-  rangeEnd: string;
-  defaultRange: { start: string; end: string };
   historyBatch: number;
   aiConfigured: boolean;
   generatingMeetingId: string | null;
-  onRangeStart: (value: string) => void;
-  onRangeEnd: (value: string) => void;
-  onClearRange: () => void;
   onSelect: (meeting: Meeting, tab?: string) => void;
   onGeneratePrep: (meeting: Meeting) => void;
   onLoadMore: () => void;
 }) {
   const groups = groupMeetingsByLocalDate(meetings);
-  const hasCustomRange =
-    rangeStart !== defaultRange.start || rangeEnd !== defaultRange.end || historyBatch > 0;
   return (
     <div className="engagement-list-view">
-      <div className="engagement-date-filter">
-        <span>Date range</span>
-        <Input
-          type="date"
-          value={rangeStart}
-          onChange={(event) => onRangeStart(event.target.value)}
-        />
-        <Input type="date" value={rangeEnd} onChange={(event) => onRangeEnd(event.target.value)} />
-        {hasCustomRange ? (
-          <button type="button" onClick={onClearRange}>
-            Clear
-          </button>
-        ) : null}
-      </div>
       <div className="engagement-agenda-list">
         {groups.map((group, index) => (
           <div className="engagement-date-group" key={group.key}>
@@ -1409,40 +1371,34 @@ function MeetingListEmpty({
 function MeetingCalendarList({
   meetings,
   selectedId,
-  weekStart,
-  weekEnd,
+  rangeStart,
+  rangeEnd,
   onSelect,
   onAction,
-  onPreviousWeek,
-  onNextWeek,
 }: {
   meetings: Meeting[];
   selectedId: string | null;
-  weekStart: Date;
-  weekEnd: Date;
+  rangeStart: string;
+  rangeEnd: string;
   onSelect: (id: string) => void;
   onAction: (id: string, tab: string) => void;
-  onPreviousWeek: () => void;
-  onNextWeek: () => void;
 }) {
-  const days = workWeekDays(weekStart);
+  const days = dateRangeDays(rangeStart, rangeEnd);
   const grouped = groupMeetingsByDate(meetings);
   const counts = meetingStatusCounts(meetings);
+  const firstDay = days[0] ?? localDateFromInput(rangeStart);
+  const lastDay = days[days.length - 1] ?? localDateFromInput(rangeEnd);
 
   return (
     <div className="engagement-week-calendar">
       <div className="engagement-week-toolbar">
-        <Typography.Text strong>{formatCalendarRange(weekStart, weekEnd)}</Typography.Text>
-        <Space size={8}>
-          <Button size="small" onClick={onPreviousWeek}>
-            {'<'}
-          </Button>
-          <Button size="small" onClick={onNextWeek}>
-            {'>'}
-          </Button>
-        </Space>
+        <Typography.Text strong>{formatCalendarRange(firstDay, lastDay)}</Typography.Text>
+        <Typography.Text type="secondary">{days.length} days selected</Typography.Text>
       </div>
-      <div className="engagement-week-grid">
+      <div
+        className="engagement-week-grid"
+        style={{ gridTemplateColumns: `repeat(${Math.max(days.length, 1)}, minmax(176px, 1fr))` }}
+      >
         {days.map((day) => {
           const key = localDateKey(day);
           const dayMeetings = grouped.get(key) ?? [];
@@ -1488,7 +1444,7 @@ function MeetingCalendarList({
                     );
                   })
                 ) : (
-                  <Typography.Text type="secondary">No meetings this week</Typography.Text>
+                  <Typography.Text type="secondary">No Meetings</Typography.Text>
                 )}
               </div>
             </section>
@@ -3406,34 +3362,22 @@ function initials(value: string): string {
   return text || '??';
 }
 
-function workWeekWindow(date: string) {
-  const selected = localDateFromInput(date);
-  const weekday = selected.getDay();
-  const mondayOffset = weekday === 0 ? -6 : 1 - weekday;
-  const weekStart = addLocalDays(selected, mondayOffset);
-  const weekEnd = addLocalDays(weekStart, 4);
-  const toExclusive = addLocalDays(weekStart, 5);
-  return {
-    from: weekStart.toISOString(),
-    to: toExclusive.toISOString(),
-    weekStart,
-    weekEnd,
-  };
-}
-
-function workWeekDays(weekStart: Date): Date[] {
-  return Array.from({ length: 5 }, (_, index) => addLocalDays(weekStart, index));
-}
-
 function addLocalDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
   return next;
 }
 
-function shiftDate(date: string, days: number): string {
-  const next = addLocalDays(localDateFromInput(date), days);
-  return inputValueFromDate(next);
+function dateRangeDays(start: string, end: string): Date[] {
+  const first = localDateFromInput(start);
+  const last = localDateFromInput(end);
+  if (last < first) return [first];
+
+  const days: Date[] = [];
+  for (let day = first; day <= last; day = addLocalDays(day, 1)) {
+    days.push(day);
+  }
+  return days;
 }
 
 function localDateFromInput(date: string): Date {
