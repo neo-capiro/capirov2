@@ -192,6 +192,19 @@ body {
   background: rgba(255, 255, 255, 0.16) !important;
 }
 
+.app-nav-menu.ant-menu-dark .ant-menu-item.app-nav-item--disabled,
+.app-nav-menu.ant-menu-dark .ant-menu-item.ant-menu-item-disabled {
+  color: rgba(255, 255, 255, 0.28) !important;
+  background: transparent !important;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.app-nav-menu.ant-menu-dark .ant-menu-item.app-nav-item--disabled .ant-menu-item-icon,
+.app-nav-menu.ant-menu-dark .ant-menu-item.ant-menu-item-disabled .ant-menu-item-icon {
+  color: rgba(255, 255, 255, 0.28) !important;
+}
+
 .app-nav-menu .app-nav-item--nested .ant-menu-title-content {
   padding-left: 8px;
 }
@@ -3824,7 +3837,7 @@ body {
   color: #667085;
 }
 
-.outbound-variable-toolbar button {
+.outbound-variable-toolbar button:not(.outreach-editor-format-button) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
 }
 
@@ -3937,6 +3950,26 @@ body {
   padding: 10px;
   border-bottom: 1px solid #e4e9f2;
   background: #f8f7f2;
+}
+
+.outreach-editor-format-group {
+  display: inline-flex;
+  gap: 4px;
+  padding-right: 8px;
+  border-right: 1px solid #d9e1ee;
+}
+
+.outreach-editor-toolbar button.outreach-editor-format-button {
+  display: inline-grid;
+  width: 32px;
+  min-width: 32px;
+  padding: 0;
+  place-items: center;
+  border-radius: 6px;
+}
+
+.outreach-editor-format-button em {
+  font-style: italic;
 }
 
 .outreach-editor .ant-input {

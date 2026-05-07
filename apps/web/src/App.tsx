@@ -1,7 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { RedirectToSignIn, SignIn, SignedIn, SignedOut, SignUp } from '@clerk/clerk-react';
 import { AppShell } from './components/AppShell.js';
-import { HomePage } from './pages/HomePage.js';
 import { PlaceholderPage } from './pages/PlaceholderPage.js';
 import { SettingsLayout } from './pages/settings/SettingsLayout.js';
 import { PersonalPage } from './pages/settings/PersonalPage.js';
@@ -32,13 +31,13 @@ export function App() {
           </>
         }
       >
-        <Route path="/" element={<HomePage />} />
+        <Route path="/" element={<Navigate to="/clients" replace />} />
         <Route path="/clients" element={<ClientWorkspacePage />} />
         <Route path="/engagement" element={<EngagementPage />} />
-        <Route path="/workspace" element={<PlaceholderPage title="Workspace" />} />
-        <Route path="/intelligence" element={<PlaceholderPage title="Intelligence" />} />
+        <Route path="/workspace/*" element={<Navigate to="/clients" replace />} />
+        <Route path="/intelligence/*" element={<Navigate to="/clients" replace />} />
         <Route path="/directory" element={<DirectoryPage />} />
-        <Route path="/portal" element={<PlaceholderPage title="Client Portal" />} />
+        <Route path="/portal/*" element={<Navigate to="/clients" replace />} />
 
         {/* Settings hosts personal + admin + capiro-admin tabs. Tabs are
             role-filtered in SettingsLayout; the API enforces RolesGuard

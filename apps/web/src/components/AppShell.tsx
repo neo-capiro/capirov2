@@ -45,6 +45,7 @@ interface NavItem {
   path: string;
   icon: ReactNode;
   nested?: boolean;
+  disabled?: boolean;
 }
 
 type AppSection =
@@ -84,7 +85,13 @@ interface BrandingResponse {
 }
 
 const NAV: NavItem[] = [
-  { key: 'home', label: 'Command Center', path: '/', icon: <DashboardOutlined /> },
+  {
+    key: 'home',
+    label: 'Command Center',
+    path: '/',
+    icon: <DashboardOutlined />,
+    disabled: true,
+  },
   { key: 'clients', label: 'Clients', path: '/clients', icon: <ApartmentOutlined /> },
   {
     key: 'engagement',
@@ -93,10 +100,28 @@ const NAV: NavItem[] = [
     icon: <CalendarOutlined />,
     nested: true,
   },
-  { key: 'workspace', label: 'Workspace', path: '/workspace', icon: <FolderOpenOutlined /> },
-  { key: 'intelligence', label: 'Intelligence', path: '/intelligence', icon: <BulbOutlined /> },
+  {
+    key: 'workspace',
+    label: 'Workspace',
+    path: '/workspace',
+    icon: <FolderOpenOutlined />,
+    disabled: true,
+  },
+  {
+    key: 'intelligence',
+    label: 'Intelligence Center',
+    path: '/intelligence',
+    icon: <BulbOutlined />,
+    disabled: true,
+  },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
-  { key: 'portal', label: 'Client Portal', path: '/portal', icon: <UserSwitchOutlined /> },
+  {
+    key: 'portal',
+    label: 'Client Portal',
+    path: '/portal',
+    icon: <UserSwitchOutlined />,
+    disabled: true,
+  },
 ];
 
 export function AppShell() {
@@ -251,8 +276,14 @@ export function AppShell() {
         key: n.key,
         icon: n.icon,
         title: n.label,
-        className: n.nested ? 'app-nav-item--nested' : undefined,
-        label: (
+        disabled: n.disabled,
+        className:
+          [n.nested ? 'app-nav-item--nested' : '', n.disabled ? 'app-nav-item--disabled' : '']
+            .filter(Boolean)
+            .join(' ') || undefined,
+        label: n.disabled ? (
+          <span>{n.label}</span>
+        ) : (
           <Link
             to={n.path}
             style={{ color: 'inherit' }}
@@ -304,9 +335,9 @@ export function AppShell() {
                   message.info('Cancel or complete the outreach workflow before navigating away.');
                   return;
                 }
-                navigate('/');
+                navigate('/clients');
               }}
-              aria-label="Go to Command Center"
+              aria-label="Go to Clients"
             >
               {navCollapsed ? (
                 <span className="app-shell-logo-mark">C</span>
@@ -692,7 +723,7 @@ function pageConfigFor(pathname: string): PageConfig {
     clients: 'Clients',
     engagement: 'Engagement Manager',
     workspace: 'Workspace',
-    intelligence: 'Intelligence',
+    intelligence: 'Intelligence Center',
     directory: 'Directory',
     portal: 'Client Portal',
     settings: 'Settings',

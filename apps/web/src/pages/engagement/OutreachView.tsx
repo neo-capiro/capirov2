@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
 import {
   CheckOutlined,
   DeleteOutlined,
@@ -9,7 +9,18 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Checkbox, Empty, Input, Segmented, Select, Space, Tag, Typography } from 'antd';
+import {
+  App,
+  Button,
+  Checkbox,
+  Empty,
+  Input,
+  Segmented,
+  Select,
+  Space,
+  Tag,
+  Typography,
+} from 'antd';
 import { useApi } from '../../lib/use-api.js';
 import type { Client } from '../clients/clientTypes.js';
 import type { DirectoryApiResponse, DirectoryEntry } from '../directory/directoryData.js';
@@ -360,9 +371,12 @@ export function OutreachView({
     queryKey: ['engagement-outbound-contact-data', selectedClientId],
     queryFn: async () =>
       (
-        await api.get<OutboundContactDataResponse>('/api/engagement/outreach/outbound/contact-data', {
-          params: { clientId: selectedClientId ?? undefined },
-        })
+        await api.get<OutboundContactDataResponse>(
+          '/api/engagement/outreach/outbound/contact-data',
+          {
+            params: { clientId: selectedClientId ?? undefined },
+          },
+        )
       ).data,
     enabled: mode === 'outbound_campaign',
   });
@@ -1397,8 +1411,8 @@ function OutboundCampaignWorkflow({
             <div className="outreach-flow-stack">
               <Typography.Title level={4}>Contact Data Loaded</Typography.Title>
               <Typography.Paragraph type="secondary">
-                Synced meeting attendees from the last 7 days. Expand a contact to inspect the
-                prep, debrief, and directory location context.
+                Synced meeting attendees from the last 7 days. Expand a contact to inspect the prep,
+                debrief, and directory location context.
               </Typography.Paragraph>
               {contactsLoading ? (
                 <Empty description="Loading synced meeting contacts..." />
@@ -1538,7 +1552,8 @@ function OutboundCampaignWorkflow({
                     selectedContactIds: workflow.selectedContactIds.filter((id) => {
                       const contact = contacts.find((row) => row.id === id);
                       return contact
-                        ? recipientKey(outboundRecipientFromContact(contact)) !== recipientKey(recipient)
+                        ? recipientKey(outboundRecipientFromContact(contact)) !==
+                            recipientKey(recipient)
                         : true;
                     }),
                   })
@@ -1653,9 +1668,7 @@ function OutboundCampaignWorkflow({
                 </span>
                 <Button
                   icon={<RobotOutlined />}
-                  disabled={
-                    workflow.recipients.filter((recipient) => recipient.email).length < 1
-                  }
+                  disabled={workflow.recipients.filter((recipient) => recipient.email).length < 1}
                   loading={generating}
                   onClick={() => void onGenerate()}
                 >
@@ -1673,27 +1686,13 @@ function OutboundCampaignWorkflow({
                     ) : null}
                   </div>
                 </div>
-                <div className="outreach-editor-toolbar outbound-variable-toolbar">
-                  {OUTBOUND_VARIABLES.map((chip) => (
-                    <button
-                      key={chip}
-                      type="button"
-                      onClick={() =>
-                        onWorkflowChange({
-                          ...workflow,
-                          body: `${workflow.body}${workflow.body ? '\n' : ''}${chip}`,
-                        })
-                      }
-                    >
-                      {chip}
-                    </button>
-                  ))}
-                </div>
-                <Input.TextArea
+                <FormattedTextArea
                   rows={16}
                   value={workflow.body}
                   placeholder="Write the outbound campaign template. Use variables for meeting context; leave unknown details out."
-                  onChange={(event) => onWorkflowChange({ ...workflow, body: event.target.value })}
+                  chips={OUTBOUND_VARIABLES}
+                  toolbarClassName="outbound-variable-toolbar"
+                  onChange={(body) => onWorkflowChange({ ...workflow, body })}
                 />
               </div>
             </div>
@@ -2140,27 +2139,7 @@ function DraftStep({
         <Input value={subject} onChange={(event) => onSubject(event.target.value)} />
       </label>
       <div className="outreach-editor">
-        <div className="outreach-editor-toolbar">
-          {['{district}', '{committee}', '{member_priority}', '{personal_note}'].map((chip) => (
-            <button
-              key={chip}
-              type="button"
-              onClick={() => onBody(`${body}${body ? '\n' : ''}${chip}`)}
-            >
-              {chip}
-            </button>
-          ))}
-          <Button
-            size="small"
-            icon={<RobotOutlined />}
-            disabled={!aiConfigured}
-            loading={generating}
-            onClick={onGenerate}
-          >
-            Regenerate
-          </Button>
-        </div>
-        <Input.TextArea
+        <FormattedTextArea
           rows={14}
           value={body}
           placeholder={
@@ -2168,11 +2147,205 @@ function DraftStep({
               ? 'Generate a Clio draft, then edit the email here.'
               : 'AI drafting is not configured. Set an OpenAI or Anthropic key to generate drafts.'
           }
-          onChange={(event) => onBody(event.target.value)}
+          chips={['{district}', '{committee}', '{member_priority}', '{personal_note}']}
+          actions={
+            <Button
+              size="small"
+              icon={<RobotOutlined />}
+              disabled={!aiConfigured}
+              loading={generating}
+              onClick={onGenerate}
+            >
+              Regenerate
+            </Button>
+          }
+          onChange={onBody}
         />
       </div>
     </div>
   );
+}
+
+interface TextSelection {
+  start: number;
+  end: number;
+}
+
+interface TextEdit {
+  value: string;
+  selection: TextSelection;
+}
+
+function FormattedTextArea({
+  value,
+  rows,
+  placeholder,
+  chips = [],
+  toolbarClassName,
+  actions,
+  onChange,
+}: {
+  value: string;
+  rows: number;
+  placeholder?: string;
+  chips?: readonly string[];
+  toolbarClassName?: string;
+  actions?: ReactNode;
+  onChange: (value: string) => void;
+}) {
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [selection, setSelection] = useState<TextSelection>(() => ({
+    start: value.length,
+    end: value.length,
+  }));
+
+  const captureSelection = (event: SyntheticEvent<HTMLTextAreaElement>) => {
+    const target = event.currentTarget;
+    textAreaRef.current = target;
+    setSelection({ start: target.selectionStart, end: target.selectionEnd });
+  };
+
+  const commitEdit = (edit: TextEdit) => {
+    onChange(edit.value);
+    setSelection(edit.selection);
+    window.setTimeout(() => {
+      const textArea = textAreaRef.current;
+      if (!textArea) return;
+      textArea.focus();
+      textArea.setSelectionRange(edit.selection.start, edit.selection.end);
+    }, 0);
+  };
+
+  return (
+    <>
+      <div className={['outreach-editor-toolbar', toolbarClassName].filter(Boolean).join(' ')}>
+        <div className="outreach-editor-format-group" aria-label="Text formatting">
+          <button
+            type="button"
+            className="outreach-editor-format-button"
+            title="Bold"
+            aria-label="Bold"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => commitEdit(applyInlineFormat(value, selection, '**', '**', 'bold text'))}
+          >
+            <strong>B</strong>
+          </button>
+          <button
+            type="button"
+            className="outreach-editor-format-button"
+            title="Italic"
+            aria-label="Italic"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => commitEdit(applyInlineFormat(value, selection, '*', '*', 'italic text'))}
+          >
+            <em>I</em>
+          </button>
+          <button
+            type="button"
+            className="outreach-editor-format-button"
+            title="Bulleted list"
+            aria-label="Bulleted list"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => commitEdit(applyListFormat(value, selection, false))}
+          >
+            &bull;
+          </button>
+          <button
+            type="button"
+            className="outreach-editor-format-button"
+            title="Numbered list"
+            aria-label="Numbered list"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => commitEdit(applyListFormat(value, selection, true))}
+          >
+            1.
+          </button>
+        </div>
+        {chips.map((chip) => (
+          <button
+            key={chip}
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => commitEdit(insertTextAtSelection(value, selection, chip))}
+          >
+            {chip}
+          </button>
+        ))}
+        {actions}
+      </div>
+      <Input.TextArea
+        rows={rows}
+        value={value}
+        placeholder={placeholder}
+        onSelect={captureSelection}
+        onClick={captureSelection}
+        onKeyUp={captureSelection}
+        onChange={(event) => {
+          onChange(event.target.value);
+          captureSelection(event);
+        }}
+      />
+    </>
+  );
+}
+
+function applyInlineFormat(
+  value: string,
+  selection: TextSelection,
+  prefix: string,
+  suffix: string,
+  fallback: string,
+): TextEdit {
+  const range = normalizedSelection(value, selection);
+  const selected = value.slice(range.start, range.end) || fallback;
+  const nextValue = `${value.slice(0, range.start)}${prefix}${selected}${suffix}${value.slice(
+    range.end,
+  )}`;
+  const nextStart = range.start + prefix.length;
+  return {
+    value: nextValue,
+    selection: { start: nextStart, end: nextStart + selected.length },
+  };
+}
+
+function applyListFormat(value: string, selection: TextSelection, ordered: boolean): TextEdit {
+  const range = normalizedSelection(value, selection);
+  const blockStart = value.lastIndexOf('\n', Math.max(0, range.start - 1)) + 1;
+  const nextBreak = value.indexOf('\n', range.end);
+  const blockEnd = nextBreak === -1 ? value.length : nextBreak;
+  const block = value.slice(blockStart, blockEnd);
+  const formatted = block
+    .split('\n')
+    .map((line, index) => {
+      const indent = line.match(/^\s*/)?.[0] ?? '';
+      const text = line.replace(/^\s*(?:[-*]\s+|\d+\.\s+)/, '');
+      return `${indent}${ordered ? `${index + 1}. ` : '- '}${text}`;
+    })
+    .join('\n');
+  return {
+    value: `${value.slice(0, blockStart)}${formatted}${value.slice(blockEnd)}`,
+    selection: { start: blockStart, end: blockStart + formatted.length },
+  };
+}
+
+function insertTextAtSelection(
+  value: string,
+  selection: TextSelection,
+  insertText: string,
+): TextEdit {
+  const range = normalizedSelection(value, selection);
+  const nextValue = `${value.slice(0, range.start)}${insertText}${value.slice(range.end)}`;
+  const nextEnd = range.start + insertText.length;
+  return {
+    value: nextValue,
+    selection: { start: nextEnd, end: nextEnd },
+  };
+}
+
+function normalizedSelection(value: string, selection: TextSelection): TextSelection {
+  const start = Math.min(Math.max(0, selection.start), value.length);
+  const end = Math.min(Math.max(0, selection.end), value.length);
+  return start <= end ? { start, end } : { start: end, end: start };
 }
 
 function WorkflowHeader({
