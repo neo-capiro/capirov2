@@ -158,6 +158,12 @@ export class ComputeStack extends cdk.Stack {
       `capiro/${cfg.envName}/oauth-state-secret`,
       cfg.externalSecretArns?.oauthStateSecret,
     );
+    const notesEncryptionKeySecret = importExternalSecret(
+      this,
+      'ImportedNotesEncryptionKey',
+      `capiro/${cfg.envName}/notes-encryption-key`,
+      cfg.externalSecretArns?.notesEncryptionKey,
+    );
     const openaiApiKeySecret = importExternalSecret(
       this,
       'ImportedOpenAiApiKey',
@@ -242,6 +248,7 @@ export class ComputeStack extends cdk.Stack {
           `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-cert-private-key*`,
           `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-token-encryption-key*`,
           `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-state-secret*`,
+          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/notes-encryption-key*`,
           `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
           `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
         ],
@@ -287,6 +294,7 @@ export class ComputeStack extends cdk.Stack {
       MICROSOFT_CERT_PRIVATE_KEY: ecs.Secret.fromSecretsManager(microsoftCertPrivateKeySecret),
       OAUTH_TOKEN_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(oauthTokenEncryptionKeySecret),
       OAUTH_STATE_SECRET: ecs.Secret.fromSecretsManager(oauthStateSecret),
+      NOTES_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(notesEncryptionKeySecret),
       OPENAI_API_KEY: ecs.Secret.fromSecretsManager(openaiApiKeySecret),
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(anthropicApiKeySecret),
     };
@@ -359,6 +367,7 @@ export class ComputeStack extends cdk.Stack {
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/microsoft-cert-private-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-token-encryption-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/oauth-state-secret*`,
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/notes-encryption-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
     ];

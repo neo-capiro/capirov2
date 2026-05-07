@@ -9,13 +9,13 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Empty, Input, Segmented, Select, Space, Tag, Typography } from 'antd';
+import { App, Button, Checkbox, Empty, Input, Segmented, Select, Space, Tag, Typography } from 'antd';
 import { useApi } from '../../lib/use-api.js';
 import type { Client } from '../clients/clientTypes.js';
 import type { DirectoryApiResponse, DirectoryEntry } from '../directory/directoryData.js';
 
-type OutreachType = 'all' | 'campaign' | 'follow_up' | 'prep';
-type WorkflowType = 'campaign' | 'follow_up' | 'prep';
+type OutreachType = 'all' | 'campaign' | 'follow_up' | 'prep' | 'outbound_campaign';
+type WorkflowType = 'campaign' | 'follow_up' | 'prep' | 'outbound_campaign';
 type OutreachStatus = 'draft' | 'sent' | 'opened_in_email' | 'failed';
 type PromptTemplate =
   | 'custom'
@@ -78,6 +78,14 @@ interface OutreachRecipient {
   committee?: string;
   relevanceReason?: string;
   personalNote?: string;
+  meetingId?: string;
+  meetingSubject?: string;
+  meetingDateTime?: string;
+  attendeeNames?: string;
+  attendeeEmails?: string;
+  prepSummary?: string;
+  debriefSummary?: string;
+  meetingLocation?: string;
 }
 
 interface OutreachRecord {
@@ -146,20 +154,89 @@ interface OutreachWorkflowState {
   recipientInput: string;
   promptTemplate: PromptTemplate;
   campaignRecipientTab: CampaignRecipientTab;
+  selectedContactIds: string[];
+  templateId: string | null;
+  templateMode: 'existing' | 'custom';
+  customTemplateName: string;
+  outboundTone: 'professional' | 'friendly' | 'formal' | 'concise';
+}
+
+interface OutboundContactRecord {
+  id: string;
+  meetingId: string;
+  meetingSubject: string;
+  meetingDateTime: string;
+  meetingStartsAt: string;
+  clientId: string | null;
+  clientName: string | null;
+  attendeeName: string;
+  attendeeEmail: string | null;
+  attendeeNames: string;
+  attendeeEmails: string;
+  prepSummary: string;
+  debriefSummary: string;
+  meetingLocation: string;
+  directoryContactId: string | null;
+  directoryContactName: string | null;
+  office: string | null;
+  title: string | null;
+  committee: string | null;
+  relevanceReason: string | null;
+}
+
+interface OutboundContactDataResponse {
+  generatedAt: string;
+  from: string;
+  to: string;
+  contacts: OutboundContactRecord[];
+}
+
+interface OutreachTemplate {
+  id: string;
+  source: 'system' | 'user';
+  type: 'outbound_campaign';
+  name: string;
+  subject: string | null;
+  body: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string | null;
+  updatedAt: string | null;
 }
 
 const TYPE_FILTERS: Array<{ value: OutreachType; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'campaign', label: 'Campaigns' },
+  { value: 'outbound_campaign', label: 'Outbound Campaigns' },
   { value: 'follow_up', label: 'Follow-ups' },
   { value: 'prep', label: 'Prep' },
 ];
 
 const WORKFLOW_LABELS: Record<WorkflowType, string> = {
   campaign: 'Campaign',
+  outbound_campaign: 'Outbound Campaign',
   follow_up: 'Meeting follow-up',
   prep: 'Prep distribution',
 };
+
+const OUTBOUND_VARIABLES = [
+  '{attendee_names}',
+  '{attendee_emails}',
+  '{prep_summary}',
+  '{debrief_summary}',
+  '{meeting_location}',
+  '{meeting_subject}',
+  '{meeting_date_time}',
+] as const;
+
+const OUTBOUND_TONES: Array<{
+  value: OutreachWorkflowState['outboundTone'];
+  label: string;
+}> = [
+  { value: 'professional', label: 'Professional' },
+  { value: 'friendly', label: 'Friendly' },
+  { value: 'formal', label: 'Formal' },
+  { value: 'concise', label: 'Concise' },
+];
 
 const EMPTY_WORKFLOW: OutreachWorkflowState = {
   record: null,
@@ -175,6 +252,11 @@ const EMPTY_WORKFLOW: OutreachWorkflowState = {
   recipientInput: '',
   promptTemplate: 'custom',
   campaignRecipientTab: 'directory',
+  selectedContactIds: [],
+  templateId: null,
+  templateMode: 'existing',
+  customTemplateName: '',
+  outboundTone: 'professional',
 };
 
 export function OutreachView({
@@ -274,6 +356,28 @@ export function OutreachView({
     enabled: mode === 'prep',
   });
 
+  const outboundContactData = useQuery<OutboundContactDataResponse>({
+    queryKey: ['engagement-outbound-contact-data', selectedClientId],
+    queryFn: async () =>
+      (
+        await api.get<OutboundContactDataResponse>('/api/engagement/outreach/outbound/contact-data', {
+          params: { clientId: selectedClientId ?? undefined },
+        })
+      ).data,
+    enabled: mode === 'outbound_campaign',
+  });
+
+  const outreachTemplates = useQuery<OutreachTemplate[]>({
+    queryKey: ['engagement-outreach-templates', 'outbound_campaign'],
+    queryFn: async () =>
+      (
+        await api.get<OutreachTemplate[]>('/api/engagement/outreach/templates', {
+          params: { type: 'outbound_campaign' },
+        })
+      ).data,
+    enabled: mode === 'outbound_campaign',
+  });
+
   const directory = useQuery<DirectoryApiResponse>({
     queryKey: ['engagement-outreach-directory', directoryQuery],
     queryFn: async () =>
@@ -282,7 +386,8 @@ export function OutreachView({
           params: { q: directoryQuery, pageSize: 20 },
         })
       ).data,
-    enabled: mode === 'campaign' && directoryQuery.trim().length >= 2,
+    enabled:
+      (mode === 'campaign' || mode === 'outbound_campaign') && directoryQuery.trim().length >= 2,
   });
 
   const createRecord = useMutation({
@@ -361,6 +466,23 @@ export function OutreachView({
     onError: (err) => message.error(errorMessage(err)),
   });
 
+  const createTemplate = useMutation({
+    mutationFn: async (payload: { name: string; subject?: string | null; body: string }) =>
+      (await api.post<OutreachTemplate>('/api/engagement/outreach/templates', payload)).data,
+    onSuccess: (template) => {
+      message.success('Template saved');
+      qc.invalidateQueries({ queryKey: ['engagement-outreach-templates'] });
+      setWorkflow((current) => ({
+        ...current,
+        templateId: template.id,
+        templateMode: 'existing',
+        subject: template.subject ?? current.subject,
+        body: template.body,
+      }));
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
   const confirmDeleteRecord = (record: OutreachRecord) => {
     modal.confirm({
       title: 'Delete outreach from Capiro?',
@@ -381,7 +503,7 @@ export function OutreachView({
       return;
     }
     const type = mode as WorkflowType;
-    if (!['campaign', 'follow_up', 'prep'].includes(type)) return;
+    if (!['campaign', 'follow_up', 'prep', 'outbound_campaign'].includes(type)) return;
     await createRecord.mutateAsync({
       type,
       title: payload.title as string,
@@ -410,6 +532,13 @@ export function OutreachView({
         campaignName: client ? `${client.name} outreach` : '',
       }));
       setDirectoryQuery(client ? objectiveSearchSeed(client) : '');
+    } else if (type === 'outbound_campaign') {
+      setWorkflow((current) => ({
+        ...current,
+        campaignName: `Outbound campaign - ${formatOptionalDate(new Date().toISOString())}`,
+        templateMode: 'existing',
+      }));
+      setDirectoryQuery('');
     }
   };
 
@@ -485,6 +614,84 @@ export function OutreachView({
               },
             },
           });
+        }}
+        onSend={() => {
+          if (workflow.record) sendCampaign.mutate(workflow.record.id);
+        }}
+      />
+    );
+  }
+
+  if (mode === 'outbound_campaign') {
+    return (
+      <OutboundCampaignWorkflow
+        clients={activeClients}
+        workflow={workflow}
+        contacts={outboundContactData.data?.contacts ?? []}
+        contactsLoading={outboundContactData.isLoading}
+        templates={outreachTemplates.data ?? []}
+        templatesLoading={outreachTemplates.isLoading}
+        directoryRows={directory.data?.contacts ?? []}
+        directoryLoading={directory.isLoading}
+        directoryQuery={directoryQuery}
+        emailConnected={emailConnected}
+        saving={createRecord.isPending || updateRecord.isPending}
+        savingTemplate={createTemplate.isPending}
+        generating={generateDraft.isPending}
+        sending={sendCampaign.isPending}
+        onDirectoryQuery={setDirectoryQuery}
+        onWorkflowChange={setWorkflow}
+        onCancel={cancelWorkflow}
+        onSaveStep={saveCurrent}
+        onSaveTemplate={(payload) => createTemplate.mutateAsync(payload)}
+        onGenerate={async () => {
+          const templates = outreachTemplates.data ?? [];
+          const fallbackTemplate =
+            templates.find((template) => template.id === workflow.templateId) ??
+            templates[0] ??
+            null;
+          const nextWorkflow = {
+            ...workflow,
+            templateId: workflow.templateId ?? fallbackTemplate?.id ?? null,
+            subject: workflow.subject || fallbackTemplate?.subject || 'Outbound campaign',
+            body: workflow.body || fallbackTemplate?.body || outboundGenerationBrief(),
+          };
+          const payload = workflowPayload(nextWorkflow);
+          const record =
+            nextWorkflow.record ??
+            (await createRecord.mutateAsync({
+              type: 'outbound_campaign',
+              title: payload.title as string,
+              clientId: (payload.clientId as string | null) ?? undefined,
+              meetingId: (payload.meetingId as string | null) ?? undefined,
+              subject: (payload.subject as string | null) ?? undefined,
+              body: (payload.body as string | null) ?? undefined,
+              recipients: payload.recipients as OutreachRecipient[],
+              metadata: payload.metadata as Record<string, unknown>,
+              lastStep: payload.lastStep as number,
+            }));
+          if (nextWorkflow.record) {
+            await updateRecord.mutateAsync({ id: record.id, payload });
+          }
+          const generatedRecord = await generateDraft.mutateAsync({
+            id: record.id,
+            payload: {
+              recipients: nextWorkflow.recipients,
+              promptTemplate: 'custom',
+              metadata: {
+                ...((payload.metadata as Record<string, unknown>) ?? {}),
+                outboundTone: nextWorkflow.outboundTone,
+                outboundTemplate: {
+                  subject: nextWorkflow.subject,
+                  body: nextWorkflow.body,
+                },
+              },
+            },
+          });
+          setWorkflow((current) => ({
+            ...hydrateWorkflowFromRecord(generatedRecord, current),
+            step: 3,
+          }));
         }}
         onSend={() => {
           if (workflow.record) sendCampaign.mutate(workflow.record.id);
@@ -665,6 +872,7 @@ function OutreachTypeSelector({
             title="Campaign"
             description="Personalized mass outreach to multiple congressional offices or contacts on behalf of a client."
             detail="Sends from Capiro using your connected Microsoft 365 inbox. Replies go to your inbox."
+            disabled
             onClick={() => onSelect('campaign')}
           />
           <OutreachTypeCard
@@ -672,6 +880,7 @@ function OutreachTypeSelector({
             title="Meeting follow-up"
             description="Post-meeting email to participants, client, or congressional office. Clio drafts from your debrief."
             detail="Opens in your connected email. You send from your own inbox."
+            disabled
             onClick={() => onSelect('follow_up')}
           />
           <OutreachTypeCard
@@ -679,7 +888,15 @@ function OutreachTypeSelector({
             title="Prep distribution"
             description="Share meeting prep notes with a colleague or client ahead of an upcoming meeting."
             detail="Opens in your connected email. You send from your own inbox."
+            disabled
             onClick={() => onSelect('prep')}
+          />
+          <OutreachTypeCard
+            icon={<MailOutlined />}
+            title="Outbound Campaign"
+            description="Build recipient outreach from the last 7 days of synced meetings, prep, debriefs, and directory context."
+            detail="Sends from Capiro using saved templates and your connected Microsoft 365 inbox."
+            onClick={() => onSelect('outbound_campaign')}
           />
         </div>
       </div>
@@ -692,16 +909,23 @@ function OutreachTypeCard({
   title,
   description,
   detail,
+  disabled,
   onClick,
 }: {
   icon: ReactNode;
   title: string;
   description: string;
   detail: string;
+  disabled?: boolean;
   onClick: () => void;
 }) {
   return (
-    <button type="button" className="outreach-type-card" onClick={onClick}>
+    <button
+      type="button"
+      className={`outreach-type-card${disabled ? ' is-disabled' : ''}`}
+      disabled={disabled}
+      onClick={onClick}
+    >
       <span className="outreach-type-icon">{icon}</span>
       <strong>{title}</strong>
       <span>{description}</span>
@@ -1075,6 +1299,468 @@ function CampaignWorkflow({
           }
           const nextStep = workflow.step + 1;
           void onSaveStep(workflow, nextStep);
+        }}
+      />
+    </div>
+  );
+}
+
+function OutboundCampaignWorkflow({
+  clients,
+  workflow,
+  contacts,
+  contactsLoading,
+  templates,
+  templatesLoading,
+  directoryRows,
+  directoryLoading,
+  directoryQuery,
+  emailConnected,
+  saving,
+  savingTemplate,
+  generating,
+  sending,
+  onDirectoryQuery,
+  onWorkflowChange,
+  onCancel,
+  onSaveStep,
+  onSaveTemplate,
+  onGenerate,
+  onSend,
+}: {
+  clients: Client[];
+  workflow: OutreachWorkflowState;
+  contacts: OutboundContactRecord[];
+  contactsLoading: boolean;
+  templates: OutreachTemplate[];
+  templatesLoading: boolean;
+  directoryRows: DirectoryEntry[];
+  directoryLoading: boolean;
+  directoryQuery: string;
+  emailConnected: boolean;
+  saving: boolean;
+  savingTemplate: boolean;
+  generating: boolean;
+  sending: boolean;
+  onDirectoryQuery: (value: string) => void;
+  onWorkflowChange: (value: OutreachWorkflowState) => void;
+  onCancel: () => void;
+  onSaveStep: (patch: Partial<OutreachWorkflowState>, step?: number) => Promise<void>;
+  onSaveTemplate: (payload: {
+    name: string;
+    subject?: string | null;
+    body: string;
+  }) => Promise<OutreachTemplate>;
+  onGenerate: () => Promise<void>;
+  onSend: () => void;
+}) {
+  const emailContacts = contacts.filter((contact) => contact.attendeeEmail);
+  const selectedRecipient = workflow.recipients[workflow.selectedPreviewIndex] ?? null;
+  const recipientTab = workflow.campaignRecipientTab;
+  const clientsAvailableAsRecipients = clients.filter(
+    (client) => client.primaryContactEmail || client.primaryContactName || client.name,
+  );
+  const selectedTemplate =
+    templates.find((template) => template.id === workflow.templateId) ?? null;
+  const generatedContextNote = readString(workflow.record?.metadata?.clioContextNote);
+  const hasGeneratedDraft = Boolean(workflow.record?.metadata?.ai && workflow.body.trim());
+
+  useEffect(() => {
+    if (workflow.step !== 3 || workflow.templateId || workflow.body.trim() || !templates.length) {
+      return;
+    }
+    const template = templates[0];
+    if (!template) return;
+    onWorkflowChange({
+      ...workflow,
+      templateId: template.id,
+      subject: workflow.subject || template.subject || '',
+      body: template.body,
+    });
+  }, [onWorkflowChange, templates, workflow]);
+
+  return (
+    <div className="outreach-workflow">
+      <WorkflowHeader title="Outbound Campaign" onCancel={onCancel} />
+      <div className="outreach-flow-body">
+        <WorkflowSteps
+          current={workflow.step}
+          steps={[
+            ['Contact data', 'Last 7 days'],
+            ['Recipients', 'Meeting attendees + added contacts'],
+            ['Template', 'Saved or custom'],
+            ['Review & send', 'Final review'],
+          ]}
+        />
+        <main className="outreach-flow-panel">
+          {workflow.step === 1 ? (
+            <div className="outreach-flow-stack">
+              <Typography.Title level={4}>Contact Data Loaded</Typography.Title>
+              <Typography.Paragraph type="secondary">
+                Synced meeting attendees from the last 7 days. Expand a contact to inspect the
+                prep, debrief, and directory location context.
+              </Typography.Paragraph>
+              {contactsLoading ? (
+                <Empty description="Loading synced meeting contacts..." />
+              ) : contacts.length ? (
+                <div className="outbound-contact-list">
+                  {contacts.map((contact) => (
+                    <OutboundContactCard key={contact.id} contact={contact} />
+                  ))}
+                </div>
+              ) : (
+                <Empty description="No synced meetings with attendees were found in the last 7 days." />
+              )}
+            </div>
+          ) : null}
+
+          {workflow.step === 2 ? (
+            <div className="outreach-flow-stack">
+              <Typography.Title level={4}>Configure Recipients</Typography.Title>
+              <Typography.Paragraph type="secondary">
+                Choose attendees from the preloaded meeting list, then add congressional Directory
+                contacts or client contacts if needed.
+              </Typography.Paragraph>
+              <div className="outbound-recipient-source">
+                {contacts.length ? (
+                  contacts.map((contact) => {
+                    const selected = workflow.selectedContactIds.includes(contact.id);
+                    return (
+                      <label key={contact.id} className={!contact.attendeeEmail ? 'disabled' : ''}>
+                        <Checkbox
+                          disabled={!contact.attendeeEmail}
+                          checked={selected}
+                          onChange={(event) => {
+                            const recipient = outboundRecipientFromContact(contact);
+                            const selectedContactIds = event.target.checked
+                              ? [...new Set([...workflow.selectedContactIds, contact.id])]
+                              : workflow.selectedContactIds.filter((id) => id !== contact.id);
+                            onWorkflowChange({
+                              ...workflow,
+                              selectedContactIds,
+                              recipients: event.target.checked
+                                ? addUniqueRecipient(workflow.recipients, recipient)
+                                : removeRecipient(workflow.recipients, recipient),
+                            });
+                          }}
+                        />
+                        <span>
+                          <strong>{contact.attendeeName || contact.attendeeEmail}</strong>
+                          <small>
+                            {[contact.attendeeEmail, contact.meetingSubject, contact.clientName]
+                              .filter(Boolean)
+                              .join(' | ')}
+                          </small>
+                        </span>
+                      </label>
+                    );
+                  })
+                ) : (
+                  <Empty description="No attendee contacts are available from synced meetings." />
+                )}
+              </div>
+
+              <Segmented
+                value={recipientTab}
+                onChange={(value) =>
+                  onWorkflowChange({
+                    ...workflow,
+                    campaignRecipientTab: value as CampaignRecipientTab,
+                  })
+                }
+                options={[
+                  { label: 'Directory', value: 'directory' },
+                  { label: 'Clients', value: 'clients' },
+                ]}
+              />
+              {recipientTab === 'directory' ? (
+                <>
+                  <Input
+                    prefix={<SearchOutlined />}
+                    value={directoryQuery}
+                    placeholder="Search Directory"
+                    onChange={(event) => onDirectoryQuery(event.target.value)}
+                  />
+                  <div className="outreach-recipient-results">
+                    {directoryLoading ? (
+                      <Typography.Text type="secondary">Searching Directory...</Typography.Text>
+                    ) : directoryRows.length ? (
+                      directoryRows.map((entry) => (
+                        <DirectoryRecipientRow
+                          key={entry.id}
+                          entry={entry}
+                          selected={workflow.recipients.some(
+                            (recipient) => recipient.directoryContactId === entry.id,
+                          )}
+                          onAdd={(recipient) =>
+                            onWorkflowChange({
+                              ...workflow,
+                              recipients: addUniqueRecipient(workflow.recipients, recipient),
+                            })
+                          }
+                        />
+                      ))
+                    ) : (
+                      <Empty description="Search the Directory to add members or staffers." />
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="outreach-recipient-results">
+                  {clientsAvailableAsRecipients.length ? (
+                    clientsAvailableAsRecipients.map((client) => (
+                      <ClientRecipientRow
+                        key={client.id}
+                        client={client}
+                        selected={workflow.recipients.some(
+                          (recipient) => recipientKey(recipient) === clientRecipientKey(client),
+                        )}
+                        onAdd={(recipient) =>
+                          onWorkflowChange({
+                            ...workflow,
+                            recipients: addUniqueRecipient(workflow.recipients, recipient),
+                          })
+                        }
+                      />
+                    ))
+                  ) : (
+                    <Empty description="No client contacts are available." />
+                  )}
+                </div>
+              )}
+
+              <RecipientTags
+                recipients={workflow.recipients}
+                onRemove={(recipient) =>
+                  onWorkflowChange({
+                    ...workflow,
+                    recipients: removeRecipient(workflow.recipients, recipient),
+                    selectedContactIds: workflow.selectedContactIds.filter((id) => {
+                      const contact = contacts.find((row) => row.id === id);
+                      return contact
+                        ? recipientKey(outboundRecipientFromContact(contact)) !== recipientKey(recipient)
+                        : true;
+                    }),
+                  })
+                }
+              />
+            </div>
+          ) : null}
+
+          {workflow.step === 3 ? (
+            <div className="outreach-flow-stack">
+              <Typography.Title level={4}>Build Email Template</Typography.Title>
+              <Typography.Paragraph type="secondary">
+                Select a saved template or create a custom template. Custom templates are visible
+                only to your user account.
+              </Typography.Paragraph>
+              <Segmented
+                value={workflow.templateMode}
+                onChange={(value) =>
+                  onWorkflowChange({
+                    ...workflow,
+                    templateMode: value as OutreachWorkflowState['templateMode'],
+                  })
+                }
+                options={[
+                  { label: 'Existing template', value: 'existing' },
+                  { label: 'Create custom', value: 'custom' },
+                ]}
+              />
+              {workflow.templateMode === 'existing' ? (
+                <label>
+                  Template
+                  <Select
+                    loading={templatesLoading}
+                    value={workflow.templateId ?? undefined}
+                    placeholder="Select a template"
+                    options={templates.map((template) => ({
+                      value: template.id,
+                      label: `${template.name}${template.source === 'user' ? ' (Mine)' : ''}`,
+                    }))}
+                    onChange={(templateId) => {
+                      const template = templates.find((row) => row.id === templateId);
+                      if (!template) return;
+                      onWorkflowChange({
+                        ...workflow,
+                        templateId,
+                        subject: template.subject ?? '',
+                        body: template.body,
+                      });
+                    }}
+                  />
+                  {selectedTemplate?.metadata?.guidance ? (
+                    <Typography.Text type="secondary" style={{ marginTop: 4 }}>
+                      {String(selectedTemplate.metadata.guidance)}
+                    </Typography.Text>
+                  ) : null}
+                </label>
+              ) : (
+                <>
+                  <label>
+                    Template name
+                    <Input
+                      value={workflow.customTemplateName}
+                      onChange={(event) =>
+                        onWorkflowChange({ ...workflow, customTemplateName: event.target.value })
+                      }
+                    />
+                  </label>
+                  <Button
+                    disabled={!workflow.customTemplateName.trim() || !workflow.body.trim()}
+                    loading={savingTemplate}
+                    onClick={() =>
+                      void onSaveTemplate({
+                        name: workflow.customTemplateName,
+                        subject: workflow.subject || null,
+                        body: workflow.body,
+                      })
+                    }
+                  >
+                    Save Template
+                  </Button>
+                </>
+              )}
+
+              <label>
+                Tone
+                <Select
+                  value={workflow.outboundTone}
+                  options={OUTBOUND_TONES}
+                  onChange={(outboundTone) =>
+                    onWorkflowChange({
+                      ...workflow,
+                      outboundTone,
+                    })
+                  }
+                />
+              </label>
+
+              <label>
+                Subject line
+                <Input
+                  value={workflow.subject}
+                  onChange={(event) =>
+                    onWorkflowChange({ ...workflow, subject: event.target.value })
+                  }
+                />
+              </label>
+              <div className="outreach-context-note outbound-generate-note">
+                <RobotOutlined />
+                <span>
+                  Clio will use the selected template, tone, recipient list, and each recipient's
+                  loaded meeting context. Missing facts are omitted rather than invented.
+                </span>
+                <Button
+                  icon={<RobotOutlined />}
+                  disabled={
+                    workflow.recipients.filter((recipient) => recipient.email).length < 1
+                  }
+                  loading={generating}
+                  onClick={() => void onGenerate()}
+                >
+                  Generate
+                </Button>
+              </div>
+              <div className="outreach-editor">
+                <div className="outreach-editor-heading">
+                  <div>
+                    <Typography.Text strong>
+                      {hasGeneratedDraft ? 'Generated Draft' : 'Template Body'}
+                    </Typography.Text>
+                    {generatedContextNote ? (
+                      <Typography.Text type="secondary">{generatedContextNote}</Typography.Text>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="outreach-editor-toolbar outbound-variable-toolbar">
+                  {OUTBOUND_VARIABLES.map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() =>
+                        onWorkflowChange({
+                          ...workflow,
+                          body: `${workflow.body}${workflow.body ? '\n' : ''}${chip}`,
+                        })
+                      }
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+                <Input.TextArea
+                  rows={16}
+                  value={workflow.body}
+                  placeholder="Write the outbound campaign template. Use variables for meeting context; leave unknown details out."
+                  onChange={(event) => onWorkflowChange({ ...workflow, body: event.target.value })}
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {workflow.step === 4 ? (
+            <div className="outreach-flow-stack">
+              <Typography.Title level={4}>Review and Send</Typography.Title>
+              <div className="outreach-preview-layout">
+                <div className="outreach-preview-list">
+                  {workflow.recipients.map((recipient, index) => (
+                    <button
+                      key={recipientKey(recipient)}
+                      type="button"
+                      className={workflow.selectedPreviewIndex === index ? 'active' : ''}
+                      onClick={() => onWorkflowChange({ ...workflow, selectedPreviewIndex: index })}
+                    >
+                      {recipient.name || recipient.email}
+                    </button>
+                  ))}
+                </div>
+                <EmailPreview
+                  to={selectedRecipient?.email || selectedRecipient?.name || 'Recipient'}
+                  subject={assembleCampaignBody(workflow.subject, selectedRecipient)}
+                  body={assembleCampaignBody(workflow.body, selectedRecipient)}
+                />
+              </div>
+              {!emailConnected ? (
+                <div className="outreach-send-warning">
+                  Connect your Microsoft 365 inbox in Settings before sending campaigns from Capiro.
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </main>
+      </div>
+      <WorkflowFooter
+        step={workflow.step}
+        total={4}
+        saving={saving}
+        nextLabel={workflow.step === 4 ? 'Send campaign' : 'Continue'}
+        nextLoading={sending}
+        nextDisabled={
+          (workflow.step === 1 && (contactsLoading || emailContacts.length < 1)) ||
+          (workflow.step === 2 &&
+            workflow.recipients.filter((recipient) => recipient.email).length < 1) ||
+          (workflow.step === 3 && (!workflow.subject.trim() || !workflow.body.trim())) ||
+          (workflow.step === 4 && (!emailConnected || !workflow.record))
+        }
+        onBack={() => onWorkflowChange({ ...workflow, step: Math.max(1, workflow.step - 1) })}
+        onNext={() => {
+          if (workflow.step === 4) {
+            onSend();
+            return;
+          }
+          if (workflow.step === 1) {
+            const recipients = emailContacts.map(outboundRecipientFromContact);
+            void onSaveStep(
+              {
+                recipients,
+                selectedContactIds: emailContacts.map((contact) => contact.id),
+              },
+              2,
+            );
+            return;
+          }
+          void onSaveStep(workflow, workflow.step + 1);
         }}
       />
     </div>
@@ -1610,6 +2296,49 @@ function ClientRecipientRow({
   );
 }
 
+function OutboundContactCard({ contact }: { contact: OutboundContactRecord }) {
+  return (
+    <article className="outbound-contact-card">
+      <header>
+        <span>{initials(contact.attendeeName || contact.attendeeEmail || 'Contact')}</span>
+        <div>
+          <strong>{contact.attendeeName || contact.attendeeEmail || 'Unnamed attendee'}</strong>
+          <small>{contact.attendeeEmail || 'No email on meeting attendee'}</small>
+        </div>
+      </header>
+      <div className="outbound-contact-meta">
+        <span>{contact.meetingSubject}</span>
+        <span>{contact.clientName || 'No client linked'}</span>
+      </div>
+      <details>
+        <summary>View full context</summary>
+        <dl>
+          <div>
+            <dt>Title</dt>
+            <dd>{contact.title || 'No title found'}</dd>
+          </div>
+          <div>
+            <dt>Participants</dt>
+            <dd>{contact.attendeeNames || 'No participants found'}</dd>
+          </div>
+          <div>
+            <dt>Prep Summary</dt>
+            <dd>{contact.prepSummary || 'No prep summary saved'}</dd>
+          </div>
+          <div>
+            <dt>Debrief Summary</dt>
+            <dd>{contact.debriefSummary || 'No debrief summary saved'}</dd>
+          </div>
+          <div>
+            <dt>Meeting Location</dt>
+            <dd>{contact.meetingLocation || 'No directory office address found'}</dd>
+          </div>
+        </dl>
+      </details>
+    </article>
+  );
+}
+
 function clientRecipientKey(client: Client): string {
   if (client.primaryContactEmail) return client.primaryContactEmail.toLowerCase();
   return (client.primaryContactName || client.name).toLowerCase();
@@ -1794,6 +2523,7 @@ function OutreachReadonly({
 function workflowPayload(workflow: OutreachWorkflowState): Record<string, unknown> {
   const title =
     workflow.campaignName ||
+    workflow.subject ||
     workflow.record?.title ||
     (workflow.meetingId ? 'Meeting outreach' : 'Outreach draft');
   return {
@@ -1810,6 +2540,11 @@ function workflowPayload(workflow: OutreachWorkflowState): Record<string, unknow
       selectedPreviewIndex: workflow.selectedPreviewIndex,
       promptTemplate: workflow.promptTemplate,
       campaignRecipientTab: workflow.campaignRecipientTab,
+      selectedContactIds: workflow.selectedContactIds,
+      templateId: workflow.templateId,
+      templateMode: workflow.templateMode,
+      customTemplateName: workflow.customTemplateName || null,
+      outboundTone: workflow.outboundTone,
     },
   };
 }
@@ -1835,7 +2570,22 @@ function hydrateWorkflowFromRecord(
       record.metadata?.campaignRecipientTab,
       current.campaignRecipientTab,
     ),
+    selectedContactIds: readStringArray(record.metadata?.selectedContactIds),
+    templateId: readString(record.metadata?.templateId) || null,
+    templateMode:
+      record.metadata?.templateMode === 'custom' || record.metadata?.templateMode === 'existing'
+        ? record.metadata.templateMode
+        : current.templateMode,
+    customTemplateName:
+      readString(record.metadata?.customTemplateName) || current.customTemplateName,
+    outboundTone: readOutboundTone(record.metadata?.outboundTone, current.outboundTone),
   };
+}
+
+function readStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : [];
 }
 
 function readPromptTemplate(value: unknown, fallback: PromptTemplate): PromptTemplate {
@@ -1846,6 +2596,15 @@ function readPromptTemplate(value: unknown, fallback: PromptTemplate): PromptTem
 
 function readRecipientTab(value: unknown, fallback: CampaignRecipientTab): CampaignRecipientTab {
   return value === 'directory' || value === 'clients' ? value : fallback;
+}
+
+function readOutboundTone(
+  value: unknown,
+  fallback: OutreachWorkflowState['outboundTone'],
+): OutreachWorkflowState['outboundTone'] {
+  return OUTBOUND_TONES.some((entry) => entry.value === value)
+    ? (value as OutreachWorkflowState['outboundTone'])
+    : fallback;
 }
 
 function meetingRecipients(meeting: OutreachMeeting): OutreachRecipient[] {
@@ -1867,6 +2626,27 @@ function meetingRecipients(meeting: OutreachMeeting): OutreachRecipient[] {
   return normalizeRecipients(rows);
 }
 
+function outboundRecipientFromContact(contact: OutboundContactRecord): OutreachRecipient {
+  return {
+    name: textOrUndefined(contact.attendeeName || contact.attendeeEmail),
+    email: textOrUndefined(contact.attendeeEmail),
+    office: textOrUndefined(contact.office),
+    title: textOrUndefined(contact.title),
+    directoryContactId: textOrUndefined(contact.directoryContactId),
+    directoryContactName: textOrUndefined(contact.directoryContactName),
+    committee: textOrUndefined(contact.committee),
+    relevanceReason: textOrUndefined(contact.relevanceReason),
+    meetingId: contact.meetingId,
+    meetingSubject: contact.meetingSubject,
+    meetingDateTime: formatDateTime(contact.meetingDateTime),
+    attendeeNames: textOrUndefined(contact.attendeeNames),
+    attendeeEmails: textOrUndefined(contact.attendeeEmails),
+    prepSummary: textOrUndefined(contact.prepSummary),
+    debriefSummary: textOrUndefined(contact.debriefSummary),
+    meetingLocation: textOrUndefined(contact.meetingLocation),
+  };
+}
+
 function addUniqueRecipient(recipients: OutreachRecipient[], recipient: OutreachRecipient) {
   const key = recipientKey(recipient);
   if (recipients.some((row) => recipientKey(row) === key)) return recipients;
@@ -1884,6 +2664,19 @@ function normalizeRecipients(value: unknown): OutreachRecipient[] {
         .map((entry) => (entry && typeof entry === 'object' ? (entry as OutreachRecipient) : null))
         .filter((entry): entry is OutreachRecipient => Boolean(entry?.name || entry?.email))
     : [];
+}
+
+function textOrUndefined(value?: string | null): string | undefined {
+  const text = value?.trim();
+  return text ? text : undefined;
+}
+
+function outboundGenerationBrief(): string {
+  return [
+    'Generate a personalized outbound campaign email from the loaded Capiro meeting context.',
+    'Use attendee names, attendee emails, prep summary, debrief summary, meeting location, meeting subject, and meeting date/time when available.',
+    'If a detail is missing, omit it rather than making anything up.',
+  ].join('\n');
 }
 
 function parseRecipient(value: string): OutreachRecipient | null {
@@ -1916,11 +2709,18 @@ function assembleCampaignBody(body: string, recipient: OutreachRecipient | null)
     .replaceAll('{district}', recipient.district || recipient.state || '')
     .replaceAll('{committee}', recipient.committee || '')
     .replaceAll('{member_priority}', recipient.relevanceReason || '')
-    .replaceAll('{personal_note}', recipient.personalNote || '');
+    .replaceAll('{personal_note}', recipient.personalNote || '')
+    .replaceAll('{attendee_names}', recipient.attendeeNames || recipient.name || '')
+    .replaceAll('{attendee_emails}', recipient.attendeeEmails || recipient.email || '')
+    .replaceAll('{prep_summary}', recipient.prepSummary || '')
+    .replaceAll('{debrief_summary}', recipient.debriefSummary || '')
+    .replaceAll('{meeting_location}', recipient.meetingLocation || '')
+    .replaceAll('{meeting_subject}', recipient.meetingSubject || '')
+    .replaceAll('{meeting_date_time}', recipient.meetingDateTime || '');
 }
 
 function recordStats(record: OutreachRecord): string {
-  if (record.type === 'campaign') {
+  if (record.type === 'campaign' || record.type === 'outbound_campaign') {
     const openRate = readString(record.stats?.openRate) || '0%';
     const replies = readString(record.stats?.replyCount) || '0';
     return record.status === 'sent'

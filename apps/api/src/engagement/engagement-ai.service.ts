@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/config.schema.js';
 
@@ -24,7 +24,7 @@ export interface MeetingPrepResult {
 }
 
 export interface OutreachDraftInput {
-  workflow: 'campaign' | 'follow_up' | 'prep';
+  workflow: 'campaign' | 'follow_up' | 'prep' | 'outbound_campaign';
   client: Record<string, unknown> | null;
   meeting?: Record<string, unknown> | null;
   objective?: string | null;
@@ -118,6 +118,7 @@ const meetingDebriefJsonSchema = {
 
 @Injectable()
 export class EngagementAiService {
+  private readonly logger = new Logger(EngagementAiService.name);
   private readonly openaiKey?: string;
   private readonly anthropicKey?: string;
   private readonly preferredProvider?: 'openai' | 'anthropic';
@@ -143,41 +144,27 @@ export class EngagementAiService {
   }
 
   async generateMeetingPrep(input: MeetingPrepInput): Promise<MeetingPrepResult> {
-    const provider = this.resolveProvider();
-    if (!provider) {
-      throw new ServiceUnavailableException(
-        'AI meeting prep is not configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.',
-      );
-    }
-
-    if (provider === 'openai') return this.generateWithOpenAi(input);
-    return this.generateWithAnthropic(input);
+    return this.withProviderFallback('AI meeting prep', (provider) =>
+      provider === 'openai' ? this.generateWithOpenAi(input) : this.generateWithAnthropic(input),
+    );
   }
 
   async generateOutreachDraft(input: OutreachDraftInput): Promise<OutreachDraftResult> {
-    const provider = this.resolveProvider();
-    if (!provider) {
-      throw new ServiceUnavailableException(
-        'AI outreach drafting is not configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.',
-      );
-    }
-
-    if (provider === 'openai') return this.generateOutreachWithOpenAi(input);
-    return this.generateOutreachWithAnthropic(input);
+    return this.withProviderFallback('AI outreach drafting', (provider) =>
+      provider === 'openai'
+        ? this.generateOutreachWithOpenAi(input)
+        : this.generateOutreachWithAnthropic(input),
+    );
   }
 
   async generateMeetingDebrief(
     input: MeetingDebriefDraftInput,
   ): Promise<MeetingDebriefDraftResult> {
-    const provider = this.resolveProvider();
-    if (!provider) {
-      throw new ServiceUnavailableException(
-        'AI debrief generation is not configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.',
-      );
-    }
-
-    if (provider === 'openai') return this.generateDebriefWithOpenAi(input);
-    return this.generateDebriefWithAnthropic(input);
+    return this.withProviderFallback('AI debrief generation', (provider) =>
+      provider === 'openai'
+        ? this.generateDebriefWithOpenAi(input)
+        : this.generateDebriefWithAnthropic(input),
+    );
   }
 
   private resolveProvider(): 'openai' | 'anthropic' | null {
@@ -186,6 +173,47 @@ export class EngagementAiService {
     if (this.openaiKey) return 'openai';
     if (this.anthropicKey) return 'anthropic';
     return null;
+  }
+
+  private providerOrder(): Array<'openai' | 'anthropic'> {
+    const providers: Array<'openai' | 'anthropic'> = [];
+    const add = (provider: 'openai' | 'anthropic') => {
+      const configured = provider === 'openai' ? this.openaiKey : this.anthropicKey;
+      if (configured && !providers.includes(provider)) providers.push(provider);
+    };
+    if (this.preferredProvider) add(this.preferredProvider);
+    add('openai');
+    add('anthropic');
+    return providers;
+  }
+
+  private async withProviderFallback<T>(
+    operation: string,
+    invoke: (provider: 'openai' | 'anthropic') => Promise<T>,
+  ): Promise<T> {
+    const providers = this.providerOrder();
+    if (!providers.length) {
+      throw new ServiceUnavailableException(
+        `${operation} is not configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.`,
+      );
+    }
+
+    const failures: string[] = [];
+    for (const provider of providers) {
+      try {
+        return await invoke(provider);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'provider request failed';
+        failures.push(`${provider}: ${message}`);
+        if (provider !== providers[providers.length - 1]) {
+          this.logger.warn(`${operation} failed with ${provider}; trying fallback provider. ${message}`);
+        }
+      }
+    }
+
+    throw new ServiceUnavailableException(
+      `${operation} failed for all configured providers. ${failures.join(' | ')}`,
+    );
   }
 
   private async generateWithOpenAi(input: MeetingPrepInput): Promise<MeetingPrepResult> {
@@ -476,6 +504,8 @@ export class EngagementAiService {
       follow_up:
         'Draft a post-meeting follow-up email. Include a brief recap, action items, and next steps from the supplied debrief/prep/context.',
       prep: 'Draft a clean prep distribution summary suitable for a colleague or client before the meeting. Include logistics, context, talking points, and participants from the approved prep.',
+      outbound_campaign:
+        'Draft an outbound campaign email using the supplied recent meeting attendees, prep summaries, debrief summaries, and directory office locations. Use existingSubject/existingBody and context.metadata.outboundTemplate as the selected template structure when present. If no usable template content is present, create the email from the recipient context fields instead. Apply context.metadata.outboundTone when present. Preserve useful variables such as {attendee_names}, {attendee_emails}, {prep_summary}, {debrief_summary}, {meeting_location}, {meeting_subject}, and {meeting_date_time} so the final send can personalize each recipient preview. Do not invent missing details.',
     }[input.workflow];
 
     const templateGuidance =

@@ -616,7 +616,19 @@ export function EngagementPage() {
             .data
         : (await api.post(`/api/engagement/meetings/${meetingId}/debriefs`, payload)).data;
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: (data, variables) => {
+      const savedDebrief = {
+        ...(data as MeetingDebrief),
+        body: variables.body,
+        restricted: false,
+      };
+      qc.setQueryData<MeetingDebrief[]>(
+        ['engagement-meeting-debriefs', variables.meetingId],
+        (current = []) => {
+          const withoutCurrent = current.filter((debrief) => debrief.id !== savedDebrief.id);
+          return [savedDebrief, ...withoutCurrent];
+        },
+      );
       message.success('Debrief saved');
       qc.invalidateQueries({ queryKey: ['engagement-meeting', variables.meetingId] });
       qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
@@ -1535,6 +1547,7 @@ function MeetingDetailPanel({
   const prep = meeting.preps[0];
   const participants = meetingParticipants(meeting);
   const status = meetingStatus(meeting);
+  const hasSavedDebrief = meeting.debriefs.length > 0 || debriefs.length > 0;
   const meetingHasEnded = new Date(meeting.endsAt).getTime() < Date.now();
 
   return (
@@ -1552,7 +1565,7 @@ function MeetingDetailPanel({
               .filter(Boolean)
               .join(' | ')}
           </Typography.Text>
-          {status.kind === 'missing' ? (
+          {status.kind === 'missing' && !hasSavedDebrief ? (
             <Typography.Text className="engagement-detail-warning">
               Debrief not completed
             </Typography.Text>
@@ -1957,6 +1970,7 @@ function DebriefPanel({
         {uploadHint ? <Typography.Text type="secondary">{uploadHint}</Typography.Text> : null}
 
         <Input.TextArea
+          className="engagement-debrief-source"
           rows={8}
           value={sourceText}
           onChange={(event) => setSourceText(event.target.value)}

@@ -329,7 +329,7 @@ class ConfirmAttachmentDto {
 }
 
 const reportStatuses = ['auto', 'not_started', 'in_progress', 'complete'] as const;
-const outreachTypes = ['campaign', 'follow_up', 'prep'] as const;
+const outreachTypes = ['campaign', 'follow_up', 'prep', 'outbound_campaign'] as const;
 const outreachStatuses = ['draft', 'sent', 'opened_in_email', 'failed'] as const;
 const outreachPromptTemplates = [
   'custom',
@@ -453,6 +453,60 @@ class OutreachRecipientDto {
   @IsString()
   @Length(1, 500)
   personalNote?: string;
+
+  @IsOptional()
+  @IsUUID()
+  meetingId?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  meetingSubject?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  meetingDateTime?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 1000)
+  attendeeNames?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 1000)
+  attendeeEmails?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 2000)
+  prepSummary?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 2000)
+  debriefSummary?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 500)
+  meetingLocation?: string;
+}
+
+class CreateOutreachTemplateDto {
+  @IsString()
+  @Length(1, 120)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 300)
+  subject?: string;
+
+  @IsString()
+  @Length(1, 10000)
+  body!: string;
 }
 
 class CreateOutreachRecordDto {
@@ -707,6 +761,27 @@ export class EngagementController {
     @Query('limit') limit?: string,
   ) {
     return this.service.listOutreachRecords(ctx, { clientId, from, to, type, limit });
+  }
+
+  @Get('outreach/outbound/contact-data')
+  outboundCampaignContactData(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('clientId') clientId?: string,
+  ) {
+    return this.service.outboundCampaignContactData(ctx, { clientId });
+  }
+
+  @Get('outreach/templates')
+  outreachTemplates(@CurrentTenant() ctx: TenantContext, @Query('type') type?: string) {
+    return this.service.listOutreachTemplates(ctx, { type });
+  }
+
+  @Post('outreach/templates')
+  createOutreachTemplate(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: CreateOutreachTemplateDto,
+  ) {
+    return this.service.createOutreachTemplate(ctx, body);
   }
 
   @Get('outreach/:id')

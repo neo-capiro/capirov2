@@ -147,7 +147,7 @@ export interface UpsertReportTargetOfficeInput extends CreateReportTargetOfficeI
 
 export type ReportPeriod = 'current' | 'previous' | 'all';
 export type ReportStatus = 'auto' | 'not_started' | 'in_progress' | 'complete';
-export type OutreachType = 'campaign' | 'follow_up' | 'prep';
+export type OutreachType = 'campaign' | 'follow_up' | 'prep' | 'outbound_campaign';
 export type OutreachStatus = 'draft' | 'sent' | 'opened_in_email' | 'failed';
 
 export interface OutreachRecipientInput {
@@ -163,6 +163,20 @@ export interface OutreachRecipientInput {
   committee?: string;
   relevanceReason?: string;
   personalNote?: string;
+  meetingId?: string;
+  meetingSubject?: string;
+  meetingDateTime?: string;
+  attendeeNames?: string;
+  attendeeEmails?: string;
+  prepSummary?: string;
+  debriefSummary?: string;
+  meetingLocation?: string;
+}
+
+export interface CreateOutreachTemplateInput {
+  name: string;
+  subject?: string;
+  body: string;
 }
 
 export interface CreateOutreachRecordInput {
@@ -199,6 +213,15 @@ export interface OutreachQuery {
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const REPORT_STATUSES: ReportStatus[] = ['auto', 'not_started', 'in_progress', 'complete'];
+const OUTBOUND_CAMPAIGN_VARIABLES = [
+  'attendee_names',
+  'attendee_emails',
+  'prep_summary',
+  'debrief_summary',
+  'meeting_location',
+  'meeting_subject',
+  'meeting_date_time',
+] as const;
 
 interface ReportTargetDraft {
   targetId: string | null;
@@ -506,7 +529,9 @@ export class EngagementService {
 
   async createOutreachRecord(ctx: TenantContext, input: CreateOutreachRecordInput) {
     const type = normalizeOutreachType(input.type);
-    if (!type) throw new BadRequestException('type must be campaign, follow_up, or prep');
+    if (!type) {
+      throw new BadRequestException('type must be campaign, follow_up, prep, or outbound_campaign');
+    }
     const recipients = normalizeOutreachRecipients(input.recipients);
     const clientId = input.clientId?.trim() || null;
     const meetingId = input.meetingId?.trim() || null;
@@ -600,7 +625,7 @@ export class EngagementService {
     }
 
     const recipients = normalizeOutreachRecipients(input.recipients ?? record.recipients);
-    if (record.type === 'campaign' && !recipients.length) {
+    if ((record.type === 'campaign' || record.type === 'outbound_campaign') && !recipients.length) {
       throw new BadRequestException('At least one recipient is required before drafting');
     }
     const context = await this.outreachContext(ctx, record, recipients, input.metadata);
@@ -615,7 +640,7 @@ export class EngagementService {
       context,
       promptTemplate,
       existingSubject: record.subject,
-      existingBody: record.body,
+      existingBody: outboundTemplateBody(record, input.metadata) ?? record.body,
     });
 
     const nextMetadata = mergeJsonObjects(record.metadata, {
@@ -676,7 +701,9 @@ export class EngagementService {
 
   async sendCampaign(ctx: TenantContext, id: string) {
     const record = await this.getOutreachRecord(ctx, id);
-    if (record.type !== 'campaign') throw new BadRequestException('Only campaigns can be sent');
+    if (record.type !== 'campaign' && record.type !== 'outbound_campaign') {
+      throw new BadRequestException('Only campaigns can be sent');
+    }
 
     if (record.status !== 'draft') {
       throw new BadRequestException('Only draft campaigns can be sent');
@@ -704,7 +731,7 @@ export class EngagementService {
       const email = recipient.email!;
       try {
         await this.microsoftGraph.sendMail(ctx, connection.id, {
-          subject: record.subject,
+          subject: assembleCampaignBody(record.subject, recipient),
           body: assembleCampaignBody(record.body, recipient),
           toRecipients: [{ email, name: recipient.name ?? null }],
         });
@@ -764,6 +791,191 @@ export class EngagementService {
     }
 
     return updated;
+  }
+
+  async outboundCampaignContactData(ctx: TenantContext, query: { clientId?: string }) {
+    const to = new Date();
+    const from = addDays(to, -7);
+    const clientId = query.clientId?.trim() || null;
+
+    const meetings = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      if (clientId) {
+        await ensureExists(
+          tx.client.findFirst({
+            where: { id: clientId, tenantId: ctx.tenantId },
+            select: { id: true },
+          }),
+          'Client not found',
+        );
+      }
+
+      return tx.meeting.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          ...ownMeetingWhere(ctx.userId),
+          ...(clientId ? { clientId } : {}),
+          connectionId: { not: null },
+          source: { not: EngagementSource.manual },
+          startsAt: { gte: from, lte: to },
+        },
+        include: {
+          client: clientSummarySelect(),
+          attendees: { orderBy: { createdAt: 'asc' } },
+          preps: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+          debriefs: {
+            include: {
+              author: { select: { id: true, email: true, firstName: true, lastName: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
+        },
+        orderBy: { startsAt: 'desc' },
+        take: 100,
+      });
+    });
+
+    const attendeeEmails = unique(
+      meetings.flatMap((meeting) =>
+        meeting.attendees
+          .map((attendee) => normalizeEmailAddress(attendee.email))
+          .filter((email): email is string => Boolean(email)),
+      ),
+    );
+    const directoryMatches = attendeeEmails.length
+      ? await this.directory.findContactsByEmails(attendeeEmails, 500).catch(() => [])
+      : [];
+    const matchesByEmail = new Map<string, DirectoryEmailMatch[]>();
+    for (const match of directoryMatches) {
+      const email = normalizeEmailAddress(match.attendeeEmail);
+      if (!email) continue;
+      const rows = matchesByEmail.get(email) ?? [];
+      rows.push(match);
+      matchesByEmail.set(email, rows);
+    }
+
+    const contacts = meetings.flatMap((meeting) => {
+      const attendeeNames = meeting.attendees
+        .map((attendee) => attendee.name?.trim() || attendee.email?.trim() || '')
+        .filter(Boolean)
+        .join(', ');
+      const attendeeEmailList = meeting.attendees
+        .map((attendee) => normalizeEmailAddress(attendee.email))
+        .filter((email): email is string => Boolean(email))
+        .join(', ');
+      const prepSummary = summarizeMeetingPrep(meeting.preps[0] ?? null);
+      const readableDebrief = meeting.debriefs.find((debrief) =>
+        canReadEncryptedEntry(ctx, debrief),
+      );
+      const debriefSummary = readableDebrief
+        ? summarizeText(
+            this.notesCrypto.decrypt({
+              bodyCiphertext: readableDebrief.bodyCiphertext,
+              iv: readableDebrief.iv,
+              authTag: readableDebrief.authTag,
+            }),
+            1000,
+          )
+        : '';
+
+      return meeting.attendees
+        .map((attendee) => {
+          const email = normalizeEmailAddress(attendee.email);
+          const match = email ? matchesByEmail.get(email)?.[0] ?? null : null;
+          const location = formatDirectoryMainOffice(match) || meeting.location || '';
+          const name = attendee.name?.trim() || attendee.email?.trim() || '';
+          if (!name && !email) return null;
+          return {
+            id: `${meeting.id}:${attendee.id}`,
+            meetingId: meeting.id,
+            meetingSubject: meeting.subject,
+            meetingDateTime: meeting.startsAt.toISOString(),
+            meetingStartsAt: meeting.startsAt,
+            clientId: meeting.clientId,
+            clientName: meeting.client?.name ?? null,
+            attendeeName: name,
+            attendeeEmail: email,
+            attendeeNames,
+            attendeeEmails: attendeeEmailList,
+            prepSummary,
+            debriefSummary,
+            meetingLocation: location,
+            directoryContactId: match?.directoryContactId ?? null,
+            directoryContactName: match?.directoryContactName ?? null,
+            office:
+              match?.staff?.officeLocation ||
+              match?.member.officeLocation ||
+              match?.member.title ||
+              null,
+            title: match?.staff?.title || match?.member.title || attendee.role || null,
+            committee: match?.member.committees[0] ?? null,
+            relevanceReason: outboundRelevanceReason(match),
+          };
+        })
+        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+    });
+
+    return {
+      generatedAt: to.toISOString(),
+      from: from.toISOString(),
+      to: to.toISOString(),
+      contacts,
+    };
+  }
+
+  async listOutreachTemplates(ctx: TenantContext, query: { type?: string }) {
+    const type = normalizeOutreachTemplateType(query.type);
+    const custom = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.outreachTemplate.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          createdByUserId: ctx.userId,
+          type,
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+    );
+
+    return [
+      builtinOutboundCampaignTemplate(),
+      ...custom.map((template) => ({
+        id: template.id,
+        source: 'user' as const,
+        type: template.type,
+        name: template.name,
+        subject: template.subject,
+        body: template.body,
+        metadata: template.metadata,
+        createdAt: template.createdAt,
+        updatedAt: template.updatedAt,
+      })),
+    ];
+  }
+
+  async createOutreachTemplate(ctx: TenantContext, input: CreateOutreachTemplateInput) {
+    const name = requiredReportText(input.name, 'name', 120);
+    const body = requiredReportText(input.body, 'body', 10000);
+    const subject = optionalReportText(input.subject, 300);
+
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.outreachTemplate.create({
+        data: {
+          tenantId: ctx.tenantId,
+          createdByUserId: ctx.userId,
+          type: 'outbound_campaign',
+          name,
+          subject,
+          body,
+          metadata: {
+            source: 'user',
+            variables: OUTBOUND_CAMPAIGN_VARIABLES,
+          },
+        },
+      }),
+    );
   }
 
   async deleteOutreachRecord(ctx: TenantContext, id: string) {
@@ -2619,10 +2831,143 @@ function optionalText(value?: string | null): string | undefined {
   return text ? text : undefined;
 }
 
+function builtinOutboundCampaignTemplate() {
+  return {
+    id: 'builtin-congressional-meeting-readout',
+    source: 'system' as const,
+    type: 'outbound_campaign',
+    name: 'Congressional Meeting Readout',
+    subject: 'Meeting readout - {meeting_subject}',
+    body: [
+      'Date/Time: {meeting_date_time}',
+      '',
+      'Participants:',
+      '{attendee_names}',
+      '{attendee_emails}',
+      '',
+      'Summary - Key Takeaways',
+      '',
+      'Purpose of Engagement',
+      '{prep_summary}',
+      '',
+      'Meeting Debrief',
+      '{debrief_summary}',
+      '',
+      'Location',
+      '{meeting_location}',
+      '',
+      'Follow-Up Items and Next Steps',
+      'Use only the saved prep and debrief context above. If a detail is not present in the available Capiro context, omit it rather than making anything up.',
+    ].join('\n'),
+    metadata: {
+      source: 'system',
+      guidance:
+        'Structured congressional meeting readout modeled on HASC/SASC engagement notes. Use only available variables and never invent missing details.',
+      variables: OUTBOUND_CAMPAIGN_VARIABLES,
+    },
+    createdAt: null,
+    updatedAt: null,
+  };
+}
+
+function outboundTemplateBody(
+  record: { type: string; body: string | null; metadata: Prisma.JsonValue },
+  metadata?: Record<string, unknown>,
+): string | null {
+  if (record.type !== 'outbound_campaign') return record.body;
+  const explicitBody = readNestedString(metadata, ['outboundTemplate', 'body']);
+  const storedBody = readNestedString(record.metadata, ['outboundTemplate', 'body']);
+  return explicitBody || storedBody || record.body || defaultOutboundCampaignGenerationBrief();
+}
+
+function defaultOutboundCampaignGenerationBrief(): string {
+  return [
+    'Generate a personalized outbound campaign email from the loaded Capiro meeting context.',
+    'Use the recipient context fields for attendee names, attendee emails, prep summary, debrief summary, meeting location, meeting subject, and meeting date/time.',
+    'If prep or debrief content is missing for a recipient, omit that detail. Do not make anything up.',
+    'Keep the message practical, readable, and specific to the recipient where the context supports it.',
+  ].join('\n');
+}
+
+function readNestedString(value: unknown, path: string[]): string | null {
+  let current = value;
+  for (const key of path) {
+    if (!current || typeof current !== 'object' || Array.isArray(current)) return null;
+    current = (current as Record<string, unknown>)[key];
+  }
+  return readString(current);
+}
+
+function summarizeMeetingPrep(
+  prep: {
+    summary: string | null;
+    agenda: Prisma.JsonValue;
+    talkingPoints: Prisma.JsonValue;
+    followUps: Prisma.JsonValue;
+  } | null,
+): string {
+  if (!prep) return '';
+  const lines = [
+    prep.summary,
+    ...jsonStringArray(prep.agenda).map((item) => `Agenda: ${item}`),
+    ...jsonStringArray(prep.talkingPoints).map((item) => `Talking point: ${item}`),
+    ...jsonStringArray(prep.followUps).map((item) => `Follow-up: ${item}`),
+  ].filter((line): line is string => Boolean(line?.trim()));
+  return summarizeText(lines.join('\n'), 1200);
+}
+
+function jsonStringArray(value: Prisma.JsonValue): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter(Boolean)
+    .slice(0, 12);
+}
+
+function summarizeText(value: string, max = 800): string {
+  const text = value.replace(/\s+/g, ' ').trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, Math.max(0, max - 1)).trim()}...`;
+}
+
+function formatDirectoryMainOffice(match?: DirectoryEmailMatch | null): string | null {
+  if (!match) return null;
+  const address =
+    match.member.addresses.find((row) => row.isMain) ?? match.member.addresses[0] ?? null;
+  if (!address) return match.staff?.officeLocation || match.member.officeLocation || null;
+  const street = [address.address1, address.address2].filter(Boolean).join(', ');
+  const cityState = [address.city, address.state].filter(Boolean).join(', ');
+  const tail = [cityState, address.zip].filter(Boolean).join(' ');
+  return [address.title, street, tail].filter(Boolean).join(', ');
+}
+
+function outboundRelevanceReason(match?: DirectoryEmailMatch | null): string | null {
+  if (!match) return null;
+  return [
+    match.matchKind === 'staff' ? match.staff?.title : match.member.title,
+    match.member.committees[0],
+    match.member.officeLocation,
+  ]
+    .filter(Boolean)
+    .join(' | ');
+}
+
 function normalizeOutreachType(value?: string | null): OutreachType | null {
-  if (value === 'campaign' || value === 'follow_up' || value === 'prep') return value;
+  if (
+    value === 'campaign' ||
+    value === 'follow_up' ||
+    value === 'prep' ||
+    value === 'outbound_campaign'
+  ) {
+    return value;
+  }
   if (!value || value === 'all') return null;
-  throw new BadRequestException('type must be campaign, follow_up, prep, or all');
+  throw new BadRequestException('type must be campaign, follow_up, prep, outbound_campaign, or all');
+}
+
+function normalizeOutreachTemplateType(value?: string | null): 'outbound_campaign' {
+  if (!value || value === 'outbound_campaign') return 'outbound_campaign';
+  throw new BadRequestException('template type must be outbound_campaign');
 }
 
 function normalizeOutreachStatus(value?: string | null): OutreachStatus {
@@ -2650,6 +2995,14 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
       const committee = readString(record.committee);
       const relevanceReason = readString(record.relevanceReason);
       const personalNote = readString(record.personalNote);
+      const meetingId = readString(record.meetingId);
+      const meetingSubject = readString(record.meetingSubject);
+      const meetingDateTime = readString(record.meetingDateTime);
+      const attendeeNames = readString(record.attendeeNames);
+      const attendeeEmails = readString(record.attendeeEmails);
+      const prepSummary = readString(record.prepSummary);
+      const debriefSummary = readString(record.debriefSummary);
+      const meetingLocation = readString(record.meetingLocation);
       if (!email && !name) return null;
       return {
         ...(name ? { name: name.slice(0, 160) } : {}),
@@ -2666,6 +3019,14 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
         ...(committee ? { committee: committee.slice(0, 160) } : {}),
         ...(relevanceReason ? { relevanceReason: relevanceReason.slice(0, 240) } : {}),
         ...(personalNote ? { personalNote: personalNote.slice(0, 500) } : {}),
+        ...(meetingId ? { meetingId: meetingId.slice(0, 80) } : {}),
+        ...(meetingSubject ? { meetingSubject: meetingSubject.slice(0, 240) } : {}),
+        ...(meetingDateTime ? { meetingDateTime: meetingDateTime.slice(0, 120) } : {}),
+        ...(attendeeNames ? { attendeeNames: attendeeNames.slice(0, 1000) } : {}),
+        ...(attendeeEmails ? { attendeeEmails: attendeeEmails.slice(0, 1000) } : {}),
+        ...(prepSummary ? { prepSummary: prepSummary.slice(0, 2000) } : {}),
+        ...(debriefSummary ? { debriefSummary: debriefSummary.slice(0, 2000) } : {}),
+        ...(meetingLocation ? { meetingLocation: meetingLocation.slice(0, 500) } : {}),
       };
     })
     .filter((entry): entry is OutreachRecipientInput => Boolean(entry))
@@ -2717,7 +3078,14 @@ function assembleCampaignBody(body: string, recipient: OutreachRecipientInput): 
     .replaceAll('{district}', recipient.district || recipient.state || '')
     .replaceAll('{committee}', recipient.committee || '')
     .replaceAll('{member_priority}', recipient.relevanceReason || '')
-    .replaceAll('{personal_note}', recipient.personalNote || '');
+    .replaceAll('{personal_note}', recipient.personalNote || '')
+    .replaceAll('{attendee_names}', recipient.attendeeNames || recipient.name || '')
+    .replaceAll('{attendee_emails}', recipient.attendeeEmails || recipient.email || '')
+    .replaceAll('{prep_summary}', recipient.prepSummary || '')
+    .replaceAll('{debrief_summary}', recipient.debriefSummary || '')
+    .replaceAll('{meeting_location}', recipient.meetingLocation || '')
+    .replaceAll('{meeting_subject}', recipient.meetingSubject || '')
+    .replaceAll('{meeting_date_time}', recipient.meetingDateTime || '');
 }
 
 function outreachRecipientLabel(recipient: OutreachRecipientInput): string {

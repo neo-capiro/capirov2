@@ -39,6 +39,7 @@ export interface EnvConfig {
     oauthStateSecret: string;
     openaiApiKey: string;
     anthropicApiKey: string;
+    notesEncryptionKey: string;
   };
 }
 
@@ -114,6 +115,8 @@ export function loadConfig(app: cdk.App): EnvConfig {
                 'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/openai-api-key-7nAmib',
               anthropicApiKey:
                 'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/anthropic-api-key-3nhKhF',
+              notesEncryptionKey:
+                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/notes-encryption-key-Vf2rhI',
             },
           };
 
