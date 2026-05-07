@@ -1,15 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   ArrowLeftOutlined,
   DeleteOutlined,
   DownloadOutlined,
+  FilterOutlined,
   LinkOutlined,
   MailOutlined,
   MoreOutlined,
   PhoneOutlined,
   PlusOutlined,
-  SearchOutlined,
-  SlidersOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
 import { hasAtLeast } from '@capiro/shared';
@@ -19,7 +18,7 @@ import {
   Avatar,
   Button,
   Empty,
-  Input,
+  Popover,
   Select,
   Skeleton,
   Space,
@@ -42,16 +41,20 @@ const PROFILE_TABS = [
   { key: 'compliance', label: 'Compliance', disabled: true },
 ];
 
+interface ClientFilterState {
+  sectors: string[];
+  requestTypes: string[];
+}
+
 export function ClientWorkspacePage() {
   const api = useApi();
   const me = useMe();
   const qc = useQueryClient();
   const { message, modal } = AntApp.useApp();
-  const [search, setSearch] = useState('');
-  const [sortMode, setSortMode] = useState<'updated' | 'name' | 'sector'>('updated');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [filters, setFilters] = useState<ClientFilterState>({ sectors: [], requestTypes: [] });
 
   const canCreateClients = Boolean(me.data && hasAtLeast(me.data.role, 'standard_user'));
   const canManageClients = Boolean(me.data && hasAtLeast(me.data.role, 'user_admin'));
@@ -68,35 +71,46 @@ export function ClientWorkspacePage() {
     enabled: Boolean(selectedId),
   });
 
+  const activeClients = useMemo(
+    () => (clients.data ?? []).filter((client) => client.status !== 'archived'),
+    [clients.data],
+  );
+
+  const filterOptions = useMemo(
+    () => ({
+      sectors: uniqueOptions(
+        activeClients.map((client) => readText(intakeRecord(client), ['sector'])),
+      ),
+      requestTypes: uniqueOptions(
+        activeClients.map((client) =>
+          readText(intakeRecord(client), ['requestType', 'request_type']),
+        ),
+      ),
+    }),
+    [activeClients],
+  );
+
+  const activeFilterCount = filters.sectors.length + filters.requestTypes.length;
+  const hasFilterValues = Boolean(
+    filterOptions.sectors.length || filterOptions.requestTypes.length,
+  );
+
   const visibleClients = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    const filtered = (clients.data ?? [])
-      .filter((client) => client.status !== 'archived')
+    return activeClients
       .filter((client) => {
-        if (!needle) return true;
-        const haystack = [
-          client.name,
-          client.website,
-          client.primaryContactName,
-          client.primaryContactEmail,
-          client.description,
-          readText(intakeRecord(client), ['sector', 'requestType', 'fundingAsk']),
-        ]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        return haystack.includes(needle);
-      });
-    return filtered.sort((left, right) => {
-      if (sortMode === 'name') return left.name.localeCompare(right.name);
-      if (sortMode === 'sector') {
-        return (readText(intakeRecord(left), ['sector']) ?? '').localeCompare(
-          readText(intakeRecord(right), ['sector']) ?? '',
+        const intake = intakeRecord(client);
+        const sector = readText(intake, ['sector']);
+        const requestType = readText(intake, ['requestType', 'request_type']);
+        return (
+          (!filters.sectors.length || (sector ? filters.sectors.includes(sector) : false)) &&
+          (!filters.requestTypes.length ||
+            (requestType ? filters.requestTypes.includes(requestType) : false))
         );
-      }
-      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
-    });
-  }, [clients.data, search, sortMode]);
+      })
+      .sort(
+        (left, right) => new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime(),
+      );
+  }, [activeClients, filters]);
 
   const uploadClientLogo = async (clientId: string, file: File) => {
     const presigned = (
@@ -208,23 +222,52 @@ export function ClientWorkspacePage() {
     });
   };
 
-  useEffect(() => {
-    const handleNewClient = () => {
-      if (!canCreateClients) return;
-      setEditingClient(null);
-      setModalMode('create');
-    };
-    const handleFilterSort = () => {
-      document.querySelector<HTMLElement>('.client-sort-select .ant-select-selector')?.focus();
-    };
+  const clearFilters = () => setFilters({ sectors: [], requestTypes: [] });
 
-    window.addEventListener('capiro:new-client', handleNewClient);
-    window.addEventListener('capiro:client-filter-sort', handleFilterSort);
-    return () => {
-      window.removeEventListener('capiro:new-client', handleNewClient);
-      window.removeEventListener('capiro:client-filter-sort', handleFilterSort);
-    };
-  }, [canCreateClients]);
+  const filterContent = (
+    <div className="client-filter-popover-content">
+      <div className="client-filter-popover-head">
+        <Typography.Text strong>Filter Clients</Typography.Text>
+        {activeFilterCount ? (
+          <Button type="link" size="small" onClick={clearFilters}>
+            Clear All
+          </Button>
+        ) : null}
+      </div>
+      {hasFilterValues ? (
+        <>
+          <div className="client-filter-field">
+            <Typography.Text>Sector</Typography.Text>
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="Any sector"
+              maxTagCount="responsive"
+              value={filters.sectors}
+              options={filterOptions.sectors}
+              onChange={(sectors) => setFilters((current) => ({ ...current, sectors }))}
+            />
+          </div>
+          <div className="client-filter-field">
+            <Typography.Text>Request Type</Typography.Text>
+            <Select
+              mode="multiple"
+              allowClear
+              placeholder="Any request type"
+              maxTagCount="responsive"
+              value={filters.requestTypes}
+              options={filterOptions.requestTypes}
+              onChange={(requestTypes) => setFilters((current) => ({ ...current, requestTypes }))}
+            />
+          </div>
+        </>
+      ) : (
+        <Typography.Text type="secondary">
+          No client fields available to filter yet.
+        </Typography.Text>
+      )}
+    </div>
+  );
 
   return (
     <>
@@ -250,30 +293,23 @@ export function ClientWorkspacePage() {
         />
       ) : (
         <section className="client-page">
-          <div className="client-page-controls">
-            <Select
-              value={sortMode}
-              onChange={setSortMode}
-              className="client-sort-select"
-              suffixIcon={<SlidersOutlined />}
-              options={[
-                { value: 'updated', label: 'Recently updated' },
-                { value: 'name', label: 'Client name' },
-                { value: 'sector', label: 'Sector' },
-              ]}
-            />
-          </div>
-
-          <div className="client-search-row">
-            <Input
-              size="large"
-              prefix={<SearchOutlined />}
-              placeholder="Search clients..."
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              allowClear
-              className="client-search"
-            />
+          <div className="client-action-bar">
+            <Popover arrow={false} content={filterContent} placement="bottomRight" trigger="click">
+              <Button
+                icon={<FilterOutlined />}
+                disabled={clients.isLoading || !activeClients.length}
+              >
+                {activeFilterCount ? `Filter (${activeFilterCount})` : 'Filter'}
+              </Button>
+            </Popover>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              disabled={!canCreateClients}
+              onClick={openCreate}
+            >
+              New Client
+            </Button>
           </div>
 
           {clients.isLoading ? (
@@ -297,15 +333,23 @@ export function ClientWorkspacePage() {
             </div>
           ) : (
             <div className="client-empty-state">
-              <Empty description={search ? 'No clients match that search.' : 'No clients yet.'} />
-              <Button
-                type="primary"
-                icon={<PlusOutlined />}
-                disabled={!canCreateClients}
-                onClick={openCreate}
-              >
-                Add client
-              </Button>
+              <Empty
+                description={
+                  activeFilterCount ? 'No clients match these filters.' : 'No clients yet.'
+                }
+              />
+              {activeFilterCount ? (
+                <Button onClick={clearFilters}>Clear Filters</Button>
+              ) : (
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  disabled={!canCreateClients}
+                  onClick={openCreate}
+                >
+                  Add Client
+                </Button>
+              )}
             </div>
           )}
         </section>
@@ -840,6 +884,12 @@ function readText(record: Record<string, unknown>, keys: string[]): string | und
   if (typeof value === 'string') return value.trim() || undefined;
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return undefined;
+}
+
+function uniqueOptions(values: Array<string | undefined>): Array<{ label: string; value: string }> {
+  return Array.from(new Set(values.map((value) => value?.trim()).filter(Boolean) as string[]))
+    .sort((left, right) => left.localeCompare(right))
+    .map((value) => ({ label: value, value }));
 }
 
 function readFirst(record: Record<string, unknown>, keys: string[]): unknown {

@@ -11,7 +11,6 @@ import {
   IdcardOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
-  PlusOutlined,
   SearchOutlined,
   SettingOutlined,
   SyncOutlined,
@@ -24,13 +23,11 @@ import {
   Alert,
   App as AntApp,
   Avatar,
-  Button,
   Dropdown,
   Input,
   Layout,
   Menu,
   Popover,
-  Space,
   Typography,
   type MenuProps,
 } from 'antd';
@@ -611,22 +608,7 @@ function ClientContextBanner({ client, onClear }: { client: Client; onClear: () 
 }
 
 function PageActions({ page }: { page: AppSection }) {
-  if (page === 'clients') {
-    return (
-      <Space size={10}>
-        <Button onClick={() => window.dispatchEvent(new Event('capiro:client-filter-sort'))}>
-          Filter / Sort
-        </Button>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={() => window.dispatchEvent(new Event('capiro:new-client'))}
-        >
-          New Client
-        </Button>
-      </Space>
-    );
-  }
+  void page;
   return null;
 }
 

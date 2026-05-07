@@ -1434,30 +1434,44 @@ body {
   gap: 18px;
 }
 
+.client-action-bar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 0;
+}
+
+.client-filter-popover-content {
+  display: flex;
+  width: min(340px, calc(100vw - 48px));
+  flex-direction: column;
+  gap: 14px;
+}
+
+.client-filter-popover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.client-filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.client-filter-field > .ant-typography {
+  color: #344054;
+  font-size: 12px;
+  font-weight: 800;
+}
+
 .client-page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-}
-
-.client-page-controls {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.client-search {
-  max-width: 520px;
-  border-radius: 8px;
-}
-
-.client-search-row {
-  display: flex;
-  justify-content: flex-start;
-}
-
-.client-sort-select {
-  min-width: 190px;
 }
 
 .client-card-grid {
@@ -3964,6 +3978,14 @@ body {
   .client-page-header {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .client-action-bar {
+    justify-content: stretch;
+  }
+
+  .client-action-bar .ant-btn {
+    flex: 1;
   }
 
   .client-card-grid,
