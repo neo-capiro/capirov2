@@ -3811,6 +3811,17 @@ body {
   background: #fbfcfe;
 }
 
+.outbound-recipient-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d9e1ee;
+  border-radius: 8px;
+  background: #fbfcfe;
+}
+
 .outbound-recipient-source label {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -3839,6 +3850,59 @@ body {
 
 .outbound-variable-toolbar button:not(.outreach-editor-format-button) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+}
+
+.outbound-template-strip {
+  display: flex;
+  gap: 10px;
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 4px 0 10px;
+  scrollbar-width: thin;
+}
+
+.outbound-template-strip button {
+  display: flex;
+  min-height: 122px;
+  flex: 0 0 232px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  color: #111827;
+  border: 1px solid #d9e1ee;
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.outbound-template-strip button:hover,
+.outbound-template-strip button:focus-visible,
+.outbound-template-strip button.selected {
+  border-color: #243a73;
+  outline: none;
+  box-shadow: 0 8px 18px rgba(17, 24, 39, 0.08);
+}
+
+.outbound-template-strip button.selected {
+  background: #eef3ff;
+}
+
+.outbound-template-strip button span {
+  color: #475467;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.outbound-template-strip button em {
+  margin-top: auto;
+  color: #667085;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .outbound-generate-note {
@@ -3970,6 +4034,14 @@ body {
 
 .outreach-editor-format-button em {
   font-style: italic;
+}
+
+.outreach-editor-chip-help {
+  max-width: 260px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
 }
 
 .outreach-editor .ant-input {

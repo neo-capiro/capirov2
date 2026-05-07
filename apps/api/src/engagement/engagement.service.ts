@@ -214,6 +214,7 @@ export interface OutreachQuery {
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 const REPORT_STATUSES: ReportStatus[] = ['auto', 'not_started', 'in_progress', 'complete'];
 const OUTBOUND_CAMPAIGN_VARIABLES = [
+  'current_date_time',
   'attendee_names',
   'attendee_emails',
   'prep_summary',
@@ -628,7 +629,16 @@ export class EngagementService {
     if ((record.type === 'campaign' || record.type === 'outbound_campaign') && !recipients.length) {
       throw new BadRequestException('At least one recipient is required before drafting');
     }
-    const context = await this.outreachContext(ctx, record, recipients, input.metadata);
+    const generatedAt = new Date();
+    const requestMetadata =
+      record.type === 'outbound_campaign'
+        ? {
+            ...(input.metadata ?? {}),
+            outboundCurrentDateTime:
+              readString(input.metadata?.outboundCurrentDateTime) || generatedAt.toISOString(),
+          }
+        : input.metadata;
+    const context = await this.outreachContext(ctx, record, recipients, requestMetadata);
     const promptTemplate =
       input.promptTemplate ?? readMetadataString(record.metadata, 'promptTemplate') ?? null;
     const generated = await this.ai.generateOutreachDraft({
@@ -640,18 +650,18 @@ export class EngagementService {
       context,
       promptTemplate,
       existingSubject: record.subject,
-      existingBody: outboundTemplateBody(record, input.metadata) ?? record.body,
+      existingBody: outboundTemplateBody(record, requestMetadata) ?? record.body,
     });
 
     const nextMetadata = mergeJsonObjects(record.metadata, {
-      ...(input.metadata ?? {}),
+      ...(requestMetadata ?? {}),
       objective: input.objective ?? readMetadataString(record.metadata, 'objective') ?? null,
       promptTemplate,
       clioContextNote: generated.contextNote,
       ai: {
         provider: generated.provider,
         model: generated.model,
-        generatedAt: new Date().toISOString(),
+        generatedAt: generatedAt.toISOString(),
       },
     });
 
@@ -731,8 +741,8 @@ export class EngagementService {
       const email = recipient.email!;
       try {
         await this.microsoftGraph.sendMail(ctx, connection.id, {
-          subject: assembleCampaignBody(record.subject, recipient),
-          body: assembleCampaignBody(record.body, recipient),
+          subject: assembleCampaignBody(record.subject, recipient, record.metadata),
+          body: assembleCampaignBody(record.body, recipient, record.metadata),
           toRecipients: [{ email, name: recipient.name ?? null }],
         });
         sent.push({
@@ -743,7 +753,7 @@ export class EngagementService {
       } catch (error) {
         errors.push({
           email,
-          message: error instanceof Error ? error.message : 'Microsoft Graph send failed',
+          message: emailSendErrorMessage(error),
         });
       }
     }
@@ -786,7 +796,7 @@ export class EngagementService {
 
     if (errors.length) {
       throw new ServiceUnavailableException(
-        `Campaign send failed for ${errors.length} of ${recipients.length} recipients. Successful sends and Graph errors were recorded on the campaign.`,
+        `Campaign send failed for ${errors.length} of ${recipients.length} recipients. Successful sends and email provider errors were recorded on the campaign.`,
       );
     }
 
@@ -884,7 +894,7 @@ export class EngagementService {
       return meeting.attendees
         .map((attendee) => {
           const email = normalizeEmailAddress(attendee.email);
-          const match = email ? matchesByEmail.get(email)?.[0] ?? null : null;
+          const match = email ? (matchesByEmail.get(email)?.[0] ?? null) : null;
           const location = formatDirectoryMainOffice(match) || meeting.location || '';
           const name = attendee.name?.trim() || attendee.email?.trim() || '';
           if (!name && !email) return null;
@@ -940,7 +950,7 @@ export class EngagementService {
     );
 
     return [
-      builtinOutboundCampaignTemplate(),
+      ...builtinOutboundCampaignTemplates(),
       ...custom.map((template) => ({
         id: template.id,
         source: 'user' as const,
@@ -2454,7 +2464,7 @@ export class EngagementService {
     );
     if (!connection) {
       throw new BadRequestException(
-        'Connect your Microsoft 365 inbox in Settings before sending campaigns from Capiro',
+        'Connect your email in Settings before sending campaigns from Capiro',
       );
     }
     return connection;
@@ -2831,43 +2841,143 @@ function optionalText(value?: string | null): string | undefined {
   return text ? text : undefined;
 }
 
-function builtinOutboundCampaignTemplate() {
-  return {
-    id: 'builtin-congressional-meeting-readout',
+function builtinOutboundCampaignTemplates() {
+  const templates = [
+    {
+      id: 'builtin-congressional-meeting-minutes',
+      name: 'Congressional Meeting Minutes - {meeting_subject}',
+      subject: 'Congressional Meeting Minutes - {meeting_subject}',
+      description:
+        'Formal minutes with date, participant names, location, summary, and next steps.',
+      sections: [
+        'Summary - Key Takeaways',
+        '',
+        'Purpose of Engagement',
+        '{prep_summary}',
+        '',
+        'Meeting Debrief',
+        '{debrief_summary}',
+        '',
+        'Follow-Up Items and Next Steps',
+        'Use only the saved prep and debrief context above. If a detail is not present in the available Capiro context, omit it rather than making anything up.',
+      ],
+    },
+    {
+      id: 'builtin-outbound-memo',
+      name: 'Memo',
+      subject: 'Memo - {meeting_subject}',
+      description:
+        'A concise internal memo summarizing context, takeaways, and recommended follow-up.',
+      sections: [
+        'To: Internal Team',
+        'From: Capiro Engagement Manager',
+        'Re: {meeting_subject}',
+        '',
+        'Background',
+        '{prep_summary}',
+        '',
+        'Discussion',
+        '{debrief_summary}',
+        '',
+        'Recommended Next Steps',
+      ],
+    },
+    {
+      id: 'builtin-intel-report',
+      name: 'Intel Report',
+      subject: 'Intel Report - {meeting_subject}',
+      description:
+        'An analyst-style report focused on stakeholder signals, risks, and opportunities.',
+      sections: [
+        'Executive Signal',
+        '',
+        'Stakeholder Context',
+        '{attendee_names}',
+        '{attendee_emails}',
+        '',
+        'Intelligence Notes',
+        '{prep_summary}',
+        '{debrief_summary}',
+        '',
+        'Risks, Open Questions, and Opportunities',
+      ],
+    },
+    {
+      id: 'builtin-client-update',
+      name: 'Client Update',
+      subject: 'Client Update - {meeting_subject}',
+      description: 'A client-ready update summarizing engagement activity and what happens next.',
+      sections: [
+        'Engagement Overview',
+        '{prep_summary}',
+        '',
+        'What We Heard',
+        '{debrief_summary}',
+        '',
+        'Next Steps',
+      ],
+    },
+    {
+      id: 'builtin-follow-up-brief',
+      name: 'Follow-Up Brief',
+      subject: 'Follow-Up - {meeting_subject}',
+      description: 'A practical follow-up brief that turns meeting notes into clear actions.',
+      sections: [
+        'Thank you for the time and discussion.',
+        '',
+        'Discussion Recap',
+        '{debrief_summary}',
+        '',
+        'Useful Context',
+        '{prep_summary}',
+        '',
+        'Next Steps',
+      ],
+    },
+    {
+      id: 'builtin-action-tracker',
+      name: 'Action Items Tracker',
+      subject: 'Action Items - {meeting_subject}',
+      description: 'An operational template organized around follow-ups, owners, and deadlines.',
+      sections: [
+        'Action Item Summary',
+        '',
+        'Known Follow-Ups',
+        '{prep_summary}',
+        '{debrief_summary}',
+        '',
+        'Open Items',
+        '',
+        'Owner / Deadline',
+      ],
+    },
+  ];
+
+  return templates.map((template) => ({
+    id: template.id,
     source: 'system' as const,
     type: 'outbound_campaign',
-    name: 'Congressional Meeting Readout',
-    subject: 'Meeting readout - {meeting_subject}',
-    body: [
-      'Date/Time: {meeting_date_time}',
-      '',
-      'Participants:',
-      '{attendee_names}',
-      '{attendee_emails}',
-      '',
-      'Summary - Key Takeaways',
-      '',
-      'Purpose of Engagement',
-      '{prep_summary}',
-      '',
-      'Meeting Debrief',
-      '{debrief_summary}',
-      '',
-      'Location',
-      '{meeting_location}',
-      '',
-      'Follow-Up Items and Next Steps',
-      'Use only the saved prep and debrief context above. If a detail is not present in the available Capiro context, omit it rather than making anything up.',
-    ].join('\n'),
+    name: template.name,
+    subject: template.subject,
+    body: [...outboundLetterhead(), '', ...template.sections].join('\n'),
     metadata: {
       source: 'system',
-      guidance:
-        'Structured congressional meeting readout modeled on HASC/SASC engagement notes. Use only available variables and never invent missing details.',
+      description: template.description,
       variables: OUTBOUND_CAMPAIGN_VARIABLES,
     },
     createdAt: null,
     updatedAt: null,
-  };
+  }));
+}
+
+function outboundLetterhead(): string[] {
+  return [
+    'Date: {current_date_time}',
+    'Participant Names: {attendee_names}',
+    'Location: {meeting_location}',
+    'Meeting: {meeting_subject}',
+    'Meeting Date/Time: {meeting_date_time}',
+  ];
 }
 
 function outboundTemplateBody(
@@ -2883,6 +2993,7 @@ function outboundTemplateBody(
 function defaultOutboundCampaignGenerationBrief(): string {
   return [
     'Generate a personalized outbound campaign email from the loaded Capiro meeting context.',
+    'Start with a letterhead-style block using current date/time, participant names, and location.',
     'Use the recipient context fields for attendee names, attendee emails, prep summary, debrief summary, meeting location, meeting subject, and meeting date/time.',
     'If prep or debrief content is missing for a recipient, omit that detail. Do not make anything up.',
     'Keep the message practical, readable, and specific to the recipient where the context supports it.',
@@ -2962,7 +3073,9 @@ function normalizeOutreachType(value?: string | null): OutreachType | null {
     return value;
   }
   if (!value || value === 'all') return null;
-  throw new BadRequestException('type must be campaign, follow_up, prep, outbound_campaign, or all');
+  throw new BadRequestException(
+    'type must be campaign, follow_up, prep, outbound_campaign, or all',
+  );
 }
 
 function normalizeOutreachTemplateType(value?: string | null): 'outbound_campaign' {
@@ -3073,8 +3186,17 @@ function buildMailtoUrl(recipients: OutreachRecipientInput[], subject: string, b
   return `mailto:${encodeURIComponent(to)}?${params.toString()}`;
 }
 
-function assembleCampaignBody(body: string, recipient: OutreachRecipientInput): string {
+function assembleCampaignBody(
+  body: string,
+  recipient: OutreachRecipientInput,
+  metadata?: Prisma.JsonValue,
+): string {
+  const currentDateTime =
+    readMetadataString(metadata ?? null, 'outboundCurrentDateTime') ??
+    readNestedString(metadata ?? null, ['ai', 'generatedAt']) ??
+    new Date().toISOString();
   return body
+    .replaceAll('{current_date_time}', formatCurrentDateTime(currentDateTime))
     .replaceAll('{district}', recipient.district || recipient.state || '')
     .replaceAll('{committee}', recipient.committee || '')
     .replaceAll('{member_priority}', recipient.relevanceReason || '')
@@ -3086,6 +3208,28 @@ function assembleCampaignBody(body: string, recipient: OutreachRecipientInput): 
     .replaceAll('{meeting_location}', recipient.meetingLocation || '')
     .replaceAll('{meeting_subject}', recipient.meetingSubject || '')
     .replaceAll('{meeting_date_time}', recipient.meetingDateTime || '');
+}
+
+function formatCurrentDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(date);
+}
+
+function emailSendErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Email send failed';
+  return message
+    .replaceAll('Microsoft 365', 'email')
+    .replaceAll('Microsoft Graph', 'email provider')
+    .replaceAll('Outlook', 'email')
+    .replaceAll('Microsoft', 'email provider');
 }
 
 function outreachRecipientLabel(recipient: OutreachRecipientInput): string {

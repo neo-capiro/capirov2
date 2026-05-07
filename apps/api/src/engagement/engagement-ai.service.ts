@@ -37,13 +37,12 @@ export interface OutreachDraftInput {
 
 const PROMPT_TEMPLATE_GUIDANCE: Record<string, string> = {
   thank_you:
-    'Tone: warm, gracious thank-you. Acknowledge the recipient\'s recent action or support, name the specific reason for thanks, and close with a brief offer to stay in touch. No new asks.',
+    "Tone: warm, gracious thank-you. Acknowledge the recipient's recent action or support, name the specific reason for thanks, and close with a brief offer to stay in touch. No new asks.",
   follow_up:
     'Tone: polite follow-up. Reference the prior touchpoint or meeting (use supplied notes/debriefs if present), restate one clear ask or next step, and propose a concrete next action.',
-  memo:
-    'Format as a concise memo / position paper. Lead with a one-line summary, then short Background, Ask, and Supporting Points sections. Keep under 300 words; use plain language.',
+  memo: 'Format as a concise memo / position paper. Lead with a one-line summary, then short Background, Ask, and Supporting Points sections. Keep under 300 words; use plain language.',
   introduction:
-    'Tone: introductory, professional. Briefly introduce the client and why you are reaching out, the relevance to the recipient\'s portfolio, and a low-friction first ask (e.g., a 15-minute conversation).',
+    "Tone: introductory, professional. Briefly introduce the client and why you are reaching out, the relevance to the recipient's portfolio, and a low-friction first ask (e.g., a 15-minute conversation).",
   meeting_request:
     'Goal: request a meeting. State the reason for meeting, suggested 2-3 scheduling windows, who would attend, and a one-sentence agenda. Keep it short.',
   status_update:
@@ -206,7 +205,9 @@ export class EngagementAiService {
         const message = error instanceof Error ? error.message : 'provider request failed';
         failures.push(`${provider}: ${message}`);
         if (provider !== providers[providers.length - 1]) {
-          this.logger.warn(`${operation} failed with ${provider}; trying fallback provider. ${message}`);
+          this.logger.warn(
+            `${operation} failed with ${provider}; trying fallback provider. ${message}`,
+          );
         }
       }
     }
@@ -307,7 +308,9 @@ export class EngagementAiService {
     };
   }
 
-  private async generateOutreachWithOpenAi(input: OutreachDraftInput): Promise<OutreachDraftResult> {
+  private async generateOutreachWithOpenAi(
+    input: OutreachDraftInput,
+  ): Promise<OutreachDraftResult> {
     if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
 
     const response = await fetch('https://api.openai.com/v1/responses', {
@@ -505,7 +508,7 @@ export class EngagementAiService {
         'Draft a post-meeting follow-up email. Include a brief recap, action items, and next steps from the supplied debrief/prep/context.',
       prep: 'Draft a clean prep distribution summary suitable for a colleague or client before the meeting. Include logistics, context, talking points, and participants from the approved prep.',
       outbound_campaign:
-        'Draft an outbound campaign email using the supplied recent meeting attendees, prep summaries, debrief summaries, and directory office locations. Use existingSubject/existingBody and context.metadata.outboundTemplate as the selected template structure when present. If no usable template content is present, create the email from the recipient context fields instead. Apply context.metadata.outboundTone when present. Preserve useful variables such as {attendee_names}, {attendee_emails}, {prep_summary}, {debrief_summary}, {meeting_location}, {meeting_subject}, and {meeting_date_time} so the final send can personalize each recipient preview. Do not invent missing details.',
+        'Draft an outbound campaign email using the supplied recent meeting attendees, prep summaries, debrief summaries, and directory office locations. Use existingSubject/existingBody and context.metadata.outboundTemplate as the selected template structure when present. Keep the letterhead near the top with Date, Participant Names, and Location. Use context.metadata.outboundCurrentDateTime as the current generated date/time. If no usable template content is present, create the email from the recipient context fields instead. Apply context.metadata.outboundTone when present. Preserve useful variables such as {current_date_time}, {attendee_names}, {attendee_emails}, {prep_summary}, {debrief_summary}, {meeting_location}, {meeting_subject}, and {meeting_date_time} so the final send can personalize each recipient preview. Do not invent missing details.',
     }[input.workflow];
 
     const templateGuidance =

@@ -214,6 +214,16 @@ interface OutreachTemplate {
   updatedAt: string | null;
 }
 
+interface TemplateOption {
+  id: string | null;
+  name: string;
+  description: string;
+  source: OutreachTemplate['source'] | 'custom';
+  subject: string;
+  body: string;
+  isCustom?: boolean;
+}
+
 const TYPE_FILTERS: Array<{ value: OutreachType; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'campaign', label: 'Campaigns' },
@@ -230,6 +240,7 @@ const WORKFLOW_LABELS: Record<WorkflowType, string> = {
 };
 
 const OUTBOUND_VARIABLES = [
+  '{current_date_time}',
   '{attendee_names}',
   '{attendee_emails}',
   '{prep_summary}',
@@ -238,6 +249,17 @@ const OUTBOUND_VARIABLES = [
   '{meeting_subject}',
   '{meeting_date_time}',
 ] as const;
+
+const OUTBOUND_VARIABLE_DESCRIPTIONS: Record<(typeof OUTBOUND_VARIABLES)[number], string> = {
+  '{current_date_time}': 'Current date and time when the draft is generated or sent.',
+  '{attendee_names}': 'Names from the synced meeting attendee list.',
+  '{attendee_emails}': 'Email addresses from the synced meeting attendee list.',
+  '{prep_summary}': 'Saved meeting prep notes for that recipient context.',
+  '{debrief_summary}': 'Saved meeting debrief notes for that recipient context.',
+  '{meeting_location}': 'Meeting location or matched office location.',
+  '{meeting_subject}': 'Subject of the synced meeting.',
+  '{meeting_date_time}': 'Date and time of the synced meeting.',
+};
 
 const OUTBOUND_TONES: Array<{
   value: OutreachWorkflowState['outboundTone'];
@@ -695,6 +717,7 @@ export function OutreachView({
               metadata: {
                 ...((payload.metadata as Record<string, unknown>) ?? {}),
                 outboundTone: nextWorkflow.outboundTone,
+                outboundCurrentDateTime: new Date().toISOString(),
                 outboundTemplate: {
                   subject: nextWorkflow.subject,
                   body: nextWorkflow.body,
@@ -885,7 +908,7 @@ function OutreachTypeSelector({
             icon={<MailOutlined />}
             title="Campaign"
             description="Personalized mass outreach to multiple congressional offices or contacts on behalf of a client."
-            detail="Sends from Capiro using your connected Microsoft 365 inbox. Replies go to your inbox."
+            detail="Sends from Capiro using your connected email. Replies go to your inbox."
             disabled
             onClick={() => onSelect('campaign')}
           />
@@ -909,7 +932,7 @@ function OutreachTypeSelector({
             icon={<MailOutlined />}
             title="Outbound Campaign"
             description="Build recipient outreach from the last 7 days of synced meetings, prep, debriefs, and directory context."
-            detail="Sends from Capiro using saved templates and your connected Microsoft 365 inbox."
+            detail="Sends from Capiro using saved templates and your connected email."
             onClick={() => onSelect('outbound_campaign')}
           />
         </div>
@@ -1286,8 +1309,8 @@ function CampaignWorkflow({
                 />
               </div>
               <div className="outreach-send-warning">
-                Campaigns send from Capiro using your connected Microsoft 365 inbox. Every recipient
-                must have an email address.
+                Campaigns send from Capiro using your connected email. Every recipient must have an
+                email address.
               </div>
             </div>
           ) : null}
@@ -1374,10 +1397,40 @@ function OutboundCampaignWorkflow({
   const clientsAvailableAsRecipients = clients.filter(
     (client) => client.primaryContactEmail || client.primaryContactName || client.name,
   );
-  const selectedTemplate =
-    templates.find((template) => template.id === workflow.templateId) ?? null;
+  const templateOptions = templates.map(templateOptionFromRecord);
   const generatedContextNote = readString(workflow.record?.metadata?.clioContextNote);
   const hasGeneratedDraft = Boolean(workflow.record?.metadata?.ai && workflow.body.trim());
+  const emailContactIds = new Set(emailContacts.map((contact) => contact.id));
+  const selectedEmailContactCount = emailContacts.filter((contact) =>
+    workflow.selectedContactIds.includes(contact.id),
+  ).length;
+
+  const selectAllEmailContacts = () => {
+    const recipients = emailContacts.reduce(
+      (rows, contact) => addUniqueRecipient(rows, outboundRecipientFromContact(contact)),
+      workflow.recipients,
+    );
+    onWorkflowChange({
+      ...workflow,
+      selectedContactIds: [
+        ...new Set([...workflow.selectedContactIds, ...emailContacts.map((contact) => contact.id)]),
+      ],
+      recipients,
+    });
+  };
+
+  const clearEmailContacts = () => {
+    const contactRecipientKeys = new Set(
+      emailContacts.map((contact) => recipientKey(outboundRecipientFromContact(contact))),
+    );
+    onWorkflowChange({
+      ...workflow,
+      selectedContactIds: workflow.selectedContactIds.filter((id) => !emailContactIds.has(id)),
+      recipients: workflow.recipients.filter(
+        (recipient) => !contactRecipientKeys.has(recipientKey(recipient)),
+      ),
+    });
+  };
 
   useEffect(() => {
     if (workflow.step !== 3 || workflow.templateId || workflow.body.trim() || !templates.length) {
@@ -1435,6 +1488,29 @@ function OutboundCampaignWorkflow({
                 Choose attendees from the preloaded meeting list, then add congressional Directory
                 contacts or client contacts if needed.
               </Typography.Paragraph>
+              <div className="outbound-recipient-actions">
+                <Typography.Text type="secondary">
+                  {selectedEmailContactCount} of {emailContacts.length} meeting attendees selected
+                </Typography.Text>
+                <Space>
+                  <Button
+                    size="small"
+                    disabled={
+                      !emailContacts.length || selectedEmailContactCount === emailContacts.length
+                    }
+                    onClick={selectAllEmailContacts}
+                  >
+                    Select all
+                  </Button>
+                  <Button
+                    size="small"
+                    disabled={!selectedEmailContactCount}
+                    onClick={clearEmailContacts}
+                  >
+                    Unselect all
+                  </Button>
+                </Space>
+              </div>
               <div className="outbound-recipient-source">
                 {contacts.length ? (
                   contacts.map((contact) => {
@@ -1569,48 +1645,53 @@ function OutboundCampaignWorkflow({
                 Select a saved template or create a custom template. Custom templates are visible
                 only to your user account.
               </Typography.Paragraph>
-              <Segmented
-                value={workflow.templateMode}
-                onChange={(value) =>
-                  onWorkflowChange({
-                    ...workflow,
-                    templateMode: value as OutreachWorkflowState['templateMode'],
-                  })
-                }
-                options={[
-                  { label: 'Existing template', value: 'existing' },
-                  { label: 'Create custom', value: 'custom' },
-                ]}
-              />
-              {workflow.templateMode === 'existing' ? (
-                <label>
-                  Template
-                  <Select
-                    loading={templatesLoading}
-                    value={workflow.templateId ?? undefined}
-                    placeholder="Select a template"
-                    options={templates.map((template) => ({
-                      value: template.id,
-                      label: `${template.name}${template.source === 'user' ? ' (Mine)' : ''}`,
-                    }))}
-                    onChange={(templateId) => {
-                      const template = templates.find((row) => row.id === templateId);
-                      if (!template) return;
+              <div className="outbound-template-strip" aria-label="Template options">
+                {templatesLoading && !templateOptions.length ? (
+                  <Typography.Text type="secondary">Loading templates...</Typography.Text>
+                ) : null}
+                {templateOptions.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    className={
+                      workflow.templateMode === 'existing' && workflow.templateId === template.id
+                        ? 'selected'
+                        : ''
+                    }
+                    onClick={() =>
                       onWorkflowChange({
                         ...workflow,
-                        templateId,
-                        subject: template.subject ?? '',
+                        templateMode: 'existing',
+                        templateId: template.id,
+                        subject: template.subject,
                         body: template.body,
-                      });
-                    }}
-                  />
-                  {selectedTemplate?.metadata?.guidance ? (
-                    <Typography.Text type="secondary" style={{ marginTop: 4 }}>
-                      {String(selectedTemplate.metadata.guidance)}
-                    </Typography.Text>
-                  ) : null}
-                </label>
-              ) : (
+                      })
+                    }
+                  >
+                    <strong>{template.name}</strong>
+                    <span>{template.description}</span>
+                    {template.source === 'user' ? <em>Mine</em> : null}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  className={workflow.templateMode === 'custom' ? 'selected' : ''}
+                  onClick={() =>
+                    onWorkflowChange({
+                      ...workflow,
+                      templateMode: 'custom',
+                      templateId: null,
+                    })
+                  }
+                >
+                  <strong>Custom Template</strong>
+                  <span>
+                    Start from your own structure and save it for future outbound campaigns.
+                  </span>
+                  <em>Custom</em>
+                </button>
+              </div>
+              {workflow.templateMode === 'custom' ? (
                 <>
                   <label>
                     Template name
@@ -1635,7 +1716,7 @@ function OutboundCampaignWorkflow({
                     Save Template
                   </Button>
                 </>
-              )}
+              ) : null}
 
               <label>
                 Tone
@@ -1691,6 +1772,8 @@ function OutboundCampaignWorkflow({
                   value={workflow.body}
                   placeholder="Write the outbound campaign template. Use variables for meeting context; leave unknown details out."
                   chips={OUTBOUND_VARIABLES}
+                  chipDescriptions={OUTBOUND_VARIABLE_DESCRIPTIONS}
+                  chipHelp="Variables insert the right meeting details for each recipient during preview and send."
                   toolbarClassName="outbound-variable-toolbar"
                   onChange={(body) => onWorkflowChange({ ...workflow, body })}
                 />
@@ -1716,13 +1799,21 @@ function OutboundCampaignWorkflow({
                 </div>
                 <EmailPreview
                   to={selectedRecipient?.email || selectedRecipient?.name || 'Recipient'}
-                  subject={assembleCampaignBody(workflow.subject, selectedRecipient)}
-                  body={assembleCampaignBody(workflow.body, selectedRecipient)}
+                  subject={assembleCampaignBody(
+                    workflow.subject,
+                    selectedRecipient,
+                    workflow.record?.metadata,
+                  )}
+                  body={assembleCampaignBody(
+                    workflow.body,
+                    selectedRecipient,
+                    workflow.record?.metadata,
+                  )}
                 />
               </div>
               {!emailConnected ? (
                 <div className="outreach-send-warning">
-                  Connect your Microsoft 365 inbox in Settings before sending campaigns from Capiro.
+                  Connect your email in Settings before sending campaigns from Capiro.
                 </div>
               ) : null}
             </div>
@@ -2181,6 +2272,8 @@ function FormattedTextArea({
   rows,
   placeholder,
   chips = [],
+  chipDescriptions,
+  chipHelp,
   toolbarClassName,
   actions,
   onChange,
@@ -2189,6 +2282,8 @@ function FormattedTextArea({
   rows: number;
   placeholder?: string;
   chips?: readonly string[];
+  chipDescriptions?: Partial<Record<string, string>>;
+  chipHelp?: string;
   toolbarClassName?: string;
   actions?: ReactNode;
   onChange: (value: string) => void;
@@ -2261,10 +2356,12 @@ function FormattedTextArea({
             1.
           </button>
         </div>
+        {chipHelp ? <span className="outreach-editor-chip-help">{chipHelp}</span> : null}
         {chips.map((chip) => (
           <button
             key={chip}
             type="button"
+            title={chipDescriptions?.[chip] ?? chip}
             onMouseDown={(event) => event.preventDefault()}
             onClick={() => commitEdit(insertTextAtSelection(value, selection, chip))}
           >
@@ -2761,6 +2858,21 @@ function readStringArray(value: unknown): string[] {
     : [];
 }
 
+function templateOptionFromRecord(template: OutreachTemplate): TemplateOption {
+  return {
+    id: template.id,
+    name: template.name,
+    description:
+      readString(template.metadata?.description) ||
+      (template.source === 'user'
+        ? 'Your saved outbound campaign template.'
+        : 'Reusable outbound campaign template.'),
+    source: template.source,
+    subject: template.subject ?? '',
+    body: template.body,
+  };
+}
+
 function readPromptTemplate(value: unknown, fallback: PromptTemplate): PromptTemplate {
   return PROMPT_TEMPLATES.some((entry) => entry.value === value)
     ? (value as PromptTemplate)
@@ -2847,6 +2959,7 @@ function textOrUndefined(value?: string | null): string | undefined {
 function outboundGenerationBrief(): string {
   return [
     'Generate a personalized outbound campaign email from the loaded Capiro meeting context.',
+    'Start with a letterhead-style block using current date/time, participant names, and location.',
     'Use attendee names, attendee emails, prep summary, debrief summary, meeting location, meeting subject, and meeting date/time when available.',
     'If a detail is missing, omit it rather than making anything up.',
   ].join('\n');
@@ -2876,9 +2989,18 @@ function personalizedPreview(recipient: OutreachRecipient): string {
     .join(' | ');
 }
 
-function assembleCampaignBody(body: string, recipient: OutreachRecipient | null): string {
-  if (!recipient) return body;
-  return body
+function assembleCampaignBody(
+  body: string,
+  recipient: OutreachRecipient | null,
+  metadata?: Record<string, unknown> | null,
+): string {
+  const currentDateTime = readCurrentDateTime(metadata);
+  const withCurrentDate = body.replaceAll(
+    '{current_date_time}',
+    formatCurrentDateTime(currentDateTime),
+  );
+  if (!recipient) return withCurrentDate;
+  return withCurrentDate
     .replaceAll('{district}', recipient.district || recipient.state || '')
     .replaceAll('{committee}', recipient.committee || '')
     .replaceAll('{member_priority}', recipient.relevanceReason || '')
@@ -2890,6 +3012,17 @@ function assembleCampaignBody(body: string, recipient: OutreachRecipient | null)
     .replaceAll('{meeting_location}', recipient.meetingLocation || '')
     .replaceAll('{meeting_subject}', recipient.meetingSubject || '')
     .replaceAll('{meeting_date_time}', recipient.meetingDateTime || '');
+}
+
+function readCurrentDateTime(metadata?: Record<string, unknown> | null): Date {
+  const explicit = readString(metadata?.outboundCurrentDateTime);
+  const ai = metadata?.ai;
+  const generatedAt =
+    ai && typeof ai === 'object' && !Array.isArray(ai)
+      ? readString((ai as Record<string, unknown>).generatedAt)
+      : '';
+  const parsed = new Date(explicit || generatedAt || Date.now());
+  return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
 function recordStats(record: OutreachRecord): string {
@@ -2986,6 +3119,17 @@ function formatDateTime(value: string): string {
     hour: 'numeric',
     minute: '2-digit',
   }).format(new Date(value));
+}
+
+function formatCurrentDateTime(value: Date): string {
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(value);
 }
 
 function errorMessage(error: unknown): string {
