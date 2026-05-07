@@ -15,6 +15,7 @@ import {
   Checkbox,
   Empty,
   Input,
+  Modal,
   Segmented,
   Select,
   Space,
@@ -159,6 +160,29 @@ interface IntegrationConnection {
   displayName?: string | null;
 }
 
+interface ClientContext {
+  recentActivity: Array<{ type: string; id: string; title: string; date: string }>;
+  keyStakeholders: Array<{
+    id: string;
+    email: string | null;
+    fullName: string | null;
+    title: string | null;
+    organization: string | null;
+  }>;
+  openThreads: Array<{
+    id: string;
+    subject: string;
+    snippet: string | null;
+    lastMessageAt: string | null;
+  }>;
+  summary: {
+    meetings: number;
+    mailThreads: number;
+    contacts: number;
+    openTasks: number;
+  };
+}
+
 interface OutreachWorkflowState {
   record: OutreachRecord | null;
   step: number;
@@ -181,6 +205,8 @@ interface OutreachWorkflowState {
   sendTiming: 'now' | 'later';
   scheduledFor: string;
   sentRecipientCount: number;
+  fieldFallbacks: Record<string, string>;
+  personalNotesSaved: boolean;
 }
 
 interface OutboundContactRecord {
@@ -271,6 +297,16 @@ const OUTBOUND_VARIABLE_DESCRIPTIONS: Record<(typeof OUTBOUND_VARIABLES)[number]
   '{meeting_date_time}': 'Date and time of the synced meeting.',
 };
 
+const CAMPAIGN_DYNAMIC_FIELDS = ['{district}', '{committee}', '{personal_note}'] as const;
+type CampaignDynamicField = (typeof CAMPAIGN_DYNAMIC_FIELDS)[number];
+
+const CAMPAIGN_TEMPLATE_OPTIONS = [
+  'Meeting request',
+  'Policy update',
+  'Thank you',
+  'Intro note',
+] as const;
+
 const OUTBOUND_TONES: Array<{
   value: OutreachWorkflowState['outboundTone'];
   label: string;
@@ -303,6 +339,8 @@ const EMPTY_WORKFLOW: OutreachWorkflowState = {
   sendTiming: 'now',
   scheduledFor: '',
   sentRecipientCount: 0,
+  fieldFallbacks: {},
+  personalNotesSaved: true,
 };
 
 export function OutreachView({
@@ -345,11 +383,6 @@ export function OutreachView({
     [clients],
   );
   const selectedClient = activeClients.find((client) => client.id === selectedClientId) ?? null;
-  const workflowClient = activeClients.find((client) => client.id === workflow.clientId) ?? null;
-  const campaignSuggestionQuery = campaignDirectorySuggestionQuery(
-    workflowClient,
-    workflow.objective,
-  );
 
   const outreach = useQuery<OutreachRecord[]>({
     queryKey: ['engagement-outreach', selectedClientId, from, to, typeFilter],
@@ -444,21 +477,11 @@ export function OutreachView({
       (mode === 'campaign' || mode === 'outbound_campaign') && directoryQuery.trim().length >= 2,
   });
 
-  const campaignSuggestions = useQuery<DirectoryApiResponse>({
-    queryKey: [
-      'engagement-outreach-campaign-suggestions',
-      workflow.clientId,
-      workflow.objective,
-      campaignSuggestionQuery,
-    ],
+  const clientContext = useQuery<ClientContext>({
+    queryKey: ['engagement-outreach-client-context', workflow.clientId],
     queryFn: async () =>
-      (
-        await api.get<DirectoryApiResponse>('/api/directory/contacts', {
-          params: { q: campaignSuggestionQuery, pageSize: 8 },
-        })
-      ).data,
-    enabled:
-      mode === 'campaign' && workflow.step === 2 && campaignSuggestionQuery.trim().length >= 2,
+      (await api.get<ClientContext>(`/api/engagement/context/${workflow.clientId}`)).data,
+    enabled: mode === 'campaign' && Boolean(workflow.clientId),
   });
 
   const createRecord = useMutation({
@@ -595,11 +618,18 @@ export function OutreachView({
       step: 1,
     });
     if (type === 'campaign') {
-      const client = selectedClient ?? activeClients[0] ?? null;
       setWorkflow((current) => ({
         ...current,
-        clientId: client?.id ?? null,
-        campaignName: client ? `${client.name} outreach` : '',
+        clientId: null,
+        campaignName: '',
+        objective: '',
+        recipients: [],
+        subject: '',
+        body: '',
+        selectedPreviewIndex: 0,
+        recipientInput: '',
+        fieldFallbacks: {},
+        personalNotesSaved: true,
       }));
       setDirectoryQuery('');
     } else if (type === 'outbound_campaign') {
@@ -657,10 +687,10 @@ export function OutreachView({
       <CampaignWorkflow
         clients={activeClients}
         workflow={workflow}
-        suggestedRows={campaignSuggestions.data?.contacts ?? []}
-        suggestionsLoading={campaignSuggestions.isLoading}
-        directoryTotal={campaignSuggestions.data?.totals.all ?? directory.data?.totals.all ?? null}
+        clientContext={clientContext.data}
+        contextLoading={clientContext.isLoading}
         directoryRows={directory.data?.contacts ?? []}
+        directoryTotal={directory.data?.totals.all ?? null}
         directoryLoading={directory.isLoading}
         directoryQuery={directoryQuery}
         emailConnected={emailConnected}
@@ -681,9 +711,9 @@ export function OutreachView({
         onWorkflowChange={setWorkflow}
         onCancel={cancelWorkflow}
         onSaveStep={saveCurrent}
-        onGenerate={() => {
+        onGenerate={async () => {
           if (!workflow.record) return;
-          void generateDraft.mutateAsync({
+          await generateDraft.mutateAsync({
             id: workflow.record.id,
             payload: {
               objective: workflow.objective,
@@ -706,16 +736,13 @@ export function OutreachView({
             message.success(`Campaign sent to ${sentRecord.recipientCount} recipients`);
             setWorkflow((current) => ({
               ...hydrateWorkflowFromRecord(sentRecord, current),
-              step: 5,
               sentRecipientCount: sentRecord.recipientCount,
             }));
+            setMode('landing');
+            setWorkflow({ ...EMPTY_WORKFLOW, clientId: selectedClientId });
           })().catch(() => {
             // Mutation handlers surface the API error to the user.
           });
-        }}
-        onReturnToLanding={() => {
-          setMode('landing');
-          setWorkflow({ ...EMPTY_WORKFLOW, clientId: selectedClientId });
         }}
       />
     );
@@ -1035,6 +1062,674 @@ function OutreachTypeCard({
 }
 
 function CampaignWorkflow({
+  clients,
+  workflow,
+  clientContext,
+  contextLoading,
+  directoryRows,
+  directoryTotal,
+  directoryLoading,
+  directoryQuery,
+  emailConnected,
+  sendFrom,
+  aiConfigured,
+  saving,
+  generating,
+  sending,
+  onDirectoryQuery,
+  onWorkflowChange,
+  onCancel,
+  onSaveStep,
+  onGenerate,
+  onSend,
+}: {
+  clients: Client[];
+  workflow: OutreachWorkflowState;
+  clientContext?: ClientContext;
+  contextLoading: boolean;
+  directoryRows: DirectoryEntry[];
+  directoryTotal: number | null;
+  directoryLoading: boolean;
+  directoryQuery: string;
+  emailConnected: boolean;
+  sendFrom: string | null;
+  aiConfigured: boolean;
+  saving: boolean;
+  generating: boolean;
+  sending: boolean;
+  onDirectoryQuery: (value: string) => void;
+  onWorkflowChange: (value: OutreachWorkflowState) => void;
+  onCancel: () => void;
+  onSaveStep: (patch: Partial<OutreachWorkflowState>, step?: number) => Promise<void>;
+  onGenerate: () => Promise<void>;
+  onSend: () => void;
+}) {
+  const { message, modal } = App.useApp();
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [officeFilter, setOfficeFilter] = useState<string>('all');
+  const [fallbackField, setFallbackField] = useState<CampaignDynamicField | null>(null);
+  const selectedClient = clients.find((client) => client.id === workflow.clientId) ?? null;
+  const selectedRecipient = workflow.recipients[workflow.selectedPreviewIndex] ?? null;
+  const contextSuggestions = useMemo(
+    () => campaignContextSuggestions(clientContext),
+    [clientContext],
+  );
+  const officeOptions = useMemo(
+    () =>
+      Array.from(new Set(directoryRows.map((entry) => entry.office).filter(Boolean))).sort(
+        (left, right) => left.localeCompare(right),
+      ),
+    [directoryRows],
+  );
+  const filteredDirectoryRows = useMemo(
+    () =>
+      officeFilter === 'all'
+        ? directoryRows
+        : directoryRows.filter((entry) => entry.office === officeFilter),
+    [directoryRows, officeFilter],
+  );
+  const draftReady = Boolean(workflow.subject.trim() || workflow.body.trim());
+  const dynamicFields = campaignDynamicFieldsIn(workflow.subject, workflow.body);
+  const exceptionRows = campaignExceptionRows(
+    workflow.recipients,
+    dynamicFields,
+    workflow.fieldFallbacks,
+  );
+  const missingFallbacks = exceptionRows.filter((row) => !row.fallback.trim());
+  const hasPersonalNotes = workflow.recipients.some((recipient) => recipient.personalNote?.trim());
+  const personalNotesBlocked = hasPersonalNotes && !workflow.personalNotesSaved;
+  const missingEmailRecipients = workflow.recipients.filter((recipient) => !recipient.email);
+
+  const selectedFallbackValue = fallbackField ? (workflow.fieldFallbacks[fallbackField] ?? '') : '';
+
+  const addRecipient = (recipient: OutreachRecipient) => {
+    onWorkflowChange({
+      ...workflow,
+      recipients: addUniqueRecipient(workflow.recipients, recipient),
+    });
+  };
+
+  const removeSelectedRecipient = (recipient: OutreachRecipient) => {
+    onWorkflowChange({
+      ...workflow,
+      recipients: removeRecipient(workflow.recipients, recipient),
+    });
+  };
+
+  const addManualRecipient = () => {
+    const parsed = parseRecipient(workflow.recipientInput);
+    if (!parsed) return;
+    onWorkflowChange({
+      ...workflow,
+      recipients: addUniqueRecipient(workflow.recipients, {
+        ...parsed,
+        relevanceReason: 'Manual address, no directory data',
+      }),
+      recipientInput: '',
+    });
+  };
+
+  const updateRecipient = (index: number, patch: Partial<OutreachRecipient>) => {
+    const recipient = workflow.recipients[index];
+    if (!recipient) return;
+    const recipients = workflow.recipients.slice();
+    recipients[index] = { ...recipient, ...patch };
+    onWorkflowChange({ ...workflow, recipients, personalNotesSaved: false });
+  };
+
+  const insertDynamicField = (field: CampaignDynamicField) => {
+    const separator = workflow.body.endsWith(' ') || !workflow.body ? '' : ' ';
+    onWorkflowChange({ ...workflow, body: `${workflow.body}${separator}${field}` });
+    if (field !== '{personal_note}') setFallbackField(field);
+  };
+
+  const saveFallback = () => {
+    setFallbackField(null);
+  };
+
+  const savePersonalNotes = () => {
+    const next = { ...workflow, personalNotesSaved: true };
+    onWorkflowChange(next);
+    void onSaveStep(next, 3);
+  };
+
+  const generateDraft = () => {
+    void onGenerate();
+  };
+
+  const regenerateDraft = () => {
+    modal.confirm({
+      title: 'Replace current draft?',
+      content: 'This will replace your current draft. Continue?',
+      okText: 'Continue',
+      onOk: () => void onGenerate(),
+    });
+  };
+
+  const sendTestEmail = () => {
+    if (!sendFrom) {
+      message.warning('Connect your email before sending a test email.');
+      return;
+    }
+    const subject = assembleCampaignBody(workflow.subject, selectedRecipient, {
+      fieldFallbacks: workflow.fieldFallbacks,
+    });
+    const body = assembleCampaignBody(workflow.body, selectedRecipient, {
+      fieldFallbacks: workflow.fieldFallbacks,
+    });
+    const params = new URLSearchParams({ subject, body });
+    window.location.href = `mailto:${encodeURIComponent(sendFrom)}?${params.toString()}`;
+  };
+
+  const footerDisabled =
+    (workflow.step === 1 && !workflow.clientId) ||
+    (workflow.step === 2 && workflow.recipients.length < 1) ||
+    (workflow.step === 3 && (!draftReady || missingFallbacks.length > 0 || personalNotesBlocked)) ||
+    (workflow.step === 4 && !draftReady);
+
+  const next = () => {
+    if (workflow.step === 1) {
+      const hiddenName = selectedClient ? `${selectedClient.name} campaign` : 'Campaign';
+      void onSaveStep(
+        {
+          ...workflow,
+          campaignName: workflow.campaignName || hiddenName,
+        },
+        2,
+      );
+      return;
+    }
+    if (workflow.step === 2) {
+      void onSaveStep(workflow, 3);
+      return;
+    }
+    if (workflow.step === 3) {
+      void onSaveStep(workflow, 4);
+      return;
+    }
+    if (workflow.step === 4) {
+      void onSaveStep(workflow, 5);
+    }
+  };
+
+  return (
+    <div className="outreach-workflow outreach-campaign-wizard">
+      <WorkflowHeader title="New Campaign" onCancel={onCancel} />
+      <div className="outreach-flow-body">
+        <WorkflowSteps
+          steps={[
+            ['Select client', ''],
+            ['Add recipients', ''],
+            ['Draft campaign', ''],
+            ['Preview', ''],
+            ['Confirm & send', ''],
+          ]}
+          current={workflow.step}
+        />
+        <main className="outreach-flow-panel">
+          {workflow.step === 1 ? (
+            <div className="outreach-flow-stack outreach-campaign-select-client">
+              {clients.length ? (
+                <>
+                  <Typography.Title level={4}>
+                    Which client is associated to this campaign?
+                  </Typography.Title>
+                  <Select
+                    value={workflow.clientId ?? undefined}
+                    showSearch={clients.length > 10}
+                    optionFilterProp="label"
+                    placeholder="Select a client..."
+                    options={clients.map((client) => ({ value: client.id, label: client.name }))}
+                    onChange={(clientId) =>
+                      onWorkflowChange({
+                        ...workflow,
+                        clientId,
+                        campaignName: '',
+                        objective: '',
+                        recipients: [],
+                        subject: '',
+                        body: '',
+                        selectedPreviewIndex: 0,
+                        fieldFallbacks: {},
+                        personalNotesSaved: true,
+                      })
+                    }
+                  />
+                </>
+              ) : (
+                <Empty description="Add recipients before creating a campaign.">
+                  <Button href="/clients">Go to Clients</Button>
+                </Empty>
+              )}
+            </div>
+          ) : null}
+
+          {workflow.step === 2 ? (
+            <div className="outreach-flow-stack">
+              <section>
+                <Typography.Title level={5}>Added recipients</Typography.Title>
+                <div className="outreach-added-recipient-box">
+                  <RecipientTags
+                    recipients={workflow.recipients}
+                    onRemove={removeSelectedRecipient}
+                  />
+                </div>
+              </section>
+
+              <section className="outreach-suggestion-panel">
+                <Typography.Title level={5}>Suggested recipients</Typography.Title>
+                <Typography.Text type="secondary">
+                  Based on previous meeting invites and email threads for this client.
+                </Typography.Text>
+                <div className="outreach-suggested-scroll">
+                  {contextLoading ? (
+                    <Typography.Text type="secondary">
+                      Loading suggested recipients...
+                    </Typography.Text>
+                  ) : contextSuggestions.length ? (
+                    contextSuggestions.map((recipient) => (
+                      <ContextSuggestionRow
+                        key={recipientKey(recipient)}
+                        recipient={recipient}
+                        selected={workflow.recipients.some(
+                          (row) => recipientKey(row) === recipientKey(recipient),
+                        )}
+                        onAdd={addRecipient}
+                      />
+                    ))
+                  ) : (
+                    <Empty description="No suggested recipients from synced email or meeting context yet." />
+                  )}
+                </div>
+              </section>
+
+              <section className="outreach-suggestion-panel">
+                <Typography.Title level={5}>Search member directory</Typography.Title>
+                <Typography.Text type="secondary">
+                  Search and add congressional members and staffers. Filter by office.
+                </Typography.Text>
+                <div className="outreach-directory-search-trigger">
+                  <Input
+                    prefix={<SearchOutlined />}
+                    readOnly
+                    value={directoryQuery}
+                    placeholder="Search members and staffers..."
+                    onFocus={() => setDirectoryOpen(true)}
+                    onClick={() => setDirectoryOpen(true)}
+                  />
+                  <Button onClick={() => setDirectoryOpen(true)}>Filter by office</Button>
+                </div>
+              </section>
+
+              <section>
+                <Typography.Title level={5}>Add manual email address</Typography.Title>
+                <Space.Compact className="outreach-manual-email">
+                  <Input
+                    value={workflow.recipientInput}
+                    placeholder="Enter email address..."
+                    onChange={(event) =>
+                      onWorkflowChange({ ...workflow, recipientInput: event.target.value })
+                    }
+                    onPressEnter={addManualRecipient}
+                  />
+                  <Button onClick={addManualRecipient}>Add</Button>
+                </Space.Compact>
+              </section>
+            </div>
+          ) : null}
+
+          {workflow.step === 3 && !draftReady ? (
+            <div className="outreach-flow-stack outreach-campaign-clio-prompt">
+              <Typography.Title level={4}>Tell Clio what to write</Typography.Title>
+              <Typography.Paragraph type="secondary">
+                Describe your goal, the tone and voice of the email, or any other relevant details.
+                Clio will use your client context and recipient data to generate a personalized
+                draft.
+              </Typography.Paragraph>
+              <Input.TextArea
+                rows={5}
+                value={workflow.objective}
+                placeholder='e.g. "Request a meeting to discuss FY27 NDAA Section 1294. Professional but warm tone. Reference the client&apos;s work in autonomous systems."'
+                onChange={(event) =>
+                  onWorkflowChange({ ...workflow, objective: event.target.value })
+                }
+              />
+              <div className="outreach-template-buttons">
+                {CAMPAIGN_TEMPLATE_OPTIONS.map((option) => (
+                  <Button key={option} disabled>
+                    {option}
+                  </Button>
+                ))}
+              </div>
+              <Button
+                type="primary"
+                icon={<RobotOutlined />}
+                disabled={!aiConfigured || !workflow.record}
+                loading={generating}
+                onClick={generateDraft}
+              >
+                Generate draft
+              </Button>
+            </div>
+          ) : null}
+
+          {workflow.step === 3 && draftReady ? (
+            <div className="outreach-flow-stack">
+              <label>
+                Subject line
+                <Input
+                  value={workflow.subject}
+                  onChange={(event) =>
+                    onWorkflowChange({ ...workflow, subject: event.target.value })
+                  }
+                />
+              </label>
+              <div className="outreach-editor">
+                <div className="outreach-editor-heading">
+                  <div>
+                    <Typography.Text strong>Email body</Typography.Text>
+                    <Typography.Text type="secondary">
+                      Edit directly. Insert field chips to personalize per recipient.
+                    </Typography.Text>
+                  </div>
+                  <Button
+                    size="small"
+                    icon={<RobotOutlined />}
+                    disabled={!aiConfigured || !workflow.record}
+                    loading={generating}
+                    onClick={regenerateDraft}
+                  >
+                    Regenerate
+                  </Button>
+                </div>
+                <FormattedTextArea
+                  rows={12}
+                  value={workflow.body}
+                  chips={[]}
+                  onChange={(body) => onWorkflowChange({ ...workflow, body })}
+                />
+                <div className="outreach-editor-footer-note">
+                  Drafted from {selectedClient?.name ?? 'selected client'} -{' '}
+                  {workflow.recipients.length} recipients
+                </div>
+              </div>
+
+              <section className="outreach-dynamic-fields-panel">
+                <Typography.Text strong>Dynamic fields</Typography.Text>
+                <div>
+                  {CAMPAIGN_DYNAMIC_FIELDS.map((field) => (
+                    <Button key={field} onClick={() => insertDynamicField(field)}>
+                      {field}
+                    </Button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="outreach-fallback-panel">
+                <div>
+                  <Typography.Text strong>Dynamic field fallbacks</Typography.Text>
+                  <Typography.Text type="secondary">
+                    Set the text that appears in place of a dynamic field when recipient data is not
+                    available. Required for any recipient without directory data.
+                  </Typography.Text>
+                </div>
+                {CAMPAIGN_DYNAMIC_FIELDS.filter((field) => field !== '{personal_note}').map(
+                  (field) => (
+                    <div className="outreach-fallback-row" key={field}>
+                      <Tag>{field}</Tag>
+                      <span>{'->'}</span>
+                      <Input
+                        value={workflow.fieldFallbacks[field] ?? ''}
+                        placeholder={
+                          field === '{district}' ? 'your district' : 'e.g. your committee'
+                        }
+                        onChange={(event) =>
+                          onWorkflowChange({
+                            ...workflow,
+                            fieldFallbacks: {
+                              ...workflow.fieldFallbacks,
+                              [field]: event.target.value,
+                            },
+                          })
+                        }
+                      />
+                    </div>
+                  ),
+                )}
+              </section>
+
+              <CampaignExceptionsList rows={exceptionRows} />
+
+              <section className="outreach-personal-note-panel">
+                <div className="outreach-personal-note-head">
+                  <Typography.Text strong>Personal notes</Typography.Text>
+                  <Typography.Text type="secondary">
+                    Add a unique note for each recipient. Notes are saved and woven into the email
+                    at the position of {'{personal_note}'} in the body. All fields are optional.
+                  </Typography.Text>
+                </div>
+                <div className="outreach-personal-note-table">
+                  {workflow.recipients.map((recipient, index) => (
+                    <div className="outreach-personal-note-row" key={recipientKey(recipient)}>
+                      <span>
+                        <strong>{recipient.name || recipient.email}</strong>
+                        <small>
+                          {recipient.committee || recipient.office || 'No directory data'}
+                        </small>
+                      </span>
+                      <Input
+                        value={recipient.personalNote}
+                        placeholder="Add a personal note..."
+                        onChange={(event) =>
+                          updateRecipient(index, { personalNote: event.target.value })
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="primary"
+                  disabled={!hasPersonalNotes}
+                  loading={saving}
+                  onClick={savePersonalNotes}
+                >
+                  Save personal notes
+                </Button>
+              </section>
+            </div>
+          ) : null}
+
+          {workflow.step === 4 ? (
+            <div className="outreach-flow-stack">
+              <Typography.Text strong>
+                Select a recipient to preview their version of the email. Preview updates live as
+                you switch between recipients.
+              </Typography.Text>
+              <div className="outreach-preview-layout">
+                <div className="outreach-preview-list">
+                  <Typography.Text strong>Recipients</Typography.Text>
+                  {workflow.recipients.map((recipient, index) => (
+                    <button
+                      key={recipientKey(recipient)}
+                      type="button"
+                      className={workflow.selectedPreviewIndex === index ? 'active' : ''}
+                      onClick={() => onWorkflowChange({ ...workflow, selectedPreviewIndex: index })}
+                    >
+                      <span>{initials(recipient.name || recipient.email || '-')}</span>
+                      <strong>{recipient.name || recipient.email}</strong>
+                      <small>
+                        {recipient.committee || recipient.office || 'No directory data'}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+                <EmailPreview
+                  to={selectedRecipient?.email || selectedRecipient?.name || 'Recipient'}
+                  subject={assembleCampaignBody(workflow.subject, selectedRecipient, {
+                    fieldFallbacks: workflow.fieldFallbacks,
+                  })}
+                  body={assembleCampaignBody(workflow.body, selectedRecipient, {
+                    fieldFallbacks: workflow.fieldFallbacks,
+                  })}
+                  actions={<Button onClick={sendTestEmail}>Send test email to myself</Button>}
+                />
+              </div>
+            </div>
+          ) : null}
+
+          {workflow.step === 5 ? (
+            <div className="outreach-flow-stack">
+              <Typography.Title level={4}>Review before sending</Typography.Title>
+              <section className="outreach-confirm-card">
+                <div>
+                  <strong>Client</strong>
+                  <span>{selectedClient?.name ?? 'No client selected'}</span>
+                </div>
+                <div>
+                  <strong>Recipients</strong>
+                  <span className="outreach-confirm-tags">
+                    {workflow.recipients.map((recipient) => (
+                      <Tag key={recipientKey(recipient)}>{recipient.name || recipient.email}</Tag>
+                    ))}
+                  </span>
+                </div>
+                <div>
+                  <strong>Subject</strong>
+                  <span>{workflow.subject || 'No subject'}</span>
+                </div>
+                <div>
+                  <strong>Exceptions</strong>
+                  <span>{campaignExceptionsSummary(exceptionRows)}</span>
+                </div>
+              </section>
+              {!emailConnected ? (
+                <div className="outreach-send-warning">
+                  Connect your email in Settings before sending campaigns from Capiro.
+                </div>
+              ) : null}
+              {missingEmailRecipients.length ? (
+                <div className="outreach-send-warning">
+                  Every recipient must have an email address before sending. Missing:{' '}
+                  {missingEmailRecipients
+                    .map((recipient) => recipient.name || recipient.office || 'Unnamed recipient')
+                    .join(', ')}
+                </div>
+              ) : null}
+              <Button
+                type="primary"
+                size="large"
+                className="outreach-confirm-send-button"
+                loading={sending}
+                disabled={!emailConnected || missingEmailRecipients.length > 0}
+                onClick={onSend}
+              >
+                Send campaign
+              </Button>
+            </div>
+          ) : null}
+        </main>
+      </div>
+
+      <WorkflowFooter
+        step={workflow.step}
+        total={5}
+        saving={saving}
+        nextLabel="Continue"
+        nextLoading={saving}
+        nextDisabled={footerDisabled}
+        hideNext={(workflow.step === 3 && !draftReady) || workflow.step === 5}
+        onBack={() => onWorkflowChange({ ...workflow, step: Math.max(1, workflow.step - 1) })}
+        onNext={next}
+      />
+
+      <Modal
+        title="Search member directory"
+        open={directoryOpen}
+        footer={null}
+        width={820}
+        onCancel={() => setDirectoryOpen(false)}
+      >
+        <div className="outreach-directory-modal">
+          <div className="outreach-directory-modal-tools">
+            <Input
+              prefix={<SearchOutlined />}
+              value={directoryQuery}
+              placeholder="Search members and staffers..."
+              autoFocus
+              onChange={(event) => onDirectoryQuery(event.target.value)}
+            />
+            <Select
+              value={officeFilter}
+              options={[
+                { value: 'all', label: 'All offices' },
+                ...officeOptions.map((office) => ({ value: office, label: office })),
+              ]}
+              onChange={setOfficeFilter}
+            />
+          </div>
+          <div className="outreach-recipient-results">
+            {directoryQuery.trim().length < 2 ? (
+              <Typography.Text type="secondary">
+                Search by name, office, or committee.
+              </Typography.Text>
+            ) : directoryLoading ? (
+              <Typography.Text type="secondary">Searching Directory...</Typography.Text>
+            ) : filteredDirectoryRows.length ? (
+              filteredDirectoryRows.map((entry) => (
+                <DirectoryRecipientRow
+                  key={entry.id}
+                  entry={entry}
+                  selected={workflow.recipients.some(
+                    (recipient) => recipient.directoryContactId === entry.id,
+                  )}
+                  onAdd={(recipient) => {
+                    addRecipient(recipient);
+                    setDirectoryOpen(false);
+                  }}
+                />
+              ))
+            ) : directoryTotal === 0 ? (
+              <Empty description="No contacts in your Directory yet. Add members and staffers in the Directory section.">
+                <Button href="/directory">Go to Directory</Button>
+              </Empty>
+            ) : (
+              <Empty description="No Directory contacts matched that search." />
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        title={fallbackField ? `Set fallback for ${fallbackField}` : 'Set fallback'}
+        open={Boolean(fallbackField)}
+        okText="Save fallback"
+        onOk={saveFallback}
+        onCancel={() => setFallbackField(null)}
+      >
+        {fallbackField ? (
+          <label className="outreach-flow-stack">
+            Fallback text
+            <Input
+              value={selectedFallbackValue}
+              placeholder={fallbackField === '{district}' ? 'your district' : 'e.g. your committee'}
+              onChange={(event) =>
+                onWorkflowChange({
+                  ...workflow,
+                  fieldFallbacks: {
+                    ...workflow.fieldFallbacks,
+                    [fallbackField]: event.target.value,
+                  },
+                })
+              }
+            />
+          </label>
+        ) : null}
+      </Modal>
+    </div>
+  );
+}
+
+function PortfolioCampaignWorkflow({
   clients,
   workflow,
   suggestedRows,
@@ -2980,6 +3675,7 @@ function WorkflowFooter({
   nextLabel,
   nextLoading,
   nextDisabled,
+  hideNext,
   onBack,
   onNext,
 }: {
@@ -2989,6 +3685,7 @@ function WorkflowFooter({
   nextLabel: string;
   nextLoading?: boolean;
   nextDisabled?: boolean;
+  hideNext?: boolean;
   onBack: () => void;
   onNext: () => void;
 }) {
@@ -3003,15 +3700,86 @@ function WorkflowFooter({
       <div className="outreach-progress">
         <i style={{ width: `${(step / total) * 100}%` }} />
       </div>
-      <Button
-        type="primary"
-        loading={saving || nextLoading}
-        disabled={nextDisabled}
-        onClick={onNext}
-      >
-        {nextLabel}
-      </Button>
+      {hideNext ? (
+        <span />
+      ) : (
+        <Button
+          type="primary"
+          loading={saving || nextLoading}
+          disabled={nextDisabled}
+          onClick={onNext}
+        >
+          {nextLabel}
+        </Button>
+      )}
     </div>
+  );
+}
+
+function ContextSuggestionRow({
+  recipient,
+  selected,
+  onAdd,
+}: {
+  recipient: OutreachRecipient;
+  selected: boolean;
+  onAdd: (recipient: OutreachRecipient) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="outreach-context-suggestion-row"
+      disabled={selected}
+      onClick={() => onAdd(recipient)}
+    >
+      <span>{initials(recipient.name || recipient.email || 'R')}</span>
+      <div>
+        <strong>{recipient.name || recipient.email}</strong>
+        <small>{[recipient.office, recipient.title].filter(Boolean).join(' | ')}</small>
+      </div>
+      <em>{recipient.relevanceReason}</em>
+      <Tag>{selected ? 'Added' : '+ Add'}</Tag>
+    </button>
+  );
+}
+
+interface CampaignExceptionRow {
+  recipient: OutreachRecipient;
+  field: CampaignDynamicField;
+  fallback: string;
+}
+
+function CampaignExceptionsList({ rows }: { rows: CampaignExceptionRow[] }) {
+  if (!rows.length) return null;
+  return (
+    <section className="outreach-exceptions-panel">
+      <div>
+        <Typography.Text strong>Exceptions</Typography.Text>
+        <Typography.Text type="secondary">
+          Fallback text will be used for recipients missing directory data. Review fallback values
+          before sending.
+        </Typography.Text>
+      </div>
+      <div className="outreach-exceptions-table">
+        <div>
+          <strong>Recipient</strong>
+          <strong>Dynamic field</strong>
+          <strong>Fallback being used</strong>
+        </div>
+        {rows.map((row) => (
+          <div key={`${recipientKey(row.recipient)}-${row.field}`}>
+            <span>
+              <strong>{row.recipient.name || row.recipient.email}</strong>
+              <small>
+                {row.recipient.directoryContactId ? 'Missing field data' : 'No directory data'}
+              </small>
+            </span>
+            <span>{row.field}</span>
+            <em>{row.fallback || 'Not set - add a fallback above'}</em>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -3303,11 +4071,13 @@ function EmailPreview({
   from,
   subject,
   body,
+  actions,
 }: {
   to: string;
   from?: string;
   subject: string;
   body: string;
+  actions?: ReactNode;
 }) {
   return (
     <div className="outreach-email-preview">
@@ -3326,6 +4096,7 @@ function EmailPreview({
         <span>{subject || 'No subject'}</span>
       </div>
       <pre>{body || 'No body drafted yet.'}</pre>
+      {actions ? <div className="outreach-email-preview-actions">{actions}</div> : null}
     </div>
   );
 }
@@ -3453,6 +4224,8 @@ function workflowPayload(workflow: OutreachWorkflowState): Record<string, unknow
       outboundTone: workflow.outboundTone,
       sendTiming: workflow.sendTiming,
       scheduledFor: workflow.scheduledFor || null,
+      fieldFallbacks: workflow.fieldFallbacks,
+      personalNotesSaved: workflow.personalNotesSaved,
     },
   };
 }
@@ -3495,6 +4268,11 @@ function hydrateWorkflowFromRecord(
     sentRecipientCount:
       Number(record.stats?.recipientsSent ?? record.recipientCount ?? current.sentRecipientCount) ||
       current.sentRecipientCount,
+    fieldFallbacks: readStringRecord(record.metadata?.fieldFallbacks),
+    personalNotesSaved:
+      typeof record.metadata?.personalNotesSaved === 'boolean'
+        ? record.metadata.personalNotesSaved
+        : current.personalNotesSaved,
   };
 }
 
@@ -3502,6 +4280,15 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === 'string')
     : [];
+}
+
+function readStringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+      .map(([key, entryValue]) => [key, entryValue]),
+  );
 }
 
 function templateOptionFromRecord(template: OutreachTemplate): TemplateOption {
@@ -3666,9 +4453,13 @@ function assembleCampaignBody(
     formatCurrentDateTime(currentDateTime),
   );
   if (!recipient) return withCurrentDate;
+  const fallbacks = readStringRecord(metadata?.fieldFallbacks);
   return withCurrentDate
-    .replaceAll('{district}', recipient.district || recipient.state || '')
-    .replaceAll('{committee}', recipient.committee || '')
+    .replaceAll(
+      '{district}',
+      recipient.district || recipient.state || fallbacks['{district}'] || '',
+    )
+    .replaceAll('{committee}', recipient.committee || fallbacks['{committee}'] || '')
     .replaceAll('{member_priority}', recipient.relevanceReason || '')
     .replaceAll('{personal_note}', recipient.personalNote || '')
     .replaceAll('{address}', recipient.address || recipient.meetingLocation || '')
@@ -3717,6 +4508,69 @@ function objectiveSearchSeed(client: Client): string {
   const intake = client.intakeData ?? {};
   const portfolio = Array.isArray(intake.portfolio) ? intake.portfolio[0] : '';
   return [portfolio, intake.requestType, intake.sector, client.name].filter(Boolean).join(' ');
+}
+
+function campaignContextSuggestions(context?: ClientContext): OutreachRecipient[] {
+  if (!context) return [];
+  const rows: OutreachRecipient[] = context.keyStakeholders
+    .map<OutreachRecipient>((stakeholder) => ({
+      name: textOrUndefined(stakeholder.fullName || stakeholder.email),
+      email: textOrUndefined(stakeholder.email),
+      office: textOrUndefined(stakeholder.organization),
+      title: textOrUndefined(stakeholder.title),
+      relevanceReason: contextSuggestionReason(context),
+    }))
+    .filter((recipient) => Boolean(recipient.name || recipient.email));
+  return normalizeRecipients(rows).slice(0, 20);
+}
+
+function contextSuggestionReason(context: ClientContext): string {
+  const parts = [
+    context.summary.meetings ? `${context.summary.meetings} meeting invites` : '',
+    context.summary.mailThreads ? `${context.summary.mailThreads} email threads` : '',
+  ].filter(Boolean);
+  return parts.length ? parts.join(' | ') : 'Synced client context';
+}
+
+function campaignDynamicFieldsIn(subject: string, body: string): CampaignDynamicField[] {
+  const text = `${subject}\n${body}`;
+  return CAMPAIGN_DYNAMIC_FIELDS.filter((field) => text.includes(field));
+}
+
+function campaignFieldValue(recipient: OutreachRecipient, field: CampaignDynamicField): string {
+  if (field === '{district}') return recipient.district || recipient.state || '';
+  if (field === '{committee}') return recipient.committee || '';
+  if (field === '{personal_note}') return recipient.personalNote || '';
+  return '';
+}
+
+function campaignExceptionRows(
+  recipients: OutreachRecipient[],
+  fields: CampaignDynamicField[],
+  fallbacks: Record<string, string>,
+): CampaignExceptionRow[] {
+  return recipients.flatMap((recipient) =>
+    fields
+      .filter((field) => field !== '{personal_note}' && !campaignFieldValue(recipient, field))
+      .map((field) => ({
+        recipient,
+        field,
+        fallback: fallbacks[field] ?? '',
+      })),
+  );
+}
+
+function campaignExceptionsSummary(rows: CampaignExceptionRow[]): string {
+  if (!rows.length) return 'No exceptions';
+  const missingDirectory = new Set(
+    rows
+      .filter((row) => !row.recipient.directoryContactId)
+      .map((row) => recipientKey(row.recipient)),
+  ).size;
+  if (missingDirectory) {
+    return `${missingDirectory} recipient${missingDirectory === 1 ? ' has' : 's have'} no directory data - dynamic fields will use fallback text`;
+  }
+  return `${rows.length} dynamic field fallback${rows.length === 1 ? '' : 's'} will be used`;
 }
 
 function campaignDirectorySuggestionQuery(client: Client | null, objective: string): string {

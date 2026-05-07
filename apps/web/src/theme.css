@@ -3720,6 +3720,227 @@ body {
   background: #fbfcfe;
 }
 
+.outreach-added-recipient-box {
+  min-height: 58px;
+  max-height: 118px;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid #d9e1ee;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.outreach-suggested-scroll {
+  display: grid;
+  max-height: 238px;
+  overflow-y: auto;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.outreach-context-suggestion-row {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) minmax(160px, 0.8fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  color: #111827;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.outreach-context-suggestion-row:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.outreach-context-suggestion-row > span {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  color: #243a73;
+  border-radius: 999px;
+  background: #eef3ff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.outreach-context-suggestion-row div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.outreach-context-suggestion-row small,
+.outreach-context-suggestion-row em {
+  overflow: hidden;
+  color: #667085;
+  font-size: 13px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outreach-directory-search-trigger,
+.outreach-directory-modal-tools,
+.outreach-manual-email {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.outreach-directory-modal {
+  display: grid;
+  gap: 14px;
+}
+
+.outreach-template-buttons,
+.outreach-dynamic-fields-panel > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.outreach-campaign-clio-prompt .ant-btn-primary {
+  justify-self: end;
+}
+
+.outreach-editor-footer-note {
+  padding: 10px 14px;
+  color: #667085;
+  border-top: 1px solid #e4e9f2;
+  background: #f8f7f2;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.outreach-dynamic-fields-panel,
+.outreach-fallback-panel,
+.outreach-exceptions-panel,
+.outreach-confirm-card {
+  display: grid;
+  gap: 10px;
+  overflow: hidden;
+  border: 1px solid #d9e1ee;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.outreach-dynamic-fields-panel,
+.outreach-fallback-panel,
+.outreach-exceptions-panel {
+  padding: 12px;
+}
+
+.outreach-fallback-panel > div:first-child,
+.outreach-personal-note-head {
+  display: grid;
+  gap: 4px;
+}
+
+.outreach-fallback-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.outreach-exceptions-panel {
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
+
+.outreach-exceptions-table {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.outreach-exceptions-table > div {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(120px, 0.7fr) minmax(160px, 1fr);
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.outreach-exceptions-table > div:first-child {
+  color: #78350f;
+  background: #fef3c7;
+}
+
+.outreach-exceptions-table > div + div {
+  border-top: 1px solid #fde68a;
+}
+
+.outreach-exceptions-table span {
+  display: grid;
+  gap: 2px;
+}
+
+.outreach-exceptions-table small,
+.outreach-exceptions-table em {
+  color: #92400e;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.outreach-personal-note-table {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid #e4e9f2;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.outreach-personal-note-table .outreach-personal-note-row {
+  padding: 12px;
+}
+
+.outreach-personal-note-table .outreach-personal-note-row + .outreach-personal-note-row {
+  border-top: 1px solid #e4e9f2;
+}
+
+.outreach-personal-note-row small {
+  display: block;
+  color: #667085;
+  font-weight: 500;
+}
+
+.outreach-confirm-card {
+  padding: 22px;
+}
+
+.outreach-confirm-card > div {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 14px 0;
+}
+
+.outreach-confirm-card > div + div {
+  border-top: 1px solid #e4e9f2;
+}
+
+.outreach-confirm-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.outreach-confirm-send-button {
+  justify-self: end;
+  min-width: 190px;
+}
+
 .outreach-suggestion-row {
   display: grid;
   grid-template-columns: auto 38px minmax(0, 1fr);
@@ -4196,6 +4417,10 @@ body {
 }
 
 .outreach-preview-list button {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px 10px;
+  align-items: center;
   padding: 10px 12px;
   border: 1px solid #d9e1ee;
   border-radius: 8px;
@@ -4203,6 +4428,30 @@ body {
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.outreach-preview-list button > span {
+  display: inline-grid;
+  grid-row: span 2;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: #243a73;
+  border-radius: 999px;
+  background: #eef3ff;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.outreach-preview-list button strong,
+.outreach-preview-list button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outreach-preview-list button small {
+  color: #667085;
 }
 
 .outreach-preview-list button.active {
@@ -4221,7 +4470,7 @@ body {
   background: #fff;
 }
 
-.outreach-email-preview > div {
+.outreach-email-preview > div:not(.outreach-email-preview-actions) {
   display: grid;
   grid-template-columns: 80px minmax(0, 1fr);
   gap: 12px;
@@ -4241,6 +4490,11 @@ body {
   color: #344054;
   font-family: inherit;
   white-space: pre-wrap;
+}
+
+.outreach-email-preview-actions {
+  padding: 14px 18px;
+  border-top: 1px solid #e4e9f2;
 }
 
 .outreach-workflow-footer {

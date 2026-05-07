@@ -3200,8 +3200,11 @@ function assembleCampaignBody(
     new Date().toISOString();
   return body
     .replaceAll('{current_date_time}', formatCurrentDateTime(currentDateTime))
-    .replaceAll('{district}', recipient.district || recipient.state || '')
-    .replaceAll('{committee}', recipient.committee || '')
+    .replaceAll(
+      '{district}',
+      recipient.district || recipient.state || readFieldFallback(metadata, '{district}'),
+    )
+    .replaceAll('{committee}', recipient.committee || readFieldFallback(metadata, '{committee}'))
     .replaceAll('{member_priority}', recipient.relevanceReason || '')
     .replaceAll('{personal_note}', recipient.personalNote || '')
     .replaceAll('{address}', recipient.address || recipient.meetingLocation || '')
@@ -3212,6 +3215,14 @@ function assembleCampaignBody(
     .replaceAll('{meeting_location}', recipient.meetingLocation || '')
     .replaceAll('{meeting_subject}', recipient.meetingSubject || '')
     .replaceAll('{meeting_date_time}', recipient.meetingDateTime || '');
+}
+
+function readFieldFallback(metadata: Prisma.JsonValue | undefined, field: string): string {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return '';
+  const fallbacks = (metadata as Record<string, unknown>).fieldFallbacks;
+  if (!fallbacks || typeof fallbacks !== 'object' || Array.isArray(fallbacks)) return '';
+  const value = (fallbacks as Record<string, unknown>)[field];
+  return typeof value === 'string' ? value : '';
 }
 
 function formatCurrentDateTime(value: string): string {
