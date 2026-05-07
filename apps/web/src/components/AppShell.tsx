@@ -535,7 +535,7 @@ function ClientDropdown({
         type="button"
         onClick={() => handleSelect(null)}
       >
-        <span>All clients</span>
+        <span>All Clients</span>
         {!selectedClientId ? <CheckOutlined /> : null}
       </button>
       <span className="app-client-menu-divider" />
@@ -612,7 +612,7 @@ function ClientDropdown({
             <span>{selectedClient.name}</span>
           </>
         ) : (
-          <span>{loading ? 'Loading clients...' : 'All clients'}</span>
+          <span>{loading ? 'Loading clients...' : 'All Clients'}</span>
         )}
         <DownOutlined />
       </button>

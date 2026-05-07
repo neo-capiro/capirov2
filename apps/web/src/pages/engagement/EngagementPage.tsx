@@ -1246,7 +1246,7 @@ function MeetingListView({
         ))}
         {historyBatch < 12 ? (
           <Button className="engagement-load-more" onClick={onLoadMore}>
-            Load more meetings
+            Load More Meetings
           </Button>
         ) : null}
       </div>
@@ -1367,7 +1367,7 @@ function MeetingListEmpty({
         }
       >
         {hasAnySyncedMeetings ? (
-          <Button onClick={onSync}>Sync calendar</Button>
+          <Button onClick={onSync}>Sync Calendar</Button>
         ) : (
           <Button href="/settings/integrations">Go to Settings</Button>
         )}
@@ -1443,7 +1443,7 @@ function MeetingCalendarList({
                               onAction(meeting.id, 'debrief');
                             }}
                           >
-                            Debrief missing -&gt;
+                            Debrief Missing -&gt;
                           </em>
                         ) : status.label ? (
                           <em>{status.label}</em>
@@ -1461,13 +1461,13 @@ function MeetingCalendarList({
       </div>
       <div className="engagement-week-legend">
         <span>
-          <i className="missing" /> {counts.debriefMissing} debrief missing
+          <i className="missing" /> {counts.debriefMissing} Debrief Missing
         </span>
         <span>
-          <i className="needs-prep" /> {counts.needsPrep} need prep
+          <i className="needs-prep" /> {counts.needsPrep} Need Prep
         </span>
         <span>
-          <i className="prepped" /> {counts.prepped} prepped
+          <i className="prepped" /> {counts.prepped} Prepped
         </span>
       </div>
     </div>
@@ -1567,7 +1567,7 @@ function MeetingDetailPanel({
           </Typography.Text>
           {status.kind === 'missing' && !hasSavedDebrief ? (
             <Typography.Text className="engagement-detail-warning">
-              Debrief not completed
+              Debrief Not Completed
             </Typography.Text>
           ) : null}
         </div>
@@ -1594,6 +1594,7 @@ function MeetingDetailPanel({
               label: 'Prep',
               children: (
                 <div className="engagement-detail-stack">
+                  <ParticipantsList participants={participants} />
                   {prep ? (
                     <>
                       <DetailBlock title="Context">
@@ -1614,7 +1615,7 @@ function MeetingDetailPanel({
                   ) : (
                     <div className="engagement-empty-prep">
                       <RobotOutlined />
-                      <Typography.Text strong>No prep notes yet</Typography.Text>
+                      <Typography.Text strong>No Prep Notes Yet</Typography.Text>
                       {!meeting.client ? (
                         <Typography.Text type="secondary">
                           Clio needs more context to generate prep.{' '}
@@ -1632,11 +1633,10 @@ function MeetingDetailPanel({
                         loading={generating}
                         onClick={() => onGeneratePrep(meeting)}
                       >
-                        {generating ? 'Clio is preparing your brief...' : 'Generate prep'}
+                        {generating ? 'Clio Is Preparing Your Brief...' : 'Generate Prep'}
                       </Button>
                     </div>
                   )}
-                  <ParticipantsList participants={participants} />
                 </div>
               ),
             },
@@ -1646,6 +1646,7 @@ function MeetingDetailPanel({
               children: (
                 <DebriefPanel
                   meeting={meeting}
+                  participants={participants}
                   prep={prep}
                   debriefs={debriefs}
                   loading={debriefsLoading}
@@ -1669,7 +1670,7 @@ function MeetingDetailPanel({
             },
             {
               key: 'intel',
-              label: 'Intel',
+              label: 'Context',
               children: (
                 <ClientIntelPanel context={context} loading={contextLoading} meeting={meeting} />
               ),
@@ -1761,6 +1762,7 @@ function ParticipantsList({ participants }: { participants: MeetingParticipant[]
 
 function DebriefPanel({
   meeting,
+  participants,
   prep,
   debriefs,
   loading,
@@ -1779,6 +1781,7 @@ function DebriefPanel({
   onSave,
 }: {
   meeting: Meeting;
+  participants: MeetingParticipant[];
   prep?: MeetingPrep;
   debriefs: MeetingDebrief[];
   loading: boolean;
@@ -1907,6 +1910,7 @@ function DebriefPanel({
   if (!meetingHasEnded) {
     return (
       <div className="engagement-detail-stack">
+        <ParticipantsList participants={participants} />
         <div className="engagement-empty-prep">
           <ClockCircleOutlined />
           <Typography.Text strong>This meeting hasn't taken place yet</Typography.Text>
@@ -1921,6 +1925,7 @@ function DebriefPanel({
   return (
     <div className="engagement-debrief-panel">
       <div className="engagement-detail-stack engagement-debrief-scroll">
+        <ParticipantsList participants={participants} />
         <Typography.Text type="secondary">
           Input notes from your completed meeting to generate a debrief.
         </Typography.Text>
@@ -1933,7 +1938,7 @@ function DebriefPanel({
               document.getElementById(transcriptInputId)?.click();
             }}
           >
-            <strong>Upload recording or transcript</strong>
+            <strong>Upload Recording or Transcript</strong>
             <span>Accepts audio, video, .txt, or .docx files.</span>
           </button>
           <button
@@ -1941,7 +1946,7 @@ function DebriefPanel({
             className={method === 'voice' ? 'selected' : ''}
             onClick={recording ? stopRecording : startRecording}
           >
-            <strong>Record voice memo</strong>
+            <strong>Record Voice Memo</strong>
             <span>
               {recording ? 'Recording... click to stop.' : 'Capture audio directly in the browser.'}
             </span>
@@ -1951,7 +1956,7 @@ function DebriefPanel({
             className={method === 'manual' ? 'selected' : ''}
             onClick={() => setMethod('manual')}
           >
-            <strong>Type notes manually</strong>
+            <strong>Type Notes Manually</strong>
             <span>Use written context for the generated debrief.</span>
           </button>
         </div>
@@ -1984,7 +1989,7 @@ function DebriefPanel({
           disabled={!aiConfigured || uploadingTranscript}
           onClick={generate}
         >
-          Generate debrief
+          Generate Debrief
         </Button>
 
         <div className="outreach-context-note">
@@ -2031,7 +2036,7 @@ function DebriefPanel({
           ) : null}
         </div>
 
-        {loading ? <Typography.Text type="secondary">Loading debrief...</Typography.Text> : null}
+        {loading ? <Typography.Text type="secondary">Loading Debrief...</Typography.Text> : null}
         {hasOutput ? (
           <div className="engagement-debrief-output">
             <DetailBlock title="Recap">
@@ -2254,20 +2259,20 @@ function MeetingCard({
         </div>
         <Tag color={confidenceColor(meeting.associationScore)}>
           {meeting.associationScore == null
-            ? 'manual'
+            ? 'Manual'
             : `${Math.round(meeting.associationScore * 100)}%`}
         </Tag>
       </div>
 
       <div className="engagement-card-meta">
         <span>
-          <TeamOutlined /> {meeting.attendees.length} attendees
+          <TeamOutlined /> {meeting.attendees.length} Attendees
         </span>
         <span>
-          <FileTextOutlined /> {meeting.notes.length} notes
+          <FileTextOutlined /> {meeting.notes.length} Notes
         </span>
         <span>
-          <RobotOutlined /> {prep ? 'prep ready' : 'prep pending'}
+          <RobotOutlined /> {prep ? 'Prep Ready' : 'Prep Pending'}
         </span>
       </div>
 
@@ -2279,7 +2284,7 @@ function MeetingCard({
 
       {prep ? (
         <div className="engagement-prep-box">
-          <Typography.Text strong>{prep.summary || 'Meeting prep'}</Typography.Text>
+          <Typography.Text strong>{prep.summary || 'Meeting Prep'}</Typography.Text>
           <ul>
             {prep.talkingPoints.slice(0, 3).map((point) => (
               <li key={point}>{point}</li>
@@ -2304,10 +2309,10 @@ function MeetingCard({
           loading={generating}
           onClick={onGeneratePrep}
         >
-          Generate prep
+          Generate Prep
         </Button>
         <Button icon={<FileTextOutlined />} disabled={!notesConfigured} onClick={onAddNote}>
-          Add note
+          Add Note
         </Button>
       </Space>
     </article>
@@ -2827,49 +2832,49 @@ function meetingStatus(meeting: Meeting): {
   if (hasEnded && !hasDebrief) {
     return {
       kind: 'missing',
-      label: 'Debrief missing',
-      actionLabel: 'Start debrief',
+      label: 'Debrief Missing',
+      actionLabel: 'Start Debrief',
       primaryAction: 'debrief',
-      chips: [{ label: 'Debrief missing', tone: 'danger', action: 'debrief' }],
+      chips: [{ label: 'Debrief Missing', tone: 'danger', action: 'debrief' }],
     };
   }
   if (hasEnded && hasDebrief) {
     return {
       kind: 'complete',
-      label: 'Debrief complete',
-      actionLabel: 'View recap',
+      label: 'Debrief Complete',
+      actionLabel: 'View Recap',
       primaryAction: 'debrief',
-      chips: [{ label: 'Debrief complete', tone: 'muted' }],
+      chips: [{ label: 'Debrief Complete', tone: 'muted' }],
     };
   }
   if (isActive) {
     return {
       kind: 'active',
-      label: prep ? 'Prepped' : 'Generate prep ->',
-      actionLabel: prep ? 'View prep' : 'Generate prep',
+      label: prep ? 'Prepped' : 'Generate Prep ->',
+      actionLabel: prep ? 'View Prep' : 'Generate Prep',
       primaryAction: prep ? 'open' : 'prep',
       chips: prep
         ? [{ label: prep.status === 'approved' ? 'Approved' : 'Prepped', tone: 'primary' }]
-        : [{ label: 'Generate prep ->', tone: 'primary', action: 'prep' }],
+        : [{ label: 'Generate Prep ->', tone: 'primary', action: 'prep' }],
     };
   }
   if (prep) {
     return {
       kind: 'prepped',
       label: prep.status === 'approved' ? 'Approved' : 'Prepped',
-      actionLabel: 'View prep',
+      actionLabel: 'View Prep',
       primaryAction: 'open',
       chips: [{ label: prep.status === 'approved' ? 'Approved' : 'Prepped', tone: 'primary' }],
     };
   }
   return {
     kind: 'needs-prep',
-    label: 'No prep yet',
-    actionLabel: 'Generate prep',
+    label: 'No Prep Yet',
+    actionLabel: 'Generate Prep',
     primaryAction: 'prep',
     chips: [
-      { label: 'No prep yet', tone: 'muted' },
-      { label: 'Generate prep ->', tone: 'default', action: 'prep' },
+      { label: 'No Prep Yet', tone: 'muted' },
+      { label: 'Generate Prep ->', tone: 'default', action: 'prep' },
     ],
   };
 }

@@ -436,9 +436,11 @@ body {
 
 .app-client-dropdown-trigger {
   display: inline-flex;
-  max-width: 300px;
+  min-width: min(260px, calc(100vw - 48px));
+  max-width: 560px;
   min-height: 36px;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   padding: 6px 10px;
   color: #1f2937;
@@ -476,7 +478,7 @@ body {
 
 .app-client-menu {
   display: flex;
-  width: min(320px, calc(100vw - 48px));
+  width: min(560px, calc(100vw - 48px));
   max-height: 380px;
   flex-direction: column;
   gap: 6px;
