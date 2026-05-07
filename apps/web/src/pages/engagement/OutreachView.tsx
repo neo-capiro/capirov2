@@ -19,11 +19,16 @@ import {
   Select,
   Space,
   Tag,
+  Tooltip,
   Typography,
 } from 'antd';
 import { useApi } from '../../lib/use-api.js';
 import type { Client } from '../clients/clientTypes.js';
-import type { DirectoryApiResponse, DirectoryEntry } from '../directory/directoryData.js';
+import type {
+  DirectoryApiResponse,
+  DirectoryContactNote,
+  DirectoryEntry,
+} from '../directory/directoryData.js';
 
 type OutreachType = 'all' | 'campaign' | 'follow_up' | 'prep' | 'outbound_campaign';
 type WorkflowType = 'campaign' | 'follow_up' | 'prep' | 'outbound_campaign';
@@ -87,6 +92,7 @@ interface OutreachRecipient {
   directoryContactId?: string;
   directoryContactName?: string;
   committee?: string;
+  address?: string;
   relevanceReason?: string;
   personalNote?: string;
   meetingId?: string;
@@ -149,6 +155,8 @@ interface IntegrationConnection {
   id: string;
   provider: string;
   status: string;
+  accountEmail?: string | null;
+  displayName?: string | null;
 }
 
 interface OutreachWorkflowState {
@@ -170,6 +178,9 @@ interface OutreachWorkflowState {
   templateMode: 'existing' | 'custom';
   customTemplateName: string;
   outboundTone: 'professional' | 'friendly' | 'formal' | 'concise';
+  sendTiming: 'now' | 'later';
+  scheduledFor: string;
+  sentRecipientCount: number;
 }
 
 interface OutboundContactRecord {
@@ -289,6 +300,9 @@ const EMPTY_WORKFLOW: OutreachWorkflowState = {
   templateMode: 'existing',
   customTemplateName: '',
   outboundTone: 'professional',
+  sendTiming: 'now',
+  scheduledFor: '',
+  sentRecipientCount: 0,
 };
 
 export function OutreachView({
@@ -331,6 +345,11 @@ export function OutreachView({
     [clients],
   );
   const selectedClient = activeClients.find((client) => client.id === selectedClientId) ?? null;
+  const workflowClient = activeClients.find((client) => client.id === workflow.clientId) ?? null;
+  const campaignSuggestionQuery = campaignDirectorySuggestionQuery(
+    workflowClient,
+    workflow.objective,
+  );
 
   const outreach = useQuery<OutreachRecord[]>({
     queryKey: ['engagement-outreach', selectedClientId, from, to, typeFilter],
@@ -370,7 +389,7 @@ export function OutreachView({
           },
         })
       ).data,
-    enabled: mode === 'follow_up' || mode === 'campaign',
+    enabled: mode === 'follow_up',
   });
 
   const upcomingMeetings = useQuery<OutreachMeeting[]>({
@@ -423,6 +442,23 @@ export function OutreachView({
       ).data,
     enabled:
       (mode === 'campaign' || mode === 'outbound_campaign') && directoryQuery.trim().length >= 2,
+  });
+
+  const campaignSuggestions = useQuery<DirectoryApiResponse>({
+    queryKey: [
+      'engagement-outreach-campaign-suggestions',
+      workflow.clientId,
+      workflow.objective,
+      campaignSuggestionQuery,
+    ],
+    queryFn: async () =>
+      (
+        await api.get<DirectoryApiResponse>('/api/directory/contacts', {
+          params: { q: campaignSuggestionQuery, pageSize: 8 },
+        })
+      ).data,
+    enabled:
+      mode === 'campaign' && workflow.step === 2 && campaignSuggestionQuery.trim().length >= 2,
   });
 
   const createRecord = useMutation({
@@ -479,7 +515,6 @@ export function OutreachView({
       (await api.post<OutreachRecord>(`/api/engagement/outreach/${id}/send-campaign`)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['engagement-outreach'] });
-      setMode('landing');
     },
     onError: (err) => message.error(errorMessage(err)),
   });
@@ -566,7 +601,7 @@ export function OutreachView({
         clientId: client?.id ?? null,
         campaignName: client ? `${client.name} outreach` : '',
       }));
-      setDirectoryQuery(client ? objectiveSearchSeed(client) : '');
+      setDirectoryQuery('');
     } else if (type === 'outbound_campaign') {
       setWorkflow((current) => ({
         ...current,
@@ -622,11 +657,22 @@ export function OutreachView({
       <CampaignWorkflow
         clients={activeClients}
         workflow={workflow}
+        suggestedRows={campaignSuggestions.data?.contacts ?? []}
+        suggestionsLoading={campaignSuggestions.isLoading}
+        directoryTotal={campaignSuggestions.data?.totals.all ?? directory.data?.totals.all ?? null}
         directoryRows={directory.data?.contacts ?? []}
         directoryLoading={directory.isLoading}
         directoryQuery={directoryQuery}
-        pastMeetings={(pastMeetings.data ?? []).slice().reverse()}
-        pastMeetingsLoading={pastMeetings.isLoading}
+        emailConnected={emailConnected}
+        sendFrom={
+          (integrations.data ?? []).find(
+            (connection) =>
+              connection.status === 'connected' &&
+              (connection.provider === 'microsoft_365' ||
+                connection.provider === 'google_workspace') &&
+              connection.accountEmail,
+          )?.accountEmail ?? null
+        }
         aiConfigured={aiConfigured}
         saving={createRecord.isPending || updateRecord.isPending}
         generating={generateDraft.isPending}
@@ -651,7 +697,25 @@ export function OutreachView({
           });
         }}
         onSend={() => {
-          if (workflow.record) sendCampaign.mutate(workflow.record.id);
+          const record = workflow.record;
+          if (!record) return;
+          void (async () => {
+            const payload = workflowPayload(workflow);
+            await updateRecord.mutateAsync({ id: record.id, payload });
+            const sentRecord = await sendCampaign.mutateAsync(record.id);
+            message.success(`Campaign sent to ${sentRecord.recipientCount} recipients`);
+            setWorkflow((current) => ({
+              ...hydrateWorkflowFromRecord(sentRecord, current),
+              step: 5,
+              sentRecipientCount: sentRecord.recipientCount,
+            }));
+          })().catch(() => {
+            // Mutation handlers surface the API error to the user.
+          });
+        }}
+        onReturnToLanding={() => {
+          setMode('landing');
+          setWorkflow({ ...EMPTY_WORKFLOW, clientId: selectedClientId });
         }}
       />
     );
@@ -730,7 +794,17 @@ export function OutreachView({
           }));
         }}
         onSend={() => {
-          if (workflow.record) sendCampaign.mutate(workflow.record.id);
+          if (!workflow.record) return;
+          void sendCampaign
+            .mutateAsync(workflow.record.id)
+            .then(() => {
+              message.success(`Campaign sent to ${workflow.recipients.length} recipients`);
+              setMode('landing');
+              setWorkflow({ ...EMPTY_WORKFLOW, clientId: selectedClientId });
+            })
+            .catch(() => {
+              // Mutation handlers surface the API error to the user.
+            });
         }}
       />
     );
@@ -961,6 +1035,431 @@ function OutreachTypeCard({
 }
 
 function CampaignWorkflow({
+  clients,
+  workflow,
+  suggestedRows,
+  suggestionsLoading,
+  directoryRows,
+  directoryLoading,
+  directoryQuery,
+  directoryTotal,
+  emailConnected,
+  sendFrom,
+  aiConfigured,
+  saving,
+  generating,
+  sending,
+  onDirectoryQuery,
+  onWorkflowChange,
+  onCancel,
+  onSaveStep,
+  onGenerate,
+  onSend,
+  onReturnToLanding,
+}: {
+  clients: Client[];
+  workflow: OutreachWorkflowState;
+  suggestedRows: DirectoryEntry[];
+  suggestionsLoading: boolean;
+  directoryRows: DirectoryEntry[];
+  directoryLoading: boolean;
+  directoryQuery: string;
+  directoryTotal: number | null;
+  emailConnected: boolean;
+  sendFrom: string | null;
+  aiConfigured: boolean;
+  saving: boolean;
+  generating: boolean;
+  sending: boolean;
+  onDirectoryQuery: (value: string) => void;
+  onWorkflowChange: (value: OutreachWorkflowState) => void;
+  onCancel: () => void;
+  onSaveStep: (patch: Partial<OutreachWorkflowState>, step?: number) => Promise<void>;
+  onGenerate: () => void;
+  onSend: () => void;
+  onReturnToLanding: () => void;
+}) {
+  const { modal } = App.useApp();
+  const selectedClient = clients.find((client) => client.id === workflow.clientId) ?? null;
+  const selectedRecipient = workflow.recipients[workflow.selectedPreviewIndex] ?? null;
+  const hasDraft = Boolean(workflow.subject.trim() || workflow.body.trim());
+  const missingEmailRecipients = workflow.recipients.filter((recipient) => !recipient.email);
+  const directoryEmpty = directoryTotal === 0;
+
+  const updateRecipient = (index: number, patch: Partial<OutreachRecipient>) => {
+    const recipients = workflow.recipients.slice();
+    const recipient = recipients[index];
+    if (!recipient) return;
+    recipients[index] = { ...recipient, ...patch };
+    onWorkflowChange({ ...workflow, recipients });
+  };
+
+  const handleGenerate = () => {
+    if (!hasDraft) {
+      onGenerate();
+      return;
+    }
+    modal.confirm({
+      title: 'Replace current draft?',
+      content: 'This will replace your current draft. Continue?',
+      okText: 'Continue',
+      onOk: onGenerate,
+    });
+  };
+
+  const setSuggestionSelected = (entry: DirectoryEntry, checked: boolean) => {
+    const recipient = directoryRecipientFromEntry(
+      entry,
+      campaignRelevanceReason(entry, workflow.objective, selectedClient),
+    );
+    onWorkflowChange({
+      ...workflow,
+      recipients: checked
+        ? addUniqueRecipient(workflow.recipients, recipient)
+        : removeRecipient(workflow.recipients, recipient),
+    });
+  };
+
+  return (
+    <div className="outreach-workflow">
+      <WorkflowHeader title="New Campaign" onCancel={onCancel} />
+      <div className="outreach-flow-body">
+        <WorkflowSteps
+          steps={[
+            ['Setup', 'Client and objective'],
+            ['Recipients', 'Suggestions and search'],
+            ['Draft', "Edit Clio's draft"],
+            ['Preview & send', 'Final review'],
+            ['Confirmation', 'Sent campaign'],
+          ]}
+          current={workflow.step}
+        />
+        <main className="outreach-flow-panel">
+          {workflow.step === 1 ? (
+            <div className="outreach-flow-stack">
+              <Typography.Title level={4}>Setup</Typography.Title>
+              {clients.length ? (
+                <>
+                  <label>
+                    Client
+                    <Select
+                      value={workflow.clientId ?? undefined}
+                      showSearch={clients.length > 10}
+                      optionFilterProp="label"
+                      placeholder="Select a client"
+                      options={clients.map((client) => ({ value: client.id, label: client.name }))}
+                      onChange={(clientId) =>
+                        onWorkflowChange({
+                          ...workflow,
+                          clientId,
+                          campaignName:
+                            workflow.campaignName ||
+                            `${clients.find((client) => client.id === clientId)?.name} outreach`,
+                        })
+                      }
+                    />
+                    <Typography.Text type="secondary">
+                      This campaign is being sent with or on behalf of the client.
+                    </Typography.Text>
+                  </label>
+                  <label>
+                    Campaign name
+                    <Input
+                      value={workflow.campaignName}
+                      placeholder="Campaign name"
+                      onChange={(event) =>
+                        onWorkflowChange({ ...workflow, campaignName: event.target.value })
+                      }
+                    />
+                  </label>
+                  <label>
+                    Objective
+                    <Input.TextArea
+                      rows={5}
+                      value={workflow.objective}
+                      placeholder="What do you want recipients to do or know?"
+                      onChange={(event) =>
+                        onWorkflowChange({ ...workflow, objective: event.target.value })
+                      }
+                    />
+                  </label>
+                </>
+              ) : (
+                <Empty description="Add recipients before creating a campaign.">
+                  <Button href="/clients">Go to Clients</Button>
+                </Empty>
+              )}
+            </div>
+          ) : null}
+
+          {workflow.step === 2 ? (
+            <div className="outreach-flow-stack">
+              <Typography.Title level={4}>Who are you reaching out to?</Typography.Title>
+              <div className="outreach-context-note">
+                <RobotOutlined />
+                <span>
+                  Clio suggests Directory contacts by comparing the client portfolio and objective
+                  to member offices, committees, caucuses, focus areas, and staff context.
+                </span>
+              </div>
+              {directoryEmpty ? (
+                <Empty description="No contacts in your Directory yet. Add members and staffers in the Directory section.">
+                  <Button href="/directory">Go to Directory</Button>
+                </Empty>
+              ) : (
+                <>
+                  <section className="outreach-suggestion-panel">
+                    <Typography.Text strong>Clio suggestions</Typography.Text>
+                    {suggestionsLoading ? (
+                      <Typography.Text type="secondary">
+                        Finding relevant contacts...
+                      </Typography.Text>
+                    ) : suggestedRows.length ? (
+                      <div className="outreach-recipient-results">
+                        {suggestedRows.map((entry) => (
+                          <CampaignSuggestionRow
+                            key={entry.id}
+                            entry={entry}
+                            relevanceReason={campaignRelevanceReason(
+                              entry,
+                              workflow.objective,
+                              selectedClient,
+                            )}
+                            selected={workflow.recipients.some(
+                              (recipient) => recipient.directoryContactId === entry.id,
+                            )}
+                            onToggle={(checked) => setSuggestionSelected(entry, checked)}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <Empty description="No suggestions yet. Try a broader objective or search the Directory manually." />
+                    )}
+                  </section>
+
+                  <section className="outreach-suggestion-panel">
+                    <Typography.Text strong>Search Directory</Typography.Text>
+                    <Input
+                      prefix={<SearchOutlined />}
+                      value={directoryQuery}
+                      placeholder="Search Directory"
+                      onChange={(event) => onDirectoryQuery(event.target.value)}
+                    />
+                    <div className="outreach-recipient-results">
+                      {directoryQuery.trim().length < 2 ? (
+                        <Typography.Text type="secondary">
+                          Search members and staffers by name, office, or committee.
+                        </Typography.Text>
+                      ) : directoryLoading ? (
+                        <Typography.Text type="secondary">Searching Directory...</Typography.Text>
+                      ) : directoryRows.length ? (
+                        directoryRows.map((entry) => (
+                          <DirectoryRecipientRow
+                            key={entry.id}
+                            entry={entry}
+                            selected={workflow.recipients.some(
+                              (recipient) => recipient.directoryContactId === entry.id,
+                            )}
+                            onAdd={(recipient) =>
+                              onWorkflowChange({
+                                ...workflow,
+                                recipients: addUniqueRecipient(workflow.recipients, recipient),
+                              })
+                            }
+                          />
+                        ))
+                      ) : (
+                        <Empty description="No Directory contacts matched that search." />
+                      )}
+                    </div>
+                  </section>
+                </>
+              )}
+
+              <SelectedRecipientNotesPanel
+                recipients={workflow.recipients}
+                onRemove={(recipient) =>
+                  onWorkflowChange({
+                    ...workflow,
+                    recipients: removeRecipient(workflow.recipients, recipient),
+                  })
+                }
+              />
+            </div>
+          ) : null}
+
+          {workflow.step === 3 ? (
+            <div className="outreach-flow-stack">
+              <Typography.Title level={4}>Review and edit Clio's draft</Typography.Title>
+              <div className="outreach-context-note">
+                <RobotOutlined />
+                <span>
+                  {readString(workflow.record?.metadata?.clioContextNote) ||
+                    `Clio drafts from the client portfolio, objective, and auto-personalization fields for ${workflow.recipients.length} selected recipients.`}
+                </span>
+              </div>
+              <label>
+                Subject line
+                <Input
+                  value={workflow.subject}
+                  placeholder="Generate a subject line with Clio, then edit as needed."
+                  onChange={(event) =>
+                    onWorkflowChange({ ...workflow, subject: event.target.value })
+                  }
+                />
+              </label>
+              <div className="outreach-editor">
+                <FormattedTextArea
+                  rows={14}
+                  value={workflow.body}
+                  placeholder={
+                    aiConfigured
+                      ? 'Generate a Clio draft, then edit the email here.'
+                      : 'AI drafting is not configured. Set an OpenAI or Anthropic key to generate drafts.'
+                  }
+                  chips={['{committee}', '{personal_note}', '{address}']}
+                  chipDescriptions={{
+                    '{committee}': 'Committee assignment from the member profile.',
+                    '{personal_note}': 'Optional note from this campaign workflow.',
+                    '{address}': 'Main office full address from the member profile.',
+                  }}
+                  chipHelp="Dynamic fields resolve per recipient during preview and send."
+                  actions={
+                    <Button
+                      size="small"
+                      icon={<RobotOutlined />}
+                      disabled={!aiConfigured || !workflow.record}
+                      loading={generating}
+                      onClick={handleGenerate}
+                    >
+                      {hasDraft ? 'Regenerate' : 'Generate'}
+                    </Button>
+                  }
+                  onChange={(body) => onWorkflowChange({ ...workflow, body })}
+                />
+              </div>
+              <PersonalNotePrompts
+                client={selectedClient}
+                objective={workflow.objective}
+                recipients={workflow.recipients}
+                onChange={updateRecipient}
+              />
+            </div>
+          ) : null}
+
+          {workflow.step === 4 ? (
+            <div className="outreach-flow-stack">
+              <Typography.Title level={4}>Review each email before sending</Typography.Title>
+              <div className="outreach-preview-layout">
+                <div className="outreach-preview-list">
+                  {workflow.recipients.map((recipient, index) => (
+                    <button
+                      key={recipientKey(recipient)}
+                      type="button"
+                      className={workflow.selectedPreviewIndex === index ? 'active' : ''}
+                      onClick={() => onWorkflowChange({ ...workflow, selectedPreviewIndex: index })}
+                    >
+                      {recipient.name || recipient.email}
+                    </button>
+                  ))}
+                </div>
+                <EmailPreview
+                  to={selectedRecipient?.email || selectedRecipient?.name || 'Recipient'}
+                  from={sendFrom ?? 'Connected email'}
+                  subject={assembleCampaignBody(workflow.subject, selectedRecipient)}
+                  body={assembleCampaignBody(workflow.body, selectedRecipient)}
+                />
+              </div>
+              <div className="outreach-send-controls">
+                <Typography.Text strong>Schedule</Typography.Text>
+                <Segmented
+                  value={workflow.sendTiming}
+                  options={[
+                    { label: 'Send now', value: 'now' },
+                    { label: 'Schedule for later', value: 'later' },
+                  ]}
+                  onChange={(value) =>
+                    onWorkflowChange({
+                      ...workflow,
+                      sendTiming: value as OutreachWorkflowState['sendTiming'],
+                    })
+                  }
+                />
+                {workflow.sendTiming === 'later' ? (
+                  <Input
+                    type="datetime-local"
+                    value={workflow.scheduledFor}
+                    onChange={(event) =>
+                      onWorkflowChange({ ...workflow, scheduledFor: event.target.value })
+                    }
+                  />
+                ) : null}
+              </div>
+              {!emailConnected ? (
+                <div className="outreach-send-warning">
+                  Connect your email in Settings before sending campaigns from Capiro.
+                </div>
+              ) : null}
+              {missingEmailRecipients.length ? (
+                <div className="outreach-send-warning">
+                  Every recipient must have an email address before sending. Missing:{' '}
+                  {missingEmailRecipients
+                    .map((recipient) => recipient.name || recipient.office || 'Unnamed recipient')
+                    .join(', ')}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {workflow.step === 5 ? (
+            <div className="outreach-flow-stack outreach-campaign-confirmation">
+              <CheckOutlined />
+              <Typography.Title level={4}>Campaign sent</Typography.Title>
+              <Typography.Paragraph type="secondary">
+                Sent to {workflow.sentRecipientCount || workflow.recipients.length} recipients. Open
+                rate and reply tracking are active in the sent list.
+              </Typography.Paragraph>
+              <Button type="primary" onClick={onReturnToLanding}>
+                Return to Outreach
+              </Button>
+            </div>
+          ) : null}
+        </main>
+      </div>
+      {workflow.step < 5 ? (
+        <WorkflowFooter
+          step={workflow.step}
+          total={5}
+          saving={saving}
+          nextLabel={workflow.step === 4 ? 'Send campaign' : 'Continue'}
+          nextLoading={sending}
+          nextDisabled={
+            (workflow.step === 1 &&
+              (!workflow.clientId ||
+                !workflow.campaignName.trim() ||
+                !workflow.objective.trim())) ||
+            (workflow.step === 2 && workflow.recipients.length < 1) ||
+            (workflow.step === 3 && (!workflow.subject.trim() || !workflow.body.trim())) ||
+            (workflow.step === 4 &&
+              (!emailConnected ||
+                missingEmailRecipients.length > 0 ||
+                (workflow.sendTiming === 'later' && !workflow.scheduledFor)))
+          }
+          onBack={() => onWorkflowChange({ ...workflow, step: Math.max(1, workflow.step - 1) })}
+          onNext={() => {
+            if (workflow.step === 4) {
+              onSend();
+              return;
+            }
+            void onSaveStep(workflow, workflow.step + 1);
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function LegacyCampaignWorkflow({
   clients,
   workflow,
   directoryRows,
@@ -2516,6 +3015,156 @@ function WorkflowFooter({
   );
 }
 
+function CampaignSuggestionRow({
+  entry,
+  selected,
+  relevanceReason,
+  onToggle,
+}: {
+  entry: DirectoryEntry;
+  selected: boolean;
+  relevanceReason: string;
+  onToggle: (checked: boolean) => void;
+}) {
+  return (
+    <div className="outreach-suggestion-row">
+      <Checkbox checked={selected} onChange={(event) => onToggle(event.target.checked)} />
+      <span>{initials(entry.memberName)}</span>
+      <div>
+        <strong>{entry.fullName}</strong>
+        <small>{[entry.office, entry.committees[0]].filter(Boolean).join(' | ')}</small>
+        <em>{relevanceReason}</em>
+      </div>
+    </div>
+  );
+}
+
+function SelectedRecipientNotesPanel({
+  recipients,
+  onRemove,
+}: {
+  recipients: OutreachRecipient[];
+  onRemove: (recipient: OutreachRecipient) => void;
+}) {
+  const { message } = App.useApp();
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({});
+
+  const createNote = useMutation({
+    mutationFn: async ({ recipient, body }: { recipient: OutreachRecipient; body: string }) =>
+      (
+        await api.post<DirectoryContactNote>(
+          `/api/directory/contacts/${encodeURIComponent(recipient.directoryContactId ?? '')}/notes`,
+          {
+            body,
+            directoryContactName: recipient.directoryContactName || recipient.name,
+          },
+        )
+      ).data,
+    onSuccess: async (_note, variables) => {
+      const key = recipientKey(variables.recipient);
+      setNoteDrafts((current) => ({ ...current, [key]: '' }));
+      await queryClient.invalidateQueries({
+        queryKey: ['directory-contact-notes', variables.recipient.directoryContactId],
+      });
+      message.success('Directory note added.');
+    },
+    onError: (error) => {
+      message.error((error as Error).message || 'Could not add note.');
+    },
+  });
+
+  const directoryRecipients = recipients.filter((recipient) => recipient.directoryContactId);
+
+  return (
+    <section className="outreach-selected-recipients">
+      <Typography.Text strong>Selected recipients</Typography.Text>
+      <RecipientTags recipients={recipients} onRemove={onRemove} />
+      {directoryRecipients.length ? (
+        <div className="outreach-selected-note-list">
+          {directoryRecipients.map((recipient) => {
+            const key = recipientKey(recipient);
+            const body = noteDrafts[key] ?? '';
+            return (
+              <div className="outreach-selected-note-row" key={key}>
+                <div>
+                  <Typography.Text strong>{recipient.name || recipient.email}</Typography.Text>
+                  <Typography.Text type="secondary">
+                    Notes added here are saved to the same Directory profile.
+                  </Typography.Text>
+                </div>
+                <Input.TextArea
+                  value={body}
+                  placeholder="Add a tenant-visible note"
+                  autoSize={{ minRows: 2, maxRows: 5 }}
+                  maxLength={4000}
+                  onChange={(event) =>
+                    setNoteDrafts((current) => ({ ...current, [key]: event.target.value }))
+                  }
+                />
+                <Button
+                  size="small"
+                  disabled={!body.trim()}
+                  loading={createNote.isPending && createNote.variables?.recipient === recipient}
+                  onClick={() => createNote.mutate({ recipient, body: body.trim() })}
+                >
+                  Add Note
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function PersonalNotePrompts({
+  client,
+  objective,
+  recipients,
+  onChange,
+}: {
+  client: Client | null;
+  objective: string;
+  recipients: OutreachRecipient[];
+  onChange: (index: number, patch: Partial<OutreachRecipient>) => void;
+}) {
+  if (!recipients.length) return null;
+  return (
+    <section className="outreach-personal-note-panel">
+      <Typography.Text strong>Personal notes</Typography.Text>
+      <Typography.Text type="secondary">
+        Optional. These notes only personalize this campaign and are separate from Directory notes.
+      </Typography.Text>
+      <div className="outreach-personal-note-list">
+        {recipients.map((recipient, index) => (
+          <div className="outreach-personal-note-row" key={recipientKey(recipient)}>
+            <span>{recipient.name || recipient.email}</span>
+            <Input
+              value={recipient.personalNote}
+              placeholder="Add a personal note..."
+              onChange={(event) => onChange(index, { personalNote: event.target.value })}
+            />
+            <Tooltip title="Suggest a note from this recipient context">
+              <Button
+                icon={<RobotOutlined />}
+                aria-label={`Suggest a personal note for ${recipient.name || recipient.email}`}
+                onClick={() =>
+                  onChange(index, {
+                    personalNote: suggestPersonalNote(recipient, objective, client),
+                  })
+                }
+              />
+            </Tooltip>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ClientRecipientRow({
   client,
   selected,
@@ -2612,25 +3261,7 @@ function DirectoryRecipientRow({
   selected: boolean;
   onAdd: (recipient: OutreachRecipient) => void;
 }) {
-  const recipient: OutreachRecipient = {
-    name: entry.fullName,
-    email: entry.email || undefined,
-    office: entry.office,
-    title: entry.title,
-    state: entry.state,
-    district: entry.district,
-    party: entry.partyName,
-    directoryContactId: entry.id,
-    directoryContactName: entry.fullName,
-    committee: entry.committees[0],
-    relevanceReason: [
-      entry.committees[0],
-      entry.focusAreas[0],
-      entry.officeLocation ? `Office: ${entry.officeLocation}` : '',
-    ]
-      .filter(Boolean)
-      .join(' | '),
-  };
+  const recipient = directoryRecipientFromEntry(entry);
 
   return (
     <button type="button" className="outreach-directory-row" onClick={() => onAdd(recipient)}>
@@ -2667,13 +3298,29 @@ function RecipientTags({
   );
 }
 
-function EmailPreview({ to, subject, body }: { to: string; subject: string; body: string }) {
+function EmailPreview({
+  to,
+  from,
+  subject,
+  body,
+}: {
+  to: string;
+  from?: string;
+  subject: string;
+  body: string;
+}) {
   return (
     <div className="outreach-email-preview">
       <div>
         <strong>To</strong>
         <span>{to || 'Recipients'}</span>
       </div>
+      {from ? (
+        <div>
+          <strong>From</strong>
+          <span>{from}</span>
+        </div>
+      ) : null}
       <div>
         <strong>Subject</strong>
         <span>{subject || 'No subject'}</span>
@@ -2804,6 +3451,8 @@ function workflowPayload(workflow: OutreachWorkflowState): Record<string, unknow
       templateMode: workflow.templateMode,
       customTemplateName: workflow.customTemplateName || null,
       outboundTone: workflow.outboundTone,
+      sendTiming: workflow.sendTiming,
+      scheduledFor: workflow.scheduledFor || null,
     },
   };
 }
@@ -2838,6 +3487,14 @@ function hydrateWorkflowFromRecord(
     customTemplateName:
       readString(record.metadata?.customTemplateName) || current.customTemplateName,
     outboundTone: readOutboundTone(record.metadata?.outboundTone, current.outboundTone),
+    sendTiming:
+      record.metadata?.sendTiming === 'later' || record.metadata?.sendTiming === 'now'
+        ? record.metadata.sendTiming
+        : current.sendTiming,
+    scheduledFor: readString(record.metadata?.scheduledFor) || current.scheduledFor,
+    sentRecipientCount:
+      Number(record.stats?.recipientsSent ?? record.recipientCount ?? current.sentRecipientCount) ||
+      current.sentRecipientCount,
   };
 }
 
@@ -2921,6 +3578,26 @@ function outboundRecipientFromContact(contact: OutboundContactRecord): OutreachR
   };
 }
 
+function directoryRecipientFromEntry(
+  entry: DirectoryEntry,
+  relevanceReason = defaultDirectoryRelevanceReason(entry),
+): OutreachRecipient {
+  return {
+    name: entry.fullName,
+    email: textOrUndefined(entry.email),
+    office: textOrUndefined(entry.office),
+    title: textOrUndefined(entry.title),
+    state: textOrUndefined(entry.state),
+    district: textOrUndefined(entry.district),
+    party: textOrUndefined(entry.partyName),
+    directoryContactId: entry.id,
+    directoryContactName: entry.fullName,
+    committee: textOrUndefined(entry.committees[0]),
+    address: textOrUndefined(formatDirectoryMainAddress(entry)),
+    relevanceReason,
+  };
+}
+
 function addUniqueRecipient(recipients: OutreachRecipient[], recipient: OutreachRecipient) {
   const key = recipientKey(recipient);
   if (recipients.some((row) => recipientKey(row) === key)) return recipients;
@@ -2994,6 +3671,7 @@ function assembleCampaignBody(
     .replaceAll('{committee}', recipient.committee || '')
     .replaceAll('{member_priority}', recipient.relevanceReason || '')
     .replaceAll('{personal_note}', recipient.personalNote || '')
+    .replaceAll('{address}', recipient.address || recipient.meetingLocation || '')
     .replaceAll('{attendee_names}', recipient.attendeeNames || recipient.name || '')
     .replaceAll('{attendee_emails}', recipient.attendeeEmails || recipient.email || '')
     .replaceAll('{prep_summary}', recipient.prepSummary || '')
@@ -3039,6 +3717,91 @@ function objectiveSearchSeed(client: Client): string {
   const intake = client.intakeData ?? {};
   const portfolio = Array.isArray(intake.portfolio) ? intake.portfolio[0] : '';
   return [portfolio, intake.requestType, intake.sector, client.name].filter(Boolean).join(' ');
+}
+
+function campaignDirectorySuggestionQuery(client: Client | null, objective: string): string {
+  const seed = [client ? objectiveSearchSeed(client) : '', objective].filter(Boolean).join(' ');
+  const lowered = seed.toLowerCase();
+  const committeeHints: string[] = [];
+  if (
+    /\b(ai|a\/i|ml|machine learning|digital|technology|innovation|software|data)\b/.test(lowered)
+  ) {
+    committeeHints.push('Science Space Technology');
+  }
+  if (/\b(defense|dod|military|aerospace|national security)\b/.test(lowered)) {
+    committeeHints.push('Armed Services');
+  }
+  if (/\b(health|healthcare|medical|drug|pharma|biotech)\b/.test(lowered)) {
+    committeeHints.push('Energy Commerce Health');
+  }
+  if (/\b(energy|grid|climate|nuclear|renewable)\b/.test(lowered)) {
+    committeeHints.push('Energy Natural Resources');
+  }
+  if (/\b(transport|infrastructure|aviation|rail|highway)\b/.test(lowered)) {
+    committeeHints.push('Transportation Infrastructure');
+  }
+  if (/\b(tax|finance|banking|capital|insurance)\b/.test(lowered)) {
+    committeeHints.push('Financial Services Ways Means');
+  }
+  return [...committeeHints, seed].filter(Boolean).join(' ');
+}
+
+function defaultDirectoryRelevanceReason(entry: DirectoryEntry): string {
+  return [
+    entry.committees[0],
+    entry.focusAreas[0],
+    entry.officeLocation ? `Office: ${entry.officeLocation}` : '',
+  ]
+    .filter(Boolean)
+    .join(' | ');
+}
+
+function campaignRelevanceReason(
+  entry: DirectoryEntry,
+  objective: string,
+  client: Client | null,
+): string {
+  const seed = [client ? objectiveSearchSeed(client) : '', objective].join(' ').toLowerCase();
+  const committee = entry.committees[0];
+  const focus = entry.focusAreas[0];
+  if (/\b(ai|ml|machine learning|digital|technology|innovation|software|data)\b/.test(seed)) {
+    const scienceCommittee = entry.committees.find((value) =>
+      /science|space|technology|commerce/i.test(value),
+    );
+    if (scienceCommittee) {
+      return `${scienceCommittee} aligns with the client technology or innovation objective.`;
+    }
+  }
+  if (committee && seed.includes(committee.toLowerCase().split(/\s+/)[0] ?? '')) {
+    return `${committee} appears relevant to the client portfolio and campaign objective.`;
+  }
+  if (focus) return `${focus} focus area appears relevant to the objective.`;
+  return defaultDirectoryRelevanceReason(entry) || 'Relevant Directory profile for this campaign.';
+}
+
+function formatDirectoryMainAddress(entry: DirectoryEntry): string {
+  const address = entry.addresses.find((row) => row.isMain) ?? entry.addresses[0];
+  if (!address) return entry.officeLocation;
+  return [
+    address.address1,
+    address.address2,
+    [address.city, address.state, address.zip].filter(Boolean).join(', '),
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
+function suggestPersonalNote(
+  recipient: OutreachRecipient,
+  objective: string,
+  client: Client | null,
+): string {
+  const clientName = client?.name ?? 'our client';
+  const committee = recipient.committee ? `your work on ${recipient.committee}` : 'your office';
+  const objectiveText = objective.trim()
+    ? ` around ${objective.trim().replace(/\s+/g, ' ').slice(0, 140)}`
+    : '';
+  return `Given ${committee}, ${clientName} would value your perspective${objectiveText}.`;
 }
 
 function readString(value: unknown): string {

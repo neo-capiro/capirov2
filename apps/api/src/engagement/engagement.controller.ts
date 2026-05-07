@@ -446,6 +446,11 @@ class OutreachRecipientDto {
 
   @IsOptional()
   @IsString()
+  @Length(0, 500)
+  address?: string;
+
+  @IsOptional()
+  @IsString()
   @Length(1, 240)
   relevanceReason?: string;
 

@@ -503,7 +503,7 @@ export class EngagementAiService {
   private buildOutreachPrompt(input: OutreachDraftInput): string {
     const workflowGuidance = {
       campaign:
-        'Draft a campaign email for many congressional recipients. Keep {district}, {committee}, {member_priority}, and {personal_note} placeholders when useful. Do not invent recipient-specific facts not present in the supplied recipient context.',
+        'Draft a campaign email for many congressional recipients. Keep {committee}, {personal_note}, and {address} placeholders when useful, and preserve {district} or {member_priority} if already present. Do not invent recipient-specific facts not present in the supplied recipient context.',
       follow_up:
         'Draft a post-meeting follow-up email. Include a brief recap, action items, and next steps from the supplied debrief/prep/context.',
       prep: 'Draft a clean prep distribution summary suitable for a colleague or client before the meeting. Include logistics, context, talking points, and participants from the approved prep.',

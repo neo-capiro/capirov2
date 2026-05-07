@@ -161,6 +161,7 @@ export interface OutreachRecipientInput {
   directoryContactId?: string;
   directoryContactName?: string;
   committee?: string;
+  address?: string;
   relevanceReason?: string;
   personalNote?: string;
   meetingId?: string;
@@ -3106,6 +3107,7 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
       const directoryContactId = readString(record.directoryContactId);
       const directoryContactName = readString(record.directoryContactName);
       const committee = readString(record.committee);
+      const address = readString(record.address);
       const relevanceReason = readString(record.relevanceReason);
       const personalNote = readString(record.personalNote);
       const meetingId = readString(record.meetingId);
@@ -3130,6 +3132,7 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
           ? { directoryContactName: directoryContactName.slice(0, 240) }
           : {}),
         ...(committee ? { committee: committee.slice(0, 160) } : {}),
+        ...(address ? { address: address.slice(0, 500) } : {}),
         ...(relevanceReason ? { relevanceReason: relevanceReason.slice(0, 240) } : {}),
         ...(personalNote ? { personalNote: personalNote.slice(0, 500) } : {}),
         ...(meetingId ? { meetingId: meetingId.slice(0, 80) } : {}),
@@ -3201,6 +3204,7 @@ function assembleCampaignBody(
     .replaceAll('{committee}', recipient.committee || '')
     .replaceAll('{member_priority}', recipient.relevanceReason || '')
     .replaceAll('{personal_note}', recipient.personalNote || '')
+    .replaceAll('{address}', recipient.address || recipient.meetingLocation || '')
     .replaceAll('{attendee_names}', recipient.attendeeNames || recipient.name || '')
     .replaceAll('{attendee_emails}', recipient.attendeeEmails || recipient.email || '')
     .replaceAll('{prep_summary}', recipient.prepSummary || '')
