@@ -227,7 +227,6 @@ interface TemplateOption {
 const TYPE_FILTERS: Array<{ value: OutreachType; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'campaign', label: 'Campaigns' },
-  { value: 'outbound_campaign', label: 'Outbound Campaigns' },
   { value: 'follow_up', label: 'Follow-ups' },
   { value: 'prep', label: 'Prep' },
 ];
@@ -793,7 +792,7 @@ export function OutreachView({
     );
   }
 
-  const rows = outreach.data ?? [];
+  const rows = (outreach.data ?? []).filter((record) => record.type !== 'outbound_campaign');
   const drafts = rows.filter((record) => record.status === 'draft');
   const sent = rows.filter((record) => record.status !== 'draft');
 
@@ -909,7 +908,6 @@ function OutreachTypeSelector({
             title="Campaign"
             description="Personalized mass outreach to multiple congressional offices or contacts on behalf of a client."
             detail="Sends from Capiro using your connected email. Replies go to your inbox."
-            disabled
             onClick={() => onSelect('campaign')}
           />
           <OutreachTypeCard
@@ -917,7 +915,6 @@ function OutreachTypeSelector({
             title="Meeting follow-up"
             description="Post-meeting email to participants, client, or congressional office. Clio drafts from your debrief."
             detail="Opens in your connected email. You send from your own inbox."
-            disabled
             onClick={() => onSelect('follow_up')}
           />
           <OutreachTypeCard
@@ -925,15 +922,7 @@ function OutreachTypeSelector({
             title="Prep distribution"
             description="Share meeting prep notes with a colleague or client ahead of an upcoming meeting."
             detail="Opens in your connected email. You send from your own inbox."
-            disabled
             onClick={() => onSelect('prep')}
-          />
-          <OutreachTypeCard
-            icon={<MailOutlined />}
-            title="Outbound Campaign"
-            description="Build recipient outreach from the last 7 days of synced meetings, prep, debriefs, and directory context."
-            detail="Sends from Capiro using saved templates and your connected email."
-            onClick={() => onSelect('outbound_campaign')}
           />
         </div>
       </div>
