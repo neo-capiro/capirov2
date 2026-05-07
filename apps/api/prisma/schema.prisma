@@ -357,15 +357,15 @@ model Meeting {
   createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  client      Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  connection  IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
-  attendees   MeetingAttendee[]
-  attachments EngagementAttachment[]
-  notes       MeetingNote[]
-  debriefs    MeetingDebrief[]
-  preps       MeetingPrep[]
-  tasks       EngagementTask[]
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client          Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  connection      IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  attendees       MeetingAttendee[]
+  attachments     EngagementAttachment[]
+  notes           MeetingNote[]
+  debriefs        MeetingDebrief[]
+  preps           MeetingPrep[]
+  tasks           EngagementTask[]
   outreachRecords OutreachRecord[]
 
   @@unique([tenantId, source, externalId], map: "meetings_tenant_source_external_key")
@@ -637,6 +637,8 @@ model OutreachRecord {
   lastStep        Int       @default(1) @map("last_step")
   sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
   openedInEmailAt DateTime? @map("opened_in_email_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedByUserId String?   @map("deleted_by_user_id") @db.Uuid
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -648,6 +650,7 @@ model OutreachRecord {
   @@index([tenantId, type, status, createdAt], map: "outreach_records_tenant_type_status_created_idx")
   @@index([tenantId, clientId, createdAt], map: "outreach_records_tenant_client_created_idx")
   @@index([tenantId, meetingId], map: "outreach_records_tenant_meeting_idx")
+  @@index([tenantId, deletedAt, createdAt], map: "outreach_records_tenant_deleted_created_idx")
   @@map("outreach_records")
 }
 

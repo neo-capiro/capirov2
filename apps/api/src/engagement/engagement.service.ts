@@ -481,6 +481,7 @@ export class EngagementService {
       tx.outreachRecord.findMany({
         where: {
           tenantId: ctx.tenantId,
+          deletedAt: null,
           ...(query.clientId ? { clientId: query.clientId } : {}),
           ...(type ? { type } : {}),
           ...(createdAt ? { createdAt } : {}),
@@ -495,7 +496,7 @@ export class EngagementService {
   async getOutreachRecord(ctx: TenantContext, id: string) {
     const row = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.outreachRecord.findFirst({
-        where: { id, tenantId: ctx.tenantId },
+        where: { id, tenantId: ctx.tenantId, deletedAt: null },
         include: outreachInclude(),
       }),
     );
@@ -537,7 +538,7 @@ export class EngagementService {
   async updateOutreachRecord(ctx: TenantContext, id: string, input: UpdateOutreachRecordInput) {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const existing = await tx.outreachRecord.findFirst({
-        where: { id, tenantId: ctx.tenantId },
+        where: { id, tenantId: ctx.tenantId, deletedAt: null },
       });
       if (!existing) throw new NotFoundException('Outreach record not found');
       if (existing.status !== 'draft' && input.status === 'draft') {
@@ -763,6 +764,30 @@ export class EngagementService {
     }
 
     return updated;
+  }
+
+  async deleteOutreachRecord(ctx: TenantContext, id: string) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const existing = await tx.outreachRecord.findFirst({
+        where: { id, tenantId: ctx.tenantId, deletedAt: null },
+      });
+      if (!existing) throw new NotFoundException('Outreach record not found');
+      const deletedAt = new Date();
+
+      return tx.outreachRecord.update({
+        where: { id },
+        data: {
+          deletedAt,
+          deletedByUserId: ctx.userId,
+          metadata: mergeJsonObjects(existing.metadata, {
+            deletedFromCapiro: true,
+            deletedAt: deletedAt.toISOString(),
+            deletedByUserId: ctx.userId,
+          }) as Prisma.InputJsonValue,
+        },
+        include: outreachInclude(),
+      });
+    });
   }
 
   listTasks(ctx: TenantContext, query: { clientId?: string }) {
@@ -1340,6 +1365,39 @@ export class EngagementService {
           keyVersion: encrypted.keyVersion,
           confidential: input.confidential ?? true,
           accessLevel: input.accessLevel ?? 'tenant_members',
+        },
+        select: debriefMetadataSelect(),
+      });
+    });
+  }
+
+  async updateMeetingDebrief(
+    ctx: TenantContext,
+    meetingId: string,
+    debriefId: string,
+    input: { body: string; confidential?: boolean; accessLevel?: string },
+  ) {
+    const encrypted = this.notesCrypto.encrypt(input.body);
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await this.ensureOwnMeeting(tx, ctx, meetingId);
+      const debrief = await tx.meetingDebrief.findFirst({
+        where: { id: debriefId, tenantId: ctx.tenantId, meetingId },
+        select: { id: true, authorUserId: true },
+      });
+      if (!debrief) throw new NotFoundException('Meeting debrief not found');
+      if (!canEditEncryptedEntry(ctx, debrief)) {
+        throw new ForbiddenException('You can only edit your own meeting debriefs');
+      }
+
+      return tx.meetingDebrief.update({
+        where: { id: debriefId },
+        data: {
+          bodyCiphertext: encrypted.bodyCiphertext,
+          iv: encrypted.iv,
+          authTag: encrypted.authTag,
+          keyVersion: encrypted.keyVersion,
+          ...(input.confidential === undefined ? {} : { confidential: input.confidential }),
+          ...(input.accessLevel === undefined ? {} : { accessLevel: input.accessLevel }),
         },
         select: debriefMetadataSelect(),
       });

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   CheckOutlined,
+  DeleteOutlined,
   FileTextOutlined,
   MailOutlined,
   PlusOutlined,
@@ -27,13 +28,41 @@ type PromptTemplate =
 type CampaignRecipientTab = 'directory' | 'clients';
 
 const PROMPT_TEMPLATES: Array<{ value: PromptTemplate; label: string; hint: string }> = [
-  { value: 'custom', label: 'Custom (no template)', hint: 'Free-form draft based on objective and context.' },
-  { value: 'thank_you', label: 'Thank you', hint: 'Warm thank-you note acknowledging support or a recent action.' },
-  { value: 'follow_up', label: 'Follow-up', hint: 'Polite follow-up referencing a prior touchpoint and a clear ask.' },
-  { value: 'memo', label: 'Memo / position paper', hint: 'Concise position memo with background, ask, and supporting points.' },
-  { value: 'introduction', label: 'Introduction', hint: 'Introductory outreach explaining the client and reason for engaging.' },
-  { value: 'meeting_request', label: 'Meeting request', hint: 'Request a meeting; offer scheduling options and brief context.' },
-  { value: 'status_update', label: 'Status update', hint: 'Share a brief progress or activity update on the client matter.' },
+  {
+    value: 'custom',
+    label: 'Custom (no template)',
+    hint: 'Free-form draft based on objective and context.',
+  },
+  {
+    value: 'thank_you',
+    label: 'Thank you',
+    hint: 'Warm thank-you note acknowledging support or a recent action.',
+  },
+  {
+    value: 'follow_up',
+    label: 'Follow-up',
+    hint: 'Polite follow-up referencing a prior touchpoint and a clear ask.',
+  },
+  {
+    value: 'memo',
+    label: 'Memo / position paper',
+    hint: 'Concise position memo with background, ask, and supporting points.',
+  },
+  {
+    value: 'introduction',
+    label: 'Introduction',
+    hint: 'Introductory outreach explaining the client and reason for engaging.',
+  },
+  {
+    value: 'meeting_request',
+    label: 'Meeting request',
+    hint: 'Request a meeting; offer scheduling options and brief context.',
+  },
+  {
+    value: 'status_update',
+    label: 'Status update',
+    hint: 'Share a brief progress or activity update on the client matter.',
+  },
 ];
 
 interface OutreachRecipient {
@@ -315,6 +344,34 @@ export function OutreachView({
     onError: (err) => message.error(errorMessage(err)),
   });
 
+  const deleteRecord = useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/api/engagement/outreach/${id}`)).data,
+    onSuccess: (_result, id) => {
+      message.success('Outreach removed from Capiro');
+      if (readonlyRecord?.id === id) {
+        setReadonlyRecord(null);
+        setMode('landing');
+      }
+      if (workflow.record?.id === id) {
+        setWorkflow({ ...EMPTY_WORKFLOW, clientId: selectedClientId });
+        setMode('landing');
+      }
+      qc.invalidateQueries({ queryKey: ['engagement-outreach'] });
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  const confirmDeleteRecord = (record: OutreachRecord) => {
+    modal.confirm({
+      title: 'Delete outreach from Capiro?',
+      content:
+        'This removes the draft or sent record from Capiro only. It will not delete, recall, or change anything in Outlook.',
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      onOk: () => deleteRecord.mutateAsync(record.id),
+    });
+  };
+
   const saveCurrent = async (patch: Partial<OutreachWorkflowState>, step?: number) => {
     const next = { ...workflow, ...patch, step: step ?? workflow.step };
     setWorkflow(next);
@@ -369,7 +426,8 @@ export function OutreachView({
   const cancelWorkflow = () => {
     modal.confirm({
       title: 'Cancel outreach workflow?',
-      content: 'Cancelling returns to Outreach. Unsaved field edits on this step will be discarded.',
+      content:
+        'Cancelling returns to Outreach. Unsaved field edits on this step will be discarded.',
       okText: 'Cancel workflow',
       cancelText: 'Keep editing',
       onOk: () => {
@@ -385,7 +443,14 @@ export function OutreachView({
   }
 
   if (mode === 'readonly' && readonlyRecord) {
-    return <OutreachReadonly record={readonlyRecord} onClose={() => setMode('landing')} />;
+    return (
+      <OutreachReadonly
+        record={readonlyRecord}
+        deleting={deleteRecord.isPending && deleteRecord.variables === readonlyRecord.id}
+        onClose={() => setMode('landing')}
+        onDelete={confirmDeleteRecord}
+      />
+    );
   }
 
   if (mode === 'campaign') {
@@ -523,7 +588,13 @@ export function OutreachView({
               <Typography.Title level={5}>Drafts</Typography.Title>
               <div className="outreach-card-list">
                 {drafts.map((record) => (
-                  <OutreachRecordCard key={record.id} record={record} onClick={openDraft} />
+                  <OutreachRecordCard
+                    key={record.id}
+                    record={record}
+                    deleting={deleteRecord.isPending && deleteRecord.variables === record.id}
+                    onClick={openDraft}
+                    onDelete={confirmDeleteRecord}
+                  />
                 ))}
               </div>
             </section>
@@ -538,7 +609,13 @@ export function OutreachView({
           {sent.length ? (
             <div className="outreach-card-list">
               {sent.map((record) => (
-                <OutreachRecordCard key={record.id} record={record} onClick={openReadonly} />
+                <OutreachRecordCard
+                  key={record.id}
+                  record={record}
+                  deleting={deleteRecord.isPending && deleteRecord.variables === record.id}
+                  onClick={openReadonly}
+                  onDelete={confirmDeleteRecord}
+                />
               ))}
             </div>
           ) : (
@@ -783,15 +860,14 @@ function CampaignWorkflow({
                     <div className="outreach-context-note">
                       <RobotOutlined />
                       <span>
-                        Clio will draft using saved notes and debriefs from "{selectedPastMeeting.subject}" alongside the campaign objective.
+                        Clio will draft using saved notes and debriefs from "
+                        {selectedPastMeeting.subject}" alongside the campaign objective.
                       </span>
                     </div>
                   ) : null}
                 </>
               ) : (
-                <Empty
-                  description="Add a client before creating a campaign."
-                >
+                <Empty description="Add a client before creating a campaign.">
                   <Button href="/clients">Go to Clients</Button>
                 </Empty>
               )}
@@ -858,7 +934,8 @@ function CampaignWorkflow({
                   <div className="outreach-context-note">
                     <RobotOutlined />
                     <span>
-                      Add clients from your roster as recipients. Their primary contact is used when available.
+                      Add clients from your roster as recipients. Their primary contact is used when
+                      available.
                     </span>
                   </div>
                   <div className="outreach-recipient-results">
@@ -958,9 +1035,7 @@ function CampaignWorkflow({
                       key={recipientKey(recipient)}
                       type="button"
                       className={workflow.selectedPreviewIndex === index ? 'active' : ''}
-                      onClick={() =>
-                        onWorkflowChange({ ...workflow, selectedPreviewIndex: index })
-                      }
+                      onClick={() => onWorkflowChange({ ...workflow, selectedPreviewIndex: index })}
                     >
                       {recipient.name || recipient.email}
                     </button>
@@ -973,8 +1048,8 @@ function CampaignWorkflow({
                 />
               </div>
               <div className="outreach-send-warning">
-                Campaigns send from Capiro using your connected Microsoft 365 inbox. Every
-                recipient must have an email address.
+                Campaigns send from Capiro using your connected Microsoft 365 inbox. Every recipient
+                must have an email address.
               </div>
             </div>
           ) : null}
@@ -1006,7 +1081,9 @@ function CampaignWorkflow({
   );
 }
 
-function FollowUpWorkflow(props: SharedWorkflowProps & { meetings: OutreachMeeting[]; loading: boolean }) {
+function FollowUpWorkflow(
+  props: SharedWorkflowProps & { meetings: OutreachMeeting[]; loading: boolean },
+) {
   return (
     <SmallGroupWorkflow
       {...props}
@@ -1016,7 +1093,9 @@ function FollowUpWorkflow(props: SharedWorkflowProps & { meetings: OutreachMeeti
       meetings={props.meetings}
       loading={props.loading}
       selectHeading="Which meeting is this follow-up for?"
-      recipientsHeading={(meeting) => `${meeting.subject} - ${formatOptionalDate(meeting.startsAt)}`}
+      recipientsHeading={(meeting) =>
+        `${meeting.subject} - ${formatOptionalDate(meeting.startsAt)}`
+      }
       draftHeading="Review Clio's follow-up draft"
       readyHeading="Your draft is ready"
       noMeetingsText="No past meetings found. Meetings appear here after they have taken place."
@@ -1167,7 +1246,11 @@ function SmallGroupWorkflow({
                         <span />
                         <strong>{meeting.subject}</strong>
                         <small>
-                          {[formatDateTime(meeting.startsAt), meeting.location, meeting.client?.name]
+                          {[
+                            formatDateTime(meeting.startsAt),
+                            meeting.location,
+                            meeting.client?.name,
+                          ]
                             .filter(Boolean)
                             .join(' | ')}
                           {disabled ? ` | ${disabledReason(meeting)}` : ''}
@@ -1219,7 +1302,9 @@ function SmallGroupWorkflow({
             <div className="outreach-flow-stack">
               <Typography.Title level={4}>{readyHeading}</Typography.Title>
               <EmailPreview
-                to={workflow.recipients.map((recipient) => recipient.email || recipient.name).join(', ')}
+                to={workflow.recipients
+                  .map((recipient) => recipient.email || recipient.name)
+                  .join(', ')}
                 subject={workflow.subject}
                 body={workflow.body}
               />
@@ -1236,7 +1321,13 @@ function SmallGroupWorkflow({
         step={workflow.step}
         total={total}
         saving={saving}
-        nextLabel={workflow.step === total ? 'Open in connected email' : workflow.step === 2 ? 'Review draft' : 'Continue'}
+        nextLabel={
+          workflow.step === total
+            ? 'Open in connected email'
+            : workflow.step === 2
+              ? 'Review draft'
+              : 'Continue'
+        }
         nextLoading={opening}
         nextDisabled={
           (workflow.step === 1 && !workflow.meetingId) ||
@@ -1365,7 +1456,11 @@ function DraftStep({
       <div className="outreach-editor">
         <div className="outreach-editor-toolbar">
           {['{district}', '{committee}', '{member_priority}', '{personal_note}'].map((chip) => (
-            <button key={chip} type="button" onClick={() => onBody(`${body}${body ? '\n' : ''}${chip}`)}>
+            <button
+              key={chip}
+              type="button"
+              onClick={() => onBody(`${body}${body ? '\n' : ''}${chip}`)}
+            >
               {chip}
             </button>
           ))}
@@ -1394,28 +1489,36 @@ function DraftStep({
   );
 }
 
-function WorkflowHeader({ title, onCancel }: { title: string; onCancel: () => void }) {
+function WorkflowHeader({
+  title,
+  onCancel,
+  children,
+}: {
+  title: string;
+  onCancel: () => void;
+  children?: ReactNode;
+}) {
   return (
     <div className="outreach-workflow-head">
       <Typography.Title level={3}>{title}</Typography.Title>
-      <Button onClick={onCancel}>Cancel</Button>
+      <Space>
+        {children}
+        <Button onClick={onCancel}>Cancel</Button>
+      </Space>
     </div>
   );
 }
 
-function WorkflowSteps({
-  steps,
-  current,
-}: {
-  steps: Array<[string, string]>;
-  current: number;
-}) {
+function WorkflowSteps({ steps, current }: { steps: Array<[string, string]>; current: number }) {
   return (
     <aside className="outreach-steps">
       {steps.map(([title, description], index) => {
         const step = index + 1;
         return (
-          <div className={step === current ? 'active' : step < current ? 'complete' : ''} key={title}>
+          <div
+            className={step === current ? 'active' : step < current ? 'complete' : ''}
+            key={title}
+          >
             <span>{step < current ? <CheckOutlined /> : step}</span>
             <strong>{title}</strong>
             <small>{description}</small>
@@ -1450,11 +1553,18 @@ function WorkflowFooter({
       <Button disabled={step === 1 || saving} onClick={onBack}>
         Back
       </Button>
-      <span>Step {step} of {total}</span>
+      <span>
+        Step {step} of {total}
+      </span>
       <div className="outreach-progress">
         <i style={{ width: `${(step / total) * 100}%` }} />
       </div>
-      <Button type="primary" loading={saving || nextLoading} disabled={nextDisabled} onClick={onNext}>
+      <Button
+        type="primary"
+        loading={saving || nextLoading}
+        disabled={nextDisabled}
+        onClick={onNext}
+      >
         {nextLabel}
       </Button>
     </div>
@@ -1587,18 +1697,35 @@ function EmailPreview({ to, subject, body }: { to: string; subject: string; body
 
 function OutreachRecordCard({
   record,
+  deleting,
   onClick,
+  onDelete,
 }: {
   record: OutreachRecord;
+  deleting: boolean;
   onClick: (record: OutreachRecord) => void;
+  onDelete: (record: OutreachRecord) => void;
 }) {
   return (
-    <button type="button" className="outreach-record-card" onClick={() => onClick(record)}>
+    <article
+      className="outreach-record-card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onClick(record)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') onClick(record);
+      }}
+    >
       <Tag>{WORKFLOW_LABELS[record.type]}</Tag>
       <div>
         <strong>{record.title}</strong>
         <span>
-          {[record.client?.name, record.meeting?.subject, `${record.recipientCount} recipients`, formatOptionalDate(record.sentAt ?? record.openedInEmailAt ?? record.createdAt)]
+          {[
+            record.client?.name,
+            record.meeting?.subject,
+            `${record.recipientCount} recipients`,
+            formatOptionalDate(record.sentAt ?? record.openedInEmailAt ?? record.createdAt),
+          ]
             .filter(Boolean)
             .join(' | ')}
         </span>
@@ -1606,16 +1733,51 @@ function OutreachRecordCard({
       </div>
       <aside>
         <span>{statusLabel(record)}</span>
-        <time>{formatOptionalDate(record.sentAt ?? record.openedInEmailAt ?? record.createdAt)}</time>
+        <time>
+          {formatOptionalDate(record.sentAt ?? record.openedInEmailAt ?? record.createdAt)}
+        </time>
+        <Button
+          danger
+          size="small"
+          type="text"
+          icon={<DeleteOutlined />}
+          loading={deleting}
+          aria-label={`Delete ${record.title} from Capiro`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onDelete(record);
+          }}
+        >
+          Delete
+        </Button>
       </aside>
-    </button>
+    </article>
   );
 }
 
-function OutreachReadonly({ record, onClose }: { record: OutreachRecord; onClose: () => void }) {
+function OutreachReadonly({
+  record,
+  deleting,
+  onClose,
+  onDelete,
+}: {
+  record: OutreachRecord;
+  deleting: boolean;
+  onClose: () => void;
+  onDelete: (record: OutreachRecord) => void;
+}) {
   return (
     <div className="outreach-workflow">
-      <WorkflowHeader title={record.title} onCancel={onClose} />
+      <WorkflowHeader title={record.title} onCancel={onClose}>
+        <Button
+          danger
+          icon={<DeleteOutlined />}
+          loading={deleting}
+          onClick={() => onDelete(record)}
+        >
+          Delete
+        </Button>
+      </WorkflowHeader>
       <div className="outreach-readonly">
         <Tag>{WORKFLOW_LABELS[record.type]}</Tag>
         <Typography.Text type="secondary">{recordStats(record)}</Typography.Text>
@@ -1743,7 +1905,9 @@ function recipientKey(recipient: OutreachRecipient): string {
 }
 
 function personalizedPreview(recipient: OutreachRecipient): string {
-  return [recipient.committee, recipient.state, recipient.relevanceReason].filter(Boolean).join(' | ');
+  return [recipient.committee, recipient.state, recipient.relevanceReason]
+    .filter(Boolean)
+    .join(' | ');
 }
 
 function assembleCampaignBody(body: string, recipient: OutreachRecipient | null): string {
@@ -1837,7 +2001,9 @@ function localDateEndIso(value: string): string {
 
 function formatOptionalDate(value?: string | null): string {
   if (!value) return '';
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(new Date(value));
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
+    new Date(value),
+  );
 }
 
 function formatDateTime(value: string): string {

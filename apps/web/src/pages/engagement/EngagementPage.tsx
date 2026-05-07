@@ -596,15 +596,26 @@ export function EngagementPage() {
     onError: (err) => message.error(errorMessage(err)),
   });
 
-  const createDebrief = useMutation({
-    mutationFn: async ({ meetingId, body }: { meetingId: string; body: string }) =>
-      (
-        await api.post(`/api/engagement/meetings/${meetingId}/debriefs`, {
-          body,
-          confidential: true,
-          accessLevel: 'tenant_members',
-        })
-      ).data,
+  const saveDebrief = useMutation({
+    mutationFn: async ({
+      meetingId,
+      debriefId,
+      body,
+    }: {
+      meetingId: string;
+      debriefId?: string;
+      body: string;
+    }) => {
+      const payload = {
+        body,
+        confidential: true,
+        accessLevel: 'tenant_members',
+      };
+      return debriefId
+        ? (await api.patch(`/api/engagement/meetings/${meetingId}/debriefs/${debriefId}`, payload))
+            .data
+        : (await api.post(`/api/engagement/meetings/${meetingId}/debriefs`, payload)).data;
+    },
     onSuccess: (_data, variables) => {
       message.success('Debrief saved');
       qc.invalidateQueries({ queryKey: ['engagement-meeting', variables.meetingId] });
@@ -854,7 +865,7 @@ export function EngagementPage() {
                       ? deleteAttachment.variables
                       : null
                   }
-                  savingDebrief={createDebrief.isPending}
+                  savingDebrief={saveDebrief.isPending}
                   generatingDebrief={generateDebriefDraft.isPending}
                   approving={approvePrep.isPending}
                   onGeneratePrep={handleGeneratePrep}
@@ -865,8 +876,8 @@ export function EngagementPage() {
                     extractAttachmentText.mutateAsync(attachment.id)
                   }
                   onRemoveAttachment={(attachmentId) => deleteAttachment.mutate(attachmentId)}
-                  onCreateDebrief={(meeting, body) =>
-                    createDebrief.mutateAsync({ meetingId: meeting.id, body })
+                  onSaveDebrief={(meeting, body, debriefId) =>
+                    saveDebrief.mutateAsync({ meetingId: meeting.id, body, debriefId })
                   }
                   onGenerateDebrief={(meeting, method, sourceText) =>
                     generateDebriefDraft.mutateAsync({
@@ -1473,7 +1484,7 @@ function MeetingDetailPanel({
   onUploadTranscript,
   onExtractAttachmentText,
   onRemoveAttachment,
-  onCreateDebrief,
+  onSaveDebrief,
   onGenerateDebrief,
   onEditPrep,
   onApprovePrep,
@@ -1500,7 +1511,7 @@ function MeetingDetailPanel({
   onUploadTranscript: (meeting: Meeting, file: File) => Promise<EngagementAttachment>;
   onExtractAttachmentText: (attachment: EngagementAttachment) => Promise<DebriefSourceExtraction>;
   onRemoveAttachment: (attachmentId: string) => void;
-  onCreateDebrief: (meeting: Meeting, body: string) => Promise<unknown>;
+  onSaveDebrief: (meeting: Meeting, body: string, debriefId?: string) => Promise<unknown>;
   onGenerateDebrief: (
     meeting: Meeting,
     method: 'upload' | 'manual' | 'voice',
@@ -1639,7 +1650,7 @@ function MeetingDetailPanel({
                   onGenerate={(method, sourceText) =>
                     onGenerateDebrief(meeting, method, sourceText)
                   }
-                  onApprove={(body) => onCreateDebrief(meeting, body)}
+                  onSave={(body, debriefId) => onSaveDebrief(meeting, body, debriefId)}
                 />
               ),
             },
@@ -1752,7 +1763,7 @@ function DebriefPanel({
   onExtract,
   onRemoveAttachment,
   onGenerate,
-  onApprove,
+  onSave,
 }: {
   meeting: Meeting;
   prep?: MeetingPrep;
@@ -1773,7 +1784,7 @@ function DebriefPanel({
     method: 'upload' | 'manual' | 'voice',
     sourceText: string,
   ) => Promise<MeetingDebriefDraft>;
-  onApprove: (body: string) => Promise<unknown>;
+  onSave: (body: string, debriefId?: string) => Promise<unknown>;
 }) {
   const { message } = App.useApp();
   const meetingHasEnded = new Date(meeting.endsAt).getTime() < Date.now();
@@ -1803,7 +1814,7 @@ function DebriefPanel({
   }, [latestDebrief?.body, meeting.id]);
 
   const hasOutput = Boolean(draft.recap || draft.actionItems.length || draft.notes);
-  const approved = Boolean(latestDebrief) && !draftDirty && !editing;
+  const saved = Boolean(latestDebrief) && !draftDirty && !editing;
 
   const uploadAndExtract = async (file: File, nextMethod: 'upload' | 'voice') => {
     setMethod(nextMethod);
@@ -1946,7 +1957,7 @@ function DebriefPanel({
         {uploadHint ? <Typography.Text type="secondary">{uploadHint}</Typography.Text> : null}
 
         <Input.TextArea
-          rows={5}
+          rows={8}
           value={sourceText}
           onChange={(event) => setSourceText(event.target.value)}
           placeholder="Capture outcomes, decisions, commitments, and next steps..."
@@ -2068,13 +2079,13 @@ function DebriefPanel({
           </Button>
           <Button
             type="primary"
-            className={approved ? 'engagement-approved-button' : undefined}
+            className={saved ? 'engagement-approved-button' : undefined}
             loading={saving}
-            disabled={saving}
+            disabled={saving || saved}
             onClick={async () => {
-              if (approved) return;
+              if (saved) return;
               try {
-                await onApprove(formatDebriefBody(draft));
+                await onSave(formatDebriefBody(draft), latestDebrief?.id);
                 setDraftDirty(false);
                 setEditing(false);
               } catch {
@@ -2082,7 +2093,7 @@ function DebriefPanel({
               }
             }}
           >
-            {approved ? 'Approved' : 'Approve'}
+            {saved ? 'Saved' : latestDebrief ? 'Save Changes' : 'Save Debrief'}
           </Button>
         </div>
       ) : null}

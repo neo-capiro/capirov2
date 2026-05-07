@@ -654,6 +654,16 @@ export class EngagementController {
     return this.service.listMeetingDebriefs(ctx, meetingId);
   }
 
+  @Patch('meetings/:id/debriefs/:debriefId')
+  updateDebrief(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') meetingId: string,
+    @Param('debriefId') debriefId: string,
+    @Body() body: CreateDebriefDto,
+  ) {
+    return this.service.updateMeetingDebrief(ctx, meetingId, debriefId, body);
+  }
+
   @Post('meetings/:id/debrief-draft')
   generateDebriefDraft(
     @CurrentTenant() ctx: TenantContext,
@@ -735,6 +745,11 @@ export class EngagementController {
   @Post('outreach/:id/send-campaign')
   sendCampaign(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.sendCampaign(ctx, id);
+  }
+
+  @Delete('outreach/:id')
+  deleteOutreachRecord(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.deleteOutreachRecord(ctx, id);
   }
 
   @Get('reports/overview')

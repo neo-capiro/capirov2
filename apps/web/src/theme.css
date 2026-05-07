@@ -3211,14 +3211,15 @@ body {
 
 .engagement-debrief-option-grid {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 
 .engagement-debrief-option-grid button {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 14px;
+  gap: 3px;
+  min-height: 58px;
+  padding: 9px 12px;
   color: #111827;
   border: 1px solid #d9e1ee;
   border-radius: 8px;
@@ -3234,11 +3235,20 @@ body {
 }
 
 .engagement-debrief-option-grid button.selected {
-  box-shadow: inset 4px 0 0 #243a73;
+  border-color: #243a73;
+  background: #f7f9fc;
+  box-shadow: inset 3px 0 0 #243a73;
+}
+
+.engagement-debrief-option-grid strong {
+  font-size: 12px;
+  line-height: 1.2;
 }
 
 .engagement-debrief-option-grid span {
   color: #667085;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .engagement-debrief-quick-form {
@@ -3419,6 +3429,13 @@ body {
 .outreach-record-card aside {
   align-items: flex-end;
   white-space: nowrap;
+}
+
+.outreach-record-card aside .ant-btn {
+  height: 28px;
+  padding-inline: 6px;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .outreach-empty {
