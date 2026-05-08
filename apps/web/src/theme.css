@@ -3371,9 +3371,13 @@ body {
   overflow: hidden;
 }
 
+.outreach-page {
+  overflow-y: auto;
+}
+
 .outreach-filter-bar {
   display: grid;
-  grid-template-columns: auto 150px auto 150px minmax(0, 1fr) auto;
+  grid-template-columns: auto 150px auto 150px minmax(0, 1fr);
   flex: 0 0 auto;
   align-items: center;
   gap: 10px;
@@ -3536,11 +3540,22 @@ body {
   padding: 28px;
 }
 
+.outreach-type-landing {
+  flex: 0 0 auto;
+  overflow: visible;
+  padding: 0;
+}
+
+.outreach-type-landing h4,
+.outreach-type-landing .ant-typography {
+  margin-bottom: 4px;
+}
+
 .outreach-type-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
-  margin-top: 22px;
+  margin-top: 18px;
 }
 
 .outreach-type-card {
@@ -4770,6 +4785,19 @@ body {
   .engagement-report-legend em {
     width: 100%;
     margin-left: 0;
+  }
+
+  .outreach-filter-bar,
+  .outreach-type-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .outreach-type-pills {
+    justify-content: flex-start;
+  }
+
+  .outreach-type-card {
+    min-height: 0;
   }
 }
 
