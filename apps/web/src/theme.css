@@ -3814,12 +3814,46 @@ body {
   white-space: nowrap;
 }
 
+.outreach-row-action {
+  display: inline-grid;
+  min-width: 68px;
+  min-height: 32px;
+  place-items: center;
+  padding: 0 12px;
+  color: #243a73;
+  border: 1px solid #c7d7fe;
+  border-radius: 999px;
+  background: #eef3ff;
+  font-size: 13px;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.outreach-row-action.is-selected {
+  color: #046c4e;
+  border-color: #b7e4d3;
+  background: #ecfdf5;
+}
+
 .outreach-directory-search-trigger,
-.outreach-directory-modal-tools,
-.outreach-manual-email {
+.outreach-directory-modal-tools {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
+}
+
+.outreach-manual-email {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.outreach-manual-email .ant-input {
+  flex: 1;
+}
+
+.outreach-manual-email .ant-btn {
+  min-width: 76px;
 }
 
 .outreach-directory-modal {
@@ -3827,14 +3861,38 @@ body {
   gap: 14px;
 }
 
-.outreach-template-buttons,
+.outreach-template-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.outreach-template-button.ant-btn {
+  display: grid;
+  height: auto;
+  min-height: 76px;
+  align-content: start;
+  gap: 4px;
+  padding: 12px;
+  text-align: left;
+  white-space: normal;
+}
+
+.outreach-template-button small {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  opacity: 0.78;
+}
+
 .outreach-dynamic-fields-panel > div {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.outreach-campaign-clio-prompt .ant-btn-primary {
+.outreach-campaign-clio-prompt > .ant-btn-primary {
   justify-self: end;
 }
 

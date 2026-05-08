@@ -336,6 +336,7 @@ const outreachPromptTemplates = [
   'thank_you',
   'follow_up',
   'memo',
+  'post_meeting_memo',
   'introduction',
   'meeting_request',
   'status_update',
@@ -413,6 +414,11 @@ class OutreachRecipientDto {
   @IsString()
   @Length(1, 160)
   title?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  chamber?: string;
 
   @IsOptional()
   @IsString()

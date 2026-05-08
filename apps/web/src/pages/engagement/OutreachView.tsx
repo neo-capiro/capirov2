@@ -39,6 +39,7 @@ type PromptTemplate =
   | 'thank_you'
   | 'follow_up'
   | 'memo'
+  | 'post_meeting_memo'
   | 'introduction'
   | 'meeting_request'
   | 'status_update';
@@ -66,6 +67,11 @@ const PROMPT_TEMPLATES: Array<{ value: PromptTemplate; label: string; hint: stri
     hint: 'Concise position memo with background, ask, and supporting points.',
   },
   {
+    value: 'post_meeting_memo',
+    label: 'Post Meeting Memo',
+    hint: 'Internal post-meeting memo built from client, meeting, debrief, and directory context.',
+  },
+  {
     value: 'introduction',
     label: 'Introduction',
     hint: 'Introductory outreach explaining the client and reason for engaging.',
@@ -87,6 +93,7 @@ interface OutreachRecipient {
   email?: string;
   office?: string;
   title?: string;
+  chamber?: string;
   state?: string;
   district?: string;
   party?: string;
@@ -300,12 +307,42 @@ const OUTBOUND_VARIABLE_DESCRIPTIONS: Record<(typeof OUTBOUND_VARIABLES)[number]
 const CAMPAIGN_DYNAMIC_FIELDS = ['{district}', '{committee}', '{personal_note}'] as const;
 type CampaignDynamicField = (typeof CAMPAIGN_DYNAMIC_FIELDS)[number];
 
-const CAMPAIGN_TEMPLATE_OPTIONS = [
-  'Meeting request',
-  'Policy update',
-  'Thank you',
-  'Intro note',
-] as const;
+const CAMPAIGN_TEMPLATE_OPTIONS: Array<{
+  value: PromptTemplate;
+  label: string;
+  description: string;
+  disabled?: boolean;
+}> = [
+  {
+    value: 'post_meeting_memo',
+    label: 'Post Meeting Memo',
+    description: 'Internal memo from meeting, debrief, client, and directory context.',
+  },
+  {
+    value: 'meeting_request',
+    label: 'Meeting request',
+    description: 'Short request for a meeting with a clear ask.',
+    disabled: true,
+  },
+  {
+    value: 'status_update',
+    label: 'Policy update',
+    description: 'Brief update on policy or program activity.',
+    disabled: true,
+  },
+  {
+    value: 'thank_you',
+    label: 'Thank you',
+    description: 'Warm thank-you note after a touchpoint.',
+    disabled: true,
+  },
+  {
+    value: 'introduction',
+    label: 'Intro note',
+    description: 'Introductory outreach on behalf of a client.',
+    disabled: true,
+  },
+];
 
 const OUTBOUND_TONES: Array<{
   value: OutreachWorkflowState['outboundTone'];
@@ -719,6 +756,7 @@ export function OutreachView({
         onSaveStep={saveCurrent}
         onGenerate={async () => {
           if (!workflow.record) return;
+          const campaignCurrentDateTime = new Date().toISOString();
           await generateDraft.mutateAsync({
             id: workflow.record.id,
             payload: {
@@ -728,6 +766,7 @@ export function OutreachView({
               metadata: {
                 campaignName: workflow.campaignName,
                 promptTemplate: workflow.promptTemplate,
+                campaignCurrentDateTime,
               },
             },
           });
@@ -1366,7 +1405,6 @@ function CampaignWorkflow({
                     readOnly
                     value={directoryQuery}
                     placeholder="Search members and staffers..."
-                    onFocus={() => setDirectoryOpen(true)}
                     onClick={() => setDirectoryOpen(true)}
                   />
                   <Button onClick={() => setDirectoryOpen(true)}>Filter by office</Button>
@@ -1375,7 +1413,7 @@ function CampaignWorkflow({
 
               <section>
                 <Typography.Title level={5}>Add manual email address</Typography.Title>
-                <Space.Compact className="outreach-manual-email">
+                <div className="outreach-manual-email">
                   <Input
                     value={workflow.recipientInput}
                     placeholder="Enter email address..."
@@ -1384,8 +1422,10 @@ function CampaignWorkflow({
                     }
                     onPressEnter={addManualRecipient}
                   />
-                  <Button onClick={addManualRecipient}>Add</Button>
-                </Space.Compact>
+                  <Button type="primary" onClick={addManualRecipient}>
+                    Add
+                  </Button>
+                </div>
               </section>
             </div>
           ) : null}
@@ -1408,8 +1448,15 @@ function CampaignWorkflow({
               />
               <div className="outreach-template-buttons">
                 {CAMPAIGN_TEMPLATE_OPTIONS.map((option) => (
-                  <Button key={option} disabled>
-                    {option}
+                  <Button
+                    key={option.value}
+                    disabled={option.disabled}
+                    type={workflow.promptTemplate === option.value ? 'primary' : 'default'}
+                    className="outreach-template-button"
+                    onClick={() => onWorkflowChange({ ...workflow, promptTemplate: option.value })}
+                  >
+                    <strong>{option.label}</strong>
+                    <small>{option.description}</small>
                   </Button>
                 ))}
               </div>
@@ -1659,6 +1706,8 @@ function CampaignWorkflow({
         open={directoryOpen}
         footer={null}
         width={820}
+        destroyOnClose
+        maskClosable
         onCancel={() => setDirectoryOpen(false)}
       >
         <div className="outreach-directory-modal">
@@ -3750,7 +3799,9 @@ function ContextSuggestionRow({
         <small>{[recipient.office, recipient.title].filter(Boolean).join(' | ')}</small>
       </div>
       <em>{recipient.relevanceReason}</em>
-      <Tag>{selected ? 'Added' : '+ Add'}</Tag>
+      <b className={`outreach-row-action${selected ? ' is-selected' : ''}`}>
+        {selected ? 'Added' : 'Add'}
+      </b>
     </button>
   );
 }
@@ -3979,7 +4030,9 @@ function ClientRecipientRow({
         <small>{subtitle}</small>
         <em>{client.name}</em>
       </div>
-      <Tag>{selected ? 'Selected' : client.primaryContactEmail ? 'Add' : 'No email'}</Tag>
+      <b className={`outreach-row-action${selected ? ' is-selected' : ''}`}>
+        {selected ? 'Selected' : client.primaryContactEmail ? 'Add' : 'No email'}
+      </b>
     </button>
   );
 }
@@ -4051,7 +4104,9 @@ function DirectoryRecipientRow({
         <small>{[entry.office, entry.committees[0]].filter(Boolean).join(' | ')}</small>
         <em>{recipient.relevanceReason}</em>
       </div>
-      <Tag>{selected ? 'Selected' : 'Add'}</Tag>
+      <b className={`outreach-row-action${selected ? ' is-selected' : ''}`}>
+        {selected ? 'Selected' : 'Add'}
+      </b>
     </button>
   );
 }
@@ -4387,6 +4442,7 @@ function directoryRecipientFromEntry(
     email: textOrUndefined(entry.email),
     office: textOrUndefined(entry.office),
     title: textOrUndefined(entry.title),
+    chamber: textOrUndefined(entry.chamber),
     state: textOrUndefined(entry.state),
     district: textOrUndefined(entry.district),
     party: textOrUndefined(entry.partyName),

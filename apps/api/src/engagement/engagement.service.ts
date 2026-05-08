@@ -155,6 +155,7 @@ export interface OutreachRecipientInput {
   email?: string;
   office?: string;
   title?: string;
+  chamber?: string;
   state?: string;
   district?: string;
   party?: string;
@@ -638,7 +639,16 @@ export class EngagementService {
             outboundCurrentDateTime:
               readString(input.metadata?.outboundCurrentDateTime) || generatedAt.toISOString(),
           }
-        : input.metadata;
+        : record.type === 'campaign'
+          ? {
+              ...(input.metadata ?? {}),
+              campaignCurrentDateTime:
+                readString(input.metadata?.campaignCurrentDateTime) || generatedAt.toISOString(),
+              campaignCurrentDateTimeDisplay: formatCurrentDateTime(
+                readString(input.metadata?.campaignCurrentDateTime) || generatedAt.toISOString(),
+              ),
+            }
+          : input.metadata;
     const context = await this.outreachContext(ctx, record, recipients, requestMetadata);
     const promptTemplate =
       input.promptTemplate ?? readMetadataString(record.metadata, 'promptTemplate') ?? null;
@@ -2488,29 +2498,74 @@ export class EngagementService {
   ): Promise<Record<string, unknown>> {
     const meetingId = record.meetingId;
     const clientId = record.clientId ?? record.meeting?.clientId ?? null;
-    const [notes, debriefs, clientContext, directoryMatches] = await Promise.all([
-      meetingId ? this.listMeetingNotes(ctx, meetingId).catch(() => []) : Promise.resolve([]),
-      meetingId ? this.listMeetingDebriefs(ctx, meetingId).catch(() => []) : Promise.resolve([]),
-      clientId ? this.clientContext(ctx, clientId).catch(() => null) : Promise.resolve(null),
-      this.directory
-        .findContactsByEmails(
-          unique([
-            ...recipients.map((recipient) => recipient.email ?? ''),
-            ...(record.meeting?.attendees ?? []).map((attendee) => attendee.email ?? ''),
-            record.meeting?.organizerEmail ?? '',
-          ]).filter(Boolean),
-          50,
-        )
-        .catch(() => []),
-    ]);
+    const [notes, debriefs, clientContext, recentClientMeetings, directoryMatches] =
+      await Promise.all([
+        meetingId ? this.listMeetingNotes(ctx, meetingId).catch(() => []) : Promise.resolve([]),
+        meetingId ? this.listMeetingDebriefs(ctx, meetingId).catch(() => []) : Promise.resolve([]),
+        clientId ? this.clientContext(ctx, clientId).catch(() => null) : Promise.resolve(null),
+        clientId
+          ? this.recentClientMeetingsForOutreach(ctx, clientId).catch(() => [])
+          : Promise.resolve([]),
+        this.directory
+          .findContactsByEmails(
+            unique([
+              ...recipients.map((recipient) => recipient.email ?? ''),
+              ...(record.meeting?.attendees ?? []).map((attendee) => attendee.email ?? ''),
+              record.meeting?.organizerEmail ?? '',
+            ]).filter(Boolean),
+            50,
+          )
+          .catch(() => []),
+      ]);
 
     return pruneForAi({
       notes: notes.filter((note) => !note.restricted),
       debriefs: debriefs.filter((debrief) => !debrief.restricted),
       clientContext,
+      recentClientMeetings,
       directoryMatches,
       metadata: mergeJsonObjects(record.metadata, extraMetadata ?? {}),
     });
+  }
+
+  private async recentClientMeetingsForOutreach(ctx: TenantContext, clientId: string) {
+    const meetings = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.meeting.findMany({
+        where: { tenantId: ctx.tenantId, clientId, ...ownMeetingWhere(ctx.userId) },
+        select: {
+          id: true,
+          subject: true,
+          startsAt: true,
+          endsAt: true,
+          location: true,
+          organizerEmail: true,
+          organizerName: true,
+          attendees: {
+            select: { id: true, email: true, name: true, role: true },
+            orderBy: { createdAt: 'asc' as const },
+          },
+          preps: {
+            orderBy: { createdAt: 'desc' as const },
+            take: 1,
+          },
+          tasks: {
+            where: { status: { not: EngagementTaskStatus.canceled } },
+            orderBy: [{ dueDate: 'asc' as const }, { createdAt: 'desc' as const }],
+          },
+        },
+        orderBy: { startsAt: 'desc' },
+        take: 8,
+      }),
+    );
+
+    const debriefsByMeeting = await Promise.all(
+      meetings.map((meeting) => this.listMeetingDebriefs(ctx, meeting.id).catch(() => [])),
+    );
+
+    return meetings.map((meeting, index) => ({
+      ...meeting,
+      debriefs: (debriefsByMeeting[index] ?? []).filter((debrief) => !debrief.restricted),
+    }));
   }
 }
 
@@ -3101,6 +3156,7 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
       const name = readString(record.name);
       const office = readString(record.office);
       const title = readString(record.title);
+      const chamber = readString(record.chamber);
       const state = readString(record.state);
       const district = readString(record.district);
       const party = readString(record.party);
@@ -3124,6 +3180,7 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
         ...(email ? { email } : {}),
         ...(office ? { office: office.slice(0, 240) } : {}),
         ...(title ? { title: title.slice(0, 160) } : {}),
+        ...(chamber ? { chamber: chamber.slice(0, 80) } : {}),
         ...(state ? { state: state.slice(0, 80) } : {}),
         ...(district ? { district: district.slice(0, 80) } : {}),
         ...(party ? { party: party.slice(0, 80) } : {}),

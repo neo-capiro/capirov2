@@ -35,12 +35,57 @@ export interface OutreachDraftInput {
   existingBody?: string | null;
 }
 
+const POST_MEETING_MEMO_GUIDANCE = [
+  'Template name: post meeting memo.',
+  'Generate an internal post-meeting memo in Markdown. This is not a normal campaign email.',
+  'Use context.metadata.campaignCurrentDateTimeDisplay as the Date / Time value. If only context.metadata.campaignCurrentDateTime is present, format that timestamp. Do not use a stale or guessed date.',
+  'Use only the supplied client, recipient, meeting, debrief, email thread, and congressional directory context. If a requested fact is not present, omit that bullet, participant, subsection, or section. Do not leave bracket placeholders and do not make anything up.',
+  'Use Directory member/staffer profiles for House/Senate labels, committee/subcommittee names, titles, offices, and chamber. Use client records for client participants and client details. Use email thread snippets or meeting attendees only when present. Use saved meeting debriefs for summaries, feedback, action items, and follow-ups.',
+  'Organize the memo in this order when source data supports each section:',
+  '## Date / Time',
+  '**[current day, month date - current time/timezone from metadata]**',
+  '# Meeting Participants',
+  '## House [Committee/Subcommittee Name]',
+  '### Participants:',
+  '* [Name], [Title], [Committee/Office]',
+  '## Senate [Committee/Subcommittee Name]',
+  '### Participants:',
+  '* [Name], [Title], [Committee/Office]',
+  '# Summary - Key Takeaways',
+  '## Purpose of Engagement',
+  '## Core Problem Set',
+  '## [Platform / Initiative / Capability] Overview',
+  '## Differentiation from Other Solutions',
+  '## Government Engagements to Date',
+  '# Policy and Strategic Implications',
+  '# House Staff Feedback',
+  '# Senate Staff Feedback',
+  '# Key Themes Identified',
+  '### Policy Themes',
+  '### Operational Themes',
+  '### Strategic Themes',
+  '# Risks / Concerns Raised',
+  '# Opportunities Identified',
+  '# Follow-Up Items and Next Steps',
+  '## Action Items',
+  '### [Organization/Company Name]',
+  '### Congressional Staff',
+  '## Materials to Provide',
+  '# Strategic Assessment',
+  '## Overall Sentiment',
+  '## Key Opportunity Areas',
+  '## Recommended Engagement Strategy',
+  '# Internal Notes',
+  'For optional sections, include them only when source context supports them.',
+].join('\n');
+
 const PROMPT_TEMPLATE_GUIDANCE: Record<string, string> = {
   thank_you:
     "Tone: warm, gracious thank-you. Acknowledge the recipient's recent action or support, name the specific reason for thanks, and close with a brief offer to stay in touch. No new asks.",
   follow_up:
     'Tone: polite follow-up. Reference the prior touchpoint or meeting (use supplied notes/debriefs if present), restate one clear ask or next step, and propose a concrete next action.',
   memo: 'Format as a concise memo / position paper. Lead with a one-line summary, then short Background, Ask, and Supporting Points sections. Keep under 300 words; use plain language.',
+  post_meeting_memo: POST_MEETING_MEMO_GUIDANCE,
   introduction:
     "Tone: introductory, professional. Briefly introduce the client and why you are reaching out, the relevance to the recipient's portfolio, and a low-friction first ask (e.g., a 15-minute conversation).",
   meeting_request:
