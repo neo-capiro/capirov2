@@ -4,6 +4,7 @@ import {
   DeleteOutlined,
   FileTextOutlined,
   MailOutlined,
+  PlusOutlined,
   RobotOutlined,
   SearchOutlined,
 } from '@ant-design/icons';
@@ -358,7 +359,8 @@ export function OutreachView({
   const [from, setFrom] = useState(inputValueFromDate(addLocalDays(new Date(), -30)));
   const [to, setTo] = useState(today);
   const [typeFilter, setTypeFilter] = useState<OutreachType>('all');
-  const [mode, setMode] = useState<'landing' | WorkflowType | 'readonly'>('landing');
+  const [outreachLimit, setOutreachLimit] = useState(50);
+  const [mode, setMode] = useState<'landing' | 'selector' | WorkflowType | 'readonly'>('landing');
   const [workflow, setWorkflow] = useState<OutreachWorkflowState>(() => ({
     ...EMPTY_WORKFLOW,
     clientId: selectedClientId,
@@ -374,6 +376,10 @@ export function OutreachView({
     };
   }, [mode]);
 
+  useEffect(() => {
+    setOutreachLimit(50);
+  }, [selectedClientId, from, to, typeFilter]);
+
   const activeClients = useMemo(
     () =>
       clients
@@ -384,7 +390,7 @@ export function OutreachView({
   const selectedClient = activeClients.find((client) => client.id === selectedClientId) ?? null;
 
   const outreach = useQuery<OutreachRecord[]>({
-    queryKey: ['engagement-outreach', selectedClientId, from, to, typeFilter],
+    queryKey: ['engagement-outreach', selectedClientId, from, to, typeFilter, outreachLimit],
     queryFn: async () =>
       (
         await api.get<OutreachRecord[]>('/api/engagement/outreach', {
@@ -393,6 +399,7 @@ export function OutreachView({
             from: localDateStartIso(from),
             to: localDateEndIso(to),
             type: typeFilter === 'all' ? undefined : typeFilter,
+            limit: outreachLimit,
           },
         })
       ).data,
@@ -666,6 +673,10 @@ export function OutreachView({
     });
   };
 
+  if (mode === 'selector') {
+    return <OutreachTypeSelector onCancel={() => setMode('landing')} onSelect={startWorkflow} />;
+  }
+
   if (mode === 'readonly' && readonlyRecord) {
     return (
       <OutreachReadonly
@@ -888,14 +899,14 @@ export function OutreachView({
     );
   }
 
-  const rows = (outreach.data ?? []).filter((record) => record.type !== 'outbound_campaign');
+  const rows = (outreach.data ?? [])
+    .filter((record) => record.type !== 'outbound_campaign')
+    .sort((left, right) => outreachRecordTimestamp(right) - outreachRecordTimestamp(left));
   const drafts = rows.filter((record) => record.status === 'draft');
   const sent = rows.filter((record) => record.status !== 'draft');
 
   return (
     <div className="outreach-page">
-      <OutreachTypeOptions onSelect={startWorkflow} className="outreach-type-landing" />
-
       <div className="outreach-filter-bar">
         <span>Date range</span>
         <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
@@ -913,17 +924,20 @@ export function OutreachView({
             </button>
           ))}
         </div>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setMode('selector')}>
+          New Outreach
+        </Button>
       </div>
 
       {outreach.isLoading ? (
         <div className="outreach-card-list">
           <Empty description="Loading outreach..." />
         </div>
-      ) : (
+      ) : rows.length ? (
         <>
-          <section className="outreach-section">
-            <Typography.Title level={5}>Drafts in Progress</Typography.Title>
-            {drafts.length ? (
+          {drafts.length ? (
+            <section className="outreach-section">
+              <Typography.Title level={5}>Drafts in Progress</Typography.Title>
               <div className="outreach-card-list">
                 {drafts.map((record) => (
                   <OutreachRecordCard
@@ -935,71 +949,95 @@ export function OutreachView({
                   />
                 ))}
               </div>
-            ) : (
-              <Empty description="No drafts in progress in this date range." />
-            )}
-          </section>
+            </section>
+          ) : null}
 
-          <section className="outreach-section">
-            <Typography.Title level={5}>Sent</Typography.Title>
-            {sent.length ? (
-              <div className="outreach-card-list">
-                {sent.map((record) => (
-                  <OutreachRecordCard
-                    key={record.id}
-                    record={record}
-                    deleting={deleteRecord.isPending && deleteRecord.variables === record.id}
-                    onClick={openReadonly}
-                    onDelete={confirmDeleteRecord}
-                  />
-                ))}
-              </div>
-            ) : (
-              <Empty description="No sent or opened outreach in this date range." />
-            )}
-          </section>
-          {rows.length ? <Button block>Load more</Button> : null}
+          <div className="outreach-sent-divider">
+            <span />
+            <strong>Sent</strong>
+            <span />
+          </div>
+
+          {sent.length ? (
+            <div className="outreach-card-list">
+              {sent.map((record) => (
+                <OutreachRecordCard
+                  key={record.id}
+                  record={record}
+                  deleting={deleteRecord.isPending && deleteRecord.variables === record.id}
+                  onClick={openReadonly}
+                  onDelete={confirmDeleteRecord}
+                />
+              ))}
+            </div>
+          ) : (
+            <Empty description="No sent or opened outreach in this date range." />
+          )}
+          {rows.length >= outreachLimit ? (
+            <Button block onClick={() => setOutreachLimit((current) => current + 50)}>
+              Load more
+            </Button>
+          ) : null}
         </>
+      ) : (
+        <div className="outreach-empty">
+          <Empty
+            description={
+              <span>
+                <strong>No outreach yet</strong>
+                <br />
+                Start by creating a campaign, follow-up, or prep distribution
+              </span>
+            }
+          >
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setMode('selector')}>
+              New Outreach
+            </Button>
+          </Empty>
+        </div>
       )}
     </div>
   );
 }
 
-function OutreachTypeOptions({
+function OutreachTypeSelector({
+  onCancel,
   onSelect,
-  className,
 }: {
+  onCancel: () => void;
   onSelect: (type: WorkflowType) => void;
-  className?: string;
 }) {
   return (
-    <div className={['outreach-type-selector', className].filter(Boolean).join(' ')}>
-      <Typography.Title level={4}>What type of outreach do you want to send?</Typography.Title>
-      <Typography.Paragraph type="secondary">
-        Clio drafts the content from Capiro context. You review and edit before anything is sent.
-      </Typography.Paragraph>
-      <div className="outreach-type-grid">
-        <OutreachTypeCard
-          icon={<MailOutlined />}
-          title="Campaign"
-          description="Personalized mass outreach to multiple congressional offices or contacts on behalf of a client."
-          detail="Sends from Capiro using your connected email. Replies go to your inbox."
-          onClick={() => onSelect('campaign')}
-        />
-        <OutreachTypeCard
-          icon={<FileTextOutlined />}
-          title="Meeting follow-up"
-          description="Post-meeting email to participants, client, or congressional office. Clio drafts from your debrief."
-          detail="Opens in your connected email. You send from your own inbox."
-          onClick={() => onSelect('follow_up')}
-        />
-        <OutreachTypeCard
-          icon={<RobotOutlined />}
-          title="Prep distribution"
-          description="Share meeting prep notes with a colleague or client ahead of an upcoming meeting."
-          detail="Opens in your connected email. You send from your own inbox."
-          onClick={() => onSelect('prep')}
-        />
+    <div className="outreach-workflow">
+      <WorkflowHeader title="New Outreach" onCancel={onCancel} />
+      <div className="outreach-type-selector">
+        <Typography.Title level={4}>What type of outreach do you want to send?</Typography.Title>
+        <Typography.Paragraph type="secondary">
+          Clio drafts the content from Capiro context. You review and edit before anything is sent.
+        </Typography.Paragraph>
+        <div className="outreach-type-grid">
+          <OutreachTypeCard
+            icon={<MailOutlined />}
+            title="Campaign"
+            description="Personalized mass outreach to multiple congressional offices or contacts on behalf of a client."
+            detail="Sends from Capiro using your connected email. Replies go to your inbox."
+            onClick={() => onSelect('campaign')}
+          />
+          <OutreachTypeCard
+            icon={<FileTextOutlined />}
+            title="Meeting follow-up"
+            description="Post-meeting email to participants, client, or congressional office. Clio drafts from your debrief."
+            detail="Opens in your connected email. You send from your own inbox."
+            onClick={() => onSelect('follow_up')}
+          />
+          <OutreachTypeCard
+            icon={<RobotOutlined />}
+            title="Prep distribution"
+            description="Share meeting prep notes with a colleague or client ahead of an upcoming meeting."
+            detail="Opens in your connected email. You send from your own inbox."
+            onClick={() => onSelect('prep')}
+          />
+        </div>
       </div>
     </div>
   );
@@ -4086,6 +4124,7 @@ function OutreachRecordCard({
   onClick: (record: OutreachRecord) => void;
   onDelete: (record: OutreachRecord) => void;
 }) {
+  const displayDate = outreachRecordDisplayDate(record);
   return (
     <article
       className="outreach-record-card"
@@ -4096,26 +4135,26 @@ function OutreachRecordCard({
         if (event.key === 'Enter' || event.key === ' ') onClick(record);
       }}
     >
-      <Tag>{WORKFLOW_LABELS[record.type]}</Tag>
+      <Tag className={`outreach-record-type outreach-record-type--${recordTypeClass(record.type)}`}>
+        {outreachRecordTypeLabel(record.type)}
+      </Tag>
       <div>
-        <strong>{record.title}</strong>
+        <strong>{record.subject || record.title}</strong>
         <span>
           {[
             record.client?.name,
             record.meeting?.subject,
             `${record.recipientCount} recipients`,
-            formatOptionalDate(record.sentAt ?? record.openedInEmailAt ?? record.createdAt),
+            formatOptionalDate(displayDate),
           ]
             .filter(Boolean)
-            .join(' | ')}
+            .join(' · ')}
         </span>
         <em>{recordStats(record)}</em>
       </div>
       <aside>
         <span>{statusLabel(record)}</span>
-        <time>
-          {formatOptionalDate(record.sentAt ?? record.openedInEmailAt ?? record.createdAt)}
-        </time>
+        <time>{formatOptionalDate(displayDate)}</time>
         <Button
           danger
           size="small"
@@ -4457,18 +4496,47 @@ function readCurrentDateTime(metadata?: Record<string, unknown> | null): Date {
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 }
 
+function outreachRecordTypeLabel(type: WorkflowType): string {
+  if (type === 'campaign' || type === 'outbound_campaign') return 'Campaign';
+  if (type === 'follow_up') return 'Follow-up';
+  return 'Prep';
+}
+
+function recordTypeClass(type: WorkflowType): string {
+  if (type === 'campaign' || type === 'outbound_campaign') return 'campaign';
+  if (type === 'follow_up') return 'follow-up';
+  return 'prep';
+}
+
+function outreachRecordDisplayDate(record: OutreachRecord): string {
+  return record.sentAt ?? record.openedInEmailAt ?? record.updatedAt ?? record.createdAt;
+}
+
+function outreachRecordTimestamp(record: OutreachRecord): number {
+  const timestamp = new Date(outreachRecordDisplayDate(record)).getTime();
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
 function recordStats(record: OutreachRecord): string {
   if (record.type === 'campaign' || record.type === 'outbound_campaign') {
+    const sentCount = readStatText(record.stats?.recipientsSent, String(record.recipientCount));
     const openRate = readString(record.stats?.openRate) || '0%';
-    const replies = readString(record.stats?.replyCount) || '0';
+    const replies = readStatText(record.stats?.replyCount, '0');
     return record.status === 'sent'
-      ? `${record.recipientCount} sent | ${openRate} opened | ${replies} replied`
-      : `${record.recipientCount} recipients | Clio draft ${record.subject ? 'ready' : 'pending'}`;
+      ? `${sentCount} recipients sent · ${openRate} open rate · ${replies} replies`
+      : `${record.recipientCount} recipients · Clio draft ${record.subject ? 'ready' : 'pending'}`;
   }
-  if (record.status === 'opened_in_email') {
-    return `Opened in connected email | ${formatOptionalDate(record.openedInEmailAt)}`;
+  if (record.status !== 'draft') {
+    return `Opened in connected email · ${formatOptionalDate(
+      record.openedInEmailAt ?? record.updatedAt,
+    )}`;
   }
   return `${record.recipientCount} recipients`;
+}
+
+function readStatText(value: unknown, fallback: string): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return readString(value) || fallback;
 }
 
 function statusLabel(record: OutreachRecord): string {

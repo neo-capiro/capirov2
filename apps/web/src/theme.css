@@ -3377,7 +3377,7 @@ body {
 
 .outreach-filter-bar {
   display: grid;
-  grid-template-columns: auto 150px auto 150px minmax(0, 1fr);
+  grid-template-columns: auto 150px auto 150px minmax(0, 1fr) auto;
   flex: 0 0 auto;
   align-items: center;
   gap: 10px;
@@ -3500,6 +3500,30 @@ body {
   font-weight: 800;
 }
 
+.outreach-record-type {
+  width: fit-content;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.outreach-record-type--campaign {
+  color: #243a73;
+  border-color: #c7d7fe;
+  background: #eef3ff;
+}
+
+.outreach-record-type--follow-up {
+  color: #046c4e;
+  border-color: #b7e4d3;
+  background: #ecfdf5;
+}
+
+.outreach-record-type--prep {
+  color: #7c4a03;
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
 .outreach-empty {
   display: grid;
   flex: 1;
@@ -3538,17 +3562,6 @@ body {
   min-height: 0;
   overflow-y: auto;
   padding: 28px;
-}
-
-.outreach-type-landing {
-  flex: 0 0 auto;
-  overflow: visible;
-  padding: 0;
-}
-
-.outreach-type-landing h4,
-.outreach-type-landing .ant-typography {
-  margin-bottom: 4px;
 }
 
 .outreach-type-grid {
