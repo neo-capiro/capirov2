@@ -304,7 +304,12 @@ const OUTBOUND_VARIABLE_DESCRIPTIONS: Record<(typeof OUTBOUND_VARIABLES)[number]
   '{meeting_date_time}': 'Date and time of the synced meeting.',
 };
 
-const CAMPAIGN_DYNAMIC_FIELDS = ['{district}', '{committee}', '{personal_note}'] as const;
+const CAMPAIGN_DYNAMIC_FIELDS = [
+  '{district}',
+  '{committee}',
+  '{address}',
+  '{personal_note}',
+] as const;
 type CampaignDynamicField = (typeof CAMPAIGN_DYNAMIC_FIELDS)[number];
 
 const CAMPAIGN_TEMPLATE_OPTIONS: Array<{
@@ -1540,7 +1545,11 @@ function CampaignWorkflow({
                       <Input
                         value={workflow.fieldFallbacks[field] ?? ''}
                         placeholder={
-                          field === '{district}' ? 'your district' : 'e.g. your committee'
+                          field === '{district}'
+                            ? 'your district'
+                            : field === '{address}'
+                              ? 'office address'
+                              : 'e.g. your committee'
                         }
                         onChange={(event) =>
                           onWorkflowChange({
@@ -4521,28 +4530,34 @@ function assembleCampaignBody(
     '{current_date_time}',
     formatCurrentDateTime(currentDateTime),
   );
-  if (!recipient) return withCurrentDate;
+  if (!recipient) return stripUnresolvedTemplateFields(withCurrentDate);
   const fallbacks = readStringRecord(metadata?.fieldFallbacks);
-  return withCurrentDate
-    .replaceAll(
-      '{district}',
-      recipient.district || recipient.state || fallbacks['{district}'] || '',
-    )
-    .replaceAll('{committee}', recipient.committee || fallbacks['{committee}'] || '')
-    .replaceAll('{member_priority}', recipient.relevanceReason || '')
-    .replaceAll('{personal_note}', recipient.personalNote || '')
-    .replaceAll('{address}', recipient.address || recipient.meetingLocation || '')
-    .replaceAll('{attendee_names}', recipient.attendeeNames || recipient.name || '')
-    .replaceAll('{attendee_emails}', recipient.attendeeEmails || recipient.email || '')
-    .replaceAll('{prep_summary}', recipient.prepSummary || '')
-    .replaceAll('{debrief_summary}', recipient.debriefSummary || '')
-    .replaceAll('{meeting_location}', recipient.meetingLocation || '')
-    .replaceAll('{meeting_subject}', recipient.meetingSubject || '')
-    .replaceAll('{meeting_date_time}', recipient.meetingDateTime || '');
+  return stripUnresolvedTemplateFields(
+    withCurrentDate
+      .replaceAll(
+        '{district}',
+        recipient.district || recipient.state || fallbacks['{district}'] || '',
+      )
+      .replaceAll('{committee}', recipient.committee || fallbacks['{committee}'] || '')
+      .replaceAll('{member_priority}', recipient.relevanceReason || '')
+      .replaceAll('{personal_note}', recipient.personalNote || '')
+      .replaceAll(
+        '{address}',
+        recipient.address || recipient.meetingLocation || fallbacks['{address}'] || '',
+      )
+      .replaceAll('{attendee_names}', recipient.attendeeNames || recipient.name || '')
+      .replaceAll('{attendee_emails}', recipient.attendeeEmails || recipient.email || '')
+      .replaceAll('{prep_summary}', recipient.prepSummary || '')
+      .replaceAll('{debrief_summary}', recipient.debriefSummary || '')
+      .replaceAll('{meeting_location}', recipient.meetingLocation || '')
+      .replaceAll('{meeting_subject}', recipient.meetingSubject || '')
+      .replaceAll('{meeting_date_time}', recipient.meetingDateTime || ''),
+  );
 }
 
 function readCurrentDateTime(metadata?: Record<string, unknown> | null): Date {
-  const explicit = readString(metadata?.outboundCurrentDateTime);
+  const explicit =
+    readString(metadata?.campaignCurrentDateTime) || readString(metadata?.outboundCurrentDateTime);
   const ai = metadata?.ai;
   const generatedAt =
     ai && typeof ai === 'object' && !Array.isArray(ai)
@@ -4638,8 +4653,17 @@ function campaignDynamicFieldsIn(subject: string, body: string): CampaignDynamic
 function campaignFieldValue(recipient: OutreachRecipient, field: CampaignDynamicField): string {
   if (field === '{district}') return recipient.district || recipient.state || '';
   if (field === '{committee}') return recipient.committee || '';
+  if (field === '{address}') return recipient.address || recipient.meetingLocation || '';
   if (field === '{personal_note}') return recipient.personalNote || '';
   return '';
+}
+
+function stripUnresolvedTemplateFields(value: string): string {
+  return value
+    .replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function campaignExceptionRows(

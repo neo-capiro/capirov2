@@ -675,10 +675,18 @@ export class EngagementService {
         generatedAt: generatedAt.toISOString(),
       },
     });
+    const draftSubject =
+      record.type === 'campaign'
+        ? resolveGeneratedCampaignDraft(generated.subject, recipients, nextMetadata)
+        : generated.subject;
+    const draftBody =
+      record.type === 'campaign'
+        ? resolveGeneratedCampaignDraft(generated.body, recipients, nextMetadata)
+        : generated.body;
 
     return this.updateOutreachRecord(ctx, id, {
-      subject: generated.subject,
-      body: generated.body,
+      subject: draftSubject,
+      body: draftBody,
       recipients,
       metadata: nextMetadata,
       lastStep: Math.max(record.lastStep, record.type === 'campaign' ? 3 : 3),
@@ -3222,7 +3230,7 @@ function mergeJsonObjects(
   return { ...baseRecord, ...next };
 }
 
-function readMetadataString(metadata: Prisma.JsonValue, key: string): string | null {
+function readMetadataString(metadata: unknown, key: string): string | null {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
   return readString((metadata as Record<string, unknown>)[key]);
 }
@@ -3252,29 +3260,116 @@ function assembleCampaignBody(
   metadata?: Prisma.JsonValue,
 ): string {
   const currentDateTime =
+    readMetadataString(metadata ?? null, 'campaignCurrentDateTime') ??
     readMetadataString(metadata ?? null, 'outboundCurrentDateTime') ??
     readNestedString(metadata ?? null, ['ai', 'generatedAt']) ??
     new Date().toISOString();
-  return body
-    .replaceAll('{current_date_time}', formatCurrentDateTime(currentDateTime))
-    .replaceAll(
-      '{district}',
-      recipient.district || recipient.state || readFieldFallback(metadata, '{district}'),
-    )
-    .replaceAll('{committee}', recipient.committee || readFieldFallback(metadata, '{committee}'))
-    .replaceAll('{member_priority}', recipient.relevanceReason || '')
-    .replaceAll('{personal_note}', recipient.personalNote || '')
-    .replaceAll('{address}', recipient.address || recipient.meetingLocation || '')
-    .replaceAll('{attendee_names}', recipient.attendeeNames || recipient.name || '')
-    .replaceAll('{attendee_emails}', recipient.attendeeEmails || recipient.email || '')
-    .replaceAll('{prep_summary}', recipient.prepSummary || '')
-    .replaceAll('{debrief_summary}', recipient.debriefSummary || '')
-    .replaceAll('{meeting_location}', recipient.meetingLocation || '')
-    .replaceAll('{meeting_subject}', recipient.meetingSubject || '')
-    .replaceAll('{meeting_date_time}', recipient.meetingDateTime || '');
+  return stripUnresolvedTemplateFields(
+    body
+      .replaceAll('{current_date_time}', formatCurrentDateTime(currentDateTime))
+      .replaceAll(
+        '{district}',
+        recipient.district || recipient.state || readFieldFallback(metadata, '{district}'),
+      )
+      .replaceAll('{committee}', recipient.committee || readFieldFallback(metadata, '{committee}'))
+      .replaceAll('{member_priority}', recipient.relevanceReason || '')
+      .replaceAll('{personal_note}', recipient.personalNote || '')
+      .replaceAll(
+        '{address}',
+        recipient.address || recipient.meetingLocation || readFieldFallback(metadata, '{address}'),
+      )
+      .replaceAll('{attendee_names}', recipient.attendeeNames || recipient.name || '')
+      .replaceAll('{attendee_emails}', recipient.attendeeEmails || recipient.email || '')
+      .replaceAll('{prep_summary}', recipient.prepSummary || '')
+      .replaceAll('{debrief_summary}', recipient.debriefSummary || '')
+      .replaceAll('{meeting_location}', recipient.meetingLocation || '')
+      .replaceAll('{meeting_subject}', recipient.meetingSubject || '')
+      .replaceAll('{meeting_date_time}', recipient.meetingDateTime || ''),
+  );
 }
 
-function readFieldFallback(metadata: Prisma.JsonValue | undefined, field: string): string {
+function resolveGeneratedCampaignDraft(
+  body: string,
+  recipients: OutreachRecipientInput[],
+  metadata?: unknown,
+): string {
+  const currentDateTime =
+    readMetadataString(metadata ?? null, 'campaignCurrentDateTime') ??
+    readMetadataString(metadata ?? null, 'outboundCurrentDateTime') ??
+    readNestedString(metadata ?? null, ['ai', 'generatedAt']) ??
+    new Date().toISOString();
+  const aggregate = aggregateCampaignRecipientValues(recipients);
+  return stripUnresolvedTemplateFields(
+    body
+      .replaceAll('{current_date_time}', formatCurrentDateTime(currentDateTime))
+      .replaceAll('{district}', aggregate.district || readFieldFallback(metadata, '{district}'))
+      .replaceAll('{committee}', aggregate.committee || readFieldFallback(metadata, '{committee}'))
+      .replaceAll('{member_priority}', aggregate.memberPriority)
+      .replaceAll('{personal_note}', '')
+      .replaceAll('{address}', aggregate.address || readFieldFallback(metadata, '{address}'))
+      .replaceAll('{attendee_names}', aggregate.attendeeNames)
+      .replaceAll('{attendee_emails}', aggregate.attendeeEmails)
+      .replaceAll('{prep_summary}', aggregate.prepSummary)
+      .replaceAll('{debrief_summary}', aggregate.debriefSummary)
+      .replaceAll('{meeting_location}', aggregate.meetingLocation)
+      .replaceAll('{meeting_subject}', aggregate.meetingSubject)
+      .replaceAll('{meeting_date_time}', aggregate.meetingDateTime),
+  );
+}
+
+function aggregateCampaignRecipientValues(recipients: OutreachRecipientInput[]) {
+  return {
+    district: sharedRecipientValue(
+      recipients,
+      (recipient) => recipient.district || recipient.state,
+    ),
+    committee: sharedRecipientValue(recipients, (recipient) => recipient.committee),
+    address: sharedRecipientValue(
+      recipients,
+      (recipient) => recipient.address || recipient.meetingLocation,
+    ),
+    memberPriority: uniqueText(recipients.map((recipient) => recipient.relevanceReason)).join('; '),
+    attendeeNames: uniqueText(
+      recipients.map((recipient) => recipient.attendeeNames || recipient.name),
+    ).join(', '),
+    attendeeEmails: uniqueText(
+      recipients.map((recipient) => recipient.attendeeEmails || recipient.email),
+    ).join(', '),
+    prepSummary: uniqueText(recipients.map((recipient) => recipient.prepSummary)).join('\n\n'),
+    debriefSummary: uniqueText(recipients.map((recipient) => recipient.debriefSummary)).join(
+      '\n\n',
+    ),
+    meetingLocation: sharedRecipientValue(recipients, (recipient) => recipient.meetingLocation),
+    meetingSubject: sharedRecipientValue(recipients, (recipient) => recipient.meetingSubject),
+    meetingDateTime: sharedRecipientValue(recipients, (recipient) => recipient.meetingDateTime),
+  };
+}
+
+function sharedRecipientValue(
+  recipients: OutreachRecipientInput[],
+  read: (recipient: OutreachRecipientInput) => string | undefined,
+): string {
+  const values = uniqueText(recipients.map(read));
+  return values.length === 1 ? (values[0] ?? '') : '';
+}
+
+function stripUnresolvedTemplateFields(value: string): string {
+  return value
+    .replace(/\{[A-Za-z][A-Za-z0-9_]*\}/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function uniqueText(values: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(
+      values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)),
+    ),
+  );
+}
+
+function readFieldFallback(metadata: unknown, field: string): string {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return '';
   const fallbacks = (metadata as Record<string, unknown>).fieldFallbacks;
   if (!fallbacks || typeof fallbacks !== 'object' || Array.isArray(fallbacks)) return '';
