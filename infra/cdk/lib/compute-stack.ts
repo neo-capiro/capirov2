@@ -842,19 +842,21 @@ export class ComputeStack extends cdk.Stack {
       recordName: cfg.wildcardHost,
       target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
     });
-    // Apex `capiro.ai` → marketing site on the same ALB. The pre-existing
-    // apex A record (pointing to a stale CloudFront) must be deleted before
-    // this deploys; see infra/cdk/README.md.
-    new route53.ARecord(this, 'ApexAlias', {
-      zone: hostedZone,
-      recordName: cfg.rootDomain,
-      target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
-    });
-    new route53.AaaaRecord(this, 'ApexAliasIpv6', {
-      zone: hostedZone,
-      recordName: cfg.rootDomain,
-      target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
-    });
+    // Apex alias only when rootDomain differs from appHost (prod: capiro.ai vs
+    // app.capiro.ai; dev: both equal app-dev.capiro.ai, so skip to avoid
+    // duplicate Route53 record with AppAlias above).
+    if (cfg.rootDomain !== cfg.appHost) {
+      new route53.ARecord(this, 'ApexAlias', {
+        zone: hostedZone,
+        recordName: cfg.rootDomain,
+        target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
+      });
+      new route53.AaaaRecord(this, 'ApexAliasIpv6', {
+        zone: hostedZone,
+        recordName: cfg.rootDomain,
+        target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
+      });
+    }
 
     new cdk.CfnOutput(this, 'AlbDnsName', { value: this.alb.loadBalancerDnsName });
     new cdk.CfnOutput(this, 'ApiRepoUri', { value: this.apiRepo.repositoryUri });

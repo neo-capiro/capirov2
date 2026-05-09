@@ -124,17 +124,17 @@ export function loadConfig(app: cdk.App): EnvConfig {
             // ECS task startup failures (ResourceInitializationError).
             // Run for each: aws secretsmanager describe-secret \
             //   --secret-id capiro/dev/<name> --query ARN --output text
-            // externalSecretArns: {
-            //   microsoftClientId:       'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-client-id-XXXXXX',
-            //   microsoftTenantId:       'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-tenant-id-XXXXXX',
-            //   microsoftCertThumbprint: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-cert-thumbprint-XXXXXX',
-            //   microsoftCertPrivateKey: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-cert-private-key-XXXXXX',
-            //   oauthTokenEncryptionKey: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/oauth-token-encryption-key-XXXXXX',
-            //   oauthStateSecret:        'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/oauth-state-secret-XXXXXX',
-            //   openaiApiKey:            'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/openai-api-key-XXXXXX',
-            //   anthropicApiKey:         'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/anthropic-api-key-XXXXXX',
-            //   notesEncryptionKey:      'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/notes-encryption-key-XXXXXX',
-            // },
+            externalSecretArns: {
+              microsoftClientId:       'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-client-id-kPjmuN',
+              microsoftTenantId:       'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-tenant-id-t8p127',
+              microsoftCertThumbprint: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-cert-thumbprint-2ExjTP',
+              microsoftCertPrivateKey: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-cert-private-key-xAtVeG',
+              oauthTokenEncryptionKey: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/oauth-token-encryption-key-VRLcrW',
+              oauthStateSecret:        'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/oauth-state-secret-L0zQ2V',
+              openaiApiKey:            'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/openai-api-key-GQM1Ms',
+              anthropicApiKey:         'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/anthropic-api-key-nc246W',
+              notesEncryptionKey:      'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/notes-encryption-key-lkai02',
+            },
           };
 
   return { ...BASE, envName, account, region, ...overrides };
