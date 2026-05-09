@@ -7,9 +7,13 @@ export interface EnvConfig {
   account: string;
   region: string;
   // DNS
-  rootDomain: string; // capiro.ai
-  appHost: string; // app.capiro.ai
-  wildcardHost: string; // *.app.capiro.ai
+  rootDomain: string; // capiro.ai (prod) | app-dev.capiro.ai (dev)
+  appHost: string; // app.capiro.ai (prod) | app-dev.capiro.ai (dev)
+  wildcardHost: string; // *.app.capiro.ai (prod) | *.app-dev.capiro.ai (dev)
+  // Clerk JWT issuer URL — injected into the ECS task as CLERK_JWT_ISSUER.
+  // Set after creating the Clerk instance for each env. If absent, the API
+  // skips issuer validation (acceptable during initial bootstrap only).
+  clerkJwtIssuer?: string;
   // Aurora
   auroraMinAcu: number;
   auroraMaxAcu: number;
@@ -94,30 +98,44 @@ export function loadConfig(app: cdk.App): EnvConfig {
           webMaxCount: 6,
           protectFromDestroy: true,
           logRetentionDays: 365,
+          clerkJwtIssuer: 'https://clerk.app.capiro.ai',
         }
       : envName === 'staging'
         ? { protectFromDestroy: true }
         : {
-            externalSecretArns: {
-              microsoftClientId:
-                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-client-id-AU8xuO',
-              microsoftTenantId:
-                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-tenant-id-cC9TIB',
-              microsoftCertThumbprint:
-                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-cert-thumbprint-gJsG0v',
-              microsoftCertPrivateKey:
-                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-cert-private-key-rW9ERB',
-              oauthTokenEncryptionKey:
-                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/oauth-token-encryption-key-VQCjD8',
-              oauthStateSecret:
-                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/oauth-state-secret-XOOzYB',
-              openaiApiKey:
-                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/openai-api-key-7nAmib',
-              anthropicApiKey:
-                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/anthropic-api-key-3nhKhF',
-              notesEncryptionKey:
-                'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/notes-encryption-key-Vf2rhI',
-            },
+            // Dev account: 262252232571  region: us-east-1
+            appHost: 'app-dev.capiro.ai',
+            wildcardHost: '*.app-dev.capiro.ai',
+            rootDomain: 'app-dev.capiro.ai',
+            // Single replicas for dev — no HA needed.
+            apiDesiredCount: 1,
+            apiMaxCount: 2,
+            webDesiredCount: 1,
+            webMaxCount: 2,
+            marketingDesiredCount: 1,
+            marketingMaxCount: 2,
+            auroraMinAcu: 0.5,
+            auroraMaxAcu: 2,
+            auroraBackupRetentionDays: 7,
+            // Set after Phase 3 step 5 (Clerk dev instance creation).
+            // clerkJwtIssuer: 'https://REPLACE_ME.clerk.accounts.dev',
+            //
+            // Fill in after creating each secret in account 262252232571.
+            // Slash-delimited names require complete ARNs; partial ARNs cause
+            // ECS task startup failures (ResourceInitializationError).
+            // Run for each: aws secretsmanager describe-secret \
+            //   --secret-id capiro/dev/<name> --query ARN --output text
+            // externalSecretArns: {
+            //   microsoftClientId:       'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-client-id-XXXXXX',
+            //   microsoftTenantId:       'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-tenant-id-XXXXXX',
+            //   microsoftCertThumbprint: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-cert-thumbprint-XXXXXX',
+            //   microsoftCertPrivateKey: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-cert-private-key-XXXXXX',
+            //   oauthTokenEncryptionKey: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/oauth-token-encryption-key-XXXXXX',
+            //   oauthStateSecret:        'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/oauth-state-secret-XXXXXX',
+            //   openaiApiKey:            'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/openai-api-key-XXXXXX',
+            //   anthropicApiKey:         'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/anthropic-api-key-XXXXXX',
+            //   notesEncryptionKey:      'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/notes-encryption-key-XXXXXX',
+            // },
           };
 
   return { ...BASE, envName, account, region, ...overrides };

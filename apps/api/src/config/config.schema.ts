@@ -51,6 +51,9 @@ export const configSchema = z.object({
   MICROSOFT_TENANT_ID: z.string().optional(),
   MICROSOFT_CERT_THUMBPRINT: z.string().optional(),
   MICROSOFT_CERT_PRIVATE_KEY: z.string().optional(),
+  // APP_SIGN_IN_URL is injected by CDK per env (compute-stack apiSharedEnv).
+  // The prod default here keeps prod working if ever run without CDK injection.
+  APP_SIGN_IN_URL: z.string().url().default('https://app.capiro.ai/sign-in'),
   MICROSOFT_REDIRECT_URI: z
     .string()
     .url()

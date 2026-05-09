@@ -313,10 +313,16 @@ export class ComputeStack extends cdk.Stack {
       API_PORT: '4000',
       API_BIND_HOST: '0.0.0.0',
       DB_NAME: databaseName,
-      CLERK_JWT_ISSUER: 'https://clerk.app.capiro.ai',
+      // CLERK_JWT_ISSUER is set per-env from config; absent during dev
+      // bootstrap (before Clerk instance is created) so the API skips issuer
+      // validation — acceptable until clerkJwtIssuer is filled in config.ts.
+      ...(cfg.clerkJwtIssuer ? { CLERK_JWT_ISSUER: cfg.clerkJwtIssuer } : {}),
       WEB_ORIGIN: `https://${cfg.appHost},https://${cfg.wildcardHost.replace('*', 'acmelobby')}`,
       ASSETS_BUCKET: assetsStack.bucket.bucketName,
       AWS_REGION_DEFAULT: this.region,
+      APP_SIGN_IN_URL: `https://${cfg.appHost}/sign-in`,
+      MICROSOFT_REDIRECT_URI: `https://${cfg.appHost}/api/engagement/integrations/microsoft/callback`,
+      MICROSOFT_GRAPH_NOTIFICATION_URL: `https://${cfg.appHost}/api/engagement/integrations/microsoft/notifications`,
     };
 
     // Identity-policy-only grant on the API task role for the assets bucket.

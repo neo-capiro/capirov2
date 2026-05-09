@@ -130,7 +130,7 @@ async function main() {
     organizationId: org.id,
     emailAddress: args.email,
     role: 'org:admin',
-    redirectUrl: 'https://app.capiro.ai/sign-in',
+    redirectUrl: process.env.APP_SIGN_IN_URL ?? 'https://app.capiro.ai/sign-in',
   });
   // eslint-disable-next-line no-console
   console.log(

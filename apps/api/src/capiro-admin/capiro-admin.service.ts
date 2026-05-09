@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import type { TenantContext } from '@capiro/shared';
 import { ClerkProvisioningService } from '../auth/clerk-provisioning.service.js';
 import { ClerkService } from '../auth/clerk.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { AppConfig } from '../config/config.schema.js';
 
 interface CreateTenantInput {
   slug: string;
@@ -24,6 +26,7 @@ export class CapiroAdminService {
     private readonly prisma: PrismaService,
     private readonly clerk: ClerkService,
     private readonly provisioning: ClerkProvisioningService,
+    private readonly config: ConfigService<AppConfig, true>,
   ) {}
 
   async listTenants() {
@@ -128,7 +131,7 @@ export class CapiroAdminService {
       organizationId: orgId,
       emailAddress: email,
       role: 'org:admin',
-      redirectUrl: redirectUrl ?? 'https://app.capiro.ai/sign-in',
+      redirectUrl: redirectUrl ?? this.config.get('APP_SIGN_IN_URL', { infer: true }),
     });
     return { invitationId: inv.id };
   }
@@ -216,7 +219,7 @@ export class CapiroAdminService {
     // Once the SDK exposes password reset tickets here, this method can issue
     // a direct reset link instead of returning the hosted entry point.
     return {
-      forgotPasswordUrl: `https://app.capiro.ai/sign-in#/factor-one`,
+      forgotPasswordUrl: `${this.config.get('APP_SIGN_IN_URL', { infer: true })}#/factor-one`,
       note: 'Send the user the sign-in URL above; they use "Forgot password" on the Clerk hosted UI.',
       clerkUserId,
     };

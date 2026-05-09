@@ -36,7 +36,7 @@ jobs:
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.AWS_GHA_ROLE_ARN }}
+          role-to-assume: ${{ env.TARGET_ENV == 'prod' && vars.AWS_PROD_GHA_ROLE_ARN || vars.AWS_DEV_GHA_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
