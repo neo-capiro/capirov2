@@ -735,19 +735,23 @@ export class ComputeStack extends cdk.Stack {
     });
 
     // Listener rules — ORDER MATTERS, lower priority wins.
+    //   3  /api/*, /webhooks/*, /health (any host) → api  [must beat marketing host rule]
     //   5  apex (capiro.ai) → marketing
-    //   10 /api/*, /webhooks/*, /health (any host) → api
     //   20 app.capiro.ai + *.app.capiro.ai → web
     //   default → 404 (set on the listener itself)
+    //
+    // ApiPaths is priority 3 (not 5+) because in dev rootDomain === appHost
+    // ('app-dev.capiro.ai'), so the Marketing host rule at priority 5 would
+    // otherwise intercept /health and /api/* before the path rule could fire.
+    httpsListener.addAction('ApiPaths', {
+      priority: 3,
+      conditions: [elb.ListenerCondition.pathPatterns(['/api/*', '/webhooks/*', '/health'])],
+      action: elb.ListenerAction.forward([this.apiTargetGroup]),
+    });
     httpsListener.addAction('Marketing', {
       priority: 5,
       conditions: [elb.ListenerCondition.hostHeaders([cfg.rootDomain, `www.${cfg.rootDomain}`])],
       action: elb.ListenerAction.forward([this.marketingTargetGroup]),
-    });
-    httpsListener.addAction('ApiPaths', {
-      priority: 10,
-      conditions: [elb.ListenerCondition.pathPatterns(['/api/*', '/webhooks/*', '/health'])],
-      action: elb.ListenerAction.forward([this.apiTargetGroup]),
     });
     httpsListener.addAction('WebDefault', {
       priority: 20,
