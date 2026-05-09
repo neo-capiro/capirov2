@@ -117,8 +117,7 @@ export function loadConfig(app: cdk.App): EnvConfig {
             auroraMinAcu: 0.5,
             auroraMaxAcu: 2,
             auroraBackupRetentionDays: 7,
-            // Set after Phase 3 step 5 (Clerk dev instance creation).
-            // clerkJwtIssuer: 'https://REPLACE_ME.clerk.accounts.dev',
+            clerkJwtIssuer: 'https://stirring-warthog-40.clerk.accounts.dev',
             //
             // Fill in after creating each secret in account 262252232571.
             // Slash-delimited names require complete ARNs; partial ARNs cause
