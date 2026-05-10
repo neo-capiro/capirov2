@@ -38,6 +38,26 @@ case "${1:-serve}" in
     echo "Running prisma migrate deploy"
     exec node ./node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
     ;;
+  migrate-resolve)
+    # Mark a specific migration as rolled-back so a subsequent `migrate
+    # deploy` will retry it. Used to recover from a failed migration that
+    # left the `_prisma_migrations` table in failed state. argv:
+    #   migrate-resolve <migration-name>
+    shift
+    if [ -z "$1" ]; then echo "migrate-resolve requires a migration name" >&2; exit 1; fi
+    echo "Marking migration $1 as rolled-back"
+    exec node ./node_modules/prisma/build/index.js migrate resolve --rolled-back "$1" --schema=./prisma/schema.prisma
+    ;;
+  db-execute)
+    # Run a SQL statement passed as a single argv against the configured
+    # DATABASE_URL. Operations role: maintenance work like dropping
+    # orphan tables left behind by an earlier branch's migrations.
+    # argv: db-execute "<SQL>"
+    shift
+    if [ -z "$1" ]; then echo "db-execute requires a SQL string argv" >&2; exit 1; fi
+    echo "Executing SQL via prisma db execute"
+    printf '%s' "$1" | exec node ./node_modules/prisma/build/index.js db execute --stdin --schema=./prisma/schema.prisma
+    ;;
   bootstrap-capiro-admin)
     shift
     echo "Running bootstrap-capiro-admin $*"

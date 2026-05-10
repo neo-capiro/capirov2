@@ -317,6 +317,11 @@ export class ComputeStack extends cdk.Stack {
       WEB_ORIGIN: `https://${cfg.appHost},https://${cfg.wildcardHost.replace('*', 'acmelobby')}`,
       ASSETS_BUCKET: assetsStack.bucket.bucketName,
       AWS_REGION_DEFAULT: this.region,
+      // Cloud Map private DNS exposed by ClioStack. Resolves only
+      // from inside the Capiro VPC. Empty in env=prod until ClioStack
+      // is deployed there too — the API treats an empty value as
+      // "Clio not configured" and returns 503 for /api/clio/* routes.
+      CLIO_BASE_URL: `http://clio.capiro-${cfg.envName}.local:8000`,
     };
 
     // Identity-policy-only grant on the API task role for the assets bucket.

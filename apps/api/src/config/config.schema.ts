@@ -65,6 +65,11 @@ export const configSchema = z.object({
   // Amazon SES. The source address must be a verified SES identity.
   DEMO_REQUEST_EMAIL_FROM: z.string().email().default('sales@capiro.ai'),
   DEMO_REQUEST_EMAIL_TO: z.string().email().default('sales@capiro.ai'),
+
+  // Clio agent runtime base URL — internal Cloud Map DNS resolved only
+  // from inside the VPC, e.g. http://clio.capiro-staging.local:8000.
+  // Optional in dev (Workspace endpoints throw 503 when empty).
+  CLIO_BASE_URL: z.string().url().or(z.literal('')).default(''),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

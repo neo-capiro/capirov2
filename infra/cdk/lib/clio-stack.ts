@@ -5,6 +5,7 @@ import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as servicediscovery from 'aws-cdk-lib/aws-servicediscovery';
 import { commonTags, type EnvConfig } from './config';
 
 export interface ClioStackProps extends cdk.StackProps {
@@ -45,6 +46,15 @@ export class ClioStack extends cdk.Stack {
       'ClioRepo',
       `capiro/${cfg.envName}/clio`,
     );
+
+    // Private DNS namespace shared with the rest of the Capiro VPC. The
+    // API task resolves Clio at `clio.capiro-{env}.local` — this only
+    // resolves inside the VPC, never from the public internet.
+    const namespace = new servicediscovery.PrivateDnsNamespace(this, 'ClioNamespace', {
+      name: `capiro-${cfg.envName}.local`,
+      vpc,
+      description: `Private service discovery for Capiro ${cfg.envName}`,
+    });
 
     const logGroup = new logs.LogGroup(this, 'ClioLogs', {
       logGroupName: `/capiro/${cfg.envName}/clio`,
@@ -120,10 +130,38 @@ export class ClioStack extends cdk.Stack {
       circuitBreaker: { rollback: true },
       minHealthyPercent: 0, // single-task service; rolling deploy goes 0→1
       maxHealthyPercent: 200,
+      // Register the running task in Cloud Map at `clio.capiro-{env}.local`.
+      // The DNS record resolves to the task's private IP and refreshes
+      // automatically on rolling deploys. A-record TTL of 10s keeps stale
+      // routes short during deploys without spamming Route53 queries.
+      cloudMapOptions: {
+        name: 'clio',
+        cloudMapNamespace: namespace,
+        dnsRecordType: servicediscovery.DnsRecordType.A,
+        dnsTtl: cdk.Duration.seconds(10),
+      },
     });
+
+    // The serviceSecurityGroup was already configured by NetworkStack to
+    // allow ALB → service traffic on the existing listener ports. The
+    // API task lives in the same SG, so adding a self-referential ingress
+    // here lets api → clio reach 8000 without widening the SG to the
+    // whole VPC.
+    this.service.connections.allowFrom(
+      serviceSecurityGroup,
+      ec2.Port.tcp(8000),
+      // SG rule descriptions must be ASCII (a-zA-Z0-9 plus a small set of
+      // punctuation); arrows / unicode get rejected by EC2 with a 400.
+      'Capiro API to Clio runtime (port 8000)',
+    );
 
     new cdk.CfnOutput(this, 'ClioServiceArn', { value: this.service.serviceArn });
     new cdk.CfnOutput(this, 'ClioRepoUri', { value: this.repository.repositoryUri });
     new cdk.CfnOutput(this, 'ClioLogGroup', { value: logGroup.logGroupName });
+    new cdk.CfnOutput(this, 'ClioInternalUrl', {
+      // Hardcoded to match the Cloud Map registration above; ComputeStack
+      // injects this string into the API task as CLIO_BASE_URL.
+      value: `http://clio.capiro-${cfg.envName}.local:8000`,
+    });
   }
 }

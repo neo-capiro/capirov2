@@ -143,6 +143,9 @@ model Tenant {
   outreachRecords            OutreachRecord[]
   outreachTemplates          OutreachTemplate[]
   MeetingDebrief             MeetingDebrief[]
+  clioSessions               ClioSession[]
+  clioMessages               ClioMessage[]
+  clioArtifacts              ClioArtifact[]
 
   @@map("tenants")
 }
@@ -166,6 +169,8 @@ model User {
   engagementReportTargets EngagementReportTargetOffice[] @relation("EngagementReportTargetOfficeAuthor")
   outreachRecords         OutreachRecord[]               @relation("OutreachRecordAuthor")
   outreachTemplates       OutreachTemplate[]             @relation("OutreachTemplateAuthor")
+  clioSessions            ClioSession[]                  @relation("ClioSessionUser")
+  clioArtifacts           ClioArtifact[]                 @relation("ClioArtifactCreator")
 
   @@map("users")
 }
@@ -769,4 +774,131 @@ model AuditLog {
   @@index([tenantId, occurredAt(sort: Desc)], map: "audit_logs_tenant_occurred_idx")
   @@index([tenantId, action], map: "audit_logs_tenant_action_idx")
   @@map("audit_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Clio agent workspace
+//
+// One row in clio_sessions per chat conversation a user opens in the
+// Workspace. Messages are stored in clio_messages (one row per turn — user,
+// assistant, system, or tool). Artifacts (memos, briefs) the agent
+// produces during a session land in clio_artifacts; the rendered file lives
+// in S3 under the tenant-assets bucket and `s3_key` points at it.
+//
+// All three tables are tenant-scoped with the same RLS pattern as the rest
+// of the schema (FORCE ROW LEVEL SECURITY + isolation policy on tenant_id).
+// The actual policy SQL ships in the migration.
+
+enum ClioSessionStatus {
+  active
+  archived
+  deleted
+
+  @@map("clio_session_status")
+}
+
+enum ClioMessageRole {
+  user
+  assistant
+  system
+  tool
+
+  @@map("clio_message_role")
+}
+
+enum ClioArtifactKind {
+  policy_memo
+  meeting_brief
+  client_intel_update
+  regulatory_comment
+  appropriations_request
+  other
+
+  @@map("clio_artifact_kind")
+}
+
+model ClioSession {
+  id            String            @id @default(uuid()) @db.Uuid
+  tenantId      String            @map("tenant_id") @db.Uuid
+  userId        String            @map("user_id") @db.Uuid
+  title         String
+  // The model this session is bound to. Bedrock cross-region inference
+  // profile id (e.g. `us.anthropic.claude-sonnet-4-6`). Persisted so that
+  // resuming a session doesn't silently switch models if the runtime
+  // default changes between turns.
+  model         String
+  status        ClioSessionStatus @default(active)
+  // Free-form per-session config: temperature, max_tokens, system prompt
+  // override, internal-tier vs customer-tier flag, etc.
+  settings      Json              @default("{}") @map("settings_jsonb")
+  lastMessageAt DateTime?         @map("last_message_at") @db.Timestamptz(6)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User           @relation("ClioSessionUser", fields: [userId], references: [id], onDelete: Cascade)
+  messages  ClioMessage[]
+  artifacts ClioArtifact[]
+
+  @@index([tenantId, userId, status, lastMessageAt(sort: Desc)], map: "clio_sessions_tenant_user_status_idx")
+  @@map("clio_sessions")
+}
+
+model ClioMessage {
+  id        String          @id @default(uuid()) @db.Uuid
+  sessionId String          @map("session_id") @db.Uuid
+  // Denormalized for cheap RLS isolation — every read filters by tenant
+  // before joining sessions, mirroring how meeting_notes / mail_messages
+  // carry tenant_id even though it could be derived through the parent.
+  tenantId  String          @map("tenant_id") @db.Uuid
+  role      ClioMessageRole
+  // Plain text content for user / assistant turns. Tool-call requests
+  // and tool-result payloads go in `content_jsonb` — that side stays
+  // structured so the agent loop can re-feed it to the model.
+  content   String?
+  contentJson Json?          @map("content_jsonb")
+  // Bedrock token usage when the model produced this message; null for
+  // user / system / tool rows.
+  inputTokens  Int?          @map("input_tokens")
+  outputTokens Int?          @map("output_tokens")
+  // The Bedrock stop reason (`end_turn`, `tool_use`, `max_tokens`, etc.)
+  // for assistant rows. Null for everything else.
+  stopReason   String?       @map("stop_reason")
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  session ClioSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  tenant  Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt], map: "clio_messages_session_created_idx")
+  @@index([tenantId, createdAt(sort: Desc)], map: "clio_messages_tenant_created_idx")
+  @@map("clio_messages")
+}
+
+model ClioArtifact {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @map("tenant_id") @db.Uuid
+  sessionId       String?          @map("session_id") @db.Uuid
+  createdByUserId String?          @map("created_by_user_id") @db.Uuid
+  kind            ClioArtifactKind
+  title           String
+  // Source-of-truth content. Markdown for memos / briefs; the rendered
+  // PDF / DOCX in S3 (s3_key) is derived from this.
+  content         String?
+  // Optional rendered file in S3 — set once the agent has called the
+  // render tool. Null means the artifact is text-only at the moment.
+  s3Key           String?          @map("s3_key")
+  s3ContentType   String?          @map("s3_content_type")
+  // Free-form metadata the agent stamps on the artifact: clients
+  // referenced, sources cited, prompts used, model id, version ix, etc.
+  metadata        Json             @default("{}") @map("metadata_jsonb")
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  session ClioSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  creator User?        @relation("ClioArtifactCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, kind, updatedAt(sort: Desc)], map: "clio_artifacts_tenant_kind_updated_idx")
+  @@index([sessionId, createdAt(sort: Desc)], map: "clio_artifacts_session_created_idx")
+  @@map("clio_artifacts")
 }

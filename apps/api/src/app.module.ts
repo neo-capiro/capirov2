@@ -17,6 +17,7 @@ import { BrandingModule } from './branding/branding.module.js';
 import { DirectoryModule } from './directory/directory.module.js';
 import { EngagementModule } from './engagement/engagement.module.js';
 import { DemoRequestsModule } from './demo-requests/demo-requests.module.js';
+import { ClioModule } from './clio/clio.module.js';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { DemoRequestsModule } from './demo-requests/demo-requests.module.js';
     DirectoryModule,
     EngagementModule,
     DemoRequestsModule,
+    ClioModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
