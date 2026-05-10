@@ -313,7 +313,7 @@ export class ComputeStack extends cdk.Stack {
       API_PORT: '4000',
       API_BIND_HOST: '0.0.0.0',
       DB_NAME: databaseName,
-      CLERK_JWT_ISSUER: 'https://clerk.app.capiro.ai',
+      CLERK_JWT_ISSUER: cfg.clerkJwtIssuer,
       WEB_ORIGIN: `https://${cfg.appHost},https://${cfg.wildcardHost.replace('*', 'acmelobby')}`,
       ASSETS_BUCKET: assetsStack.bucket.bucketName,
       AWS_REGION_DEFAULT: this.region,
@@ -839,16 +839,21 @@ export class ComputeStack extends cdk.Stack {
     // Apex `capiro.ai` → marketing site on the same ALB. The pre-existing
     // apex A record (pointing to a stale CloudFront) must be deleted before
     // this deploys; see infra/cdk/README.md.
-    new route53.ARecord(this, 'ApexAlias', {
-      zone: hostedZone,
-      recordName: cfg.rootDomain,
-      target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
-    });
-    new route53.AaaaRecord(this, 'ApexAliasIpv6', {
-      zone: hostedZone,
-      recordName: cfg.rootDomain,
-      target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
-    });
+    // Skip when rootDomain === appHost (e.g. staging where both are
+    // `staging.capiro.ai`) — AppAlias above already creates the A record
+    // at that name and a duplicate would conflict.
+    if (cfg.rootDomain !== cfg.appHost) {
+      new route53.ARecord(this, 'ApexAlias', {
+        zone: hostedZone,
+        recordName: cfg.rootDomain,
+        target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
+      });
+      new route53.AaaaRecord(this, 'ApexAliasIpv6', {
+        zone: hostedZone,
+        recordName: cfg.rootDomain,
+        target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
+      });
+    }
 
     new cdk.CfnOutput(this, 'AlbDnsName', { value: this.alb.loadBalancerDnsName });
     new cdk.CfnOutput(this, 'ApiRepoUri', { value: this.apiRepo.repositoryUri });

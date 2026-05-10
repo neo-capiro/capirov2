@@ -55,13 +55,17 @@ export class AssetsStack extends cdk.Stack {
         {
           // The browser PUTs files via presigned URLs from app.capiro.ai and
           // any tenant subdomain; SPA must read the response status.
-          allowedOrigins: [
-            `https://${cfg.appHost}`,
-            `https://${cfg.rootDomain}`,
-            // Vanity tenant subdomain wildcard — S3 CORS supports the
-            // `*.app.capiro.ai` form natively.
-            `https://*.${cfg.appHost}`,
-          ],
+          // Dedupe: in staging, appHost === rootDomain, so the two URLs
+          // collapse and S3 CORS rejects array items that are not unique.
+          allowedOrigins: Array.from(
+            new Set([
+              `https://${cfg.appHost}`,
+              `https://${cfg.rootDomain}`,
+              // Vanity tenant subdomain wildcard — S3 CORS supports the
+              // `*.app.capiro.ai` form natively.
+              `https://*.${cfg.appHost}`,
+            ]),
+          ),
           allowedMethods: [
             s3.HttpMethods.PUT,
             s3.HttpMethods.POST,
