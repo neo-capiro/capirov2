@@ -9,6 +9,7 @@ import { SecretsStack } from '../lib/secrets-stack';
 import { ComputeStack } from '../lib/compute-stack';
 import { AlarmsStack } from '../lib/alarms-stack';
 import { AssetsStack } from '../lib/assets-stack';
+import { ClioStack } from '../lib/clio-stack';
 
 /**
  * Capiro CDK app. Stacks are deployed in dependency order:
@@ -92,5 +93,16 @@ const alarms = new AlarmsStack(app, stackName(cfg.envName, 'Alarms'), {
 });
 alarms.addDependency(compute);
 alarms.addDependency(data);
+
+const clio = new ClioStack(app, stackName(cfg.envName, 'Clio'), {
+  env,
+  tags,
+  cfg,
+  vpc: network.vpc,
+  serviceSecurityGroup: network.serviceSecurityGroup,
+  cluster: compute.cluster,
+});
+clio.addDependency(network);
+clio.addDependency(compute);
 
 app.synth();
