@@ -100,6 +100,17 @@ enum EngagementTaskStatus {
   @@map("engagement_task_status")
 }
 
+enum ClioArtifactKind {
+  policy_memo
+  meeting_brief
+  client_intel_update
+  regulatory_comment
+  appropriations_request
+  other
+
+  @@map("clio_artifact_kind")
+}
+
 model Tenant {
   id              String       @id @default(uuid()) @db.Uuid
   slug            String       @unique @db.Citext
@@ -143,6 +154,7 @@ model Tenant {
   outreachRecords            OutreachRecord[]
   outreachTemplates          OutreachTemplate[]
   MeetingDebrief             MeetingDebrief[]
+  clioArtifacts              ClioArtifact[]
 
   @@map("tenants")
 }
@@ -166,6 +178,7 @@ model User {
   engagementReportTargets EngagementReportTargetOffice[] @relation("EngagementReportTargetOfficeAuthor")
   outreachRecords         OutreachRecord[]               @relation("OutreachRecordAuthor")
   outreachTemplates       OutreachTemplate[]             @relation("OutreachTemplateAuthor")
+  clioArtifacts           ClioArtifact[]                 @relation("ClioArtifactCreator")
 
   @@map("users")
 }
@@ -710,6 +723,27 @@ model ContextEmbedding {
 
   @@index([tenantId, clientId], map: "context_embeddings_tenant_client_idx")
   @@map("context_embeddings")
+}
+
+model ClioArtifact {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @map("tenant_id") @db.Uuid
+  createdByUserId String?          @map("created_by_user_id") @db.Uuid
+  kind            ClioArtifactKind
+  title           String
+  content         String?          @db.Text
+  s3Key           String?          @map("s3_key")
+  s3ContentType   String?          @map("s3_content_type")
+  metadata        Json             @default("{}") @map("metadata_jsonb")
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creator User?  @relation("ClioArtifactCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, kind, updatedAt(sort: Desc)], map: "clio_artifacts_tenant_kind_updated_idx")
+  @@index([tenantId, createdByUserId, createdAt(sort: Desc)], map: "clio_artifacts_tenant_user_created_idx")
+  @@map("clio_artifacts")
 }
 
 model ImpersonationSession {
