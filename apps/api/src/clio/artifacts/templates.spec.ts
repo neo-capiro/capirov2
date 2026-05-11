@@ -24,7 +24,7 @@ describe('Clio artifact templates', () => {
 Congress is evaluating changes to acquisition rules.
 
 ## Background
-The client needs a concise memo for Hill outreach.
+The client needs a concise memo for Hill outreach. [^1] [^2]
 
 ## Stakeholders
 - **House Armed Services Committee:** Interested in procurement speed.
@@ -35,8 +35,8 @@ The client needs a concise memo for Hill outreach.
 - Attach citations to every claim.
 
 ## Citations
-- [Federal Register Notice](https://www.federalregister.gov/example)
-- [Congress.gov Bill](https://www.congress.gov/bill/119th-congress/house-bill/1)`);
+[^1]: Federal Register Notice — https://www.federalregister.gov/example
+[^2]: Congress.gov Bill — https://www.congress.gov/bill/119th-congress/house-bill/1`);
   });
 
   it('renders deterministic meeting brief markdown', () => {
@@ -73,4 +73,3 @@ The meeting follows prior outreach on appropriations language.
 - Confirm follow-up owner.`);
   });
 });
-

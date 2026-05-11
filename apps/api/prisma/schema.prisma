@@ -729,8 +729,11 @@ model ClioArtifact {
   id              String           @id @default(uuid()) @db.Uuid
   tenantId        String           @map("tenant_id") @db.Uuid
   createdByUserId String?          @map("created_by_user_id") @db.Uuid
+  replacingArtifactId String?      @map("replacing_artifact_id") @db.Uuid
   kind            ClioArtifactKind
   title           String
+  status          String           @default("pending")
+  version         Int              @default(1)
   content         String?          @db.Text
   s3Key           String?          @map("s3_key")
   s3ContentType   String?          @map("s3_content_type")
@@ -743,6 +746,7 @@ model ClioArtifact {
 
   @@index([tenantId, kind, updatedAt(sort: Desc)], map: "clio_artifacts_tenant_kind_updated_idx")
   @@index([tenantId, createdByUserId, createdAt(sort: Desc)], map: "clio_artifacts_tenant_user_created_idx")
+  @@index([tenantId, replacingArtifactId, version], map: "clio_artifacts_replacing_version_idx")
   @@map("clio_artifacts")
 }
 

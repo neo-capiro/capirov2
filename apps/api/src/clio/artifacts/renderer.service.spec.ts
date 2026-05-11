@@ -5,12 +5,7 @@ jest.mock('@aws-sdk/client-s3', () => {
     constructor(readonly input: Record<string, unknown>) {}
   }
 
-  class DeleteObjectCommand {
-    constructor(readonly input: Record<string, unknown>) {}
-  }
-
   return {
-    DeleteObjectCommand,
     PutObjectCommand,
     S3Client: jest.fn(() => ({ send: mockS3Send })),
   };
@@ -29,7 +24,7 @@ jest.mock(
   { virtual: true },
 );
 
-import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { RendererService } from './renderer.service.js';
 
@@ -40,9 +35,8 @@ const CTX = {
 
 describe('RendererService', () => {
   it('writes markdown to S3, persists a policy memo artifact, and returns the created row', async () => {
-    const { service, s3Send, prisma, createArtifact } = createHarness();
+    const { service, s3Send, prisma, createArtifact, updateArtifact } = createHarness();
     s3Send.mockResolvedValueOnce({});
-    createArtifact.mockImplementationOnce(async ({ data }) => ({ ...data, createdAt: new Date('2026-05-11T00:00:00Z') }));
 
     const artifact = await service.render(
       'policy_memo',
@@ -66,27 +60,41 @@ describe('RendererService', () => {
       Body: expect.stringContaining('# Policy Memo'),
     });
     expect((putCommand as PutObjectCommand).input.Key).toMatch(
-      /^tenants\/11111111-1111-4111-8111-111111111111\/artifacts\/[0-9a-f-]+\.md$/,
+      /^tenants\/11111111-1111-4111-8111-111111111111\/artifacts\/[0-9a-f-]+\/v1\.md$/,
     );
 
-    expect(prisma.withTenant).toHaveBeenCalledWith(CTX.tenantId, expect.any(Function));
+    expect(prisma.withTenant).toHaveBeenCalledTimes(2);
     expect(createArtifact).toHaveBeenCalledWith({
       data: expect.objectContaining({
         tenantId: CTX.tenantId,
         createdByUserId: CTX.userId,
         kind: 'policy_memo',
         title: 'Policy Memo',
+        status: 'pending',
+        version: 1,
         content: expect.stringContaining('## Citations'),
+        s3Key: null,
+        s3ContentType: null,
+        metadata: expect.objectContaining({
+          citations: [{ sourceTitle: 'Source', url: 'https://example.com/source' }],
+          plannedS3Key: (putCommand as PutObjectCommand).input.Key,
+          version: 1,
+        }),
+      }),
+    });
+    expect(updateArtifact).toHaveBeenCalledWith({
+      where: { id: expect.any(String) },
+      data: expect.objectContaining({
+        status: 'ready',
         s3Key: (putCommand as PutObjectCommand).input.Key,
         s3ContentType: 'text/markdown; charset=utf-8',
-        metadata: { citations: [{ sourceTitle: 'Source', url: 'https://example.com/source' }] },
       }),
     });
     expect(artifact).toEqual(expect.objectContaining({ kind: 'policy_memo', title: 'Policy Memo' }));
   });
 
-  it('does not create an Aurora row when S3 upload fails', async () => {
-    const { service, s3Send, prisma } = createHarness();
+  it('leaves the pending Aurora row when S3 upload fails', async () => {
+    const { service, s3Send, prisma, createArtifact, updateArtifact } = createHarness();
     s3Send.mockRejectedValueOnce(new Error('S3 unavailable'));
 
     await expect(
@@ -104,14 +112,18 @@ describe('RendererService', () => {
       ),
     ).rejects.toThrow('S3 unavailable');
 
-    expect(prisma.withTenant).not.toHaveBeenCalled();
+    expect(prisma.withTenant).toHaveBeenCalledTimes(1);
+    expect(createArtifact).toHaveBeenCalledWith({
+      data: expect.objectContaining({ status: 'pending', s3Key: null }),
+    });
+    expect(updateArtifact).not.toHaveBeenCalled();
   });
 
-  it('cleans up the S3 object when Aurora persistence fails after upload', async () => {
-    const { service, s3Send, prisma } = createHarness();
+  it('does not delete S3 when the ready update fails after upload', async () => {
+    const { service, s3Send, updateArtifact } = createHarness();
     const dbError = new Error('Aurora unavailable');
-    s3Send.mockResolvedValueOnce({}).mockResolvedValueOnce({});
-    prisma.withTenant.mockRejectedValueOnce(dbError);
+    s3Send.mockResolvedValueOnce({});
+    updateArtifact.mockRejectedValueOnce(dbError);
 
     await expect(
       service.render(
@@ -128,14 +140,38 @@ describe('RendererService', () => {
       ),
     ).rejects.toThrow('Aurora unavailable');
 
-    expect(s3Send).toHaveBeenCalledTimes(2);
-    const putCommand = s3Send.mock.calls[0]?.[0] as PutObjectCommand;
-    const deleteCommand = s3Send.mock.calls[1]?.[0];
-    expect(deleteCommand).toBeInstanceOf(DeleteObjectCommand);
-    expect((deleteCommand as DeleteObjectCommand).input).toEqual({
-      Bucket: 'assets-bucket',
-      Key: putCommand.input.Key,
+    expect(s3Send).toHaveBeenCalledTimes(1);
+    expect(s3Send.mock.calls[0]?.[0]).toBeInstanceOf(PutObjectCommand);
+  });
+
+  it('chains replacements by incrementing the version and writing a new row', async () => {
+    const { service, s3Send, createArtifact, findArtifact } = createHarness({
+      findResults: [{ version: 1 }, null],
     });
+    s3Send.mockResolvedValueOnce({});
+
+    await service.render(
+      'meeting_brief',
+      {
+        title: 'Meeting Brief v2',
+        meetingDate: '2026-05-18',
+        attendees: [],
+        talkingPoints: [],
+        asks: [],
+        context: 'Context',
+      },
+      CTX,
+      { replacing: '33333333-3333-4333-8333-333333333333' },
+    );
+
+    expect(findArtifact).toHaveBeenCalledTimes(2);
+    expect(createArtifact).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        replacingArtifactId: '33333333-3333-4333-8333-333333333333',
+        version: 2,
+      }),
+    });
+    expect((s3Send.mock.calls[0]?.[0] as PutObjectCommand).input.Key).toMatch(/\/v2\.md$/);
   });
 
   it('fails closed when ASSETS_BUCKET is not configured', async () => {
@@ -161,12 +197,29 @@ describe('RendererService', () => {
   });
 });
 
-function createHarness(options: { bucket?: string } = {}) {
+function createHarness(options: { bucket?: string; findResults?: Array<{ version: number } | null> } = {}) {
   mockS3Send.mockReset();
-  const createArtifact = jest.fn(async ({ data }) => data);
+  const findResults = [...(options.findResults ?? [])];
+  const findArtifact = jest.fn(async () => findResults.shift() ?? null);
+  let createdArtifact: Record<string, unknown> | null = null;
+  const createArtifact = jest.fn(async ({ data }) => {
+    createdArtifact = {
+      ...data,
+      id: data.id,
+      version: data.version,
+      createdAt: new Date('2026-05-11T00:00:00Z'),
+    };
+    return createdArtifact;
+  });
+  const updateArtifact = jest.fn(async ({ where, data }) => ({
+    ...createdArtifact,
+    id: where.id,
+    ...data,
+    createdAt: new Date('2026-05-11T00:00:00Z'),
+  }));
   const prisma = {
     withTenant: jest.fn(async (_tenantId: string, fn: (tx: unknown) => Promise<unknown>) =>
-      fn({ clioArtifact: { create: createArtifact } }),
+      fn({ clioArtifact: { create: createArtifact, findFirst: findArtifact, update: updateArtifact } }),
     ),
   };
   const config = {
@@ -177,5 +230,5 @@ function createHarness(options: { bucket?: string } = {}) {
     }),
   };
   const service = new RendererService(prisma as never, config as never);
-  return { service, s3Send: mockS3Send, prisma, createArtifact };
+  return { service, s3Send: mockS3Send, prisma, createArtifact, findArtifact, updateArtifact };
 }

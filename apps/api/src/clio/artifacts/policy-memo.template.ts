@@ -1,4 +1,4 @@
-import { markdownHeading, markdownList, normalizeBlock, normalizeInline, renderLink } from './markdown.js';
+import { markdownHeading, markdownList, normalizeBlock, normalizeInline } from './markdown.js';
 
 export interface PolicyMemoInput {
   title: string;
@@ -10,10 +10,11 @@ export interface PolicyMemoInput {
 }
 
 export function renderPolicyMemo(input: PolicyMemoInput): string {
+  const citationRefs = renderCitationRefs(input.citations.length);
   const citations =
     input.citations.length > 0
-      ? input.citations.map((citation) => `- ${renderLink(citation.sourceTitle, citation.url)}`)
-      : ['- No citations provided.'];
+      ? input.citations.map((citation, index) => `[^${index + 1}]: ${renderFootnote(citation)}`)
+      : ['No citations provided.'];
 
   return [
     markdownHeading(1, input.title),
@@ -22,7 +23,7 @@ export function renderPolicyMemo(input: PolicyMemoInput): string {
     normalizeBlock(input.issue),
     '',
     markdownHeading(2, 'Background'),
-    normalizeBlock(input.background),
+    appendFootnoteRefs(normalizeBlock(input.background), citationRefs),
     '',
     markdownHeading(2, 'Stakeholders'),
     ...renderStakeholders(input.stakeholders),
@@ -47,3 +48,15 @@ function renderRecommendations(recommendations: string[]): string[] {
   return markdownList(recommendations);
 }
 
+function renderCitationRefs(count: number): string {
+  return Array.from({ length: count }, (_value, index) => `[^${index + 1}]`).join(' ');
+}
+
+function appendFootnoteRefs(body: string, refs: string): string {
+  if (!refs) return body;
+  return `${body} ${refs}`;
+}
+
+function renderFootnote(citation: PolicyMemoInput['citations'][number]): string {
+  return `${normalizeInline(citation.sourceTitle)} — ${normalizeInline(citation.url)}`;
+}
