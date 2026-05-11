@@ -117,6 +117,11 @@ export class ComputeStack extends cdk.Stack {
       'ImportedClerkPubKey',
       secretsStack.clerkPublishableKey.secretArn,
     );
+    const clioInboundSecretImported = secretsmanager.Secret.fromSecretCompleteArn(
+      this,
+      'ImportedClioInboundSecret',
+      secretsStack.clioInboundSharedSecret.secretArn,
+    );
 
     // Microsoft 365 Graph OAuth + token-at-rest crypto. These secrets are
     // provisioned out-of-band and imported by complete ARN when available. ECS
@@ -297,6 +302,11 @@ export class ComputeStack extends cdk.Stack {
       NOTES_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(notesEncryptionKeySecret),
       OPENAI_API_KEY: ecs.Secret.fromSecretsManager(openaiApiKeySecret),
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(anthropicApiKeySecret),
+      // Bearer token the Clio runtime sends on /api/clio/internal/*
+      // requests. SecretsStack auto-generates the value; both task defs
+      // pull from the same Secrets Manager entry so they're always in
+      // sync after a put-secret-value rotation and a restart.
+      CLIO_INBOUND_SHARED_SECRET: ecs.Secret.fromSecretsManager(clioInboundSecretImported),
     };
     const apiMigrateSecrets = {
       CLERK_SECRET_KEY: ecs.Secret.fromSecretsManager(clerkSecretKeyImported),
@@ -383,6 +393,7 @@ export class ComputeStack extends cdk.Stack {
         dbSecretImported.secretArn,
         clerkSecretKeyImported.secretArn,
         clerkWebhookImported.secretArn,
+        clioInboundSecretImported.secretArn,
         ...externalRuntimeSecretArnPatterns,
       ],
       [dataKey.keyArn, secretsStack.secretsKey.keyArn],

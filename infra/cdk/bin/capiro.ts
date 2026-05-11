@@ -101,8 +101,10 @@ const clio = new ClioStack(app, stackName(cfg.envName, 'Clio'), {
   vpc: network.vpc,
   serviceSecurityGroup: network.serviceSecurityGroup,
   cluster: compute.cluster,
+  secretsStack: secrets,
 });
 clio.addDependency(network);
 clio.addDependency(compute);
+clio.addDependency(secrets);
 
 app.synth();

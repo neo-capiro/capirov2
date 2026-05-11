@@ -5,14 +5,17 @@ import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as servicediscovery from 'aws-cdk-lib/aws-servicediscovery';
 import { commonTags, type EnvConfig } from './config';
+import type { SecretsStack } from './secrets-stack';
 
 export interface ClioStackProps extends cdk.StackProps {
   cfg: EnvConfig;
   vpc: ec2.IVpc;
   serviceSecurityGroup: ec2.ISecurityGroup;
   cluster: ecs.ICluster;
+  secretsStack: SecretsStack;
 }
 
 /**
@@ -37,7 +40,7 @@ export class ClioStack extends cdk.Stack {
 
   constructor(scope: Construct, id: string, props: ClioStackProps) {
     super(scope, id, props);
-    const { cfg, vpc, serviceSecurityGroup, cluster } = props;
+    const { cfg, vpc, serviceSecurityGroup, cluster, secretsStack } = props;
 
     Object.entries(commonTags(cfg)).forEach(([k, v]) => cdk.Tags.of(this).add(k, v));
 
@@ -108,6 +111,31 @@ export class ClioStack extends cdk.Stack {
       }),
     );
 
+    // Import the inbound shared secret by ARN rather than as a direct
+    // cross-stack reference. The direct reference would force CDK to
+    // attach a resource policy on the secret pointing at this stack's
+    // execution role — which is a cyclic SecretsStack ↔ ClioStack
+    // dependency. ecs.Secret.fromSecretsManager handles the execution-
+    // role-side grant automatically; the import-by-ARN keeps the
+    // SecretsStack side stack-pure.
+    const clioSharedSecretImported = secretsmanager.Secret.fromSecretCompleteArn(
+      this,
+      'ImportedClioSharedSecret',
+      secretsStack.clioInboundSharedSecret.secretArn,
+    );
+
+    // The CMK that encrypts the secret needs decrypt by the execution
+    // role for fromSecretsManager to resolve at task start. SecretsKey
+    // is in SecretsStack so we attach the policy directly to the
+    // execution role here rather than calling grantDecrypt on the
+    // cross-stack key resource (which would re-introduce the cycle).
+    this.taskDefinition.addToExecutionRolePolicy(
+      new iam.PolicyStatement({
+        actions: ['kms:Decrypt'],
+        resources: [secretsStack.secretsKey.keyArn],
+      }),
+    );
+
     this.taskDefinition.addContainer('clio', {
       image: ecs.ContainerImage.fromEcrRepository(this.repository, 'latest'),
       essential: true,
@@ -116,6 +144,17 @@ export class ClioStack extends cdk.Stack {
         CLIO_BEDROCK_REGION: this.region,
         CLIO_BEDROCK_MODEL_ID: 'us.anthropic.claude-sonnet-4-6',
         CLIO_LOG_LEVEL: 'INFO',
+        // Where the Clio agent loop calls back for tool execution and
+        // session lookups. Public ALB hostname; the route is shared-secret
+        // protected, no Clerk JWT involved. Going through the public ALB
+        // rather than internal Cloud Map keeps the integration path simple
+        // — both services live in the same VPC, the extra hop is ~3ms.
+        CLIO_CAPIRO_API_BASE_URL: `https://${cfg.appHost}/api`,
+      },
+      secrets: {
+        // Shared bearer token Capiro API validates on /api/clio/internal/*
+        // requests. The API task pulls the same secret from the same ARN.
+        CLIO_INBOUND_SHARED_SECRET: ecs.Secret.fromSecretsManager(clioSharedSecretImported),
       },
       portMappings: [{ containerPort: 8000, protocol: ecs.Protocol.TCP }],
       healthCheck: {
