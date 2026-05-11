@@ -44,6 +44,31 @@ const DEFAULT_TITLE = 'New session';
 const DEFAULT_MODEL = 'us.anthropic.claude-sonnet-4-6';
 
 /**
+ * Default system prompt for internal-tier (@capiro.ai) sessions when the
+ * caller didn't supply one. Hermes-style: framed as a general-purpose
+ * assistant first, with Capiro-specific tools positioned as optional
+ * capabilities — NOT as a Capiro-only chatbot. Without this, the tool
+ * descriptions alone (get_client_context, render_artifact) bias the
+ * model into greeting the user as "your Capiro AI assistant" even on
+ * unrelated questions.
+ */
+const DEFAULT_INTERNAL_SYSTEM_PROMPT = `You are Clio, a general-purpose AI assistant for Capiro employees. Help the user with whatever they ask — coding, writing, research, analysis, math, casual conversation, anything. You are NOT restricted to lobbying or Capiro-specific topics.
+
+You happen to have a few Capiro-specific tools available (e.g. fetching client context, rendering policy memo / meeting brief artifacts). Use them only when the user's request clearly calls for them. Do not advertise them up front, do not steer the conversation toward them, and do not refuse to engage with off-topic questions because the tools don't cover them.
+
+Be direct and substantive. Skip throat-clearing preambles. If you don't know something, say so. If a tool returns an error, tell the user plainly.`;
+
+/**
+ * Default system prompt for customer-tier sessions. Same shape, narrower
+ * framing — customer-tier users get Clio as part of the Capiro product so
+ * lobbying-adjacent help is the expected primary use case, but we still
+ * don't refuse off-topic questions.
+ */
+const DEFAULT_CUSTOMER_SYSTEM_PROMPT = `You are Clio, an AI assistant inside the Capiro lobbying workspace. Help the user with whatever they ask. Most questions will be lobbying-, policy-, or client-management-related, but you should still engage with general questions (writing, research, summarization, etc.) when asked.
+
+You have access to a few tools for fetching client context and rendering artifacts. Use them only when the request clearly calls for them. Be direct and substantive — skip throat-clearing preambles.`;
+
+/**
  * Owns the read/write side of `clio_sessions` and `clio_messages` and
  * orchestrates the round-trip to the Clio runtime for chat turns.
  *
@@ -189,17 +214,27 @@ export class ClioService {
       { role: 'user', content: userContent },
     ];
 
-    // Filter the tool registry by the session's tier. Customer-tier
-    // sessions see only non-internal tools; @capiro.ai users get the
-    // full set. Tier is stamped on the session at create time and
-    // doesn't drift mid-conversation.
-    const tier: ClioTier = settings.tier === 'internal' ? 'internal' : 'customer';
+    // Filter the tool registry by the caller's *current* tier, not the
+    // tier stamped on the session at create time. Two reasons:
+    //   1. Existing sessions created before tierFor() honored the user
+    //      role would otherwise be stuck on 'customer' even for
+    //      capiro_admin callers.
+    //   2. During impersonation, ctx.role already swaps to the
+    //      impersonated role, so the customer-tier tool subset (and the
+    //      narrower system prompt) kick in automatically.
+    const tier: ClioTier = this.tierFor(ctx);
     const tools = this.toolRegistry.toolsForTier(tier);
 
     const reply = await this.runtime.chat({
       messages: turnMessages,
       model: session.model,
-      system: settings.systemPrompt,
+      // Per-session systemPrompt wins. Otherwise fall through to the
+      // tier-appropriate default (general-purpose framing — keeps Clio
+      // from sounding like a Capiro-only chatbot just because tools in
+      // the registry have Capiro-specific descriptions).
+      system:
+        settings.systemPrompt ??
+        (tier === 'internal' ? DEFAULT_INTERNAL_SYSTEM_PROMPT : DEFAULT_CUSTOMER_SYSTEM_PROMPT),
       sessionId,
       tools: tools.length > 0 ? tools : undefined,
     });
@@ -273,18 +308,21 @@ export class ClioService {
 
   /**
    * Internal vs customer tier — drives which tools the agent has access
-   * to in later phases. For Phase 1 there are no tools, so this only
-   * affects the metadata stamped on the session for future inspection.
+   * to and which default system prompt frames the conversation.
    *
-   * Internal: any user whose Clerk-resolved email ends in @capiro.ai.
-   * Customer: everyone else.
+   * Internal: capiro_admin (Capiro staff impersonating into customer
+   * tenants OR working in the capiro-internal tenant). Gets the full
+   * tool surface and a general-purpose Hermes-style framing.
+   * Customer: every other tenant role. Gets the customer-tier tool
+   * subset and a slightly narrower framing.
    *
-   * Tenant context doesn't carry the email today, so the cleaner version
-   * of this check belongs in a follow-up that adds `email` to TenantContext.
-   * For now we conservatively return 'customer' and rely on the tier flag
-   * being a hint, not the security boundary.
+   * Tenant context doesn't carry the user's email today, so we use the
+   * role on the membership as the signal (set by the Clerk webhook when
+   * the user is a member of the reserved `capiro-internal` org). Email
+   * domain would be redundant — capiro_admin is already gated to
+   * verified @capiro.ai users by the webhook.
    */
-  private tierFor(_ctx: TenantContext): 'internal' | 'customer' {
-    return 'customer';
+  private tierFor(ctx: TenantContext): 'internal' | 'customer' {
+    return ctx.role === 'capiro_admin' ? 'internal' : 'customer';
   }
 }
