@@ -31,6 +31,13 @@ interface Args {
   email: string;
   name?: string;
   resend?: boolean;
+  // Skip the invitation flow. Directly add the user to the Clerk org as
+  // org:admin and insert the matching tenant_membership row in the DB.
+  // Used to bootstrap a staging environment where the Clerk webhook isn't
+  // wired up (so accepted invitations never produce a membership row).
+  // Requires the user to already exist in Clerk under the configured
+  // CLERK_SECRET_KEY instance.
+  forceAdd?: boolean;
 }
 
 function parseArgs(): Args {
@@ -50,6 +57,9 @@ function parseArgs(): Args {
         break;
       case '--resend':
         args.resend = true;
+        break;
+      case '--force-add':
+        args.forceAdd = true;
         break;
     }
   }
@@ -104,6 +114,89 @@ async function main() {
     });
   } finally {
     await prisma.$disconnect();
+  }
+
+  // Step 3a - direct add (staging bootstrap path). Pull the user out of
+  // Clerk by email, ensure they're an org:admin of capiro-internal, then
+  // insert the tenant_memberships row directly. Bypasses the Clerk
+  // webhook entirely so a staging environment with no webhook configured
+  // can still get an authenticated admin user.
+  if (args.forceAdd) {
+    const userList = await clerk.users.getUserList({
+      emailAddress: [args.email],
+      limit: 5,
+    });
+    const clerkUser = userList.data[0];
+    if (!clerkUser) {
+      throw new Error(
+        `No Clerk user with email ${args.email} found under the configured CLERK_SECRET_KEY. Sign up first, then re-run.`,
+      );
+    }
+
+    // Idempotent: skip if already a member.
+    const memberships = await clerk.users.getOrganizationMembershipList({
+      userId: clerkUser.id,
+    });
+    const alreadyInOrg = memberships.data.find((m) => m.organization.id === org.id);
+    if (!alreadyInOrg) {
+      await clerk.organizations.createOrganizationMembership({
+        organizationId: org.id,
+        userId: clerkUser.id,
+        role: 'org:admin',
+      });
+    }
+
+    const prismaForMembership = new PrismaClient();
+    try {
+      await prismaForMembership.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.bypass_rls', 'on', true)`;
+        const user = await tx.user.upsert({
+          where: { clerkUserId: clerkUser.id },
+          create: {
+            clerkUserId: clerkUser.id,
+            email: args.email,
+            firstName: clerkUser.firstName ?? null,
+            lastName: clerkUser.lastName ?? null,
+          },
+          update: {
+            email: args.email,
+            firstName: clerkUser.firstName ?? undefined,
+            lastName: clerkUser.lastName ?? undefined,
+          },
+        });
+        await tx.tenantMembership.upsert({
+          where: {
+            tenantId_userId: { tenantId: tenantId!, userId: user.id },
+          },
+          create: {
+            tenantId: tenantId!,
+            userId: user.id,
+            role: 'capiro_admin',
+            status: 'active',
+            joinedAt: new Date(),
+          },
+          update: { role: 'capiro_admin', status: 'active' },
+        });
+      });
+    } finally {
+      await prismaForMembership.$disconnect();
+    }
+
+    // eslint-disable-next-line no-console
+    console.log(
+      JSON.stringify(
+        {
+          mode: 'force-add',
+          tenant: { id: tenantId!, slug: CAPIRO_INTERNAL_SLUG, clerkOrgId: org.id },
+          user: { id: clerkUser.id, email: args.email },
+          nextStep:
+            'User is now a capiro_admin of capiro-internal in the DB. Sign out and back in to refresh the JWT claims.',
+        },
+        null,
+        2,
+      ),
+    );
+    return;
   }
 
   // Step 3 - invitation
