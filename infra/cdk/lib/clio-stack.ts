@@ -93,6 +93,21 @@ export class ClioStack extends cdk.Stack {
       }),
     );
 
+    // After the Anthropic use-case form is submitted, Bedrock auto-subscribes
+    // the AWS account to the model via AWS Marketplace on first invocation.
+    // The Marketplace subscription is account-wide (not per-role) but the
+    // first invocation needs these verbs to TRIGGER the subscription handshake;
+    // subsequent invocations from any role don't. Resource is "*" because
+    // Marketplace's ViewSubscriptions / Subscribe verbs don't take a resource
+    // ARN — IAM rejects anything narrower.
+    this.taskDefinition.addToTaskRolePolicy(
+      new iam.PolicyStatement({
+        sid: 'BedrockMarketplaceAutoSubscribe',
+        actions: ['aws-marketplace:ViewSubscriptions', 'aws-marketplace:Subscribe', 'aws-marketplace:Unsubscribe'],
+        resources: ['*'],
+      }),
+    );
+
     this.taskDefinition.addContainer('clio', {
       image: ecs.ContainerImage.fromEcrRepository(this.repository, 'latest'),
       essential: true,
