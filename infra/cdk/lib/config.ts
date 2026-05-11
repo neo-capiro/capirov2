@@ -103,11 +103,17 @@ export function loadConfig(app: cdk.App): EnvConfig {
       : envName === 'staging'
         ? {
             // Staging is the pre-promotion testbed. Lives in the same AWS
-            // account as prod (967807252336) but at staging.capiro.ai with
+            // account as prod (967807252336) but under staging.capiro.ai with
             // its own ALB, Aurora, and ECS cluster. Cost-optimized.
+            //
+            // Mirror prod's two-tier hostname pattern: apex = marketing,
+            // app.* = SPA. Collapsing them (appHost == rootDomain) breaks
+            // same-origin API calls — the SPA at app.staging.capiro.ai
+            // would have to cross-origin to staging.capiro.ai/api/* AND
+            // that apex also routes to the marketing service.
             rootDomain: 'staging.capiro.ai',
-            appHost: 'staging.capiro.ai',
-            wildcardHost: '*.staging.capiro.ai',
+            appHost: 'app.staging.capiro.ai',
+            wildcardHost: '*.app.staging.capiro.ai',
             clerkJwtIssuer: 'https://stirring-warthog-40.clerk.accounts.dev',
             apiDesiredCount: 1,
             apiMaxCount: 2,
