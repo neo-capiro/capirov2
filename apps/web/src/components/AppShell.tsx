@@ -105,7 +105,6 @@ const NAV: NavItem[] = [
     label: 'Workspace',
     path: '/workspace',
     icon: <FolderOpenOutlined />,
-    disabled: true,
   },
   {
     key: 'intelligence',
