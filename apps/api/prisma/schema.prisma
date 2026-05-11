@@ -875,24 +875,34 @@ model ClioMessage {
 }
 
 model ClioArtifact {
-  id              String           @id @default(uuid()) @db.Uuid
-  tenantId        String           @map("tenant_id") @db.Uuid
-  sessionId       String?          @map("session_id") @db.Uuid
-  createdByUserId String?          @map("created_by_user_id") @db.Uuid
-  kind            ClioArtifactKind
-  title           String
+  id                  String           @id @default(uuid()) @db.Uuid
+  tenantId            String           @map("tenant_id") @db.Uuid
+  sessionId           String?          @map("session_id") @db.Uuid
+  createdByUserId     String?          @map("created_by_user_id") @db.Uuid
+  // Points at the artifact this one supersedes. Set when the renderer
+  // produces a new version of a prior artifact (e.g. "v2 of the meeting
+  // brief"). Null for first-version artifacts.
+  replacingArtifactId String?          @map("replacing_artifact_id") @db.Uuid
+  kind                ClioArtifactKind
+  title               String
+  // Two-step render flow: row is inserted as `pending`, S3 upload happens,
+  // then flipped to `ready`. Callers should only surface ready artifacts.
+  status              String           @default("pending")
+  // Increments along a `replacingArtifactId` chain so the UI can render
+  // "v3" badges without walking the full chain at read time.
+  version             Int              @default(1)
   // Source-of-truth content. Markdown for memos / briefs; the rendered
   // PDF / DOCX in S3 (s3_key) is derived from this.
-  content         String?
+  content             String?
   // Optional rendered file in S3 — set once the agent has called the
   // render tool. Null means the artifact is text-only at the moment.
-  s3Key           String?          @map("s3_key")
-  s3ContentType   String?          @map("s3_content_type")
+  s3Key               String?          @map("s3_key")
+  s3ContentType       String?          @map("s3_content_type")
   // Free-form metadata the agent stamps on the artifact: clients
   // referenced, sources cited, prompts used, model id, version ix, etc.
-  metadata        Json             @default("{}") @map("metadata_jsonb")
-  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  metadata            Json             @default("{}") @map("metadata_jsonb")
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   session ClioSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
@@ -900,5 +910,6 @@ model ClioArtifact {
 
   @@index([tenantId, kind, updatedAt(sort: Desc)], map: "clio_artifacts_tenant_kind_updated_idx")
   @@index([sessionId, createdAt(sort: Desc)], map: "clio_artifacts_session_created_idx")
+  @@index([tenantId, replacingArtifactId, version], map: "clio_artifacts_replacing_version_idx")
   @@map("clio_artifacts")
 }

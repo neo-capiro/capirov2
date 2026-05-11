@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { GetClientContextTool } from './get-client-context.tool.js';
+import { RenderArtifactTool } from './render-artifact.tool.js';
 import type { Tool, ToolDefinition } from './tool.types.js';
 
 export type ClioTier = 'internal' | 'customer';
@@ -16,8 +17,14 @@ export type ClioTier = 'internal' | 'customer';
 export class ToolRegistryService {
   private readonly tools: Map<string, Tool>;
 
-  constructor(private readonly getClientContext: GetClientContextTool) {
-    this.tools = new Map([[getClientContext.definition.name, getClientContext]]);
+  constructor(
+    private readonly getClientContext: GetClientContextTool,
+    private readonly renderArtifact: RenderArtifactTool,
+  ) {
+    this.tools = new Map<string, Tool>([
+      [getClientContext.definition.name, getClientContext],
+      [renderArtifact.definition.name, renderArtifact],
+    ]);
     // Track-A parallel work adds search_federal_register, search_lda_filings,
     // search_legislative_sources here.
   }
