@@ -32,7 +32,7 @@ export class DnsStack extends cdk.Stack {
     Object.entries(commonTags(cfg)).forEach(([k, v]) => cdk.Tags.of(this).add(k, v));
 
     this.hostedZone = route53.HostedZone.fromLookup(this, 'RootZone', {
-      domainName: cfg.rootDomain,
+      domainName: cfg.hostedZoneDomain,
     });
 
     // App certificate covers app.capiro.ai + tenant vanity URLs.

@@ -2059,7 +2059,9 @@ export class EngagementService {
 
   async clientContext(ctx: TenantContext, clientId: string) {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
-      const client = await tx.client.findUnique({ where: { id: clientId } });
+      const client = await tx.client.findFirst({
+        where: { id: clientId, tenantId: ctx.tenantId, status: { not: 'archived' } },
+      });
       if (!client) throw new NotFoundException('Client not found');
       const [meetings, threads, contacts, tasks] = await Promise.all([
         tx.meeting.findMany({

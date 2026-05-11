@@ -7,6 +7,7 @@ export interface EnvConfig {
   account: string;
   region: string;
   // DNS
+  hostedZoneDomain: string; // Route 53 zone that owns the records.
   rootDomain: string; // capiro.ai (prod) | app-dev.capiro.ai (dev)
   appHost: string; // app.capiro.ai (prod) | app-dev.capiro.ai (dev)
   wildcardHost: string; // *.app.capiro.ai (prod) | *.app-dev.capiro.ai (dev)
@@ -23,6 +24,10 @@ export interface EnvConfig {
   apiMemoryMib: number;
   apiDesiredCount: number;
   apiMaxCount: number;
+  clioCpu: number;
+  clioMemoryMib: number;
+  clioDesiredCount: number;
+  clioMaxCount: number;
   webCpu: number;
   webMemoryMib: number;
   webDesiredCount: number;
@@ -48,6 +53,7 @@ export interface EnvConfig {
 }
 
 const BASE: Omit<EnvConfig, 'envName' | 'account' | 'region'> = {
+  hostedZoneDomain: 'capiro.ai',
   rootDomain: 'capiro.ai',
   appHost: 'app.capiro.ai',
   wildcardHost: '*.app.capiro.ai',
@@ -58,6 +64,10 @@ const BASE: Omit<EnvConfig, 'envName' | 'account' | 'region'> = {
   apiMemoryMib: 1024,
   apiDesiredCount: 2,
   apiMaxCount: 6,
+  clioCpu: 1024,
+  clioMemoryMib: 2048,
+  clioDesiredCount: 2,
+  clioMaxCount: 4,
   webCpu: 256,
   webMemoryMib: 512,
   webDesiredCount: 2,
@@ -94,6 +104,8 @@ export function loadConfig(app: cdk.App): EnvConfig {
           auroraMaxAcu: 8,
           apiDesiredCount: 3,
           apiMaxCount: 12,
+          clioDesiredCount: 2,
+          clioMaxCount: 6,
           webDesiredCount: 2,
           webMaxCount: 6,
           protectFromDestroy: true,
@@ -103,13 +115,15 @@ export function loadConfig(app: cdk.App): EnvConfig {
       : envName === 'staging'
         ? { protectFromDestroy: true }
         : {
-            // Dev account: 262252232571  region: us-east-1
+            // Dev/prod account: 967807252336  region: us-east-1
             appHost: 'app-dev.capiro.ai',
             wildcardHost: '*.app-dev.capiro.ai',
             rootDomain: 'app-dev.capiro.ai',
             // Single replicas for dev — no HA needed.
             apiDesiredCount: 1,
             apiMaxCount: 2,
+            clioDesiredCount: 1,
+            clioMaxCount: 2,
             webDesiredCount: 1,
             webMaxCount: 2,
             marketingDesiredCount: 1,
@@ -119,21 +133,21 @@ export function loadConfig(app: cdk.App): EnvConfig {
             auroraBackupRetentionDays: 7,
             clerkJwtIssuer: 'https://stirring-warthog-40.clerk.accounts.dev',
             //
-            // Fill in after creating each secret in account 262252232571.
+            // Fill in after creating each secret in account 967807252336.
             // Slash-delimited names require complete ARNs; partial ARNs cause
             // ECS task startup failures (ResourceInitializationError).
             // Run for each: aws secretsmanager describe-secret \
             //   --secret-id capiro/dev/<name> --query ARN --output text
             externalSecretArns: {
-              microsoftClientId:       'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-client-id-kPjmuN',
-              microsoftTenantId:       'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-tenant-id-t8p127',
-              microsoftCertThumbprint: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-cert-thumbprint-2ExjTP',
-              microsoftCertPrivateKey: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/microsoft-cert-private-key-xAtVeG',
-              oauthTokenEncryptionKey: 'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/oauth-token-encryption-key-VRLcrW',
-              oauthStateSecret:        'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/oauth-state-secret-L0zQ2V',
-              openaiApiKey:            'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/openai-api-key-GQM1Ms',
-              anthropicApiKey:         'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/anthropic-api-key-nc246W',
-              notesEncryptionKey:      'arn:aws:secretsmanager:us-east-1:262252232571:secret:capiro/dev/notes-encryption-key-lkai02',
+              microsoftClientId:       'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-client-id-AU8xuO',
+              microsoftTenantId:       'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-tenant-id-cC9TIB',
+              microsoftCertThumbprint: 'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-cert-thumbprint-gJsG0v',
+              microsoftCertPrivateKey: 'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/microsoft-cert-private-key-rW9ERB',
+              oauthTokenEncryptionKey: 'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/oauth-token-encryption-key-VQCjD8',
+              oauthStateSecret:        'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/oauth-state-secret-XOOzYB',
+              openaiApiKey:            'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/openai-api-key-7nAmib',
+              anthropicApiKey:         'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/anthropic-api-key-3nhKhF',
+              notesEncryptionKey:      'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/notes-encryption-key-Vf2rhI',
             },
           };
 

@@ -26,6 +26,7 @@ export class SecretsStack extends cdk.Stack {
   public readonly clerkSecretKey: secretsmanager.Secret;
   public readonly clerkWebhookSigningSecret: secretsmanager.Secret;
   public readonly clerkPublishableKey: secretsmanager.Secret;
+  public readonly clioApiServerKey: secretsmanager.Secret;
   public readonly secretsKey: kms.Key;
 
   constructor(scope: Construct, id: string, props: SecretsStackProps) {
@@ -74,6 +75,17 @@ export class SecretsStack extends cdk.Stack {
       removalPolicy: removal,
     });
 
+    this.clioApiServerKey = new secretsmanager.Secret(this, 'ClioApiServerKey', {
+      secretName: `/capiro/${cfg.envName}/clio/api-server-key`,
+      description: 'Bearer token shared by Capiro API and the private Clio runtime',
+      encryptionKey: this.secretsKey,
+      generateSecretString: {
+        excludePunctuation: true,
+        passwordLength: 48,
+      },
+      removalPolicy: removal,
+    });
+
     new cdk.CfnOutput(this, 'ClerkSecretKeyArn', {
       value: this.clerkSecretKey.secretArn,
       exportName: `Capiro-${cfg.envName}-ClerkSecretKeyArn`,
@@ -86,6 +98,10 @@ export class SecretsStack extends cdk.Stack {
       value: this.clerkPublishableKey.secretArn,
       exportName: `Capiro-${cfg.envName}-ClerkPublishableKeyArn`,
     });
+    new cdk.CfnOutput(this, 'ClioApiServerKeyArn', {
+      value: this.clioApiServerKey.secretArn,
+      exportName: `Capiro-${cfg.envName}-ClioApiServerKeyArn`,
+    });
     new cdk.CfnOutput(this, 'SecretsKeyArn', {
       value: this.secretsKey.keyArn,
       exportName: `Capiro-${cfg.envName}-SecretsKeyArn`,
@@ -96,6 +112,7 @@ export class SecretsStack extends cdk.Stack {
     this.clerkSecretKey.grantRead(grantee);
     this.clerkWebhookSigningSecret.grantRead(grantee);
     this.clerkPublishableKey.grantRead(grantee);
+    this.clioApiServerKey.grantRead(grantee);
     this.secretsKey.grantDecrypt(grantee);
   }
 }

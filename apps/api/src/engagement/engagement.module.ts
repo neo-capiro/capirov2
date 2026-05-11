@@ -23,5 +23,6 @@ import { TokenCryptoService } from './microsoft/token-crypto.service.js';
     MicrosoftOAuthService,
     TokenCryptoService,
   ],
+  exports: [EngagementService],
 })
 export class EngagementModule {}

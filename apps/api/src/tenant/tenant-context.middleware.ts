@@ -58,6 +58,7 @@ export class TenantContextMiddleware implements NestMiddleware {
       '/api/v1/demo-requests',
       '/api/engagement/integrations/microsoft/callback',
       '/api/engagement/integrations/microsoft/notifications',
+      '/api/clio/runtime',
     ];
     if (bypassPaths.some((bypassPath) => isBypassPath(bypassPath, path, originalUrl, baseUrl))) {
       this.logger.log(
@@ -249,6 +250,8 @@ function isBypassPath(
   return (
     path === bypassPath ||
     originalUrl === bypassPath ||
+    path.startsWith(`${bypassPath}/`) ||
+    originalUrl.startsWith(`${bypassPath}/`) ||
     originalUrl.startsWith(`${bypassPath}?`) ||
     `${baseUrl}${path}` === bypassPath
   );

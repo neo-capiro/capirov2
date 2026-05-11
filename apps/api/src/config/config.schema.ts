@@ -29,6 +29,18 @@ export const configSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-5'),
 
+  // Clio is the Capiro-branded assistant surface. The agent runtime runs behind
+  // the Capiro backend; browsers never call it directly. If no runtime URL is
+  // configured, Clio endpoints fail closed instead of returning canned output.
+  CLIO_RUNTIME_BASE_URL: z.string().url().optional(),
+  CLIO_RUNTIME_API_KEY: z.string().optional(),
+  CLIO_RUNTIME_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  // Backward-compatible env names from the first NanoClaw spike.
+  CLIO_NANOCLAW_BASE_URL: z.string().url().optional(),
+  CLIO_NANOCLAW_API_KEY: z.string().optional(),
+  CLIO_TOOL_API_KEY: z.string().optional(),
+  CLIO_NANOCLAW_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+
   // 32-byte base64 or hex key used for AES-256-GCM encrypted meeting notes.
   NOTES_ENCRYPTION_KEY: z.string().optional(),
   NOTES_ENCRYPTION_KEY_VERSION: z.string().default('v1'),

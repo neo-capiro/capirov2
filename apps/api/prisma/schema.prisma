@@ -143,6 +143,10 @@ model Tenant {
   outreachRecords            OutreachRecord[]
   outreachTemplates          OutreachTemplate[]
   MeetingDebrief             MeetingDebrief[]
+  clioConversations          ClioConversation[]
+  clioMessages               ClioMessage[]
+  clioArtifacts              ClioArtifact[]
+  clioNotes                  ClioNote[]
 
   @@map("tenants")
 }
@@ -166,6 +170,10 @@ model User {
   engagementReportTargets EngagementReportTargetOffice[] @relation("EngagementReportTargetOfficeAuthor")
   outreachRecords         OutreachRecord[]               @relation("OutreachRecordAuthor")
   outreachTemplates       OutreachTemplate[]             @relation("OutreachTemplateAuthor")
+  clioConversations       ClioConversation[]             @relation("ClioConversationUser")
+  clioMessages            ClioMessage[]                  @relation("ClioMessageUser")
+  clioArtifacts           ClioArtifact[]                 @relation("ClioArtifactUser")
+  clioNotes               ClioNote[]                     @relation("ClioNoteUser")
 
   @@map("users")
 }
@@ -234,6 +242,10 @@ model Client {
   associationOverrides    ClientAssociationOverride[]
   engagementReportTargets EngagementReportTargetOffice[]
   outreachRecords         OutreachRecord[]
+  clioConversations       ClioConversation[]
+  clioMessages            ClioMessage[]
+  clioArtifacts           ClioArtifact[]
+  clioNotes               ClioNote[]
 
   @@index([tenantId], map: "clients_tenant_idx")
   @@index([tenantId, name], map: "clients_tenant_name_idx")
@@ -369,6 +381,7 @@ model Meeting {
   preps           MeetingPrep[]
   tasks           EngagementTask[]
   outreachRecords OutreachRecord[]
+  clioNotes       ClioNote[]
 
   @@unique([tenantId, source, externalId], map: "meetings_tenant_source_external_key")
   @@index([tenantId, startsAt], map: "meetings_tenant_starts_idx")
@@ -746,6 +759,109 @@ model DemoRequest {
   @@index([createdAt(sort: Desc)], map: "demo_requests_created_idx")
   @@index([email, createdAt(sort: Desc)], map: "demo_requests_email_created_idx")
   @@map("demo_requests")
+}
+
+model ClioConversation {
+  id                   String    @id @default(uuid()) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  clientId             String?   @map("client_id") @db.Uuid
+  workspaceKey         String    @default("workspace") @map("workspace_key")
+  title                String
+  status               String    @default("active")
+  nanoclawPlatformId   String?   @map("nanoclaw_platform_id")
+  nanoclawAgentGroupId String?   @map("nanoclaw_agent_group_id")
+  metadata             Json      @default("{}") @map("metadata_jsonb")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt           DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User           @relation("ClioConversationUser", fields: [userId], references: [id], onDelete: Cascade)
+  client    Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  messages  ClioMessage[]
+  artifacts ClioArtifact[]
+  notes     ClioNote[]
+
+  @@index([tenantId, userId, updatedAt(sort: Desc)], map: "clio_conversations_tenant_user_updated_idx")
+  @@index([tenantId, clientId, updatedAt(sort: Desc)], map: "clio_conversations_tenant_client_updated_idx")
+  @@map("clio_conversations")
+}
+
+model ClioMessage {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  clientId       String?  @map("client_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  role           String
+  body           String   @db.Text
+  nanoclawId     String?  @map("nanoclaw_id")
+  metadata       Json     @default("{}") @map("metadata_jsonb")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User               @relation("ClioMessageUser", fields: [userId], references: [id], onDelete: Cascade)
+  client       Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  conversation ClioConversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  artifacts    ClioArtifact[]
+
+  @@index([tenantId, userId, createdAt], map: "clio_messages_tenant_user_created_idx")
+  @@index([conversationId, createdAt], map: "clio_messages_conversation_created_idx")
+  @@map("clio_messages")
+}
+
+model ClioArtifact {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  clientId       String?  @map("client_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  messageId      String?  @map("message_id") @db.Uuid
+  title          String
+  kind           String
+  contentType    String?  @map("content_type")
+  bodyText       String?  @map("body_text") @db.Text
+  s3Key          String?  @map("s3_key")
+  metadata       Json     @default("{}") @map("metadata_jsonb")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User             @relation("ClioArtifactUser", fields: [userId], references: [id], onDelete: Cascade)
+  client       Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  conversation ClioConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message      ClioMessage?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId, createdAt(sort: Desc)], map: "clio_artifacts_tenant_user_created_idx")
+  @@index([conversationId, createdAt(sort: Desc)], map: "clio_artifacts_conversation_created_idx")
+  @@map("clio_artifacts")
+}
+
+model ClioNote {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  clientId       String?  @map("client_id") @db.Uuid
+  conversationId String?  @map("conversation_id") @db.Uuid
+  meetingId      String?  @map("meeting_id") @db.Uuid
+  title          String?
+  body           String   @db.Text
+  source         String   @default("clio")
+  metadata       Json     @default("{}") @map("metadata_jsonb")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User              @relation("ClioNoteUser", fields: [userId], references: [id], onDelete: Cascade)
+  client       Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  conversation ClioConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  meeting      Meeting?          @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId, createdAt(sort: Desc)], map: "clio_notes_tenant_user_created_idx")
+  @@index([tenantId, clientId, createdAt(sort: Desc)], map: "clio_notes_tenant_client_created_idx")
+  @@index([conversationId, createdAt(sort: Desc)], map: "clio_notes_conversation_created_idx")
+  @@map("clio_notes")
 }
 
 model AuditLog {
