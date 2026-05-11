@@ -55,7 +55,12 @@ async function bootstrap() {
         callback(null, true);
         return;
       }
-      callback(new Error('Origin is not allowed by CORS'));
+      // Passing an Error here makes express-cors surface it to NestJS's
+      // exception filter, which renders a 500 — noisy in logs for what
+      // is normally a benign denial. `false` means "do not emit
+      // Access-Control-Allow-Origin" — the browser blocks the request
+      // cleanly and the preflight gets a normal 204.
+      callback(null, false);
     },
     credentials: true,
   });
