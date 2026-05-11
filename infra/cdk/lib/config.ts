@@ -34,6 +34,13 @@ export interface EnvConfig {
   // Hardening
   protectFromDestroy: boolean; // true for prod, false for dev to allow iteration
   logRetentionDays: number;
+  // Pin the AppCert's primary domain and SANs explicitly. Without an
+  // override, the cert defaults to `appHost` + `[wildcardHost]`. Set these
+  // when the live cert was issued for different hosts than the current
+  // `appHost`/`wildcardHost` and you don't want CDK to replace it (cert
+  // replacement is blocked by the cross-stack ARN export from Compute).
+  appCertDomain?: string;
+  appCertSans?: string[];
   externalSecretArns?: {
     microsoftClientId: string;
     microsoftTenantId: string;
@@ -114,6 +121,13 @@ export function loadConfig(app: cdk.App): EnvConfig {
             rootDomain: 'staging.capiro.ai',
             appHost: 'app.staging.capiro.ai',
             wildcardHost: '*.app.staging.capiro.ai',
+            // Keep the AppCert pinned to the originally-issued primary
+            // domain + SAN (staging.capiro.ai + *.staging.capiro.ai). The
+            // wildcard already covers app.staging.capiro.ai, so we avoid
+            // a cert replacement that would deadlock against Compute's
+            // cross-stack import of the cert ARN.
+            appCertDomain: 'staging.capiro.ai',
+            appCertSans: ['*.staging.capiro.ai'],
             clerkJwtIssuer: 'https://stirring-warthog-40.clerk.accounts.dev',
             apiDesiredCount: 1,
             apiMaxCount: 2,

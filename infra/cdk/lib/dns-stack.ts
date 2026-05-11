@@ -35,10 +35,22 @@ export class DnsStack extends cdk.Stack {
       domainName: cfg.rootDomain,
     });
 
-    // App certificate covers app.capiro.ai + tenant vanity URLs.
+    // App certificate covers the app host + tenant vanity URLs.
+    //
+    // Optional `appCertDomain` / `appCertSans` overrides exist so an
+    // environment can pin the cert's primary domain and SANs to whatever
+    // the live cert was originally issued for, even if appHost has since
+    // moved deeper. We need this in staging: the cert was issued when
+    // appHost == rootDomain == staging.capiro.ai (so primary =
+    // staging.capiro.ai, SAN = *.staging.capiro.ai), and later appHost
+    // moved to app.staging.capiro.ai to mirror prod's two-tier pattern.
+    // The wildcard *.staging.capiro.ai still covers the new app host, so
+    // we keep the cert exactly as-is (matching the deployed state)
+    // instead of letting CDK replace it — replacement fails because
+    // Compute imports the cert ARN via cross-stack export.
     this.certificate = new acm.Certificate(this, 'AppCert', {
-      domainName: cfg.appHost,
-      subjectAlternativeNames: [cfg.wildcardHost],
+      domainName: cfg.appCertDomain ?? cfg.appHost,
+      subjectAlternativeNames: cfg.appCertSans ?? [cfg.wildcardHost],
       validation: acm.CertificateValidation.fromDns(this.hostedZone),
     });
 

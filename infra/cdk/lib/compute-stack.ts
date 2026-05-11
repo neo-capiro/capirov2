@@ -841,13 +841,13 @@ export class ComputeStack extends cdk.Stack {
     });
 
     // ---------------------------------------------------------------- DNS
-    new route53.ARecord(this, 'AppAlias', {
+    const appAlias = new route53.ARecord(this, 'AppAlias', {
       zone: hostedZone,
       recordName: cfg.appHost,
       target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
     });
     // Wildcard alias for tenant vanity URLs ({slug}.app.capiro.ai).
-    new route53.ARecord(this, 'AppWildcardAlias', {
+    const appWildcardAlias = new route53.ARecord(this, 'AppWildcardAlias', {
       zone: hostedZone,
       recordName: cfg.wildcardHost,
       target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
@@ -859,16 +859,29 @@ export class ComputeStack extends cdk.Stack {
     // `staging.capiro.ai`) — AppAlias above already creates the A record
     // at that name and a duplicate would conflict.
     if (cfg.rootDomain !== cfg.appHost) {
-      new route53.ARecord(this, 'ApexAlias', {
+      const apexAlias = new route53.ARecord(this, 'ApexAlias', {
         zone: hostedZone,
         recordName: cfg.rootDomain,
         target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
       });
-      new route53.AaaaRecord(this, 'ApexAliasIpv6', {
+      const apexAliasIpv6 = new route53.AaaaRecord(this, 'ApexAliasIpv6', {
         zone: hostedZone,
         recordName: cfg.rootDomain,
         target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(this.alb)),
       });
+      // When AppAlias is being replaced (its recordName changed away from
+      // rootDomain — e.g. staging moving from rootDomain to
+      // app.staging.capiro.ai), CFN creates the new physical record first
+      // and deletes the old in the same step. The Apex* records also
+      // target rootDomain, so without explicit ordering CFN may try to
+      // create them before the old AppAlias physical record at rootDomain
+      // is gone, which Route53 rejects as a duplicate. Depending on the
+      // replaced AppAlias forces CFN to finish that replacement (including
+      // the old-record delete) before creating the apex aliases.
+      apexAlias.node.addDependency(appAlias);
+      apexAlias.node.addDependency(appWildcardAlias);
+      apexAliasIpv6.node.addDependency(appAlias);
+      apexAliasIpv6.node.addDependency(appWildcardAlias);
     }
 
     new cdk.CfnOutput(this, 'AlbDnsName', { value: this.alb.loadBalancerDnsName });
