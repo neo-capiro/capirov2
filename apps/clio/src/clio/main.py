@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
 from . import __version__
+from .agent_loop import AgentLoopError, run_agent_loop
 from .bedrock import converse
 from .config import settings
 from .models import ChatRequest, ChatResponse
@@ -41,12 +42,28 @@ def healthz() -> dict[str, str]:
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest) -> ChatResponse:
+    has_tools = bool(req.tools)
     log.info(
         "chat_received",
         message_count=len(req.messages),
         model=req.model or settings.bedrock_model_id,
+        tool_count=len(req.tools) if req.tools else 0,
+        session_id=req.session_id,
     )
     try:
+        # Two paths: when tools are passed we run the agent loop (which
+        # may call back to Capiro multiple times before returning). When
+        # no tools are passed it's a single-turn pass-through.
+        if has_tools:
+            return run_agent_loop(
+                req.messages,
+                tools=req.tools or [],
+                session_id=req.session_id or "",
+                model=req.model,
+                system=req.system,
+                max_tokens=req.max_tokens,
+                temperature=req.temperature,
+            )
         return converse(
             req.messages,
             model=req.model,
@@ -54,6 +71,9 @@ def chat(req: ChatRequest) -> ChatResponse:
             max_tokens=req.max_tokens,
             temperature=req.temperature,
         )
+    except AgentLoopError as e:
+        # Misconfigured request (missing session_id, base URL, etc.)
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except ClientError as e:
         code = e.response.get("Error", {}).get("Code", "")
         if code in ("ValidationException", "ResourceNotFoundException"):

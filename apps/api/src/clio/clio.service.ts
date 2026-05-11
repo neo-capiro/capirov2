@@ -3,6 +3,7 @@ import type { ClioMessageRole, ClioSessionStatus, Prisma } from '@prisma/client'
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ClioRuntimeClient, type ClioChatMessage } from './clio-runtime.client.js';
+import { ToolRegistryService, type ClioTier } from './tools/tool-registry.service.js';
 
 export interface CreateSessionInput {
   title?: string;
@@ -61,6 +62,7 @@ export class ClioService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly runtime: ClioRuntimeClient,
+    private readonly toolRegistry: ToolRegistryService,
   ) {}
 
   async listSessions(ctx: TenantContext): Promise<SessionSummary[]> {
@@ -187,10 +189,19 @@ export class ClioService {
       { role: 'user', content: userContent },
     ];
 
+    // Filter the tool registry by the session's tier. Customer-tier
+    // sessions see only non-internal tools; @capiro.ai users get the
+    // full set. Tier is stamped on the session at create time and
+    // doesn't drift mid-conversation.
+    const tier: ClioTier = settings.tier === 'internal' ? 'internal' : 'customer';
+    const tools = this.toolRegistry.toolsForTier(tier);
+
     const reply = await this.runtime.chat({
       messages: turnMessages,
       model: session.model,
       system: settings.systemPrompt,
+      sessionId,
+      tools: tools.length > 0 ? tools : undefined,
     });
 
     // Persist user turn + assistant turn + bump session.last_message_at in

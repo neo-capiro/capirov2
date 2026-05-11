@@ -70,6 +70,11 @@ export const configSchema = z.object({
   // from inside the VPC, e.g. http://clio.capiro-staging.local:8000.
   // Optional in dev (Workspace endpoints throw 503 when empty).
   CLIO_BASE_URL: z.string().url().or(z.literal('')).default(''),
+  // Bearer token Clio sends on /api/clio/internal/* callbacks. Injected
+  // from Secrets Manager in deployed envs; empty default means the
+  // internal routes refuse all traffic in local dev (correct fail-closed
+  // behaviour — they should never be exposed without the secret set).
+  CLIO_INBOUND_SHARED_SECRET: z.string().default(''),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

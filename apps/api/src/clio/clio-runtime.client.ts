@@ -7,12 +7,31 @@ export interface ClioChatMessage {
   content: string;
 }
 
+/**
+ * Bedrock-Converse-shaped tool definition. The API passes these through
+ * to Clio, which forwards them to Bedrock's `toolConfig.tools[]`. The
+ * agent loop inside Clio handles the tool_use → callback → tool_result
+ * cycle without the API having to participate.
+ */
+export interface ClioToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
 export interface ClioChatRequest {
   messages: ClioChatMessage[];
   model?: string;
   system?: string;
   maxTokens?: number;
   temperature?: number;
+  /**
+   * Capiro session id. Required when `tools` are passed — Clio echoes
+   * it back to the API on every tool callback so the controller can
+   * scope to the right tenant.
+   */
+  sessionId?: string;
+  tools?: ClioToolDefinition[];
 }
 
 export interface ClioChatResponse {
@@ -23,6 +42,9 @@ export interface ClioChatResponse {
     inputTokens: number;
     outputTokens: number;
   };
+  // When the agent loop ran one or more tools, Clio surfaces a summary
+  // here so the API can render an audit trail in the message metadata.
+  toolCalls?: Array<{ name: string; status: 'ok' | 'error'; durationMs: number }>;
 }
 
 /**
@@ -77,12 +99,18 @@ export class ClioRuntimeClient {
       system: request.system,
       max_tokens: request.maxTokens,
       temperature: request.temperature,
+      session_id: request.sessionId,
+      tools: request.tools,
     };
+    // When tools are passed the agent loop may invoke several Bedrock
+    // turns + callbacks back to this API; bump the deadline so a
+    // multi-step task doesn't time out at the first sign of latency.
+    const timeoutMs = opts?.timeoutMs ?? (request.tools?.length ? 180_000 : this.defaultTimeoutMs);
     const res = await fetch(`${this.baseUrl}/chat`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(opts?.timeoutMs ?? this.defaultTimeoutMs),
+      signal: AbortSignal.timeout(timeoutMs),
     });
 
     if (!res.ok) {
@@ -99,12 +127,18 @@ export class ClioRuntimeClient {
       model: string;
       stop_reason: string;
       usage: { input_tokens: number; output_tokens: number };
+      tool_calls?: Array<{ name: string; status: 'ok' | 'error'; duration_ms: number }>;
     };
     return {
       message: json.message,
       model: json.model,
       stopReason: json.stop_reason,
       usage: { inputTokens: json.usage.input_tokens, outputTokens: json.usage.output_tokens },
+      toolCalls: json.tool_calls?.map((t) => ({
+        name: t.name,
+        status: t.status,
+        durationMs: t.duration_ms,
+      })),
     };
   }
 }

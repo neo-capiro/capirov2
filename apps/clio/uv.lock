@@ -109,6 +109,7 @@ source = { editable = "." }
 dependencies = [
     { name = "boto3" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "structlog" },
@@ -117,7 +118,6 @@ dependencies = [
 
 [package.optional-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -128,7 +128,7 @@ dev = [
 requires-dist = [
     { name = "boto3", specifier = ">=1.35" },
     { name = "fastapi", specifier = ">=0.115" },
-    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.27" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.13" },
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pydantic-settings", specifier = ">=2.6" },
