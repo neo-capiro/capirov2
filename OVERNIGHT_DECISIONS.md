@@ -10,7 +10,11 @@ This file is the running log. Newest entries at the top so a sleepy read picks u
 
 ## TL;DR for the morning
 
-**Working end-to-end in staging:** sign-in, profile, sessions, chat, markdown rendering, artifact panel, clarifying-question modal, default Hermes-style system prompts, three Capiro tools (`get_client_context`, `render_artifact`) plus the two new memory tools (`remember_about_user`, `forget_about_user`), per-user memory injection into the system prompt every turn, auto-titled sessions, tool-call ribbons in chat.
+**Working end-to-end in staging (verified via Chrome at 2026-05-12 03:23 UTC):** sign-in, profile, sessions, chat, markdown rendering, artifact panel, clarifying-question modal, default Hermes-style system prompts, five tools (`get_client_context`, `render_artifact`, `remember_about_user`, `forget_about_user`, `web_search`), per-user memory injection into the system prompt every turn, auto-titled sessions, tool-call ribbons in chat (green for ok, red for error).
+
+Last test message *"Hi Clio! Quick test: please remember that I prefer terse responses. Then in one short sentence, what year is it?"* → Clio called `remember_about_user` (121ms) + `web_search` (119ms) and replied *"Preference saved. It's **2025**."* — both tools succeeded, memory persisted, web search hit the DDG fallback (no Tavily key configured), markdown rendered bold.
+
+**§13 added at the bottom** documents the most painful bug of the night and the fix.
 
 **Big things I deliberately deferred / made judgment calls on** — read these first:
 
@@ -237,3 +241,37 @@ b35b785 Frame Clio as a general-purpose assistant by default
 ```
 
 Will keep appending as more lands.
+
+## §13. The 401 saga and the actual bug
+
+This was the hardest debugging stretch of the night, so it's worth a write-up.
+
+**Symptom**: Every tool the Clio agent loop tried to call came back 401 Unauthorized. The chat itself worked (Bedrock reply came back fine), but `remember_about_user`, `web_search`, and `get_client_context` all 401'd, so the model had to fall back to "tools are broken, here's my training-data guess."
+
+**False leads I burned time on**:
+1. *"The CLIO_INBOUND_SHARED_SECRET env isn't in the API task def."* — It was. Confirmed via `aws ecs describe-task-definition`.
+2. *"The ECS-injected secret value differs from what Secrets Manager returns."* — Rotated the secret, restarted both services, retested. Still 401.
+3. *"The schema validation is stripping the env var."* — Added a startup-log diagnostic in `ClioInternalAuthGuard.constructor` that printed `secret_length=48 env_present=yes env_length=48` — the secret WAS reaching the guard.
+
+**Actual root cause**: `TenantContextMiddleware` runs **before** route guards. It saw the bearer header on `/api/clio/internal/tools/web_search`, tried `clerk.verifySessionToken(token)`, and threw `UnauthorizedException('Invalid session token')` because the shared secret is obviously not a Clerk-signed JWT. The 401 response body wording `"Invalid session token"` was the smoking gun — that exact string only appears in the tenant-context middleware, never in the shared-secret guard. The guard's well-formed `UnauthorizedException()` would have had no message body.
+
+**The fix that didn't work**: I first tried adding `/api/clio/internal/(.*)` to the NestJS middleware `.exclude()` list. Doesn't match — Nest's middleware path matcher doesn't honor that regex form here, even though the global-prefix exclude DOES.
+
+I then tried the parameterized form `{ path: '/api/clio/internal/tools/:name', method: POST }`. Also didn't match. NestJS's middleware exclude is using a different path-to-regexp build than the global-prefix exclude, and the docs are silent on which patterns are supported.
+
+**The fix that worked**: inline `startsWith` check inside `TenantContextMiddleware.use()` itself, sibling to the existing exact-path bypass list. Doesn't depend on Nest's path matcher at all. Reliable, obvious, debug-able. See [apps/api/src/tenant/tenant-context.middleware.ts](apps/api/src/tenant/tenant-context.middleware.ts) commit `5e3a8b1`.
+
+**Lesson for next time**: when a Nest middleware exclude doesn't seem to match, don't keep trying patterns. Skip the path-matcher entirely and inline a `req.path.startsWith(...)` check. Same effect, no docs guessing, takes 30 seconds.
+
+**Cleanup**: removed the diagnostic `Logger.log` from the guard and removed the stale `.exclude()` entries in [app.module.ts](apps/api/src/app.module.ts) that didn't actually do anything. Both in the same commit as the fix.
+
+## Final commits added this session
+
+```
+cf7db2c Use parameterized middleware exclude for Clio internal tool route
+9659ab3 Exclude /api/clio/internal/* from TenantContextMiddleware  (didn't work)
+bc34c2c Expand OVERNIGHT_DECISIONS with streaming + email + gap specs
+b621fbf Add web_search tool and surface tool-call ribbon in chat UI
+e2b6fdb Per-user memory, auto-titling, tool-call visibility
+... and final fix to be committed
+```
