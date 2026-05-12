@@ -10,6 +10,7 @@ import { ClioInternalController } from './internal/clio-internal.controller.js';
 import { ClioMemoryModule } from './memory/memory.module.js';
 import { GetClientContextTool } from './tools/get-client-context.tool.js';
 import { ToolRegistryService } from './tools/tool-registry.service.js';
+import { WebSearchTool } from './tools/web-search.tool.js';
 
 @Module({
   imports: [PrismaModule, TenantModule, ClioArtifactsModule, ClioMemoryModule],
@@ -19,6 +20,7 @@ import { ToolRegistryService } from './tools/tool-registry.service.js';
     ClioRuntimeClient,
     ClioInternalAuthGuard,
     GetClientContextTool,
+    WebSearchTool,
     ToolRegistryService,
   ],
   exports: [ClioService, ToolRegistryService],

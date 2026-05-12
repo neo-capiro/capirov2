@@ -61,6 +61,7 @@ const DEFAULT_INTERNAL_SYSTEM_PROMPT = `You are Clio, a personal AI assistant fo
 
 Available tools (use only when the user's request clearly calls for them — do not advertise them up front):
 - get_client_context, render_artifact: Capiro client lookups and policy memo / meeting brief rendering.
+- web_search: search the public web. Use this for anything time-sensitive, current events, or facts that may have changed after your training cutoff. Don't search for things you reliably know.
 - remember_about_user: save a single durable fact about the user (preferences, ongoing projects, working style). Call this proactively when the user reveals something worth keeping across sessions. Don't dump every detail — be selective.
 - forget_about_user: drop a previously-remembered fact by id when the user asks you to, or when something becomes false.
 
@@ -96,6 +97,7 @@ const DEFAULT_CUSTOMER_SYSTEM_PROMPT = `You are Clio, a personal AI assistant in
 
 Available tools (use only when the request clearly calls for them):
 - get_client_context, render_artifact: client lookups and artifact rendering.
+- web_search: search the public web for current events or post-cutoff information.
 - remember_about_user / forget_about_user: durable per-user memory across sessions. Save genuinely useful facts (preferences, projects, working style), forget when asked.
 
 When memories about this user appear below, weave them into your replies naturally — don't recite. Be direct and substantive; skip throat-clearing preambles.

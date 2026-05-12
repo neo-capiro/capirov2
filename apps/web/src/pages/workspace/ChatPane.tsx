@@ -140,6 +140,7 @@ export function ChatPane({ sessionId, onAssistantReply }: ChatPaneProps) {
                   id: 'pending-user',
                   role: 'user',
                   content: pendingUserMessage,
+                  contentJson: null,
                   createdAt: new Date().toISOString(),
                   inputTokens: null,
                   outputTokens: null,
@@ -213,29 +214,63 @@ function MessageBubble({ message }: { message: ClioMessage }) {
   // before the fence (the prompt asks for none, but the model is free
   // to add a one-liner like "Got it — one more thing:").
   const visibleProse = isUser ? content : parseAssistantMessage(content).prose;
+  const toolCalls = !isUser ? message.contentJson?.toolCalls ?? [] : [];
   return (
     <div className={`clio-message clio-message--${isUser ? 'user' : 'assistant'}`}>
-      <div className="clio-message__bubble">
-        {isUser ? (
-          // User text is whatever the human typed — render as plain
-          // pre-wrap text. Treating it as markdown would mis-render
-          // anything containing #, *, _, etc. that wasn't intended as
-          // formatting.
-          <Text style={{ whiteSpace: 'pre-wrap' }}>{visibleProse}</Text>
-        ) : visibleProse.length === 0 ? (
-          // The model emitted the question block alone, with no
-          // surrounding prose. Show a placeholder so the assistant
-          // turn isn't a blank bubble — the modal carries the actual
-          // question.
-          <Text type="secondary" italic>
-            (asking a clarifying question — see the modal)
-          </Text>
-        ) : (
-          <div className="clio-message__markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleProse}</ReactMarkdown>
+      <div className="clio-message__column">
+        {toolCalls.length > 0 ? (
+          <div className="clio-message__tools">
+            {toolCalls.map((t, i) => (
+              <span
+                key={`${t.name}-${i}`}
+                className={`clio-tool-chip clio-tool-chip--${t.status}`}
+                title={`${t.name} (${t.status}, ${t.durationMs}ms)`}
+              >
+                <span className="clio-tool-chip__icon" aria-hidden>
+                  {t.status === 'ok' ? '🛠' : '⚠'}
+                </span>
+                <span className="clio-tool-chip__name">{prettyToolName(t.name)}</span>
+                <span className="clio-tool-chip__time">{t.durationMs}ms</span>
+              </span>
+            ))}
           </div>
-        )}
+        ) : null}
+        <div className="clio-message__bubble">
+          {isUser ? (
+            // User text is whatever the human typed — render as plain
+            // pre-wrap text. Treating it as markdown would mis-render
+            // anything containing #, *, _, etc. that wasn't intended as
+            // formatting.
+            <Text style={{ whiteSpace: 'pre-wrap' }}>{visibleProse}</Text>
+          ) : visibleProse.length === 0 ? (
+            // The model emitted the question block alone, with no
+            // surrounding prose. Show a placeholder so the assistant
+            // turn isn't a blank bubble — the modal carries the actual
+            // question.
+            <Text type="secondary" italic>
+              (asking a clarifying question — see the modal)
+            </Text>
+          ) : (
+            <div className="clio-message__markdown">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleProse}</ReactMarkdown>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
+}
+
+function prettyToolName(name: string): string {
+  // Pure cosmetic — turns snake_case tool names into human-readable
+  // labels for the ribbon. Falls back to the raw name when the
+  // model adds a tool we don't recognize yet.
+  const map: Record<string, string> = {
+    get_client_context: 'Fetched client context',
+    render_artifact: 'Rendered artifact',
+    remember_about_user: 'Saved a memory',
+    forget_about_user: 'Forgot a memory',
+    web_search: 'Searched the web',
+  };
+  return map[name] ?? name.replace(/_/g, ' ');
 }

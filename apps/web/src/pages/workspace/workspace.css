@@ -182,8 +182,14 @@
   justify-content: flex-start;
 }
 
-.clio-message__bubble {
+.clio-message__column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   max-width: 720px;
+}
+
+.clio-message__bubble {
   padding: 10px 14px;
   border-radius: 12px;
   background: var(--ant-color-fill-tertiary, #f5f5f5);
@@ -191,6 +197,41 @@
 
 .clio-message--user .clio-message__bubble {
   background: var(--ant-color-primary-bg, #e6f4ff);
+}
+
+/* Tool-call ribbon shown above the assistant bubble when the agent
+   used one or more tools to produce the reply. Small, subtle — like
+   Claude's "Used tool: …" rows. */
+.clio-message__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.clio-tool-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--ant-color-fill-quaternary, #fafafa);
+  border: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  color: var(--ant-color-text-secondary, #6b7280);
+}
+
+.clio-tool-chip--error {
+  background: var(--ant-color-error-bg, #fff2f0);
+  border-color: var(--ant-color-error-border, #ffccc7);
+  color: var(--ant-color-error-text, #cf1322);
+}
+
+.clio-tool-chip__name {
+  font-weight: 500;
+}
+
+.clio-tool-chip__time {
+  opacity: 0.7;
 }
 
 /* Markdown rendering inside assistant bubbles. The defaults from

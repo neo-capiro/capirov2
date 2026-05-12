@@ -15,10 +15,24 @@ export interface SessionSummary {
   updatedAt: string;
 }
 
+export interface ToolCallSummary {
+  name: string;
+  status: 'ok' | 'error';
+  durationMs: number;
+}
+
+export interface ClioMessageMetadata {
+  toolCalls?: ToolCallSummary[];
+}
+
 export interface ClioMessage {
   id: string;
   role: ClioMessageRole;
   content: string | null;
+  // Structured per-message metadata stamped by the API (tool calls
+  // and, later, attachments). Unknown-but-narrowable so the UI can
+  // type-guard before reading.
+  contentJson: ClioMessageMetadata | null;
   createdAt: string;
   inputTokens: number | null;
   outputTokens: number | null;

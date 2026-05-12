@@ -21,6 +21,12 @@ export const configSchema = z.object({
   DIRECTORY_S3_PREFIX: z.string().optional(),
   AWS_REGION_DEFAULT: z.string().default('us-east-1'),
 
+  // Optional. When set, the Clio web_search tool uses Tavily for high-
+  // quality AI-tuned search. Unset → falls back to DuckDuckGo Instant
+  // Answer (free but returns only entity abstracts). Provision via
+  // https://tavily.com → 1000 free searches/month is plenty for staging.
+  TAVILY_API_KEY: z.string().optional(),
+
   // Optional AI providers. Meeting prep endpoints fail closed with 503 until
   // one provider key is configured; they never return canned prep.
   AI_PROVIDER: z.enum(['openai', 'anthropic']).optional(),

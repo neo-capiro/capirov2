@@ -3,6 +3,7 @@ import { ForgetAboutUserTool } from './forget-about-user.tool.js';
 import { GetClientContextTool } from './get-client-context.tool.js';
 import { RememberAboutUserTool } from './remember-about-user.tool.js';
 import { RenderArtifactTool } from './render-artifact.tool.js';
+import { WebSearchTool } from './web-search.tool.js';
 import type { Tool, ToolDefinition } from './tool.types.js';
 
 export type ClioTier = 'internal' | 'customer';
@@ -24,12 +25,14 @@ export class ToolRegistryService {
     private readonly renderArtifact: RenderArtifactTool,
     private readonly rememberAboutUser: RememberAboutUserTool,
     private readonly forgetAboutUser: ForgetAboutUserTool,
+    private readonly webSearch: WebSearchTool,
   ) {
     this.tools = new Map<string, Tool>([
       [getClientContext.definition.name, getClientContext],
       [renderArtifact.definition.name, renderArtifact],
       [rememberAboutUser.definition.name, rememberAboutUser],
       [forgetAboutUser.definition.name, forgetAboutUser],
+      [webSearch.definition.name, webSearch],
     ]);
     // Track-A parallel work adds search_federal_register, search_lda_filings,
     // search_legislative_sources here.
