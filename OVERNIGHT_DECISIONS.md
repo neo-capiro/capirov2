@@ -124,9 +124,82 @@ I'll do steps 3-6 in code overnight and leave step 1+2 (the actual Entra mailbox
 - ✅ Per-user memory landed.
 - ✅ Auto-titling landed.
 - ✅ Tool-call visibility landed (backend + SPA).
-- ⏳ Web search tool (using Tavily — Bedrock doesn't have native search yet on Sonnet 4.6 cross-region).
-- ⏳ Clio email scaffolding (tables, controllers, tools; mailbox provisioning is on you).
-- ⏳ Streaming responses (most work; will attempt if there's time).
+- ✅ Web search tool landed (Tavily-when-configured, DuckDuckGo fallback so it works today without provisioning).
+- ❌ Clio email — deferred. Spec'd in §7; needs your shared-vs-per-user-mailbox decision before I provision.
+- ❌ Streaming responses — deferred. Spec'd in §8; ~4 hours of focused work, didn't want to half-ship.
+
+## §8. Streaming responses — spec for next session
+
+Why deferred tonight: streaming is the single biggest UX gap remaining (every Clio reply currently blocks 3–10 seconds while Bedrock thinks), but doing it well requires touching three layers and getting all of them right. Half-shipped it would degrade the UX worse than the current synchronous path.
+
+What it takes:
+
+1. **Clio runtime (Python).** Switch [apps/clio/src/clio/bedrock.py:converse_raw](apps/clio/src/clio/bedrock.py) from `bedrock.converse` to `bedrock.converse_stream`. Yield events (`contentBlockDelta`, `messageStop`, `metadata`) as Server-Sent Events. The agent loop's tool-use path doesn't compose trivially with streaming — when the model emits a `toolUse` block it's typically interleaved with text; the loop has to buffer until `messageStop`, run the tool, then resume streaming on the next turn. Means restructuring [agent_loop.py](apps/clio/src/clio/agent_loop.py) around an async generator.
+
+2. **Capiro API (NestJS).** Convert [clio.controller.ts:postMessage](apps/api/src/clio/clio.controller.ts) from a JSON `200 OK` to an SSE response (`text/event-stream`). Persistence layer flips from "insert two rows after Bedrock returns" to "insert user row immediately, accumulate assistant deltas in memory, insert assistant row on `messageStop`." Need to handle client disconnects (write a partial assistant row with `stop_reason='client_aborted'`).
+
+3. **Web (React).** Replace the axios POST in [ChatPane.tsx](apps/web/src/pages/workspace/ChatPane.tsx) with `EventSource` (or a `fetch`-with-`ReadableStream` polyfill since EventSource doesn't support custom Authorization headers). Render the in-progress assistant message live as deltas arrive. Auto-scroll behavior needs to follow content growth, not just message count.
+
+4. **Behavior changes.**
+   - Tool-call ribbon needs to show "Calling get_client_context…" *during* the call, not just after.
+   - The clarifying-question modal can't open until the assistant message has actually finished (otherwise we'd parse a partial `capiro-question` fence).
+   - Streaming over the ALB: needs the listener rule to not buffer (`Transfer-Encoding: chunked` works through ALB but idle-timeout is 60s by default — fine for chat but I'd bump it to 300s).
+
+Estimated work: 4 hours focused. Reversible — synchronous path can stay as a fallback for the Hermes-style `mode: 'standard'` request flag.
+
+## §9. Other gaps I noticed tonight but didn't address
+
+Honest gap list, in rough priority order for whoever picks this up next:
+
+1. **No file/image upload.** Bedrock Claude is multimodal; the converse API accepts image blocks. Need:
+   - S3 upload path for user-pasted files (`POST /api/clio/attachments` → presigned PUT → returns S3 key).
+   - Message schema add `attachments` JSON column (or use existing `content_jsonb`).
+   - Pass image blocks through to Clio runtime, then through to Bedrock.
+   - SPA: paste/drag-drop area in the composer, image previews in the bubble.
+   - Realistic scope: half a day.
+
+2. **No conversation forking / editing.** When a user sends the wrong message, the only recovery is starting a new session. Hermes/Claude let you edit a past message and have the model re-respond from there.
+
+3. **MAX_ITERATIONS=6.** Fine for shallow lookups, breaks for deep research ("look up these 12 clients and summarize what they each filed last quarter" would exceed it). Bump to 20 for internal-tier sessions; keep tight for customer-tier so a runaway agent can't bill a customer thousands of tool calls.
+
+4. **No artifact editing in-place.** `render_artifact` always creates a new version (via `replacing` chain). Workspace UI doesn't yet expose the version history — you see only the latest. Need a "history" affordance on the artifact card.
+
+5. **No cost / latency telemetry surfaced to the user.** Token counts are persisted per-message but never shown. A small "(2.3s · 1.2k in / 480 out)" footer under each assistant bubble would help build trust + debug slowness.
+
+6. **No model picker.** All sessions are locked to `us.anthropic.claude-sonnet-4-6`. Internal-tier users especially should be able to flip to Opus for hard tasks. Stored on the session row already (`session.model`) — just no UI for it.
+
+7. **Workspace mobile / narrow viewport** breaks the artifact panel below 900px (current CSS hides the session list but still tries to render the 3rd column). Acceptable for now since this is desktop-first internal use; needs revisit before customer-tier launch.
+
+8. **No conversation export.** Hermes lets you download a session as markdown. Trivial endpoint to add.
+
+9. **No "Clio" identity in the UI.** No avatar, no system bubble persona. Pure chrome but matters for the "personal assistant" vibe.
+
+## §10. Migrations & DB state
+
+New table this session: `clio_user_memories` (migration `20260512000000_clio_user_memory`). Applied to staging successfully via the migrate task at 21:38 EDT 2026-05-11. Pre-existing tables touched: none — only system_prompt logic and message metadata read changed; both backward-compatible.
+
+The `content_jsonb` column on `clio_messages` is now in use (was always in the schema, now actively written). No schema change needed, just behavior.
+
+## §11. Tools registered after tonight
+
+Customer-tier (visible to everyone):
+- `get_client_context` (pre-existing)
+- `render_artifact` (pre-existing)
+- `remember_about_user` ← new tonight
+- `forget_about_user` ← new tonight
+- `web_search` ← new tonight
+
+Internal-tier-only: none yet. The infrastructure for tier gating is in `ToolRegistryService.resolve`; just no tools have `internal: true` yet. Track A would add `search_lda_filings` / `search_federal_register` here when those land.
+
+## §12. Decisions explicitly NOT made yet
+
+These need your input before I touch them:
+
+1. **Clio email mailbox topology** — Option A (shared `clio@capiro.ai`) vs B (plus-addressing `clio+slug@capiro.ai`) vs C (per-user mailbox). See §7. Default I'd take: A, with a routing header for outbound continuity.
+2. **MAX_ITERATIONS bump** — willing to set to 20 for internal, keep 6 for customer? Unclear if you want the deep-research feel for both tiers.
+3. **Streaming default-on or opt-in?** — once shipped, do we make `mode: 'streaming'` the default on the SPA or leave a toggle? Streaming changes the latency feel from "wait then read" to "read as it types"; some users prefer the former.
+4. **Per-user dedicated ECS task** — I assumed not (per §1 of TL;DR). Confirm or push back.
+5. **Voice / image input** — not in scope tonight; want a date?
 
 ---
 
