@@ -88,13 +88,19 @@ export class AppModule implements NestModule {
         // exclusion the tenant-context middleware runs first and rejects
         // the shared secret as "Invalid session token" — making every
         // tool the agent loop calls fail with 401.
+        //
+        // Express-style parameterized routes — NestJS middleware path
+        // matcher (path-to-regexp under the hood) does NOT honor regex
+        // wildcards like (.*) here; we have to name every concrete
+        // sub-route. Currently only POST /tools/:name exists; add new
+        // ones to this list when you add new internal endpoints.
         {
-          path: '/api/clio/internal/(.*)',
-          method: RequestMethod.ALL,
+          path: '/api/clio/internal/tools/:name',
+          method: RequestMethod.POST,
         },
         {
-          path: 'api/clio/internal/(.*)',
-          method: RequestMethod.ALL,
+          path: 'api/clio/internal/tools/:name',
+          method: RequestMethod.POST,
         },
       )
       .forRoutes('*');
