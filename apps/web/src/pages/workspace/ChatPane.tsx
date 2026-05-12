@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { SendOutlined } from '@ant-design/icons';
 import { App as AntApp, Button, Empty, Input, Skeleton, Typography } from 'antd';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useApi } from '../../lib/use-api.js';
+import { QuestionModal } from './QuestionModal.js';
+import { parseAssistantMessage, type CapiroQuestion } from './question-block.js';
 import type { ClioMessage, SessionWithMessages } from './types.js';
 
 const { Text, Title } = Typography;
@@ -10,6 +14,10 @@ const { TextArea } = Input;
 
 interface ChatPaneProps {
   sessionId: string | null;
+  // Called once per successful round-trip so siblings (e.g. the artifact
+  // panel) can refetch. Optional — the chat pane functions fine without
+  // anyone listening.
+  onAssistantReply?: () => void;
 }
 
 /**
@@ -19,7 +27,7 @@ interface ChatPaneProps {
  * lands so the canonical server-side ordering wins. No streaming yet —
  * Phase 2 adds Server-Sent Events for token-by-token render.
  */
-export function ChatPane({ sessionId }: ChatPaneProps) {
+export function ChatPane({ sessionId, onAssistantReply }: ChatPaneProps) {
   const api = useApi();
   const qc = useQueryClient();
   const { message } = AntApp.useApp();
@@ -51,6 +59,7 @@ export function ChatPane({ sessionId }: ChatPaneProps) {
       qc.setQueryData(['clio', 'session', sessionId], updated);
       qc.invalidateQueries({ queryKey: ['clio', 'sessions'] });
       setPendingUserMessage(null);
+      onAssistantReply?.();
     },
     onError: () => {
       setPendingUserMessage(null);
@@ -62,6 +71,26 @@ export function ChatPane({ sessionId }: ChatPaneProps) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [session.data?.messages.length, pendingUserMessage]);
+
+  // Detect a clarifying question from the most recent assistant turn.
+  // The modal is suppressed once the user has replied (we look at
+  // whether the assistant message is still the last one in history).
+  // Local "dismissed" state lets the user close the modal without
+  // answering and still come back to it via the visible question card
+  // in the chat — the assistant message itself stays rendered.
+  const [dismissedQuestionForMessageId, setDismissedQuestionForMessageId] = useState<string | null>(
+    null,
+  );
+  const pendingQuestion = useMemo<{ question: CapiroQuestion; messageId: string } | null>(() => {
+    const msgs = session.data?.messages ?? [];
+    if (msgs.length === 0) return null;
+    const last = msgs[msgs.length - 1];
+    if (last.role !== 'assistant' || !last.content) return null;
+    const parsed = parseAssistantMessage(last.content);
+    if (!parsed.question) return null;
+    if (dismissedQuestionForMessageId === last.id) return null;
+    return { question: parsed.question, messageId: last.id };
+  }, [session.data?.messages, dismissedQuestionForMessageId]);
 
   if (!sessionId) {
     return (
@@ -155,20 +184,58 @@ export function ChatPane({ sessionId }: ChatPaneProps) {
           Send
         </Button>
       </div>
+
+      {pendingQuestion ? (
+        <QuestionModal
+          question={pendingQuestion.question}
+          open
+          onSubmit={(answer) => {
+            // Send the answer as the next user turn; the agent picks it
+            // up on the following round-trip.
+            setDismissedQuestionForMessageId(pendingQuestion.messageId);
+            sendMessage.mutate(answer);
+          }}
+          onCancel={() => setDismissedQuestionForMessageId(pendingQuestion.messageId)}
+        />
+      ) : null}
     </div>
   );
 }
 
 function MessageBubble({ message }: { message: ClioMessage }) {
-  // System/tool rows are technically renderable but Phase 1 hides them — the
-  // agent loop doesn't produce them yet, and showing raw tool plumbing would
-  // be confusing before the loop is in place.
+  // System/tool rows are technically renderable but the UI hides them —
+  // showing raw tool plumbing is confusing and the agent loop already
+  // surfaces tool-call summaries in the assistant text.
   if (message.role !== 'user' && message.role !== 'assistant') return null;
   const isUser = message.role === 'user';
+  const content = message.content ?? '';
+  // Strip any `capiro-question` fence from the rendered prose — the
+  // modal owns that block. We still show whatever text the model put
+  // before the fence (the prompt asks for none, but the model is free
+  // to add a one-liner like "Got it — one more thing:").
+  const visibleProse = isUser ? content : parseAssistantMessage(content).prose;
   return (
     <div className={`clio-message clio-message--${isUser ? 'user' : 'assistant'}`}>
       <div className="clio-message__bubble">
-        <Text style={{ whiteSpace: 'pre-wrap' }}>{message.content}</Text>
+        {isUser ? (
+          // User text is whatever the human typed — render as plain
+          // pre-wrap text. Treating it as markdown would mis-render
+          // anything containing #, *, _, etc. that wasn't intended as
+          // formatting.
+          <Text style={{ whiteSpace: 'pre-wrap' }}>{visibleProse}</Text>
+        ) : visibleProse.length === 0 ? (
+          // The model emitted the question block alone, with no
+          // surrounding prose. Show a placeholder so the assistant
+          // turn isn't a blank bubble — the modal carries the actual
+          // question.
+          <Text type="secondary" italic>
+            (asking a clarifying question — see the modal)
+          </Text>
+        ) : (
+          <div className="clio-message__markdown">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{visibleProse}</ReactMarkdown>
+          </div>
+        )}
       </div>
     </div>
   );

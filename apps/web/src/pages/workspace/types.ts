@@ -28,3 +28,32 @@ export interface ClioMessage {
 export interface SessionWithMessages extends SessionSummary {
   messages: ClioMessage[];
 }
+
+export type ClioArtifactKind =
+  | 'policy_memo'
+  | 'meeting_brief'
+  | 'client_intel_update'
+  | 'regulatory_comment'
+  | 'appropriations_request'
+  | 'other';
+
+export interface ArtifactSummary {
+  id: string;
+  kind: ClioArtifactKind;
+  title: string;
+  version: number;
+  sessionId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface ArtifactFull extends ArtifactSummary {
+  content: string | null;
+  s3Key: string | null;
+  s3ContentType: string | null;
+}
+
+export interface ArtifactList {
+  items: ArtifactSummary[];
+}
