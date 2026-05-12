@@ -215,24 +215,51 @@ function MessageBubble({ message }: { message: ClioMessage }) {
   // to add a one-liner like "Got it — one more thing:").
   const visibleProse = isUser ? content : parseAssistantMessage(content).prose;
   const toolCalls = !isUser ? message.contentJson?.toolCalls ?? [] : [];
+  // Per-bubble expansion state. Closed by default — tool details are
+  // only interesting on demand, like Claude's "Used X" cards.
+  const [expandedTools, setExpandedTools] = useState(false);
   return (
     <div className={`clio-message clio-message--${isUser ? 'user' : 'assistant'}`}>
       <div className="clio-message__column">
         {toolCalls.length > 0 ? (
           <div className="clio-message__tools">
-            {toolCalls.map((t, i) => (
-              <span
-                key={`${t.name}-${i}`}
-                className={`clio-tool-chip clio-tool-chip--${t.status}`}
-                title={`${t.name} (${t.status}, ${t.durationMs}ms)`}
-              >
-                <span className="clio-tool-chip__icon" aria-hidden>
-                  {t.status === 'ok' ? '🛠' : '⚠'}
-                </span>
-                <span className="clio-tool-chip__name">{prettyToolName(t.name)}</span>
-                <span className="clio-tool-chip__time">{t.durationMs}ms</span>
+            <button
+              type="button"
+              className="clio-tool-summary"
+              onClick={() => setExpandedTools((v) => !v)}
+              aria-expanded={expandedTools}
+              aria-label={`${toolCalls.length} tool ${toolCalls.length === 1 ? 'call' : 'calls'} — click to ${expandedTools ? 'collapse' : 'expand'}`}
+            >
+              <span className="clio-tool-summary__chevron" aria-hidden>
+                {expandedTools ? '▾' : '▸'}
               </span>
-            ))}
+              <span className="clio-tool-summary__count">
+                Used {toolCalls.length} tool{toolCalls.length === 1 ? '' : 's'}
+              </span>
+              <span className="clio-tool-summary__brief">
+                {toolCalls.map((t) => prettyToolName(t.name)).join(' · ')}
+              </span>
+            </button>
+            {expandedTools ? (
+              <div className="clio-tool-details">
+                {toolCalls.map((t, i) => (
+                  <div
+                    key={`${t.name}-${i}`}
+                    className={`clio-tool-detail clio-tool-detail--${t.status}`}
+                  >
+                    <div className="clio-tool-detail__row">
+                      <span className="clio-tool-detail__icon" aria-hidden>
+                        {t.status === 'ok' ? '🛠' : '⚠'}
+                      </span>
+                      <span className="clio-tool-detail__name">{prettyToolName(t.name)}</span>
+                      <span className="clio-tool-detail__raw">{t.name}</span>
+                      <span className="clio-tool-detail__time">{t.durationMs}ms</span>
+                      <span className="clio-tool-detail__status">{t.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
         <div className="clio-message__bubble">

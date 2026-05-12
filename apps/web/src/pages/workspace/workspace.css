@@ -26,6 +26,19 @@
   flex: 1 1 auto;
   min-height: 0;
   background: var(--ant-color-bg-layout, #f5f5f5);
+  /* Both collapse states bring the affected column down to a thin
+     icon rail (~52px). The chat pane in the middle absorbs the
+     reclaimed space automatically because it's 1fr. */
+}
+
+.clio-workspace__body.is-sidebar-collapsed {
+  grid-template-columns: 60px 1fr minmax(320px, 480px);
+}
+.clio-workspace__body.is-artifacts-collapsed {
+  grid-template-columns: 280px 1fr 44px;
+}
+.clio-workspace__body.is-sidebar-collapsed.is-artifacts-collapsed {
+  grid-template-columns: 60px 1fr 44px;
 }
 
 @media (max-width: 1100px) {
@@ -33,6 +46,15 @@
      the chat still gets enough breathing room. */
   .clio-workspace__body {
     grid-template-columns: 240px 1fr 320px;
+  }
+  .clio-workspace__body.is-sidebar-collapsed {
+    grid-template-columns: 60px 1fr 320px;
+  }
+  .clio-workspace__body.is-artifacts-collapsed {
+    grid-template-columns: 240px 1fr 44px;
+  }
+  .clio-workspace__body.is-sidebar-collapsed.is-artifacts-collapsed {
+    grid-template-columns: 60px 1fr 44px;
   }
 }
 
@@ -55,6 +77,40 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  position: relative;
+}
+
+/* Small ▶︎/◀︎ toggle on the top-right edge of the sidebar (and top-left
+   of the artifact panel). Same shape, mirrored sides. */
+.clio-workspace__sidebar-toggle {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 6px 0;
+}
+
+.clio-workspace__artifacts-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-left: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  background: var(--ant-color-bg-container, #ffffff);
+}
+
+.clio-workspace__artifacts-toggle {
+  display: flex;
+  justify-content: flex-start;
+  padding: 6px 6px 0;
+}
+
+/* Collapsed-mode rail on the right edge. ~44px wide, single button. */
+.clio-workspace__artifacts-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 6px;
+  border-left: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  background: var(--ant-color-bg-container, #ffffff);
+  gap: 6px;
 }
 
 .clio-workspace__main {
@@ -88,11 +144,19 @@
 
 .clio-session-list__item {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 8px;
   padding: 10px 12px;
   border-radius: 6px;
   cursor: pointer;
   transition: background 0.15s ease;
+}
+
+.clio-session-list__item-body {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .clio-session-list__item:hover {
@@ -103,6 +167,13 @@
   background: var(--ant-color-primary-bg, #e6f4ff);
 }
 
+.clio-session-list__item.is-deleting {
+  /* While the delete request is in flight, fade the row and disable
+     pointer events so a double-click can't fire a second delete. */
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 .clio-session-list__title {
   display: block;
   margin-bottom: 2px;
@@ -110,6 +181,73 @@
 
 .clio-session-list__time {
   font-size: 12px;
+}
+
+/* Hover-revealed three-dots menu button. Hidden until row hover so the
+   list stays clean. Active row keeps it visible because the menu is
+   "the thing you'd interact with" once a session is selected. */
+.clio-session-list__menu {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  border-radius: 4px;
+  color: var(--ant-color-text-secondary, #6b7280);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.clio-session-list__menu:hover,
+.clio-session-list__menu:focus-visible {
+  background: var(--ant-color-fill-secondary, rgba(0, 0, 0, 0.06));
+  opacity: 1;
+  outline: none;
+}
+.clio-session-list__item:hover .clio-session-list__menu,
+.clio-session-list__item.is-active .clio-session-list__menu {
+  opacity: 1;
+}
+
+/* Collapsed sidebar mode: items shrink to circular initials and the
+   New-session button becomes a square. */
+.clio-session-list.is-collapsed {
+  padding: 8px 4px;
+  align-items: center;
+}
+.clio-session-list.is-collapsed .clio-session-list__header {
+  border-bottom: 0;
+  padding-bottom: 0;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+.clio-session-list.is-collapsed .clio-session-list__items {
+  gap: 6px;
+  width: 100%;
+  align-items: center;
+}
+.clio-session-list.is-collapsed .clio-session-list__item {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border-radius: 8px;
+  justify-content: center;
+}
+.clio-session-list__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--ant-color-primary-bg, #e6f4ff);
+  color: var(--ant-color-primary-text, #1677ff);
+  font-weight: 600;
+  font-size: 13px;
 }
 
 /* ---------- Chat pane ---------- */
@@ -200,12 +338,94 @@
 }
 
 /* Tool-call ribbon shown above the assistant bubble when the agent
-   used one or more tools to produce the reply. Small, subtle — like
-   Claude's "Used tool: …" rows. */
+   used one or more tools to produce the reply. Renders as a single
+   click-to-expand "Used N tools — …" header (Claude-style) so the
+   chat stays uncluttered. Expanding reveals per-tool detail rows. */
 .clio-message__tools {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
+  align-items: stretch;
+}
+
+.clio-tool-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  border-radius: 8px;
+  background: var(--ant-color-fill-quaternary, #fafafa);
+  color: var(--ant-color-text-secondary, #6b7280);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  width: fit-content;
+  max-width: 100%;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.clio-tool-summary:hover,
+.clio-tool-summary:focus-visible {
+  background: var(--ant-color-fill-tertiary, #f0f0f0);
+  border-color: var(--ant-color-border, #d9d9d9);
+  outline: none;
+}
+
+.clio-tool-summary__chevron {
+  font-size: 10px;
+  width: 10px;
+  line-height: 1;
+  display: inline-block;
+}
+
+.clio-tool-summary__count {
+  font-weight: 600;
+  color: var(--ant-color-text, #1f2937);
+  white-space: nowrap;
+}
+
+.clio-tool-summary__brief {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clio-tool-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  border-radius: 8px;
+  background: var(--ant-color-bg-container, #ffffff);
+}
+
+.clio-tool-detail__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.clio-tool-detail__name {
+  font-weight: 500;
+  color: var(--ant-color-text, #1f2937);
+}
+.clio-tool-detail__raw {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--ant-color-text-secondary, #6b7280);
+  font-size: 11px;
+}
+.clio-tool-detail__time,
+.clio-tool-detail__status {
+  margin-left: auto;
+  color: var(--ant-color-text-secondary, #6b7280);
+}
+.clio-tool-detail--error .clio-tool-detail__status {
+  color: var(--ant-color-error-text, #cf1322);
+  font-weight: 500;
 }
 
 .clio-tool-chip {
