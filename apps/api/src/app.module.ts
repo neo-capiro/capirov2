@@ -83,6 +83,19 @@ export class AppModule implements NestModule {
           path: 'api/engagement/integrations/microsoft/notifications',
           method: RequestMethod.ALL,
         },
+        // Clio internal tool callbacks authenticate via shared-secret
+        // bearer (ClioInternalAuthGuard), not a Clerk JWT. Without this
+        // exclusion the tenant-context middleware runs first and rejects
+        // the shared secret as "Invalid session token" — making every
+        // tool the agent loop calls fail with 401.
+        {
+          path: '/api/clio/internal/(.*)',
+          method: RequestMethod.ALL,
+        },
+        {
+          path: 'api/clio/internal/(.*)',
+          method: RequestMethod.ALL,
+        },
       )
       .forRoutes('*');
   }
