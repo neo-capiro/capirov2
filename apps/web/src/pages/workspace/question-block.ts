@@ -30,7 +30,8 @@ const FENCE_RE = /```capiro-question\s*\n([\s\S]*?)```/;
 
 export function parseAssistantMessage(content: string): ParsedAssistantMessage {
   const match = FENCE_RE.exec(content);
-  if (!match) {
+  const body = match?.[1];
+  if (!match || !body) {
     return { prose: content, question: null };
   }
   const before = content.slice(0, match.index).trim();
@@ -38,7 +39,7 @@ export function parseAssistantMessage(content: string): ParsedAssistantMessage {
   // text; try once, fall back to the raw markdown render if it fails.
   let question: CapiroQuestion | null = null;
   try {
-    const parsed = JSON.parse(match[1].trim()) as unknown;
+    const parsed = JSON.parse(body.trim()) as unknown;
     if (parsed && typeof parsed === 'object' && 'question' in parsed) {
       const q = parsed as Record<string, unknown>;
       if (typeof q.question === 'string') {

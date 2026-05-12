@@ -83,9 +83,8 @@ export function ChatPane({ sessionId, onAssistantReply }: ChatPaneProps) {
   );
   const pendingQuestion = useMemo<{ question: CapiroQuestion; messageId: string } | null>(() => {
     const msgs = session.data?.messages ?? [];
-    if (msgs.length === 0) return null;
     const last = msgs[msgs.length - 1];
-    if (last.role !== 'assistant' || !last.content) return null;
+    if (!last || last.role !== 'assistant' || !last.content) return null;
     const parsed = parseAssistantMessage(last.content);
     if (!parsed.question) return null;
     if (dismissedQuestionForMessageId === last.id) return null;
