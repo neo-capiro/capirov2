@@ -146,6 +146,7 @@ model Tenant {
   clioSessions               ClioSession[]
   clioMessages               ClioMessage[]
   clioArtifacts              ClioArtifact[]
+  clioUserMemories           ClioUserMemory[]
 
   @@map("tenants")
 }
@@ -171,6 +172,7 @@ model User {
   outreachTemplates       OutreachTemplate[]             @relation("OutreachTemplateAuthor")
   clioSessions            ClioSession[]                  @relation("ClioSessionUser")
   clioArtifacts           ClioArtifact[]                 @relation("ClioArtifactCreator")
+  clioUserMemories        ClioUserMemory[]               @relation("ClioUserMemoryOwner")
 
   @@map("users")
 }
@@ -815,6 +817,42 @@ enum ClioArtifactKind {
   other
 
   @@map("clio_artifact_kind")
+}
+
+/// Persistent per-user facts the agent has decided are worth remembering
+/// across sessions ("the user prefers terse responses", "user works on
+/// healthcare policy", "user's primary client is Acme"). Injected into
+/// the system prompt on every chat turn so Clio behaves like a personal
+/// assistant who actually knows the human.
+///
+/// Tenant-scoped + user-scoped: a capiro_admin in tenant A doesn't see
+/// memories saved by themselves in tenant B (impersonation creates a new
+/// memory namespace). `category` is a soft tag the model picks; we don't
+/// constrain it so the model can be expressive.
+model ClioUserMemory {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  // Model-chosen tag: 'preference', 'fact', 'project', 'contact', etc.
+  // Free-form on purpose; the model decides what's useful.
+  category  String
+  content   String
+  // Bump every time this memory is referenced. Helps the recall
+  // ranking — long-cold memories drop out of the system-prompt window
+  // first.
+  refCount  Int      @default(0) @map("ref_count")
+  // Last time the memory was read into the system prompt. Cheaper
+  // recency signal than scanning the messages.
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation("ClioUserMemoryOwner", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, updatedAt(sort: Desc)], map: "clio_user_memories_tenant_user_updated_idx")
+  @@index([tenantId, userId, category], map: "clio_user_memories_tenant_user_category_idx")
+  @@map("clio_user_memories")
 }
 
 model ClioSession {

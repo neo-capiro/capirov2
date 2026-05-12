@@ -1,8 +1,9 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { ClioMessageRole, ClioSessionStatus, Prisma } from '@prisma/client';
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ClioRuntimeClient, type ClioChatMessage } from './clio-runtime.client.js';
+import { UserMemoryService } from './memory/user-memory.service.js';
 import { ToolRegistryService, type ClioTier } from './tools/tool-registry.service.js';
 
 export interface CreateSessionInput {
@@ -30,6 +31,10 @@ export interface SessionWithMessages extends SessionSummary {
     id: string;
     role: ClioMessageRole;
     content: string | null;
+    // Structured metadata stamped on the message (tool-call summary,
+    // attachments later). Schema-wise this is Prisma.JsonValue, but
+    // any payload the API stamps in clio.service.ts goes through here.
+    contentJson: unknown;
     createdAt: Date;
     inputTokens: number | null;
     outputTokens: number | null;
@@ -52,9 +57,14 @@ const DEFAULT_MODEL = 'us.anthropic.claude-sonnet-4-6';
  * model into greeting the user as "your Capiro AI assistant" even on
  * unrelated questions.
  */
-const DEFAULT_INTERNAL_SYSTEM_PROMPT = `You are Clio, a general-purpose AI assistant for Capiro employees. Help the user with whatever they ask — coding, writing, research, analysis, math, casual conversation, anything. You are NOT restricted to lobbying or Capiro-specific topics.
+const DEFAULT_INTERNAL_SYSTEM_PROMPT = `You are Clio, a personal AI assistant for a Capiro employee. Behave like a thoughtful chief-of-staff: helpful, direct, with continuity across conversations. Help the user with whatever they ask — coding, writing, research, analysis, math, casual conversation, anything. You are NOT restricted to lobbying or Capiro-specific topics.
 
-You happen to have a few Capiro-specific tools available (e.g. fetching client context, rendering policy memo / meeting brief artifacts). Use them only when the user's request clearly calls for them. Do not advertise them up front, do not steer the conversation toward them, and do not refuse to engage with off-topic questions because the tools don't cover them.
+Available tools (use only when the user's request clearly calls for them — do not advertise them up front):
+- get_client_context, render_artifact: Capiro client lookups and policy memo / meeting brief rendering.
+- remember_about_user: save a single durable fact about the user (preferences, ongoing projects, working style). Call this proactively when the user reveals something worth keeping across sessions. Don't dump every detail — be selective.
+- forget_about_user: drop a previously-remembered fact by id when the user asks you to, or when something becomes false.
+
+When memories about this user are available, they appear in the system prompt below. Use them naturally — don't recite them back, just let them shape your replies. If the user says "remember that I..." or "I always do X", call remember_about_user. If they say "forget X" or correct something, call forget_about_user.
 
 Be direct and substantive. Skip throat-clearing preambles. If you don't know something, say so. If a tool returns an error, tell the user plainly.
 
@@ -82,9 +92,13 @@ Rules:
  * lobbying-adjacent help is the expected primary use case, but we still
  * don't refuse off-topic questions.
  */
-const DEFAULT_CUSTOMER_SYSTEM_PROMPT = `You are Clio, an AI assistant inside the Capiro lobbying workspace. Help the user with whatever they ask. Most questions will be lobbying-, policy-, or client-management-related, but you should still engage with general questions (writing, research, summarization, etc.) when asked.
+const DEFAULT_CUSTOMER_SYSTEM_PROMPT = `You are Clio, a personal AI assistant inside the Capiro lobbying workspace. Help the user with whatever they ask. Most questions will be lobbying-, policy-, or client-management-related, but you should still engage with general questions (writing, research, summarization, etc.) when asked.
 
-You have access to a few tools for fetching client context and rendering artifacts. Use them only when the request clearly calls for them. Be direct and substantive — skip throat-clearing preambles.
+Available tools (use only when the request clearly calls for them):
+- get_client_context, render_artifact: client lookups and artifact rendering.
+- remember_about_user / forget_about_user: durable per-user memory across sessions. Save genuinely useful facts (preferences, projects, working style), forget when asked.
+
+When memories about this user appear below, weave them into your replies naturally — don't recite. Be direct and substantive; skip throat-clearing preambles.
 
 When you need to ask the user a clarifying question — and ONLY then — emit it as a fenced code block tagged \`capiro-question\` containing JSON of this shape:
 
@@ -115,10 +129,13 @@ Use \`options\` for enumerable choices, omit for free-form. Set \`allowFreeText\
  */
 @Injectable()
 export class ClioService {
+  private readonly logger = new Logger(ClioService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly runtime: ClioRuntimeClient,
     private readonly toolRegistry: ToolRegistryService,
+    private readonly memory: UserMemoryService,
   ) {}
 
   async listSessions(ctx: TenantContext): Promise<SessionSummary[]> {
@@ -192,6 +209,7 @@ export class ClioService {
           id: true,
           role: true,
           content: true,
+          contentJson: true,
           createdAt: true,
           inputTokens: true,
           outputTokens: true,
@@ -256,19 +274,36 @@ export class ClioService {
     const tier: ClioTier = this.tierFor(ctx);
     const tools = this.toolRegistry.toolsForTier(tier);
 
+    // Load this user's persistent memories and splice them into the
+    // system prompt. The model never sees a separate "recall" tool —
+    // we just hand it the relevant facts every turn and let it use
+    // them naturally. Memories surface ids so the model can later
+    // call forget_about_user when asked to drop one.
+    const memories = await this.memory.loadForPrompt(ctx.tenantId, ctx.userId);
+    const memoryBlock = UserMemoryService.renderForPrompt(memories);
+    const baseSystem =
+      settings.systemPrompt ??
+      (tier === 'internal' ? DEFAULT_INTERNAL_SYSTEM_PROMPT : DEFAULT_CUSTOMER_SYSTEM_PROMPT);
+    const fullSystem = memoryBlock ? `${baseSystem}\n\n${memoryBlock}` : baseSystem;
+
     const reply = await this.runtime.chat({
       messages: turnMessages,
       model: session.model,
-      // Per-session systemPrompt wins. Otherwise fall through to the
-      // tier-appropriate default (general-purpose framing — keeps Clio
-      // from sounding like a Capiro-only chatbot just because tools in
-      // the registry have Capiro-specific descriptions).
-      system:
-        settings.systemPrompt ??
-        (tier === 'internal' ? DEFAULT_INTERNAL_SYSTEM_PROMPT : DEFAULT_CUSTOMER_SYSTEM_PROMPT),
+      system: fullSystem,
       sessionId,
       tools: tools.length > 0 ? tools : undefined,
     });
+
+    // First-turn auto-titling. If the session still has the default
+    // "New session" placeholder, ask the model to summarize the user's
+    // first message into a 3-7 word title and persist it. Fire-and-
+    // forget so the response to the user isn't blocked on it.
+    const isFirstTurn = history.length === 0;
+    if (isFirstTurn && session.title === DEFAULT_TITLE) {
+      void this.autoTitleSession(ctx.tenantId, sessionId, userContent, session.model).catch(
+        (err) => this.logger.warn(`auto-title failed: ${String(err)}`),
+      );
+    }
 
     // Persist user turn + assistant turn + bump session.last_message_at in
     // one transaction so we don't end up with an orphaned user message if
@@ -288,6 +323,15 @@ export class ClioService {
           tenantId: ctx.tenantId,
           role: 'assistant',
           content: reply.message.content,
+          // The agent loop may have hit one or more tools to get here.
+          // Stash the summary in content_jsonb so the UI can render
+          // "🔧 Called get_client_context (45ms)" rows beneath the
+          // assistant bubble. Schema doesn't need a new column — this
+          // is exactly the kind of structured per-message metadata
+          // content_jsonb was added for.
+          ...(reply.toolCalls && reply.toolCalls.length > 0
+            ? { contentJson: { toolCalls: reply.toolCalls } satisfies Prisma.InputJsonValue }
+            : {}),
           inputTokens: reply.usage.inputTokens,
           outputTokens: reply.usage.outputTokens,
           stopReason: reply.stopReason,
@@ -317,6 +361,7 @@ export class ClioService {
           id: true,
           role: true,
           content: true,
+          contentJson: true,
           createdAt: true,
           inputTokens: true,
           outputTokens: true,
@@ -355,5 +400,39 @@ export class ClioService {
    */
   private tierFor(ctx: TenantContext): 'internal' | 'customer' {
     return ctx.role === 'capiro_admin' ? 'internal' : 'customer';
+  }
+
+  /**
+   * Generate a short title for a session from its first user message.
+   * Runs as a separate Bedrock pass (cheap — no tools, 24-token cap)
+   * and writes the result back to the row. Fire-and-forget caller; we
+   * don't fail the chat turn on title errors.
+   */
+  private async autoTitleSession(
+    tenantId: string,
+    sessionId: string,
+    firstMessage: string,
+    model: string,
+  ): Promise<void> {
+    const titlePrompt =
+      'You are a title generator. Read the user message and reply with ONLY a 3-7 word title that summarizes the topic. No punctuation at the end. No quotes around it. No prefatory text like "Title:". Pure title.';
+    const reply = await this.runtime.chat({
+      messages: [{ role: 'user', content: firstMessage }],
+      model,
+      system: titlePrompt,
+      sessionId,
+      maxTokens: 24,
+      temperature: 0.2,
+    });
+    const raw = reply.message.content.trim().replace(/^["']|["']$/g, '');
+    // Hard cap so a chatty model can't blow out the sidebar layout.
+    const title = raw.length > 80 ? raw.slice(0, 80).trim() : raw;
+    if (!title) return;
+    await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clioSession.update({
+        where: { id: sessionId },
+        data: { title },
+      }),
+    );
   }
 }
