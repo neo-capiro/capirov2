@@ -28,13 +28,6 @@ export class ClioInternalAuthGuard implements CanActivate {
 
   constructor(config: ConfigService<AppConfig, true>) {
     this.expected = config.get('CLIO_INBOUND_SHARED_SECRET', { infer: true }) ?? '';
-    // Startup diagnostic only. Length, never the value. Helps confirm
-    // the secret is actually injected by ECS (vs. silently empty).
-    this.logger.log(
-      `Clio internal guard configured: secret_length=${this.expected.length} ` +
-        `env_present=${process.env.CLIO_INBOUND_SHARED_SECRET ? 'yes' : 'no'} ` +
-        `env_length=${(process.env.CLIO_INBOUND_SHARED_SECRET ?? '').length}`,
-    );
   }
 
   canActivate(ctx: ExecutionContext): boolean {

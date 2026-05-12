@@ -83,25 +83,10 @@ export class AppModule implements NestModule {
           path: 'api/engagement/integrations/microsoft/notifications',
           method: RequestMethod.ALL,
         },
-        // Clio internal tool callbacks authenticate via shared-secret
-        // bearer (ClioInternalAuthGuard), not a Clerk JWT. Without this
-        // exclusion the tenant-context middleware runs first and rejects
-        // the shared secret as "Invalid session token" — making every
-        // tool the agent loop calls fail with 401.
-        //
-        // Express-style parameterized routes — NestJS middleware path
-        // matcher (path-to-regexp under the hood) does NOT honor regex
-        // wildcards like (.*) here; we have to name every concrete
-        // sub-route. Currently only POST /tools/:name exists; add new
-        // ones to this list when you add new internal endpoints.
-        {
-          path: '/api/clio/internal/tools/:name',
-          method: RequestMethod.POST,
-        },
-        {
-          path: 'api/clio/internal/tools/:name',
-          method: RequestMethod.POST,
-        },
+        // NOTE: /api/clio/internal/* is bypassed inline inside the
+        // middleware itself rather than here. The Nest middleware exclude
+        // matcher didn't reliably match the parameterized `/tools/:name`
+        // form, so the bypass is a prefix-startsWith inside use().
       )
       .forRoutes('*');
   }
