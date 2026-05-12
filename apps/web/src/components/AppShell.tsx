@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   ApartmentOutlined,
+  ApiOutlined,
   BulbOutlined,
   CalendarOutlined,
   CheckOutlined,
@@ -53,6 +54,7 @@ type AppSection =
   | 'clients'
   | 'engagement'
   | 'workspace'
+  | 'connectors'
   | 'intelligence'
   | 'directory'
   | 'portal'
@@ -105,6 +107,12 @@ const NAV: NavItem[] = [
     label: 'Workspace',
     path: '/workspace',
     icon: <FolderOpenOutlined />,
+  },
+  {
+    key: 'connectors',
+    label: 'Connectors',
+    path: '/connectors',
+    icon: <ApiOutlined />,
   },
   {
     key: 'intelligence',
@@ -708,6 +716,7 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname.startsWith('/clients')) return 'clients';
   if (pathname.startsWith('/engagement')) return 'engagement';
   if (pathname.startsWith('/workspace')) return 'workspace';
+  if (pathname.startsWith('/connectors')) return 'connectors';
   if (pathname.startsWith('/intelligence')) return 'intelligence';
   if (pathname.startsWith('/directory')) return 'directory';
   if (pathname.startsWith('/portal')) return 'portal';
@@ -722,6 +731,7 @@ function pageConfigFor(pathname: string): PageConfig {
     clients: 'Clients',
     engagement: 'Engagement Manager',
     workspace: 'Workspace',
+    connectors: 'Connectors',
     intelligence: 'Intelligence Center',
     directory: 'Directory',
     portal: 'Client Portal',
