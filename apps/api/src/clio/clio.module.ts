@@ -10,6 +10,7 @@ import { ClioInternalController } from './internal/clio-internal.controller.js';
 import { ClioMailModule } from './mail/clio-mail.module.js';
 import { ClioMemoryModule } from './memory/memory.module.js';
 import { CodeInterpreterTool } from './tools/code-interpreter.tool.js';
+import { FetchUrlTool } from './tools/fetch-url.tool.js';
 import { GetClientContextTool } from './tools/get-client-context.tool.js';
 import { ToolRegistryService } from './tools/tool-registry.service.js';
 import { WebSearchTool } from './tools/web-search.tool.js';
@@ -23,6 +24,7 @@ import { WebSearchTool } from './tools/web-search.tool.js';
     ClioInternalAuthGuard,
     GetClientContextTool,
     WebSearchTool,
+    FetchUrlTool,
     CodeInterpreterTool,
     ToolRegistryService,
   ],

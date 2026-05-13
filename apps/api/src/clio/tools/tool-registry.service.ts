@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CodeInterpreterTool } from './code-interpreter.tool.js';
+import { FetchUrlTool } from './fetch-url.tool.js';
 import { ForgetAboutUserTool } from './forget-about-user.tool.js';
 import { GetClientContextTool } from './get-client-context.tool.js';
 import { GetMyClioEmailTool } from './get-my-clio-email.tool.js';
@@ -29,6 +30,7 @@ export class ToolRegistryService {
     private readonly rememberAboutUser: RememberAboutUserTool,
     private readonly forgetAboutUser: ForgetAboutUserTool,
     private readonly webSearch: WebSearchTool,
+    private readonly fetchUrl: FetchUrlTool,
     private readonly codeInterpreter: CodeInterpreterTool,
     private readonly sendEmail: SendEmailTool,
     private readonly getMyClioEmail: GetMyClioEmailTool,
@@ -39,6 +41,7 @@ export class ToolRegistryService {
       [rememberAboutUser.definition.name, rememberAboutUser],
       [forgetAboutUser.definition.name, forgetAboutUser],
       [webSearch.definition.name, webSearch],
+      [fetchUrl.definition.name, fetchUrl],
       [codeInterpreter.definition.name, codeInterpreter],
       [sendEmail.definition.name, sendEmail],
       [getMyClioEmail.definition.name, getMyClioEmail],
