@@ -10,6 +10,7 @@ import {
 import { SessionList } from './SessionList.js';
 import { ChatPane } from './ChatPane.js';
 import { ArtifactPanel } from './ArtifactPanel.js';
+import { MailboxChip } from './MailboxChip.js';
 import './workspace.css';
 
 /**
@@ -72,6 +73,9 @@ export function WorkspacePage() {
 
   return (
     <div className="clio-workspace">
+      <div className="clio-workspace__topbar">
+        <MailboxChip />
+      </div>
       <div
         className={[
           'clio-workspace__body',

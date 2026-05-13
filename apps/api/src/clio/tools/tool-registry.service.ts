@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { CodeInterpreterTool } from './code-interpreter.tool.js';
 import { ForgetAboutUserTool } from './forget-about-user.tool.js';
 import { GetClientContextTool } from './get-client-context.tool.js';
+import { GetMyClioEmailTool } from './get-my-clio-email.tool.js';
 import { RememberAboutUserTool } from './remember-about-user.tool.js';
 import { RenderArtifactTool } from './render-artifact.tool.js';
 import { SendEmailTool } from './send-email.tool.js';
@@ -30,6 +31,7 @@ export class ToolRegistryService {
     private readonly webSearch: WebSearchTool,
     private readonly codeInterpreter: CodeInterpreterTool,
     private readonly sendEmail: SendEmailTool,
+    private readonly getMyClioEmail: GetMyClioEmailTool,
   ) {
     this.tools = new Map<string, Tool>([
       [getClientContext.definition.name, getClientContext],
@@ -39,6 +41,7 @@ export class ToolRegistryService {
       [webSearch.definition.name, webSearch],
       [codeInterpreter.definition.name, codeInterpreter],
       [sendEmail.definition.name, sendEmail],
+      [getMyClioEmail.definition.name, getMyClioEmail],
     ]);
     // Track-A parallel work adds search_federal_register, search_lda_filings,
     // search_legislative_sources here.

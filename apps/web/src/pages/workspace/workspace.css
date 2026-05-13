@@ -20,6 +20,44 @@
   margin: -24px;
 }
 
+.clio-workspace__topbar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  background: var(--ant-color-bg-container, #ffffff);
+}
+
+.clio-mailbox-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--ant-color-border-secondary, #f0f0f0);
+  border-radius: 999px;
+  background: var(--ant-color-fill-quaternary, #fafafa);
+  font-size: 12px;
+  color: var(--ant-color-text-secondary, #6b7280);
+  max-width: 100%;
+}
+
+.clio-mailbox-chip__icon {
+  font-size: 12px;
+  color: var(--ant-color-primary-text, #1677ff);
+}
+
+.clio-mailbox-chip__addr {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--ant-color-text, #1f2937);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+
 .clio-workspace__body {
   display: grid;
   grid-template-columns: 280px 1fr minmax(320px, 480px);

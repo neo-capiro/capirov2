@@ -69,6 +69,30 @@ export class ClioMailService {
     });
   }
 
+  /** Recent inbound mail for the current user. Newest first, capped at 50. */
+  async listInbox(tenantId: string, userId: string) {
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const rows = await tx.clioInboundMail.findMany({
+        where: { userId },
+        orderBy: { receivedAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          fromAddress: true,
+          fromName: true,
+          subject: true,
+          receivedAt: true,
+          status: true,
+          clioSessionId: true,
+        },
+      });
+      return rows.map((r) => ({
+        ...r,
+        receivedAt: r.receivedAt.toISOString(),
+      }));
+    });
+  }
+
   /** Read the current user's mailbox (404 if none yet — caller can
    * choose to ensureMailbox first or surface the empty state). */
   async getMailbox(tenantId: string, userId: string) {
