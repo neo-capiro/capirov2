@@ -420,8 +420,27 @@ export class ClioService {
     firstMessage: string,
     model: string,
   ): Promise<void> {
-    const titlePrompt =
-      'You are a title generator. Read the user message and reply with ONLY a 3-7 word title that summarizes the topic. No punctuation at the end. No quotes around it. No prefatory text like "Title:". Pure title.';
+    // Title-generation prompt is intentionally short and rigid. Earlier
+    // versions of this prompt let the model bleed body text into the
+    // title — e.g. "Engineer Preference Note and Year Query\n\nI don't
+    // have access to real-time data,". Hard constraints fix that:
+    //   - One line only, no newlines.
+    //   - 3-7 words, no punctuation, no quotes, no prefix.
+    //   - If the message is one line, the title should mirror its topic.
+    //   - Examples given so the model has a shape to imitate.
+    const titlePrompt = [
+      'You are a session-title generator. Output EXACTLY one short title.',
+      'Rules:',
+      '- 3 to 7 words. No punctuation at the end. No quotes. No newlines.',
+      '- No prefix ("Title:", "About:", "Topic:"). No explanation.',
+      '- Title case (capitalize words, leave articles/prepositions lowercase).',
+      '- Summarize the topic of the user message; do not answer it.',
+      '',
+      'Examples:',
+      '  User: "what year is it"  → Year Check',
+      '  User: "draft a meeting brief for senator smith on hr 1234"  → Meeting Brief for Senator Smith',
+      '  User: "give me an excel of my top 10 clients"  → Top Ten Clients Excel',
+    ].join('\n');
     const reply = await this.runtime.chat({
       messages: [{ role: 'user', content: firstMessage }],
       model,
@@ -430,9 +449,21 @@ export class ClioService {
       maxTokens: 24,
       temperature: 0.2,
     });
-    const raw = reply.message.content.trim().replace(/^["']|["']$/g, '');
-    // Hard cap so a chatty model can't blow out the sidebar layout.
-    const title = raw.length > 80 ? raw.slice(0, 80).trim() : raw;
+    // Defense-in-depth even with the tighter prompt above: take only
+    // the first non-empty line, strip a "Title:" / "About:" / etc.
+    // prefix, drop surrounding quotes, kill trailing punctuation, hard-
+    // clip to 80 chars so a chatty model can't blow out the sidebar.
+    const firstLine = reply.message.content
+      .split('\n')
+      .map((l) => l.trim())
+      .find((l) => l.length > 0);
+    if (!firstLine) return;
+    const stripped = firstLine
+      .replace(/^(title|about|topic|subject)\s*[:\-—]\s*/i, '')
+      .replace(/^["'`“”‘’]|["'`“”‘’]$/g, '')
+      .replace(/[.!?,;:]+$/, '')
+      .trim();
+    const title = stripped.length > 80 ? stripped.slice(0, 80).trim() : stripped;
     if (!title) return;
     await this.prisma.withTenant(tenantId, (tx) =>
       tx.clioSession.update({
