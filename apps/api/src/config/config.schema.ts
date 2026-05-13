@@ -81,6 +81,11 @@ export const configSchema = z.object({
   // internal routes refuse all traffic in local dev (correct fail-closed
   // behaviour — they should never be exposed without the secret set).
   CLIO_INBOUND_SHARED_SECRET: z.string().default(''),
+  // Cloud Map URL for the clio-sandbox code-execution service. When
+  // empty, the code_interpreter tool returns a "not provisioned" error
+  // instead of attempting the call. See OVERNIGHT_DECISIONS_CODE_EXEC.md
+  // §16 for the full architecture.
+  CLIO_SANDBOX_BASE_URL: z.string().url().or(z.literal('')).default(''),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

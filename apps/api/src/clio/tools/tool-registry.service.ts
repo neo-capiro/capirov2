@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { CodeInterpreterTool } from './code-interpreter.tool.js';
 import { ForgetAboutUserTool } from './forget-about-user.tool.js';
 import { GetClientContextTool } from './get-client-context.tool.js';
 import { RememberAboutUserTool } from './remember-about-user.tool.js';
@@ -26,6 +27,7 @@ export class ToolRegistryService {
     private readonly rememberAboutUser: RememberAboutUserTool,
     private readonly forgetAboutUser: ForgetAboutUserTool,
     private readonly webSearch: WebSearchTool,
+    private readonly codeInterpreter: CodeInterpreterTool,
   ) {
     this.tools = new Map<string, Tool>([
       [getClientContext.definition.name, getClientContext],
@@ -33,6 +35,7 @@ export class ToolRegistryService {
       [rememberAboutUser.definition.name, rememberAboutUser],
       [forgetAboutUser.definition.name, forgetAboutUser],
       [webSearch.definition.name, webSearch],
+      [codeInterpreter.definition.name, codeInterpreter],
     ]);
     // Track-A parallel work adds search_federal_register, search_lda_filings,
     // search_legislative_sources here.
