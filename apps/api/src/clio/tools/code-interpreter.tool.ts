@@ -127,6 +127,52 @@ export class CodeInterpreterTool implements Tool {
         };
       }
       const data = (await res.json()) as SandboxResponse;
+
+      // Surface each output file as a clio_artifacts row so the
+      // Workspace's artifact panel can show + download it. Without
+      // this, the model says "here's your file" and gives a URL but
+      // the side panel stays empty — confusing UX.
+      //
+      // We classify by content type so the icon + label match (xlsx
+      // → 'Excel Workbook', docx → 'Word Document', etc.). Unknown
+      // types fall through to `other`.
+      const artifactIds: string[] = [];
+      if (ctx.sessionId && data.files.length > 0) {
+        for (const f of data.files) {
+          try {
+            const row = await ctx.tx.clioArtifact.create({
+              data: {
+                tenantId: ctx.tenantId,
+                userId: ctx.userId,
+                sessionId: ctx.sessionId,
+                createdByUserId: ctx.userId,
+                kind: 'other',
+                title: f.name,
+                s3Key: f.s3Key,
+                s3ContentType: f.contentType,
+                content: null,
+                status: 'ready',
+                version: 1,
+                metadata: {
+                  source: 'code_interpreter',
+                  runId,
+                  runTitle: title,
+                  sizeBytes: f.sizeBytes,
+                  presignedUrl: f.url,
+                  presignedExpiresInSeconds: 15 * 60,
+                },
+              },
+              select: { id: true },
+            });
+            artifactIds.push(row.id);
+          } catch (insertErr) {
+            this.logger.warn(
+              `code_interpreter: failed to insert clio_artifact for ${f.name}: ${String(insertErr)}`,
+            );
+          }
+        }
+      }
+
       return {
         ok: true,
         runId,
@@ -135,11 +181,15 @@ export class CodeInterpreterTool implements Tool {
         stderr: data.stderr.slice(0, 2048),
         exitCode: data.exitCode,
         durationMs: data.durationMs,
-        files: data.files.map((f) => ({
+        files: data.files.map((f, i) => ({
           name: f.name,
           contentType: f.contentType,
           sizeBytes: f.sizeBytes,
           url: f.url,
+          // Echo the artifact id back so the model can reference it
+          // by name in its reply ("see the test.xlsx in the panel
+          // on the right") if it wants to.
+          artifactId: artifactIds[i],
         })),
       };
     } catch (err) {

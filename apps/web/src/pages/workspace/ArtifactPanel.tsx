@@ -1,11 +1,20 @@
 import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { CloseOutlined, FileTextOutlined } from '@ant-design/icons';
+import {
+  CloseOutlined,
+  DownloadOutlined,
+  FileExcelOutlined,
+  FileImageOutlined,
+  FilePdfOutlined,
+  FilePptOutlined,
+  FileTextOutlined,
+  FileWordOutlined,
+} from '@ant-design/icons';
 import { Button, Empty, Skeleton, Tag, Typography } from 'antd';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useApi } from '../../lib/use-api.js';
-import type { ArtifactFull, ArtifactList } from './types.js';
+import type { ArtifactFull, ArtifactList, ArtifactSummary } from './types.js';
 
 const { Text, Title } = Typography;
 
@@ -116,34 +125,58 @@ export function ArtifactPanel({ sessionId, refreshKey }: ArtifactPanelProps) {
           />
         ) : (
           <ul className="clio-artifact-panel__list">
-            {items.map((a) => (
-              <li
-                key={a.id}
-                className="clio-artifact-panel__card"
-                onClick={() => setOpenId(a.id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') setOpenId(a.id);
-                }}
-              >
-                <div className="clio-artifact-panel__card-icon">
-                  <FileTextOutlined />
-                </div>
-                <div className="clio-artifact-panel__card-body">
-                  <Text strong ellipsis>
-                    {a.title}
-                  </Text>
-                  <div className="clio-artifact-panel__card-meta">
-                    <Tag>{prettyKind(a.kind)}</Tag>
-                    <Tag>v{a.version}</Tag>
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {relativeTime(a.updatedAt)}
-                    </Text>
+            {items.map((a) => {
+              const code = codeInterpreterMeta(a);
+              const presigned = code?.presignedUrl;
+              return (
+                <li
+                  key={a.id}
+                  className="clio-artifact-panel__card"
+                  onClick={() => setOpenId(a.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') setOpenId(a.id);
+                  }}
+                >
+                  <div className="clio-artifact-panel__card-icon">
+                    {iconForArtifact(a)}
                   </div>
-                </div>
-              </li>
-            ))}
+                  <div className="clio-artifact-panel__card-body">
+                    <Text strong ellipsis>
+                      {a.title}
+                    </Text>
+                    <div className="clio-artifact-panel__card-meta">
+                      <Tag>{prettyKindOrType(a)}</Tag>
+                      {code ? null : <Tag>v{a.version}</Tag>}
+                      {code?.sizeBytes ? (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {formatBytes(code.sizeBytes)}
+                        </Text>
+                      ) : null}
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        {relativeTime(a.updatedAt)}
+                      </Text>
+                    </div>
+                  </div>
+                  {presigned ? (
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<DownloadOutlined />}
+                      aria-label={`Download ${a.title}`}
+                      onClick={(e) => {
+                        // Don't fire the card's onClick — we don't
+                        // want to open the markdown viewer for a
+                        // binary file. Just hand off to the browser.
+                        e.stopPropagation();
+                        window.open(presigned, '_blank', 'noopener');
+                      }}
+                    />
+                  ) : null}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -166,6 +199,97 @@ function prettyKind(kind: string): string {
     default:
       return kind;
   }
+}
+
+/** code_interpreter rows stamp metadata.source = 'code_interpreter' and
+ * carry a presigned download URL. This helper extracts it in one place
+ * so the card render + tag pretty-print can both inspect the same
+ * shape. Returns null for non-sandbox artifacts. */
+interface CodeInterpreterMeta {
+  source: 'code_interpreter';
+  presignedUrl?: string;
+  sizeBytes?: number;
+  runTitle?: string;
+}
+function codeInterpreterMeta(a: ArtifactSummary): CodeInterpreterMeta | null {
+  const m = a.metadata as Record<string, unknown> | null | undefined;
+  if (!m || m.source !== 'code_interpreter') return null;
+  const out: CodeInterpreterMeta = { source: 'code_interpreter' };
+  if (typeof m.presignedUrl === 'string') out.presignedUrl = m.presignedUrl;
+  if (typeof m.sizeBytes === 'number') out.sizeBytes = m.sizeBytes;
+  if (typeof m.runTitle === 'string') out.runTitle = m.runTitle;
+  return out;
+}
+
+/** Pick a sensible icon based on the artifact's file extension. Falls
+ * back to FileTextOutlined for non-sandbox / unknown types. */
+function iconForArtifact(a: ArtifactSummary) {
+  const code = codeInterpreterMeta(a);
+  if (!code) return <FileTextOutlined />;
+  const ext = a.title.toLowerCase().split('.').pop() ?? '';
+  switch (ext) {
+    case 'xlsx':
+    case 'xls':
+    case 'csv':
+      return <FileExcelOutlined style={{ color: '#22863a' }} />;
+    case 'docx':
+    case 'doc':
+      return <FileWordOutlined style={{ color: '#1f6feb' }} />;
+    case 'pptx':
+    case 'ppt':
+      return <FilePptOutlined style={{ color: '#d35400' }} />;
+    case 'pdf':
+      return <FilePdfOutlined style={{ color: '#cf2331' }} />;
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+    case 'gif':
+    case 'webp':
+    case 'svg':
+      return <FileImageOutlined style={{ color: '#722ed1' }} />;
+    default:
+      return <FileTextOutlined />;
+  }
+}
+
+/** "Excel workbook" / "Word document" / etc. for code_interpreter
+ * artifacts; falls back to prettyKind() for render_artifact rows. */
+function prettyKindOrType(a: ArtifactSummary): string {
+  const code = codeInterpreterMeta(a);
+  if (!code) return prettyKind(a.kind);
+  const ext = a.title.toLowerCase().split('.').pop() ?? '';
+  switch (ext) {
+    case 'xlsx':
+    case 'xls':
+      return 'Excel workbook';
+    case 'docx':
+    case 'doc':
+      return 'Word document';
+    case 'pptx':
+    case 'ppt':
+      return 'PowerPoint deck';
+    case 'pdf':
+      return 'PDF';
+    case 'csv':
+      return 'CSV';
+    case 'json':
+      return 'JSON';
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+    case 'gif':
+    case 'webp':
+    case 'svg':
+      return 'Image';
+    default:
+      return 'File';
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // Tiny relative-time helper. Avoids pulling in dayjs just for this one

@@ -78,6 +78,7 @@ export class ClioInternalController {
         tenantId: session.tenantId,
         userId: session.userId,
         tx,
+        sessionId: session.id,
       });
       return { output };
     });

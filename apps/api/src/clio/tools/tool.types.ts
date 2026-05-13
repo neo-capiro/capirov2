@@ -32,6 +32,11 @@ export interface ToolExecutionContext {
   // never open their own transaction; the controller wraps the call
   // so RLS is set + audit logging is one atomic unit.
   tx: Prisma.TransactionClient;
+  // The Clio session the agent is in when this tool fires. Used by
+  // tools that need to attach side-effect rows (e.g. code_interpreter
+  // inserts clio_artifacts rows so produced files surface in the
+  // Workspace's artifact panel for THIS session).
+  sessionId?: string;
 }
 
 export interface Tool {
