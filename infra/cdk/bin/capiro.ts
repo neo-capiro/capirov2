@@ -10,6 +10,7 @@ import { ComputeStack } from '../lib/compute-stack';
 import { AlarmsStack } from '../lib/alarms-stack';
 import { AssetsStack } from '../lib/assets-stack';
 import { ClioStack } from '../lib/clio-stack';
+import { SandboxStack } from '../lib/sandbox-stack';
 import { SesStack } from '../lib/ses-stack';
 
 /**
@@ -120,5 +121,26 @@ const sesStack = new SesStack(app, stackName(cfg.envName, 'Ses'), {
 });
 sesStack.addDependency(dns);
 sesStack.addDependency(secrets);
+
+// Code-execution sandbox. Reuses Clio's Cloud Map namespace so the
+// API can call it at `clio-sandbox.capiro-{env}.local:8001`. Scoped IAM
+// (S3 PutObject on tenants/*/clio-runs/* only — no Bedrock, no DB).
+// See OVERNIGHT_DECISIONS_CODE_EXEC.md §16.
+const sandboxStack = new SandboxStack(app, stackName(cfg.envName, 'Sandbox'), {
+  env,
+  tags,
+  cfg,
+  vpc: network.vpc,
+  serviceSecurityGroup: network.serviceSecurityGroup,
+  cluster: compute.cluster,
+  cloudMapNamespace: clio.cloudMapNamespace,
+  assetsStack: assets,
+  secretsStack: secrets,
+});
+sandboxStack.addDependency(network);
+sandboxStack.addDependency(compute);
+sandboxStack.addDependency(clio); // namespace dependency
+sandboxStack.addDependency(assets);
+sandboxStack.addDependency(secrets);
 
 app.synth();

@@ -37,6 +37,10 @@ export class ClioStack extends cdk.Stack {
   public readonly service: ecs.FargateService;
   public readonly taskDefinition: ecs.FargateTaskDefinition;
   public readonly repository: ecr.IRepository;
+  /** Cloud Map namespace `capiro-{env}.local`, exposed so SandboxStack
+   * (and any future sister Fargate services) can register their own
+   * DNS names in the same VPC-private namespace. */
+  public readonly cloudMapNamespace: servicediscovery.PrivateDnsNamespace;
 
   constructor(scope: Construct, id: string, props: ClioStackProps) {
     super(scope, id, props);
@@ -53,11 +57,12 @@ export class ClioStack extends cdk.Stack {
     // Private DNS namespace shared with the rest of the Capiro VPC. The
     // API task resolves Clio at `clio.capiro-{env}.local` — this only
     // resolves inside the VPC, never from the public internet.
-    const namespace = new servicediscovery.PrivateDnsNamespace(this, 'ClioNamespace', {
+    this.cloudMapNamespace = new servicediscovery.PrivateDnsNamespace(this, 'ClioNamespace', {
       name: `capiro-${cfg.envName}.local`,
       vpc,
       description: `Private service discovery for Capiro ${cfg.envName}`,
     });
+    const namespace = this.cloudMapNamespace;
 
     const logGroup = new logs.LogGroup(this, 'ClioLogs', {
       logGroupName: `/capiro/${cfg.envName}/clio`,

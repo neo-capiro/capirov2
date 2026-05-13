@@ -346,6 +346,12 @@ export class ComputeStack extends cdk.Stack {
       // staging email never leaks into prod and vice-versa. Defaults
       // mirror the same `clio.<rootDomain>` shape SesStack provisions.
       CLIO_MAIL_DOMAIN: `clio.${cfg.rootDomain}`,
+      // Code-execution sandbox. Same Cloud Map namespace as Clio's
+      // runtime; the API calls `clio-sandbox.<...>:8001/run` with a
+      // shared-secret bearer when the model invokes code_interpreter.
+      // Empty value = the tool's stub-mode response ("not provisioned");
+      // populating it activates the real path.
+      CLIO_SANDBOX_BASE_URL: `http://clio-sandbox.capiro-${cfg.envName}.local:8001`,
     };
 
     // Identity-policy-only grant on the API task role for the assets bucket.
