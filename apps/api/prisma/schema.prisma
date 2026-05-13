@@ -147,6 +147,9 @@ model Tenant {
   clioMessages               ClioMessage[]
   clioArtifacts              ClioArtifact[]
   clioUserMemories           ClioUserMemory[]
+  clioMailboxes              ClioMailbox[]
+  clioInboundMail            ClioInboundMail[]
+  clioOutboundMail           ClioOutboundMail[]
 
   @@map("tenants")
 }
@@ -173,6 +176,9 @@ model User {
   clioSessions            ClioSession[]                  @relation("ClioSessionUser")
   clioArtifacts           ClioArtifact[]                 @relation("ClioArtifactCreator")
   clioUserMemories        ClioUserMemory[]               @relation("ClioUserMemoryOwner")
+  clioMailbox             ClioMailbox?                   @relation("ClioMailboxOwner")
+  clioInboundMail         ClioInboundMail[]              @relation("ClioInboundMailRecipient")
+  clioOutboundMail        ClioOutboundMail[]             @relation("ClioOutboundMailSender")
 
   @@map("users")
 }
@@ -853,6 +859,120 @@ model ClioUserMemory {
   @@index([tenantId, userId, updatedAt(sort: Desc)], map: "clio_user_memories_tenant_user_updated_idx")
   @@index([tenantId, userId, category], map: "clio_user_memories_tenant_user_category_idx")
   @@map("clio_user_memories")
+}
+
+/// Per-user dedicated email address users can reach Clio at. One
+/// `<localPart>@clio.capiro.ai` per Capiro user. Capiro auto-provisions
+/// these on first sign-in via ClioMailService.ensureMailbox().
+///
+/// Why this exists: makes Clio feel like a real assistant — the user
+/// can email it, CC it on threads, ask it to follow up, etc.
+/// Inbound mail comes through SES → S3 → Lambda → /webhooks/clio-mail
+/// and spawns an autonomous Clio session as if the user had typed the
+/// email body into the Workspace chat.
+model ClioMailbox {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  userId      String   @unique @map("user_id") @db.Uuid
+  // Local-part of the address, e.g. 'neo' for neo@clio.capiro.ai.
+  // Globally unique across all tenants because the email domain is
+  // shared. Lowercase, [a-z0-9-]{2,40}.
+  localPart   String   @unique @map("local_part")
+  // Denormalized full address — saves a string concat on every
+  // outbound + makes search-by-recipient indexable.
+  fullAddress String   @unique @map("full_address")
+  active      Boolean  @default(true)
+  // When ON, Clio replies to inbound mail without waiting for the
+  // human to look at the Workspace. OFF by default — incoming mail
+  // queues up as Workspace items until the user opens them. Internal
+  // tier can flip this on per the locked decision in
+  // OVERNIGHT_DECISIONS_LOCKED.md §4.
+  autoReply   Boolean  @default(false) @map("auto_reply")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User              @relation("ClioMailboxOwner", fields: [userId], references: [id], onDelete: Cascade)
+  inboundMail  ClioInboundMail[]
+  outboundMail ClioOutboundMail[]
+
+  @@index([tenantId, userId], map: "clio_mailboxes_tenant_user_idx")
+  @@map("clio_mailboxes")
+}
+
+/// One row per email Clio received at a user's mailbox. Source of
+/// truth for the inbox view in the Workspace; also the FK target for
+/// ClioOutboundMail.inReplyToId so we can stitch threads.
+model ClioInboundMail {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  mailboxId     String    @map("mailbox_id") @db.Uuid
+  // SES-assigned id on receipt; unique so the webhook is idempotent
+  // even if SNS/Lambda retries the delivery.
+  sesMessageId  String    @unique @map("ses_message_id")
+  // Raw MIME blob stored in S3 under `mail-inbound/<sesMessageId>.eml`
+  // so we can re-parse if the structured fields lose fidelity.
+  rawS3Key      String    @map("raw_s3_key")
+  fromAddress   String    @map("from_address")
+  fromName      String?   @map("from_name")
+  toAddress     String    @map("to_address")
+  subject       String
+  bodyText      String?   @map("body_text") @db.Text
+  bodyHtml      String?   @map("body_html") @db.Text
+  receivedAt    DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt   DateTime? @map("processed_at") @db.Timestamptz(6)
+  // The Clio session this inbound spawned (or got appended to, if the
+  // sender has an open conversation already).
+  clioSessionId String?   @map("clio_session_id") @db.Uuid
+  // 'pending' (just received) | 'processed' (Clio session created) |
+  // 'replied' (auto-reply sent) | 'ignored' (no auto-reply, waiting
+  // for human) | 'error' (parse / dispatch failure).
+  status        String    @default("pending")
+  errorMessage  String?   @map("error_message")
+
+  tenant  Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user    User         @relation("ClioInboundMailRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  mailbox ClioMailbox  @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  outboundReplies ClioOutboundMail[]
+
+  @@index([tenantId, userId, receivedAt(sort: Desc)], map: "clio_inbound_mail_tenant_user_received_idx")
+  @@index([mailboxId, receivedAt(sort: Desc)], map: "clio_inbound_mail_mailbox_received_idx")
+  @@map("clio_inbound_mail")
+}
+
+/// One row per email Clio sent on a user's behalf. Could be an
+/// auto-reply to an inbound, a follow-up the agent initiated mid-
+/// chat, or a Workspace "send this to X" action.
+model ClioOutboundMail {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  mailboxId     String   @map("mailbox_id") @db.Uuid
+  clioSessionId String?  @map("clio_session_id") @db.Uuid
+  // FK to the inbound this is replying to (when applicable). Letting
+  // the model thread replies properly via In-Reply-To: + References:
+  // headers requires this link.
+  inReplyToId   String?  @map("in_reply_to_id") @db.Uuid
+  // SES-assigned id once SES has accepted the send. Null while the
+  // row is still being composed (multi-step send: row created, then
+  // SES called, then sesMessageId populated).
+  sesMessageId  String?  @map("ses_message_id")
+  toAddress     String   @map("to_address")
+  ccAddress     String?  @map("cc_address")
+  subject       String
+  bodyText      String   @map("body_text") @db.Text
+  bodyHtml      String?  @map("body_html") @db.Text
+  sentAt        DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user       User              @relation("ClioOutboundMailSender", fields: [userId], references: [id], onDelete: Cascade)
+  mailbox    ClioMailbox       @relation(fields: [mailboxId], references: [id], onDelete: Cascade)
+  inReplyTo  ClioInboundMail?  @relation(fields: [inReplyToId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId, sentAt(sort: Desc)], map: "clio_outbound_mail_tenant_user_sent_idx")
+  @@index([mailboxId, sentAt(sort: Desc)], map: "clio_outbound_mail_mailbox_sent_idx")
+  @@map("clio_outbound_mail")
 }
 
 model ClioSession {

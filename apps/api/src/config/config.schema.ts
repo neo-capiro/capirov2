@@ -86,6 +86,19 @@ export const configSchema = z.object({
   // instead of attempting the call. See OVERNIGHT_DECISIONS_CODE_EXEC.md
   // §16 for the full architecture.
   CLIO_SANDBOX_BASE_URL: z.string().url().or(z.literal('')).default(''),
+  // Domain the per-user Clio mailboxes live under. Each user gets
+  // <slug>@<CLIO_MAIL_DOMAIN>. See OVERNIGHT_DECISIONS_LOCKED.md §4.
+  CLIO_MAIL_DOMAIN: z.string().default('clio.capiro.ai'),
+  // When 'true', the send_email tool actually dispatches via SES.
+  // Otherwise the outbound row is persisted and the tool returns
+  // queued=true so the agent can tell the user the send is staged.
+  // Flip to 'true' once SES domain verification + DKIM/SPF/DMARC are
+  // live for CLIO_MAIL_DOMAIN.
+  CLIO_MAIL_SEND_ENABLED: z.string().default('false'),
+  // Shared secret the inbound-mail Lambda HMAC-signs payloads with.
+  // The /webhooks/clio-mail route validates against this. Empty means
+  // the webhook fails closed — no inbound mail is accepted.
+  CLIO_MAIL_WEBHOOK_SECRET: z.string().default(''),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

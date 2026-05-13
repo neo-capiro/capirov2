@@ -7,6 +7,7 @@ import { ClioController } from './clio.controller.js';
 import { ClioService } from './clio.service.js';
 import { ClioInternalAuthGuard } from './internal/clio-internal.guard.js';
 import { ClioInternalController } from './internal/clio-internal.controller.js';
+import { ClioMailModule } from './mail/clio-mail.module.js';
 import { ClioMemoryModule } from './memory/memory.module.js';
 import { CodeInterpreterTool } from './tools/code-interpreter.tool.js';
 import { GetClientContextTool } from './tools/get-client-context.tool.js';
@@ -14,7 +15,7 @@ import { ToolRegistryService } from './tools/tool-registry.service.js';
 import { WebSearchTool } from './tools/web-search.tool.js';
 
 @Module({
-  imports: [PrismaModule, TenantModule, ClioArtifactsModule, ClioMemoryModule],
+  imports: [PrismaModule, TenantModule, ClioArtifactsModule, ClioMemoryModule, ClioMailModule],
   controllers: [ClioController, ClioInternalController],
   providers: [
     ClioService,

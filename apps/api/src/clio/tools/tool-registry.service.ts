@@ -4,6 +4,7 @@ import { ForgetAboutUserTool } from './forget-about-user.tool.js';
 import { GetClientContextTool } from './get-client-context.tool.js';
 import { RememberAboutUserTool } from './remember-about-user.tool.js';
 import { RenderArtifactTool } from './render-artifact.tool.js';
+import { SendEmailTool } from './send-email.tool.js';
 import { WebSearchTool } from './web-search.tool.js';
 import type { Tool, ToolDefinition } from './tool.types.js';
 
@@ -28,6 +29,7 @@ export class ToolRegistryService {
     private readonly forgetAboutUser: ForgetAboutUserTool,
     private readonly webSearch: WebSearchTool,
     private readonly codeInterpreter: CodeInterpreterTool,
+    private readonly sendEmail: SendEmailTool,
   ) {
     this.tools = new Map<string, Tool>([
       [getClientContext.definition.name, getClientContext],
@@ -36,6 +38,7 @@ export class ToolRegistryService {
       [forgetAboutUser.definition.name, forgetAboutUser],
       [webSearch.definition.name, webSearch],
       [codeInterpreter.definition.name, codeInterpreter],
+      [sendEmail.definition.name, sendEmail],
     ]);
     // Track-A parallel work adds search_federal_register, search_lda_filings,
     // search_legislative_sources here.
