@@ -1,14 +1,21 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
+  AudioOutlined,
+  BookOutlined,
   CheckCircleFilled,
   CloudOutlined,
   CodeOutlined,
+  CompassOutlined,
   DatabaseOutlined,
   FileTextOutlined,
+  FireOutlined,
+  GlobalOutlined,
   GoogleOutlined,
   LinkOutlined,
   MailOutlined,
   MessageOutlined,
+  RedditOutlined,
+  ReadOutlined,
   ScheduleOutlined,
   ThunderboltOutlined,
   WindowsFilled,
@@ -45,7 +52,14 @@ interface Connector {
   name: string;
   blurb: string;
   icon: ReactNode;
-  category: 'Identity & mail' | 'Files & drive' | 'Productivity' | 'Developer' | 'Knowledge';
+  category:
+    | 'Identity & mail'
+    | 'Files & drive'
+    | 'Productivity'
+    | 'Developer'
+    | 'Knowledge'
+    | 'Web & research'
+    | 'Voice & meetings';
   available: boolean;
   startUrl?: string;
 }
@@ -134,6 +148,69 @@ const CONNECTORS: Connector[] = [
     name: 'Notion',
     blurb: 'Search pages, draft new pages, attach Clio-rendered artifacts to existing docs.',
     icon: <DatabaseOutlined />,
+    category: 'Knowledge',
+    available: false,
+  },
+  {
+    id: 'firecrawl',
+    name: 'Firecrawl',
+    blurb:
+      'Agent-first web scraping and search. Returns clean markdown of any URL or top results for a Google-style query. Faster, fewer tokens, better answers than raw fetch_url.',
+    icon: <FireOutlined style={{ color: '#ff5722' }} />,
+    category: 'Web & research',
+    available: true,
+  },
+  {
+    id: 'browserbase',
+    name: 'Browserbase',
+    blurb:
+      'Real headless-Chrome sessions for sites that need logins, clicks, forms, or wait-for-render. v1 ships render-only; scripted flows next.',
+    icon: <GlobalOutlined style={{ color: '#3b82f6' }} />,
+    category: 'Web & research',
+    available: true,
+  },
+  {
+    id: 'reddit',
+    name: 'Reddit',
+    blurb:
+      'Read-only public Reddit. Search posts across the site, list a subreddit\'s top/hot, pull top comments on a thread. Great for "what do real users think about X".',
+    icon: <RedditOutlined style={{ color: '#ff4500' }} />,
+    category: 'Web & research',
+    available: true,
+  },
+  {
+    id: 'apify',
+    name: 'Apify',
+    blurb:
+      'Pre-built scrapers for X, LinkedIn, Instagram, TikTok, Google Maps, Yelp, Crunchbase. Clio picks an actor from the catalog and runs it — synchronous (≤60s) returns the dataset.',
+    icon: <CompassOutlined style={{ color: '#67c0ff' }} />,
+    category: 'Web & research',
+    available: true,
+  },
+  {
+    id: 'readwise',
+    name: 'Readwise',
+    blurb:
+      'Search highlights from your books, articles, tweets, and Reader saves. Makes old reading queryable so Clio can ground drafts in your own knowledge base.',
+    icon: <BookOutlined style={{ color: '#8e44ad' }} />,
+    category: 'Knowledge',
+    available: true,
+  },
+  {
+    id: 'granola',
+    name: 'Granola / Fathom',
+    blurb:
+      'Searchable meeting transcripts. Lets Clio recall what was said in a specific call — "what did the client mention about pricing last month".',
+    icon: <AudioOutlined style={{ color: '#10b981' }} />,
+    category: 'Voice & meetings',
+    available: false,
+  },
+  {
+    id: 'obsidian',
+    name: 'Obsidian',
+    blurb:
+      'Personal knowledge base over your Obsidian vault. Ships once we standardize on a sync path (REST plugin or shared S3) — Clio is local-vault-aware then.',
+    icon: <ReadOutlined style={{ color: '#7c3aed' }} />,
     category: 'Knowledge',
     available: false,
   },
@@ -259,6 +336,15 @@ export function ConnectorsPage() {
                         onClick={() => startMicrosoft.mutate()}
                       >
                         Connect
+                      </Button>
+                    ) : status.state === 'available' ? (
+                      // API-key connectors (Firecrawl/Readwise/Apify/etc).
+                      // No OAuth flow — these are configured by adding the
+                      // key in Secrets Manager and redeploying. The badge
+                      // says "Available" so the user knows the tool is
+                      // registered with the agent.
+                      <Button size="small" disabled>
+                        API key required
                       </Button>
                     ) : (
                       <Button size="small" disabled>

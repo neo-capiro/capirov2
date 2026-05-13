@@ -99,6 +99,39 @@ export const configSchema = z.object({
   // The /webhooks/clio-mail route validates against this. Empty means
   // the webhook fails closed — no inbound mail is accepted.
   CLIO_MAIL_WEBHOOK_SECRET: z.string().default(''),
+
+  // ---------------------------------------------------------------------
+  // Third-party connector keys. Each tool fails closed (returns ok:false,
+  // configured:false) when its key is unset, so the agent can tell the
+  // user "this connector isn't wired up in this environment". No tool
+  // throws — the model handles missing-config the same way it handles a
+  // 503, by reporting back to the user.
+  // ---------------------------------------------------------------------
+
+  // Firecrawl: agent-first web scrape + search.
+  // https://firecrawl.dev → starter tier ~$20/mo.
+  FIRECRAWL_API_KEY: z.string().optional(),
+
+  // Readwise: highlights search across the user's saved reading.
+  // https://readwise.io/access_token (free for personal accounts).
+  // Per-user in the real world; we accept a tenant-wide key for now and
+  // gate it behind the connector card.
+  READWISE_API_KEY: z.string().optional(),
+
+  // Apify: pre-built scrapers (X/LinkedIn/Instagram/Google Maps/etc).
+  // https://console.apify.com/account/integrations
+  APIFY_API_TOKEN: z.string().optional(),
+
+  // Browserbase: real-browser sessions for logins/clicks/forms.
+  // https://www.browserbase.com — need API key + project ID.
+  BROWSERBASE_API_KEY: z.string().optional(),
+  BROWSERBASE_PROJECT_ID: z.string().optional(),
+
+  // Reddit read-only via the public JSON endpoints — no key required for
+  // GETs, just a respectful User-Agent. This is the UA we send.
+  REDDIT_USER_AGENT: z
+    .string()
+    .default('CapiroClio/1.0 (https://capiro.ai; contact: support@capiro.ai)'),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

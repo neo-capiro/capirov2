@@ -186,6 +186,17 @@ export class ComputeStack extends cdk.Stack {
       `capiro/${cfg.envName}/anthropic-api-key`,
       cfg.externalSecretArns?.anthropicApiKey,
     );
+    // Third-party connector keys. Created out-of-band via `aws
+    // secretsmanager create-secret --name capiro/<env>/firecrawl-api-key
+    // --secret-string "REPLACE_ME"` and rotated to a real key once the
+    // operator has provisioned the upstream account. The tool itself
+    // treats "REPLACE_ME" as unconfigured so the agent reports a clean
+    // "not wired up yet" message instead of attempting calls.
+    const firecrawlApiKeySecret = importExternalSecret(
+      this,
+      'ImportedFirecrawlApiKey',
+      `capiro/${cfg.envName}/firecrawl-api-key`,
+    );
 
     // ------------------------------------------------------------------ ECR
     // Repos are pre-created out-of-band so images can be pushed BEFORE the
@@ -317,6 +328,10 @@ export class ComputeStack extends cdk.Stack {
       // means fail-closed (no inbound mail accepted). Auto-generated
       // by SecretsStack so the operator never sees a value explicitly.
       CLIO_MAIL_WEBHOOK_SECRET: ecs.Secret.fromSecretsManager(clioMailWebhookSecretImported),
+      // Connector keys. Tool-level guard treats "REPLACE_ME" as
+      // unconfigured so the placeholder secret is safe to wire even
+      // before the operator drops in a real key.
+      FIRECRAWL_API_KEY: ecs.Secret.fromSecretsManager(firecrawlApiKeySecret),
     };
     const apiMigrateSecrets = {
       CLERK_SECRET_KEY: ecs.Secret.fromSecretsManager(clerkSecretKeyImported),
@@ -405,6 +420,7 @@ export class ComputeStack extends cdk.Stack {
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/notes-encryption-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/firecrawl-api-key*`,
     ];
 
     grantSecretsAndKmsToExecutionRole(
