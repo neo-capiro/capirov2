@@ -101,10 +101,17 @@ def run_user_code(code: str, run_id: str | None = None) -> RunResult:
     # Tell the child where to write artifacts. We deliberately make
     # /tmp/output/ a stable, well-known location in the prompt so the
     # model doesn't need to ask.
+    #
+    # PATH is set to include the venv where pandas / openpyxl / etc
+    # actually live (Dockerfile installs them under /app/.venv). Using
+    # plain `python` without this would resolve to /usr/local/bin/python
+    # — the system interpreter with NO third-party packages — and every
+    # `import pandas` would die with ModuleNotFoundError.
+    venv_bin = os.environ.get("VIRTUAL_ENV", "/app/.venv") + "/bin"
     env = {
         "HOME": str(workdir),
         "TMPDIR": str(workdir),
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
+        "PATH": f"{venv_bin}:/usr/local/bin:/usr/bin:/bin",
         # Mirror /tmp/output/ symlink so the model's "write to
         # /tmp/output/foo.xlsx" works regardless of the workdir.
         # The shim below sets up the symlink before user code runs.
@@ -112,16 +119,27 @@ def run_user_code(code: str, run_id: str | None = None) -> RunResult:
 
     # The harness wraps user code with a small prelude that:
     # - chdir's into the workdir
-    # - exposes /tmp/output/ as a symlink to the run-specific output dir
+    # - re-points /tmp/output/ at this run's output dir
     # - imports the common libs so the model doesn't have to.
+    #
+    # The /tmp/output symlink is rebuilt on every run because the
+    # PREVIOUS run's workdir got rmtree'd in cleanup() but the symlink
+    # itself survived in /tmp — leaving a dangling pointer that breaks
+    # writes for every run after the first. We unlink first, then
+    # symlink. The os.path.lexists() check is the dangling-aware
+    # version of os.path.exists() (which returns False for broken
+    # symlinks and would skip the unlink we need).
     prelude = (
         "import os, sys\n"
         f"_RUN_OUTPUT = {str(output_dir)!r}\n"
         "os.makedirs(_RUN_OUTPUT, exist_ok=True)\n"
         "try:\n"
-        "    if not os.path.exists('/tmp/output'):\n"
+        "    if os.path.lexists('/tmp/output'):\n"
+        "        if os.path.islink('/tmp/output'):\n"
+        "            os.unlink('/tmp/output')\n"
+        "    if not os.path.lexists('/tmp/output'):\n"
         "        os.symlink(_RUN_OUTPUT, '/tmp/output')\n"
-        "except (FileExistsError, PermissionError):\n"
+        "except (FileExistsError, PermissionError, OSError):\n"
         "    pass\n"
         f"os.chdir({str(workdir)!r})\n"
     )

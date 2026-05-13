@@ -117,14 +117,29 @@ def run(request: Request, body: RunRequest) -> RunResponse:
     finally:
         cleanup(result.workdir)
 
-    log.info(
-        "run_finished",
-        run_id=body.runId,
-        tenant_id=body.tenantId,
-        exit_code=result.exit_code,
-        duration_ms=result.duration_ms,
-        files=len(uploaded),
-    )
+    # Log stderr / exit code on non-success so we can diagnose user-code
+    # failures from CloudWatch without having to ECS-exec into the task.
+    # Truncate to 2KB to keep log lines bounded.
+    if result.exit_code != 0:
+        log.warning(
+            "run_failed",
+            run_id=body.runId,
+            tenant_id=body.tenantId,
+            exit_code=result.exit_code,
+            duration_ms=result.duration_ms,
+            stderr=result.stderr[:2048],
+            stdout=result.stdout[:512],
+            files=len(uploaded),
+        )
+    else:
+        log.info(
+            "run_finished",
+            run_id=body.runId,
+            tenant_id=body.tenantId,
+            exit_code=result.exit_code,
+            duration_ms=result.duration_ms,
+            files=len(uploaded),
+        )
     return RunResponse(
         stdout=result.stdout,
         stderr=result.stderr,

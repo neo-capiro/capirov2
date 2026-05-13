@@ -114,6 +114,18 @@ export class SandboxStack extends cdk.Stack {
       }),
     );
 
+    // The assets bucket is KMS-encrypted with assetsStack.key. PutObject
+    // and GetObject against it need GenerateDataKey + Decrypt on that
+    // CMK — without these the S3 call fails with `AccessDenied` from
+    // KMS, NOT S3, which is confusing in logs.
+    this.taskDefinition.addToTaskRolePolicy(
+      new iam.PolicyStatement({
+        sid: 'SandboxAssetsKmsAccess',
+        actions: ['kms:GenerateDataKey', 'kms:Decrypt'],
+        resources: [assetsStack.key.keyArn],
+      }),
+    );
+
     // Inbound shared secret — same bearer the API/Clio use. The
     // sandbox validates the bearer on every /run so a compromised
     // task in the VPC can't drive the sandbox without the secret.
