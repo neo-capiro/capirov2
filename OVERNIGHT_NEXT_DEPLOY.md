@@ -16,6 +16,7 @@ Docker Desktop daemon crashed mid-session and I couldn't recover it from this sh
 | `91db99d` | Auto-title prompt + sanitizer hardened: strips leading "Title:" prefix, surrounding quotes, trailing punctuation, multi-line bleed. Adds three worked examples to the prompt. |
 | `11aa43a` | ensureMailbox self-lookup: when called with no hint, fetches the user row to use their real email/firstName for the initial slug. Without this, every new user got `user@clio.capiro.ai`. |
 | `f442008` | **fetch_url tool.** The "actually read web pages" half of agentic browsing. After web_search returns hits, fetch_url pulls the page text (HTML stripped, ~10k char cap). SSRF-defended (no IP literals, no localhost, no metadata endpoints), 2MB size cap, 15s timeout, content-type allowlist. System prompts updated to teach the model the search→fetch chain. |
+| `67ff02a` | **Hermes-style skills library.** Twelve pre-defined workflows the model can lazily load (draft_policy_memo, draft_meeting_brief, research_lobbyist, summarize_federal_register_notice, draft_outreach_email, prepare_for_meeting, summarize_document, extract_action_items, code_review, write_blog_post, create_presentation_outline, compare_options). System prompt includes the index every turn; `load_skill(name)` returns the full instructions body when the model decides one applies. New `/skills` page in the SPA with category-grouped cards, click-to-launch-session-with-skill-seed flow. Nav entry added between Workspace and Connectors. |
 
 ## How to deploy when Docker is back
 
