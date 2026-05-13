@@ -143,7 +143,6 @@ export class CodeInterpreterTool implements Tool {
             const row = await ctx.tx.clioArtifact.create({
               data: {
                 tenantId: ctx.tenantId,
-                userId: ctx.userId,
                 sessionId: ctx.sessionId,
                 createdByUserId: ctx.userId,
                 kind: 'other',
