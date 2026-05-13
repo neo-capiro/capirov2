@@ -9,9 +9,6 @@ import { SecretsStack } from '../lib/secrets-stack';
 import { ComputeStack } from '../lib/compute-stack';
 import { AlarmsStack } from '../lib/alarms-stack';
 import { AssetsStack } from '../lib/assets-stack';
-import { ClioStack } from '../lib/clio-stack';
-import { SandboxStack } from '../lib/sandbox-stack';
-import { SesStack } from '../lib/ses-stack';
 
 /**
  * Capiro CDK app. Stacks are deployed in dependency order:
@@ -95,52 +92,5 @@ const alarms = new AlarmsStack(app, stackName(cfg.envName, 'Alarms'), {
 });
 alarms.addDependency(compute);
 alarms.addDependency(data);
-
-const clio = new ClioStack(app, stackName(cfg.envName, 'Clio'), {
-  env,
-  tags,
-  cfg,
-  vpc: network.vpc,
-  serviceSecurityGroup: network.serviceSecurityGroup,
-  cluster: compute.cluster,
-  secretsStack: secrets,
-});
-clio.addDependency(network);
-clio.addDependency(compute);
-clio.addDependency(secrets);
-
-// Per-user Clio email infrastructure. See OVERNIGHT_DECISIONS_LOCKED.md §4.
-// Lives in the same region (us-east-1 — SES inbound only operates in a
-// handful of regions; us-east-1 is one).
-const sesStack = new SesStack(app, stackName(cfg.envName, 'Ses'), {
-  env,
-  tags,
-  cfg,
-  hostedZone: dns.hostedZone,
-  secretsStack: secrets,
-});
-sesStack.addDependency(dns);
-sesStack.addDependency(secrets);
-
-// Code-execution sandbox. Reuses Clio's Cloud Map namespace so the
-// API can call it at `clio-sandbox.capiro-{env}.local:8001`. Scoped IAM
-// (S3 PutObject on tenants/*/clio-runs/* only — no Bedrock, no DB).
-// See OVERNIGHT_DECISIONS_CODE_EXEC.md §16.
-const sandboxStack = new SandboxStack(app, stackName(cfg.envName, 'Sandbox'), {
-  env,
-  tags,
-  cfg,
-  vpc: network.vpc,
-  serviceSecurityGroup: network.serviceSecurityGroup,
-  cluster: compute.cluster,
-  cloudMapNamespace: clio.cloudMapNamespace,
-  assetsStack: assets,
-  secretsStack: secrets,
-});
-sandboxStack.addDependency(network);
-sandboxStack.addDependency(compute);
-sandboxStack.addDependency(clio); // namespace dependency
-sandboxStack.addDependency(assets);
-sandboxStack.addDependency(secrets);
 
 app.synth();

@@ -17,7 +17,6 @@ import { BrandingModule } from './branding/branding.module.js';
 import { DirectoryModule } from './directory/directory.module.js';
 import { EngagementModule } from './engagement/engagement.module.js';
 import { DemoRequestsModule } from './demo-requests/demo-requests.module.js';
-import { ClioModule } from './clio/clio.module.js';
 
 @Module({
   imports: [
@@ -47,7 +46,6 @@ import { ClioModule } from './clio/clio.module.js';
     DirectoryModule,
     EngagementModule,
     DemoRequestsModule,
-    ClioModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
@@ -83,10 +81,6 @@ export class AppModule implements NestModule {
           path: 'api/engagement/integrations/microsoft/notifications',
           method: RequestMethod.ALL,
         },
-        // NOTE: /api/clio/internal/* is bypassed inline inside the
-        // middleware itself rather than here. The Nest middleware exclude
-        // matcher didn't reliably match the parameterized `/tools/:name`
-        // form, so the bypass is a prefix-startsWith inside use().
       )
       .forRoutes('*');
   }

@@ -26,21 +26,6 @@ export class SecretsStack extends cdk.Stack {
   public readonly clerkSecretKey: secretsmanager.Secret;
   public readonly clerkWebhookSigningSecret: secretsmanager.Secret;
   public readonly clerkPublishableKey: secretsmanager.Secret;
-  /**
-   * Bearer token Clio uses on inbound `/api/clio/internal/*` requests to
-   * Capiro. The API and the Clio runtime both pull this from Secrets
-   * Manager at task start so neither has the value baked into source or
-   * task definitions. Rotation is operator-driven via put-secret-value;
-   * both services need to be restarted to pick up a new value.
-   */
-  public readonly clioInboundSharedSecret: secretsmanager.Secret;
-  /**
-   * HMAC key shared between the inbound-mail Lambda and the Capiro
-   * API's /webhooks/clio-mail route. The Lambda signs the JSON
-   * envelope it POSTs with this key; the API validates with
-   * timingSafeEqual on every inbound. Auto-generated on stack create.
-   */
-  public readonly clioMailWebhookSecret: secretsmanager.Secret;
   public readonly secretsKey: kms.Key;
 
   constructor(scope: Construct, id: string, props: SecretsStackProps) {
@@ -89,32 +74,6 @@ export class SecretsStack extends cdk.Stack {
       removalPolicy: removal,
     });
 
-    this.clioInboundSharedSecret = new secretsmanager.Secret(this, 'ClioInboundSharedSecret', {
-      secretName: `/capiro/${cfg.envName}/clio/inbound-shared-secret`,
-      description: 'Bearer token Clio uses for /api/clio/internal/* callbacks',
-      encryptionKey: this.secretsKey,
-      // Auto-generated on create so the operator never sees / sets a value
-      // explicitly. excludePunctuation keeps it safe to use as a literal
-      // Bearer token without escaping.
-      generateSecretString: {
-        excludePunctuation: true,
-        passwordLength: 48,
-      },
-      removalPolicy: removal,
-    });
-
-    this.clioMailWebhookSecret = new secretsmanager.Secret(this, 'ClioMailWebhookSecret', {
-      secretName: `/capiro/${cfg.envName}/clio/mail-webhook-secret`,
-      description:
-        'HMAC key shared between the inbound-mail Lambda and the Capiro API /webhooks/clio-mail route',
-      encryptionKey: this.secretsKey,
-      generateSecretString: {
-        excludePunctuation: true,
-        passwordLength: 48,
-      },
-      removalPolicy: removal,
-    });
-
     new cdk.CfnOutput(this, 'ClerkSecretKeyArn', {
       value: this.clerkSecretKey.secretArn,
       exportName: `Capiro-${cfg.envName}-ClerkSecretKeyArn`,
@@ -137,8 +96,6 @@ export class SecretsStack extends cdk.Stack {
     this.clerkSecretKey.grantRead(grantee);
     this.clerkWebhookSigningSecret.grantRead(grantee);
     this.clerkPublishableKey.grantRead(grantee);
-    this.clioInboundSharedSecret.grantRead(grantee);
-    this.clioMailWebhookSecret.grantRead(grantee);
     this.secretsKey.grantDecrypt(grantee);
   }
 }

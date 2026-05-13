@@ -2,14 +2,11 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   ApartmentOutlined,
-  ApiOutlined,
-  AppstoreOutlined,
   BulbOutlined,
   CalendarOutlined,
   CheckOutlined,
   DashboardOutlined,
   DownOutlined,
-  FolderOpenOutlined,
   IdcardOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -54,9 +51,6 @@ type AppSection =
   | 'home'
   | 'clients'
   | 'engagement'
-  | 'workspace'
-  | 'skills'
-  | 'connectors'
   | 'intelligence'
   | 'directory'
   | 'portal'
@@ -103,24 +97,6 @@ const NAV: NavItem[] = [
     path: '/engagement',
     icon: <CalendarOutlined />,
     nested: true,
-  },
-  {
-    key: 'workspace',
-    label: 'Workspace',
-    path: '/workspace',
-    icon: <FolderOpenOutlined />,
-  },
-  {
-    key: 'skills',
-    label: 'Skills',
-    path: '/skills',
-    icon: <AppstoreOutlined />,
-  },
-  {
-    key: 'connectors',
-    label: 'Connectors',
-    path: '/connectors',
-    icon: <ApiOutlined />,
   },
   {
     key: 'intelligence',
@@ -723,9 +699,6 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname === '/') return 'home';
   if (pathname.startsWith('/clients')) return 'clients';
   if (pathname.startsWith('/engagement')) return 'engagement';
-  if (pathname.startsWith('/workspace')) return 'workspace';
-  if (pathname.startsWith('/skills')) return 'skills';
-  if (pathname.startsWith('/connectors')) return 'connectors';
   if (pathname.startsWith('/intelligence')) return 'intelligence';
   if (pathname.startsWith('/directory')) return 'directory';
   if (pathname.startsWith('/portal')) return 'portal';
@@ -739,20 +712,13 @@ function pageConfigFor(pathname: string): PageConfig {
     home: 'Command Center',
     clients: 'Clients',
     engagement: 'Engagement Manager',
-    workspace: 'Workspace',
-    skills: 'Skills',
-    connectors: 'Connectors',
     intelligence: 'Intelligence Center',
     directory: 'Directory',
     portal: 'Client Portal',
     settings: 'Settings',
     'not-found': 'Not found',
   };
-  const showClientDropdown =
-    key === 'home' ||
-    key === 'engagement' ||
-    pathname.startsWith('/workspace/library') ||
-    pathname.startsWith('/workspace/submissions');
+  const showClientDropdown = key === 'home' || key === 'engagement';
   return { key, title: titleByKey[key], showClientDropdown };
 }
 

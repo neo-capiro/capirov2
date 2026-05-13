@@ -59,21 +59,6 @@ export class TenantContextMiddleware implements NestMiddleware {
       '/api/engagement/integrations/microsoft/callback',
       '/api/engagement/integrations/microsoft/notifications',
     ];
-    // Prefix-bypass for the Clio internal tool callback surface — the
-    // shared-secret bearer those routes use is NOT a Clerk JWT and would
-    // otherwise be rejected here as "Invalid session token". The route's
-    // own ClioInternalAuthGuard is the auth boundary for these requests.
-    // We bypass with a prefix-match because the route is parameterized
-    // (POST /api/clio/internal/tools/:name) and the NestJS middleware
-    // exclude pattern matcher doesn't reliably handle that form.
-    const clioInternalPrefixes = ['/api/clio/internal/', 'api/clio/internal/'];
-    const isClioInternal = clioInternalPrefixes.some(
-      (p) => path.startsWith(p) || originalUrl.startsWith(p) || originalUrl.startsWith(`/${p}`),
-    );
-    if (isClioInternal) {
-      next();
-      return;
-    }
     if (bypassPaths.some((bypassPath) => isBypassPath(bypassPath, path, originalUrl, baseUrl))) {
       this.logger.log(
         `Bypassing tenant context for public/external route (path=${path}, originalUrl=${originalUrl}, baseUrl=${baseUrl})`,
