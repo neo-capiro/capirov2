@@ -13,6 +13,9 @@ Docker Desktop daemon crashed mid-session and I couldn't recover it from this sh
 |---|---|
 | `ddd4bac` | Session delete via three-dots menu (hover-revealed). Collapsible left sidebar (icons-only mode). Collapsible right artifact panel (44px rail when closed). Expandable tool-call summary card ("Used N tools" → click to reveal per-tool details). Layout state persisted to localStorage. |
 | `30c27e2` | New `/connectors` page (linked from primary nav with the API/plug icon). Card grid for 11 connector types grouped by category. Microsoft 365 is wired to the existing OAuth flow; the other 10 are "Coming soon" stubs that match the design spec. |
+| `91db99d` | Auto-title prompt + sanitizer hardened: strips leading "Title:" prefix, surrounding quotes, trailing punctuation, multi-line bleed. Adds three worked examples to the prompt. |
+| `11aa43a` | ensureMailbox self-lookup: when called with no hint, fetches the user row to use their real email/firstName for the initial slug. Without this, every new user got `user@clio.capiro.ai`. |
+| `f442008` | **fetch_url tool.** The "actually read web pages" half of agentic browsing. After web_search returns hits, fetch_url pulls the page text (HTML stripped, ~10k char cap). SSRF-defended (no IP literals, no localhost, no metadata endpoints), 2MB size cap, 15s timeout, content-type allowlist. System prompts updated to teach the model the search→fetch chain. |
 
 ## How to deploy when Docker is back
 
