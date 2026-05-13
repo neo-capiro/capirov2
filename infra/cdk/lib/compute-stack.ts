@@ -122,6 +122,11 @@ export class ComputeStack extends cdk.Stack {
       'ImportedClioInboundSecret',
       secretsStack.clioInboundSharedSecret.secretArn,
     );
+    const clioMailWebhookSecretImported = secretsmanager.Secret.fromSecretCompleteArn(
+      this,
+      'ImportedClioMailWebhookSecret',
+      secretsStack.clioMailWebhookSecret.secretArn,
+    );
 
     // Microsoft 365 Graph OAuth + token-at-rest crypto. These secrets are
     // provisioned out-of-band and imported by complete ARN when available. ECS
@@ -307,6 +312,11 @@ export class ComputeStack extends cdk.Stack {
       // pull from the same Secrets Manager entry so they're always in
       // sync after a put-secret-value rotation and a restart.
       CLIO_INBOUND_SHARED_SECRET: ecs.Secret.fromSecretsManager(clioInboundSecretImported),
+      // HMAC key the inbound-mail Lambda signs /webhooks/clio-mail
+      // requests with. The API validates with timingSafeEqual; empty
+      // means fail-closed (no inbound mail accepted). Auto-generated
+      // by SecretsStack so the operator never sees a value explicitly.
+      CLIO_MAIL_WEBHOOK_SECRET: ecs.Secret.fromSecretsManager(clioMailWebhookSecretImported),
     };
     const apiMigrateSecrets = {
       CLERK_SECRET_KEY: ecs.Secret.fromSecretsManager(clerkSecretKeyImported),
@@ -394,6 +404,7 @@ export class ComputeStack extends cdk.Stack {
         clerkSecretKeyImported.secretArn,
         clerkWebhookImported.secretArn,
         clioInboundSecretImported.secretArn,
+        clioMailWebhookSecretImported.secretArn,
         ...externalRuntimeSecretArnPatterns,
       ],
       [dataKey.keyArn, secretsStack.secretsKey.keyArn],

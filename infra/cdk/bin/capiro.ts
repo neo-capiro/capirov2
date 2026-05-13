@@ -10,6 +10,7 @@ import { ComputeStack } from '../lib/compute-stack';
 import { AlarmsStack } from '../lib/alarms-stack';
 import { AssetsStack } from '../lib/assets-stack';
 import { ClioStack } from '../lib/clio-stack';
+import { SesStack } from '../lib/ses-stack';
 
 /**
  * Capiro CDK app. Stacks are deployed in dependency order:
@@ -106,5 +107,18 @@ const clio = new ClioStack(app, stackName(cfg.envName, 'Clio'), {
 clio.addDependency(network);
 clio.addDependency(compute);
 clio.addDependency(secrets);
+
+// Per-user Clio email infrastructure. See OVERNIGHT_DECISIONS_LOCKED.md §4.
+// Lives in the same region (us-east-1 — SES inbound only operates in a
+// handful of regions; us-east-1 is one).
+const sesStack = new SesStack(app, stackName(cfg.envName, 'Ses'), {
+  env,
+  tags,
+  cfg,
+  hostedZone: dns.hostedZone,
+  secretsStack: secrets,
+});
+sesStack.addDependency(dns);
+sesStack.addDependency(secrets);
 
 app.synth();

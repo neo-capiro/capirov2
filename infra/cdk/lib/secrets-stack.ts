@@ -34,6 +34,13 @@ export class SecretsStack extends cdk.Stack {
    * both services need to be restarted to pick up a new value.
    */
   public readonly clioInboundSharedSecret: secretsmanager.Secret;
+  /**
+   * HMAC key shared between the inbound-mail Lambda and the Capiro
+   * API's /webhooks/clio-mail route. The Lambda signs the JSON
+   * envelope it POSTs with this key; the API validates with
+   * timingSafeEqual on every inbound. Auto-generated on stack create.
+   */
+  public readonly clioMailWebhookSecret: secretsmanager.Secret;
   public readonly secretsKey: kms.Key;
 
   constructor(scope: Construct, id: string, props: SecretsStackProps) {
@@ -96,6 +103,18 @@ export class SecretsStack extends cdk.Stack {
       removalPolicy: removal,
     });
 
+    this.clioMailWebhookSecret = new secretsmanager.Secret(this, 'ClioMailWebhookSecret', {
+      secretName: `/capiro/${cfg.envName}/clio/mail-webhook-secret`,
+      description:
+        'HMAC key shared between the inbound-mail Lambda and the Capiro API /webhooks/clio-mail route',
+      encryptionKey: this.secretsKey,
+      generateSecretString: {
+        excludePunctuation: true,
+        passwordLength: 48,
+      },
+      removalPolicy: removal,
+    });
+
     new cdk.CfnOutput(this, 'ClerkSecretKeyArn', {
       value: this.clerkSecretKey.secretArn,
       exportName: `Capiro-${cfg.envName}-ClerkSecretKeyArn`,
@@ -119,6 +138,7 @@ export class SecretsStack extends cdk.Stack {
     this.clerkWebhookSigningSecret.grantRead(grantee);
     this.clerkPublishableKey.grantRead(grantee);
     this.clioInboundSharedSecret.grantRead(grantee);
+    this.clioMailWebhookSecret.grantRead(grantee);
     this.secretsKey.grantDecrypt(grantee);
   }
 }
