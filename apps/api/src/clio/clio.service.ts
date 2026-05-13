@@ -4,6 +4,7 @@ import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ClioRuntimeClient, type ClioChatMessage } from './clio-runtime.client.js';
 import { UserMemoryService } from './memory/user-memory.service.js';
+import { SkillsService } from './skills/skills.service.js';
 import { ToolRegistryService, type ClioTier } from './tools/tool-registry.service.js';
 
 export interface CreateSessionInput {
@@ -67,8 +68,9 @@ Available tools (use only when the user's request clearly calls for them — do 
 - send_email: send an email from the user's Clio mailbox (<slug>@clio.capiro.ai). Use this when the user asks you to "email X", "follow up with Y", or reply to an inbound thread. Confirm the recipient and subject before sending unless the user has explicitly authorized you to send immediately.
 - remember_about_user: save a single durable fact about the user (preferences, ongoing projects, working style). Call this proactively when the user reveals something worth keeping across sessions. Don't dump every detail — be selective.
 - forget_about_user: drop a previously-remembered fact by id when the user asks you to, or when something becomes false.
+- list_skills / load_skill: the SKILLS LIBRARY (indexed below). When a user request matches a skill, call load_skill(name) and follow its instructions for the rest of the turn. Skills are domain-specific workflows pre-tuned for Capiro's work (policy memos, meeting briefs, lobbyist research, email drafting, code review, etc.) — defer to them rather than improvising.
 
-When memories about this user are available, they appear in the system prompt below. Use them naturally — don't recite them back, just let them shape your replies. If the user says "remember that I..." or "I always do X", call remember_about_user. If they say "forget X" or correct something, call forget_about_user.
+When skills are listed and memories about this user are available, they appear in the system prompt below. Use them naturally — don't recite them back, just let them shape your replies. If the user says "remember that I..." or "I always do X", call remember_about_user. If they say "forget X" or correct something, call forget_about_user.
 
 Be direct and substantive. Skip throat-clearing preambles. If you don't know something, say so. If a tool returns an error, tell the user plainly.
 
@@ -105,8 +107,9 @@ Available tools (use only when the request clearly calls for them):
 - code_interpreter: run Python in a sandbox to compute, transform data, fetch from public APIs, or generate downloadable files (Excel, Word, PowerPoint, PDF, images, CSV, JSON). Use whenever the task needs work that goes beyond text.
 - send_email: send mail from the user's Clio mailbox. Confirm recipient/subject before sending.
 - remember_about_user / forget_about_user: durable per-user memory across sessions. Save genuinely useful facts (preferences, projects, working style), forget when asked.
+- list_skills / load_skill: skills library (indexed below). Load a skill via load_skill(name) and follow its instructions when a request matches one.
 
-When memories about this user appear below, weave them into your replies naturally — don't recite. Be direct and substantive; skip throat-clearing preambles.
+When skills are listed and memories about this user appear below, weave them in naturally — don't recite. Be direct and substantive; skip throat-clearing preambles.
 
 When you need to ask the user a clarifying question — and ONLY then — emit it as a fenced code block tagged \`capiro-question\` containing JSON of this shape:
 
@@ -144,6 +147,7 @@ export class ClioService {
     private readonly runtime: ClioRuntimeClient,
     private readonly toolRegistry: ToolRegistryService,
     private readonly memory: UserMemoryService,
+    private readonly skills: SkillsService,
   ) {}
 
   async listSessions(ctx: TenantContext): Promise<SessionSummary[]> {
@@ -289,10 +293,17 @@ export class ClioService {
     // call forget_about_user when asked to drop one.
     const memories = await this.memory.loadForPrompt(ctx.tenantId, ctx.userId);
     const memoryBlock = UserMemoryService.renderForPrompt(memories);
+    // Skill index: short name+summary list of every available skill.
+    // The model picks one and calls load_skill to pull the body. We
+    // don't pay for the full skill text on every turn — just the
+    // ~1-line-per-skill catalog.
+    const skillIndex = this.skills.renderIndex(tier);
     const baseSystem =
       settings.systemPrompt ??
       (tier === 'internal' ? DEFAULT_INTERNAL_SYSTEM_PROMPT : DEFAULT_CUSTOMER_SYSTEM_PROMPT);
-    const fullSystem = memoryBlock ? `${baseSystem}\n\n${memoryBlock}` : baseSystem;
+    const fullSystem = [baseSystem, skillIndex, memoryBlock]
+      .filter((s) => s && s.length > 0)
+      .join('\n\n');
 
     const reply = await this.runtime.chat({
       messages: turnMessages,

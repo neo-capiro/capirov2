@@ -4,6 +4,8 @@ import { FetchUrlTool } from './fetch-url.tool.js';
 import { ForgetAboutUserTool } from './forget-about-user.tool.js';
 import { GetClientContextTool } from './get-client-context.tool.js';
 import { GetMyClioEmailTool } from './get-my-clio-email.tool.js';
+import { ListSkillsTool } from './list-skills.tool.js';
+import { LoadSkillTool } from './load-skill.tool.js';
 import { RememberAboutUserTool } from './remember-about-user.tool.js';
 import { RenderArtifactTool } from './render-artifact.tool.js';
 import { SendEmailTool } from './send-email.tool.js';
@@ -34,6 +36,8 @@ export class ToolRegistryService {
     private readonly codeInterpreter: CodeInterpreterTool,
     private readonly sendEmail: SendEmailTool,
     private readonly getMyClioEmail: GetMyClioEmailTool,
+    private readonly listSkills: ListSkillsTool,
+    private readonly loadSkill: LoadSkillTool,
   ) {
     this.tools = new Map<string, Tool>([
       [getClientContext.definition.name, getClientContext],
@@ -45,6 +49,8 @@ export class ToolRegistryService {
       [codeInterpreter.definition.name, codeInterpreter],
       [sendEmail.definition.name, sendEmail],
       [getMyClioEmail.definition.name, getMyClioEmail],
+      [listSkills.definition.name, listSkills],
+      [loadSkill.definition.name, loadSkill],
     ]);
     // Track-A parallel work adds search_federal_register, search_lda_filings,
     // search_legislative_sources here.

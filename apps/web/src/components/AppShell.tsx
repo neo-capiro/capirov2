@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   ApartmentOutlined,
   ApiOutlined,
+  AppstoreOutlined,
   BulbOutlined,
   CalendarOutlined,
   CheckOutlined,
@@ -54,6 +55,7 @@ type AppSection =
   | 'clients'
   | 'engagement'
   | 'workspace'
+  | 'skills'
   | 'connectors'
   | 'intelligence'
   | 'directory'
@@ -107,6 +109,12 @@ const NAV: NavItem[] = [
     label: 'Workspace',
     path: '/workspace',
     icon: <FolderOpenOutlined />,
+  },
+  {
+    key: 'skills',
+    label: 'Skills',
+    path: '/skills',
+    icon: <AppstoreOutlined />,
   },
   {
     key: 'connectors',
@@ -716,6 +724,7 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname.startsWith('/clients')) return 'clients';
   if (pathname.startsWith('/engagement')) return 'engagement';
   if (pathname.startsWith('/workspace')) return 'workspace';
+  if (pathname.startsWith('/skills')) return 'skills';
   if (pathname.startsWith('/connectors')) return 'connectors';
   if (pathname.startsWith('/intelligence')) return 'intelligence';
   if (pathname.startsWith('/directory')) return 'directory';
@@ -731,6 +740,7 @@ function pageConfigFor(pathname: string): PageConfig {
     clients: 'Clients',
     engagement: 'Engagement Manager',
     workspace: 'Workspace',
+    skills: 'Skills',
     connectors: 'Connectors',
     intelligence: 'Intelligence Center',
     directory: 'Directory',

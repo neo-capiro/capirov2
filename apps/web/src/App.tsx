@@ -14,6 +14,7 @@ import { ConnectorsPage } from './pages/connectors/ConnectorsPage.js';
 import { DirectoryPage } from './pages/directory/DirectoryPage.js';
 import { EngagementPage } from './pages/engagement/EngagementPage.js';
 import { IntegrationsPage } from './pages/settings/IntegrationsPage.js';
+import { SkillsPage } from './pages/skills/SkillsPage.js';
 import { WorkspacePage } from './pages/workspace/WorkspacePage.js';
 
 export function App() {
@@ -37,6 +38,7 @@ export function App() {
         <Route path="/clients" element={<ClientWorkspacePage />} />
         <Route path="/engagement" element={<EngagementPage />} />
         <Route path="/workspace" element={<WorkspacePage />} />
+        <Route path="/skills" element={<SkillsPage />} />
         <Route path="/connectors" element={<ConnectorsPage />} />
         <Route path="/intelligence/*" element={<Navigate to="/clients" replace />} />
         <Route path="/directory" element={<DirectoryPage />} />
