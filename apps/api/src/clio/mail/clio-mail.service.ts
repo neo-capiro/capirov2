@@ -41,8 +41,9 @@ export class ClioMailService {
   /**
    * Idempotent — returns the existing mailbox row if there is one,
    * otherwise mints a fresh `<slug>@<domain>` address. The hint is
-   * used for the *initial* slug; collisions append a digit suffix
-   * (`neo` → `neo2` → `neo3`…).
+   * used for the *initial* slug; if no hint is passed, the user's
+   * own email + first name are looked up. Collisions append a digit
+   * suffix (`neo` → `neo2` → `neo3`…).
    */
   async ensureMailbox(
     tenantId: string,
@@ -53,7 +54,25 @@ export class ClioMailService {
       const existing = await tx.clioMailbox.findUnique({ where: { userId } });
       if (existing) return existing;
 
-      const desired = pickInitialSlug(hint);
+      // Resolve email + first name from the user row when the caller
+      // didn't pass them. Critical for getting useful initial slugs —
+      // without this we end up with `user@clio.capiro.ai` for every
+      // first-time user.
+      let finalHint = hint;
+      if (!finalHint.email && !finalHint.firstName) {
+        const user = await tx.user.findUnique({
+          where: { id: userId },
+          select: { email: true, firstName: true },
+        });
+        if (user) {
+          finalHint = {
+            email: user.email,
+            ...(user.firstName ? { firstName: user.firstName } : {}),
+          };
+        }
+      }
+
+      const desired = pickInitialSlug(finalHint);
       const localPart = await findFreeLocalPart(tx, desired);
       const fullAddress = `${localPart}@${this.mailDomain()}`;
       const row = await tx.clioMailbox.create({
