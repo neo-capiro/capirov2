@@ -342,6 +342,10 @@ export class ComputeStack extends cdk.Stack {
       // is deployed there too — the API treats an empty value as
       // "Clio not configured" and returns 503 for /api/clio/* routes.
       CLIO_BASE_URL: `http://clio.capiro-${cfg.envName}.local:8000`,
+      // Per-user Clio mailbox domain. Each env has its own subdomain so
+      // staging email never leaks into prod and vice-versa. Defaults
+      // mirror the same `clio.<rootDomain>` shape SesStack provisions.
+      CLIO_MAIL_DOMAIN: `clio.${cfg.rootDomain}`,
     };
 
     // Identity-policy-only grant on the API task role for the assets bucket.
