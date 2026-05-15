@@ -18,6 +18,7 @@ import { DirectoryModule } from './directory/directory.module.js';
 import { EngagementModule } from './engagement/engagement.module.js';
 import { DemoRequestsModule } from './demo-requests/demo-requests.module.js';
 import { ClioModule } from './clio/clio.module.js';
+import { WorkflowsModule } from './workflows/workflows.module.js';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { ClioModule } from './clio/clio.module.js';
     EngagementModule,
     DemoRequestsModule,
     ClioModule,
+    WorkflowsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
