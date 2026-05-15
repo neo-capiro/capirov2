@@ -731,8 +731,8 @@ function pageConfigFor(pathname: string): PageConfig {
   const showClientDropdown =
     key === 'home' ||
     key === 'engagement' ||
-    pathname.startsWith('/workspace/library') ||
-    pathname.startsWith('/workspace/submissions');
+    pathname.startsWith('/workspace/catalog') ||
+    pathname.startsWith('/workspace/kanban');
   return { key, title: titleByKey[key], showClientDropdown };
 }
 

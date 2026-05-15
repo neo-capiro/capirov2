@@ -13,7 +13,10 @@ import { ClientWorkspacePage } from './pages/clients/ClientWorkspacePage.js';
 import { DirectoryPage } from './pages/directory/DirectoryPage.js';
 import { EngagementPage } from './pages/engagement/EngagementPage.js';
 import { IntegrationsPage } from './pages/settings/IntegrationsPage.js';
-import { WorkspacePage } from './pages/workspace/WorkspacePage.js';
+import { WorkspaceLayout } from './pages/workspace/WorkspaceLayout.js';
+import { CatalogView } from './pages/workspace/CatalogView.js';
+import { KanbanBoard } from './pages/workspace/KanbanBoard.js';
+import { ClioView } from './pages/workspace/ClioView.js';
 
 export function App() {
   return (
@@ -35,7 +38,12 @@ export function App() {
         <Route path="/" element={<Navigate to="/clients" replace />} />
         <Route path="/clients" element={<ClientWorkspacePage />} />
         <Route path="/engagement" element={<EngagementPage />} />
-        <Route path="/workspace/*" element={<WorkspacePage />} />
+        <Route path="/workspace" element={<WorkspaceLayout />}>
+          <Route index element={<Navigate to="/workspace/catalog" replace />} />
+          <Route path="catalog" element={<CatalogView />} />
+          <Route path="kanban" element={<KanbanBoard />} />
+          <Route path="clio" element={<ClioView />} />
+        </Route>
         <Route path="/intelligence/*" element={<Navigate to="/clients" replace />} />
         <Route path="/directory" element={<DirectoryPage />} />
         <Route path="/portal/*" element={<Navigate to="/clients" replace />} />

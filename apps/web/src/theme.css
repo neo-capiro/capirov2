@@ -5469,3 +5469,477 @@ body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ─── Workspace Layout ────────────────────────────────────────────────────── */
+
+.workspace-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.workspace-layout > .clio-workspace {
+  flex: 1;
+  min-height: 0;
+}
+
+.workspace-layout > .catalog-view,
+.workspace-layout > .kanban-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ─── Workspace Tabs ──────────────────────────────────────────────────────── */
+
+.workspace-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--line-soft);
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.workspace-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-700);
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+  border: 1px solid transparent;
+}
+
+.workspace-tab:hover {
+  background: var(--app-bg-1);
+  color: var(--ink-900);
+}
+
+.workspace-tab.is-active {
+  background: var(--app-bg-1);
+  color: var(--ink-900);
+  border-color: var(--line-soft);
+}
+
+/* ─── Catalog View ────────────────────────────────────────────────────────── */
+
+.catalog-view {
+  padding: 4px 0;
+}
+
+.catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.catalog-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: 8px;
+  transition: box-shadow 0.2s;
+}
+
+.catalog-card:hover {
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.catalog-card .ant-card-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 8px;
+}
+
+.catalog-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.catalog-card-category {
+  align-self: flex-start;
+  margin: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.catalog-card-name {
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.catalog-card-desc {
+  font-size: 13px;
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.catalog-card-action {
+  margin-top: 12px;
+  width: 100%;
+}
+
+/* ─── Kanban Board ────────────────────────────────────────────────────────── */
+
+.kanban-view {
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: 100%;
+}
+
+.kanban-board {
+  display: flex;
+  gap: 12px;
+  height: 100%;
+  min-width: max-content;
+  padding-bottom: 12px;
+}
+
+.kanban-column {
+  display: flex;
+  flex-direction: column;
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--app-bg-1);
+  border-radius: 8px;
+  border: 1px solid var(--line-soft);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.kanban-column.drag-over {
+  border-color: #1677ff;
+  background: rgba(22, 119, 255, 0.04);
+}
+
+.kanban-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--line-soft);
+  flex-shrink: 0;
+}
+
+.kanban-column-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--app-bg-0);
+  border: 1px solid var(--line-soft);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-700);
+}
+
+.kanban-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 10px 10px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 60px;
+}
+
+.kanban-column-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  opacity: 0.4;
+}
+
+.kanban-card {
+  background: var(--app-bg-0);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition:
+    box-shadow 0.15s,
+    opacity 0.15s,
+    border-color 0.15s;
+  user-select: none;
+}
+
+.kanban-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-color: #d0d0d0;
+}
+
+.kanban-card:focus-visible {
+  outline: 2px solid #1677ff;
+  outline-offset: 1px;
+}
+
+.kanban-card.is-dragging {
+  opacity: 0.45;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+.kanban-card-title {
+  font-size: 13px;
+  line-height: 1.4;
+  display: block;
+}
+
+.kanban-card-template {
+  font-size: 11px;
+  display: block;
+}
+
+.kanban-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.kanban-card-client-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  margin: 0;
+}
+
+.kanban-card-date {
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.kanban-card-skeleton {
+  padding: 10px 12px;
+}
+
+/* ─── Workflow Drawer ─────────────────────────────────────────────────────── */
+
+.workflow-drawer .ant-drawer-header {
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.workflow-drawer .ant-drawer-body {
+  padding: 0;
+}
+
+.workflow-drawer .ant-drawer-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.workflow-drawer-header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workflow-drawer-title-input {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 0;
+  height: auto;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.workflow-drawer-template-name {
+  font-size: 12px;
+}
+
+.workflow-drawer-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-drawer-save-status {
+  font-size: 12px;
+  margin-left: auto;
+  color: var(--ink-700);
+}
+
+.workflow-drawer-save-status--saving {
+  color: #faad14;
+}
+
+.workflow-drawer-save-status--error {
+  color: #ff4d4f;
+}
+
+.workflow-drawer-save-status--saved {
+  color: #52c41a;
+}
+
+.workflow-drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 16px 20px;
+}
+
+.workflow-drawer-progress {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  background: var(--app-bg-1);
+  border-radius: 6px;
+  border: 1px solid var(--line-soft);
+}
+
+.workflow-drawer-progress-label {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.workflow-drawer-progress-bar {
+  height: 4px;
+  background: var(--line-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.workflow-drawer-progress-fill {
+  height: 100%;
+  background: #1677ff;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.workflow-drawer-context {
+  margin-bottom: 12px;
+}
+
+.workflow-drawer-context .ant-collapse-header {
+  padding: 8px 0 !important;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.workflow-drawer-context .ant-collapse-content-box {
+  padding: 0 0 8px !important;
+}
+
+.workflow-drawer-context-entries {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workflow-drawer-context-row {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* ─── Workflow Field Sections ─────────────────────────────────────────────── */
+
+.workflow-field-section {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 14px;
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.workflow-field-section:first-of-type {
+  border-top: none;
+  margin-top: 0;
+  padding-top: 0;
+}
+
+.workflow-field-section-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ink-700);
+  display: block;
+  margin-bottom: 2px;
+}
+
+.workflow-field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workflow-field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-900);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workflow-field-required {
+  color: #ff4d4f;
+  font-size: 12px;
+}
+
+.workflow-field-hint {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--ink-700);
+  margin-left: 4px;
+}
+
+.workflow-field-computed-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--app-bg-1);
+  border: 1px solid var(--line-soft);
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ink-700);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-left: 4px;
+}
+
+/* ─── Workspace responsive ────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .catalog-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kanban-board {
+    gap: 8px;
+  }
+
+  .kanban-column {
+    width: 220px;
+  }
+
+  .workspace-tab span {
+    display: none;
+  }
+}
