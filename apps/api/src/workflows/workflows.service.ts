@@ -61,20 +61,20 @@ export class WorkflowsService {
 
   async updateInstance(tenantId: string, id: string, dto: UpdateWorkflowInstanceDto) {
     await this.getInstance(tenantId, id);
+
+    const data: Record<string, unknown> = {};
+    if (dto.status !== undefined) data.status = dto.status;
+    if (dto.formData !== undefined) data.formData = dto.formData;
+    if (dto.title !== undefined) data.title = dto.title;
+    if (dto.notes !== undefined) data.notes = dto.notes;
+    if (dto.targetMemberId !== undefined) data.targetMemberId = dto.targetMemberId;
+    if (dto.submissionDeadline !== undefined) data.submissionDeadline = new Date(dto.submissionDeadline);
+    if (dto.submissionMethod !== undefined) data.submissionMethod = dto.submissionMethod;
+    if (dto.status === WorkflowStatus.complete) data.completedAt = new Date();
+
     return this.prisma.workflowInstance.update({
       where: { id },
-      data: {
-        ...(dto.status !== undefined ? { status: dto.status } : {}),
-        ...(dto.formData !== undefined ? { formData: dto.formData } : {}),
-        ...(dto.title !== undefined ? { title: dto.title } : {}),
-        ...(dto.notes !== undefined ? { notes: dto.notes } : {}),
-        ...(dto.targetMemberId !== undefined ? { targetMemberId: dto.targetMemberId } : {}),
-        ...(dto.submissionDeadline !== undefined
-          ? { submissionDeadline: new Date(dto.submissionDeadline) }
-          : {}),
-        ...(dto.submissionMethod !== undefined ? { submissionMethod: dto.submissionMethod } : {}),
-        ...(dto.status === WorkflowStatus.complete ? { completedAt: new Date() } : {}),
-      },
+      data,
       include: { template: true },
     });
   }
