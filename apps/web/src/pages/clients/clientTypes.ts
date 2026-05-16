@@ -9,6 +9,17 @@ export interface ClientIntakeData extends Record<string, unknown> {
   tags?: string[];
   documents?: ClientDocument[];
   governmentHistory?: Record<string, unknown>;
+  address1?: string;
+  address2?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  pocName?: string;
+  pocTitle?: string;
+  pocPhone?: string;
+  pocEmail?: string;
+  headName?: string;
+  headTitle?: string;
 }
 
 export interface ClientDocument {
@@ -78,6 +89,17 @@ export interface ClientFormValues {
   priorContracts?: string;
   grants?: string;
   priorEngagement?: string;
+  address1?: string;
+  address2?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  pocName?: string;
+  pocTitle?: string;
+  pocPhone?: string;
+  pocEmail?: string;
+  headName?: string;
+  headTitle?: string;
 }
 
 export interface ClientFormSubmit {

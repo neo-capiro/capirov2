@@ -12,6 +12,7 @@ interface Tab {
 
 const TABS: Tab[] = [
   { key: '/settings/personal', label: 'Personal' },
+  { key: '/settings/contact', label: 'Contact Info' },
   { key: '/settings/team', label: 'Team', minRole: 'user_admin' },
   { key: '/settings/branding', label: 'Branding', minRole: 'user_admin' },
   { key: '/settings/clients', label: 'Clients', minRole: 'user_admin' },

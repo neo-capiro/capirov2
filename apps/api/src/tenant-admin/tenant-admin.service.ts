@@ -27,6 +27,20 @@ interface UpdateBrandingInput {
   logoContentType?: string;
 }
 
+export interface ContactInfoInput {
+  name?: string;
+  phone?: string;
+  email?: string;
+  mailingStreet1?: string;
+  mailingStreet2?: string;
+  mailingCity?: string;
+  mailingStateZip?: string;
+  permanentStreet1?: string;
+  permanentStreet2?: string;
+  permanentCity?: string;
+  permanentStateZip?: string;
+}
+
 /**
  * Per-tenant admin operations. Caller must be `user_admin` (own tenant) or
  * `capiro_admin` (any tenant). Methods receive the TenantContext so RLS
@@ -237,6 +251,34 @@ export class TenantAdminService {
           .catch(() => undefined);
       }
       return updated;
+    });
+  }
+
+  async getContactInfo(ctx: TenantContext) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const tenant = await tx.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { settings: true },
+      });
+      const settings = (tenant?.settings ?? {}) as Record<string, unknown>;
+      return (settings.contactInfo ?? {}) as Record<string, unknown>;
+    });
+  }
+
+  async updateContactInfo(ctx: TenantContext, input: ContactInfoInput) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const tenant = await tx.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { settings: true },
+      });
+      const currentSettings = (tenant?.settings ?? {}) as Record<string, unknown>;
+      const updated = await tx.tenant.update({
+        where: { id: ctx.tenantId },
+        data: { settings: { ...currentSettings, contactInfo: input } },
+        select: { settings: true },
+      });
+      const settings = updated.settings as Record<string, unknown>;
+      return (settings.contactInfo ?? {}) as Record<string, unknown>;
     });
   }
 

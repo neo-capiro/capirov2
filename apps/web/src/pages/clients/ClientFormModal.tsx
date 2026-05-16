@@ -166,6 +166,82 @@ export function ClientFormModal({
               <Input placeholder="HASC outreach, 2024" />
             </Form.Item>
           </Col>
+        </Row>
+
+        <Divider orientation="left" plain>
+          Address &amp; Contact
+        </Divider>
+        <Row gutter={16}>
+          <Col xs={24}>
+            <Form.Item name="address1" label="Street address">
+              <Input placeholder="123 Main St" />
+            </Form.Item>
+          </Col>
+          <Col xs={24}>
+            <Form.Item name="address2" label="Suite / floor">
+              <Input placeholder="Suite 400" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={10}>
+            <Form.Item name="city" label="City">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={7}>
+            <Form.Item name="state" label="State">
+              <Input placeholder="VA" maxLength={2} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={7}>
+            <Form.Item name="zip" label="ZIP">
+              <Input placeholder="22201" maxLength={10} />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Divider orientation="left" plain>
+          Point of Contact
+        </Divider>
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <Form.Item name="pocName" label="POC name">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="pocTitle" label="POC title">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="pocPhone" label="POC phone">
+              <Input placeholder="+1 202-555-0142" />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="pocEmail" label="POC email" rules={[{ type: 'email' }]}>
+              <Input />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Divider orientation="left" plain>
+          Head of Organization
+        </Divider>
+        <Row gutter={16}>
+          <Col xs={24} md={12}>
+            <Form.Item name="headName" label="Name">
+              <Input />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item name="headTitle" label="Title">
+              <Input />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Row gutter={16}>
           <Col xs={24}>
             <Form.Item label="Client logo">
               <Upload
@@ -223,6 +299,17 @@ export function formValuesToClientPayload(values: ClientFormValues): ClientPaylo
     engagement: optionalText(values.engagement),
     portfolio: parseCommaList(values.portfolioText),
     governmentHistory,
+    address1: optionalText(values.address1),
+    address2: optionalText(values.address2),
+    city: optionalText(values.city),
+    state: optionalText(values.state),
+    zip: optionalText(values.zip),
+    pocName: optionalText(values.pocName),
+    pocTitle: optionalText(values.pocTitle),
+    pocPhone: optionalText(values.pocPhone),
+    pocEmail: optionalText(values.pocEmail),
+    headName: optionalText(values.headName),
+    headTitle: optionalText(values.headTitle),
   });
 
   const payload: ClientPayload = {
@@ -265,6 +352,17 @@ export function clientToFormValues(client?: Client): ClientFormValues {
     priorContracts: readText(governmentHistory, ['priorContracts', 'prior_contracts']),
     grants: readText(governmentHistory, ['grants']),
     priorEngagement: readText(governmentHistory, ['priorEngagement', 'prior_engagement']),
+    address1: readText(intake, ['address1']),
+    address2: readText(intake, ['address2']),
+    city: readText(intake, ['city']),
+    state: readText(intake, ['state']),
+    zip: readText(intake, ['zip']),
+    pocName: readText(intake, ['pocName', 'poc_name']),
+    pocTitle: readText(intake, ['pocTitle', 'poc_title']),
+    pocPhone: readText(intake, ['pocPhone', 'poc_phone']),
+    pocEmail: readText(intake, ['pocEmail', 'poc_email']),
+    headName: readText(intake, ['headName', 'head_name']),
+    headTitle: readText(intake, ['headTitle', 'head_title']),
   };
 }
 

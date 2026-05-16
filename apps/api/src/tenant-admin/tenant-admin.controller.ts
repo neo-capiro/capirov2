@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { IsEmail, IsIn, IsOptional, IsString, IsUrl, Length, MinLength } from 'class-validator';
+import type { ContactInfoInput } from './tenant-admin.service.js';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
@@ -23,6 +24,52 @@ class UpdateTeamMemberRoleDto {
   @IsString()
   @IsIn(['user_admin', 'standard_user'])
   role!: 'user_admin' | 'standard_user';
+}
+
+class UpdateContactInfoDto implements ContactInfoInput {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  mailingStreet1?: string;
+
+  @IsOptional()
+  @IsString()
+  mailingStreet2?: string;
+
+  @IsOptional()
+  @IsString()
+  mailingCity?: string;
+
+  @IsOptional()
+  @IsString()
+  mailingStateZip?: string;
+
+  @IsOptional()
+  @IsString()
+  permanentStreet1?: string;
+
+  @IsOptional()
+  @IsString()
+  permanentStreet2?: string;
+
+  @IsOptional()
+  @IsString()
+  permanentCity?: string;
+
+  @IsOptional()
+  @IsString()
+  permanentStateZip?: string;
 }
 
 class UpdateBrandingDto {
@@ -83,6 +130,17 @@ export class TenantAdminController {
     @Body() body: UpdateTeamMemberRoleDto,
   ) {
     return this.service.updateMemberRole(ctx, userId, body.role);
+  }
+
+  @Get('contact-info')
+  @Roles('standard_user')
+  getContactInfo(@CurrentTenant() ctx: TenantContext) {
+    return this.service.getContactInfo(ctx);
+  }
+
+  @Put('contact-info')
+  updateContactInfo(@CurrentTenant() ctx: TenantContext, @Body() body: UpdateContactInfoDto) {
+    return this.service.updateContactInfo(ctx, body);
   }
 
   @Put('branding')

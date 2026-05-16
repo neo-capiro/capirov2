@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DeleteOutlined, SaveOutlined } from '@ant-design/icons';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Alert,
   App as AntApp,
   Button,
   Collapse,
@@ -14,6 +15,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
+import type { Client } from '../clients/clientTypes.js';
 import { useApi } from '../../lib/use-api.js';
 import {
   type FieldDefinition,
@@ -53,8 +55,25 @@ export function WorkflowDrawer({
   const [submissionMethod, setSubmissionMethod] = useState<SubmissionMethod | null>(null);
   const [notes, setNotes] = useState('');
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved');
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [requesterPrepopulated, setRequesterPrepopulated] = useState(false);
+  const [clientPrepopulated, setClientPrepopulated] = useState(false);
 
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const contactInfo = useQuery<Record<string, unknown>>({
+    queryKey: ['contact-info'],
+    queryFn: async () =>
+      (await api.get<Record<string, unknown>>('/api/tenant-admin/contact-info')).data,
+    enabled: open,
+    staleTime: 60_000,
+  });
+
+  const clients = useQuery<Client[]>({
+    queryKey: ['clients'],
+    queryFn: async () => (await api.get<Client[]>('/api/clients')).data,
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     if (!instance) return;
@@ -65,7 +84,56 @@ export function WorkflowDrawer({
     setSubmissionMethod(instance.submissionMethod ?? null);
     setNotes(instance.notes ?? '');
     setSaveStatus('saved');
+    setSelectedClientId(instance.clientId ?? null);
+    setRequesterPrepopulated(false);
+    setClientPrepopulated(false);
   }, [instance?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pre-populate requesterContact fields from tenant contact settings
+  useEffect(() => {
+    if (!contactInfo.data || !instance || !requesterContact) return;
+    const tenantFields = requesterContact.fields.filter((f) => f.source === 'tenant_settings');
+    if (tenantFields.length === 0) return;
+    const instanceFormData = instance.formData ?? {};
+    const wouldFill = tenantFields.some((f) => {
+      if (instanceFormData[f.key] !== undefined && instanceFormData[f.key] !== null && instanceFormData[f.key] !== '') return false;
+      const ciKey = requesterKeyToContactKey(f.key);
+      return Boolean(ciKey && contactInfo.data![ciKey]);
+    });
+    setFormData((prev) => {
+      const next = { ...prev };
+      for (const field of tenantFields) {
+        if (prev[field.key] !== undefined && prev[field.key] !== null && prev[field.key] !== '') continue;
+        const ciKey = requesterKeyToContactKey(field.key);
+        const val = ciKey ? contactInfo.data![ciKey] : undefined;
+        if (typeof val === 'string' && val.trim()) next[field.key] = val;
+      }
+      return next;
+    });
+    if (wouldFill) setRequesterPrepopulated(true);
+  }, [instance?.id, contactInfo.data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Pre-populate orgContact fields when drawer opens with existing clientId (C3)
+  useEffect(() => {
+    if (!instance?.clientId || !clients.data || !orgContact) return;
+    const client = clients.data.find((c) => c.id === instance.clientId);
+    if (!client) return;
+    const instanceFormData = instance.formData ?? {};
+    const wouldFill = orgContact.fields.some((f) => {
+      if (instanceFormData[f.key] !== undefined && instanceFormData[f.key] !== null && instanceFormData[f.key] !== '') return false;
+      return Boolean(getClientFieldValue(f.key, client));
+    });
+    setFormData((prev) => {
+      const next = { ...prev };
+      for (const field of orgContact.fields) {
+        if (prev[field.key] !== undefined && prev[field.key] !== null && prev[field.key] !== '') continue;
+        const val = getClientFieldValue(field.key, client);
+        if (val) next[field.key] = val;
+      }
+      return next;
+    });
+    if (wouldFill) setClientPrepopulated(true);
+  }, [instance?.id, clients.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateInstance = useMutation({
     mutationFn: async (payload: Partial<WorkflowInstance>) =>
@@ -92,7 +160,7 @@ export function WorkflowDrawer({
   saveRef.current = () => {
     if (!instance) return;
     setSaveStatus('saving');
-    updateInstance.mutate({ title, formData, targetMember, submissionDeadline, submissionMethod, notes });
+    updateInstance.mutate({ title, formData, targetMember, submissionDeadline, submissionMethod, notes, clientId: selectedClientId });
   };
 
   const scheduleAutoSave = useCallback(() => {
@@ -112,6 +180,28 @@ export function WorkflowDrawer({
   const handleFieldChange = (key: string, value: unknown) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
     scheduleAutoSave();
+  };
+
+  const handleClientSelect = (clientId: string | null) => {
+    setSelectedClientId(clientId);
+    scheduleAutoSave();
+    if (!clientId || !orgContact) return;
+    const client = clients.data?.find((c) => c.id === clientId);
+    if (!client) return;
+    const wouldFill = orgContact.fields.some((f) => {
+      if (formData[f.key] !== undefined && formData[f.key] !== null && formData[f.key] !== '') return false;
+      return Boolean(getClientFieldValue(f.key, client));
+    });
+    setFormData((prev) => {
+      const next = { ...prev };
+      for (const field of orgContact.fields) {
+        if (prev[field.key] !== undefined && prev[field.key] !== null && prev[field.key] !== '') continue;
+        const val = getClientFieldValue(field.key, client);
+        if (val) next[field.key] = val;
+      }
+      return next;
+    });
+    if (wouldFill) setClientPrepopulated(true);
   };
 
   const handleDelete = () => {
@@ -236,6 +326,34 @@ export function WorkflowDrawer({
     >
       {instance ? (
         <div className="workflow-drawer-body">
+          {/* Client association */}
+          <div className="workflow-drawer-section">
+            <Typography.Text strong className="workflow-field-section-label">
+              Client
+            </Typography.Text>
+            <Select
+              style={{ width: '100%' }}
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Associate a client..."
+              value={selectedClientId ?? undefined}
+              onChange={(val: string | undefined) => handleClientSelect(val ?? null)}
+              options={(clients.data ?? [])
+                .filter((c) => c.status !== 'archived')
+                .map((c) => ({ value: c.id, label: c.name }))}
+              loading={clients.isPending}
+            />
+            {clientPrepopulated ? (
+              <Alert
+                type="info"
+                showIcon
+                message="Pre-populated from client profile"
+                style={{ marginTop: 8, padding: '4px 8px', fontSize: 12 }}
+              />
+            ) : null}
+          </div>
+
           {requiredFields.length > 0 ? (
             <div className="workflow-drawer-progress">
               <div className="workflow-drawer-progress-label">
@@ -317,6 +435,14 @@ export function WorkflowDrawer({
               <Typography.Text strong className="workflow-field-section-label">
                 {requesterContact.title}
               </Typography.Text>
+              {requesterPrepopulated ? (
+                <Alert
+                  type="info"
+                  showIcon
+                  message="Pre-populated from your organization settings"
+                  style={{ marginBottom: 8, padding: '4px 8px', fontSize: 12 }}
+                />
+              ) : null}
               {requesterContact.helpText ? (
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                   {requesterContact.helpText}
@@ -535,4 +661,34 @@ function errorMessage(error: unknown): string {
     if (Array.isArray(data?.message)) return data.message.join(', ');
   }
   return error instanceof Error ? error.message : 'Request failed';
+}
+
+function requesterKeyToContactKey(fieldKey: string): string | null {
+  const stripped = fieldKey.replace(/^requester_/, '');
+  if (stripped === fieldKey) return null;
+  return stripped.replace(/_([a-z0-9])/g, (_, c: string) => c.toUpperCase());
+}
+
+function getClientFieldValue(key: string, client: Client): string | undefined {
+  const intake = (client.intakeData ?? {}) as Record<string, unknown>;
+  switch (key) {
+    case 'org_name': return nonEmpty(client.name);
+    case 'org_address1': return nonEmpty(intake.address1 as string | undefined);
+    case 'org_address2': return nonEmpty(intake.address2 as string | undefined);
+    case 'org_city': return nonEmpty(intake.city as string | undefined);
+    case 'org_state': return nonEmpty(intake.state as string | undefined);
+    case 'org_zip': return nonEmpty(intake.zip as string | undefined);
+    case 'org_phone': return nonEmpty(client.primaryContactPhone);
+    case 'poc_name':
+      return nonEmpty(client.primaryContactName) ?? nonEmpty(intake.pocName as string | undefined);
+    case 'poc_email':
+      return nonEmpty(client.primaryContactEmail) ?? nonEmpty(intake.pocEmail as string | undefined);
+    case 'poc_phone':
+      return nonEmpty(client.primaryContactPhone) ?? nonEmpty(intake.pocPhone as string | undefined);
+    default: return undefined;
+  }
+}
+
+function nonEmpty(val: string | null | undefined): string | undefined {
+  return val && val.trim() ? val.trim() : undefined;
 }
