@@ -106,14 +106,55 @@ export class WorkflowsService {
 
     const instance = await this.getInstance(tenantId, instanceId);
 
-    const client = await this.prisma.client.findUnique({ where: { id: clientId } });
-    if (!client || client.tenantId !== tenantId) throw new NotFoundException('Client not found');
-
-    const attachments = await this.prisma.engagementAttachment.findMany({
-      where: { tenantId, clientId },
-      orderBy: { createdAt: 'desc' },
-      take: 10,
+    // Look up client — try by id first, then search by tenant to give a clear error
+    const client = await this.prisma.client.findFirst({
+      where: { id: clientId, tenantId },
     });
+    if (!client) {
+      throw new NotFoundException(
+        `Client not found. Make sure the client exists and belongs to your organization.`,
+      );
+    }
+
+    // Fetch ALL client context: attachments, meetings, mail threads, engagement tasks, notes
+    const [attachments, meetings, mailThreads, tasks, clioNotes, directoryNotes] =
+      await Promise.all([
+        this.prisma.engagementAttachment.findMany({
+          where: { tenantId, clientId },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+        }),
+        this.prisma.meeting.findMany({
+          where: { tenantId, clientId },
+          orderBy: { startsAt: 'desc' },
+          take: 10,
+          select: { subject: true, description: true, startsAt: true, status: true },
+        }),
+        this.prisma.mailThread.findMany({
+          where: { tenantId, clientId },
+          orderBy: { lastMessageAt: 'desc' },
+          take: 10,
+          select: { subject: true, snippet: true, lastMessageAt: true },
+        }),
+        this.prisma.engagementTask.findMany({
+          where: { tenantId, clientId },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: { title: true, description: true, status: true, dueDate: true },
+        }),
+        this.prisma.clioNote.findMany({
+          where: { tenantId, clientId },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          select: { title: true, body: true, createdAt: true },
+        }),
+        this.prisma.outreachRecord.findMany({
+          where: { tenantId, clientId, deletedAt: null },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          select: { title: true, body: true, type: true, status: true },
+        }),
+      ]);
 
     const template = instance.template as Record<string, unknown> | null;
     const requiredSections = template?.requiredSections as Record<string, unknown> | null;
@@ -142,6 +183,7 @@ export class WorkflowsService {
 
     if (fillableFields.length === 0) return { suggestions: {} };
 
+    // Read text content from S3 attachments
     const docTexts: string[] = [];
     let totalChars = 0;
     for (const att of attachments) {
@@ -166,9 +208,63 @@ export class WorkflowsService {
     const contextInfo = (template?.contextInfo ?? {}) as Record<string, unknown>;
     const intakeData = (client.intakeData ?? {}) as Record<string, unknown>;
 
+    // Build rich client context from the full profile
+    const clientContext: string[] = [
+      `CLIENT NAME: ${client.name}`,
+      client.website ? `WEBSITE: ${client.website}` : '',
+      client.description ? `CLIENT DESCRIPTION: ${client.description}` : '',
+      client.productDescription ? `PRODUCT/SERVICE DESCRIPTION: ${client.productDescription}` : '',
+      client.primaryContactName ? `PRIMARY CONTACT: ${client.primaryContactName}` : '',
+      client.primaryContactEmail ? `CONTACT EMAIL: ${client.primaryContactEmail}` : '',
+    ].filter(Boolean);
+
+    if (Object.keys(intakeData).length) {
+      clientContext.push(`\nCLIENT PROFILE DATA:\n${JSON.stringify(intakeData, null, 2)}`);
+    }
+
+    if (meetings.length) {
+      clientContext.push(
+        `\nRECENT MEETINGS (${meetings.length}):\n${meetings
+          .map((m) => `  - ${m.subject}${m.description ? ': ' + m.description.slice(0, 200) : ''} (${String(m.startsAt).slice(0, 10)})`)
+          .join('\n')}`,
+      );
+    }
+
+    if (mailThreads.length) {
+      clientContext.push(
+        `\nRECENT EMAIL THREADS (${mailThreads.length}):\n${mailThreads
+          .map((t) => `  - ${t.subject}${t.snippet ? ': ' + t.snippet.slice(0, 150) : ''}`)
+          .join('\n')}`,
+      );
+    }
+
+    if (tasks.length) {
+      clientContext.push(
+        `\nENGAGEMENT TASKS (${tasks.length}):\n${tasks
+          .map((t) => `  - [${t.status}] ${t.title}${t.description ? ': ' + t.description.slice(0, 150) : ''}`)
+          .join('\n')}`,
+      );
+    }
+
+    if (clioNotes.length) {
+      clientContext.push(
+        `\nCLIO NOTES (${clioNotes.length}):\n${clioNotes
+          .map((n) => `  - ${n.title ?? 'Untitled'}: ${n.body.slice(0, 300)}`)
+          .join('\n')}`,
+      );
+    }
+
+    if (directoryNotes.length) {
+      clientContext.push(
+        `\nOUTREACH RECORDS (${directoryNotes.length}):\n${directoryNotes
+          .map((r) => `  - [${r.type}/${r.status}] ${r.title}${r.body ? ': ' + r.body.slice(0, 200) : ''}`)
+          .join('\n')}`,
+      );
+    }
+
     const prompt = [
       'You are a government affairs assistant helping fill out a federal lobbying request form.',
-      'Based on the client information and documents below, suggest values for the empty form fields.',
+      'Based on the client information, engagement history, and documents below, suggest values for the empty form fields.',
       'Only suggest values for fields where you have clear supporting evidence from the provided context.',
       'Return ONLY valid JSON with this structure: { "suggestions": { "<fieldKey>": { "value": "<suggested text>", "reasoning": "<one sentence why>" } } }',
       '',
@@ -178,16 +274,11 @@ export class WorkflowsService {
       contextInfo && Object.keys(contextInfo).length
         ? `SUBMISSION CONTEXT:\n${Object.entries(contextInfo)
             .filter(([, v]) => v)
-            .map(([k, v]) => `  ${k}: ${String(v)}`)
+            .map(([k, v]) => `  ${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`)
             .join('\n')}`
         : '',
       '',
-      `CLIENT NAME: ${client.name}`,
-      client.description ? `CLIENT DESCRIPTION: ${client.description}` : '',
-      client.productDescription ? `PRODUCT DESCRIPTION: ${client.productDescription}` : '',
-      Object.keys(intakeData).length
-        ? `CLIENT INTAKE DATA:\n${JSON.stringify(intakeData, null, 2)}`
-        : '',
+      ...clientContext,
       '',
       docTexts.length
         ? `CLIENT DOCUMENTS:\n${docTexts.join('\n\n')}`
