@@ -8,6 +8,7 @@ import {
   Drawer,
   Input,
   InputNumber,
+  Radio,
   Select,
   Space,
   Tag,
@@ -16,6 +17,7 @@ import {
 import { useApi } from '../../lib/use-api.js';
 import {
   type FieldDefinition,
+  type RequestType,
   type SubmissionMethod,
   type WorkflowInstance,
   type WorkflowStatus,
@@ -124,30 +126,38 @@ export function WorkflowDrawer({
   };
 
   const template = instance?.template ?? null;
+  const sections = template?.requiredSections?.sections ?? null;
+  const requestType: RequestType = (formData.request_type as RequestType) ?? 'funding';
 
-  const sectionGroups = useMemo(() => {
-    const groups = new Map<string, FieldDefinition[]>();
-    for (const field of template?.requiredSections ?? []) {
-      const existing = groups.get(field.section) ?? [];
-      existing.push(field);
-      groups.set(field.section, existing);
-    }
-    return [...groups.entries()];
-  }, [template?.requiredSections]);
+  const section1 =
+    requestType === 'funding'
+      ? (sections?.funding?.section1 ?? null)
+      : (sections?.policy?.section1 ?? null);
+  const requesterContact = sections?.shared?.requesterContact ?? null;
+  const orgContact = sections?.shared?.orgContact ?? null;
 
-  const requiredFields = useMemo(
-    () => (template?.requiredSections ?? []).filter((f) => f.required && !f.computed),
-    [template?.requiredSections],
-  );
+  const requiredFields = useMemo(() => {
+    if (!sections) return [];
+    const typeSection =
+      requestType === 'funding' ? sections.funding : sections.policy;
+    const s1Fields = typeSection?.section1?.fields ?? [];
+    const rcFields = sections.shared?.requesterContact?.fields ?? [];
+    const ocFields = sections.shared?.orgContact?.fields ?? [];
+
+    return [...s1Fields, ...rcFields, ...ocFields].filter((f) => {
+      if (!f.required) return false;
+      if (f.conditional) {
+        const parentVal = formData[f.conditional.field];
+        if (parentVal !== f.conditional.value) return false;
+      }
+      return true;
+    });
+  }, [sections, requestType, formData]);
 
   const completedCount = requiredFields.filter((f) => {
     const val = formData[f.key];
     return val !== undefined && val !== null && val !== '';
   }).length;
-
-  const currentPbr = numericField(formData['current_pbr_funding']);
-  const requestedAuth = numericField(formData['requested_authorization']);
-  const deltaAbovePbr = requestedAuth - currentPbr;
 
   const contextEntries = Object.entries(template?.contextInfo ?? {}).filter(
     ([, v]) => v !== null && v !== undefined && v !== '',
@@ -169,7 +179,7 @@ export function WorkflowDrawer({
     <Drawer
       open={open}
       onClose={onClose}
-      width={520}
+      width={580}
       className="workflow-drawer"
       title={
         <div className="workflow-drawer-header">
@@ -268,61 +278,96 @@ export function WorkflowDrawer({
             />
           ) : null}
 
-          {sectionGroups.map(([section, fields]) => (
-            <div key={section} className="workflow-field-section">
-              <Typography.Text strong className="workflow-field-section-label">
-                {section}
-              </Typography.Text>
-              {fields.map((field) => {
-                if (field.computed && field.key === 'delta_above_pbr') {
-                  return (
-                    <div key={field.key} className="workflow-field-row">
-                      <label className="workflow-field-label">
-                        {field.label}
-                        <span className="workflow-field-computed-badge">auto</span>
-                      </label>
-                      <InputNumber
-                        style={{ width: '100%' }}
-                        prefix="$"
-                        value={deltaAbovePbr}
-                        readOnly
-                        disabled
-                        formatter={currencyFormatter}
-                        parser={currencyParser}
-                      />
-                    </div>
-                  );
-                }
-                return (
-                  <div key={field.key} className="workflow-field-row">
-                    <label className="workflow-field-label">
-                      {field.label}
-                      {field.required ? <span className="workflow-field-required">*</span> : null}
-                      {field.description ? (
-                        <span className="workflow-field-hint">{field.description}</span>
-                      ) : null}
-                    </label>
-                    <FieldInput
-                      field={field}
-                      value={formData[field.key]}
-                      onChange={(val) => handleFieldChange(field.key, val)}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          ))}
-
-          <div className="workflow-field-section">
+          {/* Request Type Toggle */}
+          <div className="workflow-drawer-type-toggle">
             <Typography.Text strong className="workflow-field-section-label">
-              Details
+              Request Type
+            </Typography.Text>
+            <Radio.Group
+              value={requestType}
+              onChange={(e) => handleFieldChange('request_type', e.target.value as RequestType)}
+              buttonStyle="solid"
+            >
+              <Radio.Button value="funding">Funding Request</Radio.Button>
+              <Radio.Button value="policy">Policy / Bill Language Request</Radio.Button>
+            </Radio.Group>
+          </div>
+
+          {/* Section 1: Request-type specific fields */}
+          {section1 ? (
+            <div className="workflow-drawer-section">
+              <Typography.Text strong className="workflow-field-section-label">
+                {section1.title}
+              </Typography.Text>
+              {section1.fields.map((field) => (
+                <FieldRenderer
+                  key={field.key}
+                  field={field}
+                  value={formData[field.key]}
+                  formData={formData}
+                  onChange={handleFieldChange}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {/* Requester contact info */}
+          {requesterContact ? (
+            <div className="workflow-drawer-section workflow-drawer-contact-section">
+              <Typography.Text strong className="workflow-field-section-label">
+                {requesterContact.title}
+              </Typography.Text>
+              {requesterContact.helpText ? (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {requesterContact.helpText}
+                </Typography.Text>
+              ) : null}
+              {requesterContact.fields.map((field) => (
+                <FieldRenderer
+                  key={field.key}
+                  field={field}
+                  value={formData[field.key]}
+                  formData={formData}
+                  onChange={handleFieldChange}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {/* Org contact info */}
+          {orgContact ? (
+            <div className="workflow-drawer-section workflow-drawer-contact-section">
+              <Typography.Text strong className="workflow-field-section-label">
+                {orgContact.title}
+              </Typography.Text>
+              {orgContact.helpText ? (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {orgContact.helpText}
+                </Typography.Text>
+              ) : null}
+              {orgContact.fields.map((field) => (
+                <FieldRenderer
+                  key={field.key}
+                  field={field}
+                  value={formData[field.key]}
+                  formData={formData}
+                  onChange={handleFieldChange}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {/* Instance-level submission details */}
+          <div className="workflow-drawer-section">
+            <Typography.Text strong className="workflow-field-section-label">
+              Submission Details
             </Typography.Text>
 
-            <div className="workflow-field-row">
+            <div className="workflow-drawer-field">
               <label className="workflow-field-label">Target Member</label>
               <Input
                 value={targetMember}
-                placeholder="e.g. Rep. Jane Smith (D-CA)"
+                placeholder="e.g. Sen. Jane Smith (D-MA)"
                 onChange={(e) => {
                   setTargetMember(e.target.value);
                   scheduleAutoSave();
@@ -330,7 +375,7 @@ export function WorkflowDrawer({
               />
             </div>
 
-            <div className="workflow-field-row">
+            <div className="workflow-drawer-field">
               <label className="workflow-field-label">Submission Deadline</label>
               <Input
                 type="date"
@@ -343,7 +388,7 @@ export function WorkflowDrawer({
               />
             </div>
 
-            <div className="workflow-field-row">
+            <div className="workflow-drawer-field">
               <label className="workflow-field-label">Submission Method</label>
               <Select
                 style={{ width: '100%' }}
@@ -362,7 +407,7 @@ export function WorkflowDrawer({
               />
             </div>
 
-            <div className="workflow-field-row">
+            <div className="workflow-drawer-field">
               <label className="workflow-field-label">Notes</label>
               <Input.TextArea
                 value={notes}
@@ -381,57 +426,98 @@ export function WorkflowDrawer({
   );
 }
 
-function FieldInput({
+function FieldRenderer({
   field,
   value,
+  formData,
   onChange,
 }: {
   field: FieldDefinition;
   value: unknown;
-  onChange: (val: unknown) => void;
+  formData: Record<string, unknown>;
+  onChange: (key: string, val: unknown) => void;
 }) {
-  if (field.type === 'currency') {
-    return (
-      <InputNumber
-        style={{ width: '100%' }}
-        prefix="$"
-        value={typeof value === 'number' ? value : undefined}
-        formatter={currencyFormatter}
-        parser={currencyParser}
-        onChange={(val) => onChange(val)}
-        placeholder="0"
-      />
-    );
+  if (field.conditional) {
+    const parentVal = formData[field.conditional.field];
+    if (parentVal !== field.conditional.value) return null;
   }
-  if (field.type === 'textarea') {
-    return (
-      <Input.TextArea
-        value={typeof value === 'string' ? value : ''}
-        rows={3}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    );
-  }
+
+  const isConditional = !!field.conditional;
+
   return (
-    <Input
-      value={typeof value === 'string' ? value : ''}
-      onChange={(e) => onChange(e.target.value)}
-    />
+    <div className={`workflow-drawer-field${isConditional ? ' workflow-drawer-conditional' : ''}`}>
+      <label className="workflow-field-label">
+        {field.label}
+        {field.required ? <span className="workflow-field-required">*</span> : null}
+      </label>
+
+      {field.type === 'text' && (
+        <Input
+          value={typeof value === 'string' ? value : ''}
+          maxLength={field.maxLength}
+          onChange={(e) => onChange(field.key, e.target.value)}
+        />
+      )}
+
+      {field.type === 'integer' && (
+        <InputNumber
+          style={{ width: '100%' }}
+          value={typeof value === 'number' ? value : undefined}
+          precision={0}
+          step={1}
+          formatter={intFormatter}
+          parser={intParser}
+          onChange={(val) => onChange(field.key, val ?? undefined)}
+        />
+      )}
+
+      {field.type === 'textarea' && (
+        <Input.TextArea
+          value={typeof value === 'string' ? value : ''}
+          autoSize={{ minRows: 3 }}
+          onChange={(e) => onChange(field.key, e.target.value)}
+        />
+      )}
+
+      {field.type === 'select' && (
+        <Select
+          style={{ width: '100%' }}
+          value={typeof value === 'string' ? value : undefined}
+          options={(field.options ?? []).map((opt) => ({ value: opt, label: opt }))}
+          onChange={(val) => onChange(field.key, val)}
+          placeholder="Select…"
+          allowClear
+        />
+      )}
+
+      {field.type === 'boolean' && (
+        <Radio.Group
+          className="workflow-drawer-boolean"
+          value={typeof value === 'boolean' ? value : undefined}
+          onChange={(e) => onChange(field.key, e.target.value as boolean)}
+        >
+          <Radio value={true}>Yes</Radio>
+          <Radio value={false}>No</Radio>
+        </Radio.Group>
+      )}
+
+      {field.helpText ? (
+        <span className="workflow-drawer-field-help">{field.helpText}</span>
+      ) : null}
+    </div>
   );
 }
 
-function numericField(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
-}
-
-function currencyFormatter(value: number | undefined): string {
+function intFormatter(value: number | string | undefined): string {
   if (value === undefined || value === null) return '';
-  return `${value}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const num = Math.trunc(Number(value));
+  if (!Number.isFinite(num)) return '';
+  return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-function currencyParser(value: string | undefined): number {
+function intParser(value: string | undefined): number {
   const cleaned = (value ?? '').replace(/,/g, '');
-  const parsed = parseFloat(cleaned);
+  const parsed = parseInt(cleaned, 10);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 

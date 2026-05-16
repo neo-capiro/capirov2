@@ -5943,3 +5943,70 @@ body {
     display: none;
   }
 }
+
+/* ─── Workflow Drawer — Phase A ───────────────────────────────────────────── */
+
+.workflow-drawer-type-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 0 4px;
+  border-top: 1px solid var(--line-soft);
+  margin-top: 4px;
+}
+
+.workflow-drawer-type-toggle .ant-radio-group {
+  display: flex;
+  gap: 0;
+}
+
+.workflow-drawer-type-toggle .ant-radio-button-wrapper {
+  flex: 1;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.workflow-drawer-section {
+  border-top: 1px solid var(--line-soft);
+  padding-top: 16px;
+  margin-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workflow-drawer-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.workflow-drawer-field-help {
+  font-size: 11px;
+  color: var(--ink-700);
+  line-height: 1.4;
+}
+
+.workflow-drawer-conditional {
+  margin-left: 16px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line-soft);
+}
+
+.workflow-drawer-boolean .ant-radio-wrapper {
+  font-size: 13px;
+}
+
+.workflow-drawer-contact-section {
+  background: var(--app-bg-1);
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  padding: 14px;
+  margin-top: 16px;
+  border-top: none;
+}
+
+.workflow-drawer-contact-section .workflow-drawer-field {
+  gap: 3px;
+}

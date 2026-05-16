@@ -1,11 +1,39 @@
+export type RequestType = 'funding' | 'policy';
+export type FieldType = 'text' | 'integer' | 'textarea' | 'select' | 'boolean';
+
+export interface ConditionalDef {
+  field: string;
+  value: boolean | string | number;
+}
+
 export interface FieldDefinition {
   key: string;
   label: string;
-  type: 'text' | 'currency' | 'textarea';
-  required: boolean;
-  section: string;
-  description?: string;
-  computed?: boolean;
+  type: FieldType;
+  required?: boolean;
+  maxLength?: number;
+  options?: string[];
+  helpText?: string;
+  conditional?: ConditionalDef;
+  source?: string;
+}
+
+export interface SectionDefinition {
+  title: string;
+  helpText?: string;
+  fields: FieldDefinition[];
+}
+
+export interface RequestSections {
+  requestTypes: string[];
+  sections: {
+    funding: { section1: SectionDefinition };
+    policy: { section1: SectionDefinition };
+    shared: {
+      requesterContact: SectionDefinition;
+      orgContact: SectionDefinition;
+    };
+  };
 }
 
 export interface WorkflowTemplate {
@@ -14,7 +42,7 @@ export interface WorkflowTemplate {
   name: string;
   description: string | null;
   category: string;
-  requiredSections: FieldDefinition[];
+  requiredSections: RequestSections;
   contextInfo: Record<string, unknown>;
   isActive: boolean;
   sortOrder: number;
