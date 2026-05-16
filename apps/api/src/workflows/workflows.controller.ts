@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -64,5 +65,15 @@ export class WorkflowsController {
   @Delete('instances/:id')
   deleteInstance(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.deleteInstance(ctx.tenantId, id);
+  }
+
+  @Post('instances/:id/ai-fill')
+  aiFillInstance(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: { clientId?: string },
+  ) {
+    if (!body.clientId) throw new BadRequestException('clientId is required');
+    return this.service.aiFillInstance(ctx.tenantId, id, body.clientId);
   }
 }

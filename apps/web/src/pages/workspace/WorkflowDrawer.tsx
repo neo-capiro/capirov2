@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DeleteOutlined, SaveOutlined } from '@ant-design/icons';
+import { BulbOutlined, CheckOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -9,6 +9,7 @@ import {
   Drawer,
   Input,
   InputNumber,
+  Modal,
   Radio,
   Select,
   Space,
@@ -28,6 +29,11 @@ import {
 } from './workflowTypes.js';
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error';
+
+interface AiSuggestion {
+  value: string;
+  reasoning: string;
+}
 
 interface WorkflowDrawerProps {
   instance: WorkflowInstance | null;
@@ -58,6 +64,10 @@ export function WorkflowDrawer({
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [requesterPrepopulated, setRequesterPrepopulated] = useState(false);
   const [clientPrepopulated, setClientPrepopulated] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState<Record<string, AiSuggestion>>({});
+  const [showAiModal, setShowAiModal] = useState(false);
+  const [acceptedKeys, setAcceptedKeys] = useState<Set<string>>(new Set());
 
   const autoSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -213,6 +223,43 @@ export function WorkflowDrawer({
       okButtonProps: { danger: true },
       onOk: () => deleteInstance.mutateAsync(instance.id),
     });
+  };
+
+  const handleAiFill = async () => {
+    if (!instance || !selectedClientId) return;
+    setAiLoading(true);
+    try {
+      const resp = await api.post<{ suggestions: Record<string, AiSuggestion> }>(
+        `/api/workflows/instances/${instance.id}/ai-fill`,
+        { clientId: selectedClientId },
+      );
+      const suggestions = resp.data.suggestions ?? {};
+      if (Object.keys(suggestions).length === 0) {
+        message.info('No suggestions — all fillable fields may already have values, or the AI found insufficient context.');
+        return;
+      }
+      setAiSuggestions(suggestions);
+      setAcceptedKeys(new Set());
+      setShowAiModal(true);
+    } catch (err) {
+      message.error(errorMessage(err));
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const acceptSuggestion = (key: string) => {
+    const suggestion = aiSuggestions[key];
+    if (!suggestion) return;
+    handleFieldChange(key, suggestion.value);
+    setAcceptedKeys((prev) => new Set([...prev, key]));
+  };
+
+  const acceptAllSuggestions = () => {
+    for (const [key, suggestion] of Object.entries(aiSuggestions)) {
+      handleFieldChange(key, suggestion.value);
+    }
+    setAcceptedKeys(new Set(Object.keys(aiSuggestions)));
   };
 
   const template = instance?.template ?? null;
@@ -411,6 +458,27 @@ export function WorkflowDrawer({
             </Radio.Group>
           </div>
 
+          {/* AI auto-fill */}
+          {section1 ? (
+            <div className="workflow-drawer-ai-fill">
+              <Button
+                icon={<BulbOutlined />}
+                type="dashed"
+                loading={aiLoading}
+                disabled={!selectedClientId}
+                onClick={handleAiFill}
+                title={selectedClientId ? 'Auto-fill fields using AI and client documents' : 'Select a client first'}
+              >
+                Auto-fill with AI
+              </Button>
+              {!selectedClientId ? (
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  Select a client to enable AI auto-fill
+                </Typography.Text>
+              ) : null}
+            </div>
+          ) : null}
+
           {/* Section 1: Request-type specific fields */}
           {section1 ? (
             <div className="workflow-drawer-section">
@@ -548,6 +616,63 @@ export function WorkflowDrawer({
           </div>
         </div>
       ) : null}
+
+      <Modal
+        open={showAiModal}
+        title={
+          <Space>
+            <BulbOutlined style={{ color: '#faad14' }} />
+            AI Suggestions
+          </Space>
+        }
+        onCancel={() => setShowAiModal(false)}
+        footer={
+          <Space>
+            <Button
+              type="primary"
+              icon={<CheckOutlined />}
+              onClick={() => {
+                acceptAllSuggestions();
+                setShowAiModal(false);
+              }}
+            >
+              Accept All
+            </Button>
+            <Button onClick={() => setShowAiModal(false)}>Dismiss</Button>
+          </Space>
+        }
+        width={560}
+      >
+        <div className="workflow-drawer-ai-suggestions">
+          {Object.entries(aiSuggestions).map(([key, suggestion]) => {
+            const fieldDef = section1?.fields.find((f) => f.key === key);
+            const label = fieldDef?.label ?? key;
+            const accepted = acceptedKeys.has(key);
+            return (
+              <div key={key} className={`workflow-drawer-ai-suggestion${accepted ? ' workflow-drawer-ai-suggestion--accepted' : ''}`}>
+                <div className="workflow-drawer-ai-suggestion-header">
+                  <Typography.Text strong style={{ fontSize: 13 }}>{label}</Typography.Text>
+                  <Button
+                    size="small"
+                    type={accepted ? 'default' : 'primary'}
+                    icon={accepted ? <CheckOutlined /> : null}
+                    onClick={() => acceptSuggestion(key)}
+                    disabled={accepted}
+                  >
+                    {accepted ? 'Accepted' : 'Accept'}
+                  </Button>
+                </div>
+                <Typography.Text style={{ fontSize: 13 }}>{suggestion.value}</Typography.Text>
+                <div className="workflow-drawer-ai-reasoning">
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                    {suggestion.reasoning}
+                  </Typography.Text>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Modal>
     </Drawer>
   );
 }

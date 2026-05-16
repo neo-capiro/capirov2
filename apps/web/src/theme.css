@@ -6010,3 +6010,51 @@ body {
 .workflow-drawer-contact-section .workflow-drawer-field {
   gap: 3px;
 }
+
+/* ─── Workflow Drawer — Phase D (AI fill) ─────────────────────────────────── */
+
+.workflow-drawer-ai-fill {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-top: 1px solid var(--line-soft);
+  background: var(--app-bg-1);
+}
+
+.workflow-drawer-ai-suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 480px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.workflow-drawer-ai-suggestion {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-soft);
+  border-radius: 6px;
+  background: var(--app-bg-0);
+  transition: border-color 0.15s;
+}
+
+.workflow-drawer-ai-suggestion--accepted {
+  border-color: #52c41a;
+  background: #f6ffed;
+}
+
+.workflow-drawer-ai-suggestion-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-drawer-ai-reasoning {
+  padding-top: 4px;
+  border-top: 1px solid var(--line-soft);
+}
