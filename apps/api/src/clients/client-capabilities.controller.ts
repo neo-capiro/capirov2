@@ -1,0 +1,225 @@
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  IsArray,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+} from 'class-validator';
+import type { TenantContext } from '@capiro/shared';
+import { Roles } from '../auth/roles.decorator.js';
+import { RolesGuard } from '../auth/roles.guard.js';
+import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
+import { ClientCapabilitiesService } from './client-capabilities.service.js';
+
+class CreateCapabilityDto {
+  @IsString()
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  sector?: string;
+
+  @IsOptional()
+  @IsArray()
+  tags?: unknown[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(9)
+  trl?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  mrl?: number;
+
+  @IsOptional()
+  @IsString()
+  peNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  appropriationAccount?: string;
+
+  @IsOptional()
+  @IsString()
+  serviceBranch?: string;
+
+  @IsOptional()
+  @IsString()
+  targetSubcommittee?: string;
+
+  @IsOptional()
+  @IsNumber()
+  fundingAsk?: number;
+
+  @IsOptional()
+  @IsString()
+  fundingAskLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  justification?: string;
+
+  @IsOptional()
+  @IsString()
+  districtNexus?: string;
+
+  @IsOptional()
+  @IsString()
+  existingContracts?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
+}
+
+class UpdateCapabilityDto extends CreateCapabilityDto {}
+
+class CreateHistoryDto {
+  @IsString()
+  fiscalYear!: string;
+
+  @IsString()
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  meta?: string;
+
+  @IsOptional()
+  @IsString()
+  outcome?: string;
+
+  @IsOptional()
+  @IsString()
+  outcomeType?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+class UpdateHistoryDto {
+  @IsOptional()
+  @IsString()
+  fiscalYear?: string;
+
+  @IsOptional()
+  @IsString()
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  meta?: string;
+
+  @IsOptional()
+  @IsString()
+  outcome?: string;
+
+  @IsOptional()
+  @IsString()
+  outcomeType?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+@Controller('clients/:clientId')
+@UseGuards(RolesGuard)
+@Roles('standard_user')
+export class ClientCapabilitiesController {
+  constructor(private readonly service: ClientCapabilitiesService) {}
+
+  @Get('capabilities')
+  listCapabilities(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.listCapabilities(ctx, clientId);
+  }
+
+  @Post('capabilities')
+  createCapability(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Body() body: CreateCapabilityDto,
+  ) {
+    return this.service.createCapability(ctx, clientId, body);
+  }
+
+  @Patch('capabilities/:id')
+  updateCapability(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Param('id') id: string,
+    @Body() body: UpdateCapabilityDto,
+  ) {
+    return this.service.updateCapability(ctx, clientId, id, body);
+  }
+
+  @Delete('capabilities/:id')
+  deleteCapability(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Param('id') id: string,
+  ) {
+    return this.service.deleteCapability(ctx, clientId, id);
+  }
+
+  @Get('capabilities/:capId/history')
+  listHistory(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Param('capId') capId: string,
+  ) {
+    return this.service.listHistory(ctx, clientId, capId);
+  }
+
+  @Post('capabilities/:capId/history')
+  createHistory(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Param('capId') capId: string,
+    @Body() body: CreateHistoryDto,
+  ) {
+    return this.service.createHistory(ctx, clientId, capId, body);
+  }
+
+  @Patch('history/:id')
+  updateHistory(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Param('id') id: string,
+    @Body() body: UpdateHistoryDto,
+  ) {
+    return this.service.updateHistory(ctx, clientId, id, body);
+  }
+
+  @Delete('history/:id')
+  deleteHistory(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Param('id') id: string,
+  ) {
+    return this.service.deleteHistory(ctx, clientId, id);
+  }
+}

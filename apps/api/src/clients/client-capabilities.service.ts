@@ -1,0 +1,223 @@
+import { Injectable, NotFoundException } from '@nestjs/common';
+import type { TenantContext } from '@capiro/shared';
+import { PrismaService } from '../prisma/prisma.service.js';
+
+export interface CreateCapabilityInput {
+  name: string;
+  type?: string;
+  description?: string;
+  sector?: string;
+  tags?: unknown[];
+  trl?: number;
+  mrl?: number;
+  peNumber?: string;
+  appropriationAccount?: string;
+  serviceBranch?: string;
+  targetSubcommittee?: string;
+  fundingAsk?: number;
+  fundingAskLabel?: string;
+  justification?: string;
+  districtNexus?: string;
+  existingContracts?: string;
+  notes?: string;
+  sortOrder?: number;
+}
+
+export type UpdateCapabilityInput = Partial<CreateCapabilityInput>;
+
+export interface CreateSubmissionHistoryInput {
+  fiscalYear: string;
+  title: string;
+  meta?: string;
+  outcome?: string;
+  outcomeType?: string;
+  notes?: string;
+}
+
+export type UpdateSubmissionHistoryInput = Partial<CreateSubmissionHistoryInput>;
+
+@Injectable()
+export class ClientCapabilitiesService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  private async assertClient(tenantId: string, clientId: string, tx: typeof this.prisma) {
+    const client = await (tx as any).client.findFirst({
+      where: { id: clientId, tenantId, status: { not: 'archived' } },
+      select: { id: true },
+    });
+    if (!client) throw new NotFoundException('Client not found');
+  }
+
+  async listCapabilities(ctx: TenantContext, clientId: string) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await this.assertClient(ctx.tenantId, clientId, tx as any);
+      return tx.clientCapability.findMany({
+        where: { tenantId: ctx.tenantId, clientId },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      });
+    });
+  }
+
+  async createCapability(ctx: TenantContext, clientId: string, input: CreateCapabilityInput) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await this.assertClient(ctx.tenantId, clientId, tx as any);
+      return tx.clientCapability.create({
+        data: {
+          tenantId: ctx.tenantId,
+          clientId,
+          name: input.name,
+          type: input.type ?? 'product',
+          description: input.description ?? null,
+          sector: input.sector ?? null,
+          tags: (input.tags ?? []) as object,
+          trl: input.trl ?? null,
+          mrl: input.mrl ?? null,
+          peNumber: input.peNumber ?? null,
+          appropriationAccount: input.appropriationAccount ?? null,
+          serviceBranch: input.serviceBranch ?? null,
+          targetSubcommittee: input.targetSubcommittee ?? null,
+          fundingAsk: input.fundingAsk ?? null,
+          fundingAskLabel: input.fundingAskLabel ?? null,
+          justification: input.justification ?? null,
+          districtNexus: input.districtNexus ?? null,
+          existingContracts: input.existingContracts ?? null,
+          notes: input.notes ?? null,
+          sortOrder: input.sortOrder ?? 0,
+        },
+      });
+    });
+  }
+
+  async updateCapability(
+    ctx: TenantContext,
+    clientId: string,
+    id: string,
+    input: UpdateCapabilityInput,
+  ) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const existing = await tx.clientCapability.findFirst({
+        where: { id, tenantId: ctx.tenantId, clientId },
+        select: { id: true },
+      });
+      if (!existing) throw new NotFoundException('Capability not found');
+      return tx.clientCapability.update({
+        where: { id },
+        data: {
+          ...('name' in input ? { name: input.name } : {}),
+          ...('type' in input ? { type: input.type } : {}),
+          ...('description' in input ? { description: input.description ?? null } : {}),
+          ...('sector' in input ? { sector: input.sector ?? null } : {}),
+          ...('tags' in input ? { tags: (input.tags ?? []) as object } : {}),
+          ...('trl' in input ? { trl: input.trl ?? null } : {}),
+          ...('mrl' in input ? { mrl: input.mrl ?? null } : {}),
+          ...('peNumber' in input ? { peNumber: input.peNumber ?? null } : {}),
+          ...('appropriationAccount' in input
+            ? { appropriationAccount: input.appropriationAccount ?? null }
+            : {}),
+          ...('serviceBranch' in input ? { serviceBranch: input.serviceBranch ?? null } : {}),
+          ...('targetSubcommittee' in input
+            ? { targetSubcommittee: input.targetSubcommittee ?? null }
+            : {}),
+          ...('fundingAsk' in input ? { fundingAsk: input.fundingAsk ?? null } : {}),
+          ...('fundingAskLabel' in input
+            ? { fundingAskLabel: input.fundingAskLabel ?? null }
+            : {}),
+          ...('justification' in input ? { justification: input.justification ?? null } : {}),
+          ...('districtNexus' in input ? { districtNexus: input.districtNexus ?? null } : {}),
+          ...('existingContracts' in input
+            ? { existingContracts: input.existingContracts ?? null }
+            : {}),
+          ...('notes' in input ? { notes: input.notes ?? null } : {}),
+          ...('sortOrder' in input ? { sortOrder: input.sortOrder ?? 0 } : {}),
+        },
+      });
+    });
+  }
+
+  async deleteCapability(ctx: TenantContext, clientId: string, id: string) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const existing = await tx.clientCapability.findFirst({
+        where: { id, tenantId: ctx.tenantId, clientId },
+        select: { id: true },
+      });
+      if (!existing) throw new NotFoundException('Capability not found');
+      await tx.clientCapability.delete({ where: { id } });
+      return { deleted: true };
+    });
+  }
+
+  async listHistory(ctx: TenantContext, clientId: string, capabilityId: string) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const cap = await tx.clientCapability.findFirst({
+        where: { id: capabilityId, tenantId: ctx.tenantId, clientId },
+        select: { id: true },
+      });
+      if (!cap) throw new NotFoundException('Capability not found');
+      return tx.clientSubmissionHistory.findMany({
+        where: { tenantId: ctx.tenantId, clientId, capabilityId },
+        orderBy: { fiscalYear: 'desc' },
+      });
+    });
+  }
+
+  async createHistory(
+    ctx: TenantContext,
+    clientId: string,
+    capabilityId: string,
+    input: CreateSubmissionHistoryInput,
+  ) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const cap = await tx.clientCapability.findFirst({
+        where: { id: capabilityId, tenantId: ctx.tenantId, clientId },
+        select: { id: true },
+      });
+      if (!cap) throw new NotFoundException('Capability not found');
+      return tx.clientSubmissionHistory.create({
+        data: {
+          tenantId: ctx.tenantId,
+          clientId,
+          capabilityId,
+          fiscalYear: input.fiscalYear,
+          title: input.title,
+          meta: input.meta ?? null,
+          outcome: input.outcome ?? null,
+          outcomeType: input.outcomeType ?? 'in_progress',
+          notes: input.notes ?? null,
+        },
+      });
+    });
+  }
+
+  async updateHistory(ctx: TenantContext, clientId: string, id: string, input: UpdateSubmissionHistoryInput) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const existing = await tx.clientSubmissionHistory.findFirst({
+        where: { id, tenantId: ctx.tenantId, clientId },
+        select: { id: true },
+      });
+      if (!existing) throw new NotFoundException('Submission history entry not found');
+      return tx.clientSubmissionHistory.update({
+        where: { id },
+        data: {
+          ...('fiscalYear' in input ? { fiscalYear: input.fiscalYear } : {}),
+          ...('title' in input ? { title: input.title } : {}),
+          ...('meta' in input ? { meta: input.meta ?? null } : {}),
+          ...('outcome' in input ? { outcome: input.outcome ?? null } : {}),
+          ...('outcomeType' in input ? { outcomeType: input.outcomeType ?? 'in_progress' } : {}),
+          ...('notes' in input ? { notes: input.notes ?? null } : {}),
+        },
+      });
+    });
+  }
+
+  async deleteHistory(ctx: TenantContext, clientId: string, id: string) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const existing = await tx.clientSubmissionHistory.findFirst({
+        where: { id, tenantId: ctx.tenantId, clientId },
+        select: { id: true },
+      });
+      if (!existing) throw new NotFoundException('Submission history entry not found');
+      await tx.clientSubmissionHistory.delete({ where: { id } });
+      return { deleted: true };
+    });
+  }
+}

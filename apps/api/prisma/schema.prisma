@@ -159,6 +159,9 @@ model Tenant {
   clioArtifacts              ClioArtifact[]
   clioNotes                  ClioNote[]
   workflowInstances          WorkflowInstance[]
+  clientCapabilities         ClientCapability[]
+  clientSubmissionHistory    ClientSubmissionHistory[]
+  clientPeople               ClientPerson[]
 
   @@map("tenants")
 }
@@ -260,6 +263,9 @@ model Client {
   clioArtifacts           ClioArtifact[]
   clioNotes               ClioNote[]
   workflowInstances       WorkflowInstance[]
+  capabilities            ClientCapability[]
+  submissionHistory       ClientSubmissionHistory[]
+  people                  ClientPerson[]
 
   @@index([tenantId], map: "clients_tenant_idx")
   @@index([tenantId, name], map: "clients_tenant_name_idx")
@@ -945,4 +951,80 @@ model WorkflowInstance {
   @@index([tenantId, clientId, status], map: "workflow_instances_tenant_client_status_idx")
   @@index([tenantId, templateId], map: "workflow_instances_tenant_template_idx")
   @@map("workflow_instances")
+}
+
+model ClientCapability {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  clientId             String   @map("client_id") @db.Uuid
+  name                 String
+  type                 String   @default("product")
+  description          String?  @db.Text
+  sector               String?
+  tags                 Json     @default("[]") @map("tags_jsonb")
+  trl                  Int?
+  mrl                  Int?
+  peNumber             String?  @map("pe_number")
+  appropriationAccount String?  @map("appropriation_account")
+  serviceBranch        String?  @map("service_branch")
+  targetSubcommittee   String?  @map("target_subcommittee")
+  fundingAsk           Int?     @map("funding_ask")
+  fundingAskLabel      String?  @map("funding_ask_label")
+  justification        String?  @db.Text
+  districtNexus        String?  @map("district_nexus") @db.Text
+  existingContracts    String?  @map("existing_contracts")
+  notes                String?  @db.Text
+  sortOrder            Int      @default(0) @map("sort_order")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client            Client                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  submissionHistory ClientSubmissionHistory[]
+
+  @@index([tenantId, clientId], map: "client_capabilities_tenant_client_idx")
+  @@map("client_capabilities")
+}
+
+model ClientSubmissionHistory {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  clientId     String   @map("client_id") @db.Uuid
+  capabilityId String?  @map("capability_id") @db.Uuid
+  fiscalYear   String   @map("fiscal_year")
+  title        String
+  meta         String?
+  outcome      String?
+  outcomeType  String   @default("in_progress") @map("outcome_type")
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client     Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  capability ClientCapability? @relation(fields: [capabilityId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, clientId, capabilityId], map: "client_submission_history_tenant_client_cap_idx")
+  @@map("client_submission_history")
+}
+
+model ClientPerson {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  clientId    String    @map("client_id") @db.Uuid
+  name        String
+  title       String?
+  email       String?   @db.Citext
+  phone       String?
+  role        String?
+  lastContact DateTime? @map("last_contact") @db.Timestamptz(6)
+  notes       String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, clientId], map: "client_people_tenant_client_idx")
+  @@map("client_people")
 }

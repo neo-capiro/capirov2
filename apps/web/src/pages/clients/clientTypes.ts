@@ -1,3 +1,44 @@
+export interface SubmissionHistoryEntry {
+  fy: string;
+  title: string;
+  meta: string;
+  outcome: string;
+  outcomeType: 'success' | 'partial' | 'failed' | 'in_progress';
+  notes?: string;
+}
+
+export interface Capability {
+  id: string;
+  name: string;
+  type: 'product' | 'service' | 'platform' | 'technology';
+  description?: string;
+  sector?: string;
+  tags?: string[];
+  trl?: number;
+  mrl?: number;
+  peNumber?: string;
+  appropriationAccount?: string;
+  service?: string;
+  targetSubcommittee?: string;
+  fundingAsk?: number;
+  fundingAskLabel?: string;
+  justification?: string;
+  districtNexus?: string;
+  existingContracts?: string;
+  submissionHistory?: SubmissionHistoryEntry[];
+  notes?: string;
+}
+
+export interface ClientPerson {
+  id: string;
+  name: string;
+  title: string;
+  email?: string;
+  phone?: string;
+  role?: string;
+  lastContact?: string;
+}
+
 export interface ClientIntakeData extends Record<string, unknown> {
   sector?: string;
   trl?: string | number;
@@ -20,6 +61,13 @@ export interface ClientIntakeData extends Record<string, unknown> {
   pocEmail?: string;
   headName?: string;
   headTitle?: string;
+  cageCode?: string;
+  uei?: string;
+  primaryNaics?: string;
+  samStatus?: string;
+  existingContracts?: string;
+  capabilities?: Capability[];
+  people?: ClientPerson[];
 }
 
 export interface ClientDocument {
