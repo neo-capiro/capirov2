@@ -1,5 +1,6 @@
 export type RequestType = 'funding' | 'policy';
 export type FieldType = 'text' | 'integer' | 'textarea' | 'select' | 'boolean';
+export type TemplateCategory = 'authorization' | 'appropriations' | 'language' | 'supporting';
 
 export interface ConditionalDef {
   field: string;
@@ -27,8 +28,8 @@ export interface SectionDefinition {
 export interface RequestSections {
   requestTypes: string[];
   sections: {
-    funding: { section1: SectionDefinition };
-    policy: { section1: SectionDefinition };
+    funding?: { section1: SectionDefinition };
+    policy?: { section1: SectionDefinition };
     shared: {
       requesterContact: SectionDefinition;
       orgContact: SectionDefinition;
@@ -41,7 +42,7 @@ export interface WorkflowTemplate {
   slug: string;
   name: string;
   description: string | null;
-  category: string;
+  category: TemplateCategory;
   requiredSections: RequestSections;
   contextInfo: Record<string, unknown>;
   isActive: boolean;

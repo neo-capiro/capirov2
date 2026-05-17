@@ -1,10 +1,26 @@
 import { useState } from 'react';
 import { PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App as AntApp, Button, Card, Empty, Skeleton, Tag, Typography } from 'antd';
+import { App as AntApp, Button, Card, Divider, Empty, Skeleton, Tag, Typography } from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '../../lib/use-api.js';
-import type { WorkflowTemplate } from './workflowTypes.js';
+import type { TemplateCategory, WorkflowTemplate } from './workflowTypes.js';
+
+const CATEGORY_ORDER: TemplateCategory[] = ['authorization', 'appropriations', 'language', 'supporting'];
+
+const CATEGORY_LABELS: Record<TemplateCategory, string> = {
+  authorization: 'Authorization (NDAA)',
+  appropriations: 'House Appropriations',
+  language: 'Language Requests',
+  supporting: 'Supporting Documents',
+};
+
+const CATEGORY_TAG_COLORS: Record<TemplateCategory, string> = {
+  authorization: 'geekblue',
+  appropriations: 'blue',
+  language: 'purple',
+  supporting: 'cyan',
+};
 
 export function CatalogView() {
   const api = useApi();
@@ -62,35 +78,54 @@ export function CatalogView() {
     );
   }
 
+  const grouped = activeTemplates.reduce<Record<string, WorkflowTemplate[]>>((acc, t) => {
+    (acc[t.category] = acc[t.category] ?? []).push(t);
+    return acc;
+  }, {});
+
+  const visibleCategories = CATEGORY_ORDER.filter((cat) => (grouped[cat]?.length ?? 0) > 0);
+
   return (
     <div className="catalog-view">
-      <div className="catalog-grid">
-        {activeTemplates.map((template) => (
-          <Card key={template.id} className="catalog-card">
-            <div className="catalog-card-body">
-              <Tag color="blue" className="catalog-card-category">
-                {template.category}
-              </Tag>
-              <Typography.Text strong className="catalog-card-name">
-                {template.name}
-              </Typography.Text>
-              <Typography.Text type="secondary" className="catalog-card-desc">
-                {template.description ?? 'No description available.'}
-              </Typography.Text>
-            </div>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              className="catalog-card-action"
-              loading={addingSlug === template.slug}
-              disabled={createInstance.isPending && addingSlug !== template.slug}
-              onClick={() => handleAdd(template.slug)}
-            >
-              Add to Workflows
-            </Button>
-          </Card>
-        ))}
-      </div>
+      {visibleCategories.map((cat) => (
+        <div key={cat} className="catalog-category">
+          <Divider orientation="left" orientationMargin={0}>
+            <span className="catalog-category-title">{CATEGORY_LABELS[cat]}</span>
+            <Tag className="catalog-category-count">{grouped[cat]?.length ?? 0}</Tag>
+          </Divider>
+          <div className="catalog-grid">
+            {(grouped[cat] ?? []).map((template) => (
+              <Card key={template.id} className="catalog-card">
+                <div className="catalog-card-body">
+                  <Tag color={CATEGORY_TAG_COLORS[template.category]} className="catalog-card-badge">
+                    {CATEGORY_LABELS[template.category]}
+                  </Tag>
+                  <Typography.Text strong className="catalog-card-name">
+                    {template.name}
+                  </Typography.Text>
+                  <Typography.Paragraph
+                    type="secondary"
+                    className="catalog-card-desc"
+                    ellipsis={{ rows: 2 }}
+                  >
+                    {template.description ?? 'No description available.'}
+                  </Typography.Paragraph>
+                </div>
+                <Button
+                  type="primary"
+                  icon={<PlusOutlined />}
+                  className="catalog-card-action"
+                  loading={addingSlug === template.slug}
+                  disabled={createInstance.isPending && addingSlug !== template.slug}
+                  onClick={() => handleAdd(template.slug)}
+                >
+                  Add to Workflows
+                </Button>
+              </Card>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
