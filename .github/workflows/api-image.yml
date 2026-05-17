@@ -2,11 +2,18 @@
 # Deploys are NOT automated — `cdk deploy` runs interactively via Claude+MCP
 # per the architecture doc. This workflow only produces a build artifact.
 #
+# Capiro is single-account (967807252336) per the v0.2 architecture doc, so
+# pushes to main always target the prod ECR repo. The `env` workflow_dispatch
+# input is kept for the edge case of needing a one-off staging/dev image,
+# but the default for `push` events is prod.
+#
 # Auth uses OIDC -> assume role in the AWS account. Configure once:
-#   - Add an IAM role `capiro-gha-api` in the AWS account with a trust policy
-#     for token.actions.githubusercontent.com that scopes by repo + ref.
+#   - IAM role `capiro-gha-api` in the AWS account with a trust policy for
+#     token.actions.githubusercontent.com that scopes by repo + ref.
 #   - Grant it ecr:GetAuthorizationToken + push permissions on the api repo.
-#   - Set the role ARN in the repository variable AWS_GHA_ROLE_ARN.
+#   - Set the role ARN in the repository variable AWS_PROD_GHA_ROLE_ARN
+#     (AWS_DEV_GHA_ROLE_ARN is only consulted for the dev/staging dispatch
+#     paths and may be unset in the single-account world).
 
 name: api-image
 
@@ -23,7 +30,7 @@ on:
       env:
         description: 'Target env (dev|staging|prod)'
         required: true
-        default: 'dev'
+        default: 'prod'
 
 permissions:
   id-token: write
@@ -31,7 +38,8 @@ permissions:
 
 env:
   AWS_REGION: us-east-1
-  TARGET_ENV: ${{ github.event.inputs.env || 'dev' }}
+  # Push events always target prod; only manual dispatch can pick a non-prod env.
+  TARGET_ENV: ${{ github.event.inputs.env || 'prod' }}
 
 jobs:
   build:
