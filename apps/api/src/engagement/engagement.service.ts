@@ -1694,17 +1694,24 @@ export class EngagementService {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      // Fetch recent email threads from last 30 days:
-      // - If meeting has a clientId, get threads for that client
-      // - Also get threads where attendee emails appear as sender
+      // Fetch recent email threads from last 30 days for this client.
+      // Match by: client association + domain matching on attendee emails.
+      // This ensures we get all relevant correspondence, not just threads
+      // that happen to have a fromEmail match.
       const attendeeEmails = meeting.attendees
         .map((a) => a.email)
         .filter((e): e is string => Boolean(e));
+      const attendeeDomains = [...new Set(
+        attendeeEmails.map((e) => e.split('@')[1]).filter(Boolean),
+      )];
 
       const threadFilters: Array<Record<string, unknown>> = [];
       if (meeting.clientId) threadFilters.push({ clientId: meeting.clientId });
-      if (attendeeEmails.length) {
-        threadFilters.push({ messages: { some: { fromEmail: { in: attendeeEmails } } } });
+      // Match threads where any message is from an attendee's domain
+      if (attendeeDomains.length) {
+        for (const domain of attendeeDomains) {
+          threadFilters.push({ messages: { some: { fromEmail: { endsWith: `@${domain}` } } } });
+        }
       }
 
       const recentThreads = threadFilters.length
@@ -1882,17 +1889,24 @@ export class EngagementService {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      // Fetch recent email threads from last 30 days:
-      // - If meeting has a clientId, get threads for that client
-      // - Also get threads where attendee emails appear as sender
+      // Fetch recent email threads from last 30 days for this client.
+      // Match by: client association + domain matching on attendee emails.
+      // This ensures we get all relevant correspondence, not just threads
+      // that happen to have a fromEmail match.
       const attendeeEmails = meeting.attendees
         .map((a) => a.email)
         .filter((e): e is string => Boolean(e));
+      const attendeeDomains = [...new Set(
+        attendeeEmails.map((e) => e.split('@')[1]).filter(Boolean),
+      )];
 
       const threadFilters: Array<Record<string, unknown>> = [];
       if (meeting.clientId) threadFilters.push({ clientId: meeting.clientId });
-      if (attendeeEmails.length) {
-        threadFilters.push({ messages: { some: { fromEmail: { in: attendeeEmails } } } });
+      // Match threads where any message is from an attendee's domain
+      if (attendeeDomains.length) {
+        for (const domain of attendeeDomains) {
+          threadFilters.push({ messages: { some: { fromEmail: { endsWith: `@${domain}` } } } });
+        }
       }
 
       const recentThreads = threadFilters.length
