@@ -1,10 +1,16 @@
 #!/bin/sh
 # Capiro API container entrypoint.
 #
-# Two modes, selected by argv:
-#   serve    (default) -- start the NestJS HTTP server.
-#   migrate  -- run prisma migrate deploy and exit. The CDK migration task
-#               definition overrides the container command to "migrate".
+# Modes, selected by argv:
+#   serve           (default) -- start the NestJS HTTP server.
+#   migrate         -- run prisma migrate deploy, then seed workflow templates,
+#                      and exit. The CDK migration task definition overrides the
+#                      container command to "migrate". The data seed is
+#                      idempotent (upserts) so re-running on every deploy is
+#                      safe and keeps the workflow catalog in sync with the
+#                      seed file in git.
+#   seed-workflows  -- run only the workflow template seed (idempotent upserts).
+#                      Useful for one-shot reseeds without invoking migrations.
 #
 # In both modes we compose DATABASE_URL from the individual DB_* secrets
 # injected by ECS from the Aurora master credential. We require sslmode=require
@@ -36,7 +42,16 @@ export DATABASE_URL="postgresql://${DB_USER}:${ENCODED_PASSWORD}@${DB_HOST}:${DB
 case "${1:-serve}" in
   migrate)
     echo "Running prisma migrate deploy"
-    exec node ./node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
+    node ./node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
+    echo "Seeding workflow templates"
+    # Data seed (idempotent UPSERTs). Source of truth is prisma/seed-workflows.ts.
+    # Re-asserts the catalog on every migration deploy so prod / staging stay in
+    # sync with the file in git.
+    exec ./node_modules/.bin/tsx prisma/seed-workflows.ts
+    ;;
+  seed-workflows)
+    echo "Seeding workflow templates"
+    exec ./node_modules/.bin/tsx prisma/seed-workflows.ts
     ;;
   bootstrap-capiro-admin)
     shift
@@ -60,7 +75,7 @@ case "${1:-serve}" in
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles)" >&2
     exit 1
     ;;
 esac

@@ -319,7 +319,7 @@ export class EngagementAiService {
         model: this.anthropicModel,
         max_tokens: 1600,
         system:
-          'You generate concise lobbying meeting preparation. Return only valid JSON that matches the requested schema.',
+          'You generate lobbying meeting preparation anchored in the SPECIFIC interaction history (past meetings, email threads, open tasks) and the attendees\' congressional directory profiles. Never produce a generic company overview or marketing-style description of the client — the reader already knows who the client is. If the interaction history is empty, say so explicitly rather than padding with client profile narrative. Return only valid JSON matching the requested schema.',
         messages: [
           {
             role: 'user',
@@ -535,10 +535,18 @@ export class EngagementAiService {
 
   private buildPrompt(input: MeetingPrepInput): string {
     return [
-      'Create meeting prep for this lobbying interaction.',
-      'Use the client context, past meetings, email threads, and open tasks. Do not invent facts.',
-      'If congressionalDirectoryMatches are present, use those matched member and staff profiles as attendee context, including member bio, committee assignments, and office/location details.',
-      'Return JSON with agenda, talkingPoints, risks, followUps, and summary.',
+      'You are preparing a lobbyist for an upcoming meeting. The audience already knows who the client is — do NOT write a company overview, a marketing-style description of the client, or a generic "what the client does" summary. The output must be grounded in the SPECIFIC interactions, threads, tasks, and attendee profiles supplied below.',
+      'Hard rules:',
+      '- Every agenda item, talking point, risk, and follow-up must be traceable to a concrete signal in `recentMeetings`, `recentThreads`, `tasks`, `congressionalDirectoryMatches`, or the current `meeting` object. If you cannot tie an item to one of those, omit it.',
+      '- The `summary` is a 2-3 sentence situational brief about THIS meeting in the context of the relationship history. It is NOT a description of the client company. Mention the latest substantive exchange (most recent meeting outcome, most recent email thread topic, or the open task driving the meeting).',
+      '- `talkingPoints` should reference what was last discussed/asked/promised and what should be raised next, not generic capabilities of the client.',
+      '- `followUps` and `risks` come from open tasks, unresolved threads, prior meeting commitments, or directory-known concerns (e.g., the member sits on a relevant subcommittee with a known position).',
+      '- For each attendee in `attendees`, look for a matching entry in `congressionalDirectoryMatches` and weave in their chamber, committee/subcommittee assignments, title, district, and office context. These are the people in the room — they should drive the prep.',
+      '- Do not restate `client.description`, `client.productDescription`, or `client.intakeData` as narrative. You may reference a product name only when it ties to a specific past interaction (e.g., "Last meeting on May 2 discussed Program X").',
+      '- If recentMeetings, recentThreads, and tasks are all empty, say so plainly in `summary` ("No prior interactions on record — this appears to be a first touch.") and keep the rest of the output sparse rather than fabricating substance from the client profile.',
+      '- Do not invent facts, dates, attendees, votes, commitments, or directory entries that are not in the input.',
+      'Return JSON: { agenda: string[], talkingPoints: string[], risks: string[], followUps: string[], summary: string }.',
+      'INPUT:',
       JSON.stringify(input, null, 2),
     ].join('\n\n');
   }
