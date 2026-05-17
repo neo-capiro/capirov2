@@ -251,15 +251,26 @@ export function WorkflowDrawer({
   const acceptSuggestion = (key: string) => {
     const suggestion = aiSuggestions[key];
     if (!suggestion) return;
-    handleFieldChange(key, suggestion.value);
+    // Coerce AI string values to proper types for integer/boolean fields
+    let value: unknown = suggestion.value;
+    if (value === 'true') value = true;
+    else if (value === 'false') value = false;
+    else if (typeof value === 'string' && /^\d+$/.test(value)) {
+      // Check if this is an integer field before converting
+      const rt = (formData.request_type as string) ?? 'funding';
+      const sec = rt === 'funding' ? sections?.funding : sections?.policy;
+      const fields = (sec as Record<string, unknown> | undefined)?.section1 as { fields?: FieldDefinition[] } | undefined;
+      const fieldDef = fields?.fields?.find((f) => f.key === key);
+      if (fieldDef?.type === 'integer') value = Number(value);
+    }
+    handleFieldChange(key, value);
     setAcceptedKeys((prev) => new Set([...prev, key]));
   };
 
   const acceptAllSuggestions = () => {
-    for (const [key, suggestion] of Object.entries(aiSuggestions)) {
-      handleFieldChange(key, suggestion.value);
+    for (const key of Object.keys(aiSuggestions)) {
+      acceptSuggestion(key);
     }
-    setAcceptedKeys(new Set(Object.keys(aiSuggestions)));
   };
 
   const template = instance?.template ?? null;

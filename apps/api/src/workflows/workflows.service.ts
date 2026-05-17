@@ -173,12 +173,14 @@ export class WorkflowsService {
       label: string;
       type: string;
       helpText?: string;
+      options?: string[];
+      maxLength?: number;
     }>;
 
+    // Fill ALL empty fields — text, textarea, integer, select, and boolean
     const fillableFields = allFields.filter(
       (f) =>
-        (f.type === 'text' || f.type === 'textarea') &&
-        (formData[f.key] === undefined || formData[f.key] === null || formData[f.key] === ''),
+        formData[f.key] === undefined || formData[f.key] === null || formData[f.key] === '',
     );
 
     if (fillableFields.length === 0) return { suggestions: {} };
@@ -263,10 +265,14 @@ export class WorkflowsService {
     }
 
     const prompt = [
-      'You are a government affairs assistant helping fill out a federal lobbying request form.',
-      'Based on the client information, engagement history, and documents below, suggest values for the empty form fields.',
-      'Only suggest values for fields where you have clear supporting evidence from the provided context.',
-      'Return ONLY valid JSON with this structure: { "suggestions": { "<fieldKey>": { "value": "<suggested text>", "reasoning": "<one sentence why>" } } }',
+      'You are a government affairs assistant helping fill out a federal NDAA authorization request form.',
+      'You MUST fill in as many fields as possible using the client information, profile data, engagement history, and documents provided below.',
+      'Use the client profile data aggressively — if the client has a funding ask, PE number, program description, sector, or any relevant data, USE IT to fill the corresponding fields.',
+      'For integer fields (dollar amounts), return the numeric value as a string with no commas, decimals, or symbols (e.g. "5000000" not "$5,000,000").',
+      'For select fields, return EXACTLY one of the valid options listed.',
+      'For boolean fields, return "true" or "false".',
+      'For text/textarea fields, provide concise, professional text appropriate for a congressional submission.',
+      'Return ONLY valid JSON: { "suggestions": { "<fieldKey>": { "value": "<suggested value>", "reasoning": "<one sentence why>" } } }',
       '',
       `FORM TYPE: ${requestType === 'funding' ? 'Funding Request' : 'Policy / Bill Language Request'}`,
       '',
@@ -284,10 +290,15 @@ export class WorkflowsService {
         ? `CLIENT DOCUMENTS:\n${docTexts.join('\n\n')}`
         : 'No text documents available.',
       '',
-      'FIELDS TO FILL (currently empty):',
+      'FIELDS TO FILL (currently empty — fill as many as you can):',
       ...fillableFields.map(
-        (f) =>
-          `  - key: "${f.key}", label: "${f.label}", type: "${f.type}"${f.helpText ? `, hint: "${f.helpText}"` : ''}`,
+        (f) => {
+          let desc = `  - key: "${f.key}", label: "${f.label}", type: "${f.type}"`;
+          if (f.options?.length) desc += `, VALID OPTIONS: [${f.options.map(o => `"${o}"`).join(', ')}]`;
+          if (f.maxLength) desc += `, max ${f.maxLength} chars`;
+          if (f.helpText) desc += `, hint: "${f.helpText}"`;
+          return desc;
+        },
       ),
       '',
       'CURRENT FORM VALUES (already filled by user, for reference):',
@@ -311,9 +322,9 @@ export class WorkflowsService {
       },
       body: JSON.stringify({
         model: AI_FILL_MODEL,
-        max_tokens: 2000,
+        max_tokens: 4000,
         system:
-          'You are a government affairs assistant. Return only valid JSON matching the requested schema. Do not invent facts not supported by the provided context.',
+          'You are an expert government affairs assistant specializing in NDAA authorization requests. Fill in as many form fields as possible using the provided client data, documents, and engagement history. Be thorough — if you can reasonably infer a value from the context, include it. For dollar amounts use plain integers. For selects pick the best matching option. Return only valid JSON.',
         messages: [{ role: 'user', content: prompt }],
       }),
     });
