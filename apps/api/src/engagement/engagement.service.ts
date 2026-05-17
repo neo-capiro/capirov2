@@ -1691,16 +1691,44 @@ export class EngagementService {
           })
         : [];
 
-      const recentThreads = meeting.clientId
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      // Fetch recent email threads from last 30 days:
+      // - If meeting has a clientId, get threads for that client
+      // - Also get threads where attendee emails appear as sender
+      const attendeeEmails = meeting.attendees
+        .map((a) => a.email)
+        .filter((e): e is string => Boolean(e));
+
+      const threadFilters: Array<Record<string, unknown>> = [];
+      if (meeting.clientId) threadFilters.push({ clientId: meeting.clientId });
+      if (attendeeEmails.length) {
+        threadFilters.push({ messages: { some: { fromEmail: { in: attendeeEmails } } } });
+      }
+
+      const recentThreads = threadFilters.length
         ? await tx.mailThread.findMany({
             where: {
               tenantId: ctx.tenantId,
-              clientId: meeting.clientId,
               ...ownMailThreadWhere(ctx.userId),
+              lastMessageAt: { gte: thirtyDaysAgo },
+              OR: threadFilters,
             },
-            select: { id: true, subject: true, snippet: true, lastMessageAt: true, status: true },
+            select: {
+              id: true,
+              subject: true,
+              snippet: true,
+              lastMessageAt: true,
+              status: true,
+              messages: {
+                select: { fromEmail: true, fromName: true, subject: true, bodyText: true, sentAt: true },
+                orderBy: { sentAt: 'desc' },
+                take: 3,
+              },
+            },
             orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
-            take: 5,
+            take: 15,
           })
         : [];
 
@@ -1851,16 +1879,44 @@ export class EngagementService {
           })
         : [];
 
-      const recentThreads = meeting.clientId
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      // Fetch recent email threads from last 30 days:
+      // - If meeting has a clientId, get threads for that client
+      // - Also get threads where attendee emails appear as sender
+      const attendeeEmails = meeting.attendees
+        .map((a) => a.email)
+        .filter((e): e is string => Boolean(e));
+
+      const threadFilters: Array<Record<string, unknown>> = [];
+      if (meeting.clientId) threadFilters.push({ clientId: meeting.clientId });
+      if (attendeeEmails.length) {
+        threadFilters.push({ messages: { some: { fromEmail: { in: attendeeEmails } } } });
+      }
+
+      const recentThreads = threadFilters.length
         ? await tx.mailThread.findMany({
             where: {
               tenantId: ctx.tenantId,
-              clientId: meeting.clientId,
               ...ownMailThreadWhere(ctx.userId),
+              lastMessageAt: { gte: thirtyDaysAgo },
+              OR: threadFilters,
             },
-            select: { id: true, subject: true, snippet: true, lastMessageAt: true, status: true },
+            select: {
+              id: true,
+              subject: true,
+              snippet: true,
+              lastMessageAt: true,
+              status: true,
+              messages: {
+                select: { fromEmail: true, fromName: true, subject: true, bodyText: true, sentAt: true },
+                orderBy: { sentAt: 'desc' },
+                take: 3,
+              },
+            },
             orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
-            take: 5,
+            take: 15,
           })
         : [];
 
