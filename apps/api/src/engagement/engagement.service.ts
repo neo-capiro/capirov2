@@ -1720,7 +1720,8 @@ export class EngagementService {
         attendeeEmails
           .map((e) => e.split('@')[1]?.toLowerCase())
           .filter((d): d is string =>
-            Boolean(d) &&
+            typeof d === 'string' &&
+            d.length > 0 &&
             d !== ownDomain &&
             !GENERIC_THREAD_DOMAINS.has(d)
           ),
