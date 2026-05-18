@@ -18,6 +18,7 @@ export interface MeetingPrepResult {
   risks: string[];
   followUps: string[];
   summary: string;
+  emailEvidence: string[];
   provider: 'openai' | 'anthropic';
   model: string;
   raw: unknown;
@@ -126,13 +127,14 @@ export interface MeetingDebriefDraftResult {
 const meetingPrepJsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['agenda', 'talkingPoints', 'risks', 'followUps', 'summary'],
+  required: ['agenda', 'talkingPoints', 'risks', 'followUps', 'summary', 'emailEvidence'],
   properties: {
     agenda: { type: 'array', items: { type: 'string' } },
     talkingPoints: { type: 'array', items: { type: 'string' } },
     risks: { type: 'array', items: { type: 'string' } },
     followUps: { type: 'array', items: { type: 'string' } },
     summary: { type: 'string' },
+    emailEvidence: { type: 'array', items: { type: 'string' } },
   },
 };
 
@@ -297,6 +299,7 @@ export class EngagementAiService {
       risks: toStringList(parsed.risks),
       followUps: toStringList(parsed.followUps),
       summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+      emailEvidence: toStringList(parsed.emailEvidence),
       provider: 'openai',
       model: this.openaiModel,
       raw: json,
@@ -345,6 +348,7 @@ export class EngagementAiService {
       risks: toStringList(parsed.risks),
       followUps: toStringList(parsed.followUps),
       summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+      emailEvidence: toStringList(parsed.emailEvidence),
       provider: 'anthropic',
       model: this.anthropicModel,
       raw: json,
@@ -534,11 +538,22 @@ export class EngagementAiService {
   }
 
   private buildPrompt(input: MeetingPrepInput): string {
+    const emailHighlights = formatMeetingPrepEmailHighlights(input.recentThreads);
+    const hasEmailThreads = input.recentThreads.length > 0;
+
     return [
       'Create meeting prep for this lobbying interaction.',
       'Use the client context, past meetings, email threads, and open tasks. Do not invent facts.',
       'If congressionalDirectoryMatches are present, use those matched member and staff profiles as attendee context, including member bio, committee assignments, and office/location details.',
-      'Return JSON with agenda, talkingPoints, risks, followUps, and summary.',
+      hasEmailThreads
+        ? 'Use recentThreads as primary evidence for talkingPoints, risks, and followUps. Include concrete details such as sender, date, and short quoted phrases from email content when available.'
+        : 'No recentThreads were provided. Keep output grounded in available non-email context only.',
+      hasEmailThreads
+        ? 'Populate emailEvidence with 2-6 concise evidence bullets grounded in recentThreads. If an item in talkingPoints or risks is supported by email context, reflect that support in emailEvidence.'
+        : 'Set emailEvidence to an empty array when no usable email evidence exists.',
+      'Return JSON with agenda, talkingPoints, risks, followUps, summary, and emailEvidence.',
+      'Email thread highlights (for grounding):',
+      emailHighlights,
       JSON.stringify(input, null, 2),
     ].join('\n\n');
   }
@@ -637,4 +652,53 @@ function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function formatMeetingPrepEmailHighlights(threads: Array<Record<string, unknown>>): string {
+  if (!threads.length) return '- None';
+
+  const lines: string[] = [];
+  for (const thread of threads.slice(0, 8)) {
+    const threadRecord = toRecord(thread);
+    const threadId = typeof threadRecord.id === 'string' ? threadRecord.id : 'unknown-thread';
+    const threadSubject = typeof threadRecord.subject === 'string' ? threadRecord.subject.trim() : '';
+    const messages = Array.isArray(threadRecord.messages) ? threadRecord.messages : [];
+    const lastMessageAt = typeof threadRecord.lastMessageAt === 'string' ? threadRecord.lastMessageAt : '';
+    const headline = `- Thread ${threadId}${threadSubject ? `: ${threadSubject}` : ''}${lastMessageAt ? ` (${lastMessageAt})` : ''}`;
+    lines.push(headline);
+
+    if (!messages.length) {
+      const snippet = typeof threadRecord.snippet === 'string' ? compactText(threadRecord.snippet) : '';
+      if (snippet) lines.push(`  - Snippet: "${snippet}"`);
+      continue;
+    }
+
+    for (const message of messages.slice(0, 3)) {
+      const messageRecord = toRecord(message);
+      const sender =
+        typeof messageRecord.fromName === 'string' && messageRecord.fromName.trim()
+          ? messageRecord.fromName.trim()
+          : typeof messageRecord.fromEmail === 'string' && messageRecord.fromEmail.trim()
+            ? messageRecord.fromEmail.trim()
+            : 'unknown sender';
+      const sentAt = typeof messageRecord.sentAt === 'string' ? messageRecord.sentAt : '';
+      const quote =
+        typeof messageRecord.bodyText === 'string'
+          ? compactText(messageRecord.bodyText)
+          : typeof messageRecord.subject === 'string'
+            ? compactText(messageRecord.subject)
+            : '';
+      lines.push(
+        `  - ${sender}${sentAt ? ` @ ${sentAt}` : ''}${quote ? `: "${quote}"` : ''}`,
+      );
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function compactText(value: string, max = 180): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, Math.max(0, max - 1)).trim()}...`;
 }
