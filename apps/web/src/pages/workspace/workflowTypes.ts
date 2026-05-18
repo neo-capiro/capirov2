@@ -69,6 +69,42 @@ export interface WorkflowInstance {
   client: { id: string; name: string } | null;
 }
 
+export interface Strategy {
+  id: string;
+  tenantId: string;
+  clientId: string;
+  capabilityId: string | null;
+  name: string;
+  fiscalYear: string | null;
+  status: string;
+  description: string | null;
+  submissionTypes: string[];
+  settings: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+  client?: { id: string; name: string };
+  capability?: { id: string; name: string; fundingAsk: number | null };
+  targets?: StrategyTarget[];
+  instances?: (WorkflowInstance & { template: WorkflowTemplate })[];
+}
+
+export interface StrategyTarget {
+  id: string;
+  strategyId: string;
+  memberName: string;
+  memberTitle: string | null;
+  memberParty: string | null;
+  memberState: string | null;
+  committee: string | null;
+  subcommittee: string | null;
+  stafferName: string | null;
+  stafferEmail: string | null;
+  directoryContactId: string | null;
+  outreachStatus: string;
+  meetingDate: string | null;
+  notes: string | null;
+}
+
 export const STATUS_LABELS: Record<WorkflowStatus, string> = {
   triage: 'Triage',
   in_progress: 'In Progress',
