@@ -95,7 +95,7 @@ export class ClientAssociationService {
 
     const text = `${input.subject ?? ''} ${input.body ?? ''}`.toLowerCase();
     const emailDomains = unique(emails.map(domainFromEmail).filter(
-      (item): item is string => Boolean(item) && !GENERIC_DOMAINS.has(item),
+      (item): item is string => typeof item === 'string' && item.length > 0 && !GENERIC_DOMAINS.has(item),
     ));
     const scored = clients.map((client) =>
       scoreClient(client, {
