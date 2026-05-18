@@ -371,17 +371,17 @@ export function StrategyDashboard() {
   for (const inst of instances) {
     if (inst.updatedAt) {
       const statusLabel =
-        inst.status === 'not_started'
-          ? 'Not Started'
+        inst.status === 'triage'
+          ? 'Triage'
           : inst.status === 'in_progress'
           ? 'In Progress'
-          : inst.status === 'in_review'
-          ? 'In Review'
+          : inst.status === 'review'
+          ? 'Under Review'
           : inst.status === 'submitted'
           ? 'Submitted'
           : inst.status === 'complete'
           ? 'Complete'
-          : inst.status ?? 'Updated';
+          : (inst.status as string) ?? 'Updated';
       activityItems.push({
         text: `${inst.title} moved to ${statusLabel}`,
         timestamp: inst.updatedAt,
@@ -413,7 +413,7 @@ export function StrategyDashboard() {
         const cat = inst.template?.category ?? '';
         return (
           <Tag color={CATEGORY_TAG_COLORS[cat] ?? 'default'}>
-            {CATEGORY_SHORT[cat] ?? cat.toUpperCase() || '—'}
+            {CATEGORY_SHORT[cat] ?? (cat.toUpperCase() || '—')}
           </Tag>
         );
       },
