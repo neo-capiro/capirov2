@@ -18,6 +18,9 @@ import { WorkspaceLayout } from './pages/workspace/WorkspaceLayout.js';
 import { CatalogView } from './pages/workspace/CatalogView.js';
 import { KanbanBoard } from './pages/workspace/KanbanBoard.js';
 import { ClioView } from './pages/workspace/ClioView.js';
+import { StrategiesList } from './pages/workspace/StrategiesList.js';
+import { StrategyWizard } from './pages/workspace/StrategyWizard.js';
+import { StrategyDashboard } from './pages/workspace/StrategyDashboard.js';
 
 export function App() {
   return (
@@ -43,6 +46,9 @@ export function App() {
           <Route index element={<Navigate to="/workspace/catalog" replace />} />
           <Route path="catalog" element={<CatalogView />} />
           <Route path="kanban" element={<KanbanBoard />} />
+          <Route path="strategies" element={<StrategiesList />} />
+          <Route path="strategy/new" element={<StrategyWizard />} />
+          <Route path="strategy/:id" element={<StrategyDashboard />} />
           <Route path="clio" element={<ClioView />} />
         </Route>
         <Route path="/intelligence/*" element={<Navigate to="/clients" replace />} />
