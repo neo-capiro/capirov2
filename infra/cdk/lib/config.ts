@@ -125,6 +125,12 @@ export function loadConfig(app: cdk.App): EnvConfig {
             // every host-derived env var (MICROSOFT_REDIRECT_URI,
             // MICROSOFT_GRAPH_NOTIFICATION_URL, APP_SIGN_IN_URL, WEB_ORIGIN)
             // points at staging's own ALB.
+            // staging.capiro.ai is a delegated Route 53 zone in this same
+            // account. Point the DNS lookup at it so the A/AAAA records
+            // CDK manages for staging land in the delegated zone instead of
+            // the parent capiro.ai zone (where they would be shadowed by
+            // the NS delegation and silently fail to resolve).
+            hostedZoneDomain: 'staging.capiro.ai',
             appHost: 'app.staging.capiro.ai',
             wildcardHost: '*.app.staging.capiro.ai',
             rootDomain: 'staging.capiro.ai',
