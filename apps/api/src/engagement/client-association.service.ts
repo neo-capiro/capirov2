@@ -23,7 +23,28 @@ interface ClientForAssociation {
   intakeData: Prisma.JsonValue;
 }
 
-const AUTO_LINK_THRESHOLD = 0.5;
+const AUTO_LINK_THRESHOLD = 0.65;
+
+// Domains that should NEVER trigger domain-based client matching.
+// These are personal email providers, government domains (Congress, not clients),
+// and other generic domains that produce false positive associations.
+const GENERIC_DOMAINS = new Set([
+  // Personal email providers
+  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',
+  'yahoo.com', 'aol.com', 'icloud.com', 'me.com', 'mac.com',
+  'protonmail.com', 'proton.me', 'zoho.com', 'yandex.com',
+  'comcast.net', 'verizon.net', 'att.net', 'sbcglobal.net',
+  // US Government — Congress (these are targets, not clients)
+  'senate.gov', 'house.gov', 'mail.house.gov', 'mail.senate.gov',
+  'who.eop.gov', 'omb.eop.gov',
+  // US Government — Agencies (recipients, not clients)
+  'dod.mil', 'navy.mil', 'army.mil', 'af.mil', 'usmc.mil', 'uscg.mil',
+  'state.gov', 'usaid.gov', 'hhs.gov', 'dhs.gov', 'dot.gov',
+  'ed.gov', 'energy.gov', 'epa.gov', 'doi.gov', 'usda.gov',
+  'commerce.gov', 'treasury.gov', 'justice.gov', 'nasa.gov',
+  // Generic corporate
+  'microsoft.com', 'google.com', 'amazon.com', 'apple.com',
+]);
 
 @Injectable()
 export class ClientAssociationService {
@@ -73,7 +94,9 @@ export class ClientAssociationService {
       : [];
 
     const text = `${input.subject ?? ''} ${input.body ?? ''}`.toLowerCase();
-    const emailDomains = unique(emails.map(domainFromEmail).filter((item): item is string => Boolean(item)));
+    const emailDomains = unique(emails.map(domainFromEmail).filter(
+      (item): item is string => Boolean(item) && !GENERIC_DOMAINS.has(item),
+    ));
     const scored = clients.map((client) =>
       scoreClient(client, {
         emails,

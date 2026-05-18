@@ -593,6 +593,7 @@ export class MicrosoftGraphSyncService {
           ...attendees.map((attendee) => attendee.email ?? ''),
         ],
       });
+      // Respect manual/explicit associations — never overwrite a user-set clientId
       const clientId = existing?.clientId ?? association.clientId;
 
       const contactsByEmail = await upsertContacts(tx, tenantId, attendees, clientId);

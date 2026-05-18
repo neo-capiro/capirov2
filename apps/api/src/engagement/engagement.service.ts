@@ -1676,6 +1676,7 @@ export class EngagementService {
               tenantId: ctx.tenantId,
               clientId: meeting.clientId,
               id: { not: meeting.id },
+              associationScore: { gte: 0.7 },
               ...ownMeetingWhere(ctx.userId),
             },
             select: {
@@ -1696,13 +1697,33 @@ export class EngagementService {
 
       // Fetch recent email threads from last 30 days for this client.
       // Match by: client association + domain matching on attendee emails.
-      // This ensures we get all relevant correspondence, not just threads
-      // that happen to have a fromEmail match.
+      // IMPORTANT: Exclude the user's own domain and generic domains
+      // to avoid pulling in ALL threads from the user's mailbox.
       const attendeeEmails = meeting.attendees
         .map((a) => a.email)
         .filter((e): e is string => Boolean(e));
+
+      // Get the user's own email domain to exclude it
+      const connection = await tx.integrationConnection.findFirst({
+        where: { tenantId: ctx.tenantId, createdByUserId: ctx.userId },
+        select: { accountEmail: true },
+      });
+      const ownDomain = connection?.accountEmail?.split('@')[1]?.toLowerCase();
+
+      const GENERIC_THREAD_DOMAINS = new Set([
+        'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',
+        'yahoo.com', 'aol.com', 'icloud.com', 'me.com', 'protonmail.com', 'proton.me',
+        'senate.gov', 'house.gov', 'mail.house.gov', 'mail.senate.gov',
+      ]);
+
       const attendeeDomains = [...new Set(
-        attendeeEmails.map((e) => e.split('@')[1]).filter(Boolean),
+        attendeeEmails
+          .map((e) => e.split('@')[1]?.toLowerCase())
+          .filter((d): d is string =>
+            Boolean(d) &&
+            d !== ownDomain &&
+            !GENERIC_THREAD_DOMAINS.has(d)
+          ),
       )];
 
       const threadFilters: Array<Record<string, unknown>> = [];
