@@ -1762,7 +1762,7 @@ export class EngagementService {
       clientContext: clientContext ? pruneForAi(clientContext) : null,
       congressionalDirectoryMatches: directoryProfiles.map(pruneForAi),
       recentMeetings: context.recentMeetings.map(pruneForAi),
-      recentThreads: context.recentThreads.map(pruneForAi),
+      recentThreads: context.recentThreads.map(prepareThreadForAi),
     });
   }
 
@@ -1944,7 +1944,7 @@ export class EngagementService {
       attendees: context.meeting.attendees.map(pruneForAi),
       congressionalDirectoryMatches: directoryProfiles.map(pruneForAi),
       recentMeetings: context.recentMeetings.map(pruneForAi),
-      recentThreads: context.recentThreads.map(pruneForAi),
+      recentThreads: context.recentThreads.map(prepareThreadForAi),
       tasks: context.meeting.tasks.map(pruneForAi),
     };
     const promptHash = createHash('sha256').update(JSON.stringify(promptContext)).digest('hex');
@@ -3546,6 +3546,46 @@ function pruneForAi(value: unknown): Record<string, unknown> {
       return entry;
     }),
   ) as Record<string, unknown>;
+}
+
+function prepareThreadForAi(value: unknown): Record<string, unknown> {
+  const thread = pruneForAi(value);
+  const messages = Array.isArray(thread.messages) ? thread.messages : [];
+  const messageHighlights = messages
+    .slice(0, 3)
+    .map((message) => {
+      if (!message || typeof message !== 'object' || Array.isArray(message)) return null;
+      const row = message as Record<string, unknown>;
+      const quote = compactThreadText(
+        (typeof row.bodyText === 'string' && row.bodyText) ||
+          (typeof row.subject === 'string' && row.subject) ||
+          '',
+      );
+      return {
+        fromName: typeof row.fromName === 'string' ? row.fromName : null,
+        fromEmail: typeof row.fromEmail === 'string' ? row.fromEmail : null,
+        sentAt: typeof row.sentAt === 'string' ? row.sentAt : null,
+        subject: typeof row.subject === 'string' ? row.subject : null,
+        quote,
+      };
+    })
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+
+  return {
+    id: typeof thread.id === 'string' ? thread.id : null,
+    subject: typeof thread.subject === 'string' ? thread.subject : null,
+    snippet: compactThreadText(typeof thread.snippet === 'string' ? thread.snippet : ''),
+    lastMessageAt: typeof thread.lastMessageAt === 'string' ? thread.lastMessageAt : null,
+    status: typeof thread.status === 'string' ? thread.status : null,
+    messageHighlights,
+  };
+}
+
+function compactThreadText(value: string, max = 220): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) return '';
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, Math.max(0, max - 1)).trim()}...`;
 }
 
 function safeFileName(value: string): string {

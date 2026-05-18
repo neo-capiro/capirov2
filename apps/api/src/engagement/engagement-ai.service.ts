@@ -18,6 +18,7 @@ export interface MeetingPrepResult {
   risks: string[];
   followUps: string[];
   summary: string;
+  emailEvidence: string[];
   provider: 'openai' | 'anthropic';
   model: string;
   raw: unknown;
@@ -126,13 +127,14 @@ export interface MeetingDebriefDraftResult {
 const meetingPrepJsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['agenda', 'talkingPoints', 'risks', 'followUps', 'summary'],
+  required: ['agenda', 'talkingPoints', 'risks', 'followUps', 'summary', 'emailEvidence'],
   properties: {
     agenda: { type: 'array', items: { type: 'string' } },
     talkingPoints: { type: 'array', items: { type: 'string' } },
     risks: { type: 'array', items: { type: 'string' } },
     followUps: { type: 'array', items: { type: 'string' } },
     summary: { type: 'string' },
+    emailEvidence: { type: 'array', items: { type: 'string' } },
   },
 };
 
@@ -297,6 +299,7 @@ export class EngagementAiService {
       risks: toStringList(parsed.risks),
       followUps: toStringList(parsed.followUps),
       summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+      emailEvidence: toStringList(parsed.emailEvidence),
       provider: 'openai',
       model: this.openaiModel,
       raw: json,
@@ -319,7 +322,7 @@ export class EngagementAiService {
         model: this.anthropicModel,
         max_tokens: 1600,
         system:
-          'You generate lobbying meeting preparation anchored in the SPECIFIC interaction history (past meetings, email threads, open tasks) and the attendees\' congressional directory profiles. Never produce a generic company overview or marketing-style description of the client — the reader already knows who the client is. If the interaction history is empty, say so explicitly rather than padding with client profile narrative. Return only valid JSON matching the requested schema.',
+          'You generate concise lobbying meeting preparation. Return only valid JSON that matches the requested schema.',
         messages: [
           {
             role: 'user',
@@ -345,6 +348,7 @@ export class EngagementAiService {
       risks: toStringList(parsed.risks),
       followUps: toStringList(parsed.followUps),
       summary: typeof parsed.summary === 'string' ? parsed.summary : '',
+      emailEvidence: toStringList(parsed.emailEvidence),
       provider: 'anthropic',
       model: this.anthropicModel,
       raw: json,
@@ -534,19 +538,22 @@ export class EngagementAiService {
   }
 
   private buildPrompt(input: MeetingPrepInput): string {
+    const emailHighlights = formatMeetingPrepEmailHighlights(input.recentThreads);
+    const hasEmailThreads = input.recentThreads.length > 0;
+
     return [
-      'You are preparing a lobbyist for an upcoming meeting. The audience already knows who the client is — do NOT write a company overview, a marketing-style description of the client, or a generic "what the client does" summary. The output must be grounded in the SPECIFIC interactions, threads, tasks, and attendee profiles supplied below.',
-      'Hard rules:',
-      '- Every agenda item, talking point, risk, and follow-up must be traceable to a concrete signal in `recentMeetings`, `recentThreads`, `tasks`, `congressionalDirectoryMatches`, or the current `meeting` object. If you cannot tie an item to one of those, omit it.',
-      '- The `summary` is a 2-3 sentence situational brief about THIS meeting in the context of the relationship history. It is NOT a description of the client company. Mention the latest substantive exchange (most recent meeting outcome, most recent email thread topic, or the open task driving the meeting).',
-      '- `talkingPoints` should reference what was last discussed/asked/promised and what should be raised next, not generic capabilities of the client.',
-      '- `followUps` and `risks` come from open tasks, unresolved threads, prior meeting commitments, or directory-known concerns (e.g., the member sits on a relevant subcommittee with a known position).',
-      '- For each attendee in `attendees`, look for a matching entry in `congressionalDirectoryMatches` and weave in their chamber, committee/subcommittee assignments, title, district, and office context. These are the people in the room — they should drive the prep.',
-      '- Do not restate `client.description`, `client.productDescription`, or `client.intakeData` as narrative. You may reference a product name only when it ties to a specific past interaction (e.g., "Last meeting on May 2 discussed Program X").',
-      '- If recentMeetings, recentThreads, and tasks are all empty, say so plainly in `summary` ("No prior interactions on record — this appears to be a first touch.") and keep the rest of the output sparse rather than fabricating substance from the client profile.',
-      '- Do not invent facts, dates, attendees, votes, commitments, or directory entries that are not in the input.',
-      'Return JSON: { agenda: string[], talkingPoints: string[], risks: string[], followUps: string[], summary: string }.',
-      'INPUT:',
+      'Create meeting prep for this lobbying interaction.',
+      'Use the client context, past meetings, email threads, and open tasks. Do not invent facts.',
+      'If congressionalDirectoryMatches are present, use those matched member and staff profiles as attendee context, including member bio, committee assignments, and office/location details.',
+      hasEmailThreads
+        ? 'Use recentThreads as primary evidence for talkingPoints, risks, and followUps. Include concrete details such as sender, date, and short quoted phrases from email content when available.'
+        : 'No recentThreads were provided. Keep output grounded in available non-email context only.',
+      hasEmailThreads
+        ? 'Populate emailEvidence with 2-6 concise evidence bullets grounded in recentThreads. If an item in talkingPoints or risks is supported by email context, reflect that support in emailEvidence.'
+        : 'Set emailEvidence to an empty array when no usable email evidence exists.',
+      'Return JSON with agenda, talkingPoints, risks, followUps, summary, and emailEvidence.',
+      'Email thread highlights (for grounding):',
+      emailHighlights,
       JSON.stringify(input, null, 2),
     ].join('\n\n');
   }
@@ -645,4 +652,53 @@ function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function formatMeetingPrepEmailHighlights(threads: Array<Record<string, unknown>>): string {
+  if (!threads.length) return '- None';
+
+  const lines: string[] = [];
+  for (const thread of threads.slice(0, 8)) {
+    const threadRecord = toRecord(thread);
+    const threadId = typeof threadRecord.id === 'string' ? threadRecord.id : 'unknown-thread';
+    const threadSubject = typeof threadRecord.subject === 'string' ? threadRecord.subject.trim() : '';
+    const messages = Array.isArray(threadRecord.messages) ? threadRecord.messages : [];
+    const lastMessageAt = typeof threadRecord.lastMessageAt === 'string' ? threadRecord.lastMessageAt : '';
+    const headline = `- Thread ${threadId}${threadSubject ? `: ${threadSubject}` : ''}${lastMessageAt ? ` (${lastMessageAt})` : ''}`;
+    lines.push(headline);
+
+    if (!messages.length) {
+      const snippet = typeof threadRecord.snippet === 'string' ? compactText(threadRecord.snippet) : '';
+      if (snippet) lines.push(`  - Snippet: "${snippet}"`);
+      continue;
+    }
+
+    for (const message of messages.slice(0, 3)) {
+      const messageRecord = toRecord(message);
+      const sender =
+        typeof messageRecord.fromName === 'string' && messageRecord.fromName.trim()
+          ? messageRecord.fromName.trim()
+          : typeof messageRecord.fromEmail === 'string' && messageRecord.fromEmail.trim()
+            ? messageRecord.fromEmail.trim()
+            : 'unknown sender';
+      const sentAt = typeof messageRecord.sentAt === 'string' ? messageRecord.sentAt : '';
+      const quote =
+        typeof messageRecord.bodyText === 'string'
+          ? compactText(messageRecord.bodyText)
+          : typeof messageRecord.subject === 'string'
+            ? compactText(messageRecord.subject)
+            : '';
+      lines.push(
+        `  - ${sender}${sentAt ? ` @ ${sentAt}` : ''}${quote ? `: "${quote}"` : ''}`,
+      );
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function compactText(value: string, max = 180): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= max) return normalized;
+  return `${normalized.slice(0, Math.max(0, max - 1)).trim()}...`;
 }
