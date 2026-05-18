@@ -25,54 +25,60 @@ export class StrategiesService {
   // ── Strategy CRUD ────────────────────────────────────────────────────────
 
   async create(tenantId: string, userId: string, dto: CreateStrategyDto) {
-    return this.prisma.strategy.create({
-      data: {
-        tenantId,
-        clientId: dto.clientId,
-        capabilityId: dto.capabilityId,
-        createdByUserId: userId,
-        name: dto.name,
-        fiscalYear: dto.fiscalYear,
-        description: dto.description,
-        submissionTypes: dto.submissionTypes ?? [],
-      },
-      include: {
-        client: { select: { id: true, name: true } },
-        capability: { select: { id: true, name: true, fundingAsk: true } },
-      },
-    });
+    return this.prisma.withTenant(tenantId, (tx) =>
+      tx.strategy.create({
+        data: {
+          tenantId,
+          clientId: dto.clientId,
+          capabilityId: dto.capabilityId,
+          createdByUserId: userId,
+          name: dto.name,
+          fiscalYear: dto.fiscalYear,
+          description: dto.description,
+          submissionTypes: dto.submissionTypes ?? [],
+        },
+        include: {
+          client: { select: { id: true, name: true } },
+          capability: { select: { id: true, name: true, fundingAsk: true } },
+        },
+      }),
+    );
   }
 
   list(tenantId: string, filters?: { clientId?: string; status?: string }) {
-    return this.prisma.strategy.findMany({
-      where: {
-        tenantId,
-        ...(filters?.clientId ? { clientId: filters.clientId } : {}),
-        ...(filters?.status ? { status: filters.status } : {}),
-      },
-      include: {
-        client: { select: { id: true, name: true } },
-        capability: { select: { id: true, name: true, fundingAsk: true } },
-        targets: true,
-        _count: { select: { instances: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    return this.prisma.withTenant(tenantId, (tx) =>
+      tx.strategy.findMany({
+        where: {
+          tenantId,
+          ...(filters?.clientId ? { clientId: filters.clientId } : {}),
+          ...(filters?.status ? { status: filters.status } : {}),
+        },
+        include: {
+          client: { select: { id: true, name: true } },
+          capability: { select: { id: true, name: true, fundingAsk: true } },
+          targets: true,
+          _count: { select: { instances: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
   }
 
   async get(tenantId: string, id: string) {
-    const strategy = await this.prisma.strategy.findUnique({
-      where: { id },
-      include: {
-        client: { select: { id: true, name: true } },
-        capability: { select: { id: true, name: true, fundingAsk: true } },
-        targets: { orderBy: { createdAt: 'asc' } },
-        instances: {
-          include: { template: true },
-          orderBy: { createdAt: 'asc' },
+    const strategy = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.strategy.findUnique({
+        where: { id },
+        include: {
+          client: { select: { id: true, name: true } },
+          capability: { select: { id: true, name: true, fundingAsk: true } },
+          targets: { orderBy: { createdAt: 'asc' } },
+          instances: {
+            include: { template: true },
+            orderBy: { createdAt: 'asc' },
+          },
         },
-      },
-    });
+      }),
+    );
     if (!strategy || strategy.tenantId !== tenantId) {
       throw new NotFoundException(`Strategy '${id}' not found`);
     }
@@ -96,25 +102,27 @@ export class StrategiesService {
         : { disconnect: true };
     }
 
-    return this.prisma.strategy.update({
-      where: { id },
-      data,
-      include: {
-        client: { select: { id: true, name: true } },
-        capability: { select: { id: true, name: true, fundingAsk: true } },
-      },
-    });
+    return this.prisma.withTenant(tenantId, (tx) =>
+      tx.strategy.update({
+        where: { id },
+        data,
+        include: {
+          client: { select: { id: true, name: true } },
+          capability: { select: { id: true, name: true, fundingAsk: true } },
+        },
+      }),
+    );
   }
 
   async delete(tenantId: string, id: string) {
     await this.get(tenantId, id);
-    // Unlink instances before deleting (SetNull happens via FK, but we do it
-    // explicitly so callers can see the count of unlinked instances).
-    await this.prisma.workflowInstance.updateMany({
-      where: { strategyId: id },
-      data: { strategyId: null },
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      await tx.workflowInstance.updateMany({
+        where: { strategyId: id },
+        data: { strategyId: null },
+      });
+      return tx.strategy.delete({ where: { id } });
     });
-    return this.prisma.strategy.delete({ where: { id } });
   }
 
   // ── Targets ──────────────────────────────────────────────────────────────
@@ -135,21 +143,23 @@ export class StrategiesService {
     },
   ) {
     await this.get(tenantId, strategyId);
-    return this.prisma.strategyTarget.create({
-      data: {
-        tenantId,
-        strategyId,
-        memberName: body.memberName,
-        memberTitle: body.memberTitle,
-        memberParty: body.memberParty,
-        memberState: body.memberState,
-        committee: body.committee,
-        subcommittee: body.subcommittee,
-        stafferName: body.stafferName,
-        stafferEmail: body.stafferEmail,
-        directoryContactId: body.directoryContactId,
-      },
-    });
+    return this.prisma.withTenant(tenantId, (tx) =>
+      tx.strategyTarget.create({
+        data: {
+          tenantId,
+          strategyId,
+          memberName: body.memberName,
+          memberTitle: body.memberTitle,
+          memberParty: body.memberParty,
+          memberState: body.memberState,
+          committee: body.committee,
+          subcommittee: body.subcommittee,
+          stafferName: body.stafferName,
+          stafferEmail: body.stafferEmail,
+          directoryContactId: body.directoryContactId,
+        },
+      }),
+    );
   }
 
   async updateTarget(
