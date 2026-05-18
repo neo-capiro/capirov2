@@ -47,38 +47,43 @@ const SUBMISSION_GROUPS = [
     category: 'authorization',
     label: 'Authorization',
     items: [
-      { key: 'ndaa_auth', label: 'NDAA Authorization Request', shortLabel: 'NDAA', cat: 'authorization' },
+      { key: 'ndaa-authorization-request', label: 'NDAA Authorization Request', shortLabel: 'NDAA', cat: 'authorization' },
     ],
   },
   {
     category: 'appropriations',
     label: 'Appropriations',
     items: [
-      { key: 'hac_defense', label: 'HAC Defense Programmatic', shortLabel: 'HAC-D', cat: 'appropriations' },
-      { key: 'hac_homeland', label: 'HAC Homeland Security', shortLabel: 'HAC-HS', cat: 'appropriations' },
-      { key: 'hac_milcon', label: 'HAC Military Construction', shortLabel: 'HAC-MC', cat: 'appropriations' },
+      { key: 'hac-defense-programmatic', label: 'HAC Defense Programmatic', shortLabel: 'HAC-D', cat: 'appropriations' },
+      { key: 'hac-homeland-programmatic', label: 'HAC Homeland Security', shortLabel: 'HAC-HS', cat: 'appropriations' },
+      { key: 'hac-milcon-va-programmatic', label: 'HAC Military Construction/VA', shortLabel: 'HAC-MC', cat: 'appropriations' },
+      { key: 'hac-agriculture-programmatic', label: 'HAC Agriculture', shortLabel: 'HAC-AG', cat: 'appropriations' },
+      { key: 'hac-cjs-programmatic', label: 'HAC Commerce, Justice, Science', shortLabel: 'HAC-CJS', cat: 'appropriations' },
+      { key: 'hac-energy-water-programmatic', label: 'HAC Energy & Water', shortLabel: 'HAC-EW', cat: 'appropriations' },
+      { key: 'hac-labor-hhs-programmatic', label: 'HAC Labor, HHS, Education', shortLabel: 'HAC-LH', cat: 'appropriations' },
+      { key: 'hac-thud-programmatic', label: 'HAC Transportation/HUD', shortLabel: 'HAC-TH', cat: 'appropriations' },
     ],
   },
   {
     category: 'language',
     label: 'Language',
     items: [
-      { key: 'bill_language', label: 'Bill/Report Language Request', shortLabel: 'LANG', cat: 'language' },
+      { key: 'hac-language-request', label: 'Bill/Report Language Request', shortLabel: 'LANG', cat: 'language' },
     ],
   },
   {
     category: 'supporting',
     label: 'Supporting Documents',
     items: [
-      { key: 'white_paper', label: 'Program White Paper', shortLabel: 'WP', cat: 'supporting' },
-      { key: 'meeting_letter', label: 'Meeting Request Letter', shortLabel: 'MTG', cat: 'supporting' },
-      { key: 'leave_behind', label: 'Leave-Behind / Talking Points', shortLabel: 'LB', cat: 'supporting' },
-      { key: 'followup_letter', label: 'Follow-Up Letter', shortLabel: 'FU', cat: 'supporting' },
+      { key: 'program-white-paper', label: 'Program White Paper', shortLabel: 'WP', cat: 'supporting' },
+      { key: 'meeting-request-letter', label: 'Meeting Request Letter', shortLabel: 'MTG', cat: 'supporting' },
+      { key: 'leave-behind-talking-points', label: 'Leave-Behind / Talking Points', shortLabel: 'LB', cat: 'supporting' },
+      { key: 'follow-up-letter', label: 'Follow-Up Letter', shortLabel: 'FU', cat: 'supporting' },
     ],
   },
 ];
 
-const APPROP_KEYS = ['hac_defense', 'hac_homeland', 'hac_milcon'];
+const APPROP_KEYS = ['hac-defense-programmatic', 'hac-homeland-programmatic', 'hac-milcon-va-programmatic', 'hac-agriculture-programmatic', 'hac-cjs-programmatic', 'hac-energy-water-programmatic', 'hac-labor-hhs-programmatic', 'hac-thud-programmatic'];
 const ALL_SUBMISSION_ITEMS = SUBMISSION_GROUPS.flatMap((g) => g.items);
 
 const STEP_ITEMS = [
@@ -158,7 +163,7 @@ export function StrategyWizard() {
     // Auto-add hac_defense if PE number is set
     if (cap.peNumber) {
       setSelectedSubmissions((prev) =>
-        prev.includes('hac_defense') ? prev : [...prev, 'hac_defense']
+        prev.includes('hac-defense-programmatic') ? prev : [...prev, 'hac-defense-programmatic']
       );
     }
   }, [capabilityId, capabilities]);
@@ -187,12 +192,12 @@ export function StrategyWizard() {
 
   // Smart suggestion: ndaa_auth → auto-add hac_defense
   useEffect(() => {
-    if (selectedSubmissions.includes('ndaa_auth')) {
+    if (selectedSubmissions.includes('ndaa-authorization-request')) {
       setSelectedSubmissions((prev) =>
-        prev.includes('hac_defense') ? prev : [...prev, 'hac_defense']
+        prev.includes('hac-defense-programmatic') ? prev : [...prev, 'hac-defense-programmatic']
       );
     }
-  }, [selectedSubmissions.includes('ndaa_auth')]);
+  }, [selectedSubmissions.includes('ndaa-authorization-request')]);
 
   const createMutation = useMutation({
     mutationFn: async () => {
