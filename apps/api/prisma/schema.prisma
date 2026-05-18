@@ -162,6 +162,8 @@ model Tenant {
   clientCapabilities         ClientCapability[]
   clientSubmissionHistory    ClientSubmissionHistory[]
   clientPeople               ClientPerson[]
+  strategies                 Strategy[]
+  strategyTargets            StrategyTarget[]
 
   @@map("tenants")
 }
@@ -190,6 +192,7 @@ model User {
   clioArtifacts           ClioArtifact[]                 @relation("ClioArtifactUser")
   clioNotes               ClioNote[]                     @relation("ClioNoteUser")
   workflowInstances       WorkflowInstance[]             @relation("WorkflowInstanceCreator")
+  strategies              Strategy[]                     @relation("StrategyCreator")
 
   @@map("users")
 }
@@ -266,6 +269,7 @@ model Client {
   capabilities            ClientCapability[]
   submissionHistory       ClientSubmissionHistory[]
   people                  ClientPerson[]
+  strategies              Strategy[]
 
   @@index([tenantId], map: "clients_tenant_idx")
   @@index([tenantId, name], map: "clients_tenant_name_idx")
@@ -931,6 +935,7 @@ model WorkflowInstance {
   templateId         String         @map("template_id") @db.Uuid
   createdByUserId    String?        @map("created_by_user_id") @db.Uuid
   clientId           String?        @map("client_id") @db.Uuid
+  strategyId         String?        @map("strategy_id") @db.Uuid
   title              String
   status             WorkflowStatus @default(triage)
   formData           Json           @default("{}") @map("form_data_jsonb")
@@ -946,10 +951,12 @@ model WorkflowInstance {
   template  WorkflowTemplate @relation(fields: [templateId], references: [id], onDelete: Restrict)
   createdBy User?            @relation("WorkflowInstanceCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   client    Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  strategy  Strategy?        @relation(fields: [strategyId], references: [id], onDelete: SetNull)
 
   @@index([tenantId, status, createdAt], map: "workflow_instances_tenant_status_created_idx")
   @@index([tenantId, clientId, status], map: "workflow_instances_tenant_client_status_idx")
   @@index([tenantId, templateId], map: "workflow_instances_tenant_template_idx")
+  @@index([strategyId], map: "workflow_instances_strategy_idx")
   @@map("workflow_instances")
 }
 
@@ -981,6 +988,7 @@ model ClientCapability {
   tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   client            Client                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
   submissionHistory ClientSubmissionHistory[]
+  strategies        Strategy[]
 
   @@index([tenantId, clientId], map: "client_capabilities_tenant_client_idx")
   @@map("client_capabilities")
@@ -1027,4 +1035,56 @@ model ClientPerson {
 
   @@index([tenantId, clientId], map: "client_people_tenant_client_idx")
   @@map("client_people")
+}
+
+model Strategy {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  clientId        String   @map("client_id") @db.Uuid
+  capabilityId    String?  @map("capability_id") @db.Uuid
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  name            String
+  fiscalYear      String?  @map("fiscal_year")
+  status          String   @default("active")
+  description     String?  @db.Text
+  submissionTypes Json     @default("[]") @map("submission_types_jsonb")
+  settings        Json     @default("{}") @map("settings_jsonb")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client     Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  capability ClientCapability?  @relation(fields: [capabilityId], references: [id], onDelete: SetNull)
+  createdBy  User?              @relation("StrategyCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  targets    StrategyTarget[]
+  instances  WorkflowInstance[]
+
+  @@index([tenantId, clientId, status], map: "strategies_tenant_client_status_idx")
+  @@map("strategies")
+}
+
+model StrategyTarget {
+  id                 String    @id @default(uuid()) @db.Uuid
+  tenantId           String    @map("tenant_id") @db.Uuid
+  strategyId         String    @map("strategy_id") @db.Uuid
+  memberName         String    @map("member_name")
+  memberTitle        String?   @map("member_title")
+  memberParty        String?   @map("member_party")
+  memberState        String?   @map("member_state")
+  committee          String?
+  subcommittee       String?
+  stafferName        String?   @map("staffer_name")
+  stafferEmail       String?   @map("staffer_email")
+  directoryContactId String?   @map("directory_contact_id")
+  outreachStatus     String    @default("not_started") @map("outreach_status")
+  meetingDate        DateTime? @map("meeting_date") @db.Timestamptz(6)
+  notes              String?   @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, strategyId], map: "strategy_targets_tenant_strategy_idx")
+  @@map("strategy_targets")
 }

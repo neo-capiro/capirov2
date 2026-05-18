@@ -76,4 +76,9 @@ export class WorkflowsController {
     if (!body.clientId) throw new BadRequestException('clientId is required');
     return this.service.aiFillInstance(ctx.tenantId, id, body.clientId);
   }
+
+  @Post('instances/:id/generate-document')
+  generateDocument(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.generateDocument(ctx.tenantId, id);
+  }
 }

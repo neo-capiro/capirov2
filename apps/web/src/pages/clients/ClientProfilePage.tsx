@@ -1,4 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeftOutlined,
   CloudUploadOutlined,
@@ -313,6 +314,7 @@ export function ClientProfilePage({
           )}
           {activeTab === 'capabilities' && (
             <CapabilitiesTab
+              clientId={client.id}
               capabilities={capabilities.data ?? []}
               loading={capabilities.isLoading}
               onCapClick={setSelectedCapability}
@@ -503,18 +505,21 @@ function OverviewTab({
 /* ── Capabilities Tab ────────────────────────────────────────────────────── */
 
 function CapabilitiesTab({
+  clientId,
   capabilities,
   loading,
   onCapClick,
   onAddCap,
   onDeleteCap,
 }: {
+  clientId: string;
   capabilities: Capability[];
   loading: boolean;
   onCapClick: (c: Capability) => void;
   onAddCap: () => void;
   onDeleteCap: (id: string) => void;
 }) {
+  const navigate = useNavigate();
   if (loading) return <Skeleton active paragraph={{ rows: 5 }} />;
 
   return (
@@ -543,19 +548,37 @@ function CapabilitiesTab({
 
       {capabilities.length ? (
         capabilities.map((cap) => (
-          <div key={cap.id} style={{ position: 'relative' }}>
+          <div key={cap.id} style={{ position: 'relative', marginBottom: 8 }}>
             <CapabilityCard cap={cap} onClick={() => onCapClick(cap)} large />
-            <Button
-              size="small"
-              type="text"
-              icon={<DeleteOutlined />}
-              danger
-              style={{ position: 'absolute', top: 10, right: 10 }}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteCap(cap.id);
+            <div
+              style={{
+                position: 'absolute',
+                top: 10,
+                right: 10,
+                display: 'flex',
+                gap: 6,
               }}
-            />
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Button
+                size="small"
+                type="default"
+                onClick={() =>
+                  navigate(
+                    `/workspace/strategy/new?clientId=${encodeURIComponent(clientId)}&capabilityId=${encodeURIComponent(cap.id)}`,
+                  )
+                }
+              >
+                Start FY Strategy
+              </Button>
+              <Button
+                size="small"
+                type="text"
+                icon={<DeleteOutlined />}
+                danger
+                onClick={() => onDeleteCap(cap.id)}
+              />
+            </div>
           </div>
         ))
       ) : (

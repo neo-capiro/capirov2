@@ -5484,7 +5484,10 @@ body {
 }
 
 .workspace-layout > .catalog-view,
-.workspace-layout > .kanban-view {
+.workspace-layout > .kanban-view,
+.workspace-layout > .strategy-wizard,
+.workspace-layout > .strategy-list,
+.workspace-layout > .strategy-dashboard-wrapper {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -7526,4 +7529,223 @@ body {
   color: #475467;
   margin-bottom: 6px;
   margin-top: 4px;
+}
+
+/* ─── Strategy Wizard ────────────────────────────────────────────────────── */
+
+.strategy-wizard {
+  max-width: 860px;
+  padding: 32px 0;
+}
+
+.strategy-wizard-header {
+  margin-bottom: 8px;
+}
+
+.strategy-wizard-step {
+  background: var(--app-bg-1);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  padding: 32px 36px;
+  min-height: 360px;
+}
+
+.strategy-submission-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.strategy-submission-item {
+  padding: 8px 12px;
+  border-radius: 6px;
+  transition: background 0.12s;
+}
+
+.strategy-submission-item:hover {
+  background: var(--app-bg-0);
+}
+
+.strategy-target-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 160px 200px 36px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+/* ─── Strategy Dashboard ─────────────────────────────────────────────────── */
+
+.strategy-dashboard {
+  padding: 32px;
+  max-width: 1100px;
+}
+
+.strategy-header {
+  margin-bottom: 36px;
+}
+
+.strategy-header .ant-tag {
+  font-size: 12px;
+}
+
+.strategy-progress-bar {
+  max-width: 500px;
+  margin-top: 12px;
+}
+
+.strategy-submissions {
+  margin-bottom: 40px;
+}
+
+.strategy-submission-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 130px 100px 160px;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.strategy-targets {
+  margin-bottom: 40px;
+}
+
+.strategy-target-card {
+  padding: 12px 16px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background: var(--app-bg-1);
+}
+
+.strategy-outreach-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.strategy-timeline {
+  margin-bottom: 40px;
+}
+
+.strategy-timeline-item {
+  display: flex;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13px;
+}
+
+.strategy-timeline-item:last-child {
+  border-bottom: none;
+}
+
+/* ─── Strategies List ────────────────────────────────────────────────────── */
+
+.strategy-card {
+  border-radius: 10px;
+  transition: box-shadow 0.18s;
+}
+
+.strategy-card:hover {
+  box-shadow:
+    0 6px 16px rgba(17, 24, 39, 0.1),
+    0 2px 4px rgba(17, 24, 39, 0.06);
+}
+
+.strategy-card-progress {
+  margin-top: 12px;
+}
+
+/* Workspace layout: make strategy views scroll like catalog/kanban */
+.workspace-layout > .strategy-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ─── Deadline Bar ───────────────────────────────────────────────────────── */
+
+.deadline-bar {
+  background: #fef3dc;
+  border-bottom: 1px solid #f5d68a;
+  padding: 8px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+  color: #92400e;
+  flex-shrink: 0;
+}
+
+.deadline-item {
+  font-weight: 600;
+  background: #fde68a;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  color: #78350f;
+  text-decoration: none;
+  transition: background 140ms ease;
+}
+
+.deadline-item:hover {
+  background: #fcd34d;
+  color: #78350f;
+}
+
+.deadline-item--more {
+  font-weight: 500;
+  background: #fef3c7;
+}
+
+/* ─── Strategy Banner (WorkflowDrawer) ───────────────────────────────────── */
+
+.workflow-drawer-strategy-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: #1e40af;
+}
+
+.workflow-drawer-strategy-banner a {
+  color: #2563eb;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.workflow-drawer-strategy-banner a:hover {
+  text-decoration: underline;
+}
+
+/* ─── Generated Document Preview ─────────────────────────────────────────── */
+
+.generated-doc-preview {
+  background: #fff;
+  border: 1px solid var(--line-soft, #e4e8f0);
+  border-radius: 8px;
+  padding: 24px;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  max-height: 500px;
+  overflow-y: auto;
+  color: var(--ink-900, #111827);
+  font-family: Georgia, Cambria, 'Times New Roman', Times, serif;
+}
+
+.generated-doc-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
 }

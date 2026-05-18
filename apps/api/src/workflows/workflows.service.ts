@@ -8,7 +8,15 @@ import type { CreateWorkflowInstanceDto } from './dto/create-workflow-instance.d
 import type { UpdateWorkflowInstanceDto } from './dto/update-workflow-instance.dto.js';
 
 const AI_FILL_MODEL = 'claude-haiku-4-5-20251001';
+const AI_GEN_MODEL = 'claude-sonnet-4-6';
 const MAX_DOC_CHARS = 10_000;
+
+const SUPPORTING_DOC_SLUGS = new Set([
+  'program-white-paper',
+  'meeting-request-letter',
+  'leave-behind-talking-points',
+  'follow-up-letter',
+]);
 
 @Injectable()
 export class WorkflowsService {
@@ -338,6 +346,220 @@ export class WorkflowsService {
     const text = extractAnthropicText(json);
     const parsed = parseJsonSafe(text);
     return { suggestions: (parsed.suggestions as Record<string, unknown>) ?? {} };
+  }
+
+  async generateDocument(tenantId: string, instanceId: string) {
+    if (!this.anthropicKey) {
+      throw new ServiceUnavailableException('AI document generation is not configured. Set ANTHROPIC_API_KEY.');
+    }
+
+    const instance = await this.prisma.workflowInstance.findUnique({
+      where: { id: instanceId },
+      include: {
+        template: true,
+        strategy: {
+          include: {
+            capability: true,
+            targets: true,
+            instances: { include: { template: true } },
+          },
+        },
+      },
+    });
+    if (!instance || instance.tenantId !== tenantId) {
+      throw new NotFoundException(`Workflow instance '${instanceId}' not found`);
+    }
+
+    const templateSlug = instance.template?.slug ?? '';
+    if (!SUPPORTING_DOC_SLUGS.has(templateSlug)) {
+      throw new ServiceUnavailableException(
+        `generateDocument is only available for supporting document templates`,
+      );
+    }
+
+    const client = instance.clientId
+      ? await this.prisma.client.findUnique({ where: { id: instance.clientId } })
+      : null;
+
+    const strategy = instance.strategy as {
+      name: string;
+      fiscalYear: string | null;
+      targets: Array<{ memberName: string; committee: string | null; subcommittee: string | null }>;
+      instances: Array<{ template: { slug: string; name: string } | null; formData: unknown }>;
+      capability: {
+        name: string;
+        peNumber: string | null;
+        appropriationAccount: string | null;
+        fundingAsk: number | null;
+        justification: string | null;
+        districtNexus: string | null;
+        description: string | null;
+        trl: number | null;
+      } | null;
+    } | null;
+
+    // Pull sibling submission form data for context (e.g., NDAA fields)
+    const siblingData: Record<string, unknown> = {};
+    if (strategy?.instances) {
+      for (const sib of strategy.instances) {
+        if (sib.template?.slug && sib.template.slug !== templateSlug) {
+          const slugKey = sib.template.slug.replace(/-/g, '_');
+          siblingData[slugKey] = sib.formData;
+        }
+      }
+    }
+
+    const contextBlocks: string[] = [];
+
+    if (client) {
+      contextBlocks.push(`CLIENT: ${client.name}`);
+      if (client.description) contextBlocks.push(`CLIENT DESCRIPTION: ${client.description}`);
+      if (client.productDescription) contextBlocks.push(`PRODUCT/SERVICE: ${client.productDescription}`);
+    }
+
+    if (strategy?.capability) {
+      const cap = strategy.capability;
+      contextBlocks.push(`PROGRAM: ${cap.name}`);
+      if (cap.peNumber) contextBlocks.push(`PE NUMBER: ${cap.peNumber}`);
+      if (cap.appropriationAccount) contextBlocks.push(`APPROPRIATION ACCOUNT: ${cap.appropriationAccount}`);
+      if (cap.fundingAsk) contextBlocks.push(`FUNDING ASK: $${cap.fundingAsk.toLocaleString()}`);
+      if (cap.description) contextBlocks.push(`CAPABILITY DESCRIPTION: ${cap.description}`);
+      if (cap.justification) contextBlocks.push(`JUSTIFICATION: ${cap.justification}`);
+      if (cap.districtNexus) contextBlocks.push(`DISTRICT NEXUS: ${cap.districtNexus}`);
+      if (cap.trl) contextBlocks.push(`TECHNOLOGY READINESS LEVEL (TRL): ${cap.trl}`);
+    }
+
+    if (strategy?.targets?.length) {
+      const targetNames = strategy.targets
+        .map((t) => `${t.memberName}${t.committee ? ' (' + t.committee + ')' : ''}`)
+        .join(', ');
+      contextBlocks.push(`TARGET MEMBERS: ${targetNames}`);
+    }
+
+    if (strategy?.name) contextBlocks.push(`STRATEGY: ${strategy.name}`);
+    if (strategy?.fiscalYear) contextBlocks.push(`FISCAL YEAR: ${strategy.fiscalYear}`);
+
+    if (Object.keys(siblingData).length) {
+      contextBlocks.push(`RELATED SUBMISSION DATA:\n${JSON.stringify(siblingData, null, 2)}`);
+    }
+
+    const existingFormData = (instance.formData ?? {}) as Record<string, unknown>;
+    if (Object.keys(existingFormData).length > 1) {
+      contextBlocks.push(`CURRENT FORM DATA:\n${JSON.stringify(existingFormData, null, 2)}`);
+    }
+
+    const templatePrompts: Record<string, string> = {
+      'program-white-paper': `Generate a 1-2 page program white paper for congressional submission.
+Format as a professional document with these sections:
+PROGRAM WHITE PAPER — [Program Name]
+[Fiscal Year] Authorization/Appropriations Request
+
+Problem Statement: The specific capability gap or national security need being addressed.
+Solution: What this program does and how it solves the problem.
+Current Status: Development stage, TRL level, milestones achieved to date, contracts or government endorsements.
+Funding History and Request: FY25 enacted / FY26 enacted / FY27 requested amounts with brief context.
+National Security Impact: Why this capability matters strategically.
+Economic Impact: Jobs, districts supported, small business participation.
+District/State Connection: How this program connects to the Member's state or district.
+
+Use formal, concise prose. No bullet points — use short paragraphs. Length: 400-600 words.`,
+
+      'meeting-request-letter': `Generate a formal meeting request letter to a Member of Congress or their staff.
+Format as a proper business letter with:
+- Date: [Current date]
+- Recipient: The Honorable [Name], [Title]
+- Re: Request for Meeting — [Program/Topic]
+- Opening: Who you are, what organization you represent, and the specific ask for a meeting.
+- Body (2-3 short paragraphs): Context for the meeting, what you'd like to discuss, why it's relevant to the Member's portfolio.
+- Closing: Flexible availability, offer to provide materials in advance, direct contact for scheduling.
+- Signature block: [Lobbyist/Firm name]
+
+Tone: professional, respectful, concise. Keep to one page (250-350 words).`,
+
+      'leave-behind-talking-points': `Generate a leave-behind document for a congressional meeting.
+Format as a single-page document:
+[CLIENT NAME] | [PROGRAM NAME]
+FY[Year] [Authorization/Appropriations] Request
+
+THE ASK (bold, top of page):
+One sentence stating exactly what you're requesting.
+
+KEY POINTS (3-5 bullets):
+- Each bullet = one compelling supporting argument
+- Lead with the strongest point
+- Include data/numbers where possible
+
+DISTRICT/STATE IMPACT:
+Brief statement on jobs, facilities, or economic activity in the Member's state/district.
+
+FUNDING CONTEXT:
+FY25 enacted: $X | FY26 enacted: $X | FY27 requested: $X [above/at/below PBR]
+
+CONTACT: [Client POC name, title, email]
+
+Keep it scannable. No walls of text. Total: 200-300 words.`,
+
+      'follow-up-letter': `Generate a post-meeting follow-up thank-you letter.
+Format as a formal business letter:
+- Date: [Date of follow-up, typically 1-2 days after meeting]
+- Recipient: [Staff member(s) who attended]
+- Re: Follow-Up — Meeting on [Program/Topic]
+- Thank you paragraph: Thank them for their time, reference the specific meeting.
+- Summary paragraph: Brief recap of what was discussed — the ask, any feedback received, key points of agreement.
+- Next steps paragraph: Restate the specific request, remind of any upcoming deadlines, offer to provide additional materials.
+- Materials paragraph (if applicable): Reference any follow-up materials being enclosed/attached.
+- Closing: Express continued availability, look forward to the Member's support.
+
+Tone: warm but professional. One page (250-350 words).`,
+    };
+
+    const typePrompt = templatePrompts[templateSlug] ?? 'Generate a professional congressional advocacy document based on the provided context.';
+
+    const prompt = [
+      typePrompt,
+      '',
+      'Use ONLY the information provided below. Do not invent facts, names, dollar amounts, or dates that are not in the context.',
+      'Write in formal professional English appropriate for congressional correspondence.',
+      '',
+      'CONTEXT:',
+      ...contextBlocks,
+    ].join('\n');
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: AI_GEN_MODEL,
+        max_tokens: 2000,
+        system: 'You are an expert government affairs writer specializing in congressional advocacy documents. Generate professional, accurate documents using only the provided context. Never invent facts.',
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    const json = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      const err = (json.error as Record<string, unknown> | undefined)?.message ?? `HTTP ${response.status}`;
+      throw new ServiceUnavailableException(`Document generation failed: ${String(err)}`);
+    }
+
+    const generatedText = extractAnthropicText(json);
+
+    // Save generated document into formData
+    const updatedFormData = {
+      ...(existingFormData),
+      generated_document: generatedText,
+    };
+
+    await this.prisma.workflowInstance.update({
+      where: { id: instanceId },
+      data: { formData: updatedFormData },
+    });
+
+    return { generated_document: generatedText };
   }
 }
 

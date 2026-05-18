@@ -11,8 +11,8 @@ import type { OrganizationMembershipRole } from '@clerk/backend';
 import { ClerkProvisioningService } from '../auth/clerk-provisioning.service.js';
 import { ClerkService } from '../auth/clerk.service.js';
 import type { AppConfig } from '../config/config.schema.js';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
+import type { Prisma } from '@prisma/client';
 
 interface InviteTeamMemberInput {
   email: string;
@@ -275,9 +275,7 @@ export class TenantAdminService {
       const currentSettings = (tenant?.settings ?? {}) as Record<string, unknown>;
       const updated = await tx.tenant.update({
         where: { id: ctx.tenantId },
-        data: {
-          settings: { ...currentSettings, contactInfo: { ...input } } as Prisma.InputJsonValue,
-        },
+        data: { settings: { ...currentSettings, contactInfo: input } as unknown as Prisma.InputJsonValue },
         select: { settings: true },
       });
       const settings = updated.settings as Record<string, unknown>;
