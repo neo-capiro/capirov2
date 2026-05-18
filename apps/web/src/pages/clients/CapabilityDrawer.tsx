@@ -173,7 +173,6 @@ export function CapabilityDrawer({ capability, clientId, onClose, onUpdated }: P
   return (
     <div className="cap-drawer">
       <div className="cap-drawer-hd">
-        <div className="cap-drawer-img">📦</div>
         <div style={{ flex: 1 }}>
           <div className="cap-drawer-name">{capability.name}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>

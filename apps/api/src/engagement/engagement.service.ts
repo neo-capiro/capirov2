@@ -3590,7 +3590,7 @@ function prepareThreadForAi(value: unknown): Record<string, unknown> {
         quote,
       };
     })
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
 
   return {
     id: typeof thread.id === 'string' ? thread.id : null,

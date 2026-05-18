@@ -955,9 +955,6 @@ function CapabilityCard({
   return (
     <div className="cap-card" onClick={onClick}>
       <div className="cap-card-hd">
-        <div className="cap-img" style={large ? { width: 52, height: 52 } : undefined}>
-          📦
-        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="cap-name" style={large ? { fontSize: 14 } : undefined}>
             {cap.name}

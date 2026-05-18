@@ -436,13 +436,9 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
       </div>
 
       <div className="client-card-details">
-        <DetailPair label="POC" value={client.primaryContactName} />
+        <DetailPair label="Primary POC" value={formatPoc(intake, client.primaryContactName)} />
         <DetailPair label="Sector" value={readText(intake, ['sector'])} />
-        <DetailPair label="Funding ask" value={readText(intake, ['fundingAsk', 'funding_ask'])} />
-        <DetailPair
-          label="Request type"
-          value={readText(intake, ['requestType', 'request_type'])}
-        />
+        <DetailPair label="Engagement" value={formatEngagement(intake, client.createdAt)} />
       </div>
 
       <div className="client-tag-row">
@@ -454,6 +450,27 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
       </div>
     </article>
   );
+}
+
+/** "Sarah Kim, VP Gov't Affairs" — falls back to whichever piece we have. */
+function formatPoc(intake: Record<string, unknown>, fallbackName: string | null): string | undefined {
+  const name = readText(intake, ['pocName']) ?? fallbackName ?? undefined;
+  const title = readText(intake, ['pocTitle']);
+  if (name && title) return `${name}, ${title}`;
+  return name ?? title;
+}
+
+/** "Active · Since Jan 2026" — status comes from intake, "since" from client.createdAt. */
+function formatEngagement(intake: Record<string, unknown>, createdAt: string): string | undefined {
+  const statusRaw = readText(intake, ['engagement']);
+  const status = statusRaw ? statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1) : undefined;
+  const since = (() => {
+    const d = new Date(createdAt);
+    if (Number.isNaN(d.getTime())) return undefined;
+    return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+  })();
+  if (status && since) return `${status} · Since ${since}`;
+  return status ?? (since ? `Since ${since}` : undefined);
 }
 
 function AddClientCard({
