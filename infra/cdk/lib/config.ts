@@ -113,7 +113,23 @@ export function loadConfig(app: cdk.App): EnvConfig {
           clerkJwtIssuer: 'https://clerk.app.capiro.ai',
         }
       : envName === 'staging'
-        ? { protectFromDestroy: true }
+        ? {
+            // Staging serves the app at app.staging.capiro.ai and the marketing
+            // site at staging.capiro.ai. The base config defaults appHost to
+            // `app.capiro.ai` (prod), which makes the API derive a
+            // MICROSOFT_REDIRECT_URI pointing at prod and breaks the Microsoft
+            // 365 OAuth callback from staging tenants (the callback lands on
+            // the wrong stack, hits the wrong Aurora cluster, throws
+            // "Record not found" trying to update the IntegrationConnection,
+            // and returns 500 to the user). Pin the host explicitly here so
+            // every host-derived env var (MICROSOFT_REDIRECT_URI,
+            // MICROSOFT_GRAPH_NOTIFICATION_URL, APP_SIGN_IN_URL, WEB_ORIGIN)
+            // points at staging's own ALB.
+            appHost: 'app.staging.capiro.ai',
+            wildcardHost: '*.app.staging.capiro.ai',
+            rootDomain: 'staging.capiro.ai',
+            protectFromDestroy: true,
+          }
         : {
             // Dev/prod account: 967807252336  region: us-east-1
             appHost: 'app-dev.capiro.ai',
