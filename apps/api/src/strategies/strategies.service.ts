@@ -411,9 +411,9 @@ function extractDeadlines(timing: string, year: number): { date: Date; label: st
   const re = /([A-Za-z/ ]+deadline[^:]*?:\s*approximately\s+)([A-Za-z]+)\s+(\d{1,2})/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(timing)) !== null) {
-    const label = m[1].replace(/:\s*approximately\s*$/, '').trim();
-    const month = MONTHS[m[2].toLowerCase()];
-    const day = parseInt(m[3], 10);
+    const label = (m[1] ?? '').replace(/:\s*approximately\s*$/, '').trim();
+    const month = MONTHS[(m[2] ?? '').toLowerCase()];
+    const day = parseInt(m[3] ?? '', 10);
     if (month === undefined || isNaN(day)) continue;
     results.push({ date: new Date(year, month, day), label });
   }
