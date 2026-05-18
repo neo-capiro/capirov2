@@ -3590,7 +3590,7 @@ function prepareThreadForAi(value: unknown): Record<string, unknown> {
         quote,
       };
     })
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry));
+    .filter((entry): entry is { fromName: string | null; fromEmail: string | null; sentAt: string | null; subject: string | null; quote: string } => Boolean(entry));
 
   return {
     id: typeof thread.id === 'string' ? thread.id : null,
