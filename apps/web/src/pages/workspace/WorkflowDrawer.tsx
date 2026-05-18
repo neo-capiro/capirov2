@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BulbOutlined, CheckOutlined, DeleteOutlined, SaveOutlined } from '@ant-design/icons';
+import { Link } from 'react-router-dom';
+import { BulbOutlined, CheckOutlined, CopyOutlined, DeleteOutlined, RedoOutlined, SaveOutlined, SyncOutlined } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -41,6 +42,7 @@ interface WorkflowDrawerProps {
   onClose: () => void;
   onDeleted: (id: string) => void;
   onUpdated: (updated: WorkflowInstance) => void;
+  strategyName?: string;
 }
 
 export function WorkflowDrawer({
@@ -49,6 +51,7 @@ export function WorkflowDrawer({
   onClose,
   onDeleted,
   onUpdated,
+  strategyName,
 }: WorkflowDrawerProps) {
   const api = useApi();
   const qc = useQueryClient();
@@ -162,6 +165,28 @@ export function WorkflowDrawer({
       message.success('Workflow removed');
       qc.invalidateQueries({ queryKey: ['workflow-instances'] });
       onDeleted(instance!.id);
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  const syncFromStrategy = useMutation({
+    mutationFn: async () =>
+      (await api.post(`/api/strategies/${instance!.strategyId}/sync-data`)).data,
+    onSuccess: (result) => {
+      message.success(`Synced ${(result as { synced: number }).synced} submission${(result as { synced: number }).synced !== 1 ? 's' : ''} from strategy`);
+      qc.invalidateQueries({ queryKey: ['strategy', instance!.strategyId] });
+      qc.invalidateQueries({ queryKey: ['workflow-instances'] });
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  const generateDoc = useMutation({
+    mutationFn: async () =>
+      (await api.post<{ generated_document: string }>(`/api/workflows/instances/${instance!.id}/generate-document`)).data,
+    onSuccess: (result) => {
+      message.success('Document generated');
+      setFormData((prev) => ({ ...prev, generated_document: result.generated_document }));
+      onUpdated({ ...instance!, formData: { ...(instance!.formData ?? {}), generated_document: result.generated_document } });
     },
     onError: (err) => message.error(errorMessage(err)),
   });
@@ -384,6 +409,26 @@ export function WorkflowDrawer({
     >
       {instance ? (
         <div className="workflow-drawer-body">
+          {/* Strategy banner */}
+          {instance.strategyId && (
+            <div className="workflow-drawer-strategy-banner">
+              <span>
+                Part of strategy:{' '}
+                <Link to={`/workspace/strategy/${instance.strategyId}`}>
+                  {strategyName ?? 'View Strategy'}
+                </Link>
+              </span>
+              <Button
+                size="small"
+                icon={<SyncOutlined />}
+                loading={syncFromStrategy.isPending}
+                onClick={() => syncFromStrategy.mutate()}
+              >
+                Sync from strategy
+              </Button>
+            </div>
+          )}
+
           {/* Client association */}
           <div className="workflow-drawer-section">
             <Typography.Text strong className="workflow-field-section-label">
@@ -561,6 +606,52 @@ export function WorkflowDrawer({
               ))}
             </div>
           ) : null}
+
+          {/* Generated document preview */}
+          {instance.template?.category === 'supporting' && (
+            <div className="workflow-drawer-section">
+              <Typography.Text strong className="workflow-field-section-label">
+                Generated Document
+              </Typography.Text>
+              {formData.generated_document ? (
+                <>
+                  <div className="generated-doc-preview">
+                    {String(formData.generated_document)}
+                  </div>
+                  <div className="generated-doc-actions">
+                    <Button
+                      size="small"
+                      icon={<RedoOutlined />}
+                      loading={generateDoc.isPending}
+                      onClick={() => generateDoc.mutate()}
+                    >
+                      Regenerate
+                    </Button>
+                    <Button
+                      size="small"
+                      icon={<CopyOutlined />}
+                      onClick={() => {
+                        navigator.clipboard.writeText(String(formData.generated_document));
+                        message.success('Copied to clipboard');
+                      }}
+                    >
+                      Copy
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <Button
+                  type="dashed"
+                  icon={<BulbOutlined />}
+                  loading={generateDoc.isPending}
+                  onClick={() => generateDoc.mutate()}
+                  style={{ width: '100%' }}
+                >
+                  Generate Document with AI
+                </Button>
+              )}
+            </div>
+          )}
 
           {/* Instance-level submission details */}
           <div className="workflow-drawer-section">

@@ -179,6 +179,45 @@ export function StrategyDashboard() {
     onError: (err) => message.error(errorMessage(err)),
   });
 
+  // Generate document mutation (supporting docs)
+  const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
+  const generateDocMutation = useMutation({
+    mutationFn: (instanceId: string) =>
+      api
+        .post<{ generated_document: string }>(`/api/workflows/instances/${instanceId}/generate-document`)
+        .then((r) => r.data),
+    onMutate: (instanceId) => {
+      setGeneratingIds((prev) => new Set([...prev, instanceId]));
+    },
+    onSuccess: (result, instanceId) => {
+      setGeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(instanceId);
+        return next;
+      });
+      message.success('Document generated');
+      queryClient.setQueryData(['strategy', id], (old: any) => {
+        if (!old) return old;
+        return {
+          ...old,
+          instances: old.instances.map((i: any) =>
+            String(i.id) === String(instanceId)
+              ? { ...i, formData: { ...(i.formData ?? {}), generated_document: result.generated_document } }
+              : i
+          ),
+        };
+      });
+    },
+    onError: (err, instanceId) => {
+      setGeneratingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(instanceId);
+        return next;
+      });
+      message.error(errorMessage(err));
+    },
+  });
+
   // Add submission mutation
   const addSubmissionMutation = useMutation({
     mutationFn: async (slugs: string[]) => {
@@ -410,28 +449,42 @@ export function StrategyDashboard() {
     {
       title: 'Actions',
       key: 'actions',
-      width: 160,
+      width: 180,
       render: (_: unknown, inst: WorkflowInstance & { template: WorkflowTemplate }) => {
         const isSupporting = inst.template?.category === 'supporting';
+        const hasGeneratedDoc = Boolean((inst.formData ?? {}).generated_document);
+        const isGenerating = generatingIds.has(String(inst.id));
+
         return (
           <Space size="small">
-            <Button
-              size="small"
-              onClick={() => {
-                setSelectedInstance(inst);
-                setDrawerOpen(true);
-              }}
-            >
-              Open
-            </Button>
-            {isSupporting && (
+            {isSupporting && !hasGeneratedDoc ? (
+              <Button
+                size="small"
+                type="primary"
+                loading={isGenerating}
+                onClick={() => generateDocMutation.mutate(String(inst.id))}
+              >
+                Generate
+              </Button>
+            ) : (
+              <Button
+                size="small"
+                onClick={() => {
+                  setSelectedInstance(inst);
+                  setDrawerOpen(true);
+                }}
+              >
+                {isSupporting && hasGeneratedDoc ? 'View & Edit' : 'Open'}
+              </Button>
+            )}
+            {isSupporting && hasGeneratedDoc && (
               <Button
                 size="small"
                 type="dashed"
-                loading={aiFillMutation.isPending && aiFillMutation.variables === String(inst.id)}
-                onClick={() => aiFillMutation.mutate(String(inst.id))}
+                loading={isGenerating}
+                onClick={() => generateDocMutation.mutate(String(inst.id))}
               >
-                Generate
+                Regen
               </Button>
             )}
           </Space>
@@ -740,6 +793,7 @@ export function StrategyDashboard() {
         <WorkflowDrawer
           instance={selectedInstance}
           open={drawerOpen}
+          strategyName={strategy?.name}
           onClose={() => {
             setDrawerOpen(false);
             setSelectedInstance(null);

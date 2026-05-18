@@ -58,6 +58,7 @@ export interface WorkflowInstance {
   status: WorkflowStatus;
   templateSlug: string;
   clientId: string | null;
+  strategyId: string | null;
   formData: Record<string, unknown>;
   targetMember: string | null;
   submissionDeadline: string | null;

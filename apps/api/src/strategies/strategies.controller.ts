@@ -39,6 +39,11 @@ export class StrategiesController {
     return this.service.list(ctx.tenantId, { clientId, status });
   }
 
+  @Get('deadlines')
+  getDeadlines(@CurrentTenant() ctx: TenantContext) {
+    return this.service.getDeadlines(ctx.tenantId);
+  }
+
   @Get(':id')
   get(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.get(ctx.tenantId, id);
@@ -132,5 +137,10 @@ export class StrategiesController {
   @Post(':id/create-submissions')
   createSubmissions(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.createSubmissions(ctx.tenantId, ctx.userId, id);
+  }
+
+  @Post(':id/sync-data')
+  syncData(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.syncData(ctx.tenantId, id);
   }
 }

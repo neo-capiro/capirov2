@@ -1,8 +1,22 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type { ClientCapability } from '@prisma/client';
 import { WorkflowStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateStrategyDto } from './dto/create-strategy.dto.js';
 import type { UpdateStrategyDto } from './dto/update-strategy.dto.js';
+
+export interface DeadlineItem {
+  strategyId: string;
+  strategyName: string;
+  clientName: string;
+  templateSlug: string;
+  templateName: string;
+  deadline: string;
+  deadlineLabel: string;
+  daysUntil: number;
+  instanceId: string;
+  instanceStatus: string;
+}
 
 @Injectable()
 export class StrategiesService {
@@ -221,6 +235,15 @@ export class StrategiesService {
 
     const templateBySlug = new Map(templates.map((t) => [t.slug, t]));
 
+    const [capability, client] = await Promise.all([
+      strategy.capabilityId
+        ? this.prisma.clientCapability.findUnique({ where: { id: strategy.capabilityId } })
+        : Promise.resolve(null),
+      this.prisma.client.findUnique({ where: { id: strategy.clientId } }),
+    ]);
+
+    const prefillData = this.buildPrefillData(capability, client);
+
     const created = await Promise.all(
       slugs.map(async (slug) => {
         const template = templateBySlug.get(slug);
@@ -234,6 +257,8 @@ export class StrategiesService {
             strategyId,
             title: `${strategy.name} — ${template.name}`,
             status: WorkflowStatus.triage,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            formData: prefillData as any,
           },
           include: { template: true },
         });
@@ -242,4 +267,155 @@ export class StrategiesService {
 
     return { created: created.filter(Boolean) };
   }
+
+  async syncData(tenantId: string, strategyId: string) {
+    const strategy = await this.get(tenantId, strategyId);
+
+    const [capability, client] = await Promise.all([
+      strategy.capabilityId
+        ? this.prisma.clientCapability.findUnique({ where: { id: strategy.capabilityId } })
+        : Promise.resolve(null),
+      this.prisma.client.findUnique({ where: { id: strategy.clientId } }),
+    ]);
+
+    const prefillData = this.buildPrefillData(capability, client);
+    if (Object.keys(prefillData).length === 0) return { synced: 0 };
+
+    const instances = await this.prisma.workflowInstance.findMany({
+      where: { strategyId, tenantId },
+    });
+
+    let synced = 0;
+    for (const inst of instances) {
+      const existing = (inst.formData ?? {}) as Record<string, unknown>;
+      const merged: Record<string, unknown> = { ...existing };
+      let changed = false;
+      for (const [k, v] of Object.entries(prefillData)) {
+        if (merged[k] === undefined || merged[k] === null || merged[k] === '') {
+          merged[k] = v;
+          changed = true;
+        }
+      }
+      if (changed) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await this.prisma.workflowInstance.update({ where: { id: inst.id }, data: { formData: merged as any } });
+        synced++;
+      }
+    }
+    return { synced };
+  }
+
+  async getDeadlines(tenantId: string): Promise<DeadlineItem[]> {
+    const strategies = await this.prisma.strategy.findMany({
+      where: { tenantId, status: 'active' },
+      include: {
+        client: { select: { id: true, name: true } },
+        instances: { include: { template: true } },
+      },
+    });
+
+    const today = new Date();
+    const cutoff = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+    const items: DeadlineItem[] = [];
+
+    for (const strategy of strategies) {
+      const fyYear = deadlineYear(strategy.fiscalYear);
+      for (const inst of strategy.instances) {
+        const contextInfo = (inst.template?.contextInfo ?? {}) as Record<string, unknown>;
+        const timing = typeof contextInfo.timing === 'string' ? contextInfo.timing : null;
+        if (!timing) continue;
+
+        for (const { date, label } of extractDeadlines(timing, fyYear)) {
+          if (date < today || date > cutoff) continue;
+          const daysUntil = Math.round((date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+          items.push({
+            strategyId: strategy.id,
+            strategyName: strategy.name,
+            clientName: (strategy.client as { name: string } | null)?.name ?? '',
+            templateSlug: inst.template?.slug ?? '',
+            templateName: inst.template?.name ?? '',
+            deadline: date.toISOString().slice(0, 10),
+            deadlineLabel: label,
+            daysUntil,
+            instanceId: inst.id,
+            instanceStatus: inst.status,
+          });
+        }
+      }
+    }
+
+    return items.sort((a, b) => a.daysUntil - b.daysUntil);
+  }
+
+  // ── Private helpers ───────────────────────────────────────────────────────
+
+  private buildPrefillData(
+    capability: ClientCapability | null,
+    client: { name: string } | null,
+  ): Record<string, unknown> {
+    const p: Record<string, unknown> = {};
+
+    if (capability) {
+      if (capability.name) p.program = capability.name;
+      if (capability.peNumber) {
+        p.program_element = capability.peNumber;
+        p.pe_budget_line = capability.peNumber;
+        p.line_number = capability.peNumber;
+      }
+      if (capability.appropriationAccount) {
+        p.appropriation_account = capability.appropriationAccount;
+        p.appropriations_account = capability.appropriationAccount;
+        p.account_name = capability.appropriationAccount;
+      }
+      if (capability.fundingAsk != null) {
+        p.requested_funding_amount = capability.fundingAsk;
+        p.requested_amount = capability.fundingAsk;
+        p.fy_requested = capability.fundingAsk;
+      }
+      if (capability.justification) p.justification = capability.justification;
+      if (capability.targetSubcommittee) p.subcommittee = capability.targetSubcommittee;
+      if (capability.serviceBranch) p.service_branch = capability.serviceBranch;
+      if (capability.districtNexus) {
+        p.connection_to_massachusetts = true;
+        p.massachusetts_connection_detail = capability.districtNexus;
+        p.state_connection = true;
+        p.state_connection_detail = capability.districtNexus;
+      }
+      if (capability.description) p.problem_statement = capability.description;
+    }
+
+    if (client?.name) p.org_name = client.name;
+    return p;
+  }
+}
+
+// ── Module-level deadline parsing helpers ────────────────────────────────────
+
+const MONTHS: Record<string, number> = {
+  january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+  july: 6, august: 7, september: 8, october: 9, november: 10, december: 11,
+  jan: 0, feb: 1, mar: 2, apr: 3, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+function deadlineYear(fiscalYear: string | null | undefined): number {
+  if (!fiscalYear) return new Date().getFullYear();
+  const m = fiscalYear.match(/\d{2,4}/);
+  if (!m) return new Date().getFullYear();
+  const fy = parseInt(m[0], 10) < 100 ? 2000 + parseInt(m[0], 10) : parseInt(m[0], 10);
+  return fy - 1; // FY27 approps deadlines are in spring 2026
+}
+
+function extractDeadlines(timing: string, year: number): { date: Date; label: string }[] {
+  const results: { date: Date; label: string }[] = [];
+  // Match "Something deadline: approximately Month DD"
+  const re = /([A-Za-z/ ]+deadline[^:]*?:\s*approximately\s+)([A-Za-z]+)\s+(\d{1,2})/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(timing)) !== null) {
+    const label = m[1].replace(/:\s*approximately\s*$/, '').trim();
+    const month = MONTHS[m[2].toLowerCase()];
+    const day = parseInt(m[3], 10);
+    if (month === undefined || isNaN(day)) continue;
+    results.push({ date: new Date(year, month, day), label });
+  }
+  return results;
 }
