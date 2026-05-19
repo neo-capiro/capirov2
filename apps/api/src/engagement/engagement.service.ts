@@ -2669,6 +2669,334 @@ export class EngagementService {
       debriefs: (debriefsByMeeting[index] ?? []).filter((debrief) => !debrief.restricted),
     }));
   }
+
+  async listCampaigns(ctx: TenantContext, query: { clientId?: string; status?: string }) {
+    const clientId = query.clientId?.trim() || null;
+    const status = query.status?.trim() || null;
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementCampaign.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          ...(clientId ? { clientId } : {}),
+          ...(status ? { status } : {}),
+        },
+        include: {
+          client: clientSummarySelect(),
+          createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+          recipients: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+    );
+  }
+
+  async createCampaign(
+    ctx: TenantContext,
+    input: { name: string; clientId?: string; type?: string; sourceContext?: Record<string, unknown> },
+  ) {
+    const clientId = input.clientId?.trim() || null;
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      if (clientId) {
+        await ensureExists(
+          tx.client.findFirst({ where: { id: clientId, tenantId: ctx.tenantId }, select: { id: true } }),
+          'Client not found',
+        );
+      }
+      return tx.engagementCampaign.create({
+        data: {
+          tenantId: ctx.tenantId,
+          clientId,
+          createdByUserId: ctx.userId,
+          name: input.name.trim(),
+          type: input.type ?? 'custom',
+          sourceContext: (input.sourceContext ?? {}) as Prisma.InputJsonValue,
+        },
+        include: {
+          client: clientSummarySelect(),
+          createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+          recipients: true,
+        },
+      });
+    });
+  }
+
+  async getCampaign(ctx: TenantContext, id: string) {
+    const campaign = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementCampaign.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        include: {
+          client: clientSummarySelect(),
+          createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+          recipients: { orderBy: { createdAt: 'asc' } },
+        },
+      }),
+    );
+    if (!campaign) throw new NotFoundException('Campaign not found');
+    return campaign;
+  }
+
+  async updateCampaign(
+    ctx: TenantContext,
+    id: string,
+    input: {
+      name?: string;
+      clientId?: string | null;
+      type?: string;
+      status?: string;
+      subject?: string | null;
+      body?: string | null;
+      sourceContext?: Record<string, unknown>;
+      metadata?: Record<string, unknown>;
+    },
+  ) {
+    const campaign = await this.getCampaign(ctx, id);
+    const clientId =
+      input.clientId === null ? null : input.clientId?.trim() || campaign.clientId;
+
+    if (clientId && clientId !== campaign.clientId) {
+      await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        ensureExists(
+          tx.client.findFirst({ where: { id: clientId, tenantId: ctx.tenantId }, select: { id: true } }),
+          'Client not found',
+        ),
+      );
+    }
+
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementCampaign.update({
+        where: { id },
+        data: {
+          ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+          ...(input.clientId !== undefined ? { clientId } : {}),
+          ...(input.type !== undefined ? { type: input.type } : {}),
+          ...(input.status !== undefined ? { status: input.status } : {}),
+          ...(input.subject !== undefined ? { subject: input.subject } : {}),
+          ...(input.body !== undefined ? { body: input.body } : {}),
+          ...(input.sourceContext !== undefined
+            ? { sourceContext: input.sourceContext as Prisma.InputJsonValue }
+            : {}),
+          ...(input.metadata !== undefined
+            ? { metadata: mergeJsonObjects(campaign.metadata, input.metadata) as Prisma.InputJsonValue }
+            : {}),
+        },
+        include: {
+          client: clientSummarySelect(),
+          createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+          recipients: { orderBy: { createdAt: 'asc' } },
+        },
+      }),
+    );
+  }
+
+  async deleteCampaign(ctx: TenantContext, id: string) {
+    await this.getCampaign(ctx, id);
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementCampaign.delete({ where: { id } }),
+    );
+    return { ok: true };
+  }
+
+  async addCampaignRecipients(
+    ctx: TenantContext,
+    campaignId: string,
+    recipients: Array<{ name?: string; email: string; title?: string; office?: string }>,
+  ) {
+    await this.getCampaign(ctx, campaignId);
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementCampaignRecipient.createMany({
+        data: recipients.map((r) => ({
+          tenantId: ctx.tenantId,
+          campaignId,
+          email: r.email.trim(),
+          name: r.name?.trim() ?? null,
+          title: r.title?.trim() ?? null,
+          office: r.office?.trim() ?? null,
+        })),
+        skipDuplicates: true,
+      }),
+    );
+  }
+
+  async removeCampaignRecipient(ctx: TenantContext, campaignId: string, recipientId: string) {
+    await this.getCampaign(ctx, campaignId);
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementCampaignRecipient.deleteMany({
+        where: { id: recipientId, campaignId, tenantId: ctx.tenantId },
+      }),
+    );
+    return { ok: true };
+  }
+
+  async generateCampaignEmail(
+    ctx: TenantContext,
+    id: string,
+    input: { customContext?: string },
+  ) {
+    const campaign = await this.getCampaign(ctx, id);
+    const sourceContext = (campaign.sourceContext ?? {}) as Record<string, unknown>;
+    const meetingId = typeof sourceContext.meetingId === 'string' ? sourceContext.meetingId : null;
+    const debriefId = typeof sourceContext.debriefId === 'string' ? sourceContext.debriefId : null;
+    const customContext = typeof sourceContext.customContext === 'string'
+      ? sourceContext.customContext
+      : (typeof input.customContext === 'string' ? input.customContext : null);
+
+    const [meeting, debrief, prep] = await Promise.all([
+      meetingId ? this.getMeeting(ctx, meetingId).catch(() => null) : Promise.resolve(null),
+      debriefId
+        ? this.prisma.withTenant(ctx.tenantId, (tx) =>
+            tx.meetingDebrief.findFirst({
+              where: { id: debriefId, tenantId: ctx.tenantId },
+            }),
+          ).catch(() => null)
+        : Promise.resolve(null),
+      meetingId
+        ? this.prisma.withTenant(ctx.tenantId, (tx) =>
+            tx.meetingPrep.findFirst({
+              where: { meetingId, tenantId: ctx.tenantId },
+              orderBy: { createdAt: 'desc' },
+            }),
+          ).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+
+    const clientId = campaign.clientId;
+    const client = clientId
+      ? await this.clientContext(ctx, clientId).catch(() => null)
+      : null;
+
+    const result = await this.ai.generateCampaignEmail({
+      campaign: pruneForAi(campaign),
+      client: client ? pruneForAi(client) : null,
+      meeting: meeting ? pruneForAi(meeting) : null,
+      debrief: debrief ? pruneForAi(debrief) : null,
+      prep: prep ? pruneForAi(prep) : null,
+      recipients: campaign.recipients.map((r) => ({
+        name: r.name,
+        email: r.email,
+        title: r.title,
+        office: r.office,
+      })),
+      campaignType: campaign.type,
+      customContext,
+    });
+
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementCampaign.update({
+        where: { id },
+        data: {
+          subject: result.subject,
+          body: result.body,
+          metadata: mergeJsonObjects(campaign.metadata, {
+            aiGenerated: { provider: result.provider, model: result.model, at: new Date().toISOString() },
+          }) as Prisma.InputJsonValue,
+        },
+        include: {
+          client: clientSummarySelect(),
+          createdBy: { select: { id: true, email: true, firstName: true, lastName: true } },
+          recipients: { orderBy: { createdAt: 'asc' } },
+        },
+      }),
+    );
+  }
+
+  async sendCampaignEmails(ctx: TenantContext, id: string) {
+    const campaign = await this.getCampaign(ctx, id);
+    if (!campaign.subject?.trim() || !campaign.body?.trim()) {
+      throw new BadRequestException('Campaign subject and body are required before sending');
+    }
+    const pendingRecipients = campaign.recipients.filter((r) => r.status === 'pending');
+    if (!pendingRecipients.length) {
+      throw new BadRequestException('No pending recipients to send to');
+    }
+
+    const connection = await this.findCampaignSendConnection(ctx);
+    const sent: Array<{ id: string; email: string; sentAt: string }> = [];
+    const errors: Array<{ id: string; email: string; message: string }> = [];
+
+    for (const recipient of pendingRecipients) {
+      const body = assembleCampaignBody(
+        campaign.body,
+        {
+          name: recipient.name ?? undefined,
+          email: recipient.email,
+          title: recipient.title ?? undefined,
+          office: recipient.office ?? undefined,
+        },
+        campaign.metadata,
+      );
+      const subject = assembleCampaignBody(
+        campaign.subject,
+        {
+          name: recipient.name ?? undefined,
+          email: recipient.email,
+          title: recipient.title ?? undefined,
+          office: recipient.office ?? undefined,
+        },
+        campaign.metadata,
+      );
+      try {
+        await this.microsoftGraph.sendMail(ctx, connection.id, {
+          subject,
+          body,
+          toRecipients: [{ email: recipient.email, name: recipient.name ?? null }],
+        });
+        const now = new Date().toISOString();
+        await this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.engagementCampaignRecipient.update({
+            where: { id: recipient.id },
+            data: { status: 'sent', sentAt: new Date() },
+          }),
+        );
+        sent.push({ id: recipient.id, email: recipient.email, sentAt: now });
+      } catch (error) {
+        await this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.engagementCampaignRecipient.update({
+            where: { id: recipient.id },
+            data: { status: 'failed' },
+          }),
+        );
+        errors.push({ id: recipient.id, email: recipient.email, message: emailSendErrorMessage(error) });
+      }
+    }
+
+    const allSent = errors.length === 0;
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementCampaign.update({
+        where: { id },
+        data: {
+          status: allSent ? 'complete' : 'active',
+          sentAt: allSent ? new Date() : undefined,
+        },
+      }),
+    );
+
+    if (errors.length) {
+      throw new ServiceUnavailableException(
+        `Campaign send failed for ${errors.length} of ${pendingRecipients.length} recipients.`,
+      );
+    }
+    return { ok: true, sent: sent.length };
+  }
+
+  async sendCampaignTest(ctx: TenantContext, id: string) {
+    const campaign = await this.getCampaign(ctx, id);
+    if (!campaign.subject?.trim() || !campaign.body?.trim()) {
+      throw new BadRequestException('Campaign subject and body are required before sending a test');
+    }
+
+    const connection = await this.findCampaignSendConnection(ctx);
+    const user = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.user.findFirst({ where: { id: ctx.userId }, select: { id: true, email: true, firstName: true } }),
+    );
+    if (!user) throw new BadRequestException('User not found');
+
+    await this.microsoftGraph.sendMail(ctx, connection.id, {
+      subject: `[TEST] ${campaign.subject}`,
+      body: campaign.body,
+      toRecipients: [{ email: user.email, name: user.firstName ?? null }],
+    });
+    return { ok: true, sentTo: user.email };
+  }
 }
 
 function meetingInclude() {

@@ -124,6 +124,25 @@ export interface MeetingDebriefDraftResult {
   raw: unknown;
 }
 
+export interface CampaignEmailInput {
+  campaign: Record<string, unknown>;
+  client: Record<string, unknown> | null;
+  meeting: Record<string, unknown> | null;
+  debrief: Record<string, unknown> | null;
+  prep: Record<string, unknown> | null;
+  recipients: Array<Record<string, unknown>>;
+  campaignType: string;
+  customContext?: string | null;
+}
+
+export interface CampaignEmailResult {
+  subject: string;
+  body: string;
+  provider: 'openai' | 'anthropic';
+  model: string;
+  raw: unknown;
+}
+
 const meetingPrepJsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -157,6 +176,16 @@ const meetingDebriefJsonSchema = {
     recap: { type: 'string' },
     actionItems: { type: 'array', items: { type: 'string' } },
     notes: { type: 'string' },
+  },
+};
+
+const campaignEmailJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['subject', 'body'],
+  properties: {
+    subject: { type: 'string' },
+    body: { type: 'string' },
   },
 };
 
@@ -208,6 +237,14 @@ export class EngagementAiService {
       provider === 'openai'
         ? this.generateDebriefWithOpenAi(input)
         : this.generateDebriefWithAnthropic(input),
+    );
+  }
+
+  async generateCampaignEmail(input: CampaignEmailInput): Promise<CampaignEmailResult> {
+    return this.withProviderFallback('AI campaign email generation', (provider) =>
+      provider === 'openai'
+        ? this.generateCampaignWithOpenAi(input)
+        : this.generateCampaignWithAnthropic(input),
     );
   }
 
@@ -537,21 +574,127 @@ export class EngagementAiService {
     };
   }
 
+  private async generateCampaignWithOpenAi(input: CampaignEmailInput): Promise<CampaignEmailResult> {
+    if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
+
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.openaiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.openaiModel,
+        input: this.buildCampaignPrompt(input),
+        text: {
+          format: {
+            type: 'json_schema',
+            name: 'campaign_email',
+            strict: true,
+            schema: campaignEmailJsonSchema,
+          },
+        },
+      }),
+    });
+
+    const json = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        `OpenAI campaign email failed: ${readProviderError(json, response.status)}`,
+      );
+    }
+
+    const parsed = parseJsonObject(extractOpenAiText(json));
+    return {
+      subject: typeof parsed.subject === 'string' ? parsed.subject.trim() : '',
+      body: typeof parsed.body === 'string' ? parsed.body.trim() : '',
+      provider: 'openai',
+      model: this.openaiModel,
+      raw: json,
+    };
+  }
+
+  private async generateCampaignWithAnthropic(input: CampaignEmailInput): Promise<CampaignEmailResult> {
+    if (!this.anthropicKey) {
+      throw new ServiceUnavailableException('ANTHROPIC_API_KEY is not configured');
+    }
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: this.anthropicModel,
+        max_tokens: 2400,
+        system:
+          'You draft professional government affairs follow-up emails from lobbying CRM context. Return only valid JSON that matches the requested schema.',
+        messages: [
+          {
+            role: 'user',
+            content: `${this.buildCampaignPrompt(input)}\n\nJSON schema:\n${JSON.stringify(
+              campaignEmailJsonSchema,
+            )}`,
+          },
+        ],
+      }),
+    });
+
+    const json = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new ServiceUnavailableException(
+        `Anthropic campaign email failed: ${readProviderError(json, response.status)}`,
+      );
+    }
+
+    const parsed = parseJsonObject(extractAnthropicText(json));
+    return {
+      subject: typeof parsed.subject === 'string' ? parsed.subject.trim() : '',
+      body: typeof parsed.body === 'string' ? parsed.body.trim() : '',
+      provider: 'anthropic',
+      model: this.anthropicModel,
+      raw: json,
+    };
+  }
+
   private buildPrompt(input: MeetingPrepInput): string {
     const emailHighlights = formatMeetingPrepEmailHighlights(input.recentThreads);
     const hasEmailThreads = input.recentThreads.length > 0;
+    const hasPriorMeetings = input.recentMeetings.length > 0;
+    const hasDirectoryMatches = input.congressionalDirectoryMatches.length > 0;
+    const hasTasks = input.tasks.length > 0;
 
     return [
-      'Create meeting prep for this lobbying interaction.',
+      'Create a comprehensive meeting prep for this lobbying interaction.',
+      'Structure the output as follows across the summary and arrays:',
+      '1. MEETING OBJECTIVE — derive from meeting subject, client context, and attendee profiles. State what success looks like for this meeting.',
+      '2. EXECUTIVE SUMMARY — 2-3 sentences: who is meeting, why, and what the expected outcome is.',
+      '3. KEY DISCUSSION POINTS — the 3-5 most important substantive topics to address, drawn from client program, prior meetings, and email threads.',
+      '4. ATTENDEE PROFILES — for each congressional attendee, include their committee/subcommittee role, jurisdiction relevance, and any known positions or prior engagement history.',
+      '5. TALKING POINTS — specific, evidence-backed points the lobbyist should make. Reference client capabilities, funding requests, or program details when available.',
+      '6. RISK FACTORS — potential objections, competing priorities, or sensitivities to be aware of (based on committee dynamics, prior meeting outcomes, or email evidence).',
+      '7. ACTION ITEMS — concrete follow-up commitments likely to arise, based on prior meeting history and open tasks.',
+      '8. LOGISTICS — location, timing, attendee list confirmation.',
+      '',
       'Use the client context, past meetings, email threads, and open tasks. Do not invent facts.',
-      'If congressionalDirectoryMatches are present, use those matched member and staff profiles as attendee context, including member bio, committee assignments, and office/location details.',
+      hasDirectoryMatches
+        ? 'congressionalDirectoryMatches are present — use those matched member and staff profiles for attendee context: member bio, committee assignments, subcommittee roles, office/location details, and known policy positions.'
+        : 'No congressional directory matches were provided.',
+      hasPriorMeetings
+        ? 'recentMeetings are present — reference prior meeting debriefs to identify pending action items, ongoing relationships, and unresolved discussion points. Note any commitments made in previous meetings that should be followed up on.'
+        : 'No prior meetings with these attendees were found.',
+      hasTasks
+        ? 'tasks are present — incorporate open tasks as action items context. Flag any overdue or high-priority tasks that relate to this meeting.'
+        : 'No open tasks were found.',
       hasEmailThreads
         ? 'Use recentThreads as primary evidence for talkingPoints, risks, and followUps. Include concrete details such as sender, date, and short quoted phrases from email content when available.'
         : 'No recentThreads were provided. Keep output grounded in available non-email context only.',
       hasEmailThreads
         ? 'Populate emailEvidence with 2-6 concise evidence bullets grounded in recentThreads. If an item in talkingPoints or risks is supported by email context, reflect that support in emailEvidence.'
         : 'Set emailEvidence to an empty array when no usable email evidence exists.',
-      'Return JSON with agenda, talkingPoints, risks, followUps, summary, and emailEvidence.',
+      'Return JSON with agenda (structured as the 8 sections above, each as a string), talkingPoints, risks, followUps, summary (meeting objective + executive summary as a single narrative), and emailEvidence.',
       'Email thread highlights (for grounding):',
       emailHighlights,
       JSON.stringify(input, null, 2),
@@ -588,12 +731,53 @@ export class EngagementAiService {
 
   private buildDebriefPrompt(input: MeetingDebriefDraftInput): string {
     return [
-      'Generate a post-meeting debrief for a lobbying CRM.',
+      'Generate a comprehensive post-meeting debrief for a lobbying CRM.',
       'Use only the supplied source text and tenant context. Do not invent commitments, attendees, dates, votes, or facts.',
-      'The recap should be concise and readable. Action items should be specific next steps when the source supports them. Notes should preserve important details for internal reference.',
+      '',
+      'Structure the output as follows:',
+      '',
+      'recap: A structured narrative covering:',
+      '  - RECAP: Who attended, what was discussed, key decisions made, and commitments given by each party. Quote or closely paraphrase specific statements when the source supports it.',
+      '  - FOLLOW-UP REQUIRED: Specific next steps with suggested timeline (e.g., "Send white paper by Friday", "Schedule follow-up call within 2 weeks").',
+      '  - INTELLIGENCE GATHERED: Any new information about member positions, committee dynamics, upcoming hearings, budget priorities, or political landscape that emerged in the meeting.',
+      '  - CAMPAIGN SUGGESTION: Based on the meeting outcome, suggest a follow-up outreach campaign (e.g., "Post-meeting thank-you + position paper to [staffer name]" or "Schedule follow-up with [committee] after [hearing]").',
+      '',
+      'actionItems: An array of specific, ownable next steps. Each item should be formatted as: "[Owner] — [Action] by [Timeline if known]". Extract these from commitments made, follow-ups requested, or materials promised.',
+      '',
+      'notes: Internal notes preserving context not captured in the recap — tone of the meeting, body language observations, off-the-record comments, strategic observations about the member/staffer relationship, and anything the lobbyist should remember for the next engagement.',
+      '',
       'Return JSON with recap, actionItems, and notes.',
       JSON.stringify(input, null, 2),
-    ].join('\n\n');
+    ].join('\n');
+  }
+
+  private buildCampaignPrompt(input: CampaignEmailInput): string {
+    const typeGuidance: Record<string, string> = {
+      post_meeting_followup:
+        'This is a post-meeting follow-up email. Reference the specific meeting that occurred, key discussion points, commitments made, and next steps. The tone should be warm, professional, and action-oriented. Reference the attendees by name and role where available.',
+      congressional_outreach:
+        'This is a congressional outreach email. It should be policy-focused, referencing the client\'s program, capabilities, or legislative ask. Tailor to the recipient\'s committee jurisdiction and known priorities.',
+      program_update:
+        'This is a program update email to keep congressional contacts informed of client progress. Highlight recent milestones, upcoming activities, and any asks for continued support.',
+      custom:
+        'Draft a professional government affairs email using the supplied context. Match the tone and substance to the campaign objective.',
+    };
+
+    const guidance = typeGuidance[input.campaignType] ?? typeGuidance.custom;
+
+    return [
+      `Campaign type: ${input.campaignType}. ${guidance}`,
+      'Use only the provided client, meeting, debrief, prep, and recipient context. Do not invent facts, commitments, or positions.',
+      'The email should read as if written by a senior government affairs professional — not generic.',
+      'Reference specific discussion points, action items, and next steps from the supplied meeting/debrief context when available.',
+      'Use template variables {recipient_name}, {recipient_title}, {meeting_date}, {action_items} where appropriate for per-recipient personalization at send time.',
+      'Do not leave unresolved bracket placeholders or variables that have no corresponding context.',
+      'Return JSON with subject and body.',
+      input.customContext ? `Additional campaign context from user: ${input.customContext}` : '',
+      JSON.stringify(input, null, 2),
+    ]
+      .filter(Boolean)
+      .join('\n\n');
   }
 }
 

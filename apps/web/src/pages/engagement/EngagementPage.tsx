@@ -18,6 +18,7 @@ import { useMe } from '../../lib/me.js';
 import { useApi } from '../../lib/use-api.js';
 import { useClientFilter } from '../../state/client-filter.js';
 import type { Client } from '../clients/clientTypes.js';
+import { CampaignsView } from './CampaignsView.js';
 import { OutreachView } from './OutreachView.js';
 
 interface EngagementCapabilities {
@@ -925,6 +926,17 @@ export function EngagementPage() {
             label: 'Outreach',
             children: (
               <OutreachView
+                clients={activeClients}
+                selectedClientId={selectedClientId}
+                aiConfigured={Boolean(capabilities.data?.ai.activeProvider)}
+              />
+            ),
+          },
+          {
+            key: 'campaigns',
+            label: 'Campaigns',
+            children: (
+              <CampaignsView
                 clients={activeClients}
                 selectedClientId={selectedClientId}
                 aiConfigured={Boolean(capabilities.data?.ai.activeProvider)}
