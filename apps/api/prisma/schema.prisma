@@ -1198,3 +1198,76 @@ model LobbyTrendingTopic {
   @@index([kind, growthPct], map: "lobby_trending_kind_growth_idx")
   @@map("lobby_trending_topics")
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Federal Spending Intelligence (OpenSpending / USASpending.gov)
+//
+// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// Populated by the OpenSpending sync job (apps/api/scripts/sync-openspending.ts).
+// Source: https://www.openspending.us/data/*.json — derived from
+// public USASpending.gov contract and grant award data.
+// ─────────────────────────────────────────────────────────────────────────
+
+model FederalContractor {
+  // Top federal contractors with parent-company UEI rollup.
+  id                String   @id @default(uuid()) @db.Uuid
+  name              String   @unique
+  slug              String?
+  uei               String?
+  recipientId       String?  @map("recipient_id")
+  totalContracts    Decimal? @map("total_contracts") @db.Decimal(18, 2)
+  pctOfAllContracts Float?   @map("pct_of_all_contracts")
+  costPerTaxpayer   Float?   @map("cost_per_taxpayer")
+  category          String?  // Defense | Health | Tech | etc
+  subsidiaries      Int?
+  yearlySpend       Json     @default("[]") @map("yearly_spend_jsonb") // [{year, amount}]
+  topAgencies       Json     @default("[]") @map("top_agencies_jsonb") // [{slug, name, amount}]
+  topAwards         Json     @default("[]") @map("top_awards_jsonb")   // [{awardId, description, amount, agency, startDate}]
+  noBidAwards       Json     @default("[]") @map("no_bid_awards_jsonb")
+  noBidTotal        Decimal? @map("no_bid_total") @db.Decimal(18, 2)
+  rankByContracts   Int?     @map("rank_by_contracts")
+  lastSyncedAt      DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  raw               Json     @default("{}") @map("raw_jsonb")
+
+  @@index([name], map: "federal_contractor_name_idx")
+  @@index([uei], map: "federal_contractor_uei_idx")
+  @@map("federal_contractor")
+}
+
+model FederalAgency {
+  // 97 federal agencies with budget authority + top contractors.
+  slug             String   @id
+  name             String
+  abbreviation     String?
+  code             String?
+  displayName      String?  @map("display_name")
+  budgetAuthority  Decimal? @map("budget_authority") @db.Decimal(18, 2)
+  obligated        Decimal? @db.Decimal(18, 2)
+  outlays          Decimal? @db.Decimal(18, 2)
+  pctOfTotal       Float?   @map("pct_of_total")
+  pctOfBudget      Float?   @map("pct_of_budget")
+  pctContracts     Float?   @map("pct_contracts")
+  costPerAmerican  Float?   @map("cost_per_american")
+  rankBySpending   Int?     @map("rank_by_spending")
+  contractsTotal   Decimal? @map("contracts_total") @db.Decimal(18, 2)
+  grantsTotal      Decimal? @map("grants_total") @db.Decimal(18, 2)
+  yearlyBudget     Json     @default("[]") @map("yearly_budget_jsonb")
+  topContractors   Json     @default("[]") @map("top_contractors_jsonb")
+  lastSyncedAt     DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([name], map: "federal_agency_name_idx")
+  @@map("federal_agency")
+}
+
+model FederalIndustry {
+  // Top NAICS industries by federal contract spending.
+  code          String   @id // NAICS code, e.g. 336411
+  name          String
+  slug          String?
+  totalSpending Decimal? @map("total_spending") @db.Decimal(18, 2)
+  rank          Int?
+  pctOfTotal    Float?   @map("pct_of_total")
+  lastSyncedAt  DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@map("federal_industry")
+}

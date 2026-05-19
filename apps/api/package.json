@@ -16,7 +16,8 @@
     "prisma:reset": "prisma migrate reset --force",
     "bootstrap:tenant": "tsx scripts/bootstrap-tenant.ts",
     "bootstrap:capiro-admin": "tsx scripts/bootstrap-capiro-admin.ts",
-    "sync:openlobby": "tsx scripts/sync-openlobby.ts"
+    "sync:openlobby": "tsx scripts/sync-openlobby.ts",
+    "sync:openspending": "tsx scripts/sync-openspending.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.665.0",

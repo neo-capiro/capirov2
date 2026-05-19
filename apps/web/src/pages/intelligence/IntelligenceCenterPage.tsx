@@ -10,6 +10,7 @@ import {
   Spin,
   Statistic,
   Table,
+  Tabs,
   Tag,
   Tooltip,
   Typography,
@@ -17,8 +18,11 @@ import {
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
+  BankOutlined,
+  DollarOutlined,
   FireOutlined,
   RiseOutlined,
+  ShopOutlined,
   ThunderboltOutlined,
   ExperimentOutlined,
 } from '@ant-design/icons';
@@ -26,6 +30,8 @@ import { useApi } from '../../lib/use-api.js';
 import { Sparkline, HBar } from '../../components/charts.js';
 
 const { Title, Text, Paragraph } = Typography;
+
+/* ── Shared types ──────────────────────────────────────────────────────── */
 
 interface LobbyIntelSummary {
   id: string;
@@ -71,8 +77,67 @@ interface LobbyOverview {
   lastSyncedAt: string | null;
 }
 
+interface FederalContractor {
+  id: string;
+  name: string;
+  slug: string | null;
+  uei: string | null;
+  totalContracts: number | null;
+  pctOfAllContracts: number | null;
+  costPerTaxpayer: number | null;
+  category: string | null;
+  subsidiaries: number | null;
+  rankByContracts: number | null;
+  yearlySpend: { year: number; amount: number }[];
+  topAgencies: { slug?: string; name: string; amount: number }[];
+  topAwards: { awardId: string; recipient: string; amount: number; agency: string; description?: string; startDate?: string }[];
+  noBidAwards: { awardId: string; recipient: string; amount: number; agency: string; description?: string }[];
+  noBidTotal: number | null;
+}
+
+interface FederalAgency {
+  slug: string;
+  name: string;
+  abbreviation: string | null;
+  displayName: string | null;
+  budgetAuthority: number | null;
+  obligated: number | null;
+  outlays: number | null;
+  pctOfTotal: number | null;
+  pctContracts: number | null;
+  costPerAmerican: number | null;
+  rankBySpending: number | null;
+  contractsTotal: number | null;
+  grantsTotal: number | null;
+  yearlyBudget: { year: number; amount: number }[];
+  topContractors: { name: string; amount: number }[];
+}
+
+interface FederalIndustry {
+  code: string;
+  name: string;
+  slug: string | null;
+  totalSpending: number | null;
+  rank: number | null;
+  pctOfTotal: number | null;
+}
+
+interface FederalSpendingOverview {
+  totalContractors: number;
+  totalAgencies: number;
+  totalIndustries: number;
+  topContractors: FederalContractor[];
+  topAgencies: FederalAgency[];
+  topIndustries: FederalIndustry[];
+  topNoBidContractors: { name: string; total: number; count: number }[];
+  lastSyncedAt: string | null;
+}
+
+/* ── Helpers ───────────────────────────────────────────────────────────── */
+
 function formatMoney(n: number | null | undefined): string {
   if (n == null) return '—';
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
   if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
   if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
@@ -104,11 +169,7 @@ function surgeBadge(trend: string | null, pct: number | null) {
     declining: 'orange',
   };
   const arrow =
-    trend === 'declining' ? (
-      <ArrowDownOutlined />
-    ) : trend === 'stable' ? null : (
-      <ArrowUpOutlined />
-    );
+    trend === 'declining' ? <ArrowDownOutlined /> : trend === 'stable' ? null : <ArrowUpOutlined />;
   return (
     <Tag color={colors[trend] ?? 'default'}>
       {arrow} {pct != null ? `${pct > 0 ? '+' : ''}${Math.round(pct)}%` : trend}
@@ -116,7 +177,593 @@ function surgeBadge(trend: string | null, pct: number | null) {
   );
 }
 
+const CATEGORY_COLORS: Record<string, string> = {
+  Defense: 'red',
+  Health: 'green',
+  Tech: 'blue',
+  Energy: 'orange',
+  Construction: 'purple',
+  Other: 'default',
+};
+
+/* ── Main page ─────────────────────────────────────────────────────────── */
+
 export function IntelligenceCenterPage() {
+  return (
+    <div style={{ padding: '24px 32px', overflow: 'auto', height: '100%' }}>
+      <div style={{ marginBottom: 16 }}>
+        <Title level={3} style={{ margin: 0 }}>
+          <FireOutlined style={{ color: '#ef4444', marginRight: 8 }} />
+          Federal Intelligence Center
+        </Title>
+        <Paragraph type="secondary" style={{ marginTop: 4, marginBottom: 0 }}>
+          Live federal lobbying, contracting, and agency intelligence — pulled from Senate LDA
+          filings and USASpending.gov.
+        </Paragraph>
+      </div>
+
+      <Tabs
+        defaultActiveKey="contracting"
+        size="large"
+        items={[
+          {
+            key: 'contracting',
+            label: (
+              <span>
+                <DollarOutlined /> Federal Contracting
+              </span>
+            ),
+            children: <ContractingPanel />,
+          },
+          {
+            key: 'agencies',
+            label: (
+              <span>
+                <BankOutlined /> Agencies
+              </span>
+            ),
+            children: <AgenciesPanel />,
+          },
+          {
+            key: 'lobbying',
+            label: (
+              <span>
+                <FireOutlined /> Lobbying
+              </span>
+            ),
+            children: <LobbyingPanel />,
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+/* ── Federal Contracting panel ─────────────────────────────────────────── */
+
+function ContractingPanel() {
+  const api = useApi();
+  const [search, setSearch] = useState('');
+
+  const overview = useQuery<FederalSpendingOverview>({
+    queryKey: ['federal-spending-overview'],
+    queryFn: async () =>
+      (await api.get<FederalSpendingOverview>('/api/federal-spending/overview')).data,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const searchResults = useQuery<FederalContractor[]>({
+    queryKey: ['federal-spending-contractor-search', search],
+    queryFn: async () =>
+      (
+        await api.get<FederalContractor[]>('/api/federal-spending/contractors/search', {
+          params: { q: search },
+        })
+      ).data,
+    enabled: search.trim().length >= 2,
+    staleTime: 30 * 1000,
+  });
+
+  const data = overview.data;
+  const maxTopContract = useMemo(
+    () => Math.max(1, ...(data?.topContractors.map((c) => c.totalContracts ?? 0) ?? [])),
+    [data],
+  );
+  const maxIndustrySpend = useMemo(
+    () => Math.max(1, ...(data?.topIndustries.map((c) => c.totalSpending ?? 0) ?? [])),
+    [data],
+  );
+
+  const isEmpty = !overview.isLoading && data && data.totalContractors === 0;
+
+  return (
+    <div>
+      {overview.isError ? (
+        <Alert
+          type="error"
+          message="Could not load federal contracting data"
+          description={(overview.error as Error)?.message ?? 'Unknown error'}
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
+
+      {isEmpty ? (
+        <Alert
+          type="info"
+          showIcon
+          message="No data yet"
+          description={
+            <span>
+              The federal spending dataset has not been synced. Run{' '}
+              <Text code>pnpm --filter @capiro/api sync:openspending</Text> to populate.
+            </span>
+          }
+          style={{ marginBottom: 24 }}
+        />
+      ) : null}
+
+      {/* Stats */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
+        <Card size="small">
+          <Statistic
+            title="Tracked Contractors"
+            value={data?.totalContractors ?? 0}
+            loading={overview.isLoading}
+            valueStyle={{ fontSize: 22 }}
+            prefix={<ShopOutlined />}
+          />
+        </Card>
+        <Card size="small">
+          <Statistic
+            title="Federal Agencies"
+            value={data?.totalAgencies ?? 0}
+            loading={overview.isLoading}
+            valueStyle={{ fontSize: 22 }}
+            prefix={<BankOutlined />}
+          />
+        </Card>
+        <Card size="small">
+          <Statistic
+            title="NAICS Industries"
+            value={data?.totalIndustries ?? 0}
+            loading={overview.isLoading}
+            valueStyle={{ fontSize: 22 }}
+          />
+        </Card>
+        <Card size="small">
+          <Statistic
+            title="No-Bid Concentrated"
+            value={data?.topNoBidContractors.length ?? 0}
+            loading={overview.isLoading}
+            valueStyle={{ fontSize: 22, color: '#ef4444' }}
+            suffix=" contractors"
+          />
+        </Card>
+      </div>
+
+      {/* Search */}
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Input.Search
+          placeholder="Search federal contractors by name…"
+          allowClear
+          enterButton
+          size="middle"
+          onChange={(e) => setSearch(e.target.value)}
+          value={search}
+        />
+        {search.trim().length >= 2 ? (
+          <div style={{ marginTop: 12 }}>
+            {searchResults.isLoading ? (
+              <Spin />
+            ) : searchResults.data && searchResults.data.length > 0 ? (
+              <Table
+                size="small"
+                rowKey="id"
+                dataSource={searchResults.data}
+                pagination={false}
+                columns={[
+                  {
+                    title: 'Contractor',
+                    dataIndex: 'name',
+                    render: (n: string, r: FederalContractor) => (
+                      <Space>
+                        <Text strong>{n}</Text>
+                        {r.category ? (
+                          <Tag color={CATEGORY_COLORS[r.category] ?? 'default'}>{r.category}</Tag>
+                        ) : null}
+                      </Space>
+                    ),
+                  },
+                  {
+                    title: 'Rank',
+                    dataIndex: 'rankByContracts',
+                    width: 70,
+                    render: (v: number | null) => (v ? `#${v}` : '—'),
+                  },
+                  {
+                    title: 'FY25 Contracts',
+                    dataIndex: 'totalContracts',
+                    width: 130,
+                    align: 'right',
+                    render: (v: number | null) => formatMoney(v),
+                  },
+                  {
+                    title: 'Trend',
+                    dataIndex: 'yearlySpend',
+                    width: 170,
+                    render: (ys: { year: number; amount: number }[]) => (
+                      <Sparkline data={ys ?? []} width={150} height={28} />
+                    ),
+                  },
+                  {
+                    title: 'No-Bid Total',
+                    dataIndex: 'noBidTotal',
+                    width: 130,
+                    align: 'right',
+                    render: (v: number | null) =>
+                      v ? <Text type="warning">{formatMoney(v)}</Text> : '—',
+                  },
+                ]}
+              />
+            ) : (
+              <Empty description="No matches" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            )}
+          </div>
+        ) : null}
+      </Card>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(320px, 1.5fr) minmax(280px, 1fr)',
+          gap: 16,
+          alignItems: 'start',
+        }}
+      >
+        {/* LEFT: top contractors */}
+        <Card
+          size="small"
+          title="Top Federal Contractors (FY2025)"
+          extra={
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              {data?.lastSyncedAt
+                ? `Synced ${new Date(data.lastSyncedAt).toLocaleDateString()}`
+                : ''}
+            </Text>
+          }
+        >
+          {overview.isLoading ? (
+            <Skeleton active />
+          ) : data && data.topContractors.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {data.topContractors.slice(0, 15).map((c, i) => (
+                <div
+                  key={c.id}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '24px 1fr 70px 140px 110px 60px',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '6px 4px',
+                    borderBottom: '1px solid rgba(0,0,0,0.04)',
+                  }}
+                >
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {i + 1}
+                  </Text>
+                  <Tooltip title={c.name}>
+                    <Text ellipsis style={{ maxWidth: 280, fontSize: 13 }}>
+                      {c.name}
+                    </Text>
+                  </Tooltip>
+                  {c.category ? (
+                    <Tag color={CATEGORY_COLORS[c.category] ?? 'default'} style={{ margin: 0 }}>
+                      {c.category}
+                    </Tag>
+                  ) : (
+                    <span />
+                  )}
+                  <HBar value={c.totalContracts ?? 0} max={maxTopContract} width={140} />
+                  <Text type="secondary" style={{ fontSize: 12, textAlign: 'right' }}>
+                    {formatMoney(c.totalContracts)}
+                  </Text>
+                  <Sparkline data={c.yearlySpend ?? []} width={55} height={20} />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Empty description="No data" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </Card>
+
+        {/* RIGHT: No-bid + industries */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Card
+            size="small"
+            title={
+              <Space>
+                <Text>🚫 Top No-Bid Recipients</Text>
+              </Space>
+            }
+            extra={
+              <Text type="secondary" style={{ fontSize: 12 }}>
+                Sole-source awards
+              </Text>
+            }
+          >
+            {overview.isLoading ? (
+              <Skeleton active />
+            ) : data && data.topNoBidContractors.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {data.topNoBidContractors.map((c) => {
+                  const max = Math.max(...data.topNoBidContractors.map((x) => x.total), 1);
+                  return (
+                    <div
+                      key={c.name}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 100px 90px',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: '4px 0',
+                      }}
+                    >
+                      <Tooltip title={c.name}>
+                        <Text ellipsis style={{ fontSize: 12 }}>
+                          {c.name}
+                        </Text>
+                      </Tooltip>
+                      <HBar value={c.total} max={max} width={100} color="#ef4444" />
+                      <Text type="secondary" style={{ fontSize: 11, textAlign: 'right' }}>
+                        {formatMoney(c.total)}
+                      </Text>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <Empty description="No data" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            )}
+          </Card>
+
+          <Card size="small" title="Top Industries by Federal Contract Spend (NAICS)">
+            {overview.isLoading ? (
+              <Skeleton active />
+            ) : data && data.topIndustries.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {data.topIndustries.map((ind) => (
+                  <div
+                    key={ind.code}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '60px 1fr 90px 70px',
+                      alignItems: 'center',
+                      gap: 8,
+                      padding: '3px 0',
+                    }}
+                  >
+                    <Tag style={{ margin: 0, fontSize: 10 }}>{ind.code}</Tag>
+                    <Tooltip title={ind.name}>
+                      <Text ellipsis style={{ fontSize: 12 }}>
+                        {ind.name}
+                      </Text>
+                    </Tooltip>
+                    <HBar value={ind.totalSpending ?? 0} max={maxIndustrySpend} width={90} />
+                    <Text type="secondary" style={{ fontSize: 11, textAlign: 'right' }}>
+                      {formatMoney(ind.totalSpending)}
+                    </Text>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Empty description="No data" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Federal Agencies panel ────────────────────────────────────────────── */
+
+function AgenciesPanel() {
+  const api = useApi();
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+
+  const agencies = useQuery<FederalAgency[]>({
+    queryKey: ['federal-agencies'],
+    queryFn: async () => (await api.get<FederalAgency[]>('/api/federal-spending/agencies')).data,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const data = agencies.data ?? [];
+  const maxBudget = useMemo(
+    () => Math.max(1, ...data.map((a) => a.budgetAuthority ?? 0)),
+    [data],
+  );
+  const selected = data.find((a) => a.slug === selectedSlug) ?? null;
+
+  return (
+    <div>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(380px, 1.2fr) minmax(320px, 1fr)',
+          gap: 16,
+          alignItems: 'start',
+        }}
+      >
+        {/* LEFT: agency list */}
+        <Card size="small" title={`97 Federal Agencies (by Budget Authority)`}>
+          {agencies.isLoading ? (
+            <Skeleton active />
+          ) : data.length > 0 ? (
+            <div style={{ maxHeight: 680, overflowY: 'auto' }}>
+              {data.map((a, i) => (
+                <div
+                  key={a.slug}
+                  onClick={() => setSelectedSlug(a.slug)}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '24px 60px 1fr 130px 110px',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '8px 6px',
+                    borderBottom: '1px solid rgba(0,0,0,0.04)',
+                    cursor: 'pointer',
+                    background: selectedSlug === a.slug ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
+                    borderRadius: 4,
+                  }}
+                >
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {i + 1}
+                  </Text>
+                  <Tag style={{ margin: 0, fontSize: 11 }}>{a.abbreviation ?? '—'}</Tag>
+                  <Tooltip title={a.name}>
+                    <Text ellipsis style={{ fontSize: 13 }}>
+                      {a.displayName ?? a.name}
+                    </Text>
+                  </Tooltip>
+                  <HBar value={a.budgetAuthority ?? 0} max={maxBudget} width={130} />
+                  <Text type="secondary" style={{ fontSize: 12, textAlign: 'right' }}>
+                    {formatMoney(a.budgetAuthority)}
+                  </Text>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Empty description="No data" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </Card>
+
+        {/* RIGHT: agency detail */}
+        <div style={{ position: 'sticky', top: 16 }}>
+          {selected ? (
+            <Card
+              size="small"
+              title={
+                <Space>
+                  <BankOutlined />
+                  <span>{selected.displayName ?? selected.name}</span>
+                </Space>
+              }
+              extra={
+                selected.abbreviation ? <Tag>{selected.abbreviation}</Tag> : null
+              }
+            >
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 1fr',
+                  gap: 8,
+                  marginBottom: 12,
+                }}
+              >
+                <Statistic
+                  title="Budget Authority"
+                  value={formatMoney(selected.budgetAuthority)}
+                  valueStyle={{ fontSize: 18 }}
+                />
+                <Statistic
+                  title="Cost / American"
+                  value={
+                    selected.costPerAmerican != null
+                      ? `$${Math.round(selected.costPerAmerican).toLocaleString()}`
+                      : '—'
+                  }
+                  valueStyle={{ fontSize: 18 }}
+                />
+                <Statistic
+                  title="Contracts"
+                  value={formatMoney(selected.contractsTotal)}
+                  valueStyle={{ fontSize: 16 }}
+                />
+                <Statistic
+                  title="Grants"
+                  value={formatMoney(selected.grantsTotal)}
+                  valueStyle={{ fontSize: 16 }}
+                />
+              </div>
+
+              {selected.yearlyBudget.length > 0 ? (
+                <>
+                  <Text strong style={{ fontSize: 12 }}>
+                    Budget trend (FY2017–2025)
+                  </Text>
+                  <div style={{ marginTop: 4 }}>
+                    <Sparkline
+                      data={selected.yearlyBudget}
+                      width={320}
+                      height={56}
+                      color="#2563eb"
+                      fillColor="rgba(37, 99, 235, 0.15)"
+                    />
+                  </div>
+                </>
+              ) : null}
+
+              {selected.topContractors.length > 0 ? (
+                <>
+                  <Text strong style={{ fontSize: 12, display: 'block', marginTop: 12 }}>
+                    Top 10 contractors at this agency
+                  </Text>
+                  <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {selected.topContractors.slice(0, 10).map((c, i) => {
+                      const max = Math.max(
+                        ...selected.topContractors.map((x) => x.amount),
+                        1,
+                      );
+                      return (
+                        <div
+                          key={c.name + i}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: '24px 1fr 100px 90px',
+                            alignItems: 'center',
+                            gap: 8,
+                          }}
+                        >
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            {i + 1}
+                          </Text>
+                          <Tooltip title={c.name}>
+                            <Text ellipsis style={{ fontSize: 12 }}>
+                              {c.name}
+                            </Text>
+                          </Tooltip>
+                          <HBar value={c.amount} max={max} width={100} />
+                          <Text type="secondary" style={{ fontSize: 11, textAlign: 'right' }}>
+                            {formatMoney(c.amount)}
+                          </Text>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : null}
+            </Card>
+          ) : (
+            <Card size="small">
+              <Empty description="Select an agency to see details" />
+            </Card>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Lobbying panel (existing) ─────────────────────────────────────────── */
+
+function LobbyingPanel() {
   const api = useApi();
   const [search, setSearch] = useState('');
 
@@ -148,27 +795,10 @@ export function IntelligenceCenterPage() {
   );
 
   const data = overview.data;
-  const isEmpty =
-    !overview.isLoading && data && data.totalClients === 0;
+  const isEmpty = !overview.isLoading && data && data.totalClients === 0;
 
   return (
-    <div style={{ padding: '24px 32px', overflow: 'auto', height: '100%' }}>
-      <div style={{ marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          <FireOutlined style={{ color: '#ef4444', marginRight: 8 }} />
-          Federal Lobbying Intelligence
-        </Title>
-        <Paragraph type="secondary" style={{ marginTop: 4, marginBottom: 0 }}>
-          Live market intel from Senate LDA filings — top spenders, surging issues, and trending
-          topics across all 23,500+ registered federal lobbyists.{' '}
-          {data?.lastSyncedAt ? (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Last synced: {new Date(data.lastSyncedAt).toLocaleString()}
-            </Text>
-          ) : null}
-        </Paragraph>
-      </div>
-
+    <div>
       {overview.isError ? (
         <Alert
           type="error"
@@ -185,7 +815,7 @@ export function IntelligenceCenterPage() {
           message="No data yet"
           description={
             <span>
-              The federal intelligence dataset has not been synced. Run{' '}
+              The federal lobbying dataset has not been synced. Run{' '}
               <Text code>pnpm --filter @capiro/api sync:openlobby</Text> to populate.
             </span>
           }
@@ -193,27 +823,18 @@ export function IntelligenceCenterPage() {
         />
       ) : null}
 
-      {/* Headline stats */}
       <div
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
           gap: 12,
-          marginBottom: 24,
+          marginBottom: 16,
         }}
       >
         <Card size="small">
           <Statistic
             title="Tracked Clients"
             value={data?.totalClients ?? 0}
-            loading={overview.isLoading}
-            valueStyle={{ fontSize: 22 }}
-          />
-        </Card>
-        <Card size="small">
-          <Statistic
-            title="LDA Issue Codes"
-            value={data?.hotIssues.length ?? 0}
             loading={overview.isLoading}
             valueStyle={{ fontSize: 22 }}
           />
@@ -236,9 +857,16 @@ export function IntelligenceCenterPage() {
             prefix={<ThunderboltOutlined />}
           />
         </Card>
+        <Card size="small">
+          <Statistic
+            title="Trending Terms"
+            value={data?.trendingTopics.length ?? 0}
+            loading={overview.isLoading}
+            valueStyle={{ fontSize: 22 }}
+          />
+        </Card>
       </div>
 
-      {/* Search */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Input.Search
           placeholder="Search 5,000+ federal lobbying clients by name…"
@@ -325,7 +953,6 @@ export function IntelligenceCenterPage() {
           alignItems: 'start',
         }}
       >
-        {/* LEFT column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Card
             size="small"
@@ -379,7 +1006,7 @@ export function IntelligenceCenterPage() {
 
           <Card
             size="small"
-            title="Top Federal Lobbying Spenders (all-time)"
+            title="Top Federal Lobbying Spenders"
             extra={
               <Text type="secondary" style={{ fontSize: 12 }}>
                 2018–2025
@@ -422,66 +1049,8 @@ export function IntelligenceCenterPage() {
               <Empty description="No data" image={Empty.PRESENTED_IMAGE_SIMPLE} />
             )}
           </Card>
-
-          <Card
-            size="small"
-            title={
-              <Space>
-                <ThunderboltOutlined style={{ color: '#f59e0b' }} />
-                <span>Exploding Clients (100%+ growth)</span>
-              </Space>
-            }
-          >
-            {overview.isLoading ? (
-              <Skeleton active />
-            ) : data && data.exploding.length > 0 ? (
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-                  gap: 8,
-                }}
-              >
-                {data.exploding.slice(0, 12).map((c) => (
-                  <div
-                    key={c.id}
-                    style={{
-                      padding: 10,
-                      border: '1px solid rgba(0,0,0,0.06)',
-                      borderRadius: 6,
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 4,
-                    }}
-                  >
-                    <Tooltip title={c.name}>
-                      <Text strong ellipsis style={{ fontSize: 13 }}>
-                        {c.name}
-                      </Text>
-                    </Tooltip>
-                    <Space size={6}>
-                      <Text type="secondary" style={{ fontSize: 11 }}>
-                        {c.state ?? '—'}
-                      </Text>
-                      <Text style={{ fontSize: 12 }}>{formatMoney(c.totalSpending)}</Text>
-                      {c.growthRate != null && c.growthRate !== 0 ? (
-                        <Tag color="red" style={{ margin: 0, fontSize: 11 }}>
-                          <ArrowUpOutlined />{' '}
-                          {Math.round(c.growthRate)}%
-                        </Tag>
-                      ) : null}
-                    </Space>
-                    <Sparkline data={c.yearlySpend ?? []} width={200} height={28} />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <Empty description="No data" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            )}
-          </Card>
         </div>
 
-        {/* RIGHT column */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Card size="small" title="Hottest LDA Issues (cumulative)">
             {overview.isLoading ? (
@@ -562,21 +1131,27 @@ export function IntelligenceCenterPage() {
           </Card>
 
           <Card size="small" title="About this data">
-            <Paragraph style={{ fontSize: 12, marginBottom: 8 }} type="secondary">
-              Source: <a href="https://www.openlobby.us/" target="_blank" rel="noreferrer">OpenLobby</a>,
-              derived from public Senate{' '}
+            <Paragraph style={{ fontSize: 12, marginBottom: 6 }} type="secondary">
+              Lobbying:{' '}
+              <a href="https://www.openlobby.us/" target="_blank" rel="noreferrer">
+                OpenLobby
+              </a>{' '}
+              / Senate{' '}
               <a href="https://lda.senate.gov/" target="_blank" rel="noreferrer">
-                LDA filings
+                LDA
               </a>
-              . Refreshed via{' '}
-              <Text code style={{ fontSize: 11 }}>
-                pnpm sync:openlobby
-              </Text>
               .
             </Paragraph>
             <Paragraph style={{ fontSize: 12, margin: 0 }} type="secondary">
-              All Capiro tenants share the same federal reference dataset. Trending terms and
-              surging issues are auto-injected into AI doc-gen prompts.
+              Contracting:{' '}
+              <a href="https://www.openspending.us/" target="_blank" rel="noreferrer">
+                OpenSpending
+              </a>{' '}
+              /{' '}
+              <a href="https://www.usaspending.gov/" target="_blank" rel="noreferrer">
+                USASpending.gov
+              </a>
+              . Both share the same federal reference dataset across all Capiro tenants.
             </Paragraph>
           </Card>
         </div>
