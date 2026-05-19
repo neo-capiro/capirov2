@@ -164,6 +164,8 @@ model Tenant {
   clientPeople               ClientPerson[]
   strategies                 Strategy[]
   strategyTargets            StrategyTarget[]
+  engagementCampaigns        EngagementCampaign[]
+  engagementCampaignRecipients EngagementCampaignRecipient[]
 
   @@map("tenants")
 }
@@ -193,6 +195,7 @@ model User {
   clioNotes               ClioNote[]                     @relation("ClioNoteUser")
   workflowInstances       WorkflowInstance[]             @relation("WorkflowInstanceCreator")
   strategies              Strategy[]                     @relation("StrategyCreator")
+  createdCampaigns        EngagementCampaign[]           @relation("CampaignCreator")
 
   @@map("users")
 }
@@ -270,6 +273,7 @@ model Client {
   submissionHistory       ClientSubmissionHistory[]
   people                  ClientPerson[]
   strategies              Strategy[]
+  engagementCampaigns     EngagementCampaign[]
 
   @@index([tenantId], map: "clients_tenant_idx")
   @@index([tenantId, name], map: "clients_tenant_name_idx")
@@ -1087,4 +1091,49 @@ model StrategyTarget {
 
   @@index([tenantId, strategyId], map: "strategy_targets_tenant_strategy_idx")
   @@map("strategy_targets")
+}
+
+model EngagementCampaign {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  clientId        String?   @map("client_id") @db.Uuid
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+  name            String
+  type            String    @default("custom")
+  status          String    @default("draft")
+  subject         String?
+  body            String?   @db.Text
+  sourceContext   Json      @default("{}") @map("source_context_jsonb")
+  metadata        Json      @default("{}") @map("metadata_jsonb")
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client     Client?                       @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  createdBy  User                          @relation("CampaignCreator", fields: [createdByUserId], references: [id])
+  recipients EngagementCampaignRecipient[]
+
+  @@index([tenantId, clientId, status], map: "engagement_campaigns_tenant_client_status_idx")
+  @@map("engagement_campaigns")
+}
+
+model EngagementCampaignRecipient {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  campaignId String    @map("campaign_id") @db.Uuid
+  name       String?
+  email      String
+  title      String?
+  office     String?
+  status     String    @default("pending")
+  sentAt     DateTime? @map("sent_at") @db.Timestamptz(6)
+  metadata   Json      @default("{}") @map("metadata_jsonb")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign EngagementCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, campaignId], map: "engagement_campaign_recipients_tenant_campaign_idx")
+  @@map("engagement_campaign_recipients")
 }

@@ -328,6 +328,103 @@ class ConfirmAttachmentDto {
   checksumSha256?: string;
 }
 
+const campaignTypes = [
+  'post_meeting_followup',
+  'congressional_outreach',
+  'program_update',
+  'custom',
+] as const;
+
+const campaignStatuses = ['draft', 'active', 'paused', 'complete'] as const;
+
+class CreateCampaignDto {
+  @IsString()
+  @Length(1, 240)
+  name!: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsIn(campaignTypes)
+  type?: (typeof campaignTypes)[number];
+
+  @IsOptional()
+  @IsObject()
+  sourceContext?: Record<string, unknown>;
+}
+
+class UpdateCampaignDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  name?: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string | null;
+
+  @IsOptional()
+  @IsIn(campaignTypes)
+  type?: (typeof campaignTypes)[number];
+
+  @IsOptional()
+  @IsIn(campaignStatuses)
+  status?: (typeof campaignStatuses)[number];
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 300)
+  subject?: string | null;
+
+  @IsOptional()
+  @IsString()
+  body?: string | null;
+
+  @IsOptional()
+  @IsObject()
+  sourceContext?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsObject()
+  metadata?: Record<string, unknown>;
+}
+
+class CampaignRecipientDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 160)
+  name?: string;
+
+  @IsEmail()
+  email!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  office?: string;
+}
+
+class AddCampaignRecipientsDto {
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => CampaignRecipientDto)
+  recipients!: CampaignRecipientDto[];
+}
+
+class GenerateCampaignEmailDto {
+  @IsOptional()
+  @IsString()
+  customContext?: string;
+}
+
 const reportStatuses = ['auto', 'not_started', 'in_progress', 'complete'] as const;
 const outreachTypes = ['campaign', 'follow_up', 'prep', 'outbound_campaign'] as const;
 const outreachStatuses = ['draft', 'sent', 'opened_in_email', 'failed'] as const;
@@ -923,5 +1020,75 @@ export class EngagementController {
   @Delete('attachments/:id')
   deleteAttachment(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.deleteAttachment(ctx, id);
+  }
+
+  @Get('campaigns')
+  listCampaigns(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('clientId') clientId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.service.listCampaigns(ctx, { clientId, status });
+  }
+
+  @Post('campaigns')
+  createCampaign(@CurrentTenant() ctx: TenantContext, @Body() body: CreateCampaignDto) {
+    return this.service.createCampaign(ctx, body);
+  }
+
+  @Get('campaigns/:id')
+  getCampaign(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.getCampaign(ctx, id);
+  }
+
+  @Patch('campaigns/:id')
+  updateCampaign(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: UpdateCampaignDto,
+  ) {
+    return this.service.updateCampaign(ctx, id, body);
+  }
+
+  @Delete('campaigns/:id')
+  deleteCampaign(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.deleteCampaign(ctx, id);
+  }
+
+  @Post('campaigns/:id/recipients')
+  addCampaignRecipients(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: AddCampaignRecipientsDto,
+  ) {
+    return this.service.addCampaignRecipients(ctx, id, body.recipients);
+  }
+
+  @Delete('campaigns/:id/recipients/:recipientId')
+  removeCampaignRecipient(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Param('recipientId') recipientId: string,
+  ) {
+    return this.service.removeCampaignRecipient(ctx, id, recipientId);
+  }
+
+  @Post('campaigns/:id/generate')
+  generateCampaignEmail(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: GenerateCampaignEmailDto,
+  ) {
+    return this.service.generateCampaignEmail(ctx, id, body);
+  }
+
+  @Post('campaigns/:id/send')
+  sendCampaignEmails(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.sendCampaignEmails(ctx, id);
+  }
+
+  @Post('campaigns/:id/send-test')
+  sendCampaignTest(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.sendCampaignTest(ctx, id);
   }
 }
