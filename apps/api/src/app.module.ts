@@ -20,6 +20,7 @@ import { DemoRequestsModule } from './demo-requests/demo-requests.module.js';
 import { ClioModule } from './clio/clio.module.js';
 import { WorkflowsModule } from './workflows/workflows.module.js';
 import { StrategiesModule } from './strategies/strategies.module.js';
+import { LobbyIntelModule } from './lobby-intel/lobby-intel.module.js';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { StrategiesModule } from './strategies/strategies.module.js';
     ClioModule,
     WorkflowsModule,
     StrategiesModule,
+    LobbyIntelModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

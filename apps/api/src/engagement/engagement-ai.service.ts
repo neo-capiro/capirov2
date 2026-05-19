@@ -1,6 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/config.schema.js';
+import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
 
 export interface MeetingPrepInput {
   meeting: Record<string, unknown>;
@@ -198,12 +199,52 @@ export class EngagementAiService {
   private readonly openaiModel: string;
   private readonly anthropicModel: string;
 
-  constructor(config: ConfigService<AppConfig, true>) {
+  constructor(
+    config: ConfigService<AppConfig, true>,
+    private readonly lobbyIntel: LobbyIntelService,
+  ) {
     this.openaiKey = config.get('OPENAI_API_KEY', { infer: true });
     this.anthropicKey = config.get('ANTHROPIC_API_KEY', { infer: true });
     this.preferredProvider = config.get('AI_PROVIDER', { infer: true });
     this.openaiModel = config.get('OPENAI_MODEL', { infer: true });
     this.anthropicModel = config.get('ANTHROPIC_MODEL', { infer: true });
+  }
+
+  /**
+   * Compact federal-lobbying-intelligence context block for AI prompts.
+   * Returns "" when sync hasn't run yet (zero rows) so prompts degrade
+   * gracefully.
+   */
+  private async buildFederalContextBlock(): Promise<string> {
+    try {
+      const ctx = await this.lobbyIntel.getAiContext();
+      const surge = ctx.surgingIssues
+        .slice(0, 6)
+        .map(
+          (s) =>
+            `${s.code} (${s.name})${
+              s.surgePct != null ? `: +${Math.round(s.surgePct)}% QoQ` : ''
+            }`,
+        )
+        .join('; ');
+      const trending = ctx.trendingTopics
+        .slice(0, 8)
+        .map((t) => t.word)
+        .filter(Boolean)
+        .join(', ');
+      if (!surge && !trending) return '';
+      const parts: string[] = ['Current federal lobbying context (Senate LDA, OpenLobby):'];
+      if (ctx.latestQuarter) parts.push(`Latest quarter: ${ctx.latestQuarter}.`);
+      if (surge) parts.push(`Surging LDA issues: ${surge}.`);
+      if (trending) parts.push(`Trending terms in filings: ${trending}.`);
+      parts.push(
+        'Use these only when relevant to the client/recipient; do not force-fit unrelated topics or invent facts.',
+      );
+      return parts.join(' ');
+    } catch (err) {
+      this.logger.warn(`Federal context fetch failed (degrading): ${(err as Error).message}`);
+      return '';
+    }
   }
 
   capabilities() {
@@ -217,16 +258,29 @@ export class EngagementAiService {
   }
 
   async generateMeetingPrep(input: MeetingPrepInput): Promise<MeetingPrepResult> {
+    const federalContext = await this.buildFederalContextBlock();
+    const enriched: MeetingPrepInput = federalContext
+      ? {
+          ...input,
+          meeting: { ...input.meeting, federalLobbyIntel: federalContext },
+        }
+      : input;
     return this.withProviderFallback('AI meeting prep', (provider) =>
-      provider === 'openai' ? this.generateWithOpenAi(input) : this.generateWithAnthropic(input),
+      provider === 'openai'
+        ? this.generateWithOpenAi(enriched)
+        : this.generateWithAnthropic(enriched),
     );
   }
 
   async generateOutreachDraft(input: OutreachDraftInput): Promise<OutreachDraftResult> {
+    const federalContext = await this.buildFederalContextBlock();
+    const enriched = federalContext
+      ? { ...input, context: { ...input.context, federalLobbyIntel: federalContext } }
+      : input;
     return this.withProviderFallback('AI outreach drafting', (provider) =>
       provider === 'openai'
-        ? this.generateOutreachWithOpenAi(input)
-        : this.generateOutreachWithAnthropic(input),
+        ? this.generateOutreachWithOpenAi(enriched)
+        : this.generateOutreachWithAnthropic(enriched),
     );
   }
 
@@ -241,10 +295,19 @@ export class EngagementAiService {
   }
 
   async generateCampaignEmail(input: CampaignEmailInput): Promise<CampaignEmailResult> {
+    const federalContext = await this.buildFederalContextBlock();
+    const enriched = federalContext
+      ? {
+          ...input,
+          customContext: input.customContext
+            ? `${input.customContext}\n\n${federalContext}`
+            : federalContext,
+        }
+      : input;
     return this.withProviderFallback('AI campaign email generation', (provider) =>
       provider === 'openai'
-        ? this.generateCampaignWithOpenAi(input)
-        : this.generateCampaignWithAnthropic(input),
+        ? this.generateCampaignWithOpenAi(enriched)
+        : this.generateCampaignWithAnthropic(enriched),
     );
   }
 

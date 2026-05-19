@@ -21,6 +21,7 @@ import { ClioView } from './pages/workspace/ClioView.js';
 import { StrategiesList } from './pages/workspace/StrategiesList.js';
 import { StrategyWizard } from './pages/workspace/StrategyWizard.js';
 import { StrategyDashboard } from './pages/workspace/StrategyDashboard.js';
+import { IntelligenceCenterPage } from './pages/intelligence/IntelligenceCenterPage.js';
 
 export function App() {
   return (
@@ -51,7 +52,8 @@ export function App() {
           <Route path="strategy/:id" element={<StrategyDashboard />} />
           <Route path="clio" element={<ClioView />} />
         </Route>
-        <Route path="/intelligence/*" element={<Navigate to="/clients" replace />} />
+        <Route path="/intelligence" element={<IntelligenceCenterPage />} />
+        <Route path="/intelligence/*" element={<Navigate to="/intelligence" replace />} />
         <Route path="/directory" element={<DirectoryPage />} />
         <Route path="/portal/*" element={<Navigate to="/clients" replace />} />
 

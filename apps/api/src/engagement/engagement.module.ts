@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { DirectoryModule } from '../directory/directory.module.js';
+import { LobbyIntelModule } from '../lobby-intel/lobby-intel.module.js';
 import { EngagementController } from './engagement.controller.js';
 import { ClientAssociationService } from './client-association.service.js';
 import { EngagementAiService } from './engagement-ai.service.js';
@@ -12,7 +13,7 @@ import { MicrosoftOAuthService } from './microsoft/microsoft-oauth.service.js';
 import { TokenCryptoService } from './microsoft/token-crypto.service.js';
 
 @Module({
-  imports: [PrismaModule, DirectoryModule],
+  imports: [PrismaModule, DirectoryModule, LobbyIntelModule],
   controllers: [EngagementController, MicrosoftOAuthController],
   providers: [
     EngagementService,

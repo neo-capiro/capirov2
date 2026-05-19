@@ -1137,3 +1137,64 @@ model EngagementCampaignRecipient {
   @@index([tenantId, campaignId], map: "engagement_campaign_recipients_tenant_campaign_idx")
   @@map("engagement_campaign_recipients")
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Federal Lobbying Intelligence (OpenLobby / Senate LDA-derived reference data)
+//
+// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// Populated by the OpenLobby sync job (apps/api/scripts/sync-openlobby.ts).
+// Source: https://www.openlobby.us/data/*.json — itself derived from
+// public-domain Senate LDA filings at lda.senate.gov.
+// ─────────────────────────────────────────────────────────────────────────
+
+model LobbyIntel {
+  // 5K-record federal lobbying client master list (top spenders 2018-2025).
+  id               String   @id @default(uuid()) @db.Uuid
+  slug             String   @unique
+  name             String
+  state            String?
+  totalSpending    Decimal? @map("total_spending") @db.Decimal(18, 2)
+  filings          Int?
+  issues           String[] @default([])
+  years            Int[]    @default([])
+  trajectory       String?  // exploding | declining | new | steady | null
+  growthRate       Float?   @map("growth_rate")
+  yearlySpend      Json     @default("[]") @map("yearly_spend_jsonb") // [{year, amount}]
+  source           String   @default("openlobby")
+  lastSyncedAt     DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  raw              Json     @default("{}") @map("raw_jsonb")
+
+  @@index([name], map: "lobby_intel_name_idx")
+  @@index([slug], map: "lobby_intel_slug_idx")
+  @@map("lobby_intel")
+}
+
+model LobbyIssueRef {
+  // 79 LDA issue codes with rolling spending totals + surge trends.
+  code           String   @id // e.g. BUD, HCR, TAX
+  name           String
+  totalSpending  Decimal? @map("total_spending") @db.Decimal(18, 2)
+  totalFilings   Int?     @map("total_filings")
+  surgeTrend     String?  @map("surge_trend") // surging | growing | stable | declining
+  surgePct       Float?   @map("surge_pct")
+  latestQuarter  String?  @map("latest_quarter")
+  latestIncome   Decimal? @map("latest_income") @db.Decimal(18, 2)
+  lastSyncedAt   DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@map("lobby_issue_ref")
+}
+
+model LobbyTrendingTopic {
+  // Top words and trending words mined from filing descriptions —
+  // injected into AI doc-gen prompts as "current Washington context".
+  id           String   @id @default(uuid()) @db.Uuid
+  word         String   @unique
+  latestCount  Int      @map("latest_count")
+  avgPrior     Float?   @map("avg_prior")
+  growthPct    Float?   @map("growth_pct")
+  kind         String   @default("trending") // trending | top | bill
+  lastSyncedAt DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([kind, growthPct], map: "lobby_trending_kind_growth_idx")
+  @@map("lobby_trending_topics")
+}

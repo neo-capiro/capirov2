@@ -111,7 +111,6 @@ const NAV: NavItem[] = [
     label: 'Intelligence Center',
     path: '/intelligence',
     icon: <BulbOutlined />,
-    disabled: true,
   },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
   {
