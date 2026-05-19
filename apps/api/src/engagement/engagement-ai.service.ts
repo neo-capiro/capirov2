@@ -2,6 +2,7 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/config.schema.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
+import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
 
 export interface MeetingPrepInput {
   meeting: Record<string, unknown>;
@@ -202,6 +203,7 @@ export class EngagementAiService {
   constructor(
     config: ConfigService<AppConfig, true>,
     private readonly lobbyIntel: LobbyIntelService,
+    private readonly federalSpending: FederalSpendingService,
   ) {
     this.openaiKey = config.get('OPENAI_API_KEY', { infer: true });
     this.anthropicKey = config.get('ANTHROPIC_API_KEY', { infer: true });
@@ -211,11 +213,27 @@ export class EngagementAiService {
   }
 
   /**
-   * Compact federal-lobbying-intelligence context block for AI prompts.
-   * Returns "" when sync hasn't run yet (zero rows) so prompts degrade
-   * gracefully.
+   * Try to extract a client name from various AI input shapes for federal
+   * contractor lookup. Returns null when no name is present.
    */
-  private async buildFederalContextBlock(): Promise<string> {
+  private extractClientName(input: {
+    client?: Record<string, unknown> | null;
+  }): string | null {
+    const c = input.client;
+    if (!c || typeof c !== 'object') return null;
+    const name = (c as { name?: unknown }).name;
+    return typeof name === 'string' && name.trim() ? name : null;
+  }
+
+  /**
+   * Compact federal context block for AI prompts. Combines:
+   *   - LobbyIntel surging issues + trending terms (always)
+   *   - FederalSpending: matched contractor's contracts + top federal agencies
+   *     they win business from (when the client name matches)
+   * Returns "" when no useful data is available.
+   */
+  private async buildFederalContextBlock(clientName: string | null): Promise<string> {
+    const parts: string[] = [];
     try {
       const ctx = await this.lobbyIntel.getAiContext();
       const surge = ctx.surgingIssues
@@ -232,19 +250,57 @@ export class EngagementAiService {
         .map((t) => t.word)
         .filter(Boolean)
         .join(', ');
-      if (!surge && !trending) return '';
-      const parts: string[] = ['Current federal lobbying context (Senate LDA, OpenLobby):'];
-      if (ctx.latestQuarter) parts.push(`Latest quarter: ${ctx.latestQuarter}.`);
-      if (surge) parts.push(`Surging LDA issues: ${surge}.`);
-      if (trending) parts.push(`Trending terms in filings: ${trending}.`);
-      parts.push(
-        'Use these only when relevant to the client/recipient; do not force-fit unrelated topics or invent facts.',
-      );
-      return parts.join(' ');
+      if (surge || trending) {
+        parts.push('Current federal lobbying context (Senate LDA, OpenLobby):');
+        if (ctx.latestQuarter) parts.push(`Latest quarter: ${ctx.latestQuarter}.`);
+        if (surge) parts.push(`Surging LDA issues: ${surge}.`);
+        if (trending) parts.push(`Trending terms in filings: ${trending}.`);
+      }
     } catch (err) {
-      this.logger.warn(`Federal context fetch failed (degrading): ${(err as Error).message}`);
-      return '';
+      this.logger.warn(`Lobby context fetch failed (degrading): ${(err as Error).message}`);
     }
+
+    try {
+      const spend = await this.federalSpending.getAiContext(clientName);
+      if (spend.matchedContractor) {
+        const mc = spend.matchedContractor;
+        const agencyList = mc.topAgencies
+          .slice(0, 4)
+          .map(
+            (a) =>
+              `${a.name} ($${Math.round(a.amount / 1e9).toLocaleString()}B)`,
+          )
+          .join('; ');
+        const contractAmt =
+          mc.totalContracts != null
+            ? `$${(mc.totalContracts / 1e9).toFixed(1)}B in FY2025 federal contracts`
+            : 'federal contracts (amount unknown)';
+        parts.push(
+          `Federal contracting context for this client: ${mc.name} won ${contractAmt}` +
+            (mc.rankByContracts ? ` (rank #${mc.rankByContracts} nationally)` : '') +
+            (mc.category ? `, primary category: ${mc.category}` : '') +
+            (agencyList ? `. Top awarding agencies: ${agencyList}.` : '.'),
+        );
+      }
+      if (spend.topAgencyTotals.length) {
+        const topAg = spend.topAgencyTotals
+          .slice(0, 4)
+          .map(
+            (a) =>
+              `${a.name}${a.budget ? ` ($${(a.budget / 1e12).toFixed(1)}T)` : ''}`,
+          )
+          .join(', ');
+        if (topAg) parts.push(`Top federal agencies by budget: ${topAg}.`);
+      }
+    } catch (err) {
+      this.logger.warn(`Federal spend context fetch failed (degrading): ${(err as Error).message}`);
+    }
+
+    if (!parts.length) return '';
+    parts.push(
+      'Use these only when relevant to the client/recipient; do not force-fit unrelated topics or invent facts.',
+    );
+    return parts.join(' ');
   }
 
   capabilities() {
@@ -258,7 +314,7 @@ export class EngagementAiService {
   }
 
   async generateMeetingPrep(input: MeetingPrepInput): Promise<MeetingPrepResult> {
-    const federalContext = await this.buildFederalContextBlock();
+    const federalContext = await this.buildFederalContextBlock(this.extractClientName(input));
     const enriched: MeetingPrepInput = federalContext
       ? {
           ...input,
@@ -273,7 +329,7 @@ export class EngagementAiService {
   }
 
   async generateOutreachDraft(input: OutreachDraftInput): Promise<OutreachDraftResult> {
-    const federalContext = await this.buildFederalContextBlock();
+    const federalContext = await this.buildFederalContextBlock(this.extractClientName(input));
     const enriched = federalContext
       ? { ...input, context: { ...input.context, federalLobbyIntel: federalContext } }
       : input;
@@ -295,7 +351,7 @@ export class EngagementAiService {
   }
 
   async generateCampaignEmail(input: CampaignEmailInput): Promise<CampaignEmailResult> {
-    const federalContext = await this.buildFederalContextBlock();
+    const federalContext = await this.buildFederalContextBlock(this.extractClientName(input));
     const enriched = federalContext
       ? {
           ...input,

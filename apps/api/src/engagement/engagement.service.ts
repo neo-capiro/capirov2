@@ -1911,11 +1911,35 @@ export class EngagementService {
       });
       if (!meeting) throw new NotFoundException('Meeting not found');
 
-      const recentMeetings = meeting.clientId
+        // Use association service to determine the CORRECT client based on attendee emails,
+        // not the potentially stale meeting.clientId. This ensures prep uses the right client context.
+        const attendeeEmails = meeting.attendees
+          .map((a) => a.email)
+          .filter((e): e is string => Boolean(e));
+        const association = await this.association.associate(tx, ctx.tenantId, {
+          attendeeEmails,
+        });
+        const correctClientId = association.clientId || meeting.clientId;
+
+        // Fetch the correct client based on the association result.
+        const client = correctClientId
+          ? await tx.client.findUnique({
+              where: { id: correctClientId },
+              select: {
+                id: true,
+                name: true,
+                website: true,
+                primaryContactEmail: true,
+                intakeData: true,
+              },
+            })
+          : null;
+
+        const recentMeetings = correctClientId
         ? await tx.meeting.findMany({
             where: {
               tenantId: ctx.tenantId,
-              clientId: meeting.clientId,
+                clientId: correctClientId,
               id: { not: meeting.id },
               ...ownMeetingWhere(ctx.userId),
             },
@@ -1934,19 +1958,12 @@ export class EngagementService {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      // Fetch recent email threads from last 30 days for this client.
-      // Match by: client association + domain matching on attendee emails.
-      // This ensures we get all relevant correspondence, not just threads
-      // that happen to have a fromEmail match.
-      const attendeeEmails = meeting.attendees
-        .map((a) => a.email)
-        .filter((e): e is string => Boolean(e));
       const attendeeDomains = [...new Set(
         attendeeEmails.map((e) => e.split('@')[1]).filter(Boolean),
       )];
 
       const threadFilters: Array<Record<string, unknown>> = [];
-      if (meeting.clientId) threadFilters.push({ clientId: meeting.clientId });
+      if (correctClientId) threadFilters.push({ clientId: correctClientId });
       // Match threads where any message is from an attendee's domain
       if (attendeeDomains.length) {
         for (const domain of attendeeDomains) {
@@ -1979,13 +1996,13 @@ export class EngagementService {
           })
         : [];
 
-      return { meeting, recentMeetings, recentThreads };
+      return { meeting, client, recentMeetings, recentThreads };
     });
 
     const directoryProfiles = await this.directoryProfilesForMeeting(context.meeting);
     const promptContext = {
       meeting: pruneForAi(context.meeting),
-      client: context.meeting.client ? pruneForAi(context.meeting.client) : null,
+      client: context.client ? pruneForAi(context.client) : null,
       attendees: context.meeting.attendees.map(pruneForAi),
       congressionalDirectoryMatches: directoryProfiles.map(pruneForAi),
       recentMeetings: context.recentMeetings.map(pruneForAi),
@@ -1995,12 +2012,13 @@ export class EngagementService {
     const promptHash = createHash('sha256').update(JSON.stringify(promptContext)).digest('hex');
     const generated = await this.ai.generateMeetingPrep(promptContext);
 
+    const correctClientId = context.client?.id || context.meeting.clientId;
     return this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.meetingPrep.create({
         data: {
           tenantId: ctx.tenantId,
           meetingId,
-          clientId: context.meeting.clientId,
+          clientId: correctClientId,
           agenda: generated.agenda,
           talkingPoints: generated.talkingPoints,
           risks: generated.risks,

@@ -25,6 +25,7 @@ import {
   Modal,
   Select,
   Skeleton,
+  Space,
   Spin,
   Tag,
   Typography,
@@ -1312,8 +1313,27 @@ interface LobbyIssue {
   latestQuarter: string | null;
 }
 
+interface FederalContractor {
+  id: string;
+  name: string;
+  slug: string | null;
+  uei: string | null;
+  totalContracts: number | null;
+  pctOfAllContracts: number | null;
+  costPerTaxpayer: number | null;
+  category: string | null;
+  subsidiaries: number | null;
+  rankByContracts: number | null;
+  yearlySpend: { year: number; amount: number }[];
+  topAgencies: { slug?: string; name: string; amount: number }[];
+  topAwards: { awardId: string; recipient: string; amount: number; agency: string; description?: string; startDate?: string }[];
+  noBidAwards: { awardId: string; recipient: string; amount: number; agency: string; description?: string }[];
+  noBidTotal: number | null;
+}
+
 function fmtMoney(n: number | null | undefined): string {
   if (n == null) return '—';
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
   if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
   if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
@@ -1334,13 +1354,25 @@ function FederalIntelTab({ clientName }: { clientName: string }) {
     staleTime: 60 * 1000,
   });
 
+  const contractorLookup = useQuery<FederalContractor | null>({
+    queryKey: ['federal-spending-lookup', clientName],
+    queryFn: async () => {
+      const resp = await api.get<FederalContractor | null>(
+        '/api/federal-spending/contractors/lookup',
+        { params: { name: clientName } },
+      );
+      return resp.data;
+    },
+    staleTime: 60 * 1000,
+  });
+
   const allIssues = useQuery<LobbyIssue[]>({
     queryKey: ['lobby-intel-issues'],
     queryFn: async () => (await api.get<LobbyIssue[]>('/api/lobby-intel/issues')).data,
     staleTime: 5 * 60 * 1000,
   });
 
-  if (lookup.isLoading) {
+  if (lookup.isLoading || contractorLookup.isLoading) {
     return (
       <div style={{ padding: 24 }}>
         <Skeleton active />
@@ -1348,29 +1380,32 @@ function FederalIntelTab({ clientName }: { clientName: string }) {
     );
   }
 
-  if (lookup.isError) {
+  if (lookup.isError && contractorLookup.isError) {
     return (
       <div style={{ padding: 24 }}>
         <Typography.Text type="danger">
-          Could not load federal intel: {(lookup.error as Error).message}
+          Could not load federal intel: {(lookup.error as Error)?.message ?? 'Unknown error'}
         </Typography.Text>
       </div>
     );
   }
 
   const intel = lookup.data;
+  const contractor = contractorLookup.data;
 
-  if (!intel) {
+  // If neither dataset matched, show the not-found state.
+  if (!intel && !contractor) {
     return (
       <div style={{ padding: '24px 8px' }}>
         <Empty
           description={
             <span>
-              <strong>{clientName}</strong> was not found in the federal lobbying dataset.
+              <strong>{clientName}</strong> was not found in either federal dataset.
               <br />
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                Either this client does not file under the Senate LDA, the name in Capiro does
-                not match the filing name, or the OpenLobby sync has not been run yet.
+                Either this client does not file under the Senate LDA or appear as a top federal
+                contractor, the name in Capiro does not match the filing/awardee name, or the
+                sync jobs have not been run yet.
               </Typography.Text>
             </span>
           }
@@ -1380,7 +1415,7 @@ function FederalIntelTab({ clientName }: { clientName: string }) {
   }
 
   const issueMap = new Map((allIssues.data ?? []).map((i) => [i.code, i] as const));
-  const clientIssues = intel.issues
+  const clientIssues = (intel?.issues ?? [])
     .map((code) => issueMap.get(code))
     .filter((i): i is LobbyIssue => Boolean(i))
     .sort((a, b) => (b.totalSpending ?? 0) - (a.totalSpending ?? 0));
@@ -1392,170 +1427,369 @@ function FederalIntelTab({ clientName }: { clientName: string }) {
 
   return (
     <div style={{ padding: '4px 8px' }}>
-      <div
-        style={{
-          padding: 12,
-          background: 'rgba(37, 99, 235, 0.06)',
-          border: '1px solid rgba(37, 99, 235, 0.2)',
-          borderRadius: 6,
-          marginBottom: 16,
-          fontSize: 12,
-        }}
-      >
-        <Typography.Text type="secondary">Matched to OpenLobby filing entity: </Typography.Text>
-        <Typography.Text strong>{intel.name}</Typography.Text>
-        {intel.state ? (
-          <Typography.Text type="secondary"> · {intel.state}</Typography.Text>
-        ) : null}
-      </div>
+      {/* Match banner(s) */}
+      {contractor ? (
+        <div
+          style={{
+            padding: 12,
+            background: 'rgba(34, 197, 94, 0.06)',
+            border: '1px solid rgba(34, 197, 94, 0.25)',
+            borderRadius: 6,
+            marginBottom: 12,
+            fontSize: 12,
+          }}
+        >
+          <Typography.Text type="secondary">
+            Matched as federal contractor (USASpending.gov):{' '}
+          </Typography.Text>
+          <Typography.Text strong>{contractor.name}</Typography.Text>
+          {contractor.category ? (
+            <Tag color="green" style={{ marginLeft: 8 }}>
+              {contractor.category}
+            </Tag>
+          ) : null}
+          {contractor.uei ? (
+            <Typography.Text type="secondary"> · UEI {contractor.uei}</Typography.Text>
+          ) : null}
+        </div>
+      ) : null}
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
-          gap: 12,
-          marginBottom: 16,
-        }}
-      >
-        <div className="profile-section" style={{ marginBottom: 0 }}>
-          <div className="ps-title">Total Federal Spend</div>
-          <div style={{ fontSize: 24, fontWeight: 600 }}>{fmtMoney(intel.totalSpending)}</div>
-          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            2018–2025 reported LDA income
+      {intel ? (
+        <div
+          style={{
+            padding: 12,
+            background: 'rgba(37, 99, 235, 0.06)',
+            border: '1px solid rgba(37, 99, 235, 0.2)',
+            borderRadius: 6,
+            marginBottom: 16,
+            fontSize: 12,
+          }}
+        >
+          <Typography.Text type="secondary">
+            Matched as federal lobbying client (Senate LDA / OpenLobby):{' '}
           </Typography.Text>
+          <Typography.Text strong>{intel.name}</Typography.Text>
+          {intel.state ? (
+            <Typography.Text type="secondary"> · {intel.state}</Typography.Text>
+          ) : null}
         </div>
-        <div className="profile-section" style={{ marginBottom: 0 }}>
-          <div className="ps-title">Filings</div>
-          <div style={{ fontSize: 24, fontWeight: 600 }}>{intel.filings ?? '—'}</div>
-          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            Years active: {intel.years.length}
-          </Typography.Text>
-        </div>
-        <div className="profile-section" style={{ marginBottom: 0 }}>
-          <div className="ps-title">Trajectory</div>
-          <div style={{ fontSize: 18, fontWeight: 600, textTransform: 'capitalize' }}>
-            {intel.trajectory ?? 'steady'}
-            {intel.growthRate != null && intel.growthRate !== 0 ? (
-              <Typography.Text
-                type={intel.growthRate > 0 ? 'success' : 'warning'}
-                style={{ fontSize: 13, marginLeft: 8 }}
-              >
-                {intel.growthRate > 0 ? '+' : ''}
-                {Math.round(intel.growthRate)}%
+      ) : null}
+
+      {/* ── Federal Contracting section ───────────────────────────────── */}
+      {contractor ? (
+        <>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 12,
+              marginBottom: 16,
+            }}
+          >
+            <div className="profile-section" style={{ marginBottom: 0 }}>
+              <div className="ps-title">FY2025 Federal Contracts</div>
+              <div style={{ fontSize: 24, fontWeight: 600 }}>
+                {fmtMoney(contractor.totalContracts)}
+              </div>
+              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                {contractor.pctOfAllContracts != null
+                  ? `${contractor.pctOfAllContracts.toFixed(2)}% of all federal contracts`
+                  : 'USASpending obligations'}
               </Typography.Text>
-            ) : null}
+            </div>
+            <div className="profile-section" style={{ marginBottom: 0 }}>
+              <div className="ps-title">National Rank</div>
+              <div style={{ fontSize: 24, fontWeight: 600 }}>
+                {contractor.rankByContracts ? `#${contractor.rankByContracts}` : '—'}
+              </div>
+              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                {contractor.subsidiaries
+                  ? `${contractor.subsidiaries} subsidiaries rolled up`
+                  : 'Parent entity'}
+              </Typography.Text>
+            </div>
+            <div className="profile-section" style={{ marginBottom: 0 }}>
+              <div className="ps-title">Contracts Trend</div>
+              <Sparkline
+                data={contractor.yearlySpend ?? []}
+                width={200}
+                height={42}
+                color="#16a34a"
+                fillColor="rgba(34, 197, 94, 0.15)"
+              />
+              {contractor.costPerTaxpayer != null ? (
+                <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                  ${Math.round(contractor.costPerTaxpayer)} per US taxpayer
+                </Typography.Text>
+              ) : null}
+            </div>
           </div>
-          <Sparkline data={intel.yearlySpend ?? []} width={180} height={36} />
-        </div>
-      </div>
 
-      {intel.yearlySpend && intel.yearlySpend.length > 0 ? (
-        <div className="profile-section">
-          <div className="ps-title">Spend by Year</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {[...intel.yearlySpend]
-              .sort((a, b) => a.year - b.year)
-              .map((y) => {
-                const max = Math.max(...intel.yearlySpend.map((d) => d.amount), 1);
-                return (
+          {contractor.topAgencies && contractor.topAgencies.length > 0 ? (
+            <div className="profile-section">
+              <div className="ps-title">🏛️ Top Awarding Agencies</div>
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+                Federal agencies that have awarded the most contract dollars to this client.
+                Strong signal for lobbying targeting.
+              </Typography.Paragraph>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {contractor.topAgencies.slice(0, 8).map((a, i) => {
+                  const max = Math.max(...contractor.topAgencies.map((x) => x.amount), 1);
+                  return (
+                    <div
+                      key={(a.slug ?? a.name) + i}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '24px 1fr 160px 110px',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '3px 0',
+                      }}
+                    >
+                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                        {i + 1}
+                      </Typography.Text>
+                      <Typography.Text style={{ fontSize: 13 }}>{a.name}</Typography.Text>
+                      <HBar value={a.amount} max={max} width={160} color="#16a34a" />
+                      <Typography.Text type="secondary" style={{ fontSize: 11, textAlign: 'right' }}>
+                        {fmtMoney(a.amount)}
+                      </Typography.Text>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+
+          {contractor.topAwards && contractor.topAwards.length > 0 ? (
+            <div className="profile-section">
+              <div className="ps-title">🏆 Largest Individual Awards</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {contractor.topAwards.slice(0, 5).map((a) => (
                   <div
-                    key={y.year}
+                    key={a.awardId}
                     style={{
-                      display: 'grid',
-                      gridTemplateColumns: '60px 1fr 100px',
-                      alignItems: 'center',
-                      gap: 10,
+                      padding: 8,
+                      border: '1px solid rgba(0,0,0,0.06)',
+                      borderRadius: 4,
+                      fontSize: 12,
                     }}
                   >
-                    <Typography.Text type="secondary">{y.year}</Typography.Text>
-                    <HBar value={y.amount} max={max} width={280} height={10} />
-                    <Typography.Text style={{ textAlign: 'right' }}>
-                      {fmtMoney(y.amount)}
+                    <Space size={6}>
+                      <Tag style={{ margin: 0 }}>{a.awardId}</Tag>
+                      <Typography.Text strong>{fmtMoney(a.amount)}</Typography.Text>
+                      <Typography.Text type="secondary">{a.agency}</Typography.Text>
+                      {a.startDate ? (
+                        <Typography.Text type="secondary">
+                          started {a.startDate}
+                        </Typography.Text>
+                      ) : null}
+                    </Space>
+                    {a.description ? (
+                      <div style={{ marginTop: 4, fontSize: 11, color: 'var(--cp-muted, #666)' }}>
+                        {a.description}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {contractor.noBidAwards && contractor.noBidAwards.length > 0 ? (
+            <div className="profile-section">
+              <div className="ps-title">
+                🚫 No-Bid Contracts
+                {contractor.noBidTotal != null ? (
+                  <Typography.Text type="warning" style={{ marginLeft: 8, fontSize: 12 }}>
+                    {fmtMoney(contractor.noBidTotal)} total
+                  </Typography.Text>
+                ) : null}
+              </div>
+              <Typography.Paragraph type="secondary" style={{ fontSize: 11, marginBottom: 8 }}>
+                Sole-source awards (no competitive bidding).
+              </Typography.Paragraph>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {contractor.noBidAwards.slice(0, 5).map((a) => (
+                  <div
+                    key={a.awardId}
+                    style={{
+                      padding: 6,
+                      borderLeft: '3px solid #ef4444',
+                      paddingLeft: 10,
+                      fontSize: 12,
+                    }}
+                  >
+                    <Space size={6}>
+                      <Tag style={{ margin: 0 }}>{a.awardId}</Tag>
+                      <Typography.Text strong>{fmtMoney(a.amount)}</Typography.Text>
+                      <Typography.Text type="secondary">{a.agency}</Typography.Text>
+                    </Space>
+                    {a.description ? (
+                      <div style={{ marginTop: 2, fontSize: 11, color: 'var(--cp-muted, #666)' }}>
+                        {a.description}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+
+      {/* ── Federal Lobbying section ──────────────────────────────────── */}
+      {intel ? (
+        <>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 12,
+              marginBottom: 16,
+            }}
+          >
+            <div className="profile-section" style={{ marginBottom: 0 }}>
+              <div className="ps-title">Total Federal Lobby Spend</div>
+              <div style={{ fontSize: 24, fontWeight: 600 }}>{fmtMoney(intel.totalSpending)}</div>
+              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                2018–2025 reported LDA income
+              </Typography.Text>
+            </div>
+            <div className="profile-section" style={{ marginBottom: 0 }}>
+              <div className="ps-title">Filings</div>
+              <div style={{ fontSize: 24, fontWeight: 600 }}>{intel.filings ?? '—'}</div>
+              <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                Years active: {intel.years.length}
+              </Typography.Text>
+            </div>
+            <div className="profile-section" style={{ marginBottom: 0 }}>
+              <div className="ps-title">Trajectory</div>
+              <div style={{ fontSize: 18, fontWeight: 600, textTransform: 'capitalize' }}>
+                {intel.trajectory ?? 'steady'}
+                {intel.growthRate != null && intel.growthRate !== 0 ? (
+                  <Typography.Text
+                    type={intel.growthRate > 0 ? 'success' : 'warning'}
+                    style={{ fontSize: 13, marginLeft: 8 }}
+                  >
+                    {intel.growthRate > 0 ? '+' : ''}
+                    {Math.round(intel.growthRate)}%
+                  </Typography.Text>
+                ) : null}
+              </div>
+              <Sparkline data={intel.yearlySpend ?? []} width={180} height={36} />
+            </div>
+          </div>
+
+          {intel.yearlySpend && intel.yearlySpend.length > 0 ? (
+            <div className="profile-section">
+              <div className="ps-title">Lobby Spend by Year</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {[...intel.yearlySpend]
+                  .sort((a, b) => a.year - b.year)
+                  .map((y) => {
+                    const max = Math.max(...intel.yearlySpend.map((d) => d.amount), 1);
+                    return (
+                      <div
+                        key={y.year}
+                        style={{
+                          display: 'grid',
+                          gridTemplateColumns: '60px 1fr 100px',
+                          alignItems: 'center',
+                          gap: 10,
+                        }}
+                      >
+                        <Typography.Text type="secondary">{y.year}</Typography.Text>
+                        <HBar value={y.amount} max={max} width={280} height={10} />
+                        <Typography.Text style={{ textAlign: 'right' }}>
+                          {fmtMoney(y.amount)}
+                        </Typography.Text>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          ) : null}
+
+          {surgingClientIssues.length > 0 ? (
+            <div className="profile-section">
+              <div className="ps-title">🔥 Surging Issues for This Client</div>
+              <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+                Issues this client lobbies on that are surging across all filers right now.
+              </Typography.Paragraph>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {surgingClientIssues.slice(0, 6).map((i) => (
+                  <div
+                    key={i.code}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '50px 1fr 100px',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '4px 0',
+                    }}
+                  >
+                    <Tag color="default" style={{ margin: 0 }}>
+                      {i.code}
+                    </Tag>
+                    <Typography.Text>{i.name}</Typography.Text>
+                    <Tag
+                      color={i.surgeTrend === 'surging' ? 'red' : 'gold'}
+                      style={{ margin: 0, textAlign: 'right' }}
+                    >
+                      {i.surgePct != null ? `+${Math.round(i.surgePct)}%` : i.surgeTrend}
+                    </Tag>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {clientIssues.length > 0 ? (
+            <div className="profile-section">
+              <div className="ps-title">LDA Issue Mix ({intel.issues.length} codes)</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {clientIssues.slice(0, 15).map((i) => (
+                  <div
+                    key={i.code}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '50px 1fr 120px 90px',
+                      alignItems: 'center',
+                      gap: 10,
+                      padding: '3px 0',
+                    }}
+                  >
+                    <Tag style={{ margin: 0 }}>{i.code}</Tag>
+                    <Typography.Text style={{ fontSize: 13 }}>{i.name}</Typography.Text>
+                    <HBar value={i.totalSpending ?? 0} max={maxIssue} width={120} />
+                    <Typography.Text type="secondary" style={{ fontSize: 11, textAlign: 'right' }}>
+                      {fmtMoney(i.totalSpending)}
                     </Typography.Text>
                   </div>
-                );
-              })}
-          </div>
-        </div>
-      ) : null}
-
-      {surgingClientIssues.length > 0 ? (
-        <div className="profile-section">
-          <div className="ps-title">🔥 Surging Issues for This Client</div>
-          <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
-            Issues this client lobbies on that are surging across all filers right now.
-          </Typography.Paragraph>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {surgingClientIssues.slice(0, 6).map((i) => (
-              <div
-                key={i.code}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '50px 1fr 100px',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '4px 0',
-                }}
-              >
-                <Tag color="default" style={{ margin: 0 }}>
-                  {i.code}
-                </Tag>
-                <Typography.Text>{i.name}</Typography.Text>
-                <Tag
-                  color={i.surgeTrend === 'surging' ? 'red' : 'gold'}
-                  style={{ margin: 0, textAlign: 'right' }}
-                >
-                  {i.surgePct != null ? `+${Math.round(i.surgePct)}%` : i.surgeTrend}
-                </Tag>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {clientIssues.length > 0 ? (
-        <div className="profile-section">
-          <div className="ps-title">LDA Issue Mix ({intel.issues.length} codes)</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {clientIssues.slice(0, 15).map((i) => (
-              <div
-                key={i.code}
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: '50px 1fr 120px 90px',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '3px 0',
-                }}
-              >
-                <Tag style={{ margin: 0 }}>{i.code}</Tag>
-                <Typography.Text style={{ fontSize: 13 }}>{i.name}</Typography.Text>
-                <HBar value={i.totalSpending ?? 0} max={maxIssue} width={120} />
-                <Typography.Text type="secondary" style={{ fontSize: 11, textAlign: 'right' }}>
-                  {fmtMoney(i.totalSpending)}
-                </Typography.Text>
+            </div>
+          ) : intel.issues.length > 0 ? (
+            <div className="profile-section">
+              <div className="ps-title">LDA Issue Codes</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {intel.issues.map((code) => (
+                  <Tag key={code} style={{ marginRight: 0 }}>
+                    {code}
+                  </Tag>
+                ))}
               </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <div className="profile-section">
-          <div className="ps-title">LDA Issue Codes</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {intel.issues.map((code) => (
-              <Tag key={code} style={{ marginRight: 0 }}>
-                {code}
-              </Tag>
-            ))}
-          </div>
-        </div>
-      )}
+            </div>
+          ) : null}
+        </>
+      ) : null}
 
       <Typography.Paragraph
         type="secondary"
         style={{ fontSize: 11, marginTop: 16, marginBottom: 0 }}
       >
-        Source:{' '}
+        Sources:{' '}
         <a href="https://www.openlobby.us/" target="_blank" rel="noreferrer">
           OpenLobby
         </a>{' '}
@@ -1563,8 +1797,16 @@ function FederalIntelTab({ clientName }: { clientName: string }) {
         <a href="https://lda.senate.gov/" target="_blank" rel="noreferrer">
           LDA filings
         </a>
-        . Matched by name (fuzzy). If the match is wrong, update this client&apos;s name to match
-        the filing entity name on OpenLobby.
+        ;{' '}
+        <a href="https://www.openspending.us/" target="_blank" rel="noreferrer">
+          OpenSpending
+        </a>{' '}
+        /{' '}
+        <a href="https://www.usaspending.gov/" target="_blank" rel="noreferrer">
+          USASpending.gov
+        </a>
+        . Matched by name (fuzzy). If a match is wrong, update this client&apos;s name to match
+        the filing/awardee name.
       </Typography.Paragraph>
     </div>
   );
