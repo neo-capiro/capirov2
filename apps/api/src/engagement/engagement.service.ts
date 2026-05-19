@@ -345,18 +345,41 @@ export class EngagementService {
 
   listMeetings(ctx: TenantContext, query: { clientId?: string; from?: string; to?: string }) {
     const { from, to } = toDateWindow(query);
-    return this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.meeting.findMany({
-        where: {
-          tenantId: ctx.tenantId,
-          ...ownMeetingWhere(ctx.userId),
-          ...(query.clientId ? { clientId: query.clientId } : {}),
-          startsAt: { gte: from, lt: to },
-        },
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const baseWhere: Prisma.MeetingWhereInput = {
+        tenantId: ctx.tenantId,
+        ...ownMeetingWhere(ctx.userId),
+        startsAt: { gte: from, lt: to },
+      };
+
+      if (!query.clientId) {
+        return tx.meeting.findMany({
+          where: baseWhere,
+          include: meetingInclude(),
+          orderBy: { startsAt: 'asc' },
+        });
+      }
+
+      const clientProfileEmails = await this.clientProfileEmails(tx, ctx.tenantId, query.clientId);
+      const where: Prisma.MeetingWhereInput = clientProfileEmails.length
+        ? {
+            ...baseWhere,
+            OR: [
+              { organizerEmail: { in: clientProfileEmails } },
+              { attendees: { some: { email: { in: clientProfileEmails } } } },
+            ],
+          }
+        : {
+            ...baseWhere,
+            clientId: query.clientId,
+          };
+
+      return tx.meeting.findMany({
+        where,
         include: meetingInclude(),
         orderBy: { startsAt: 'asc' },
-      }),
-    );
+      });
+    });
   }
 
   async getMeeting(ctx: TenantContext, id: string) {
@@ -2465,6 +2488,30 @@ export class EngagementService {
       contacts.set(email, contact);
     }
     return contacts;
+  }
+
+  private async clientProfileEmails(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    clientId: string,
+  ): Promise<string[]> {
+    const [client, people] = await Promise.all([
+      tx.client.findFirst({
+        where: { id: clientId, tenantId },
+        select: { primaryContactEmail: true },
+      }),
+      tx.clientPerson.findMany({
+        where: { tenantId, clientId, email: { not: null } },
+        select: { email: true },
+      }),
+    ]);
+
+    const values = [
+      client?.primaryContactEmail?.trim().toLowerCase() ?? null,
+      ...people.map((person) => person.email?.trim().toLowerCase() ?? null),
+    ].filter((value): value is string => Boolean(value));
+
+    return Array.from(new Set(values));
   }
 
   private async validateOutreachParents(

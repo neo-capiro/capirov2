@@ -31,6 +31,7 @@ import {
   Upload,
 } from 'antd';
 import { useApi } from '../../lib/use-api.js';
+import { Sparkline, HBar } from '../../components/charts.js';
 import type { Capability } from './CapabilityDrawer.js';
 import { CapabilityDrawer } from './CapabilityDrawer.js';
 import type { Client, ClientAttachment, ClientFormSubmit } from './clientTypes.js';
@@ -56,7 +57,7 @@ interface ClientPerson {
   createdAt: string;
 }
 
-type ProfileTab = 'overview' | 'capabilities' | 'people' | 'workflows' | 'documents';
+type ProfileTab = 'overview' | 'capabilities' | 'people' | 'workflows' | 'documents' | 'federal';
 
 const STATUS_COLOR: Record<string, string> = {
   active: '#52c41a',
@@ -275,7 +276,7 @@ export function ClientProfilePage({
 
       {/* Tab nav */}
       <div className="cp-tabs">
-        {(['overview', 'capabilities', 'people', 'workflows', 'documents'] as ProfileTab[]).map((tab) => (
+        {(['overview', 'capabilities', 'people', 'workflows', 'documents', 'federal'] as ProfileTab[]).map((tab) => (
           <div
             key={tab}
             className={`cp-tab${activeTab === tab ? ' active' : ''}`}
@@ -290,7 +291,9 @@ export function ClientProfilePage({
                   ? 'People'
                   : tab === 'workflows'
                     ? 'Workflows'
-                    : 'Documents'}
+                    : tab === 'documents'
+                      ? 'Documents'
+                      : 'Federal Intel'}
           </div>
         ))}
       </div>
@@ -355,6 +358,7 @@ export function ClientProfilePage({
               onClientUpdated={onClientUpdated}
             />
           )}
+          {activeTab === 'federal' && <FederalIntelTab clientName={client.name} />}
         </div>
 
         {selectedCapability ? (
@@ -1277,4 +1281,291 @@ function errorMessage(error: unknown): string {
     if (Array.isArray(data?.message)) return data.message.join(', ');
   }
   return error instanceof Error ? error.message : 'Request failed';
+}
+
+/* ── Federal Intel Tab ────────────────────────────────────────────────────
+ * Looks up this client in the federal lobbying intelligence dataset
+ * (OpenLobby / Senate LDA) by name. Shows historical spend, trajectory,
+ * top LDA issues, and surge data for those issues.
+ * ──────────────────────────────────────────────────────────────────────── */
+
+interface LobbyIntelSummary {
+  id: string;
+  slug: string;
+  name: string;
+  state: string | null;
+  totalSpending: number | null;
+  filings: number | null;
+  issues: string[];
+  years: number[];
+  trajectory: string | null;
+  growthRate: number | null;
+  yearlySpend: { year: number; amount: number }[];
+}
+
+interface LobbyIssue {
+  code: string;
+  name: string;
+  totalSpending: number | null;
+  surgeTrend: string | null;
+  surgePct: number | null;
+  latestQuarter: string | null;
+}
+
+function fmtMoney(n: number | null | undefined): string {
+  if (n == null) return '—';
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+  return `$${n}`;
+}
+
+function FederalIntelTab({ clientName }: { clientName: string }) {
+  const api = useApi();
+
+  const lookup = useQuery<LobbyIntelSummary | null>({
+    queryKey: ['lobby-intel-lookup', clientName],
+    queryFn: async () => {
+      const resp = await api.get<LobbyIntelSummary | null>('/api/lobby-intel/lookup', {
+        params: { name: clientName },
+      });
+      return resp.data;
+    },
+    staleTime: 60 * 1000,
+  });
+
+  const allIssues = useQuery<LobbyIssue[]>({
+    queryKey: ['lobby-intel-issues'],
+    queryFn: async () => (await api.get<LobbyIssue[]>('/api/lobby-intel/issues')).data,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (lookup.isLoading) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Skeleton active />
+      </div>
+    );
+  }
+
+  if (lookup.isError) {
+    return (
+      <div style={{ padding: 24 }}>
+        <Typography.Text type="danger">
+          Could not load federal intel: {(lookup.error as Error).message}
+        </Typography.Text>
+      </div>
+    );
+  }
+
+  const intel = lookup.data;
+
+  if (!intel) {
+    return (
+      <div style={{ padding: '24px 8px' }}>
+        <Empty
+          description={
+            <span>
+              <strong>{clientName}</strong> was not found in the federal lobbying dataset.
+              <br />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Either this client does not file under the Senate LDA, the name in Capiro does
+                not match the filing name, or the OpenLobby sync has not been run yet.
+              </Typography.Text>
+            </span>
+          }
+        />
+      </div>
+    );
+  }
+
+  const issueMap = new Map((allIssues.data ?? []).map((i) => [i.code, i] as const));
+  const clientIssues = intel.issues
+    .map((code) => issueMap.get(code))
+    .filter((i): i is LobbyIssue => Boolean(i))
+    .sort((a, b) => (b.totalSpending ?? 0) - (a.totalSpending ?? 0));
+
+  const surgingClientIssues = clientIssues.filter(
+    (i) => i.surgeTrend === 'surging' || i.surgeTrend === 'growing',
+  );
+  const maxIssue = Math.max(1, ...clientIssues.map((i) => i.totalSpending ?? 0));
+
+  return (
+    <div style={{ padding: '4px 8px' }}>
+      <div
+        style={{
+          padding: 12,
+          background: 'rgba(37, 99, 235, 0.06)',
+          border: '1px solid rgba(37, 99, 235, 0.2)',
+          borderRadius: 6,
+          marginBottom: 16,
+          fontSize: 12,
+        }}
+      >
+        <Typography.Text type="secondary">Matched to OpenLobby filing entity: </Typography.Text>
+        <Typography.Text strong>{intel.name}</Typography.Text>
+        {intel.state ? (
+          <Typography.Text type="secondary"> · {intel.state}</Typography.Text>
+        ) : null}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 12,
+          marginBottom: 16,
+        }}
+      >
+        <div className="profile-section" style={{ marginBottom: 0 }}>
+          <div className="ps-title">Total Federal Spend</div>
+          <div style={{ fontSize: 24, fontWeight: 600 }}>{fmtMoney(intel.totalSpending)}</div>
+          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+            2018–2025 reported LDA income
+          </Typography.Text>
+        </div>
+        <div className="profile-section" style={{ marginBottom: 0 }}>
+          <div className="ps-title">Filings</div>
+          <div style={{ fontSize: 24, fontWeight: 600 }}>{intel.filings ?? '—'}</div>
+          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+            Years active: {intel.years.length}
+          </Typography.Text>
+        </div>
+        <div className="profile-section" style={{ marginBottom: 0 }}>
+          <div className="ps-title">Trajectory</div>
+          <div style={{ fontSize: 18, fontWeight: 600, textTransform: 'capitalize' }}>
+            {intel.trajectory ?? 'steady'}
+            {intel.growthRate != null && intel.growthRate !== 0 ? (
+              <Typography.Text
+                type={intel.growthRate > 0 ? 'success' : 'warning'}
+                style={{ fontSize: 13, marginLeft: 8 }}
+              >
+                {intel.growthRate > 0 ? '+' : ''}
+                {Math.round(intel.growthRate)}%
+              </Typography.Text>
+            ) : null}
+          </div>
+          <Sparkline data={intel.yearlySpend ?? []} width={180} height={36} />
+        </div>
+      </div>
+
+      {intel.yearlySpend && intel.yearlySpend.length > 0 ? (
+        <div className="profile-section">
+          <div className="ps-title">Spend by Year</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {[...intel.yearlySpend]
+              .sort((a, b) => a.year - b.year)
+              .map((y) => {
+                const max = Math.max(...intel.yearlySpend.map((d) => d.amount), 1);
+                return (
+                  <div
+                    key={y.year}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '60px 1fr 100px',
+                      alignItems: 'center',
+                      gap: 10,
+                    }}
+                  >
+                    <Typography.Text type="secondary">{y.year}</Typography.Text>
+                    <HBar value={y.amount} max={max} width={280} height={10} />
+                    <Typography.Text style={{ textAlign: 'right' }}>
+                      {fmtMoney(y.amount)}
+                    </Typography.Text>
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      ) : null}
+
+      {surgingClientIssues.length > 0 ? (
+        <div className="profile-section">
+          <div className="ps-title">🔥 Surging Issues for This Client</div>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
+            Issues this client lobbies on that are surging across all filers right now.
+          </Typography.Paragraph>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {surgingClientIssues.slice(0, 6).map((i) => (
+              <div
+                key={i.code}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '50px 1fr 100px',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '4px 0',
+                }}
+              >
+                <Tag color="default" style={{ margin: 0 }}>
+                  {i.code}
+                </Tag>
+                <Typography.Text>{i.name}</Typography.Text>
+                <Tag
+                  color={i.surgeTrend === 'surging' ? 'red' : 'gold'}
+                  style={{ margin: 0, textAlign: 'right' }}
+                >
+                  {i.surgePct != null ? `+${Math.round(i.surgePct)}%` : i.surgeTrend}
+                </Tag>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {clientIssues.length > 0 ? (
+        <div className="profile-section">
+          <div className="ps-title">LDA Issue Mix ({intel.issues.length} codes)</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {clientIssues.slice(0, 15).map((i) => (
+              <div
+                key={i.code}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '50px 1fr 120px 90px',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '3px 0',
+                }}
+              >
+                <Tag style={{ margin: 0 }}>{i.code}</Tag>
+                <Typography.Text style={{ fontSize: 13 }}>{i.name}</Typography.Text>
+                <HBar value={i.totalSpending ?? 0} max={maxIssue} width={120} />
+                <Typography.Text type="secondary" style={{ fontSize: 11, textAlign: 'right' }}>
+                  {fmtMoney(i.totalSpending)}
+                </Typography.Text>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="profile-section">
+          <div className="ps-title">LDA Issue Codes</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {intel.issues.map((code) => (
+              <Tag key={code} style={{ marginRight: 0 }}>
+                {code}
+              </Tag>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <Typography.Paragraph
+        type="secondary"
+        style={{ fontSize: 11, marginTop: 16, marginBottom: 0 }}
+      >
+        Source:{' '}
+        <a href="https://www.openlobby.us/" target="_blank" rel="noreferrer">
+          OpenLobby
+        </a>{' '}
+        / Senate{' '}
+        <a href="https://lda.senate.gov/" target="_blank" rel="noreferrer">
+          LDA filings
+        </a>
+        . Matched by name (fuzzy). If the match is wrong, update this client&apos;s name to match
+        the filing entity name on OpenLobby.
+      </Typography.Paragraph>
+    </div>
+  );
 }

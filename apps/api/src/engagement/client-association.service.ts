@@ -74,12 +74,44 @@ export class ClientAssociationService {
       };
     }
 
+    const knownProfileContacts = emails.length
+      ? await tx.clientPerson.findMany({
+          where: { tenantId, email: { in: emails } },
+          select: { email: true, clientId: true },
+        })
+      : [];
+
     const knownContacts = emails.length
       ? await tx.engagementContact.findMany({
           where: { tenantId, email: { in: emails }, clientId: { not: null } },
           select: { email: true, clientId: true },
         })
       : [];
+
+    // Client profile contacts are the source of truth for routing meetings to clients.
+    // Fall back to engagement contacts only if there are no profile contact matches.
+    const authoritativeContacts = knownProfileContacts.filter((contact) => Boolean(contact.clientId));
+    const decisiveContacts = authoritativeContacts.length ? authoritativeContacts : knownContacts;
+    const clientIdFromContacts = findPrimaryClientFromContacts(decisiveContacts);
+    if (clientIdFromContacts) {
+      const primaryClient = clients.find((c) => c.id === clientIdFromContacts);
+      if (primaryClient) {
+        const contactEmails = decisiveContacts
+          .filter((k) => k.clientId === clientIdFromContacts)
+          .map((k) => k.email)
+          .filter((e): e is string => !!e);
+        return {
+          clientId: primaryClient.id,
+          score: 0.95,
+          reason: `Attendee(s) ${contactEmails.join(', ')} are known contacts of ${primaryClient.name}.`,
+          signals: {
+            emails,
+            knownContactsFound: contactEmails,
+            contactSource: authoritativeContacts.length ? 'client_profile' : 'engagement_contact',
+          },
+        };
+      }
+    }
 
     const historicalMeetings = emails.length
       ? await tx.meeting.findMany({
@@ -101,7 +133,7 @@ export class ClientAssociationService {
       scoreClient(client, {
         emails,
         emailDomains,
-        knownContacts,
+        knownContacts: [...authoritativeContacts, ...knownContacts],
         historicalMeetings,
         text,
       }),
@@ -288,4 +320,43 @@ function unique<T>(values: T[]): T[] {
 
 function roundScore(value: number): number {
   return Math.round(Math.max(0, Math.min(1, value)) * 100) / 100;
+}
+
+/**
+ * Determines the primary client from known attendee contacts.
+ * If multiple attendees belong to the same client, return that client.
+ * If attendees belong to different clients, return the client with the most attendees.
+ * If no known contacts, return null.
+ */
+function findPrimaryClientFromContacts(
+  knownContacts: Array<{ email: string | null; clientId: string | null }>,
+): string | null {
+  if (knownContacts.length === 0) return null;
+
+  // Count attendees per client
+  const clientCounts = new Map<string, number>();
+  for (const contact of knownContacts) {
+    if (contact.clientId) {
+      clientCounts.set(contact.clientId, (clientCounts.get(contact.clientId) ?? 0) + 1);
+    }
+  }
+
+  if (clientCounts.size === 0) return null;
+
+  // If all known contacts belong to the same client, return it
+  if (clientCounts.size === 1) {
+    return Array.from(clientCounts.keys())[0] ?? null;
+  }
+
+  // If multiple clients, return the one with the most attendees
+  let maxClientId: string | null = null;
+  let maxCount = 0;
+  for (const [clientId, count] of clientCounts) {
+    if (count > maxCount) {
+      maxCount = count;
+      maxClientId = clientId;
+    }
+  }
+
+  return maxClientId;
 }
