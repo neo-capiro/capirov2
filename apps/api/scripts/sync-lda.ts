@@ -111,11 +111,22 @@ async function ldaFetch<T>(path: string, params: Record<string, string> = {}): P
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const hdrs: Record<string, string> = { Accept: 'application/json' };
   if (LDA_API_KEY) hdrs['x-api-key'] = LDA_API_KEY;
-  const resp = await fetch(url.toString(), { headers: hdrs });
-  if (!resp.ok) {
-    throw new Error(`LDA API ${url}: ${resp.status} ${resp.statusText}`);
+
+  const MAX_RETRIES = 5;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const resp = await fetch(url.toString(), { headers: hdrs });
+    if (resp.status === 429) {
+      const wait = Math.min(2000 * Math.pow(2, attempt), 60000);
+      console.warn(`[lda-sync] 429 rate limited, waiting ${wait / 1000}s (attempt ${attempt}/${MAX_RETRIES})`);
+      await new Promise((r) => setTimeout(r, wait));
+      continue;
+    }
+    if (!resp.ok) {
+      throw new Error(`LDA API ${url}: ${resp.status} ${resp.statusText}`);
+    }
+    return (await resp.json()) as T;
   }
-  return (await resp.json()) as T;
+  throw new Error(`LDA API ${url}: exhausted ${MAX_RETRIES} retries on 429`);
 }
 
 async function fetchAllPages<T>(
@@ -136,6 +147,8 @@ async function fetchAllPages<T>(
     if (onProgress) onProgress(all.length, data.count);
     if (!data.next) break;
     page++;
+    // Rate-limit politeness: sleep 200ms between pages
+    await new Promise((r) => setTimeout(r, 200));
   }
 
   return all;
@@ -207,29 +220,31 @@ async function main() {
   try {
     // ── 1. Reference data: issue codes ──────────────────────────────────────
     console.log('[lda-sync] fetching issue codes');
-    const issueCodesPage = await ldaFetch<{ results: LdaIssueCodeRef[] }>(
+    const issueCodesRaw = await ldaFetch<{ value: string; name: string }[]>(
       '/constants/filing/lobbyingactivityissues/',
     );
-    const issueCodes = issueCodesPage.results ?? [];
+    // API returns a flat array [{value, name}], not paginated
+    const issueCodes = Array.isArray(issueCodesRaw) ? issueCodesRaw : [];
     for (const ic of issueCodes) {
       try {
         await prisma.ldaIssueCode.upsert({
-          where: { code: ic.issue_code },
-          update: { name: ic.issue_code_display, lastSyncedAt: new Date() },
-          create: { code: ic.issue_code, name: ic.issue_code_display },
+          where: { code: ic.value },
+          update: { name: ic.name, lastSyncedAt: new Date() },
+          create: { code: ic.value, name: ic.name },
         });
       } catch (err) {
-        console.warn(`[lda-sync] skip issue code ${ic.issue_code}:`, (err as Error).message);
+        console.warn(`[lda-sync] skip issue code ${ic.value}:`, (err as Error).message);
       }
     }
     console.log(`[lda-sync] upserted ${issueCodes.length} issue codes`);
 
     // ── 2. Reference data: government entities ───────────────────────────────
     console.log('[lda-sync] fetching government entities');
-    const govEntitiesPage = await ldaFetch<{ results: LdaGovEntityRef[] }>(
+    const govEntitiesRaw = await ldaFetch<{ id: number; name: string }[]>(
       '/constants/filing/governmententities/',
     );
-    const govEntities = govEntitiesPage.results ?? [];
+    // API returns a flat array [{id, name}], not paginated
+    const govEntities = Array.isArray(govEntitiesRaw) ? govEntitiesRaw : [];
     for (const ge of govEntities) {
       try {
         await prisma.ldaGovernmentEntity.upsert({
@@ -676,16 +691,16 @@ async function main() {
       try {
         const filingCount = await prisma.$queryRaw<{ count: bigint }[]>`
           SELECT COUNT(*) AS count FROM lda_filing
-          WHERE ${ic.issue_code} = ANY(issue_codes)
+          WHERE ${ic.value} = ANY(issue_codes)
         `;
         const spendingAgg = await prisma.$queryRaw<{ total: string | null }[]>`
           SELECT SUM(COALESCE(income, 0) + COALESCE(expenses, 0)) AS total
           FROM lda_filing
-          WHERE ${ic.issue_code} = ANY(issue_codes)
+          WHERE ${ic.value} = ANY(issue_codes)
         `;
 
         await prisma.ldaIssueCode.update({
-          where: { code: ic.issue_code },
+          where: { code: ic.value },
           data: {
             totalFilings5y: Number(filingCount[0]?.count ?? 0),
             totalSpending5y: spendingAgg[0]?.total ? Number(spendingAgg[0].total) : null,
@@ -693,7 +708,7 @@ async function main() {
           },
         });
       } catch (err) {
-        console.warn(`[lda-sync] skip issue agg ${ic.issue_code}:`, (err as Error).message);
+        console.warn(`[lda-sync] skip issue agg ${ic.value}:`, (err as Error).message);
       }
     }
     console.log('[lda-sync] issue code aggregates done');
