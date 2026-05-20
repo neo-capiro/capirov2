@@ -27,7 +27,7 @@ export const configSchema = z.object({
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default('gpt-4.1-mini'),
   ANTHROPIC_API_KEY: z.string().optional(),
-  ANTHROPIC_MODEL: z.string().default('claude-sonnet-4-5'),
+  ANTHROPIC_MODEL: z.string().default('claude-haiku-4-5-20251001'),
 
   // Clio is the Capiro-branded assistant surface. The agent runtime runs behind
   // the Capiro backend; browsers never call it directly. If no runtime URL is

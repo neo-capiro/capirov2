@@ -4,6 +4,23 @@ import type { AppConfig } from '../config/config.schema.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
 import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
 
+const AI_TIMEOUT_MS = 90_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (err) {
+    if ((err as Error).name === 'AbortError') {
+      throw new ServiceUnavailableException(`AI provider request timed out after ${AI_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export interface MeetingPrepInput {
   meeting: Record<string, unknown>;
   client: Record<string, unknown> | null;
@@ -421,7 +438,7 @@ export class EngagementAiService {
   private async generateWithOpenAi(input: MeetingPrepInput): Promise<MeetingPrepResult> {
     if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.openaiKey}`,
@@ -467,7 +484,7 @@ export class EngagementAiService {
       throw new ServiceUnavailableException('ANTHROPIC_API_KEY is not configured');
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'x-api-key': this.anthropicKey,
@@ -516,7 +533,7 @@ export class EngagementAiService {
   ): Promise<OutreachDraftResult> {
     if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.openaiKey}`,
@@ -561,7 +578,7 @@ export class EngagementAiService {
       throw new ServiceUnavailableException('ANTHROPIC_API_KEY is not configured');
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'x-api-key': this.anthropicKey,
@@ -607,7 +624,7 @@ export class EngagementAiService {
   ): Promise<MeetingDebriefDraftResult> {
     if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.openaiKey}`,
@@ -652,7 +669,7 @@ export class EngagementAiService {
       throw new ServiceUnavailableException('ANTHROPIC_API_KEY is not configured');
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'x-api-key': this.anthropicKey,
@@ -696,7 +713,7 @@ export class EngagementAiService {
   private async generateCampaignWithOpenAi(input: CampaignEmailInput): Promise<CampaignEmailResult> {
     if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
 
-    const response = await fetch('https://api.openai.com/v1/responses', {
+    const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.openaiKey}`,
@@ -738,7 +755,7 @@ export class EngagementAiService {
       throw new ServiceUnavailableException('ANTHROPIC_API_KEY is not configured');
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'x-api-key': this.anthropicKey,
