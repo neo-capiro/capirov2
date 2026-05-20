@@ -87,7 +87,12 @@ interface TextAnalysis {
 
 async function fetchJson<T>(name: string): Promise<T> {
   const url = `${BASE}/${name}`;
-  const resp = await fetch(url);
+  let resp: Response;
+  try {
+    resp = await fetch(url);
+  } catch (err) {
+    throw new Error(`Network error fetching ${url}: ${err instanceof Error ? err.message : err}`);
+  }
   if (!resp.ok) {
     throw new Error(`Fetch ${url} failed: ${resp.status} ${resp.statusText}`);
   }
@@ -128,31 +133,36 @@ async function main() {
 
     let issueCount = 0;
     for (const iss of issueIndex) {
+      if (!iss?.code) continue;
       const surge = surgeByCode.get(iss.code);
-      await prisma.lobbyIssueRef.upsert({
-        where: { code: iss.code },
-        update: {
-          name: iss.name,
-          totalSpending: iss.totalSpending,
-          totalFilings: iss.totalFilings,
-          surgeTrend: surge?.trend ?? null,
-          surgePct: surge?.incomeChangePercent ?? null,
-          latestQuarter: surge?.latestQuarter ?? null,
-          latestIncome: surge?.latestIncome ?? null,
-          lastSyncedAt: new Date(),
-        },
-        create: {
-          code: iss.code,
-          name: iss.name,
-          totalSpending: iss.totalSpending,
-          totalFilings: iss.totalFilings,
-          surgeTrend: surge?.trend ?? null,
-          surgePct: surge?.incomeChangePercent ?? null,
-          latestQuarter: surge?.latestQuarter ?? null,
-          latestIncome: surge?.latestIncome ?? null,
-        },
-      });
-      issueCount++;
+      try {
+        await prisma.lobbyIssueRef.upsert({
+          where: { code: iss.code },
+          update: {
+            name: iss.name,
+            totalSpending: iss.totalSpending ?? null,
+            totalFilings: iss.totalFilings ?? null,
+            surgeTrend: surge?.trend ?? null,
+            surgePct: surge?.incomeChangePercent ?? null,
+            latestQuarter: surge?.latestQuarter ?? null,
+            latestIncome: surge?.latestIncome ?? null,
+            lastSyncedAt: new Date(),
+          },
+          create: {
+            code: iss.code,
+            name: iss.name,
+            totalSpending: iss.totalSpending ?? null,
+            totalFilings: iss.totalFilings ?? null,
+            surgeTrend: surge?.trend ?? null,
+            surgePct: surge?.incomeChangePercent ?? null,
+            latestQuarter: surge?.latestQuarter ?? null,
+            latestIncome: surge?.latestIncome ?? null,
+          },
+        });
+        issueCount++;
+      } catch (err) {
+        console.warn(`[openlobby-sync] skip issue ${iss.code}:`, (err as Error).message);
+      }
     }
     console.log(`[openlobby-sync] upserted ${issueCount} issue codes`);
 
@@ -190,6 +200,7 @@ async function main() {
       const batch = topClients.slice(i, i + chunk);
       await Promise.all(
         batch.map(async (c) => {
+          if (!c?.name) return;
           const slug = c.slug || slugify(c.name);
           const traj = trajByName.get(c.name.toUpperCase());
           // Build yearlySpend: prefer trajectory's per-year amounts; fall back
@@ -203,38 +214,42 @@ async function main() {
           const cleanYears = (c.years ?? []).filter(
             (y): y is number => typeof y === 'number' && Number.isFinite(y),
           );
-          await prisma.lobbyIntel.upsert({
-            where: { slug },
-            update: {
-              name: c.name,
-              state: c.state ?? null,
-              totalSpending: c.totalSpending,
-              filings: c.filings,
-              issues: cleanIssues,
-              years: cleanYears,
-              trajectory: traj?.trajectory ?? null,
-              growthRate: traj?.growthRate ?? null,
-              yearlySpend: yearlySpend as object,
-              source: 'openlobby',
-              lastSyncedAt: new Date(),
-              raw: c as object,
-            },
-            create: {
-              id: randomUUID(),
-              slug,
-              name: c.name,
-              state: c.state ?? null,
-              totalSpending: c.totalSpending,
-              filings: c.filings,
-              issues: cleanIssues,
-              years: cleanYears,
-              trajectory: traj?.trajectory ?? null,
-              growthRate: traj?.growthRate ?? null,
-              yearlySpend: yearlySpend as object,
-              raw: c as object,
-            },
-          });
-          clientCount++;
+          try {
+            await prisma.lobbyIntel.upsert({
+              where: { slug },
+              update: {
+                name: c.name,
+                state: c.state ?? null,
+                totalSpending: c.totalSpending ?? null,
+                filings: c.filings ?? null,
+                issues: cleanIssues,
+                years: cleanYears,
+                trajectory: traj?.trajectory ?? null,
+                growthRate: traj?.growthRate ?? null,
+                yearlySpend: yearlySpend as object,
+                source: 'openlobby',
+                lastSyncedAt: new Date(),
+                raw: c as object,
+              },
+              create: {
+                id: randomUUID(),
+                slug,
+                name: c.name,
+                state: c.state ?? null,
+                totalSpending: c.totalSpending ?? null,
+                filings: c.filings ?? null,
+                issues: cleanIssues,
+                years: cleanYears,
+                trajectory: traj?.trajectory ?? null,
+                growthRate: traj?.growthRate ?? null,
+                yearlySpend: yearlySpend as object,
+                raw: c as object,
+              },
+            });
+            clientCount++;
+          } catch (err) {
+            console.warn(`[openlobby-sync] skip client ${slug}:`, (err as Error).message);
+          }
         }),
       );
       if (i % 1000 === 0 && i > 0) {

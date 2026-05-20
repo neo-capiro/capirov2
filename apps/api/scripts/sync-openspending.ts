@@ -111,7 +111,12 @@ interface Industry {
 
 async function fetchJson<T>(name: string): Promise<T> {
   const url = `${BASE}/${name}`;
-  const resp = await fetch(url);
+  let resp: Response;
+  try {
+    resp = await fetch(url);
+  } catch (err) {
+    throw new Error(`Network error fetching ${url}: ${err instanceof Error ? err.message : err}`);
+  }
   if (!resp.ok) {
     throw new Error(`Fetch ${url} failed: ${resp.status} ${resp.statusText}`);
   }
@@ -194,55 +199,62 @@ async function main() {
 
     let agencyCount = 0;
     for (const a of agencies) {
+      if (!a?.slug || !a?.name) continue;
       const sp = spendingBySlug.get(a.slug);
       const trend =
         trendBySlug.get(a.slug) ??
         (a.abbreviation ? trendByAbbr.get(a.abbreviation.toUpperCase()) : undefined);
-      const topC = (agencyContractors[a.slug] ?? []).slice(0, 10);
+      const topC = (agencyContractors[a.slug] ?? [])
+        .filter((c) => c?.name)
+        .slice(0, 10);
       const yearlyBudget = yearsObjToArray(trend?.years);
 
-      await prisma.federalAgency.upsert({
-        where: { slug: a.slug },
-        update: {
-          name: a.name,
-          abbreviation: a.abbreviation ?? null,
-          code: a.code ?? null,
-          displayName: a.displayName ?? null,
-          budgetAuthority: a.budgetAuthority ?? null,
-          obligated: a.obligated ?? null,
-          outlays: a.outlays ?? null,
-          pctOfTotal: a.pctOfTotal ?? null,
-          pctOfBudget: a.pctOfBudget ?? null,
-          pctContracts: a.pctContracts ?? null,
-          costPerAmerican: a.costPerAmerican ?? null,
-          rankBySpending: a.rankBySpending ?? null,
-          contractsTotal: sp?.contracts ?? null,
-          grantsTotal: sp?.grants ?? null,
-          yearlyBudget: yearlyBudget as object,
-          topContractors: topC as object,
-          lastSyncedAt: new Date(),
-        },
-        create: {
-          slug: a.slug,
-          name: a.name,
-          abbreviation: a.abbreviation ?? null,
-          code: a.code ?? null,
-          displayName: a.displayName ?? null,
-          budgetAuthority: a.budgetAuthority ?? null,
-          obligated: a.obligated ?? null,
-          outlays: a.outlays ?? null,
-          pctOfTotal: a.pctOfTotal ?? null,
-          pctOfBudget: a.pctOfBudget ?? null,
-          pctContracts: a.pctContracts ?? null,
-          costPerAmerican: a.costPerAmerican ?? null,
-          rankBySpending: a.rankBySpending ?? null,
-          contractsTotal: sp?.contracts ?? null,
-          grantsTotal: sp?.grants ?? null,
-          yearlyBudget: yearlyBudget as object,
-          topContractors: topC as object,
-        },
-      });
-      agencyCount++;
+      try {
+        await prisma.federalAgency.upsert({
+          where: { slug: a.slug },
+          update: {
+            name: a.name,
+            abbreviation: a.abbreviation ?? null,
+            code: a.code ?? null,
+            displayName: a.displayName ?? null,
+            budgetAuthority: a.budgetAuthority ?? null,
+            obligated: a.obligated ?? null,
+            outlays: a.outlays ?? null,
+            pctOfTotal: a.pctOfTotal ?? null,
+            pctOfBudget: a.pctOfBudget ?? null,
+            pctContracts: a.pctContracts ?? null,
+            costPerAmerican: a.costPerAmerican ?? null,
+            rankBySpending: a.rankBySpending ?? null,
+            contractsTotal: sp?.contracts ?? null,
+            grantsTotal: sp?.grants ?? null,
+            yearlyBudget: yearlyBudget as object,
+            topContractors: topC as object,
+            lastSyncedAt: new Date(),
+          },
+          create: {
+            slug: a.slug,
+            name: a.name,
+            abbreviation: a.abbreviation ?? null,
+            code: a.code ?? null,
+            displayName: a.displayName ?? null,
+            budgetAuthority: a.budgetAuthority ?? null,
+            obligated: a.obligated ?? null,
+            outlays: a.outlays ?? null,
+            pctOfTotal: a.pctOfTotal ?? null,
+            pctOfBudget: a.pctOfBudget ?? null,
+            pctContracts: a.pctContracts ?? null,
+            costPerAmerican: a.costPerAmerican ?? null,
+            rankBySpending: a.rankBySpending ?? null,
+            contractsTotal: sp?.contracts ?? null,
+            grantsTotal: sp?.grants ?? null,
+            yearlyBudget: yearlyBudget as object,
+            topContractors: topC as object,
+          },
+        });
+        agencyCount++;
+      } catch (err) {
+        console.warn(`[openspending-sync] skip agency ${a.slug}:`, (err as Error).message);
+      }
     }
     console.log(`[openspending-sync] upserted ${agencyCount} agencies`);
 
@@ -299,143 +311,162 @@ async function main() {
     let contractorCount = 0;
     for (let i = 0; i < dedupedContractors.length; i++) {
       const c = dedupedContractors[i];
-      if (!c) continue;
+      if (!c?.name) continue;
       const key = normName(c.name);
       const meta = topMeta.get(key);
       const trend = trendMap.get(key);
       const yearlySpend = yearsObjToArray(trend?.years);
       const awardingAgencies = (agencyAwardsByContractor.get(key) ?? [])
+        .filter((a) => a?.name)
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 8);
       const recipientAwards = (awardsByRecipient.get(key) ?? [])
+        .filter((a) => a?.awardId)
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5);
       const recipientNoBid = (noBidByRecipient.get(key) ?? [])
+        .filter((a) => a?.awardId)
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5);
       const noBidTotal = noBidTotalByRecipient.get(key) ?? null;
 
-      await prisma.federalContractor.upsert({
-        where: { name: c.name },
-        update: {
-          slug: slugify(c.name),
-          uei: meta?.uei ?? null,
-          recipientId: meta?.recipientId ?? null,
-          totalContracts: c.amount,
-          pctOfAllContracts: c.pctOfAllContracts ?? null,
-          costPerTaxpayer: c.costPerTaxpayer ?? null,
-          category: c.category ?? null,
-          subsidiaries: c.subsidiaries ?? null,
-          yearlySpend: yearlySpend as object,
-          topAgencies: awardingAgencies as object,
-          topAwards: recipientAwards as object,
-          noBidAwards: recipientNoBid as object,
-          noBidTotal,
-          rankByContracts: i + 1,
-          lastSyncedAt: new Date(),
-          raw: c as object,
-        },
-        create: {
-          id: randomUUID(),
-          name: c.name,
-          slug: slugify(c.name),
-          uei: meta?.uei ?? null,
-          recipientId: meta?.recipientId ?? null,
-          totalContracts: c.amount,
-          pctOfAllContracts: c.pctOfAllContracts ?? null,
-          costPerTaxpayer: c.costPerTaxpayer ?? null,
-          category: c.category ?? null,
-          subsidiaries: c.subsidiaries ?? null,
-          yearlySpend: yearlySpend as object,
-          topAgencies: awardingAgencies as object,
-          topAwards: recipientAwards as object,
-          noBidAwards: recipientNoBid as object,
-          noBidTotal,
-          rankByContracts: i + 1,
-          raw: c as object,
-        },
-      });
-      contractorCount++;
+      try {
+        await prisma.federalContractor.upsert({
+          where: { name: c.name },
+          update: {
+            slug: slugify(c.name),
+            uei: meta?.uei ?? null,
+            recipientId: meta?.recipientId ?? null,
+            totalContracts: c.amount ?? null,
+            pctOfAllContracts: c.pctOfAllContracts ?? null,
+            costPerTaxpayer: c.costPerTaxpayer ?? null,
+            category: c.category ?? null,
+            subsidiaries: c.subsidiaries ?? null,
+            yearlySpend: yearlySpend as object,
+            topAgencies: awardingAgencies as object,
+            topAwards: recipientAwards as object,
+            noBidAwards: recipientNoBid as object,
+            noBidTotal,
+            rankByContracts: i + 1,
+            lastSyncedAt: new Date(),
+            raw: c as object,
+          },
+          create: {
+            id: randomUUID(),
+            name: c.name,
+            slug: slugify(c.name),
+            uei: meta?.uei ?? null,
+            recipientId: meta?.recipientId ?? null,
+            totalContracts: c.amount ?? null,
+            pctOfAllContracts: c.pctOfAllContracts ?? null,
+            costPerTaxpayer: c.costPerTaxpayer ?? null,
+            category: c.category ?? null,
+            subsidiaries: c.subsidiaries ?? null,
+            yearlySpend: yearlySpend as object,
+            topAgencies: awardingAgencies as object,
+            topAwards: recipientAwards as object,
+            noBidAwards: recipientNoBid as object,
+            noBidTotal,
+            rankByContracts: i + 1,
+            raw: c as object,
+          },
+        });
+        contractorCount++;
+      } catch (err) {
+        console.warn(`[openspending-sync] skip contractor ${c.name}:`, (err as Error).message);
+      }
     }
 
     // Also upsert any top-contractors that are NOT in the deduped list (smaller
     // non-parent entities) — preserves UEIs and ranks for fuzzy matching later.
     for (let i = 0; i < topContractors.length; i++) {
       const c = topContractors[i];
-      if (!c) continue;
+      if (!c?.name) continue;
       const key = normName(c.name);
       // Skip if a deduped parent already covers this exact name.
-      if (dedupedContractors.some((d) => normName(d.name) === key)) continue;
+      if (dedupedContractors.some((d) => d?.name && normName(d.name) === key)) continue;
       const trend = trendMap.get(key);
       const yearlySpend = yearsObjToArray(trend?.years);
       const awardingAgencies = (agencyAwardsByContractor.get(key) ?? [])
+        .filter((a) => a?.name)
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 8);
       const recipientAwards = (awardsByRecipient.get(key) ?? [])
+        .filter((a) => a?.awardId)
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5);
       const recipientNoBid = (noBidByRecipient.get(key) ?? [])
+        .filter((a) => a?.awardId)
         .sort((a, b) => b.amount - a.amount)
         .slice(0, 5);
       const noBidTotal = noBidTotalByRecipient.get(key) ?? null;
-      await prisma.federalContractor.upsert({
-        where: { name: c.name },
-        update: {
-          slug: slugify(c.name),
-          uei: c.uei ?? null,
-          recipientId: c.recipientId ?? null,
-          totalContracts: c.amount,
-          yearlySpend: yearlySpend as object,
-          topAgencies: awardingAgencies as object,
-          topAwards: recipientAwards as object,
-          noBidAwards: recipientNoBid as object,
-          noBidTotal,
-          lastSyncedAt: new Date(),
-          raw: c as object,
-        },
-        create: {
-          id: randomUUID(),
-          name: c.name,
-          slug: slugify(c.name),
-          uei: c.uei ?? null,
-          recipientId: c.recipientId ?? null,
-          totalContracts: c.amount,
-          yearlySpend: yearlySpend as object,
-          topAgencies: awardingAgencies as object,
-          topAwards: recipientAwards as object,
-          noBidAwards: recipientNoBid as object,
-          noBidTotal,
-          raw: c as object,
-        },
-      });
-      contractorCount++;
+      try {
+        await prisma.federalContractor.upsert({
+          where: { name: c.name },
+          update: {
+            slug: slugify(c.name),
+            uei: c.uei ?? null,
+            recipientId: c.recipientId ?? null,
+            totalContracts: c.amount ?? null,
+            yearlySpend: yearlySpend as object,
+            topAgencies: awardingAgencies as object,
+            topAwards: recipientAwards as object,
+            noBidAwards: recipientNoBid as object,
+            noBidTotal,
+            lastSyncedAt: new Date(),
+            raw: c as object,
+          },
+          create: {
+            id: randomUUID(),
+            name: c.name,
+            slug: slugify(c.name),
+            uei: c.uei ?? null,
+            recipientId: c.recipientId ?? null,
+            totalContracts: c.amount ?? null,
+            yearlySpend: yearlySpend as object,
+            topAgencies: awardingAgencies as object,
+            topAwards: recipientAwards as object,
+            noBidAwards: recipientNoBid as object,
+            noBidTotal,
+            raw: c as object,
+          },
+        });
+        contractorCount++;
+      } catch (err) {
+        console.warn(`[openspending-sync] skip contractor ${c.name}:`, (err as Error).message);
+      }
     }
     console.log(`[openspending-sync] upserted ${contractorCount} contractors`);
 
     // ── 3. Industries ────────────────────────────────────────────────────
     let industryCount = 0;
     for (const ind of industries) {
+      if (!ind?.code || !ind?.name) continue;
       const amt = ind.totalSpending ?? ind.amount ?? null;
-      await prisma.federalIndustry.upsert({
-        where: { code: ind.code },
-        update: {
-          name: ind.name,
-          slug: ind.slug ?? slugify(`${ind.code}-${ind.name}`),
-          totalSpending: amt,
-          rank: ind.rank ?? null,
-          pctOfTotal: ind.pctOfTotal ?? null,
-          lastSyncedAt: new Date(),
-        },
-        create: {
-          code: ind.code,
-          name: ind.name,
-          slug: ind.slug ?? slugify(`${ind.code}-${ind.name}`),
-          totalSpending: amt,
-          rank: ind.rank ?? null,
-          pctOfTotal: ind.pctOfTotal ?? null,
-        },
-      });
-      industryCount++;
+      try {
+        await prisma.federalIndustry.upsert({
+          where: { code: ind.code },
+          update: {
+            name: ind.name,
+            slug: ind.slug ?? slugify(`${ind.code}-${ind.name}`),
+            totalSpending: amt,
+            rank: ind.rank ?? null,
+            pctOfTotal: ind.pctOfTotal ?? null,
+            lastSyncedAt: new Date(),
+          },
+          create: {
+            code: ind.code,
+            name: ind.name,
+            slug: ind.slug ?? slugify(`${ind.code}-${ind.name}`),
+            totalSpending: amt,
+            rank: ind.rank ?? null,
+            pctOfTotal: ind.pctOfTotal ?? null,
+          },
+        });
+        industryCount++;
+      } catch (err) {
+        console.warn(`[openspending-sync] skip industry ${ind.code}:`, (err as Error).message);
+      }
     }
     console.log(`[openspending-sync] upserted ${industryCount} industries`);
 

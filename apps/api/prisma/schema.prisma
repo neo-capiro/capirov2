@@ -1271,3 +1271,231 @@ model FederalIndustry {
 
   @@map("federal_industry")
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// Senate LDA Federal Lobbying Intelligence (raw filings dataset)
+//
+// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// Populated by apps/api/scripts/sync-lda.ts.
+// Source: https://lda.senate.gov/api/v1/ — public Senate LD-1/LD-2 filings.
+// ─────────────────────────────────────────────────────────────────────────
+
+model LdaFiling {
+  // Core filing record (~512K over 5 years).
+  id                  String   @id @default(uuid()) @db.Uuid
+  filingUuid          String   @unique @map("filing_uuid")
+  filingType          String   @map("filing_type")
+  filingYear          Int      @map("filing_year")
+  filingPeriod        String?  @map("filing_period")
+  income              Decimal? @map("income") @db.Decimal(18, 2)
+  expenses            Decimal? @map("expenses") @db.Decimal(18, 2)
+  dtPosted            DateTime? @map("dt_posted") @db.Timestamptz(6)
+  registrantId        Int?     @map("registrant_id")
+  registrantName      String   @default("") @map("registrant_name")
+  clientId            Int?     @map("client_id")
+  clientName          String   @default("") @map("client_name")
+  clientState         String?  @map("client_state")
+  clientCountry       String   @default("US") @map("client_country")
+  clientDescription   String?  @map("client_description")
+  issueCodes          String[] @default([]) @map("issue_codes")
+  governmentEntities  Json     @default("[]") @map("government_entities")
+  lobbyists           Json     @default("[]") @map("lobbyists")
+  lobbyingActivities  Json     @default("[]") @map("lobbying_activities")
+  filingDocumentUrl   String?  @map("filing_document_url")
+  lastSyncedAt        DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([filingYear], map: "lda_filing_year_idx")
+  @@index([dtPosted], map: "lda_filing_dt_posted_idx")
+  @@index([clientId], map: "lda_filing_client_id_idx")
+  @@index([registrantId], map: "lda_filing_registrant_id_idx")
+  @@index([clientName], map: "lda_filing_client_name_idx")
+  @@index([registrantName], map: "lda_filing_registrant_name_idx")
+  @@map("lda_filing")
+}
+
+model LdaClient {
+  // 134K lobbying clients extracted from LDA filings.
+  id                 Int      @id
+  name               String
+  generalDescription String?  @map("general_description")
+  state              String?
+  country            String   @default("US")
+  effectiveDate      DateTime? @map("effective_date") @db.Date
+  totalFilings       Int      @default(0) @map("total_filings")
+  totalSpending      Decimal? @map("total_spending") @db.Decimal(18, 2)
+  latestFilingYear   Int?     @map("latest_filing_year")
+  issueCodes         String[] @default([]) @map("issue_codes")
+  lastSyncedAt       DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([name], map: "lda_client_name_idx")
+  @@index([state], map: "lda_client_state_idx")
+  @@map("lda_client")
+}
+
+model LdaRegistrant {
+  // 17K lobbying firms (registrants) extracted from LDA filings.
+  id                Int      @id
+  houseRegistrantId Int?     @map("house_registrant_id")
+  name              String
+  description       String?
+  address           String?
+  city              String?
+  state             String?
+  country           String   @default("US")
+  contactName       String?  @map("contact_name")
+  contactPhone      String?  @map("contact_phone")
+  totalFilings      Int      @default(0) @map("total_filings")
+  totalClients      Int      @default(0) @map("total_clients")
+  lastSyncedAt      DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([name], map: "lda_registrant_name_idx")
+  @@map("lda_registrant")
+}
+
+model LdaLobbyist {
+  // 88K registered lobbyists extracted from LDA filings.
+  id                Int      @id
+  firstName         String   @default("") @map("first_name")
+  lastName          String   @default("") @map("last_name")
+  prefix            String?
+  suffix            String?
+  coveredPositions  Json     @default("[]") @map("covered_positions")
+  registrantIds     Int[]    @default([]) @map("registrant_ids")
+  activeYears       Int[]    @default([]) @map("active_years")
+  lastSyncedAt      DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([lastName, firstName], map: "lda_lobbyist_name_idx")
+  @@map("lda_lobbyist")
+}
+
+model LdaContribution {
+  // 192K contribution reports (LD-203 filings).
+  id                String   @id @default(uuid()) @db.Uuid
+  filingUuid        String   @unique @map("filing_uuid")
+  filingType        String   @map("filing_type")
+  filingYear        Int      @map("filing_year")
+  filingPeriod      String?  @map("filing_period")
+  filerType         String   @default("registrant") @map("filer_type")
+  dtPosted          DateTime? @map("dt_posted") @db.Timestamptz(6)
+  registrantId      Int?     @map("registrant_id")
+  registrantName    String?  @map("registrant_name")
+  lobbyistId        Int?     @map("lobbyist_id")
+  lobbyistName      String?  @map("lobbyist_name")
+  noContributions   Boolean  @default(false) @map("no_contributions")
+  pacs              Json     @default("[]") @map("pacs")
+  contributionItems Json     @default("[]") @map("contribution_items")
+  lastSyncedAt      DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([filingYear], map: "lda_contribution_year_idx")
+  @@index([registrantId], map: "lda_contribution_registrant_id_idx")
+  @@map("lda_contribution")
+}
+
+model LdaIssueCode {
+  // 79 LDA issue code reference records with 5-year aggregates.
+  code            String   @id
+  name            String
+  totalFilings5y  Int      @default(0) @map("total_filings_5y")
+  totalSpending5y Decimal? @map("total_spending_5y") @db.Decimal(18, 2)
+  quarterlyTrend  Json     @default("[]") @map("quarterly_trend")
+  lastSyncedAt    DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@map("lda_issue_code")
+}
+
+model LdaGovernmentEntity {
+  // 257 federal government entity reference records.
+  id             Int      @id
+  name           String
+  totalFilings5y Int      @default(0) @map("total_filings_5y")
+  lastSyncedAt   DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@map("lda_government_entity")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// FEC Campaign Finance Data
+//
+// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// Populated by apps/api/scripts/sync-fec.ts.
+// Source: https://api.open.fec.gov/v1/ — FEC campaign finance data.
+// ─────────────────────────────────────────────────────────────────────────
+
+model FecCommittee {
+  // PACs and campaign committees from FEC API.
+  id                 String   @id // committee_id like C00835926
+  name               String
+  committeeType      String?  @map("committee_type")
+  designation        String?
+  party              String?
+  state              String?
+  treasurerName      String?  @map("treasurer_name")
+  totalReceipts      Decimal? @map("total_receipts") @db.Decimal(18, 2)
+  totalDisbursements Decimal? @map("total_disbursements") @db.Decimal(18, 2)
+  cashOnHand         Decimal? @map("cash_on_hand") @db.Decimal(18, 2)
+  cycles             Int[]    @default([])
+  lastSyncedAt       DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([name], map: "fec_committee_name_idx")
+  @@map("fec_committee")
+}
+
+model FecContribution {
+  // Individual/PAC contributions to candidates (Schedule A).
+  id                    String    @id @default(uuid()) @db.Uuid
+  committeeId           String    @map("committee_id")
+  committeeName         String?   @map("committee_name")
+  candidateId           String?   @map("candidate_id")
+  candidateName         String?   @map("candidate_name")
+  contributorName       String?   @map("contributor_name")
+  contributorEmployer   String?   @map("contributor_employer")
+  contributorOccupation String?   @map("contributor_occupation")
+  amount                Decimal   @db.Decimal(18, 2)
+  contributionDate      DateTime? @map("contribution_date") @db.Date
+  receiptType           String?   @map("receipt_type")
+  memoText              String?   @map("memo_text")
+  state                 String?
+  cycle                 Int
+  lastSyncedAt          DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([committeeId], map: "fec_contribution_committee_id_idx")
+  @@index([candidateName], map: "fec_contribution_candidate_name_idx")
+  @@index([contributorEmployer], map: "fec_contribution_employer_idx")
+  @@index([cycle], map: "fec_contribution_cycle_idx")
+  @@map("fec_contribution")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Congress.gov Legislative Data
+//
+// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// Populated by apps/api/scripts/sync-congress.ts.
+// Source: https://api.congress.gov/v3/ — Congress.gov API.
+// ─────────────────────────────────────────────────────────────────────────
+
+model CongressBill {
+  // Bills from Congress.gov (118th and 119th Congress).
+  id               String    @id // e.g. "119-hr-1234"
+  congress         Int
+  billType         String    @map("bill_type")
+  billNumber       String    @map("bill_number")
+  title            String
+  introducedDate   DateTime? @map("introduced_date") @db.Date
+  sponsorName      String?   @map("sponsor_name")
+  sponsorState     String?   @map("sponsor_state")
+  sponsorParty     String?   @map("sponsor_party")
+  latestActionText String?   @map("latest_action_text")
+  latestActionDate DateTime? @map("latest_action_date") @db.Date
+  policyArea       String?   @map("policy_area")
+  subjects         String[]  @default([])
+  committees       Json      @default("[]")
+  cosponsorsCount  Int       @default(0) @map("cosponsors_count")
+  originChamber    String?   @map("origin_chamber")
+  updateDate       DateTime? @map("update_date") @db.Timestamptz(6)
+  url              String?
+  lastSyncedAt     DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([congress], map: "congress_bill_congress_idx")
+  @@index([policyArea], map: "congress_bill_policy_area_idx")
+  @@map("congress_bill")
+}

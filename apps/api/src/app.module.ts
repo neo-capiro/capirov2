@@ -22,6 +22,7 @@ import { WorkflowsModule } from './workflows/workflows.module.js';
 import { StrategiesModule } from './strategies/strategies.module.js';
 import { LobbyIntelModule } from './lobby-intel/lobby-intel.module.js';
 import { FederalSpendingModule } from './federal-spending/federal-spending.module.js';
+import { LdaIntelModule } from './lda-intel/lda-intel.module.js';
 
 @Module({
   imports: [
@@ -56,6 +57,7 @@ import { FederalSpendingModule } from './federal-spending/federal-spending.modul
     StrategiesModule,
     LobbyIntelModule,
     FederalSpendingModule,
+    LdaIntelModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
