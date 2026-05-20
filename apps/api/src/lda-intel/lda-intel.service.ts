@@ -142,7 +142,7 @@ export class LdaIntelService {
     const limit = Math.min(100, Math.max(1, filters.limit ?? 25));
     const skip = (page - 1) * limit;
 
-    const where: Parameters<typeof this.prisma.ldaFiling.findMany>[0]['where'] = {};
+    const where: Record<string, unknown> = {};
     if (filters.year) where.filingYear = filters.year;
     if (filters.issueCode) where.issueCodes = { has: filters.issueCode };
     if (filters.clientName) where.clientName = { contains: filters.clientName, mode: 'insensitive' };
@@ -204,7 +204,7 @@ export class LdaIntelService {
     const lim = Math.min(100, Math.max(1, limit));
     const skip = (pg - 1) * lim;
 
-    const where: Parameters<typeof this.prisma.ldaClient.findMany>[0]['where'] = {};
+    const where: Record<string, unknown> = {};
     if (search) where.name = { contains: search, mode: 'insensitive' };
     if (issueCode) where.issueCodes = { has: issueCode };
     if (state) where.state = state;
@@ -294,7 +294,7 @@ export class LdaIntelService {
     const lim = Math.min(100, Math.max(1, limit));
     const skip = (pg - 1) * lim;
 
-    const where: Parameters<typeof this.prisma.ldaRegistrant.findMany>[0]['where'] = {};
+    const where: Record<string, unknown> = {};
     if (search) where.name = { contains: search, mode: 'insensitive' };
 
     const [data, total] = await Promise.all([
@@ -339,7 +339,7 @@ export class LdaIntelService {
     const lim = Math.min(100, Math.max(1, limit));
     const skip = (pg - 1) * lim;
 
-    const where: Parameters<typeof this.prisma.ldaLobbyist.findMany>[0]['where'] = {};
+    const where: Record<string, unknown> = {};
     if (search) where.lastName = { contains: search, mode: 'insensitive' };
 
     const [data, total] = await Promise.all([
@@ -409,7 +409,7 @@ export class LdaIntelService {
     const lim = Math.min(100, Math.max(1, filters.limit ?? 25));
     const skip = (pg - 1) * lim;
 
-    const where: Parameters<typeof this.prisma.ldaContribution.findMany>[0]['where'] = {};
+    const where: Record<string, unknown> = {};
     if (filters.year) where.filingYear = filters.year;
     if (filters.registrantName) where.registrantName = { contains: filters.registrantName, mode: 'insensitive' };
     if (filters.lobbyistName) where.lobbyistName = { contains: filters.lobbyistName, mode: 'insensitive' };
@@ -468,7 +468,7 @@ export class LdaIntelService {
     const lim = Math.min(100, Math.max(1, limit));
     const skip = (pg - 1) * lim;
 
-    const where: Parameters<typeof this.prisma.congressBill.findMany>[0]['where'] = {};
+    const where: Record<string, unknown> = {};
     if (search) where.title = { contains: search, mode: 'insensitive' };
     if (policyArea) where.policyArea = { contains: policyArea, mode: 'insensitive' };
     if (congress) where.congress = congress;
@@ -493,7 +493,7 @@ export class LdaIntelService {
     const lim = Math.min(100, Math.max(1, limit));
     const skip = (pg - 1) * lim;
 
-    const where: Parameters<typeof this.prisma.fecCommittee.findMany>[0]['where'] = {};
+    const where: Record<string, unknown> = {};
     if (search) where.name = { contains: search, mode: 'insensitive' };
 
     const [data, total] = await Promise.all([
