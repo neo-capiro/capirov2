@@ -411,7 +411,7 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
       <div className="client-card-topline">
         <Avatar
           shape="square"
-          size={52}
+          size={64}
           src={client.logoUrl || undefined}
           className="client-avatar"
         >

@@ -276,16 +276,6 @@ const CATEGORY_COLORS: Record<string, string> = {
 export function IntelligenceCenterPage() {
   return (
     <div style={{ padding: '24px 32px', overflow: 'auto', height: '100%' }}>
-      <div style={{ marginBottom: 20 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          <FireOutlined style={{ color: '#ef4444', marginRight: 8 }} />
-          Federal Intelligence Center
-        </Title>
-        <Paragraph type="secondary" style={{ marginTop: 4, marginBottom: 0 }}>
-          Senate LDA lobbying data, federal contracts, agency budgets, Congressional bills, and PAC finance — unified.
-        </Paragraph>
-      </div>
-
       <Tabs
         defaultActiveKey="lda"
         size="large"
@@ -1313,7 +1303,7 @@ function ContractingPanel() {
         </Card>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <Card size="small" title="🚫 Top No-Bid Recipients" extra={<Text type="secondary" style={{ fontSize: 12 }}>Sole-source awards</Text>}>
+          <Card size="small" title="Top No-Bid Recipients" extra={<Text type="secondary" style={{ fontSize: 12 }}>Sole-source awards</Text>}>
             {overview.isLoading ? <Skeleton active /> : data && data.topNoBidContractors.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {data.topNoBidContractors.map((c) => {

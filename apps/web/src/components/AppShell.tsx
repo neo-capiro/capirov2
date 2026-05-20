@@ -11,11 +11,13 @@ import {
   IdcardOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  ScheduleOutlined,
   SearchOutlined,
   SettingOutlined,
   SyncOutlined,
+  TeamOutlined,
   UserOutlined,
-  UserSwitchOutlined,
+  UsergroupAddOutlined,
 } from '@ant-design/icons';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -53,8 +55,11 @@ type AppSection =
   | 'clients'
   | 'engagement'
   | 'workspace'
+  | 'planner'
   | 'intelligence'
   | 'directory'
+  | 'stakeholders'
+  | 'collaborators'
   | 'portal'
   | 'settings'
   | 'not-found';
@@ -87,15 +92,14 @@ interface BrandingResponse {
 const NAV: NavItem[] = [
   {
     key: 'home',
-    label: 'Command Center',
+    label: 'Dashboard',
     path: '/',
     icon: <DashboardOutlined />,
     disabled: true,
   },
-  { key: 'clients', label: 'Clients', path: '/clients', icon: <ApartmentOutlined /> },
   {
     key: 'engagement',
-    label: 'Engagement Manager',
+    label: 'Engagement',
     path: '/engagement',
     icon: <CalendarOutlined />,
     nested: true,
@@ -107,17 +111,32 @@ const NAV: NavItem[] = [
     icon: <FolderOpenOutlined />,
   },
   {
+    key: 'planner',
+    label: 'Planner',
+    path: '/planner',
+    icon: <ScheduleOutlined />,
+    disabled: true,
+  },
+  {
     key: 'intelligence',
-    label: 'Intelligence Center',
+    label: 'Intelligence',
     path: '/intelligence',
     icon: <BulbOutlined />,
   },
+  { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
   {
-    key: 'portal',
-    label: 'Client Portal',
-    path: '/portal',
-    icon: <UserSwitchOutlined />,
+    key: 'stakeholders',
+    label: 'Stakeholders',
+    path: '/stakeholders',
+    icon: <TeamOutlined />,
+    disabled: true,
+  },
+  {
+    key: 'collaborators',
+    label: 'Collaborators',
+    path: '/collaborators',
+    icon: <UsergroupAddOutlined />,
     disabled: true,
   },
 ];
@@ -268,9 +287,13 @@ export function AppShell() {
     return () => window.removeEventListener('capiro:sync-inbox', handler);
   }, [connectedInboxConnections.length, navigate, syncInbox]);
 
-  const items = useMemo(
-    () =>
-      NAV.map((n) => ({
+  const items = useMemo(() => {
+    const result: NonNullable<MenuProps['items']> = [];
+    for (const n of NAV) {
+      if (n.key === 'clients') {
+        result.push({ type: 'divider' });
+      }
+      result.push({
         key: n.key,
         icon: n.icon,
         title: n.label,
@@ -294,9 +317,10 @@ export function AppShell() {
             {n.label}
           </Link>
         ),
-      })),
-    [message, workflowLocked],
-  );
+      });
+    }
+    return result;
+  }, [message, workflowLocked]);
 
   const selectedKey = page.key === 'not-found' ? 'home' : page.key;
 
@@ -717,12 +741,15 @@ function pageKeyFor(pathname: string): AppSection {
 function pageConfigFor(pathname: string): PageConfig {
   const key = pageKeyFor(pathname);
   const titleByKey: Record<AppSection, string> = {
-    home: 'Command Center',
-    clients: 'Clients',
-    engagement: 'Engagement Manager',
+    home: 'Dashboard',
+    clients: 'Portfolio',
+    engagement: 'Engagement',
     workspace: 'Workspace',
-    intelligence: 'Intelligence Center',
+    planner: 'Planner',
+    intelligence: 'Intelligence',
     directory: 'Directory',
+    stakeholders: 'Stakeholders',
+    collaborators: 'Collaborators',
     portal: 'Client Portal',
     settings: 'Settings',
     'not-found': 'Not found',

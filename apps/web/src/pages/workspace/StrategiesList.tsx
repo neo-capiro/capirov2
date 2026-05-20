@@ -147,7 +147,7 @@ export function StrategiesList() {
                     percent={progressPct}
                     showInfo={false}
                     size="small"
-                    strokeColor={progressPct === 100 ? '#52c41a' : '#1677ff'}
+                    strokeColor={progressPct === 100 ? '#52c41a' : '#1c2e4a'}
                   />
                 </div>
               </Card>

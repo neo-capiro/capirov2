@@ -15,9 +15,9 @@ const queryClient = new QueryClient({
 });
 
 // Brand palette - Capiro Brand Book.
-const CAPIRO_BLUE = '#01226A';
-const CAPIRO_BLUE_DEEP = '#001650';
-const SIGNAL_BLUE = '#2456B8';
+const CAPIRO_BLUE = '#1c2e4a';
+const CAPIRO_BLUE_DEEP = '#111f33';
+const SIGNAL_BLUE = '#1c2e4a';
 const SOFT_WHITE = '#F4F6F8';
 const COOL_GRAY = '#6B7280';
 const TEXT_PRIMARY = '#111827';

@@ -478,7 +478,7 @@ function OverviewTab({
                 background: 'none',
                 border: 'none',
                 cursor: 'pointer',
-                color: '#1677ff',
+                color: '#1c2e4a',
                 fontSize: 11,
               }}
             >
