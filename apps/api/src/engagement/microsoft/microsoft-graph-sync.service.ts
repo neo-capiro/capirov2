@@ -227,7 +227,7 @@ export class MicrosoftGraphSyncService {
         });
         for (const event of response.value ?? []) {
           stats.scanned += 1;
-          const outcome = await this.persistGraphEvent(ctx.tenantId, connection.id, event);
+          const outcome = await this.persistGraphEvent(ctx.tenantId, connection.id, event, connection.accountEmail);
           stats.matched += outcome === 'matched' ? 1 : 0;
           stats.skipped += outcome === 'skipped' ? 1 : 0;
           stats.removed += outcome === 'removed' ? 1 : 0;
@@ -457,7 +457,7 @@ export class MicrosoftGraphSyncService {
       });
       for (const event of response.value ?? []) {
         stats.scanned += 1;
-        const outcome = await this.persistGraphEvent(tenantId, connection.id, event);
+        const outcome = await this.persistGraphEvent(tenantId, connection.id, event, connection.accountEmail);
         stats.matched += outcome === 'matched' ? 1 : 0;
         stats.skipped += outcome === 'skipped' ? 1 : 0;
         stats.removed += outcome === 'removed' ? 1 : 0;
@@ -546,6 +546,7 @@ export class MicrosoftGraphSyncService {
     tenantId: string,
     connectionId: string,
     event: GraphEvent,
+    accountEmail?: string | null,
   ): Promise<'matched' | 'skipped' | 'removed'> {
     if (!event.id) return 'skipped';
     if (event['@removed']) {
@@ -585,13 +586,14 @@ export class MicrosoftGraphSyncService {
         },
         select: { id: true, clientId: true },
       });
+      const ownEmail = accountEmail?.trim().toLowerCase();
       const association = await this.association.associate(tx, tenantId, {
         subject: event.subject,
         body: event.bodyPreview,
         attendeeEmails: [
           organizerEmail ?? '',
           ...attendees.map((attendee) => attendee.email ?? ''),
-        ],
+        ].filter((e) => e && e !== ownEmail),
       });
       // Respect manual/explicit associations — never overwrite a user-set clientId
       const clientId = existing?.clientId ?? association.clientId;
