@@ -1612,8 +1612,30 @@ model IntelligenceInsight {
   severity    String   @default("info") // info, notable, critical
   dataPoints  Json?    @map("data_points")
   generatedAt DateTime @default(now()) @map("generated_at")
-  expiresAt   DateTime? @map("expires_at")
+expiresAt   DateTime? @map("expires_at")
 
   @@index([category, generatedAt])
   @@map("intelligence_insight")
+}
+
+model RegulatoryDocket {
+  id               String   @id @default(uuid())
+  documentId       String   @unique @map("document_id")
+  agencyId         String   @map("agency_id")
+  docketId         String   @map("docket_id")
+  documentType     String   @map("document_type")
+  title            String   @db.Text
+  postedDate       DateTime? @map("posted_date")
+  commentStartDate DateTime? @map("comment_start_date")
+  commentEndDate   DateTime? @map("comment_end_date")
+  frDocNum         String?  @map("fr_doc_num")
+  subtype          String?
+  withdrawn        Boolean  @default(false)
+  lastModified     DateTime? @map("last_modified")
+  syncedAt         DateTime @default(now()) @map("synced_at")
+
+  @@index([agencyId, postedDate])
+  @@index([commentEndDate])
+  @@index([documentType])
+  @@map("regulatory_docket")
 }
