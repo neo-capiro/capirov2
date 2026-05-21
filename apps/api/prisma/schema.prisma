@@ -166,6 +166,7 @@ model Tenant {
   strategyTargets            StrategyTarget[]
   engagementCampaigns        EngagementCampaign[]
   engagementCampaignRecipients EngagementCampaignRecipient[]
+  outreachAiTemplates        OutreachAiTemplate[]
 
   @@map("tenants")
 }
@@ -189,6 +190,7 @@ model User {
   engagementReportTargets EngagementReportTargetOffice[] @relation("EngagementReportTargetOfficeAuthor")
   outreachRecords         OutreachRecord[]               @relation("OutreachRecordAuthor")
   outreachTemplates       OutreachTemplate[]             @relation("OutreachTemplateAuthor")
+  outreachAiTemplates     OutreachAiTemplate[]           @relation("OutreachAiTemplateAuthor")
   clioConversations       ClioConversation[]             @relation("ClioConversationUser")
   clioMessages            ClioMessage[]                  @relation("ClioMessageUser")
   clioArtifacts           ClioArtifact[]                 @relation("ClioArtifactUser")
@@ -714,6 +716,28 @@ model OutreachTemplate {
 
   @@index([tenantId, createdByUserId, type, updatedAt], map: "outreach_templates_tenant_user_type_updated_idx")
   @@map("outreach_templates")
+}
+
+model OutreachAiTemplate {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  name          String
+  category      String   @default("general")
+  prompt        String   @db.Text
+  description   String?  @db.Text
+  samplePreview String?  @db.Text @map("sample_preview")
+  tone          String   @default("professional")
+  metadata      Json?    @map("metadata_jsonb")
+  usageCount    Int      @default(0) @map("usage_count")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation("OutreachAiTemplateAuthor", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId, category, updatedAt], map: "outreach_ai_templates_tenant_user_cat_idx")
+  @@map("outreach_ai_template")
 }
 
 model ClientAssociationOverride {

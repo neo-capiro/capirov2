@@ -55,7 +55,7 @@ export interface OutreachDraftInput {
   existingBody?: string | null;
 }
 
-const POST_MEETING_MEMO_GUIDANCE = [
+export const POST_MEETING_MEMO_GUIDANCE_TEXT = [
   'Template name: post meeting memo.',
   'Generate an internal post-meeting memo in Markdown. This is not a normal campaign email.',
   'Use context.metadata.campaignCurrentDateTimeDisplay as the Date / Time value. If only context.metadata.campaignCurrentDateTime is present, format that timestamp. Do not use a stale or guessed date.',
@@ -96,6 +96,8 @@ const POST_MEETING_MEMO_GUIDANCE = [
   '# Internal Notes',
   'For optional sections, include them only when source context supports them.',
 ].join('\n');
+
+const POST_MEETING_MEMO_GUIDANCE = POST_MEETING_MEMO_GUIDANCE_TEXT;
 
 const PROMPT_TEMPLATE_GUIDANCE: Record<string, string> = {
   thank_you:
@@ -160,6 +162,30 @@ export interface CampaignEmailResult {
   provider: 'openai' | 'anthropic';
   model: string;
   raw: unknown;
+}
+
+export interface BatchOutreachInput {
+  templatePrompt: string;
+  templateName: string;
+  client: Record<string, unknown> | null;
+  recipient: Record<string, unknown>;
+  insights: string[];
+  additionalContext?: string | null;
+  tone?: string | null;
+  meetingHistory?: Array<Record<string, unknown>>;
+  emailHistory?: Array<Record<string, unknown>>;
+}
+
+export interface TalkingPointsInput {
+  client: Record<string, unknown> | null;
+  selectedInsights: string[];
+  additionalContext?: string | null;
+}
+
+export interface TalkingPointsResult {
+  points: string[];
+  provider: 'openai' | 'anthropic';
+  model: string;
 }
 
 const meetingPrepJsonSchema = {
@@ -365,6 +391,115 @@ export class EngagementAiService {
         ? this.generateDebriefWithOpenAi(input)
         : this.generateDebriefWithAnthropic(input),
     );
+  }
+
+  async generateBatchEmail(input: BatchOutreachInput): Promise<OutreachDraftResult> {
+    const federalContext = await this.buildFederalContextBlock(this.extractClientName(input));
+    const insightBlock = input.insights.length
+      ? `Selected intelligence insights:\n${input.insights.map((s) => `- ${s}`).join('\n')}`
+      : null;
+    const enrichedContext: Record<string, unknown> = {
+      ...(insightBlock ? { intelligenceInsights: insightBlock } : {}),
+      ...(input.additionalContext ? { additionalContext: input.additionalContext } : {}),
+      ...(federalContext ? { federalLobbyIntel: federalContext } : {}),
+      ...(input.meetingHistory?.length ? { meetingHistory: input.meetingHistory } : {}),
+      ...(input.emailHistory?.length ? { emailHistory: input.emailHistory } : {}),
+    };
+    const draftInput: OutreachDraftInput = {
+      workflow: 'campaign',
+      client: input.client,
+      recipients: [input.recipient],
+      promptTemplate: input.templateName,
+      context: enrichedContext,
+      objective: input.templatePrompt,
+      ...(input.tone ? { existingBody: `Tone preference: ${input.tone}` } : {}),
+    };
+    return this.withProviderFallback('AI batch email generation', (provider) =>
+      provider === 'openai'
+        ? this.generateOutreachWithOpenAi(draftInput)
+        : this.generateOutreachWithAnthropic(draftInput),
+    );
+  }
+
+  async generateTalkingPoints(input: TalkingPointsInput): Promise<TalkingPointsResult> {
+    const prompt = [
+      'Generate 3-5 sharp, specific talking points for a federal lobbying outreach campaign.',
+      'Each talking point should be a single, persuasive sentence that a lobbyist could use in a congressional meeting or email.',
+      'Base the talking points on the provided intelligence insights and client context.',
+      'Do not invent facts. Use only the supplied context.',
+      'Return JSON with a "points" array of strings.',
+      input.client ? `Client context: ${JSON.stringify(input.client)}` : null,
+      input.selectedInsights.length
+        ? `Selected insights:\n${input.selectedInsights.map((s) => `- ${s}`).join('\n')}`
+        : null,
+      input.additionalContext ? `Additional context: ${input.additionalContext}` : null,
+    ]
+      .filter((line): line is string => Boolean(line))
+      .join('\n\n');
+
+    const schema = {
+      type: 'object',
+      additionalProperties: false,
+      required: ['points'],
+      properties: { points: { type: 'array', items: { type: 'string' } } },
+    };
+
+    return this.withProviderFallback('AI talking points', async (provider) => {
+      let raw: Record<string, unknown>;
+      if (provider === 'openai') {
+        if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY not configured');
+        const res = await fetchWithTimeout('https://api.openai.com/v1/responses', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${this.openaiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: this.openaiModel,
+            input: prompt,
+            text: { format: { type: 'json_schema', name: 'talking_points', strict: true, schema } },
+          }),
+        });
+        raw = (await res.json()) as Record<string, unknown>;
+        if (!res.ok)
+          throw new ServiceUnavailableException(
+            `OpenAI talking points failed: ${readProviderError(raw, res.status)}`,
+          );
+        const parsed = parseJsonObject(extractOpenAiText(raw));
+        return { points: toStringList(parsed.points), provider: 'openai', model: this.openaiModel };
+      } else {
+        if (!this.anthropicKey)
+          throw new ServiceUnavailableException('ANTHROPIC_API_KEY not configured');
+        const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': this.anthropicKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: this.anthropicModel,
+            max_tokens: 800,
+            system:
+              'You are a federal lobbying expert. Generate precise talking points from the supplied context. Return only valid JSON.',
+            messages: [
+              { role: 'user', content: `${prompt}\n\nJSON schema:\n${JSON.stringify(schema)}` },
+            ],
+          }),
+        });
+        raw = (await res.json()) as Record<string, unknown>;
+        if (!res.ok)
+          throw new ServiceUnavailableException(
+            `Anthropic talking points failed: ${readProviderError(raw, res.status)}`,
+          );
+        const parsed = parseJsonObject(extractAnthropicText(raw));
+        return {
+          points: toStringList(parsed.points),
+          provider: 'anthropic',
+          model: this.anthropicModel,
+        };
+      }
+    });
   }
 
   async generateCampaignEmail(input: CampaignEmailInput): Promise<CampaignEmailResult> {

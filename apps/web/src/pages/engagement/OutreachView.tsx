@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
+import { OutreachWizard } from './outreach/OutreachWizard.js';
 import {
   CheckOutlined,
   DeleteOutlined,
@@ -88,7 +89,7 @@ const PROMPT_TEMPLATES: Array<{ value: PromptTemplate; label: string; hint: stri
   },
 ];
 
-interface OutreachRecipient {
+export interface OutreachRecipient {
   name?: string;
   email?: string;
   office?: string;
@@ -732,15 +733,10 @@ export function OutreachView({
 
   if (mode === 'campaign') {
     return (
-      <CampaignWorkflow
+      <OutreachWizard
         clients={activeClients}
-        workflow={workflow}
-        clientContext={clientContext.data}
-        contextLoading={clientContext.isLoading}
-        directoryRows={directory.data?.contacts ?? []}
-        directoryTotal={directory.data?.totals.all ?? null}
-        directoryLoading={directory.isLoading}
-        directoryQuery={directoryQuery}
+        selectedClientId={selectedClientId}
+        aiConfigured={aiConfigured}
         emailConnected={emailConnected}
         sendFrom={
           (integrations.data ?? []).find(
@@ -751,48 +747,11 @@ export function OutreachView({
               connection.accountEmail,
           )?.accountEmail ?? null
         }
-        aiConfigured={aiConfigured}
-        saving={createRecord.isPending || updateRecord.isPending}
-        generating={generateDraft.isPending}
-        sending={sendCampaign.isPending}
-        onDirectoryQuery={setDirectoryQuery}
-        onWorkflowChange={setWorkflow}
         onCancel={cancelWorkflow}
-        onSaveStep={saveCurrent}
-        onGenerate={async () => {
-          if (!workflow.record) return;
-          const campaignCurrentDateTime = new Date().toISOString();
-          await generateDraft.mutateAsync({
-            id: workflow.record.id,
-            payload: {
-              objective: workflow.objective,
-              recipients: workflow.recipients,
-              promptTemplate: workflow.promptTemplate,
-              metadata: {
-                campaignName: workflow.campaignName,
-                promptTemplate: workflow.promptTemplate,
-                campaignCurrentDateTime,
-              },
-            },
-          });
-        }}
-        onSend={() => {
-          const record = workflow.record;
-          if (!record) return;
-          void (async () => {
-            const payload = workflowPayload(workflow);
-            await updateRecord.mutateAsync({ id: record.id, payload });
-            const sentRecord = await sendCampaign.mutateAsync(record.id);
-            message.success(`Campaign sent to ${sentRecord.recipientCount} recipients`);
-            setWorkflow((current) => ({
-              ...hydrateWorkflowFromRecord(sentRecord, current),
-              sentRecipientCount: sentRecord.recipientCount,
-            }));
-            setMode('landing');
-            setWorkflow({ ...EMPTY_WORKFLOW, clientId: selectedClientId });
-          })().catch(() => {
-            // Mutation handlers surface the API error to the user.
-          });
+        onComplete={() => {
+          qc.invalidateQueries({ queryKey: ['engagement-outreach'] });
+          setMode('landing');
+          setWorkflow({ ...EMPTY_WORKFLOW, clientId: selectedClientId });
         }}
       />
     );

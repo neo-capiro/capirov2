@@ -30,6 +30,8 @@ import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DirectoryService, type DirectoryEmailMatch } from '../directory/directory.service.js';
+import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
+import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
 import { ClientAssociationService } from './client-association.service.js';
 import { EngagementAiService } from './engagement-ai.service.js';
 import { MeetingNotesCryptoService } from './meeting-notes-crypto.service.js';
@@ -181,6 +183,38 @@ export interface CreateOutreachTemplateInput {
   body: string;
 }
 
+export interface CreateAiTemplateInput {
+  name: string;
+  category?: string;
+  prompt: string;
+  description?: string;
+  tone?: string;
+}
+
+export interface UpdateAiTemplateInput {
+  name?: string;
+  category?: string;
+  prompt?: string;
+  description?: string;
+  tone?: string;
+}
+
+export interface GenerateBatchEmailInput {
+  campaignId?: string;
+  clientId?: string;
+  templateId: string;
+  recipients: OutreachRecipientInput[];
+  insights?: string[];
+  additionalContext?: string;
+  tone?: string;
+}
+
+export interface GenerateTalkingPointsInput {
+  insights: string[];
+  clientId?: string;
+  additionalContext?: string;
+}
+
 export interface CreateOutreachRecordInput {
   type: OutreachType;
   clientId?: string;
@@ -261,6 +295,121 @@ interface ReportTargetDraft {
   pendingActionIds: Set<string>;
 }
 
+const SYSTEM_AI_TEMPLATES = [
+  {
+    id: 'system-thank-you',
+    source: 'system' as const,
+    name: 'Thank You',
+    category: 'general',
+    prompt:
+      "Write a brief, warm thank-you email acknowledging a specific recent action or support from the recipient. Name what you're thanking them for using the meeting or engagement context. No new asks. Close with an offer to stay in touch. Under 150 words.",
+    description: 'Warm thank-you acknowledging support or a specific recent action.',
+    samplePreview: 'Dear [Name], Thank you so much for...',
+    tone: 'friendly',
+    usageCount: 0,
+  },
+  {
+    id: 'system-follow-up',
+    source: 'system' as const,
+    name: 'Follow-Up',
+    category: 'follow_up',
+    prompt:
+      'Write a polite follow-up email referencing a specific prior meeting or conversation. Restate one clear ask or next step. Propose a concrete next action with a suggested timeline. Reference any open commitments from the prior engagement. Under 200 words.',
+    description: 'Follow-up referencing a prior meeting with a clear next step.',
+    samplePreview: 'Thank you for meeting with us last week. Following up on...',
+    tone: 'professional',
+    usageCount: 0,
+  },
+  {
+    id: 'system-memo',
+    source: 'system' as const,
+    name: 'Memo / Position Paper',
+    category: 'policy',
+    prompt:
+      'Write a concise position memo. Structure: one-line summary at top, then Background (2-3 sentences), The Ask (1 sentence, specific), Supporting Points (3-4 bullets with evidence), and District/State Impact (if available). Under 400 words. Formal but accessible tone.',
+    description: 'Concise position memo with background, ask, and supporting points.',
+    samplePreview: 'SUMMARY: [One-line summary]\n\nBACKGROUND: ...',
+    tone: 'formal',
+    usageCount: 0,
+  },
+  {
+    id: 'system-post-meeting-memo',
+    source: 'system' as const,
+    name: 'Post-Meeting Memo',
+    category: 'meeting',
+    prompt:
+      'Generate an internal post-meeting memo. Include: Date/Time, Participants, Summary of discussion, Key takeaways, Policy implications, Follow-up items, and Next steps. Use only the supplied client, recipient, meeting, debrief, and congressional directory context. Under 600 words.',
+    description: 'Internal post-meeting memo built from meeting and debrief context.',
+    samplePreview: '## Post-Meeting Memo\n\nDate: [Date]\nParticipants: ...',
+    tone: 'formal',
+    usageCount: 0,
+  },
+  {
+    id: 'system-introduction',
+    source: 'system' as const,
+    name: 'Introduction',
+    category: 'general',
+    prompt:
+      "Write an introductory outreach email on behalf of a client to a congressional office. Briefly introduce who the client is and why they matter to the recipient's portfolio. Connect the client's work to the recipient's committee jurisdiction or district interests. End with a low-friction first ask — a 15-minute introductory call or brief meeting. Under 200 words.",
+    description: 'Introductory outreach explaining the client and reason for engaging.',
+    samplePreview: 'My name is [Name] and I represent...',
+    tone: 'professional',
+    usageCount: 0,
+  },
+  {
+    id: 'system-meeting-request',
+    source: 'system' as const,
+    name: 'Meeting Request',
+    category: 'meeting',
+    prompt:
+      'Write a concise meeting request email. State the purpose of the meeting in one sentence. Suggest 2-3 scheduling windows. List who would attend from the client side. Include a one-sentence agenda. Under 150 words.',
+    description: 'Request a meeting with scheduling options and a brief agenda.',
+    samplePreview: 'I would like to request a brief meeting to discuss...',
+    tone: 'professional',
+    usageCount: 0,
+  },
+  {
+    id: 'system-status-update',
+    source: 'system' as const,
+    name: 'Status Update',
+    category: 'general',
+    prompt:
+      'Write a brief progress update email. List 2-4 short bullets covering: activity since last contact, current program status, and next planned milestone. Only include a new ask if directly tied to the update. Under 200 words.',
+    description: 'Brief progress update on client activity and next steps.',
+    samplePreview: 'Quick update on recent progress:\n\n• [Activity 1]...',
+    tone: 'professional',
+    usageCount: 0,
+  },
+  {
+    id: 'system-policy-alert',
+    source: 'system' as const,
+    name: 'Policy Alert',
+    category: 'policy',
+    prompt:
+      "Write a policy alert email informing the recipient of a relevant development. Open with the news (bill movement, funding change, regulatory action). Explain the impact on the recipient's jurisdiction or the client's program. Suggest a follow-up conversation if appropriate. Under 250 words.",
+    description: 'Policy alert informing of a relevant legislative or regulatory development.',
+    samplePreview: 'Important development: [News headline]...',
+    tone: 'professional',
+    usageCount: 0,
+  },
+] as const;
+
+type SystemAiTemplate = (typeof SYSTEM_AI_TEMPLATES)[number];
+type UserAiTemplate = {
+  id: string;
+  source: 'user';
+  name: string;
+  category: string;
+  prompt: string;
+  description: string | null;
+  samplePreview: string | null;
+  tone: string;
+  usageCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+};
+type AiTemplateItem = SystemAiTemplate | UserAiTemplate;
+
 @Injectable()
 export class EngagementService {
   private readonly logger = new Logger(EngagementService.name);
@@ -274,6 +423,8 @@ export class EngagementService {
     private readonly ai: EngagementAiService,
     private readonly notesCrypto: MeetingNotesCryptoService,
     private readonly directory: DirectoryService,
+    private readonly lobbyIntel: LobbyIntelService,
+    private readonly federalSpending: FederalSpendingService,
     private readonly microsoftGraph: MicrosoftGraphSyncService,
     config: ConfigService<AppConfig, true>,
   ) {
@@ -779,12 +930,26 @@ export class EngagementService {
     const sent: Array<{ email: string; name: string | null; sentAt: string }> = [];
     const errors: Array<{ email: string; message: string }> = [];
 
+    const perRecipientEmails = (record.metadata as Record<string, unknown>)?.perRecipientEmails;
+    const emailMap = Array.isArray(perRecipientEmails)
+      ? new Map(
+          (
+            perRecipientEmails as Array<{ recipientId: string; subject: string; body: string }>
+          ).map((e) => [e.recipientId, e]),
+        )
+      : new Map<string, { recipientId: string; subject: string; body: string }>();
+
     for (const recipient of recipients) {
       const email = recipient.email!;
+      const recipientId = recipient.directoryContactId || recipient.email || '';
+      const perEmail = emailMap.get(recipientId);
       try {
         await this.microsoftGraph.sendMail(ctx, connection.id, {
-          subject: assembleCampaignBody(record.subject, recipient, record.metadata),
-          body: assembleCampaignBody(record.body, recipient, record.metadata),
+          subject:
+            perEmail?.subject ||
+            assembleCampaignBody(record.subject, recipient, record.metadata),
+          body:
+            perEmail?.body || assembleCampaignBody(record.body, recipient, record.metadata),
           toRecipients: [{ email, name: recipient.name ?? null }],
         });
         sent.push({
@@ -1028,6 +1193,324 @@ export class EngagementService {
         },
       }),
     );
+  }
+
+  async listAiTemplates(ctx: TenantContext): Promise<AiTemplateItem[]> {
+    const userTemplates = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.outreachAiTemplate.findMany({
+        where: { tenantId: ctx.tenantId, userId: ctx.userId },
+        orderBy: { updatedAt: 'desc' },
+      }),
+    );
+
+    return [
+      ...(SYSTEM_AI_TEMPLATES as unknown as AiTemplateItem[]),
+      ...userTemplates.map(
+        (t): UserAiTemplate => ({
+          id: t.id,
+          source: 'user' as const,
+          name: t.name,
+          category: t.category,
+          prompt: t.prompt,
+          description: t.description,
+          samplePreview: t.samplePreview,
+          tone: t.tone,
+          usageCount: t.usageCount,
+          createdAt: t.createdAt,
+          updatedAt: t.updatedAt,
+        }),
+      ),
+    ];
+  }
+
+  async createAiTemplate(ctx: TenantContext, input: CreateAiTemplateInput) {
+    const name = requiredReportText(input.name, 'name', 120);
+    const prompt = requiredReportText(input.prompt, 'prompt', 5000);
+    const category = input.category?.trim().slice(0, 50) || 'general';
+    const description = input.description?.trim().slice(0, 500) || null;
+    const tone = input.tone?.trim().slice(0, 50) || 'professional';
+
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.outreachAiTemplate.create({
+        data: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          name,
+          category,
+          prompt,
+          description,
+          tone,
+        },
+      }),
+    );
+  }
+
+  async updateAiTemplate(ctx: TenantContext, id: string, input: UpdateAiTemplateInput) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const existing = await tx.outreachAiTemplate.findFirst({
+        where: { id, tenantId: ctx.tenantId, userId: ctx.userId },
+      });
+      if (!existing) throw new NotFoundException('AI template not found');
+
+      return tx.outreachAiTemplate.update({
+        where: { id },
+        data: {
+          ...('name' in input && input.name ? { name: input.name.trim().slice(0, 120) } : {}),
+          ...('category' in input && input.category
+            ? { category: input.category.trim().slice(0, 50) }
+            : {}),
+          ...('prompt' in input && input.prompt ? { prompt: input.prompt.trim().slice(0, 5000) } : {}),
+          ...('description' in input ? { description: input.description?.trim().slice(0, 500) ?? null } : {}),
+          ...('tone' in input && input.tone ? { tone: input.tone.trim().slice(0, 50) } : {}),
+        },
+      });
+    });
+  }
+
+  async deleteAiTemplate(ctx: TenantContext, id: string) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const existing = await tx.outreachAiTemplate.findFirst({
+        where: { id, tenantId: ctx.tenantId, userId: ctx.userId },
+      });
+      if (!existing) throw new NotFoundException('AI template not found');
+      return tx.outreachAiTemplate.delete({ where: { id } });
+    });
+  }
+
+  async previewAiTemplate(ctx: TenantContext, id: string) {
+    const systemTemplate = SYSTEM_AI_TEMPLATES.find((t) => t.id === id);
+    let templatePrompt: string;
+    let templateName: string;
+
+    if (systemTemplate) {
+      templatePrompt = systemTemplate.prompt;
+      templateName = systemTemplate.name;
+    } else {
+      const dbTemplate = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.outreachAiTemplate.findFirst({ where: { id, tenantId: ctx.tenantId } }),
+      );
+      if (!dbTemplate) throw new NotFoundException('AI template not found');
+      templatePrompt = dbTemplate.prompt;
+      templateName = dbTemplate.name;
+    }
+
+    const mockRecipient = {
+      name: 'Jane Smith',
+      title: 'Legislative Director',
+      office: 'House Committee on Science, Space, and Technology',
+      chamber: 'House',
+      state: 'TX',
+      district: '21',
+      party: 'R',
+      committee: 'House Science, Space, and Technology Committee',
+    };
+
+    const generated = await this.ai.generateOutreachDraft({
+      workflow: 'campaign',
+      client: { name: 'Sample Client Organization', industry: 'Technology' },
+      recipients: [mockRecipient],
+      context: { preview: true, templateName },
+      promptTemplate: 'custom',
+      objective: templatePrompt,
+    });
+
+    return { subject: generated.subject, body: generated.body, templateName };
+  }
+
+  async getOutreachInsights(ctx: TenantContext, query: { clientId?: string }) {
+    const clientId = query.clientId?.trim() || null;
+
+    let clientName: string | null = null;
+    let clientLdaHistory: Array<{ year: number; filingCount: number; issueAreas: string[] }> = [];
+    let recentBills: Array<{
+      id: string;
+      billNumber: string;
+      title: string;
+      policyArea: string | null;
+      status: string | null;
+      latestAction: string | null;
+    }> = [];
+
+    const billSelect = {
+      id: true,
+      billNumber: true,
+      title: true,
+      policyArea: true,
+      latestActionText: true,
+      latestActionDate: true,
+    } as const;
+
+    if (clientId) {
+      const clientIdNum = Number(clientId);
+      const [client, ldaFilings, bills] = await Promise.all([
+        this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.client.findFirst({ where: { id: clientId, tenantId: ctx.tenantId }, select: { name: true } }),
+        ),
+        isNaN(clientIdNum)
+          ? Promise.resolve([])
+          : this.prisma.ldaFiling.findMany({
+              where: { clientId: clientIdNum },
+              select: { filingYear: true, issueCodes: true },
+              orderBy: { dtPosted: 'desc' },
+              take: 100,
+            }),
+        this.prisma.congressBill.findMany({
+          orderBy: { updateDate: 'desc' },
+          take: 10,
+          select: billSelect,
+        }),
+      ]);
+
+      clientName = client?.name ?? null;
+      recentBills = bills.map((b) => ({
+        id: b.id,
+        billNumber: b.billNumber,
+        title: b.title,
+        policyArea: b.policyArea,
+        status: b.latestActionDate ? b.latestActionDate.toISOString().slice(0, 10) : null,
+        latestAction: b.latestActionText ?? null,
+      }));
+
+      const byYear = new Map<number, Set<string>>();
+      for (const filing of ldaFilings) {
+        if (!byYear.has(filing.filingYear)) byYear.set(filing.filingYear, new Set());
+        for (const code of filing.issueCodes) {
+          if (code) byYear.get(filing.filingYear)!.add(code);
+        }
+      }
+      clientLdaHistory = Array.from(byYear.entries())
+        .sort(([a], [b]) => b - a)
+        .slice(0, 5)
+        .map(([year, areas]) => ({
+          year,
+          filingCount: ldaFilings.filter((f) => f.filingYear === year).length,
+          issueAreas: Array.from(areas),
+        }));
+    } else {
+      const bills = await this.prisma.congressBill.findMany({
+        orderBy: { updateDate: 'desc' },
+        take: 10,
+        select: billSelect,
+      });
+      recentBills = bills.map((b) => ({
+        id: b.id,
+        billNumber: b.billNumber,
+        title: b.title,
+        policyArea: b.policyArea,
+        status: b.latestActionDate ? b.latestActionDate.toISOString().slice(0, 10) : null,
+        latestAction: b.latestActionText ?? null,
+      }));
+    }
+
+    const [lobbyCtx, spendCtx] = await Promise.all([
+      this.lobbyIntel.getAiContext().catch(() => ({
+        surgingIssues: [] as { code: string; name: string; surgePct: number | null }[],
+        trendingTopics: [] as { word: string; growthPct: number | null }[],
+        latestQuarter: null as string | null,
+      })),
+      this.federalSpending.getAiContext(clientName),
+    ]);
+
+    return {
+      surgingIssues: lobbyCtx.surgingIssues.slice(0, 6),
+      trendingTopics: lobbyCtx.trendingTopics.slice(0, 8),
+      latestQuarter: lobbyCtx.latestQuarter,
+      clientSpending: spendCtx.matchedContractor,
+      topAgencies: spendCtx.topAgencyTotals.slice(0, 5),
+      recentBills,
+      clientLdaHistory,
+      suggestedTalkingPoints: null as string[] | null,
+    };
+  }
+
+  async generateTalkingPoints(ctx: TenantContext, input: GenerateTalkingPointsInput) {
+    let clientName: string | null = null;
+    if (input.clientId) {
+      const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.client.findFirst({
+          where: { id: input.clientId!, tenantId: ctx.tenantId },
+          select: { name: true, intakeData: true },
+        }),
+      );
+      clientName = client?.name ?? null;
+    }
+
+    const talkingPoints = await this.ai.generateTalkingPoints({
+      insights: input.insights,
+      clientName,
+      additionalContext: input.additionalContext,
+    });
+
+    return { talkingPoints };
+  }
+
+  async generateBatchEmails(ctx: TenantContext, input: GenerateBatchEmailInput) {
+    const { templateId, recipients, insights, additionalContext, tone, clientId } = input;
+
+    const systemTemplate = SYSTEM_AI_TEMPLATES.find((t) => t.id === templateId);
+    let templatePrompt: string;
+
+    if (systemTemplate) {
+      templatePrompt = systemTemplate.prompt;
+    } else {
+      const dbTemplate = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.outreachAiTemplate.findFirst({ where: { id: templateId, tenantId: ctx.tenantId } }),
+      );
+      if (!dbTemplate) throw new NotFoundException('Template not found');
+      templatePrompt = dbTemplate.prompt;
+
+      await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.outreachAiTemplate.update({
+          where: { id: templateId },
+          data: { usageCount: { increment: 1 } },
+        }),
+      );
+    }
+
+    let client: Record<string, unknown> | null = null;
+    if (clientId) {
+      const row = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.client.findFirst({ where: { id: clientId, tenantId: ctx.tenantId } }),
+      );
+      if (row) client = pruneForAi(row);
+    }
+
+    const insightsContext = insights?.length
+      ? `Selected intelligence insights:\n${insights.join('\n')}`
+      : null;
+
+    const results: Array<{ recipientId: string; subject: string; body: string }> = [];
+
+    for (const recipient of recipients) {
+      const recipientId =
+        (recipient as Record<string, unknown>).directoryContactId?.toString() ||
+        (recipient as Record<string, unknown>).email?.toString() ||
+        String(results.length);
+
+      try {
+        const context: Record<string, unknown> = {
+          tone: tone ?? 'professional',
+          ...(insightsContext ? { insights: insightsContext } : {}),
+          ...(additionalContext ? { additionalContext } : {}),
+        };
+
+        const generated = await this.ai.generateOutreachDraft({
+          workflow: 'campaign',
+          client,
+          recipients: [recipient],
+          context,
+          promptTemplate: 'custom',
+          objective: templatePrompt,
+        });
+
+        results.push({ recipientId, subject: generated.subject, body: generated.body });
+      } catch (err) {
+        this.logger.warn(`Batch email generation failed for recipient ${recipientId}: ${(err as Error).message}`);
+        results.push({ recipientId, subject: '', body: '' });
+      }
+    }
+
+    return { results };
   }
 
   async deleteOutreachRecord(ctx: TenantContext, id: string) {

@@ -617,6 +617,102 @@ class CreateOutreachTemplateDto {
   body!: string;
 }
 
+class CreateAiTemplateDto {
+  @IsString()
+  @Length(1, 120)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 50)
+  category?: string;
+
+  @IsString()
+  @MinLength(1)
+  prompt!: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 50)
+  tone?: string;
+}
+
+class UpdateAiTemplateDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 50)
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  @MinLength(1)
+  prompt?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 50)
+  tone?: string;
+}
+
+class GenerateTalkingPointsDto {
+  @IsArray()
+  @IsString({ each: true })
+  insights!: string[];
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsString()
+  additionalContext?: string;
+}
+
+class GenerateBatchEmailDto {
+  @IsOptional()
+  @IsUUID()
+  campaignId?: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsString()
+  @MinLength(1)
+  templateId!: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OutreachRecipientDto)
+  recipients!: OutreachRecipientDto[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  insights?: string[];
+
+  @IsOptional()
+  @IsString()
+  additionalContext?: string;
+
+  @IsOptional()
+  @IsString()
+  tone?: string;
+}
+
 class CreateOutreachRecordDto {
   @IsIn(outreachTypes)
   type!: (typeof outreachTypes)[number];
@@ -890,6 +986,59 @@ export class EngagementController {
     @Body() body: CreateOutreachTemplateDto,
   ) {
     return this.service.createOutreachTemplate(ctx, body);
+  }
+
+  @Get('outreach/ai-templates')
+  listAiTemplates(@CurrentTenant() ctx: TenantContext) {
+    return this.service.listAiTemplates(ctx);
+  }
+
+  @Post('outreach/ai-templates')
+  createAiTemplate(@CurrentTenant() ctx: TenantContext, @Body() body: CreateAiTemplateDto) {
+    return this.service.createAiTemplate(ctx, body);
+  }
+
+  @Put('outreach/ai-templates/:id')
+  updateAiTemplate(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: UpdateAiTemplateDto,
+  ) {
+    return this.service.updateAiTemplate(ctx, id, body);
+  }
+
+  @Delete('outreach/ai-templates/:id')
+  deleteAiTemplate(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.deleteAiTemplate(ctx, id);
+  }
+
+  @Get('outreach/ai-templates/:id/preview')
+  previewAiTemplate(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.previewAiTemplate(ctx, id);
+  }
+
+  @Get('outreach/insights')
+  outreachInsights(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('clientId') clientId?: string,
+  ) {
+    return this.service.getOutreachInsights(ctx, { clientId });
+  }
+
+  @Post('outreach/insights/talking-points')
+  generateTalkingPoints(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: GenerateTalkingPointsDto,
+  ) {
+    return this.service.generateTalkingPoints(ctx, body);
+  }
+
+  @Post('outreach/generate-batch')
+  generateBatchEmails(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: GenerateBatchEmailDto,
+  ) {
+    return this.service.generateBatchEmails(ctx, body);
   }
 
   @Get('outreach/:id')
