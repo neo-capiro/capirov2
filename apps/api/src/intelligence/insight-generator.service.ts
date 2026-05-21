@@ -212,10 +212,12 @@ export class InsightGeneratorService {
 
   /** Generate a detailed executive briefing for a specific CRM client */
   async generateClientBriefing(clientId: string, tenantId: string) {
-    const client = await this.prisma.client.findFirst({
-      where: { id: clientId, tenantId },
-      include: { capabilities: true },
-    });
+    const client = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({
+        where: { id: clientId },
+        include: { capabilities: true },
+      }),
+    );
     if (!client) throw new NotFoundException('Client not found');
 
     // Gather context

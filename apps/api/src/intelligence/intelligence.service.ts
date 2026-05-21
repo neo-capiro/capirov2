@@ -12,11 +12,13 @@ export class IntelligenceService {
    * the client name against all intelligence data sources.
    */
   async getClientProfile(clientId: string, tenantId: string) {
-    // 1. Fetch the CRM client
-    const client = await this.prisma.client.findFirst({
-      where: { id: clientId, tenantId },
-      include: { capabilities: true },
-    });
+    // 1. Fetch the CRM client (tenant-scoped via RLS)
+    const client = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({
+        where: { id: clientId },
+        include: { capabilities: true },
+      }),
+    );
     if (!client) throw new NotFoundException('Client not found');
 
     const clientName = client.name;
@@ -318,9 +320,9 @@ export class IntelligenceService {
 
   /** Resolve mappings by fuzzy matching a CRM client against all sources */
   async resolveMapping(clientId: string, tenantId: string) {
-    const client = await this.prisma.client.findFirst({
-      where: { id: clientId, tenantId },
-    });
+    const client = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({ where: { id: clientId } }),
+    );
     if (!client) throw new NotFoundException('Client not found');
 
     const clientName = client.name;
