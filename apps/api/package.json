@@ -21,7 +21,8 @@
     "sync:lda": "tsx scripts/sync-lda.ts",
     "sync:lda:incremental": "tsx scripts/sync-lda.ts --incremental",
     "sync:fec": "tsx scripts/sync-fec.ts",
-    "sync:congress": "tsx scripts/sync-congress.ts"
+    "sync:congress": "tsx scripts/sync-congress.ts",
+    "sync:federal-register": "tsx scripts/sync-federal-register.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.665.0",

@@ -1519,7 +1519,101 @@ model CongressBill {
   url              String?
   lastSyncedAt     DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
 
+  actions       CongressBillAction[]
+  committeeRefs CongressBillCommittee[]
+  subjectRefs   CongressBillSubject[]
+
   @@index([congress], map: "congress_bill_congress_idx")
   @@index([policyArea], map: "congress_bill_policy_area_idx")
   @@map("congress_bill")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Expanded Congress bill data (normalized)
+// GLOBAL tables — no tenant_id, no RLS.
+// ─────────────────────────────────────────────────────────────────────────
+
+model CongressBillAction {
+  id      String   @id @default(uuid())
+  billId  String   @map("bill_id")
+  date    DateTime
+  text    String   @db.Text
+  type    String?
+  chamber String?
+  bill    CongressBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId, date])
+  @@map("congress_bill_action")
+}
+
+model CongressBillCommittee {
+  id            String @id @default(uuid())
+  billId        String @map("bill_id")
+  committeeName String @map("committee_name")
+  committeeCode String? @map("committee_code")
+  chamber       String?
+  bill          CongressBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+  @@index([committeeCode])
+  @@map("congress_bill_committee")
+}
+
+model CongressBillSubject {
+  id     String @id @default(uuid())
+  billId String @map("bill_id")
+  name   String
+  bill   CongressBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+  @@index([name])
+  @@map("congress_bill_subject")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Federal Register documents
+// GLOBAL table — no tenant_id, no RLS.
+// Populated by apps/api/scripts/sync-federal-register.ts.
+// ─────────────────────────────────────────────────────────────────────────
+
+model FederalRegisterDocument {
+  id              String   @id @default(uuid())
+  documentNumber  String   @unique @map("document_number")
+  type            String   // RULE, PROPOSED_RULE, NOTICE, PRESIDENTIAL_DOCUMENT
+  title           String   @db.Text
+  abstract        String?  @db.Text
+  agencyNames     String[] @map("agency_names")
+  publicationDate DateTime @map("publication_date")
+  commentEndDate  DateTime? @map("comment_end_date")
+  effectiveDate   DateTime? @map("effective_date")
+  docketIds       String[] @map("docket_ids")
+  cfrReferences   String[] @map("cfr_references")
+  htmlUrl         String?  @map("html_url")
+  pdfUrl          String?  @map("pdf_url")
+  topics          String[]
+  significantRule Boolean  @default(false) @map("significant_rule")
+  syncedAt        DateTime @default(now()) @map("synced_at")
+
+  @@index([type, publicationDate])
+  @@index([commentEndDate])
+  @@map("federal_register_document")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AI-generated intelligence insights
+// GLOBAL table — no tenant_id, no RLS.
+// ─────────────────────────────────────────────────────────────────────────
+
+model IntelligenceInsight {
+  id          String   @id @default(uuid())
+  category    String   // lda, spending, congress, regulatory, anomaly
+  title       String
+  body        String   @db.Text
+  severity    String   @default("info") // info, notable, critical
+  dataPoints  Json?    @map("data_points")
+  generatedAt DateTime @default(now()) @map("generated_at")
+  expiresAt   DateTime? @map("expires_at")
+
+  @@index([category, generatedAt])
+  @@map("intelligence_insight")
 }

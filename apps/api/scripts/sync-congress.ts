@@ -122,6 +122,17 @@ interface CongressCommitteesResponse {
   }[];
 }
 
+interface CongressActionsResponse {
+  actions?: {
+    actionDate?: string | null;
+    text?: string | null;
+    type?: string | null;
+    actionCode?: string | null;
+    sourceSystem?: { code?: number; name?: string } | null;
+    chamber?: string | null;
+  }[];
+}
+
 interface CongressBillListResponse {
   bills: CongressBillSummary[];
   pagination: {
@@ -212,11 +223,14 @@ async function main() {
             const policyAreaName = billData.policyArea?.name ?? bill.policyArea?.name ?? null;
             const isLobbyingRelevant = policyAreaName ? LOBBYING_POLICY_AREAS.has(policyAreaName) : false;
 
-            // Fetch subjects and committees only for lobbying-relevant bills.
+            // Fetch subjects, committees, and actions only for lobbying-relevant bills.
             let subjects: string[] = [];
             let committees: object[] = [];
+            let actionsData: { date: Date; text: string; type: string | null; chamber: string | null }[] = [];
 
             if (isLobbyingRelevant) {
+              await new Promise((r) => setTimeout(r, 200));
+
               try {
                 const subjectsResp = await fetchJson<CongressSubjectsResponse>(
                   congressUrl(`/bill/${congress}/${type}/${bill.number}/subjects`),
@@ -229,6 +243,8 @@ async function main() {
               } catch {
                 // subjects stay empty
               }
+
+              await new Promise((r) => setTimeout(r, 200));
 
               try {
                 const committeesResp = await fetchJson<CongressCommitteesResponse>(
@@ -244,6 +260,28 @@ async function main() {
                 }
               } catch {
                 // committees stay empty
+              }
+
+              await new Promise((r) => setTimeout(r, 200));
+
+              try {
+                const actionsResp = await fetchJson<CongressActionsResponse>(
+                  congressUrl(`/bill/${congress}/${type}/${bill.number}/actions`, { limit: 250 }),
+                );
+                if (actionsResp?.actions) {
+                  for (const a of actionsResp.actions) {
+                    const d = safeDate(a.actionDate);
+                    if (!d || !a.text) continue;
+                    actionsData.push({
+                      date: d,
+                      text: a.text,
+                      type: a.type ?? null,
+                      chamber: a.chamber ?? null,
+                    });
+                  }
+                }
+              } catch {
+                // actions stay empty
               }
             }
 
@@ -290,6 +328,45 @@ async function main() {
                 url: bill.url ?? null,
               },
             });
+
+            // Upsert normalized actions, committees, subjects for lobbying-relevant bills.
+            if (isLobbyingRelevant) {
+              // Delete existing rows and re-insert (simpler than diffing).
+              await prisma.congressBillAction.deleteMany({ where: { billId: id } });
+              if (actionsData.length > 0) {
+                await prisma.congressBillAction.createMany({
+                  data: actionsData.map((a) => ({
+                    billId: id,
+                    date: a.date,
+                    text: a.text,
+                    type: a.type,
+                    chamber: a.chamber,
+                  })),
+                });
+              }
+
+              await prisma.congressBillCommittee.deleteMany({ where: { billId: id } });
+              const committeeObjects = committees as { name?: string | null; chamber?: string | null; systemCode?: string | null }[];
+              if (committeeObjects.length > 0) {
+                await prisma.congressBillCommittee.createMany({
+                  data: committeeObjects
+                    .filter((c) => c.name)
+                    .map((c) => ({
+                      billId: id,
+                      committeeName: c.name!,
+                      committeeCode: c.systemCode ?? null,
+                      chamber: c.chamber ?? null,
+                    })),
+                });
+              }
+
+              await prisma.congressBillSubject.deleteMany({ where: { billId: id } });
+              if (subjects.length > 0) {
+                await prisma.congressBillSubject.createMany({
+                  data: subjects.map((name) => ({ billId: id, name })),
+                });
+              }
+            }
 
             congressBills++;
             totalBills++;

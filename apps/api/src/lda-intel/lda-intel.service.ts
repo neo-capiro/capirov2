@@ -519,6 +519,155 @@ export class LdaIntelService {
     };
   }
 
+  // ── Lobbyist revolving-door positions ────────────────────────────────────
+
+  async getLobbyistPositions(id: number): Promise<object> {
+    const l = await this.prisma.ldaLobbyist.findUnique({ where: { id } });
+    if (!l) throw new NotFoundException(`LDA lobbyist ${id} not found`);
+    const positions = Array.isArray(l.coveredPositions) ? l.coveredPositions : [];
+    return {
+      id: l.id,
+      firstName: l.firstName,
+      lastName: l.lastName,
+      coveredPositions: positions,
+      hasGovernmentExperience: positions.length > 0,
+    };
+  }
+
+  // ── Client network ────────────────────────────────────────────────────────
+
+  async getClientNetwork(id: number): Promise<object> {
+    const client = await this.prisma.ldaClient.findUnique({ where: { id } });
+    if (!client) throw new NotFoundException(`LDA client ${id} not found`);
+
+    const [filings, relatedByIssue] = await Promise.all([
+      this.prisma.ldaFiling.findMany({
+        where: { clientId: id },
+        select: { registrantId: true, registrantName: true, issueCodes: true, governmentEntities: true, lobbyists: true },
+        orderBy: { dtPosted: 'desc' },
+        take: 200,
+      }),
+      // Other clients sharing issue codes (approximate)
+      client.issueCodes.length > 0
+        ? this.prisma.ldaClient.findMany({
+            where: {
+              id: { not: id },
+              issueCodes: { hasSome: client.issueCodes.slice(0, 5) },
+            },
+            orderBy: { totalFilings: 'desc' },
+            take: 10,
+            select: { id: true, name: true, state: true, totalFilings: true, totalSpending: true, issueCodes: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    // Aggregate firms and lobbyists from filings.
+    const firmMap = new Map<number, { id: number; name: string; filingCount: number }>();
+    const govTargetSet = new Set<string>();
+    const issueSet = new Set<string>();
+
+    for (const f of filings) {
+      if (f.registrantId) {
+        const existing = firmMap.get(f.registrantId);
+        if (existing) {
+          existing.filingCount++;
+        } else {
+          firmMap.set(f.registrantId, { id: f.registrantId, name: f.registrantName, filingCount: 1 });
+        }
+      }
+      for (const code of f.issueCodes ?? []) issueSet.add(code);
+      const entities = Array.isArray(f.governmentEntities) ? f.governmentEntities as { name?: string }[] : [];
+      for (const e of entities) if (e.name) govTargetSet.add(e.name);
+    }
+
+    // Unique lobbyist IDs from filings.
+    const lobbyistIds = new Set<number>();
+    for (const f of filings) {
+      const lobs = Array.isArray(f.lobbyists) ? f.lobbyists as { id?: number }[] : [];
+      for (const l of lobs) if (l.id) lobbyistIds.add(l.id);
+    }
+
+    const lobbyists = lobbyistIds.size > 0
+      ? await this.prisma.ldaLobbyist.findMany({
+          where: { id: { in: [...lobbyistIds].slice(0, 50) } },
+          select: { id: true, firstName: true, lastName: true, coveredPositions: true, activeYears: true },
+        })
+      : [];
+
+    return {
+      client: { id: client.id, name: client.name, state: client.state, issueCodes: client.issueCodes },
+      firms: [...firmMap.values()].sort((a, b) => b.filingCount - a.filingCount),
+      lobbyists: lobbyists.map((l) => ({
+        id: l.id,
+        firstName: l.firstName,
+        lastName: l.lastName,
+        hasGovernmentExperience: Array.isArray(l.coveredPositions) && (l.coveredPositions as unknown[]).length > 0,
+        activeYears: l.activeYears,
+      })),
+      issues: [...issueSet],
+      governmentTargets: [...govTargetSet].slice(0, 20),
+      relatedClients: relatedByIssue.map((c) => ({
+        id: c.id,
+        name: c.name,
+        state: c.state,
+        totalFilings: c.totalFilings,
+        totalSpending: this.toNum(c.totalSpending),
+        sharedIssues: c.issueCodes.filter((code) => client.issueCodes.includes(code)),
+      })),
+    };
+  }
+
+  // ── Intelligence insights ─────────────────────────────────────────────────
+
+  async getInsights(category?: string, limit = 20): Promise<object[]> {
+    const where: Record<string, unknown> = {};
+    if (category) where.category = category;
+    // Exclude expired insights.
+    where.OR = [{ expiresAt: null }, { expiresAt: { gt: new Date() } }];
+
+    const rows = await this.prisma.intelligenceInsight.findMany({
+      where,
+      orderBy: { generatedAt: 'desc' },
+      take: Math.min(50, limit),
+    });
+    return rows;
+  }
+
+  async createInsight(data: {
+    category: string;
+    title: string;
+    body: string;
+    severity?: string;
+    dataPoints?: object;
+    expiresAt?: Date;
+  }): Promise<object> {
+    return this.prisma.intelligenceInsight.create({
+      data: {
+        category: data.category,
+        title: data.title,
+        body: data.body,
+        severity: data.severity ?? 'info',
+        dataPoints: data.dataPoints ?? undefined,
+        expiresAt: data.expiresAt ?? undefined,
+      },
+    });
+  }
+
+  // ── Congress bill detail (with actions/committees/subjects) ───────────────
+
+  async getCongressBillDetail(id: string): Promise<object> {
+    const bill = await this.prisma.congressBill.findUnique({
+      where: { id },
+      include: {
+        actions: { orderBy: { date: 'desc' } },
+        committeeRefs: true,
+        subjectRefs: { orderBy: { name: 'asc' } },
+      },
+    });
+    if (!bill) throw new NotFoundException(`Congress bill ${id} not found`);
+    return bill;
+  }
+
   // ── Fuzzy match Capiro client → LDA client ────────────────────────────────
 
   async matchCapiroClient(clientName: string): Promise<object | null> {

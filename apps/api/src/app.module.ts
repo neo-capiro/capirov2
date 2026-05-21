@@ -23,6 +23,7 @@ import { StrategiesModule } from './strategies/strategies.module.js';
 import { LobbyIntelModule } from './lobby-intel/lobby-intel.module.js';
 import { FederalSpendingModule } from './federal-spending/federal-spending.module.js';
 import { LdaIntelModule } from './lda-intel/lda-intel.module.js';
+import { FederalRegisterModule } from './federal-register/federal-register.module.js';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { LdaIntelModule } from './lda-intel/lda-intel.module.js';
     LobbyIntelModule,
     FederalSpendingModule,
     LdaIntelModule,
+    FederalRegisterModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

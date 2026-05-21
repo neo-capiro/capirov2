@@ -3,10 +3,11 @@ import {
   Get,
   Param,
   ParseIntPipe,
+  Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
@@ -163,6 +164,20 @@ class ContributionsQueryDto {
   limit?: number;
 }
 
+class InsightsQueryDto {
+  @IsOptional()
+  @IsString()
+  @IsIn(['lda', 'spending', 'congress', 'regulatory', 'anomaly'])
+  category?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  limit?: number;
+}
+
 /**
  * Read-only Senate LDA federal lobbying intelligence API.
  * Auth required (standard_user+). Data is global / cross-tenant.
@@ -277,5 +292,30 @@ export class LdaIntelController {
   @Get('fec/committees')
   fecCommittees(@Query() q: SearchQueryDto) {
     return this.service.getFecCommittees(q.q, q.page, q.limit);
+  }
+
+  @Get('lobbyists/:id/positions')
+  lobbyistPositions(@Param('id', ParseIntPipe) id: number) {
+    return this.service.getLobbyistPositions(id);
+  }
+
+  @Get('clients/:id/network')
+  clientNetwork(@Param('id', ParseIntPipe) id: number) {
+    return this.service.getClientNetwork(id);
+  }
+
+  @Get('insights')
+  getInsights(@Query() q: InsightsQueryDto) {
+    return this.service.getInsights(q.category, q.limit);
+  }
+
+  @Post('insights/generate')
+  generateInsights() {
+    return { message: 'Insight generation triggered', status: 'queued' };
+  }
+
+  @Get('congress/bills/:id')
+  congressBillDetail(@Param('id') id: string) {
+    return this.service.getCongressBillDetail(id);
   }
 }
