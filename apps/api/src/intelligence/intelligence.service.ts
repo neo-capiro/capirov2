@@ -144,14 +144,14 @@ export class IntelligenceService {
         total_contracts: number | null;
         rank_by_contracts: number | null;
         no_bid_total: number | null;
-        yearly_spend: object[];
-        top_agencies: object[];
+        yearly_spend_jsonb: object[];
+        top_agencies_jsonb: object[];
         similarity: number;
       }>
     >`
       SELECT id, name, total_contracts, rank_by_contracts, no_bid_total,
-             COALESCE(yearly_spend, '[]')::jsonb as yearly_spend,
-             COALESCE(top_agencies, '[]')::jsonb as top_agencies,
+             COALESCE(yearly_spend_jsonb, '[]')::jsonb as yearly_spend_jsonb,
+             COALESCE(top_agencies_jsonb, '[]')::jsonb as top_agencies_jsonb,
              similarity(name, ${clientName}) as similarity
       FROM federal_contractor
       WHERE similarity(name, ${clientName}) > 0.3
@@ -167,8 +167,8 @@ export class IntelligenceService {
       totalContracts: match.total_contracts,
       rankByContracts: match.rank_by_contracts,
       noBidTotal: match.no_bid_total,
-      topAgencies: match.top_agencies as { name: string; amount: number }[],
-      yearlySpend: match.yearly_spend as { year: number; amount: number }[],
+      topAgencies: match.top_agencies_jsonb as { name: string; amount: number }[],
+      yearlySpend: match.yearly_spend_jsonb as { year: number; amount: number }[],
     };
   }
 
