@@ -254,3 +254,9 @@ export interface IntelligenceChange {
 export interface CrmClient {
   id: string; name: string; status: string; description: string | null;
 }
+
+export interface GeneratedBriefing {
+  briefing: string;
+  generatedAt: string;
+  dataPoints: { source: string; metric: string; value: string }[];
+}

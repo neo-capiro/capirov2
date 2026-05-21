@@ -1,17 +1,21 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
+  Button,
   Card,
+  Descriptions,
   Empty,
   Select,
   Skeleton,
   Space,
+  Spin,
   Statistic,
   Table,
   Tag,
   Tooltip,
   Typography,
+  message,
 } from 'antd';
 import {
   BulbOutlined,
@@ -19,6 +23,7 @@ import {
   RiseOutlined,
   SafetyCertificateOutlined,
   TeamOutlined,
+  ThunderboltOutlined,
   TrophyOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
@@ -29,6 +34,7 @@ import type {
   CongressBill,
   CrmClient,
   FederalRegisterDoc,
+  GeneratedBriefing,
   IntelligenceChange,
 } from '../types.js';
 import {
@@ -64,7 +70,11 @@ function deadlineTag(dateStr: string | null | undefined): React.ReactNode {
 
 export function ClientProfilePanel() {
   const api = useApi();
+  const queryClient = useQueryClient();
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [briefing, setBriefing] = useState<GeneratedBriefing | null>(null);
+  const [generatingBriefing, setGeneratingBriefing] = useState(false);
+  const [generatingInsights, setGeneratingInsights] = useState(false);
 
   /* ── Fetch CRM clients for dropdown ─────────────────────────────────── */
   const clientsQuery = useQuery<CrmClient[]>({
@@ -127,11 +137,47 @@ export function ClientProfilePanel() {
     ? (profile.lda.totalSpending ?? 0) + (profile.lobbyIntel.totalSpending ?? 0)
     : null;
 
+  /* ── Generate Briefing ──────────────────────────────────────────────── */
+  const handleGenerateBriefing = async () => {
+    if (!selectedClientId) return;
+    setGeneratingBriefing(true);
+    try {
+      const res = await api.get<GeneratedBriefing>(`/api/intelligence/briefing/${selectedClientId}`);
+      setBriefing(res.data);
+      void message.success('Client briefing generated');
+    } catch (err) {
+      void message.error('Failed to generate briefing: ' + ((err as Error).message ?? 'unknown error'));
+    } finally {
+      setGeneratingBriefing(false);
+    }
+  };
+
+  /* ── Generate Client Insights ───────────────────────────────────────── */
+  const handleGenerateClientInsights = async () => {
+    if (!selectedClientId) return;
+    setGeneratingInsights(true);
+    try {
+      await api.post('/api/intelligence/insights/generate', { scope: 'client', clientId: selectedClientId });
+      void message.success('Client insights generated');
+      await queryClient.invalidateQueries({ queryKey: ['intel-insights'] });
+    } catch (err) {
+      void message.error('Failed to generate insights: ' + ((err as Error).message ?? 'unknown error'));
+    } finally {
+      setGeneratingInsights(false);
+    }
+  };
+
+  /* ── Clear briefing when client changes ─────────────────────────────── */
+  const handleClientChange = (v: string | undefined) => {
+    setSelectedClientId(v ?? null);
+    setBriefing(null);
+  };
+
   return (
     <div>
       {/* ── Client Selector ──────────────────────────────────────────────── */}
       <Card size="small" style={{ marginBottom: 16 }}>
-        <Space align="center" size={12}>
+        <Space align="center" size={12} wrap>
           <TeamOutlined style={{ fontSize: 18, color: '#2563eb' }} />
           <Text strong style={{ fontSize: 15 }}>Select a Client</Text>
           <Select
@@ -140,13 +186,34 @@ export function ClientProfilePanel() {
             allowClear
             style={{ width: 320 }}
             options={clientOptions}
-            onChange={(v) => setSelectedClientId(v ?? null)}
+            onChange={handleClientChange}
             loading={clientsQuery.isLoading}
             showSearch
             filterOption={(input, opt) =>
               (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())
             }
           />
+          {selectedClientId && (
+            <>
+              <Button
+                size="small"
+                type="primary"
+                icon={<BulbOutlined />}
+                onClick={() => void handleGenerateBriefing()}
+                loading={generatingBriefing}
+              >
+                Generate Briefing
+              </Button>
+              <Button
+                size="small"
+                icon={<ThunderboltOutlined />}
+                onClick={() => void handleGenerateClientInsights()}
+                loading={generatingInsights}
+              >
+                Generate Client Insights
+              </Button>
+            </>
+          )}
         </Space>
       </Card>
 
@@ -452,16 +519,62 @@ export function ClientProfilePanel() {
             </Card>
           </div>
 
-          {/* ── AI Summary ────────────────────────────────────────────────── */}
-          {profile.aiSummary && (
-            <Card
-              size="small"
-              title={<Space><BulbOutlined style={{ color: '#f59e0b' }} /><span>AI Intelligence Summary</span></Space>}
-              style={{ marginBottom: 16 }}
-            >
+          {/* ── AI Intelligence Summary ──────────────────────────────────── */}
+          <Card
+            size="small"
+            title={<Space><BulbOutlined style={{ color: '#f59e0b' }} /><span>AI Intelligence Summary</span></Space>}
+            extra={
+              <Button
+                size="small"
+                type="link"
+                icon={<BulbOutlined />}
+                onClick={() => void handleGenerateBriefing()}
+                loading={generatingBriefing}
+              >
+                {briefing ? 'Regenerate' : 'Generate'} Briefing
+              </Button>
+            }
+            style={{ marginBottom: 16 }}
+          >
+            {generatingBriefing ? (
+              <div style={{ textAlign: 'center', padding: 24 }}>
+                <Spin tip="Generating AI briefing…" />
+              </div>
+            ) : briefing ? (
+              <>
+                <Paragraph style={{ fontSize: 13, margin: 0, whiteSpace: 'pre-wrap', marginBottom: briefing.dataPoints.length > 0 ? 12 : 0 }}>
+                  {briefing.briefing}
+                </Paragraph>
+                {briefing.dataPoints.length > 0 && (
+                  <Descriptions
+                    size="small"
+                    column={3}
+                    bordered
+                    title={<Text type="secondary" style={{ fontSize: 11 }}>Supporting Data Points</Text>}
+                  >
+                    {briefing.dataPoints.map((dp, idx) => (
+                      <Descriptions.Item
+                        key={idx}
+                        label={<Text style={{ fontSize: 11 }}>{dp.source}: {dp.metric}</Text>}
+                      >
+                        <Text strong style={{ fontSize: 11 }}>{dp.value}</Text>
+                      </Descriptions.Item>
+                    ))}
+                  </Descriptions>
+                )}
+                <Text type="secondary" style={{ fontSize: 10, display: 'block', marginTop: 8 }}>
+                  Generated: {new Date(briefing.generatedAt).toLocaleString()}
+                </Text>
+              </>
+            ) : profile.aiSummary ? (
               <Paragraph style={{ fontSize: 13, margin: 0, whiteSpace: 'pre-wrap' }}>{profile.aiSummary}</Paragraph>
-            </Card>
-          )}
+            ) : (
+              <Empty
+                description="No AI briefing yet — click 'Generate Briefing' to create one"
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+              />
+            )}
+          </Card>
 
           {/* ── Last Updated ──────────────────────────────────────────────── */}
           <Text type="secondary" style={{ fontSize: 11 }}>
