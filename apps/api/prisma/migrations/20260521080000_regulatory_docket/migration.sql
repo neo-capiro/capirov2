@@ -3,7 +3,7 @@ CREATE TABLE "regulatory_docket" (
     "id" UUID NOT NULL DEFAULT gen_random_uuid(),
     "document_id" TEXT NOT NULL,
     "agency_id" TEXT NOT NULL,
-    "docket_id" TEXT NOT NULL,
+    "docket_id" TEXT,
     "document_type" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "posted_date" TIMESTAMPTZ(6),

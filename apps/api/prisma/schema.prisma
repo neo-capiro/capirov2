@@ -1622,7 +1622,7 @@ model RegulatoryDocket {
   id               String   @id @default(uuid())
   documentId       String   @unique @map("document_id")
   agencyId         String   @map("agency_id")
-  docketId         String   @map("docket_id")
+  docketId         String?  @map("docket_id")
   documentType     String   @map("document_type")
   title            String   @db.Text
   postedDate       DateTime? @map("posted_date")
