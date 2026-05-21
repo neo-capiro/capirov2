@@ -1436,8 +1436,8 @@ export class EngagementService {
     }
 
     const talkingPoints = await this.ai.generateTalkingPoints({
-      insights: input.insights,
-      clientName,
+      client: clientName ? { name: clientName } : null,
+      selectedInsights: input.insights,
       additionalContext: input.additionalContext,
     });
 
@@ -1497,7 +1497,7 @@ export class EngagementService {
         const generated = await this.ai.generateOutreachDraft({
           workflow: 'campaign',
           client,
-          recipients: [recipient],
+          recipients: [recipient as unknown as Record<string, unknown>],
           context,
           promptTemplate: 'custom',
           objective: templatePrompt,
