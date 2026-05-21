@@ -463,6 +463,7 @@ export class LdaIntelService {
     congress?: number,
     page = 1,
     limit = 25,
+    activeSince?: string,
   ): Promise<PagedResult<object>> {
     const pg = Math.max(1, page);
     const lim = Math.min(100, Math.max(1, limit));
@@ -472,6 +473,7 @@ export class LdaIntelService {
     if (search) where.title = { contains: search, mode: 'insensitive' };
     if (policyArea) where.policyArea = { contains: policyArea, mode: 'insensitive' };
     if (congress) where.congress = congress;
+    if (activeSince) where.latestActionDate = { gte: new Date(activeSince) };
 
     const [data, total] = await Promise.all([
       this.prisma.congressBill.findMany({
@@ -623,10 +625,8 @@ export class LdaIntelService {
     const where: Record<string, unknown> = {};
     if (category) where.category = category;
     // Exclude expired insights.
-    where.OR = [{ expiresAt: null }, { expiresAt: { gt: new Date() } }];
-
     const rows = await this.prisma.intelligenceInsight.findMany({
-      where,
+      where: { ...where, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] },
       orderBy: { generatedAt: 'desc' },
       take: Math.min(50, limit),
     });

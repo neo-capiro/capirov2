@@ -1486,6 +1486,7 @@ model FecContribution {
   @@index([candidateName], map: "fec_contribution_candidate_name_idx")
   @@index([contributorEmployer], map: "fec_contribution_employer_idx")
   @@index([cycle], map: "fec_contribution_cycle_idx")
+  @@unique([committeeId, candidateName, contributorEmployer, amount, cycle], map: "fec_contribution_dedup_key")
   @@map("fec_contribution")
 }
 
@@ -1616,6 +1617,51 @@ expiresAt   DateTime? @map("expires_at")
 
   @@index([category, generatedAt])
   @@map("intelligence_insight")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Client-to-intelligence-source mapping (synthesis layer)
+// GLOBAL table — links CRM clients to external intelligence identities.
+// ─────────────────────────────────────────────────────────────────────────
+
+model ClientIntelMapping {
+  id           String   @id @default(uuid()) @db.Uuid
+  clientId     String   @map("client_id") @db.Uuid
+  source       String   // 'lda', 'contracting', 'lobby_intel', 'fec'
+  externalId   String   @map("external_id")
+  externalName String   @map("external_name")
+  confidence   Float
+  confirmed    Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([clientId, source, externalId])
+  @@index([clientId])
+  @@index([source, externalId])
+  @@map("client_intel_mapping")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Cross-source change events (synthesis layer)
+// GLOBAL table — detected changes from sync scripts.
+// ─────────────────────────────────────────────────────────────────────────
+
+model IntelligenceChange {
+  id               String   @id @default(uuid()) @db.Uuid
+  source           String
+  changeType       String   @map("change_type")
+  severity         String   @default("info")
+  title            String
+  description      String   @db.Text
+  relatedClientIds String[] @map("related_client_ids") @db.Uuid
+  relatedIssues    String[] @map("related_issues")
+  data             Json     @default("{}")
+  detectedAt       DateTime @default(now()) @map("detected_at") @db.Timestamptz(6)
+  consumed         Boolean  @default(false)
+
+  @@index([detectedAt(sort: Desc)])
+  @@index([source, changeType])
+  @@map("intelligence_change")
 }
 
 model RegulatoryDocket {

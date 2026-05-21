@@ -112,6 +112,10 @@ class CongressBillsQueryDto {
   policyArea?: string;
 
   @IsOptional()
+  @IsString()
+  activeSince?: string;
+
+  @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(100)
@@ -286,7 +290,7 @@ export class LdaIntelController {
 
   @Get('congress/bills')
   congressBills(@Query() q: CongressBillsQueryDto) {
-    return this.service.getCongressBills(q.q, q.policyArea, q.congress, q.page, q.limit);
+    return this.service.getCongressBills(q.q, q.policyArea, q.congress, q.page, q.limit, q.activeSince);
   }
 
   @Get('fec/committees')

@@ -224,9 +224,7 @@ async function main() {
               ? new Date(item.contribution_receipt_date)
               : null;
 
-            await prisma.fecContribution.create({
-              data: {
-                id: randomUUID(),
+            const contribData = {
                 committeeId: item.committee_id,
                 committeeName: item.committee?.name ?? null,
                 candidateId: item.candidate_id ?? null,
@@ -240,6 +238,31 @@ async function main() {
                 memoText: item.memo_text ?? null,
                 state: item.contributor_state ?? null,
                 cycle: item.two_year_transaction_period ?? new Date().getFullYear(),
+            };
+
+            await prisma.fecContribution.upsert({
+              where: {
+                committeeId_candidateName_contributorEmployer_amount_cycle: {
+                  committeeId: contribData.committeeId,
+                  candidateName: contribData.candidateName ?? '',
+                  contributorEmployer: contribData.contributorEmployer ?? '',
+                  amount: contribData.amount,
+                  cycle: contribData.cycle,
+                },
+              },
+              create: {
+                id: randomUUID(),
+                ...contribData,
+              },
+              update: {
+                committeeName: contribData.committeeName,
+                contributorName: contribData.contributorName,
+                contributorOccupation: contribData.contributorOccupation,
+                contributionDate: contribData.contributionDate,
+                receiptType: contribData.receiptType,
+                memoText: contribData.memoText,
+                state: contribData.state,
+                lastSyncedAt: new Date(),
               },
             });
 

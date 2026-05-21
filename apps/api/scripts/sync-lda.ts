@@ -20,7 +20,8 @@ dotenvConfig();
 const LDA_BASE = 'https://lda.senate.gov/api/v1';
 const LDA_API_KEY = process.env.LDA_API_KEY ?? '';
 const PAGE_SIZE = 100;
-const SYNC_YEARS = [2021, 2022, 2023, 2024, 2025, 2026];
+const currentYear = new Date().getFullYear();
+const SYNC_YEARS = Array.from({ length: 6 }, (_, i) => currentYear - 5 + i);
 
 // ─── LDA API types ───────────────────────────────────────────────────────────
 
