@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import {
   Alert,
   Badge,
+  Button,
   Card,
   Col,
   Collapse,
@@ -18,6 +19,7 @@ import {
   Table,
   Tabs,
   Tag,
+  Timeline,
   Tooltip,
   Typography,
 } from 'antd';
@@ -27,6 +29,8 @@ import {
   AuditOutlined,
   BankOutlined,
   BookOutlined,
+  BulbOutlined,
+  CalendarOutlined,
   DollarOutlined,
   ExperimentOutlined,
   FileTextOutlined,
@@ -34,6 +38,7 @@ import {
   GlobalOutlined,
   RiseOutlined,
   ShopOutlined,
+  SyncOutlined,
   TeamOutlined,
   ThunderboltOutlined,
   UserOutlined,
@@ -213,6 +218,57 @@ interface FederalSpendingOverview {
   lastSyncedAt: string | null;
 }
 
+/* ── New types ──────────────────────────────────────────────────────────── */
+
+interface IntelligenceInsight {
+  id: string;
+  category: string;
+  title: string;
+  body: string;
+  severity: string; // info, notable, critical
+  generatedAt: string;
+}
+
+interface FederalRegisterDoc {
+  id: string;
+  documentNumber: string;
+  type: string;
+  title: string;
+  abstract?: string;
+  agencyNames: string[];
+  publicationDate: string;
+  commentEndDate?: string | null;
+  effectiveDate?: string | null;
+  htmlUrl?: string | null;
+  significantRule: boolean;
+}
+
+interface BillAction {
+  id: string;
+  date: string;
+  text: string;
+  type?: string | null;
+  chamber?: string | null;
+}
+
+interface BillCommittee {
+  id: string;
+  committeeName: string;
+  committeeCode?: string | null;
+  chamber?: string | null;
+}
+
+interface BillSubject {
+  id: string;
+  name: string;
+}
+
+interface CongressBillDetail extends CongressBill {
+  actions: BillAction[];
+  committees: BillCommittee[];
+  subjects: BillSubject[];
+}
+
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 
 function formatMoney(n: number | null | undefined): string {
@@ -271,29 +327,243 @@ const CATEGORY_COLORS: Record<string, string> = {
   Defense: 'red', Health: 'green', Tech: 'blue', Energy: 'orange', Construction: 'purple', Other: 'default',
 };
 
+function formatPosition(pos: unknown): string {
+  if (!pos || typeof pos !== 'object') return '';
+  const p = pos as Record<string, unknown>;
+  const title = typeof p.position_title === 'string' ? p.position_title : '';
+  const offices = Array.isArray(p.offices) ? p.offices : [];
+  const officeName =
+    offices[0] && typeof offices[0] === 'object'
+      ? ((offices[0] as Record<string, unknown>).name as string | undefined) ?? ''
+      : '';
+  const dates = typeof p.dates_covered === 'string' ? p.dates_covered : '';
+  const abbrevMap: Record<string, string> = {
+    'Legislative Assistant': 'LA',
+    'Legislative Director': 'LD',
+    'Chief of Staff': 'CoS',
+    'Senior Advisor': 'Sr. Advisor',
+    'Staff Director': 'Staff Dir.',
+    'General Counsel': 'Gen. Counsel',
+  };
+  const titleAbbrev = abbrevMap[title] ?? title.split(' ').slice(0, 2).join(' ');
+  return [titleAbbrev && `Fmr. ${titleAbbrev}`, officeName, dates && `(${dates})`]
+    .filter(Boolean)
+    .join(', ');
+}
+
+/* ── AI Insights Banner ─────────────────────────────────────────────────── */
+
+function InsightsBanner() {
+  const api = useApi();
+
+  const insights = useQuery<IntelligenceInsight[]>({
+    queryKey: ['intel-insights'],
+    queryFn: async () => (await api.get<IntelligenceInsight[]>('/api/lda-intel/insights')).data,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  const severityStyle: Record<string, { borderColor: string; bg: string }> = {
+    info: { borderColor: '#2563eb', bg: 'rgba(37,99,235,0.03)' },
+    notable: { borderColor: '#f59e0b', bg: 'rgba(245,158,11,0.03)' },
+    critical: { borderColor: '#ef4444', bg: 'rgba(239,68,68,0.03)' },
+  };
+
+  if (insights.isError || (!insights.isLoading && !(insights.data?.length))) return null;
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <Space>
+          <BulbOutlined style={{ color: '#f59e0b' }} />
+          <Text strong style={{ fontSize: 13 }}>AI Insights</Text>
+          {insights.data?.length ? (
+            <Text type="secondary" style={{ fontSize: 12 }}>{insights.data.length} active</Text>
+          ) : null}
+        </Space>
+        <Button
+          size="small"
+          icon={<SyncOutlined spin={insights.isFetching} />}
+          onClick={() => void insights.refetch()}
+          loading={insights.isFetching}
+        >
+          Refresh Insights
+        </Button>
+      </div>
+      {insights.isLoading ? (
+        <Skeleton active paragraph={{ rows: 1 }} />
+      ) : (
+        <div style={{ display: 'flex', gap: 12, overflowX: 'auto', paddingBottom: 4 }}>
+          {(insights.data ?? []).map((ins) => {
+            const s = severityStyle[ins.severity] ?? { borderColor: '#2563eb', bg: 'rgba(37,99,235,0.03)' };
+            return (
+              <Card
+                key={ins.id}
+                size="small"
+                style={{ minWidth: 220, maxWidth: 280, borderLeft: `3px solid ${s.borderColor}`, background: s.bg, flexShrink: 0 }}
+                bodyStyle={{ padding: '10px 12px' }}
+              >
+                <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 4 }}>{ins.title}</Text>
+                <Paragraph
+                  ellipsis={{ rows: 2 }}
+                  style={{ fontSize: 11, marginBottom: 4, color: 'rgba(0,0,0,0.6)' }}
+                >
+                  {ins.body}
+                </Paragraph>
+                <Text type="secondary" style={{ fontSize: 10 }}>
+                  {new Date(ins.generatedAt).toLocaleString('en-US', {
+                    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                  })}
+                </Text>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Bill detail row (expandable in Congress tab) ───────────────────────── */
+
+function BillDetailRow({ billId }: { billId: string }) {
+  const api = useApi();
+  const detail = useQuery<CongressBillDetail>({
+    queryKey: ['congress-bill-detail', billId],
+    queryFn: async () =>
+      (await api.get<CongressBillDetail>(`/api/lda-intel/congress/bills/${billId}`)).data,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  if (detail.isLoading) return <div style={{ padding: 16 }}><Spin size="small" /></div>;
+  if (detail.isError || !detail.data) return (
+    <div style={{ padding: '8px 24px' }}>
+      <Text type="secondary" style={{ fontSize: 12 }}>Details not available</Text>
+    </div>
+  );
+
+  const d = detail.data;
+  return (
+    <div style={{ padding: '8px 32px 16px', background: 'rgba(0,0,0,0.02)' }}>
+      <Row gutter={24}>
+        <Col span={10}>
+          <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Actions Timeline</Text>
+          {d.actions?.length > 0 ? (
+            <Timeline
+              items={(d.actions ?? []).slice(0, 8).map((a) => ({
+                key: a.id,
+                children: (
+                  <div>
+                    <Text style={{ fontSize: 11 }}>{a.text}</Text>
+                    <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>
+                      {new Date(a.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })}
+                      {a.chamber ? ` · ${a.chamber}` : ''}
+                    </Text>
+                  </div>
+                ),
+              }))}
+            />
+          ) : (
+            <Text type="secondary" style={{ fontSize: 12 }}>No actions recorded</Text>
+          )}
+        </Col>
+        <Col span={7}>
+          <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Committee Referrals</Text>
+          {d.committees?.length > 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {(d.committees ?? []).map((c) => (
+                <div key={c.id}>
+                  <Text style={{ fontSize: 12 }}>{c.committeeName}</Text>
+                  {c.chamber && <Tag style={{ marginLeft: 4, fontSize: 10 }}>{c.chamber}</Tag>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 12 }}>No committee referrals</Text>
+          )}
+        </Col>
+        <Col span={7}>
+          <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>Subjects</Text>
+          {d.subjects?.length > 0 ? (
+            <Space size={[4, 6]} wrap>
+              {(d.subjects ?? []).map((s) => (
+                <Tag key={s.id} style={{ fontSize: 11 }}>{s.name}</Tag>
+              ))}
+            </Space>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 12 }}>No subjects recorded</Text>
+          )}
+        </Col>
+      </Row>
+    </div>
+  );
+}
+
 /* ── Main page ──────────────────────────────────────────────────────────── */
 
 export function IntelligenceCenterPage() {
+  const api = useApi();
+  const [activeTab, setActiveTab] = useState('lda');
+  const [clientFilter, setClientFilter] = useState('');
+
+  const clientsQuery = useQuery<PagedResult<LdaClient>>({
+    queryKey: ['lda-clients-dropdown'],
+    queryFn: async () =>
+      (await api.get<PagedResult<LdaClient>>('/api/lda-intel/clients', { params: { limit: 100 } })).data,
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+
+  function navigateTo(tab: string, client?: string) {
+    if (client !== undefined) setClientFilter(client);
+    setActiveTab(tab);
+  }
+
+  const clientOptions = [
+    { label: 'All Data', value: '' },
+    ...(clientsQuery.data?.data ?? []).map((c) => ({ label: c.name, value: c.name })),
+  ];
+
   return (
     <div style={{ padding: '24px 32px', overflow: 'auto', height: '100%' }}>
+      <InsightsBanner />
       <Tabs
-        defaultActiveKey="lda"
+        activeKey={activeTab}
+        onChange={setActiveTab}
         size="large"
+        tabBarExtraContent={{
+          right: (
+            <Select
+              value={clientFilter || undefined}
+              placeholder="All Data"
+              allowClear
+              style={{ width: 220 }}
+              options={clientOptions}
+              onChange={(v) => setClientFilter(v ?? '')}
+              loading={clientsQuery.isLoading}
+              showSearch
+              filterOption={(input, opt) =>
+                (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())
+              }
+            />
+          ),
+        }}
         items={[
           {
             key: 'lda',
             label: <span><AuditOutlined /> LDA Overview</span>,
-            children: <LdaOverviewPanel />,
+            children: <LdaOverviewPanel clientFilter={clientFilter} onNavigate={navigateTo} />,
           },
           {
             key: 'filings',
             label: <span><FileTextOutlined /> Filings</span>,
-            children: <FilingsPanel />,
+            children: <FilingsPanel key={clientFilter} defaultClient={clientFilter} />,
           },
           {
             key: 'firms',
             label: <span><ShopOutlined /> Firms</span>,
-            children: <FirmsPanel />,
+            children: <FirmsPanel onNavigate={navigateTo} />,
           },
           {
             key: 'lobbyists',
@@ -303,7 +573,7 @@ export function IntelligenceCenterPage() {
           {
             key: 'congress',
             label: <span><BookOutlined /> Congress</span>,
-            children: <CongressPanel />,
+            children: <CongressPanel key={clientFilter} defaultSearch={clientFilter} />,
           },
           {
             key: 'pacs',
@@ -325,6 +595,11 @@ export function IntelligenceCenterPage() {
             label: <span><FireOutlined /> Lobby Intel</span>,
             children: <LobbyingPanel />,
           },
+          {
+            key: 'regulations',
+            label: <span><CalendarOutlined /> Regulations</span>,
+            children: <RegulationsPanel />,
+          },
         ]}
       />
     </div>
@@ -333,7 +608,13 @@ export function IntelligenceCenterPage() {
 
 /* ── LDA Overview Panel ─────────────────────────────────────────────────── */
 
-function LdaOverviewPanel() {
+function LdaOverviewPanel({
+  clientFilter = '',
+  onNavigate,
+}: {
+  clientFilter?: string;
+  onNavigate?: (tab: string, client?: string) => void;
+}) {
   const api = useApi();
   const [selectedIssue, setSelectedIssue] = useState<string | null>(null);
 
@@ -384,8 +665,31 @@ function LdaOverviewPanel() {
   const maxIssueSpend = Math.max(1, ...topIssues.map((i) => i.totalSpending5y ?? 0));
   const topEntities = entities.data?.slice(0, 15) ?? [];
   const maxEntityFilings = Math.max(1, ...topEntities.map((e) => e.totalFilings5y));
-  const topClients = dash?.topClients ?? [];
+  const topClients = (dash?.topClients ?? []).filter(
+    (c) => !clientFilter || c.name.toLowerCase().includes(clientFilter.toLowerCase()),
+  );
   const maxClientSpend = Math.max(1, ...topClients.map((c) => c.totalSpending ?? 0));
+
+  const sortedTrends = useMemo(
+    () =>
+      [...(trends.data ?? [])].sort((a, b) =>
+        a.year !== b.year ? a.year - b.year : a.period.localeCompare(b.period),
+      ),
+    [trends.data],
+  );
+  const latestTrend = sortedTrends[sortedTrends.length - 1];
+  const priorTrend = sortedTrends[sortedTrends.length - 2];
+  const qoqFilingChange =
+    latestTrend && priorTrend && priorTrend.filingCount > 0
+      ? ((latestTrend.filingCount - priorTrend.filingCount) / priorTrend.filingCount) * 100
+      : null;
+  const qoqIncomeChange =
+    latestTrend && priorTrend && (priorTrend.totalIncome ?? 0) > 0
+      ? (((latestTrend.totalIncome ?? 0) - (priorTrend.totalIncome ?? 0)) /
+          (priorTrend.totalIncome ?? 1)) *
+        100
+      : null;
+  const topSurgingIssue = topIssues[0] ?? null;
 
   return (
     <div>
@@ -423,6 +727,74 @@ function LdaOverviewPanel() {
           </Card>
         ))}
       </div>
+
+      {/* QoQ Comparison cards */}
+      {!trends.isLoading && sortedTrends.length >= 2 && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
+          <Card size="small" style={{ borderTop: '3px solid #10b981' }}>
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+              Filings QoQ — {latestTrend?.year} {latestTrend?.period}
+            </Text>
+            {qoqFilingChange != null ? (
+              <Space align="center">
+                <Text strong style={{ fontSize: 22, color: qoqFilingChange >= 0 ? '#10b981' : '#ef4444' }}>
+                  {qoqFilingChange >= 0 ? '+' : ''}{Math.round(qoqFilingChange)}%
+                </Text>
+                {qoqFilingChange >= 0 ? (
+                  <ArrowUpOutlined style={{ color: '#10b981' }} />
+                ) : (
+                  <ArrowDownOutlined style={{ color: '#ef4444' }} />
+                )}
+              </Space>
+            ) : (
+              <Text type="secondary">—</Text>
+            )}
+            <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+              {formatNum(latestTrend?.filingCount)} vs {formatNum(priorTrend?.filingCount)} prior
+            </Text>
+          </Card>
+          <Card size="small" style={{ borderTop: '3px solid #8b5cf6' }}>
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+              Income QoQ — {latestTrend?.year} {latestTrend?.period}
+            </Text>
+            {qoqIncomeChange != null ? (
+              <Space align="center">
+                <Text strong style={{ fontSize: 22, color: qoqIncomeChange >= 0 ? '#8b5cf6' : '#ef4444' }}>
+                  {qoqIncomeChange >= 0 ? '+' : ''}{Math.round(qoqIncomeChange)}%
+                </Text>
+                {qoqIncomeChange >= 0 ? (
+                  <ArrowUpOutlined style={{ color: '#8b5cf6' }} />
+                ) : (
+                  <ArrowDownOutlined style={{ color: '#ef4444' }} />
+                )}
+              </Space>
+            ) : (
+              <Text type="secondary">—</Text>
+            )}
+            <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+              {formatMoney(latestTrend?.totalIncome)} vs {formatMoney(priorTrend?.totalIncome)}
+            </Text>
+          </Card>
+          <Card size="small" style={{ borderTop: '3px solid #f59e0b' }}>
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+              Top Issue Area (5yr spend)
+            </Text>
+            {topSurgingIssue ? (
+              <>
+                <Text strong style={{ fontSize: 22, color: '#f59e0b' }}>{topSurgingIssue.code}</Text>
+                <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
+                  {topSurgingIssue.name}
+                </Text>
+                <Text type="secondary" style={{ fontSize: 11 }}>
+                  {formatMoney(topSurgingIssue.totalSpending5y)}
+                </Text>
+              </>
+            ) : (
+              <Text type="secondary">—</Text>
+            )}
+          </Card>
+        </div>
+      )}
 
       {/* Spending Trends */}
       <Card
@@ -534,8 +906,14 @@ function LdaOverviewPanel() {
                   }}
                 >
                   <Text type="secondary" style={{ fontSize: 11 }}>{i + 1}</Text>
-                  <Tooltip title={c.name}>
-                    <Text ellipsis style={{ fontSize: 13 }}>{c.name}</Text>
+                  <Tooltip title={`View filings for ${c.name}`}>
+                    <Text
+                      ellipsis
+                      style={{ fontSize: 13, cursor: 'pointer', color: '#2563eb' }}
+                      onClick={() => onNavigate?.('filings', c.name)}
+                    >
+                      {c.name}
+                    </Text>
                   </Tooltip>
                   <HBar value={c.totalSpending ?? 0} max={maxClientSpend} width={110} />
                   <Text type="secondary" style={{ fontSize: 12, textAlign: 'right' }}>
@@ -657,14 +1035,14 @@ function LdaOverviewPanel() {
 
 /* ── Filings Panel ──────────────────────────────────────────────────────── */
 
-function FilingsPanel() {
+function FilingsPanel({ defaultClient = '' }: { defaultClient?: string }) {
   const api = useApi();
   const [page, setPage] = useState(1);
-  const [client, setClient] = useState('');
+  const [client, setClient] = useState(defaultClient);
   const [registrant, setRegistrant] = useState('');
   const [year, setYear] = useState<number | undefined>();
   const [issue, setIssue] = useState('');
-  const [search, setSearch] = useState({ client: '', registrant: '', year: undefined as number | undefined, issue: '' });
+  const [search, setSearch] = useState({ client: defaultClient, registrant: '', year: undefined as number | undefined, issue: '' });
 
   const filings = useQuery<PagedResult<LdaFiling>>({
     queryKey: ['lda-filings', page, search],
@@ -768,7 +1146,7 @@ function FilingsPanel() {
 
 /* ── Firms Panel ────────────────────────────────────────────────────────── */
 
-function FirmsPanel() {
+function FirmsPanel({ onNavigate }: { onNavigate?: (tab: string, client?: string) => void }) {
   const api = useApi();
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
@@ -822,7 +1200,15 @@ function FirmsPanel() {
               dataIndex: 'name',
               render: (n: string, r: LdaRegistrant) => (
                 <div>
-                  <Text strong style={{ fontSize: 13 }}>{n}</Text>
+                  <Tooltip title="View filings for this firm">
+                    <Text
+                      strong
+                      style={{ fontSize: 13, cursor: 'pointer', color: '#2563eb' }}
+                      onClick={() => onNavigate?.('filings', n)}
+                    >
+                      {n}
+                    </Text>
+                  </Tooltip>
                   {(r.city || r.state) && (
                     <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
                       {[r.city, r.state].filter(Boolean).join(', ')}
@@ -932,16 +1318,26 @@ function LobbyistsPanel() {
               ),
             },
             {
-              title: 'Covered Positions',
+              title: 'Former Positions',
               dataIndex: 'coveredPositions',
               render: (positions: unknown[]) => {
-                const count = Array.isArray(positions) ? positions.length : 0;
-                return count > 0 ? (
-                  <Badge count={count} color="#8b5cf6">
-                    <Tag>Gov. roles</Tag>
-                  </Badge>
-                ) : (
-                  <Text type="secondary" style={{ fontSize: 12 }}>None</Text>
+                const arr = Array.isArray(positions) ? positions : [];
+                if (arr.length === 0) return <Text type="secondary" style={{ fontSize: 12 }}>—</Text>;
+                const first = formatPosition(arr[0]);
+                return (
+                  <Tooltip
+                    title={arr.map((p, i) => formatPosition(p) || `Role ${i + 1}`).join(' | ')}
+                  >
+                    <Space direction="vertical" size={2}>
+                      <Space size={4}>
+                        <Badge color="gold" />
+                        <Text style={{ fontSize: 12 }}>{first || 'Gov. role'}</Text>
+                      </Space>
+                      {arr.length > 1 && (
+                        <Text type="secondary" style={{ fontSize: 11 }}>+{arr.length - 1} more</Text>
+                      )}
+                    </Space>
+                  </Tooltip>
                 );
               },
             },
@@ -961,19 +1357,33 @@ function LobbyistsPanel() {
 
 /* ── Congress Panel ─────────────────────────────────────────────────────── */
 
-function CongressPanel() {
+function CongressPanel({ defaultSearch = '' }: { defaultSearch?: string }) {
   const api = useApi();
-  const [search, setSearch] = useState('');
-  const [query, setQuery] = useState('');
+  const [search, setSearch] = useState(defaultSearch);
+  const [query, setQuery] = useState(defaultSearch);
   const [policyArea, setPolicyArea] = useState('');
   const [congress, setCongress] = useState<number | undefined>();
+  const [activeBillsOnly, setActiveBillsOnly] = useState(false);
   const [page, setPage] = useState(1);
 
+  const activeSince = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split('T')[0];
+  }, []);
+
   const bills = useQuery<PagedResult<CongressBill>>({
-    queryKey: ['lda-bills', query, policyArea, congress, page],
+    queryKey: ['lda-bills', query, policyArea, congress, activeBillsOnly, page],
     queryFn: async () =>
       (await api.get<PagedResult<CongressBill>>('/api/lda-intel/congress/bills', {
-        params: { q: query || undefined, policyArea: policyArea || undefined, congress, page, limit: 25 },
+        params: {
+          q: query || undefined,
+          policyArea: policyArea || undefined,
+          congress,
+          page,
+          limit: 25,
+          activeSince: activeBillsOnly ? activeSince : undefined,
+        },
       })).data,
     staleTime: 60 * 1000,
   });
@@ -1021,6 +1431,15 @@ function CongressPanel() {
           <Col>
             <Input.Search enterButton="Search" onSearch={applySearch} style={{ width: 100 }} />
           </Col>
+          <Col>
+            <Button
+              type={activeBillsOnly ? 'primary' : 'default'}
+              size="middle"
+              onClick={() => { setActiveBillsOnly((v) => !v); setPage(1); }}
+            >
+              {activeBillsOnly ? '✓ Active Bills' : 'Active Bills'}
+            </Button>
+          </Col>
         </Row>
       </Card>
 
@@ -1032,6 +1451,10 @@ function CongressPanel() {
           rowKey="id"
           dataSource={bills.data?.data ?? []}
           loading={bills.isFetching}
+          expandable={{
+            expandedRowRender: (record) => <BillDetailRow billId={record.id} />,
+            rowExpandable: () => true,
+          }}
           pagination={{
             current: page,
             pageSize: 25,
@@ -1552,6 +1975,246 @@ function LobbyingPanel() {
           </Card>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Regulations Panel (Federal Register) ───────────────────────────────── */
+
+function RegulationsPanel() {
+  const api = useApi();
+  const [agency, setAgency] = useState('');
+  const [queryAgency, setQueryAgency] = useState('');
+  const [docType, setDocType] = useState<string | undefined>();
+  const [page, setPage] = useState(1);
+
+  const typeColors: Record<string, string> = {
+    RULE: 'red',
+    PROPOSED_RULE: 'orange',
+    NOTICE: 'blue',
+    PRESIDENTIAL_DOCUMENT: 'purple',
+  };
+
+  function daysTill(dateStr: string): number {
+    return Math.ceil((new Date(dateStr).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+  }
+
+  const deadlines = useQuery<FederalRegisterDoc[]>({
+    queryKey: ['federal-register-deadlines'],
+    queryFn: async () =>
+      (await api.get<FederalRegisterDoc[]>('/api/federal-register/upcoming-deadlines')).data,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  const docs = useQuery<PagedResult<FederalRegisterDoc>>({
+    queryKey: ['federal-register-docs', page, queryAgency, docType],
+    queryFn: async () =>
+      (await api.get<PagedResult<FederalRegisterDoc>>('/api/federal-register/documents', {
+        params: { page, limit: 25, agency: queryAgency || undefined, type: docType || undefined },
+      })).data,
+    staleTime: 60 * 1000,
+    retry: 1,
+  });
+
+  function applySearch() {
+    setQueryAgency(agency);
+    setPage(1);
+  }
+
+  return (
+    <div>
+      {/* Upcoming deadlines strip */}
+      {!deadlines.isLoading && (deadlines.data?.length ?? 0) > 0 && (
+        <Card
+          size="small"
+          title={<Space><CalendarOutlined style={{ color: '#ef4444' }} /><span>Upcoming Comment Deadlines</span></Space>}
+          style={{ marginBottom: 16 }}
+        >
+          <div style={{ display: 'flex', gap: 10, overflowX: 'auto', paddingBottom: 4 }}>
+            {(deadlines.data ?? []).slice(0, 10).map((doc) => {
+              const days = daysTill(doc.commentEndDate!);
+              const urgent = days <= 7;
+              return (
+                <Card
+                  key={doc.id}
+                  size="small"
+                  style={{
+                    minWidth: 200,
+                    maxWidth: 240,
+                    borderLeft: `3px solid ${urgent ? '#ef4444' : '#f59e0b'}`,
+                    flexShrink: 0,
+                  }}
+                  bodyStyle={{ padding: '8px 10px' }}
+                >
+                  <Tag
+                    color={typeColors[doc.type] ?? 'default'}
+                    style={{ marginBottom: 4, fontSize: 10 }}
+                  >
+                    {doc.type.replace(/_/g, ' ')}
+                  </Tag>
+                  <Tooltip title={doc.title}>
+                    <Text ellipsis style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                      {doc.title}
+                    </Text>
+                  </Tooltip>
+                  <Text strong style={{ fontSize: 14, color: urgent ? '#ef4444' : '#f59e0b' }}>
+                    {days <= 0 ? 'Closed' : `${days}d left`}
+                  </Text>
+                </Card>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* Filters */}
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Row gutter={[8, 8]} align="middle">
+          <Col flex="1">
+            <Input
+              placeholder="Filter by agency…"
+              value={agency}
+              onChange={(e) => setAgency(e.target.value)}
+              onPressEnter={applySearch}
+            />
+          </Col>
+          <Col style={{ width: 200 }}>
+            <Select
+              style={{ width: '100%' }}
+              placeholder="Document type"
+              allowClear
+              value={docType}
+              onChange={(v) => { setDocType(v); setPage(1); }}
+              options={[
+                { label: 'Rule', value: 'RULE' },
+                { label: 'Proposed Rule', value: 'PROPOSED_RULE' },
+                { label: 'Notice', value: 'NOTICE' },
+                { label: 'Presidential Document', value: 'PRESIDENTIAL_DOCUMENT' },
+              ]}
+            />
+          </Col>
+          <Col>
+            <Input.Search enterButton="Search" onSearch={applySearch} style={{ width: 100 }} />
+          </Col>
+        </Row>
+      </Card>
+
+      {docs.isLoading ? (
+        <Skeleton active paragraph={{ rows: 8 }} />
+      ) : docs.isError ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="Federal Register data not yet synced"
+          description={
+            <span>
+              Run <Text code>pnpm --filter @capiro/api sync:federal-register</Text> to populate.
+            </span>
+          }
+          style={{ marginBottom: 16 }}
+        />
+      ) : (
+        <Table<FederalRegisterDoc>
+          size="small"
+          rowKey="id"
+          dataSource={docs.data?.data ?? []}
+          loading={docs.isFetching}
+          onRow={(record) => {
+            if (!record.commentEndDate) return {};
+            const days = daysTill(record.commentEndDate);
+            if (days > 0 && days <= 7) return { style: { background: 'rgba(239,68,68,0.06)' } };
+            if (days > 0 && days <= 14) return { style: { background: 'rgba(245,158,11,0.06)' } };
+            return {};
+          }}
+          pagination={{
+            current: page,
+            pageSize: 25,
+            total: docs.data?.total ?? 0,
+            onChange: (p) => setPage(p),
+            showTotal: (t) => `${t.toLocaleString()} documents`,
+          }}
+          columns={[
+            {
+              title: 'Date',
+              dataIndex: 'publicationDate',
+              width: 95,
+              render: (v: string) =>
+                new Date(v).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: '2-digit',
+                }),
+            },
+            {
+              title: 'Type',
+              dataIndex: 'type',
+              width: 130,
+              render: (v: string) => (
+                <Tag color={typeColors[v] ?? 'default'} style={{ fontSize: 10 }}>
+                  {v.replace(/_/g, ' ')}
+                </Tag>
+              ),
+            },
+            {
+              title: 'Title',
+              dataIndex: 'title',
+              render: (t: string, r: FederalRegisterDoc) =>
+                r.htmlUrl ? (
+                  <a href={r.htmlUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
+                    {t}
+                  </a>
+                ) : (
+                  <Text style={{ fontSize: 12 }}>{t}</Text>
+                ),
+            },
+            {
+              title: 'Agencies',
+              dataIndex: 'agencyNames',
+              width: 200,
+              render: (agencies: string[]) => (
+                <Space size={[2, 4]} wrap>
+                  {(agencies ?? []).slice(0, 2).map((a) => (
+                    <Tag key={a} style={{ fontSize: 10, margin: 0 }}>
+                      {a}
+                    </Tag>
+                  ))}
+                  {(agencies?.length ?? 0) > 2 && (
+                    <Text type="secondary" style={{ fontSize: 11 }}>
+                      +{agencies.length - 2}
+                    </Text>
+                  )}
+                </Space>
+              ),
+            },
+            {
+              title: 'Comment Deadline',
+              dataIndex: 'commentEndDate',
+              width: 145,
+              render: (v: string | null) => {
+                if (!v) return <Text type="secondary">—</Text>;
+                const days = daysTill(v);
+                const color = days <= 7 ? '#ef4444' : days <= 14 ? '#f59e0b' : undefined;
+                return (
+                  <Space size={4}>
+                    <Text style={{ fontSize: 12, color }}>
+                      {new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </Text>
+                    {days > 0 && days <= 30 && (
+                      <Tag color={days <= 7 ? 'red' : 'orange'} style={{ fontSize: 10, margin: 0 }}>
+                        {days}d
+                      </Tag>
+                    )}
+                    {days <= 0 && (
+                      <Tag color="default" style={{ fontSize: 10, margin: 0 }}>closed</Tag>
+                    )}
+                  </Space>
+                );
+              },
+            },
+          ]}
+        />
+      )}
     </div>
   );
 }
