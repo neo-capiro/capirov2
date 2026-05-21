@@ -42,15 +42,31 @@ export DATABASE_URL="postgresql://${DB_USER}:${ENCODED_PASSWORD}@${DB_HOST}:${DB
 case "${1:-serve}" in
   migrate)
     echo "Running prisma migrate deploy"
-    # If a previous migration failed, resolve it as rolled-back first
-    FAILED=$(node ./node_modules/prisma/build/index.js migrate status --schema=./prisma/schema.prisma 2>&1 | grep "failed" || true)
-    if [ -n "$FAILED" ]; then
-      FAILED_NAME=$(echo "$FAILED" | sed -n 's/.*`\(.*\)`.*/\1/p')
-      if [ -n "$FAILED_NAME" ]; then
-        echo "Resolving failed migration: $FAILED_NAME"
-        node ./node_modules/prisma/build/index.js migrate resolve --rolled-back "$FAILED_NAME" --schema=./prisma/schema.prisma
-      fi
-    fi
+    # Auto-resolve any previously failed migrations before deploying.
+    # Prisma refuses to apply new migrations if a prior one is in failed state.
+    # We query the _prisma_migrations table directly for any failed entries and
+    # mark them as rolled-back so migrate deploy can proceed cleanly.
+    node -e "
+      const { PrismaClient } = require('@prisma/client');
+      const p = new PrismaClient();
+      (async () => {
+        try {
+          const failed = await p.\$queryRaw\`
+            SELECT migration_name FROM _prisma_migrations
+            WHERE finished_at IS NULL AND rolled_back_at IS NULL
+          \`;
+          for (const row of failed) {
+            console.log('Resolving failed migration:', row.migration_name);
+            await p.\$executeRaw\`
+              UPDATE _prisma_migrations
+              SET rolled_back_at = NOW()
+              WHERE migration_name = \${row.migration_name}
+            \`;
+          }
+        } catch (e) { /* table may not exist on first run */ }
+        await p.\$disconnect();
+      })();
+    "
     node ./node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
     echo "Seeding workflow templates"
     # Data seed (idempotent UPSERTs). Source of truth is prisma/seed-workflows.ts.
