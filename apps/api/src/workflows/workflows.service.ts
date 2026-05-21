@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { WorkflowStatus } from '@prisma/client';
+import { Prisma, WorkflowStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AppConfig } from '../config/config.schema.js';
 import type { CreateWorkflowInstanceDto } from './dto/create-workflow-instance.dto.js';
@@ -91,7 +91,8 @@ export class WorkflowsService {
     if (dto.title !== undefined) data.title = dto.title;
     if (dto.notes !== undefined) data.notes = dto.notes;
     if (dto.targetMemberId !== undefined) data.targetMemberId = dto.targetMemberId;
-    if (dto.submissionDeadline !== undefined) data.submissionDeadline = new Date(dto.submissionDeadline);
+    if (dto.submissionDeadline !== undefined)
+      data.submissionDeadline = new Date(dto.submissionDeadline);
     if (dto.submissionMethod !== undefined) data.submissionMethod = dto.submissionMethod;
     if (dto.status === WorkflowStatus.complete) data.completedAt = new Date();
 
@@ -123,6 +124,10 @@ export class WorkflowsService {
         `Client not found. Make sure the client exists and belongs to your organization.`,
       );
     }
+    const [meetingAssociationWhere, mailThreadAssociationWhere] = await Promise.all([
+      clientMeetingAssociationWhere(this.prisma, tenantId, clientId),
+      clientMailThreadAssociationWhere(this.prisma, tenantId, clientId),
+    ]);
 
     // Fetch ALL client context: attachments, meetings, mail threads, engagement tasks, notes
     const [attachments, meetings, mailThreads, tasks, clioNotes, directoryNotes] =
@@ -133,13 +138,13 @@ export class WorkflowsService {
           take: 10,
         }),
         this.prisma.meeting.findMany({
-          where: { tenantId, clientId },
+          where: { AND: [{ tenantId }, meetingAssociationWhere] },
           orderBy: { startsAt: 'desc' },
           take: 10,
           select: { subject: true, description: true, startsAt: true, status: true },
         }),
         this.prisma.mailThread.findMany({
-          where: { tenantId, clientId },
+          where: { AND: [{ tenantId }, mailThreadAssociationWhere] },
           orderBy: { lastMessageAt: 'desc' },
           take: 10,
           select: { subject: true, snippet: true, lastMessageAt: true },
@@ -172,9 +177,9 @@ export class WorkflowsService {
     const sections = (requiredSections as Record<string, unknown> | null)?.sections as
       | Record<string, unknown>
       | undefined;
-    const typeSection = (
-      requestType === 'funding' ? sections?.funding : sections?.policy
-    ) as Record<string, unknown> | undefined;
+    const typeSection = (requestType === 'funding' ? sections?.funding : sections?.policy) as
+      | Record<string, unknown>
+      | undefined;
     const section1 = typeSection?.section1 as Record<string, unknown> | undefined;
     const allFields = (section1?.fields ?? []) as Array<{
       key: string;
@@ -187,8 +192,7 @@ export class WorkflowsService {
 
     // Fill ALL empty fields — text, textarea, integer, select, and boolean
     const fillableFields = allFields.filter(
-      (f) =>
-        formData[f.key] === undefined || formData[f.key] === null || formData[f.key] === '',
+      (f) => formData[f.key] === undefined || formData[f.key] === null || formData[f.key] === '',
     );
 
     if (fillableFields.length === 0) return { suggestions: {} };
@@ -198,8 +202,7 @@ export class WorkflowsService {
     let totalChars = 0;
     for (const att of attachments) {
       if (totalChars >= MAX_DOC_CHARS) break;
-      const isText =
-        att.contentType.startsWith('text/') || att.contentType === 'application/json';
+      const isText = att.contentType.startsWith('text/') || att.contentType === 'application/json';
       if (!isText) continue;
       try {
         const obj = await this.s3.send(
@@ -235,7 +238,10 @@ export class WorkflowsService {
     if (meetings.length) {
       clientContext.push(
         `\nRECENT MEETINGS (${meetings.length}):\n${meetings
-          .map((m) => `  - ${m.subject}${m.description ? ': ' + m.description.slice(0, 200) : ''} (${String(m.startsAt).slice(0, 10)})`)
+          .map(
+            (m) =>
+              `  - ${m.subject}${m.description ? ': ' + m.description.slice(0, 200) : ''} (${String(m.startsAt).slice(0, 10)})`,
+          )
           .join('\n')}`,
       );
     }
@@ -251,7 +257,10 @@ export class WorkflowsService {
     if (tasks.length) {
       clientContext.push(
         `\nENGAGEMENT TASKS (${tasks.length}):\n${tasks
-          .map((t) => `  - [${t.status}] ${t.title}${t.description ? ': ' + t.description.slice(0, 150) : ''}`)
+          .map(
+            (t) =>
+              `  - [${t.status}] ${t.title}${t.description ? ': ' + t.description.slice(0, 150) : ''}`,
+          )
           .join('\n')}`,
       );
     }
@@ -267,7 +276,10 @@ export class WorkflowsService {
     if (directoryNotes.length) {
       clientContext.push(
         `\nOUTREACH RECORDS (${directoryNotes.length}):\n${directoryNotes
-          .map((r) => `  - [${r.type}/${r.status}] ${r.title}${r.body ? ': ' + r.body.slice(0, 200) : ''}`)
+          .map(
+            (r) =>
+              `  - [${r.type}/${r.status}] ${r.title}${r.body ? ': ' + r.body.slice(0, 200) : ''}`,
+          )
           .join('\n')}`,
       );
     }
@@ -299,15 +311,14 @@ export class WorkflowsService {
         : 'No text documents available.',
       '',
       'FIELDS TO FILL (currently empty — fill as many as you can):',
-      ...fillableFields.map(
-        (f) => {
-          let desc = `  - key: "${f.key}", label: "${f.label}", type: "${f.type}"`;
-          if (f.options?.length) desc += `, VALID OPTIONS: [${f.options.map(o => `"${o}"`).join(', ')}]`;
-          if (f.maxLength) desc += `, max ${f.maxLength} chars`;
-          if (f.helpText) desc += `, hint: "${f.helpText}"`;
-          return desc;
-        },
-      ),
+      ...fillableFields.map((f) => {
+        let desc = `  - key: "${f.key}", label: "${f.label}", type: "${f.type}"`;
+        if (f.options?.length)
+          desc += `, VALID OPTIONS: [${f.options.map((o) => `"${o}"`).join(', ')}]`;
+        if (f.maxLength) desc += `, max ${f.maxLength} chars`;
+        if (f.helpText) desc += `, hint: "${f.helpText}"`;
+        return desc;
+      }),
       '',
       'CURRENT FORM VALUES (already filled by user, for reference):',
       JSON.stringify(
@@ -339,7 +350,8 @@ export class WorkflowsService {
 
     const json = (await response.json()) as Record<string, unknown>;
     if (!response.ok) {
-      const err = (json.error as Record<string, unknown> | undefined)?.message ?? `HTTP ${response.status}`;
+      const err =
+        (json.error as Record<string, unknown> | undefined)?.message ?? `HTTP ${response.status}`;
       throw new ServiceUnavailableException(`AI fill failed: ${String(err)}`);
     }
 
@@ -350,7 +362,9 @@ export class WorkflowsService {
 
   async enhanceField(tenantId: string, instanceId: string, fieldKey: string, currentValue: string) {
     if (!this.anthropicKey) {
-      throw new ServiceUnavailableException('AI enhancement is not configured. Set ANTHROPIC_API_KEY.');
+      throw new ServiceUnavailableException(
+        'AI enhancement is not configured. Set ANTHROPIC_API_KEY.',
+      );
     }
     await this.getInstance(tenantId, instanceId);
 
@@ -366,14 +380,16 @@ export class WorkflowsService {
       body: JSON.stringify({
         model: AI_FILL_MODEL,
         max_tokens: 1000,
-        system: 'You are an expert government affairs writer. Enhance the provided text to be more professional, specific, and persuasive while preserving all original facts and intent. Return only the improved text.',
+        system:
+          'You are an expert government affairs writer. Enhance the provided text to be more professional, specific, and persuasive while preserving all original facts and intent. Return only the improved text.',
         messages: [{ role: 'user', content: prompt }],
       }),
     });
 
     const json = (await response.json()) as Record<string, unknown>;
     if (!response.ok) {
-      const err = (json.error as Record<string, unknown> | undefined)?.message ?? `HTTP ${response.status}`;
+      const err =
+        (json.error as Record<string, unknown> | undefined)?.message ?? `HTTP ${response.status}`;
       throw new ServiceUnavailableException(`AI enhancement failed: ${String(err)}`);
     }
 
@@ -382,7 +398,9 @@ export class WorkflowsService {
 
   async generateDocument(tenantId: string, instanceId: string) {
     if (!this.anthropicKey) {
-      throw new ServiceUnavailableException('AI document generation is not configured. Set ANTHROPIC_API_KEY.');
+      throw new ServiceUnavailableException(
+        'AI document generation is not configured. Set ANTHROPIC_API_KEY.',
+      );
     }
 
     const instance = await this.prisma.workflowInstance.findUnique({
@@ -412,6 +430,38 @@ export class WorkflowsService {
     const client = instance.clientId
       ? await this.prisma.client.findUnique({ where: { id: instance.clientId } })
       : null;
+    const [recentMeetings, recentMailThreads] = client
+      ? await Promise.all([
+          this.prisma.meeting.findMany({
+            where: {
+              AND: [
+                { tenantId },
+                await clientMeetingAssociationWhere(this.prisma, tenantId, client.id),
+              ],
+            },
+            orderBy: { startsAt: 'desc' },
+            take: 8,
+            select: {
+              subject: true,
+              description: true,
+              startsAt: true,
+              location: true,
+              status: true,
+            },
+          }),
+          this.prisma.mailThread.findMany({
+            where: {
+              AND: [
+                { tenantId },
+                await clientMailThreadAssociationWhere(this.prisma, tenantId, client.id),
+              ],
+            },
+            orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
+            take: 8,
+            select: { subject: true, snippet: true, lastMessageAt: true },
+          }),
+        ])
+      : [[], []];
 
     const strategy = instance.strategy as {
       name: string;
@@ -446,14 +496,16 @@ export class WorkflowsService {
     if (client) {
       contextBlocks.push(`CLIENT: ${client.name}`);
       if (client.description) contextBlocks.push(`CLIENT DESCRIPTION: ${client.description}`);
-      if (client.productDescription) contextBlocks.push(`PRODUCT/SERVICE: ${client.productDescription}`);
+      if (client.productDescription)
+        contextBlocks.push(`PRODUCT/SERVICE: ${client.productDescription}`);
     }
 
     if (strategy?.capability) {
       const cap = strategy.capability;
       contextBlocks.push(`PROGRAM: ${cap.name}`);
       if (cap.peNumber) contextBlocks.push(`PE NUMBER: ${cap.peNumber}`);
-      if (cap.appropriationAccount) contextBlocks.push(`APPROPRIATION ACCOUNT: ${cap.appropriationAccount}`);
+      if (cap.appropriationAccount)
+        contextBlocks.push(`APPROPRIATION ACCOUNT: ${cap.appropriationAccount}`);
       if (cap.fundingAsk) contextBlocks.push(`FUNDING ASK: $${cap.fundingAsk.toLocaleString()}`);
       if (cap.description) contextBlocks.push(`CAPABILITY DESCRIPTION: ${cap.description}`);
       if (cap.justification) contextBlocks.push(`JUSTIFICATION: ${cap.justification}`);
@@ -473,6 +525,32 @@ export class WorkflowsService {
 
     if (Object.keys(siblingData).length) {
       contextBlocks.push(`RELATED SUBMISSION DATA:\n${JSON.stringify(siblingData, null, 2)}`);
+    }
+
+    if (recentMeetings.length) {
+      contextBlocks.push(
+        `RECENT CLIENT MEETINGS:\n${recentMeetings
+          .map((meeting) => {
+            const date = meeting.startsAt.toISOString().slice(0, 10);
+            const details = meeting.description ? `: ${meeting.description.slice(0, 240)}` : '';
+            return `- ${meeting.subject}${details} (${date})`;
+          })
+          .join('\n')}`,
+      );
+    }
+
+    if (recentMailThreads.length) {
+      contextBlocks.push(
+        `RECENT CLIENT EMAIL THREADS:\n${recentMailThreads
+          .map((thread) => {
+            const date = thread.lastMessageAt
+              ? thread.lastMessageAt.toISOString().slice(0, 10)
+              : 'unknown date';
+            const snippet = thread.snippet ? `: ${thread.snippet.slice(0, 200)}` : '';
+            return `- ${thread.subject}${snippet} (${date})`;
+          })
+          .join('\n')}`,
+      );
     }
 
     const existingFormData = (instance.formData ?? {}) as Record<string, unknown>;
@@ -545,7 +623,9 @@ Format as a formal business letter:
 Tone: warm but professional. One page (250-350 words).`,
     };
 
-    const typePrompt = templatePrompts[templateSlug] ?? 'Generate a professional congressional advocacy document based on the provided context.';
+    const typePrompt =
+      templatePrompts[templateSlug] ??
+      'Generate a professional congressional advocacy document based on the provided context.';
 
     const prompt = [
       typePrompt,
@@ -567,14 +647,16 @@ Tone: warm but professional. One page (250-350 words).`,
       body: JSON.stringify({
         model: AI_GEN_MODEL,
         max_tokens: 2000,
-        system: 'You are an expert government affairs writer specializing in congressional advocacy documents. Generate professional, accurate documents using only the provided context. Never invent facts.',
+        system:
+          'You are an expert government affairs writer specializing in congressional advocacy documents. Generate professional, accurate documents using only the provided context. Never invent facts.',
         messages: [{ role: 'user', content: prompt }],
       }),
     });
 
     const json = (await response.json()) as Record<string, unknown>;
     if (!response.ok) {
-      const err = (json.error as Record<string, unknown> | undefined)?.message ?? `HTTP ${response.status}`;
+      const err =
+        (json.error as Record<string, unknown> | undefined)?.message ?? `HTTP ${response.status}`;
       throw new ServiceUnavailableException(`Document generation failed: ${String(err)}`);
     }
 
@@ -582,7 +664,7 @@ Tone: warm but professional. One page (250-350 words).`,
 
     // Save generated document into formData
     const updatedFormData = {
-      ...(existingFormData),
+      ...existingFormData,
       generated_document: generatedText,
     };
 
@@ -599,9 +681,10 @@ function extractAnthropicText(json: Record<string, unknown>): string {
   const content = Array.isArray(json.content) ? json.content : [];
   return content
     .map((part) => {
-      const record = part && typeof part === 'object' && !Array.isArray(part)
-        ? (part as Record<string, unknown>)
-        : {};
+      const record =
+        part && typeof part === 'object' && !Array.isArray(part)
+          ? (part as Record<string, unknown>)
+          : {};
       return record.type === 'text' && typeof record.text === 'string' ? record.text : '';
     })
     .join('\n')
@@ -622,6 +705,58 @@ function parseJsonSafe(text: string): Record<string, unknown> {
       return {};
     }
   }
+}
+
+async function clientMeetingAssociationWhere(
+  prisma: PrismaService,
+  tenantId: string,
+  clientId: string,
+): Promise<Prisma.MeetingWhereInput> {
+  const emails = await clientProfileEmails(prisma, tenantId, clientId);
+  const or: Prisma.MeetingWhereInput[] = [{ clientId }];
+  if (emails.length) {
+    or.push({ organizerEmail: { in: emails } }, { attendees: { some: { email: { in: emails } } } });
+  }
+  return { OR: or };
+}
+
+async function clientMailThreadAssociationWhere(
+  prisma: PrismaService,
+  tenantId: string,
+  clientId: string,
+): Promise<Prisma.MailThreadWhereInput> {
+  const emails = await clientProfileEmails(prisma, tenantId, clientId);
+  const or: Prisma.MailThreadWhereInput[] = [{ clientId }];
+  if (emails.length) {
+    or.push({ messages: { some: { fromEmail: { in: emails } } } });
+  }
+  return { OR: or };
+}
+
+async function clientProfileEmails(
+  prisma: PrismaService,
+  tenantId: string,
+  clientId: string,
+): Promise<string[]> {
+  const [client, people] = await Promise.all([
+    prisma.client.findFirst({
+      where: { id: clientId, tenantId },
+      select: { primaryContactEmail: true },
+    }),
+    prisma.clientPerson.findMany({
+      where: { tenantId, clientId, email: { not: null } },
+      select: { email: true },
+    }),
+  ]);
+
+  return Array.from(
+    new Set(
+      [
+        client?.primaryContactEmail?.trim().toLowerCase() ?? null,
+        ...people.map((person) => person.email?.trim().toLowerCase() ?? null),
+      ].filter((value): value is string => Boolean(value)),
+    ),
+  );
 }
 
 async function streamToString(stream: AsyncIterable<Uint8Array>): Promise<string> {

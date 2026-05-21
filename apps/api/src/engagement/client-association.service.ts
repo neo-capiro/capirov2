@@ -30,20 +30,57 @@ const AUTO_LINK_THRESHOLD = 0.65;
 // and other generic domains that produce false positive associations.
 const GENERIC_DOMAINS = new Set([
   // Personal email providers
-  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',
-  'yahoo.com', 'aol.com', 'icloud.com', 'me.com', 'mac.com',
-  'protonmail.com', 'proton.me', 'zoho.com', 'yandex.com',
-  'comcast.net', 'verizon.net', 'att.net', 'sbcglobal.net',
+  'gmail.com',
+  'googlemail.com',
+  'outlook.com',
+  'hotmail.com',
+  'live.com',
+  'yahoo.com',
+  'aol.com',
+  'icloud.com',
+  'me.com',
+  'mac.com',
+  'protonmail.com',
+  'proton.me',
+  'zoho.com',
+  'yandex.com',
+  'comcast.net',
+  'verizon.net',
+  'att.net',
+  'sbcglobal.net',
   // US Government — Congress (these are targets, not clients)
-  'senate.gov', 'house.gov', 'mail.house.gov', 'mail.senate.gov',
-  'who.eop.gov', 'omb.eop.gov',
+  'senate.gov',
+  'house.gov',
+  'mail.house.gov',
+  'mail.senate.gov',
+  'who.eop.gov',
+  'omb.eop.gov',
   // US Government — Agencies (recipients, not clients)
-  'dod.mil', 'navy.mil', 'army.mil', 'af.mil', 'usmc.mil', 'uscg.mil',
-  'state.gov', 'usaid.gov', 'hhs.gov', 'dhs.gov', 'dot.gov',
-  'ed.gov', 'energy.gov', 'epa.gov', 'doi.gov', 'usda.gov',
-  'commerce.gov', 'treasury.gov', 'justice.gov', 'nasa.gov',
+  'dod.mil',
+  'navy.mil',
+  'army.mil',
+  'af.mil',
+  'usmc.mil',
+  'uscg.mil',
+  'state.gov',
+  'usaid.gov',
+  'hhs.gov',
+  'dhs.gov',
+  'dot.gov',
+  'ed.gov',
+  'energy.gov',
+  'epa.gov',
+  'doi.gov',
+  'usda.gov',
+  'commerce.gov',
+  'treasury.gov',
+  'justice.gov',
+  'nasa.gov',
   // Generic corporate
-  'microsoft.com', 'google.com', 'amazon.com', 'apple.com',
+  'microsoft.com',
+  'google.com',
+  'amazon.com',
+  'apple.com',
 ]);
 
 @Injectable()
@@ -53,7 +90,10 @@ export class ClientAssociationService {
     tenantId: string,
     input: AssociationCandidateInput,
   ): Promise<AssociationResult> {
-    const emails = uniqueEmails([...(input.attendeeEmails ?? []), ...(input.participantEmails ?? [])]);
+    const emails = uniqueEmails([
+      ...(input.attendeeEmails ?? []),
+      ...(input.participantEmails ?? []),
+    ]);
     const clients = await tx.client.findMany({
       where: { tenantId, status: { not: 'archived' } },
       select: {
@@ -80,6 +120,14 @@ export class ClientAssociationService {
           select: { email: true, clientId: true },
         })
       : [];
+    const primaryProfileContacts = emails.length
+      ? clients
+          .map((client) => {
+            const email = client.primaryContactEmail?.trim().toLowerCase();
+            return email && emails.includes(email) ? { email, clientId: client.id } : null;
+          })
+          .filter((contact): contact is { email: string; clientId: string } => Boolean(contact))
+      : [];
 
     const knownContacts = emails.length
       ? await tx.engagementContact.findMany({
@@ -90,7 +138,9 @@ export class ClientAssociationService {
 
     // Client profile contacts are the source of truth for routing meetings to clients.
     // Fall back to engagement contacts only if there are no profile contact matches.
-    const authoritativeContacts = knownProfileContacts.filter((contact) => Boolean(contact.clientId));
+    const authoritativeContacts = [...knownProfileContacts, ...primaryProfileContacts].filter(
+      (contact) => Boolean(contact.clientId),
+    );
     const decisiveContacts = authoritativeContacts.length ? authoritativeContacts : knownContacts;
     const clientIdFromContacts = findPrimaryClientFromContacts(decisiveContacts);
     if (clientIdFromContacts) {
@@ -126,9 +176,14 @@ export class ClientAssociationService {
       : [];
 
     const text = `${input.subject ?? ''} ${input.body ?? ''}`.toLowerCase();
-    const emailDomains = unique(emails.map(domainFromEmail).filter(
-      (item): item is string => typeof item === 'string' && item.length > 0 && !GENERIC_DOMAINS.has(item),
-    ));
+    const emailDomains = unique(
+      emails
+        .map(domainFromEmail)
+        .filter(
+          (item): item is string =>
+            typeof item === 'string' && item.length > 0 && !GENERIC_DOMAINS.has(item),
+        ),
+    );
     const scored = clients.map((client) =>
       scoreClient(client, {
         emails,
@@ -177,11 +232,7 @@ function scoreClient(
   const primaryDomain = normalizeDomain(domainFromEmail(client.primaryContactEmail ?? undefined));
   const clientNameKey = normalizeName(client.name);
   const clientTokens = significantTokens(
-    [
-      client.name,
-      client.website ?? '',
-      intakeText(client.intakeData),
-    ].join(' '),
+    [client.name, client.website ?? '', intakeText(client.intakeData)].join(' '),
   );
 
   const contactHit = context.knownContacts.find((contact) => contact.clientId === client.id);
@@ -192,7 +243,10 @@ function scoreClient(
 
   for (const domain of context.emailDomains) {
     const normalizedDomain = normalizeDomain(domain);
-    if (normalizedDomain && (normalizedDomain === clientDomain || normalizedDomain === primaryDomain)) {
+    if (
+      normalizedDomain &&
+      (normalizedDomain === clientDomain || normalizedDomain === primaryDomain)
+    ) {
       score = Math.max(score, 0.86);
       reasons.push(`Attendee email domain ${domain} matches ${client.name}.`);
     }
@@ -256,12 +310,20 @@ function domainFromWebsite(value?: string | null): string | null {
   try {
     return new URL(normalized).hostname;
   } catch {
-    return value.replace(/^www\./, '').split('/')[0]?.toLowerCase() ?? null;
+    return (
+      value
+        .replace(/^www\./, '')
+        .split('/')[0]
+        ?.toLowerCase() ?? null
+    );
   }
 }
 
 function normalizeDomain(value?: string | null): string | null {
-  const domain = value?.trim().toLowerCase().replace(/^www\./, '');
+  const domain = value
+    ?.trim()
+    .toLowerCase()
+    .replace(/^www\./, '');
   return domain || null;
 }
 

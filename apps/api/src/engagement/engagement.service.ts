@@ -511,19 +511,12 @@ export class EngagementService {
         });
       }
 
-      const clientProfileEmails = await this.clientProfileEmails(tx, ctx.tenantId, query.clientId);
-      const where: Prisma.MeetingWhereInput = clientProfileEmails.length
-        ? {
-            ...baseWhere,
-            OR: [
-              { organizerEmail: { in: clientProfileEmails } },
-              { attendees: { some: { email: { in: clientProfileEmails } } } },
-            ],
-          }
-        : {
-            ...baseWhere,
-            clientId: query.clientId,
-          };
+      const clientAssociationWhere = await this.clientMeetingAssociationWhere(
+        tx,
+        ctx.tenantId,
+        query.clientId,
+      );
+      const where: Prisma.MeetingWhereInput = { AND: [baseWhere, clientAssociationWhere] };
 
       return tx.meeting.findMany({
         where,
@@ -649,21 +642,30 @@ export class EngagementService {
   }
 
   listMailThreads(ctx: TenantContext, query: { clientId?: string }) {
-    return this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.mailThread.findMany({
-        where: {
-          tenantId: ctx.tenantId,
-          ...ownMailThreadWhere(ctx.userId),
-          ...(query.clientId ? { clientId: query.clientId } : {}),
-        },
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const baseWhere: Prisma.MailThreadWhereInput = {
+        tenantId: ctx.tenantId,
+        ...ownMailThreadWhere(ctx.userId),
+      };
+      const where: Prisma.MailThreadWhereInput = query.clientId
+        ? {
+            AND: [
+              baseWhere,
+              await this.clientMailThreadAssociationWhere(tx, ctx.tenantId, query.clientId),
+            ],
+          }
+        : baseWhere;
+
+      return tx.mailThread.findMany({
+        where,
         include: {
           client: clientSummarySelect(),
           messages: { orderBy: { receivedAt: 'desc' }, take: 3 },
         },
         orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
         take: 50,
-      }),
-    );
+      });
+    });
   }
 
   listOutreachRecords(ctx: TenantContext, query: OutreachQuery) {
@@ -933,9 +935,9 @@ export class EngagementService {
     const perRecipientEmails = (record.metadata as Record<string, unknown>)?.perRecipientEmails;
     const emailMap = Array.isArray(perRecipientEmails)
       ? new Map(
-          (
-            perRecipientEmails as Array<{ recipientId: string; subject: string; body: string }>
-          ).map((e) => [e.recipientId, e]),
+          (perRecipientEmails as Array<{ recipientId: string; subject: string; body: string }>).map(
+            (e) => [e.recipientId, e],
+          ),
         )
       : new Map<string, { recipientId: string; subject: string; body: string }>();
 
@@ -946,10 +948,8 @@ export class EngagementService {
       try {
         await this.microsoftGraph.sendMail(ctx, connection.id, {
           subject:
-            perEmail?.subject ||
-            assembleCampaignBody(record.subject, recipient, record.metadata),
-          body:
-            perEmail?.body || assembleCampaignBody(record.body, recipient, record.metadata),
+            perEmail?.subject || assembleCampaignBody(record.subject, recipient, record.metadata),
+          body: perEmail?.body || assembleCampaignBody(record.body, recipient, record.metadata),
           toRecipients: [{ email, name: recipient.name ?? null }],
         });
         sent.push({
@@ -1025,15 +1025,22 @@ export class EngagementService {
           'Client not found',
         );
       }
+      const clientAssociationWhere = clientId
+        ? await this.clientMeetingAssociationWhere(tx, ctx.tenantId, clientId)
+        : null;
 
       return tx.meeting.findMany({
         where: {
-          tenantId: ctx.tenantId,
-          ...ownMeetingWhere(ctx.userId),
-          ...(clientId ? { clientId } : {}),
-          connectionId: { not: null },
-          source: { not: EngagementSource.manual },
-          startsAt: { gte: from, lte: to },
+          AND: [
+            {
+              tenantId: ctx.tenantId,
+              ...ownMeetingWhere(ctx.userId),
+              connectionId: { not: null },
+              source: { not: EngagementSource.manual },
+              startsAt: { gte: from, lte: to },
+            },
+            ...(clientAssociationWhere ? [clientAssociationWhere] : []),
+          ],
         },
         include: {
           client: clientSummarySelect(),
@@ -1259,8 +1266,12 @@ export class EngagementService {
           ...('category' in input && input.category
             ? { category: input.category.trim().slice(0, 50) }
             : {}),
-          ...('prompt' in input && input.prompt ? { prompt: input.prompt.trim().slice(0, 5000) } : {}),
-          ...('description' in input ? { description: input.description?.trim().slice(0, 500) ?? null } : {}),
+          ...('prompt' in input && input.prompt
+            ? { prompt: input.prompt.trim().slice(0, 5000) }
+            : {}),
+          ...('description' in input
+            ? { description: input.description?.trim().slice(0, 500) ?? null }
+            : {}),
           ...('tone' in input && input.tone ? { tone: input.tone.trim().slice(0, 50) } : {}),
         },
       });
@@ -1344,7 +1355,10 @@ export class EngagementService {
       const clientIdNum = Number(clientId);
       const [client, ldaFilings, bills] = await Promise.all([
         this.prisma.withTenant(ctx.tenantId, (tx) =>
-          tx.client.findFirst({ where: { id: clientId, tenantId: ctx.tenantId }, select: { name: true } }),
+          tx.client.findFirst({
+            where: { id: clientId, tenantId: ctx.tenantId },
+            select: { name: true },
+          }),
         ),
         isNaN(clientIdNum)
           ? Promise.resolve([])
@@ -1468,11 +1482,16 @@ export class EngagementService {
     }
 
     let client: Record<string, unknown> | null = null;
+    let clientContextForCampaign: Record<string, unknown> | null = null;
     if (clientId) {
-      const row = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-        tx.client.findFirst({ where: { id: clientId, tenantId: ctx.tenantId } }),
-      );
+      const [row, context] = await Promise.all([
+        this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.client.findFirst({ where: { id: clientId, tenantId: ctx.tenantId } }),
+        ),
+        this.clientContext(ctx, clientId).catch(() => null),
+      ]);
       if (row) client = pruneForAi(row);
+      if (context) clientContextForCampaign = pruneForAi(context);
     }
 
     const insightsContext = insights?.length
@@ -1492,6 +1511,7 @@ export class EngagementService {
           tone: tone ?? 'professional',
           ...(insightsContext ? { insights: insightsContext } : {}),
           ...(additionalContext ? { additionalContext } : {}),
+          ...(clientContextForCampaign ? { clientContext: clientContextForCampaign } : {}),
         };
 
         const generated = await this.ai.generateOutreachDraft({
@@ -1505,7 +1525,9 @@ export class EngagementService {
 
         results.push({ recipientId, subject: generated.subject, body: generated.body });
       } catch (err) {
-        this.logger.warn(`Batch email generation failed for recipient ${recipientId}: ${(err as Error).message}`);
+        this.logger.warn(
+          `Batch email generation failed for recipient ${recipientId}: ${(err as Error).message}`,
+        );
         results.push({ recipientId, subject: '', body: '' });
       }
     }
@@ -2176,14 +2198,26 @@ export class EngagementService {
       });
       if (!meeting) throw new NotFoundException('Meeting not found');
 
-      const recentMeetings = meeting.clientId
+      const effectiveClientId = await this.resolveEffectiveMeetingClientId(tx, ctx, meeting);
+      const effectiveClient =
+        effectiveClientId && effectiveClientId !== meeting.clientId
+          ? await tx.client.findUnique({ where: { id: effectiveClientId } })
+          : meeting.client;
+
+      const meetingAssociationWhere = effectiveClientId
+        ? await this.clientMeetingAssociationWhere(tx, ctx.tenantId, effectiveClientId)
+        : null;
+      const recentMeetings = meetingAssociationWhere
         ? await tx.meeting.findMany({
             where: {
-              tenantId: ctx.tenantId,
-              clientId: meeting.clientId,
-              id: { not: meeting.id },
-              associationScore: { gte: 0.7 },
-              ...ownMeetingWhere(ctx.userId),
+              AND: [
+                {
+                  tenantId: ctx.tenantId,
+                  id: { not: meeting.id },
+                  ...ownMeetingWhere(ctx.userId),
+                },
+                meetingAssociationWhere,
+              ],
             },
             select: {
               id: true,
@@ -2217,24 +2251,43 @@ export class EngagementService {
       const ownDomain = connection?.accountEmail?.split('@')[1]?.toLowerCase();
 
       const GENERIC_THREAD_DOMAINS = new Set([
-        'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com', 'live.com',
-        'yahoo.com', 'aol.com', 'icloud.com', 'me.com', 'protonmail.com', 'proton.me',
-        'senate.gov', 'house.gov', 'mail.house.gov', 'mail.senate.gov',
+        'gmail.com',
+        'googlemail.com',
+        'outlook.com',
+        'hotmail.com',
+        'live.com',
+        'yahoo.com',
+        'aol.com',
+        'icloud.com',
+        'me.com',
+        'protonmail.com',
+        'proton.me',
+        'senate.gov',
+        'house.gov',
+        'mail.house.gov',
+        'mail.senate.gov',
       ]);
 
-      const attendeeDomains = [...new Set(
-        attendeeEmails
-          .map((e) => e.split('@')[1]?.toLowerCase())
-          .filter((d): d is string =>
-            typeof d === 'string' &&
-            d.length > 0 &&
-            d !== ownDomain &&
-            !GENERIC_THREAD_DOMAINS.has(d)
-          ),
-      )];
+      const attendeeDomains = [
+        ...new Set(
+          attendeeEmails
+            .map((e) => e.split('@')[1]?.toLowerCase())
+            .filter(
+              (d): d is string =>
+                typeof d === 'string' &&
+                d.length > 0 &&
+                d !== ownDomain &&
+                !GENERIC_THREAD_DOMAINS.has(d),
+            ),
+        ),
+      ];
 
-      const threadFilters: Array<Record<string, unknown>> = [];
-      if (meeting.clientId) threadFilters.push({ clientId: meeting.clientId });
+      const threadFilters: Prisma.MailThreadWhereInput[] = [];
+      if (effectiveClientId) {
+        threadFilters.push(
+          await this.clientMailThreadAssociationWhere(tx, ctx.tenantId, effectiveClientId),
+        );
+      }
       // Match threads where any message is from an attendee's domain
       if (attendeeDomains.length) {
         for (const domain of attendeeDomains) {
@@ -2257,7 +2310,13 @@ export class EngagementService {
               lastMessageAt: true,
               status: true,
               messages: {
-                select: { fromEmail: true, fromName: true, subject: true, bodyText: true, sentAt: true },
+                select: {
+                  fromEmail: true,
+                  fromName: true,
+                  subject: true,
+                  bodyText: true,
+                  sentAt: true,
+                },
                 orderBy: { sentAt: 'desc' },
                 take: 3,
               },
@@ -2267,22 +2326,22 @@ export class EngagementService {
           })
         : [];
 
-      return { meeting, recentMeetings, recentThreads };
+      return { meeting, client: effectiveClient, effectiveClientId, recentMeetings, recentThreads };
     });
 
     const [visibleNotes, clientContext, directoryProfiles] = await Promise.all([
       this.listMeetingNotes(ctx, meetingId)
         .then((notes) => notes.filter((note) => !note.restricted))
         .catch(() => []),
-      context.meeting.clientId
-        ? this.clientContext(ctx, context.meeting.clientId).catch(() => null)
+      context.effectiveClientId
+        ? this.clientContext(ctx, context.effectiveClientId).catch(() => null)
         : Promise.resolve(null),
       this.directoryProfilesForMeeting(context.meeting).catch(() => []),
     ]);
 
     return this.ai.generateMeetingDebrief({
       meeting: pruneForAi(context.meeting),
-      client: context.meeting.client ? pruneForAi(context.meeting.client) : null,
+      client: context.client ? pruneForAi(context.client) : null,
       attendees: context.meeting.attendees.map(pruneForAi),
       prep: context.meeting.preps[0] ? pruneForAi(context.meeting.preps[0]) : null,
       source: { method: input.method, text: sourceText },
@@ -2394,37 +2453,40 @@ export class EngagementService {
       });
       if (!meeting) throw new NotFoundException('Meeting not found');
 
-        // Use association service to determine the CORRECT client based on attendee emails,
-        // not the potentially stale meeting.clientId. This ensures prep uses the right client context.
-        const attendeeEmails = meeting.attendees
-          .map((a) => a.email)
-          .filter((e): e is string => Boolean(e));
-        const association = await this.association.associate(tx, ctx.tenantId, {
-          attendeeEmails,
-        });
-        const correctClientId = association.clientId || meeting.clientId;
+      // Use the current association rules, not only the stored meeting.clientId.
+      const attendeeEmails = meeting.attendees
+        .map((a) => a.email)
+        .filter((e): e is string => Boolean(e));
+      const correctClientId = await this.resolveEffectiveMeetingClientId(tx, ctx, meeting);
 
-        // Fetch the correct client based on the association result.
-        const client = correctClientId
-          ? await tx.client.findUnique({
-              where: { id: correctClientId },
-              select: {
-                id: true,
-                name: true,
-                website: true,
-                primaryContactEmail: true,
-                intakeData: true,
-              },
-            })
-          : null;
+      // Fetch the correct client based on the association result.
+      const client = correctClientId
+        ? await tx.client.findUnique({
+            where: { id: correctClientId },
+            select: {
+              id: true,
+              name: true,
+              website: true,
+              primaryContactEmail: true,
+              intakeData: true,
+            },
+          })
+        : null;
 
-        const recentMeetings = correctClientId
+      const meetingAssociationWhere = correctClientId
+        ? await this.clientMeetingAssociationWhere(tx, ctx.tenantId, correctClientId)
+        : null;
+      const recentMeetings = meetingAssociationWhere
         ? await tx.meeting.findMany({
             where: {
-              tenantId: ctx.tenantId,
-                clientId: correctClientId,
-              id: { not: meeting.id },
-              ...ownMeetingWhere(ctx.userId),
+              AND: [
+                {
+                  tenantId: ctx.tenantId,
+                  id: { not: meeting.id },
+                  ...ownMeetingWhere(ctx.userId),
+                },
+                meetingAssociationWhere,
+              ],
             },
             select: {
               id: true,
@@ -2441,12 +2503,16 @@ export class EngagementService {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const attendeeDomains = [...new Set(
-        attendeeEmails.map((e) => e.split('@')[1]).filter(Boolean),
-      )];
+      const attendeeDomains = [
+        ...new Set(attendeeEmails.map((e) => e.split('@')[1]).filter(Boolean)),
+      ];
 
-      const threadFilters: Array<Record<string, unknown>> = [];
-      if (correctClientId) threadFilters.push({ clientId: correctClientId });
+      const threadFilters: Prisma.MailThreadWhereInput[] = [];
+      if (correctClientId) {
+        threadFilters.push(
+          await this.clientMailThreadAssociationWhere(tx, ctx.tenantId, correctClientId),
+        );
+      }
       // Match threads where any message is from an attendee's domain
       if (attendeeDomains.length) {
         for (const domain of attendeeDomains) {
@@ -2469,7 +2535,13 @@ export class EngagementService {
               lastMessageAt: true,
               status: true,
               messages: {
-                select: { fromEmail: true, fromName: true, subject: true, bodyText: true, sentAt: true },
+                select: {
+                  fromEmail: true,
+                  fromName: true,
+                  subject: true,
+                  bodyText: true,
+                  sentAt: true,
+                },
                 orderBy: { sentAt: 'desc' },
                 take: 3,
               },
@@ -2679,15 +2751,29 @@ export class EngagementService {
         where: { id: clientId, tenantId: ctx.tenantId, status: { not: 'archived' } },
       });
       if (!client) throw new NotFoundException('Client not found');
+      const [meetingAssociationWhere, mailThreadAssociationWhere] = await Promise.all([
+        this.clientMeetingAssociationWhere(tx, ctx.tenantId, clientId),
+        this.clientMailThreadAssociationWhere(tx, ctx.tenantId, clientId),
+      ]);
       const [meetings, threads, contacts, tasks] = await Promise.all([
         tx.meeting.findMany({
-          where: { tenantId: ctx.tenantId, clientId, ...ownMeetingWhere(ctx.userId) },
+          where: {
+            AND: [
+              { tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
+              meetingAssociationWhere,
+            ],
+          },
           include: { attendees: true },
           orderBy: { startsAt: 'desc' },
           take: 10,
         }),
         tx.mailThread.findMany({
-          where: { tenantId: ctx.tenantId, clientId, ...ownMailThreadWhere(ctx.userId) },
+          where: {
+            AND: [
+              { tenantId: ctx.tenantId, ...ownMailThreadWhere(ctx.userId) },
+              mailThreadAssociationWhere,
+            ],
+          },
           orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
           take: 10,
         }),
@@ -3015,6 +3101,75 @@ export class EngagementService {
     return Array.from(new Set(values));
   }
 
+  private async clientMeetingAssociationWhere(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    clientId: string,
+  ): Promise<Prisma.MeetingWhereInput> {
+    const clientProfileEmails = await this.clientProfileEmails(tx, tenantId, clientId);
+    const or: Prisma.MeetingWhereInput[] = [{ clientId }];
+
+    if (clientProfileEmails.length) {
+      or.push(
+        { organizerEmail: { in: clientProfileEmails } },
+        { attendees: { some: { email: { in: clientProfileEmails } } } },
+      );
+    }
+
+    return { OR: or };
+  }
+
+  private async clientMailThreadAssociationWhere(
+    tx: Prisma.TransactionClient,
+    tenantId: string,
+    clientId: string,
+  ): Promise<Prisma.MailThreadWhereInput> {
+    const clientProfileEmails = await this.clientProfileEmails(tx, tenantId, clientId);
+    const or: Prisma.MailThreadWhereInput[] = [{ clientId }];
+
+    if (clientProfileEmails.length) {
+      or.push({ messages: { some: { fromEmail: { in: clientProfileEmails } } } });
+    }
+
+    return { OR: or };
+  }
+
+  private async resolveEffectiveMeetingClientId(
+    tx: Prisma.TransactionClient,
+    ctx: TenantContext,
+    meeting: {
+      id: string;
+      clientId: string | null;
+      subject?: string | null;
+      description?: string | null;
+      organizerEmail?: string | null;
+      attendees: Array<{ email: string | null }>;
+    },
+  ): Promise<string | null> {
+    const attendeeEmails = meeting.attendees
+      .map((attendee) => attendee.email)
+      .filter((email): email is string => Boolean(email));
+    const association = await this.association.associate(tx, ctx.tenantId, {
+      subject: meeting.subject,
+      body: meeting.description,
+      attendeeEmails: [...attendeeEmails, meeting.organizerEmail ?? ''],
+    });
+
+    if (!meeting.clientId && association.clientId) {
+      await tx.meeting.update({
+        where: { id: meeting.id },
+        data: {
+          clientId: association.clientId,
+          associationScore: association.score,
+          associationReason: association.reason,
+          associationSignals: association.signals as Prisma.InputJsonValue,
+        },
+      });
+    }
+
+    return association.clientId || meeting.clientId;
+  }
+
   private async validateOutreachParents(
     tx: Prisma.TransactionClient,
     ctx: TenantContext,
@@ -3179,9 +3334,14 @@ export class EngagementService {
   }
 
   private async recentClientMeetingsForOutreach(ctx: TenantContext, clientId: string) {
-    const meetings = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+    const meetings = await this.prisma.withTenant(ctx.tenantId, async (tx) =>
       tx.meeting.findMany({
-        where: { tenantId: ctx.tenantId, clientId, ...ownMeetingWhere(ctx.userId) },
+        where: {
+          AND: [
+            { tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
+            await this.clientMeetingAssociationWhere(tx, ctx.tenantId, clientId),
+          ],
+        },
         select: {
           id: true,
           subject: true,
@@ -3240,13 +3400,21 @@ export class EngagementService {
 
   async createCampaign(
     ctx: TenantContext,
-    input: { name: string; clientId?: string; type?: string; sourceContext?: Record<string, unknown> },
+    input: {
+      name: string;
+      clientId?: string;
+      type?: string;
+      sourceContext?: Record<string, unknown>;
+    },
   ) {
     const clientId = input.clientId?.trim() || null;
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       if (clientId) {
         await ensureExists(
-          tx.client.findFirst({ where: { id: clientId, tenantId: ctx.tenantId }, select: { id: true } }),
+          tx.client.findFirst({
+            where: { id: clientId, tenantId: ctx.tenantId },
+            select: { id: true },
+          }),
           'Client not found',
         );
       }
@@ -3298,13 +3466,15 @@ export class EngagementService {
     },
   ) {
     const campaign = await this.getCampaign(ctx, id);
-    const clientId =
-      input.clientId === null ? null : input.clientId?.trim() || campaign.clientId;
+    const clientId = input.clientId === null ? null : input.clientId?.trim() || campaign.clientId;
 
     if (clientId && clientId !== campaign.clientId) {
       await this.prisma.withTenant(ctx.tenantId, (tx) =>
         ensureExists(
-          tx.client.findFirst({ where: { id: clientId, tenantId: ctx.tenantId }, select: { id: true } }),
+          tx.client.findFirst({
+            where: { id: clientId, tenantId: ctx.tenantId },
+            select: { id: true },
+          }),
           'Client not found',
         ),
       );
@@ -3324,7 +3494,12 @@ export class EngagementService {
             ? { sourceContext: input.sourceContext as Prisma.InputJsonValue }
             : {}),
           ...(input.metadata !== undefined
-            ? { metadata: mergeJsonObjects(campaign.metadata, input.metadata) as Prisma.InputJsonValue }
+            ? {
+                metadata: mergeJsonObjects(
+                  campaign.metadata,
+                  input.metadata,
+                ) as Prisma.InputJsonValue,
+              }
             : {}),
         },
         include: {
@@ -3375,42 +3550,43 @@ export class EngagementService {
     return { ok: true };
   }
 
-  async generateCampaignEmail(
-    ctx: TenantContext,
-    id: string,
-    input: { customContext?: string },
-  ) {
+  async generateCampaignEmail(ctx: TenantContext, id: string, input: { customContext?: string }) {
     const campaign = await this.getCampaign(ctx, id);
     const sourceContext = (campaign.sourceContext ?? {}) as Record<string, unknown>;
     const meetingId = typeof sourceContext.meetingId === 'string' ? sourceContext.meetingId : null;
     const debriefId = typeof sourceContext.debriefId === 'string' ? sourceContext.debriefId : null;
-    const customContext = typeof sourceContext.customContext === 'string'
-      ? sourceContext.customContext
-      : (typeof input.customContext === 'string' ? input.customContext : null);
+    const customContext =
+      typeof sourceContext.customContext === 'string'
+        ? sourceContext.customContext
+        : typeof input.customContext === 'string'
+          ? input.customContext
+          : null;
 
     const [meeting, debrief, prep] = await Promise.all([
       meetingId ? this.getMeeting(ctx, meetingId).catch(() => null) : Promise.resolve(null),
       debriefId
-        ? this.prisma.withTenant(ctx.tenantId, (tx) =>
-            tx.meetingDebrief.findFirst({
-              where: { id: debriefId, tenantId: ctx.tenantId },
-            }),
-          ).catch(() => null)
+        ? this.prisma
+            .withTenant(ctx.tenantId, (tx) =>
+              tx.meetingDebrief.findFirst({
+                where: { id: debriefId, tenantId: ctx.tenantId },
+              }),
+            )
+            .catch(() => null)
         : Promise.resolve(null),
       meetingId
-        ? this.prisma.withTenant(ctx.tenantId, (tx) =>
-            tx.meetingPrep.findFirst({
-              where: { meetingId, tenantId: ctx.tenantId },
-              orderBy: { createdAt: 'desc' },
-            }),
-          ).catch(() => null)
+        ? this.prisma
+            .withTenant(ctx.tenantId, (tx) =>
+              tx.meetingPrep.findFirst({
+                where: { meetingId, tenantId: ctx.tenantId },
+                orderBy: { createdAt: 'desc' },
+              }),
+            )
+            .catch(() => null)
         : Promise.resolve(null),
     ]);
 
     const clientId = campaign.clientId;
-    const client = clientId
-      ? await this.clientContext(ctx, clientId).catch(() => null)
-      : null;
+    const client = clientId ? await this.clientContext(ctx, clientId).catch(() => null) : null;
 
     const result = await this.ai.generateCampaignEmail({
       campaign: pruneForAi(campaign),
@@ -3435,7 +3611,11 @@ export class EngagementService {
           subject: result.subject,
           body: result.body,
           metadata: mergeJsonObjects(campaign.metadata, {
-            aiGenerated: { provider: result.provider, model: result.model, at: new Date().toISOString() },
+            aiGenerated: {
+              provider: result.provider,
+              model: result.model,
+              at: new Date().toISOString(),
+            },
           }) as Prisma.InputJsonValue,
         },
         include: {
@@ -3503,7 +3683,11 @@ export class EngagementService {
             data: { status: 'failed' },
           }),
         );
-        errors.push({ id: recipient.id, email: recipient.email, message: emailSendErrorMessage(error) });
+        errors.push({
+          id: recipient.id,
+          email: recipient.email,
+          message: emailSendErrorMessage(error),
+        });
       }
     }
 
@@ -3534,7 +3718,10 @@ export class EngagementService {
 
     const connection = await this.findCampaignSendConnection(ctx);
     const user = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.user.findFirst({ where: { id: ctx.userId }, select: { id: true, email: true, firstName: true } }),
+      tx.user.findFirst({
+        where: { id: ctx.userId },
+        select: { id: true, email: true, firstName: true },
+      }),
     );
     if (!user) throw new BadRequestException('User not found');
 
@@ -4467,7 +4654,17 @@ function prepareThreadForAi(value: unknown): Record<string, unknown> {
         quote,
       };
     })
-    .filter((entry): entry is { fromName: string | null; fromEmail: string | null; sentAt: string | null; subject: string | null; quote: string } => Boolean(entry));
+    .filter(
+      (
+        entry,
+      ): entry is {
+        fromName: string | null;
+        fromEmail: string | null;
+        sentAt: string | null;
+        subject: string | null;
+        quote: string;
+      } => Boolean(entry),
+    );
 
   return {
     id: typeof thread.id === 'string' ? thread.id : null,

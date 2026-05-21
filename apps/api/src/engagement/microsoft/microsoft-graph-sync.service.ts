@@ -227,7 +227,12 @@ export class MicrosoftGraphSyncService {
         });
         for (const event of response.value ?? []) {
           stats.scanned += 1;
-          const outcome = await this.persistGraphEvent(ctx.tenantId, connection.id, event, connection.accountEmail);
+          const outcome = await this.persistGraphEvent(
+            ctx.tenantId,
+            connection.id,
+            event,
+            connection.accountEmail,
+          );
           stats.matched += outcome === 'matched' ? 1 : 0;
           stats.skipped += outcome === 'skipped' ? 1 : 0;
           stats.removed += outcome === 'removed' ? 1 : 0;
@@ -457,7 +462,12 @@ export class MicrosoftGraphSyncService {
       });
       for (const event of response.value ?? []) {
         stats.scanned += 1;
-        const outcome = await this.persistGraphEvent(tenantId, connection.id, event, connection.accountEmail);
+        const outcome = await this.persistGraphEvent(
+          tenantId,
+          connection.id,
+          event,
+          connection.accountEmail,
+        );
         stats.matched += outcome === 'matched' ? 1 : 0;
         stats.skipped += outcome === 'skipped' ? 1 : 0;
         stats.removed += outcome === 'removed' ? 1 : 0;
@@ -697,21 +707,6 @@ export class MicrosoftGraphSyncService {
         },
         include: { thread: { select: { id: true, clientId: true, lastMessageAt: true } } },
       });
-      const association = await this.association.associate(tx, tenantId, {
-        subject: message.subject,
-        body: message.bodyPreview,
-        participantEmails,
-      });
-      const clientId = existingMessage?.thread.clientId ?? association.clientId;
-      if (!clientId) return 'skipped';
-
-      const participantJson = uniqueParticipants([
-        fromEmail ? { email: fromEmail, name: clean(from?.name), role: 'from' } : null,
-        ...toRecipients.map((recipient) => ({ ...recipient, role: 'to' })),
-        ...ccRecipients.map((recipient) => ({ ...recipient, role: 'cc' })),
-        ...bccRecipients.map((recipient) => ({ ...recipient, role: 'bcc' })),
-      ]);
-
       const existingThread = existingMessage?.thread
         ? existingMessage.thread
         : await tx.mailThread.findUnique({
@@ -724,6 +719,22 @@ export class MicrosoftGraphSyncService {
             },
             select: { id: true, clientId: true, lastMessageAt: true },
           });
+      const association = await this.association.associate(tx, tenantId, {
+        subject: message.subject,
+        body: message.bodyPreview,
+        participantEmails,
+      });
+      const clientId =
+        existingMessage?.thread.clientId ?? existingThread?.clientId ?? association.clientId;
+      if (!clientId) return 'skipped';
+
+      const participantJson = uniqueParticipants([
+        fromEmail ? { email: fromEmail, name: clean(from?.name), role: 'from' } : null,
+        ...toRecipients.map((recipient) => ({ ...recipient, role: 'to' })),
+        ...ccRecipients.map((recipient) => ({ ...recipient, role: 'cc' })),
+        ...bccRecipients.map((recipient) => ({ ...recipient, role: 'bcc' })),
+      ]);
+
       const lastMessageAt = laterDate(existingThread?.lastMessageAt ?? null, messageDate);
       const thread = existingThread
         ? await tx.mailThread.update({
