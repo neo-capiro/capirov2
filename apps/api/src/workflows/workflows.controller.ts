@@ -77,6 +77,19 @@ export class WorkflowsController {
     return this.service.aiFillInstance(ctx.tenantId, id, body.clientId);
   }
 
+  @Post('instances/:id/ai-enhance-field')
+  aiEnhanceField(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: { fieldKey?: string; currentValue?: string },
+  ) {
+    if (!body.fieldKey) throw new BadRequestException('fieldKey is required');
+    if (typeof body.currentValue !== 'string' || !body.currentValue.trim()) {
+      throw new BadRequestException('currentValue is required');
+    }
+    return this.service.enhanceField(ctx.tenantId, id, body.fieldKey, body.currentValue);
+  }
+
   @Post('instances/:id/generate-document')
   generateDocument(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.generateDocument(ctx.tenantId, id);

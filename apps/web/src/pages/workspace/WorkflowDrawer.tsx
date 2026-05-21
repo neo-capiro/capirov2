@@ -31,6 +31,22 @@ import {
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error';
 
+const SLUG_TO_SUBCOMMITTEE: Record<string, string> = {
+  'ndaa-authorization-request': 'Defense',
+  'hac-defense-programmatic': 'Defense',
+  'hac-agriculture-programmatic': 'Agriculture, Rural Development, FDA',
+  'hac-cjs-programmatic': 'Commerce, Justice, Science',
+  'hac-energy-water-programmatic': 'Energy and Water Development',
+  'hac-fsgg-programmatic': 'Financial Services and General Government',
+  'hac-homeland-programmatic': 'Homeland Security',
+  'hac-interior-programmatic': 'Interior, Environment',
+  'hac-labor-hhs-programmatic': 'Labor, HHS, Education',
+  'hac-legbranch-programmatic': 'Legislative Branch',
+  'hac-milcon-va-programmatic': 'Military Construction, Veterans Affairs',
+  'hac-natsec-state-programmatic': 'National Security, State Department',
+  'hac-thud-programmatic': 'Transportation, HUD',
+};
+
 interface AiSuggestion {
   value: string;
   reasoning: string;
@@ -69,6 +85,7 @@ export function WorkflowDrawer({
   const [clientPrepopulated, setClientPrepopulated] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState<Record<string, AiSuggestion>>({});
+  const [enhancingKey, setEnhancingKey] = useState<string | null>(null);
   const [showAiModal, setShowAiModal] = useState(false);
   const [acceptedKeys, setAcceptedKeys] = useState<Set<string>>(new Set());
 
@@ -88,6 +105,15 @@ export function WorkflowDrawer({
     staleTime: 60_000,
   });
 
+  const strategyQuery = useQuery<{
+    capability?: { name: string; peNumber: string | null; fundingAsk: number | null; fundingAskLabel: string | null } | null;
+  }>({
+    queryKey: ['strategy', instance?.strategyId],
+    queryFn: async () => (await api.get(`/api/strategies/${instance!.strategyId}`)).data,
+    enabled: open && Boolean(instance?.strategyId),
+    staleTime: 60_000,
+  });
+
   useEffect(() => {
     if (!instance) return;
     setTitle(instance.title ?? '');
@@ -101,6 +127,36 @@ export function WorkflowDrawer({
     setRequesterPrepopulated(false);
     setClientPrepopulated(false);
   }, [instance?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // C: Auto-set subcommittee from template slug when empty
+  useEffect(() => {
+    if (!instance) return;
+    const slug = instance.template?.slug ?? '';
+    const subcommittee = SLUG_TO_SUBCOMMITTEE[slug];
+    if (!subcommittee) return;
+    setFormData((prev) => {
+      if (prev.subcommittee) return prev;
+      return { ...prev, subcommittee };
+    });
+  }, [instance?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // B: Auto-populate form fields from strategy capability
+  useEffect(() => {
+    if (!strategyQuery.data) return;
+    const cap = strategyQuery.data.capability;
+    if (!cap) return;
+    const cat = template?.category;
+    setFormData((prev) => {
+      const next = { ...prev };
+      if (cap.peNumber && !prev.program_element) next.program_element = cap.peNumber;
+      if (cap.fundingAsk != null && !prev.requested_funding_amount) next.requested_funding_amount = cap.fundingAsk;
+      if (cap.name && !prev.program) next.program = cap.name;
+      if (cap.name && !prev.title_of_request) {
+        next.title_of_request = `FY27 ${cap.name} ${cat === 'authorization' ? 'Authorization' : 'Appropriations'} Request`;
+      }
+      return next;
+    });
+  }, [instance?.id, strategyQuery.data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pre-populate requesterContact fields from tenant contact settings
   useEffect(() => {
@@ -195,7 +251,10 @@ export function WorkflowDrawer({
   saveRef.current = () => {
     if (!instance) return;
     setSaveStatus('saving');
-    updateInstance.mutate({ title, formData, targetMember, submissionDeadline, submissionMethod, notes, clientId: selectedClientId });
+    const payload: Partial<WorkflowInstance> = { title, formData, targetMember, submissionDeadline, submissionMethod, notes, clientId: selectedClientId };
+    // G: Auto-transition from triage to in_progress on first save
+    if (instance.status === 'triage') payload.status = 'in_progress';
+    updateInstance.mutate(payload);
   };
 
   const scheduleAutoSave = useCallback(() => {
@@ -273,6 +332,22 @@ export function WorkflowDrawer({
     }
   };
 
+  const handleEnhanceField = async (fieldKey: string, currentValue: string) => {
+    if (!instance || !currentValue.trim()) return;
+    setEnhancingKey(fieldKey);
+    try {
+      const resp = await api.post<{ enhanced: string }>(
+        `/api/workflows/instances/${instance.id}/ai-enhance-field`,
+        { fieldKey, currentValue },
+      );
+      handleFieldChange(fieldKey, resp.data.enhanced);
+    } catch (err) {
+      message.error(errorMessage(err));
+    } finally {
+      setEnhancingKey(null);
+    }
+  };
+
   const acceptSuggestion = (key: string) => {
     const suggestion = aiSuggestions[key];
     if (!suggestion) return;
@@ -300,7 +375,18 @@ export function WorkflowDrawer({
 
   const template = instance?.template ?? null;
   const sections = template?.requiredSections?.sections ?? null;
-  const requestType: RequestType = (formData.request_type as RequestType) ?? 'funding';
+
+  // A: authorization/defense templates only support funding requests
+  const hideRequestTypeToggle =
+    template?.category === 'authorization' ||
+    template?.slug?.startsWith('hac-defense') ||
+    template?.slug?.startsWith('ndaa-') ||
+    // I: supporting templates with a generated document are view-only
+    (template?.category === 'supporting' && Boolean(formData.generated_document));
+
+  const requestType: RequestType = hideRequestTypeToggle
+    ? 'funding'
+    : ((formData.request_type as RequestType) ?? 'funding');
 
   const section1 =
     requestType === 'funding'
@@ -389,6 +475,24 @@ export function WorkflowDrawer({
               }}
             >
               Save
+            </Button>
+            <Button
+              icon={<CheckOutlined />}
+              disabled={
+                instance?.status === 'review' ||
+                instance?.status === 'submitted' ||
+                instance?.status === 'complete'
+              }
+              onClick={() => {
+                if (autoSaveTimerRef.current) clearTimeout(autoSaveTimerRef.current);
+                updateInstance.mutate({
+                  title, formData, targetMember, submissionDeadline, submissionMethod, notes,
+                  clientId: selectedClientId,
+                  status: 'review',
+                });
+              }}
+            >
+              Submit for Approval
             </Button>
             <Button
               danger
@@ -499,20 +603,22 @@ export function WorkflowDrawer({
             />
           ) : null}
 
-          {/* Request Type Toggle */}
-          <div className="workflow-drawer-type-toggle">
-            <Typography.Text strong className="workflow-field-section-label">
-              Request Type
-            </Typography.Text>
-            <Radio.Group
-              value={requestType}
-              onChange={(e) => handleFieldChange('request_type', e.target.value as RequestType)}
-              buttonStyle="solid"
-            >
-              <Radio.Button value="funding">Funding Request</Radio.Button>
-              <Radio.Button value="policy">Policy / Bill Language Request</Radio.Button>
-            </Radio.Group>
-          </div>
+          {/* Request Type Toggle — hidden for authorization/defense and viewing generated docs */}
+          {!hideRequestTypeToggle && (
+            <div className="workflow-drawer-type-toggle">
+              <Typography.Text strong className="workflow-field-section-label">
+                Request Type
+              </Typography.Text>
+              <Radio.Group
+                value={requestType}
+                onChange={(e) => handleFieldChange('request_type', e.target.value as RequestType)}
+                buttonStyle="solid"
+              >
+                <Radio.Button value="funding">Funding Request</Radio.Button>
+                <Radio.Button value="policy">Policy / Bill Language Request</Radio.Button>
+              </Radio.Group>
+            </div>
+          )}
 
           {/* AI auto-fill */}
           {section1 ? (
@@ -548,6 +654,8 @@ export function WorkflowDrawer({
                   value={formData[field.key]}
                   formData={formData}
                   onChange={handleFieldChange}
+                  onEnhance={handleEnhanceField}
+                  enhancingKey={enhancingKey}
                 />
               ))}
             </div>
@@ -653,69 +761,6 @@ export function WorkflowDrawer({
             </div>
           )}
 
-          {/* Instance-level submission details */}
-          <div className="workflow-drawer-section">
-            <Typography.Text strong className="workflow-field-section-label">
-              Submission Details
-            </Typography.Text>
-
-            <div className="workflow-drawer-field">
-              <label className="workflow-field-label">Target Member</label>
-              <Input
-                value={targetMember}
-                placeholder="e.g. Sen. Jane Smith (D-MA)"
-                onChange={(e) => {
-                  setTargetMember(e.target.value);
-                  scheduleAutoSave();
-                }}
-              />
-            </div>
-
-            <div className="workflow-drawer-field">
-              <label className="workflow-field-label">Submission Deadline</label>
-              <Input
-                type="date"
-                value={submissionDeadline ? submissionDeadline.slice(0, 10) : ''}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setSubmissionDeadline(val ? new Date(val).toISOString() : null);
-                  scheduleAutoSave();
-                }}
-              />
-            </div>
-
-            <div className="workflow-drawer-field">
-              <label className="workflow-field-label">Submission Method</label>
-              <Select
-                style={{ width: '100%' }}
-                allowClear
-                placeholder="Select method"
-                value={submissionMethod}
-                onChange={(val: string | undefined) => {
-                  setSubmissionMethod((val as SubmissionMethod) ?? null);
-                  scheduleAutoSave();
-                }}
-                options={[
-                  { value: 'portal', label: 'Online Portal' },
-                  { value: 'email', label: 'Email' },
-                  { value: 'in-person', label: 'In Person' },
-                ]}
-              />
-            </div>
-
-            <div className="workflow-drawer-field">
-              <label className="workflow-field-label">Notes</label>
-              <Input.TextArea
-                value={notes}
-                rows={3}
-                placeholder="Internal notes..."
-                onChange={(e) => {
-                  setNotes(e.target.value);
-                  scheduleAutoSave();
-                }}
-              />
-            </div>
-          </div>
         </div>
       ) : null}
 
@@ -784,11 +829,15 @@ function FieldRenderer({
   value,
   formData,
   onChange,
+  onEnhance,
+  enhancingKey,
 }: {
   field: FieldDefinition;
   value: unknown;
   formData: Record<string, unknown>;
   onChange: (key: string, val: unknown) => void;
+  onEnhance?: (key: string, currentValue: string) => void;
+  enhancingKey?: string | null;
 }) {
   if (field.conditional) {
     const parentVal = formData[field.conditional.field];
@@ -825,11 +874,25 @@ function FieldRenderer({
       )}
 
       {field.type === 'textarea' && (
-        <Input.TextArea
-          value={typeof value === 'string' ? value : ''}
-          autoSize={{ minRows: 3 }}
-          onChange={(e) => onChange(field.key, e.target.value)}
-        />
+        <>
+          <Input.TextArea
+            value={typeof value === 'string' ? value : ''}
+            autoSize={{ minRows: 3 }}
+            onChange={(e) => onChange(field.key, e.target.value)}
+          />
+          {onEnhance && (
+            <Button
+              size="small"
+              type="text"
+              loading={enhancingKey === field.key}
+              disabled={!value || (typeof value === 'string' && !value.trim())}
+              onClick={() => onEnhance(field.key, typeof value === 'string' ? value : '')}
+              style={{ marginTop: 4, padding: '0 4px', fontSize: 12 }}
+            >
+              ✨ Enhance with AI
+            </Button>
+          )}
+        </>
       )}
 
       {field.type === 'select' && (
@@ -912,6 +975,8 @@ function getClientFieldValue(key: string, client: Client): string | undefined {
       return nonEmpty(client.primaryContactEmail) ?? nonEmpty(intake.pocEmail as string | undefined);
     case 'poc_phone':
       return nonEmpty(client.primaryContactPhone) ?? nonEmpty(intake.pocPhone as string | undefined);
+    case 'org_head_name': return nonEmpty(intake.headName as string | undefined);
+    case 'org_head_title': return nonEmpty(intake.headTitle as string | undefined);
     default: return undefined;
   }
 }

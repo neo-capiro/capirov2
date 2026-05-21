@@ -348,6 +348,38 @@ export class WorkflowsService {
     return { suggestions: (parsed.suggestions as Record<string, unknown>) ?? {} };
   }
 
+  async enhanceField(tenantId: string, instanceId: string, fieldKey: string, currentValue: string) {
+    if (!this.anthropicKey) {
+      throw new ServiceUnavailableException('AI enhancement is not configured. Set ANTHROPIC_API_KEY.');
+    }
+    await this.getInstance(tenantId, instanceId);
+
+    const prompt = `Enhance the following government affairs justification text. Keep the same intent and key points, but make it more professional, specific, and persuasive. Do not invent facts — only improve the writing. Return only the enhanced text, no explanations.\n\nOriginal:\n${currentValue}`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': this.anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: AI_FILL_MODEL,
+        max_tokens: 1000,
+        system: 'You are an expert government affairs writer. Enhance the provided text to be more professional, specific, and persuasive while preserving all original facts and intent. Return only the improved text.',
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    const json = (await response.json()) as Record<string, unknown>;
+    if (!response.ok) {
+      const err = (json.error as Record<string, unknown> | undefined)?.message ?? `HTTP ${response.status}`;
+      throw new ServiceUnavailableException(`AI enhancement failed: ${String(err)}`);
+    }
+
+    return { enhanced: extractAnthropicText(json), fieldKey };
+  }
+
   async generateDocument(tenantId: string, instanceId: string) {
     if (!this.anthropicKey) {
       throw new ServiceUnavailableException('AI document generation is not configured. Set ANTHROPIC_API_KEY.');

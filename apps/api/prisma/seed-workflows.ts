@@ -142,8 +142,6 @@ const templates = [
               { key: 'president_budget_amount', label: "President's FY2026 Budget Requested Funding Amount", type: 'integer', required: true, helpText: "If the President's Budget is not yet released, please type 35. An email will be sent later allowing you to update." },
               { key: 'enacted_funding_amount', label: 'FY2025 Enacted Appropriations Bill Funding Amount', type: 'integer', required: true, helpText: 'No decimals or symbols.' },
               { key: 'justification', label: 'Brief explanation justifying the request', type: 'textarea', required: true },
-              { key: 'proposed_language', label: 'Proposed report or bill language', type: 'textarea', required: false, helpText: 'If applicable, please provide the proposed report or bill language to accompany the funding request.' },
-              { key: 'proposed_language_type', label: 'Language type', type: 'select', required: false, options: ['Report', 'Bill'], helpText: 'Please indicate if the provided language is for a report or bill.' },
               { key: 'num_funding_requests', label: 'How many funding requests is your organization submitting?', type: 'integer', required: true },
               { key: 'priority_rank', label: 'Priority Rank of Proposal', type: 'integer', required: true, helpText: 'If only one proposal is being submitted, please enter 1.' },
               { key: 'connection_to_massachusetts', label: 'Does this request have a connection to Massachusetts?', type: 'boolean', required: true },

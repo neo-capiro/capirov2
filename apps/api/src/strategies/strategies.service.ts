@@ -70,7 +70,7 @@ export class StrategiesService {
         where: { id },
         include: {
           client: { select: { id: true, name: true } },
-          capability: { select: { id: true, name: true, fundingAsk: true } },
+          capability: { select: { id: true, name: true, fundingAsk: true, peNumber: true, fundingAskLabel: true } },
           targets: { orderBy: { createdAt: 'asc' } },
           instances: {
             include: { template: true },
