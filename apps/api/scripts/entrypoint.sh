@@ -42,6 +42,15 @@ export DATABASE_URL="postgresql://${DB_USER}:${ENCODED_PASSWORD}@${DB_HOST}:${DB
 case "${1:-serve}" in
   migrate)
     echo "Running prisma migrate deploy"
+    # If a previous migration failed, resolve it as rolled-back first
+    FAILED=$(node ./node_modules/prisma/build/index.js migrate status --schema=./prisma/schema.prisma 2>&1 | grep "failed" || true)
+    if [ -n "$FAILED" ]; then
+      FAILED_NAME=$(echo "$FAILED" | sed -n 's/.*`\(.*\)`.*/\1/p')
+      if [ -n "$FAILED_NAME" ]; then
+        echo "Resolving failed migration: $FAILED_NAME"
+        node ./node_modules/prisma/build/index.js migrate resolve --rolled-back "$FAILED_NAME" --schema=./prisma/schema.prisma
+      fi
+    fi
     node ./node_modules/prisma/build/index.js migrate deploy --schema=./prisma/schema.prisma
     echo "Seeding workflow templates"
     # Data seed (idempotent UPSERTs). Source of truth is prisma/seed-workflows.ts.
