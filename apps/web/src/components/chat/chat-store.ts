@@ -14,12 +14,24 @@ export interface ActiveDraftContext {
   body: string;
 }
 
+export interface ClioConversation {
+  id: string;
+  title: string;
+  clientId: string | null;
+  client: { id: string; name: string } | null;
+  latestMessage: { body: string; createdAt: string } | null;
+  updatedAt: string;
+}
+
 interface ChatState {
   isOpen: boolean;
   messages: ChatMessage[];
   sessionId: string | null;
   isStreaming: boolean;
   emailPanelOpen: boolean;
+  conversations: ClioConversation[];
+  activeConversationId: string | null;
+  sessionRailOpen: boolean;
 }
 
 let state: ChatState = {
@@ -28,6 +40,9 @@ let state: ChatState = {
   sessionId: null,
   isStreaming: false,
   emailPanelOpen: false,
+  conversations: [],
+  activeConversationId: null,
+  sessionRailOpen: false,
 };
 
 let activeDraft: ActiveDraftContext | null = null;
@@ -88,6 +103,21 @@ export function setEmailPanelOpen(open: boolean): void {
 
 export function toggleEmailPanel(): void {
   state = { ...state, emailPanelOpen: !state.emailPanelOpen };
+  notify();
+}
+
+export function setConversations(conversations: ClioConversation[]): void {
+  state = { ...state, conversations };
+  notify();
+}
+
+export function setActiveConversation(id: string | null): void {
+  state = { ...state, activeConversationId: id };
+  notify();
+}
+
+export function toggleSessionRail(): void {
+  state = { ...state, sessionRailOpen: !state.sessionRailOpen };
   notify();
 }
 

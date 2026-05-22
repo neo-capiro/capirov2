@@ -671,3 +671,127 @@
     z-index: 999;
   }
 }
+
+/* ─── Session Rail ─── */
+.clio-session-rail {
+  max-height: 240px;
+  overflow-y: auto;
+  border-bottom: 1px solid #e5e7eb;
+  background: #f9fafb;
+  flex-shrink: 0;
+}
+.clio-rail-loading,
+.clio-rail-empty {
+  padding: 16px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 12px;
+}
+.clio-rail-group {
+  border-bottom: 1px solid #f3f4f6;
+}
+.clio-rail-group-header {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+  text-align: left;
+  gap: 2px;
+  transition: background 0.12s;
+}
+.clio-rail-group-header:hover {
+  background: #f3f4f6;
+}
+.clio-rail-group-icon {
+  width: 14px;
+  font-size: 10px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+.clio-rail-group-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clio-rail-group-count {
+  font-size: 10px;
+  color: #9ca3af;
+  background: #e5e7eb;
+  border-radius: 8px;
+  padding: 1px 6px;
+  font-weight: 500;
+  margin-left: 4px;
+}
+.clio-rail-group-items {
+  padding: 0 4px 4px;
+}
+.clio-rail-item {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  color: #374151;
+  text-align: left;
+  border-radius: 6px;
+  gap: 8px;
+  transition: background 0.12s;
+}
+.clio-rail-item:hover {
+  background: #e5e7eb;
+}
+.clio-rail-item--active {
+  background: #dbeafe;
+  color: #1e40af;
+}
+.clio-rail-item--active:hover {
+  background: #bfdbfe;
+}
+.clio-rail-item-icon {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+.clio-rail-item--active .clio-rail-item-icon {
+  color: #3b82f6;
+}
+.clio-rail-item-content {
+  flex: 1;
+  min-width: 0;
+}
+.clio-rail-item-title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+.clio-rail-item-snippet {
+  font-size: 11px;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
+}
+.clio-rail-item--active .clio-rail-item-snippet {
+  color: #3b82f6;
+}
+.clio-rail-item-time {
+  font-size: 10px;
+  color: #9ca3af;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 2px;
+}

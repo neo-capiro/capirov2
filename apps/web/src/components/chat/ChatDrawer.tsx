@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { CloseOutlined, MailOutlined, PlusOutlined } from '@ant-design/icons';
+import { CloseOutlined, HistoryOutlined, MailOutlined, PlusOutlined } from '@ant-design/icons';
 import { useAuth } from '@clerk/clerk-react';
 import { config } from '../../env.js';
 import { useClientFilter } from '../../state/client-filter.js';
@@ -14,12 +14,14 @@ import {
   setStreaming,
   toggleChat,
   toggleEmailPanel,
+  toggleSessionRail,
   updateChatMessage,
   useChatStore,
 } from './chat-store.js';
 import { ChatInput } from './ChatInput.js';
 import { ChatMessage } from './ChatMessage.js';
 import { EmailPanel } from './EmailPanel.js';
+import { SessionRail } from './SessionRail.js';
 import './chat.css';
 
 type SseEvent =
@@ -270,6 +272,15 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             <button
               type="button"
               className="chat-header-btn"
+              onClick={toggleSessionRail}
+              title="Conversation history"
+              aria-label="Toggle conversation history"
+            >
+              <HistoryOutlined />
+            </button>
+            <button
+              type="button"
+              className="chat-header-btn"
               onClick={toggleEmailPanel}
               title="Clio Mail"
               aria-label="Toggle email panel"
@@ -300,6 +311,8 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           <span className="chat-context-icon" aria-hidden="true">●</span>
           <span className="chat-context-value">{contextLabel}</span>
         </div>
+
+        <SessionRail />
 
         <div className="chat-messages" role="log" aria-live="polite" aria-label="Conversation">
           {messages.length === 0 && !isStreaming && (
