@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { ChatDrawer } from './chat/ChatDrawer.js';
 import {
   ApartmentOutlined,
   BulbOutlined,
@@ -339,6 +340,7 @@ export function AppShell() {
   };
 
   return (
+    <>
     <Layout className="app-shell">
       <Sider
         width={240}
@@ -504,6 +506,8 @@ export function AppShell() {
         </Content>
       </Layout>
     </Layout>
+    <ChatDrawer selectedClientName={selectedClient?.name ?? null} />
+    </>
   );
 }
 

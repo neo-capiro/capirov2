@@ -564,7 +564,6 @@ export class EngagementService {
         tx,
         ctx.tenantId,
         input.attendees ?? [],
-        autoAssociation.clientId,
       );
 
       return tx.meeting.create({
@@ -3051,7 +3050,6 @@ export class EngagementService {
     tx: Prisma.TransactionClient,
     tenantId: string,
     attendees: MeetingAttendeeInput[],
-    clientId: string | null,
   ) {
     const contacts = new Map<string, { id: string }>();
     for (const attendee of attendees) {
@@ -3061,14 +3059,12 @@ export class EngagementService {
         where: { tenantId_email: { tenantId, email } },
         update: {
           fullName: attendee.name?.trim() || undefined,
-          ...(clientId ? { clientId } : {}),
         },
         create: {
           tenantId,
           email,
           fullName: attendee.name?.trim() || null,
           source: 'meeting_attendee',
-          clientId,
         },
         select: { id: true },
       });

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { IsOptional, IsString, IsUUID, Length } from 'class-validator';
 import type { Request } from 'express';
 import type { TenantContext } from '@capiro/shared';
@@ -80,6 +80,30 @@ export class ClioController {
     @Body() body: Record<string, unknown>,
   ) {
     return this.tools.executeFromAuthenticatedUser(ctx, name, body);
+  }
+
+  // ── Clio Email endpoints ──
+
+  @Get('emails')
+  listEmails(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('clientId') clientId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.tools.executeFromAuthenticatedUser(ctx, 'list_emails', {
+      clientId: clientId || undefined,
+      limit: limit ? parseInt(limit, 10) : 15,
+    });
+  }
+
+  @Post('emails/send')
+  sendEmail(@CurrentTenant() ctx: TenantContext, @Body() body: Record<string, unknown>) {
+    return this.tools.executeFromAuthenticatedUser(ctx, 'send_email', body);
+  }
+
+  @Post('emails/reply')
+  replyEmail(@CurrentTenant() ctx: TenantContext, @Body() body: Record<string, unknown>) {
+    return this.tools.executeFromAuthenticatedUser(ctx, 'reply_email', body);
   }
 }
 

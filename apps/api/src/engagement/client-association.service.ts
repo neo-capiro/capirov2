@@ -129,24 +129,15 @@ export class ClientAssociationService {
           .filter((contact): contact is { email: string; clientId: string } => Boolean(contact))
       : [];
 
-    const knownContacts = emails.length
-      ? await tx.engagementContact.findMany({
-          where: { tenantId, email: { in: emails }, clientId: { not: null } },
-          select: { email: true, clientId: true },
-        })
-      : [];
-
     // Client profile contacts are the source of truth for routing meetings to clients.
-    // Fall back to engagement contacts only if there are no profile contact matches.
     const authoritativeContacts = [...knownProfileContacts, ...primaryProfileContacts].filter(
       (contact) => Boolean(contact.clientId),
     );
-    const decisiveContacts = authoritativeContacts.length ? authoritativeContacts : knownContacts;
-    const clientIdFromContacts = findPrimaryClientFromContacts(decisiveContacts);
+    const clientIdFromContacts = findPrimaryClientFromContacts(authoritativeContacts);
     if (clientIdFromContacts) {
       const primaryClient = clients.find((c) => c.id === clientIdFromContacts);
       if (primaryClient) {
-        const contactEmails = decisiveContacts
+        const contactEmails = authoritativeContacts
           .filter((k) => k.clientId === clientIdFromContacts)
           .map((k) => k.email)
           .filter((e): e is string => !!e);
@@ -157,7 +148,7 @@ export class ClientAssociationService {
           signals: {
             emails,
             knownContactsFound: contactEmails,
-            contactSource: authoritativeContacts.length ? 'client_profile' : 'engagement_contact',
+            contactSource: 'client_profile',
           },
         };
       }
@@ -188,7 +179,7 @@ export class ClientAssociationService {
       scoreClient(client, {
         emails,
         emailDomains,
-        knownContacts: [...authoritativeContacts, ...knownContacts],
+        knownContacts: authoritativeContacts,
         historicalMeetings,
         text,
       }),

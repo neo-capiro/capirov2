@@ -374,6 +374,53 @@ function capiroToolSchemas() {
         },
       },
     },
+    {
+      type: 'function',
+      function: {
+        name: 'send_email',
+        description: 'Send an email via the tenant connected Microsoft 365 account.',
+        parameters: {
+          type: 'object',
+          properties: {
+            to: { type: 'string', description: 'Recipient email address' },
+            subject: { type: 'string', description: 'Email subject line' },
+            body: { type: 'string', description: 'Email body text' },
+            clientId: { type: 'string', description: 'Optional client UUID to associate email with' },
+          },
+          required: ['to', 'subject', 'body'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_emails',
+        description: 'List recent email threads, optionally filtered by client.',
+        parameters: {
+          type: 'object',
+          properties: {
+            clientId: { type: 'string', description: 'Optional client UUID to filter by' },
+            limit: { type: 'number', description: 'Max threads to return (default 15, max 50)' },
+          },
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'reply_email',
+        description: 'Reply to an email thread.',
+        parameters: {
+          type: 'object',
+          properties: {
+            threadId: { type: 'string', description: 'ID of the mail thread to reply to' },
+            body: { type: 'string', description: 'Reply body text' },
+            clientId: { type: 'string', description: 'Optional client UUID' },
+          },
+          required: ['threadId', 'body'],
+        },
+      },
+    },
   ];
 }
 

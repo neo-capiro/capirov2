@@ -11,6 +11,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { EngagementService } from '../engagement/engagement.service.js';
+import { MicrosoftGraphSyncService } from '../engagement/microsoft/microsoft-graph-sync.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const PRODUCT_NAME = 'Clio';
@@ -35,6 +36,18 @@ const TOOL_DEFINITIONS = [
   {
     name: 'save_note',
     description: 'Save a user-scoped Clio note and optionally an encrypted Capiro meeting note.',
+  },
+  {
+    name: 'send_email',
+    description: 'Send an email via the tenant\'s connected Microsoft 365 account on behalf of Clio.',
+  },
+  {
+    name: 'list_emails',
+    description: 'List recent email threads from the tenant\'s connected Microsoft 365 inbox, optionally filtered by client.',
+  },
+  {
+    name: 'reply_email',
+    description: 'Reply to an email thread via the tenant\'s connected Microsoft 365 account on behalf of Clio.',
   },
 ] as const;
 
@@ -68,6 +81,7 @@ export class ClioToolsService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<AppConfig, true>,
     private readonly engagement: EngagementService,
+    private readonly microsoftGraph: MicrosoftGraphSyncService,
   ) {}
 
   manifest() {
@@ -101,6 +115,12 @@ export class ClioToolsService {
         return this.draftPolicyMemo(ctx, input);
       case 'save_note':
         return this.saveNote(ctx, input);
+      case 'send_email':
+        return this.sendEmail(ctx, input);
+      case 'list_emails':
+        return this.listEmails(ctx, input);
+      case 'reply_email':
+        return this.replyEmail(ctx, input);
       default:
         assertNever(name);
     }
@@ -450,6 +470,153 @@ export class ClioToolsService {
       meetingNote,
     };
   }
+
+  // ── Email tools ──────────────────────────────────────────────────────
+
+  private async findTenantEmailConnection(ctx: TenantContext) {
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.integrationConnection.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          provider: 'microsoft_365',
+          status: 'connected',
+          token: { isNot: null },
+        },
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true, accountEmail: true, displayName: true },
+      }),
+    );
+  }
+
+  private async sendEmail(ctx: TenantContext, input: Record<string, unknown>) {
+    const to = requiredString(input, 'to', 320);
+    const subject = requiredString(input, 'subject', 500);
+    const body = requiredString(input, 'body', 50_000);
+    const clientId = optionalString(input, 'clientId', 36);
+    const conversationId = optionalString(input, 'conversationId', 80);
+
+    const connection = await this.findTenantEmailConnection(ctx);
+    if (!connection) {
+      return {
+        error: 'No connected Microsoft 365 account found. Please connect one in Settings → Integrations.',
+      };
+    }
+
+    await this.microsoftGraph.sendMail(ctx, connection.id, {
+      subject,
+      body,
+      toRecipients: [{ email: to }],
+    });
+
+    if (conversationId) {
+      await this.persistArtifact(ctx, {
+        conversationId,
+        clientId,
+        title: `Email: ${subject}`,
+        kind: 'email_sent',
+        bodyText: `To: ${to}\nSubject: ${subject}\n\n${body}`,
+        metadata: { to, subject, sentFrom: connection.accountEmail },
+      });
+    }
+
+    return { ok: true, sentFrom: connection.accountEmail, to, subject };
+  }
+
+  private async listEmails(ctx: TenantContext, input: Record<string, unknown>) {
+    const clientId = optionalString(input, 'clientId', 36);
+    const limit = clampInt(input.limit, 1, 50, 15);
+
+    const where: Prisma.MailThreadWhereInput = {};
+    if (clientId) where.clientId = clientId;
+
+    const threads = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.mailThread.findMany({
+        where,
+        orderBy: { lastMessageAt: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          subject: true,
+          snippet: true,
+          participants: true,
+          lastMessageAt: true,
+          status: true,
+          client: { select: { id: true, name: true } },
+          messages: {
+            orderBy: { sentAt: 'desc' },
+            take: 3,
+            select: {
+              id: true,
+              subject: true,
+              fromEmail: true,
+              fromName: true,
+              bodyText: true,
+              sentAt: true,
+              receivedAt: true,
+            },
+          },
+        },
+      }),
+    );
+
+    return { threads, count: threads.length };
+  }
+
+  private async replyEmail(ctx: TenantContext, input: Record<string, unknown>) {
+    const threadId = requiredString(input, 'threadId', 80);
+    const body = requiredString(input, 'body', 50_000);
+    const clientId = optionalString(input, 'clientId', 36);
+    const conversationId = optionalString(input, 'conversationId', 80);
+
+    const thread = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.mailThread.findFirst({
+        where: { id: threadId },
+        select: {
+          id: true,
+          subject: true,
+          messages: {
+            orderBy: { sentAt: 'desc' },
+            take: 1,
+            select: { id: true, fromEmail: true, fromName: true, subject: true },
+          },
+        },
+      }),
+    );
+    if (!thread) return { error: 'Thread not found.' };
+
+    const lastMsg = thread.messages[0];
+    if (!lastMsg?.fromEmail) return { error: 'No messages in thread to reply to.' };
+
+    const connection = await this.findTenantEmailConnection(ctx);
+    if (!connection) {
+      return { error: 'No connected Microsoft 365 account found.' };
+    }
+
+    const replySubject = thread.subject?.startsWith('Re: ')
+      ? thread.subject
+      : `Re: ${thread.subject ?? ''}`;
+
+    await this.microsoftGraph.sendMail(ctx, connection.id, {
+      subject: replySubject,
+      body,
+      toRecipients: [{ email: lastMsg.fromEmail }],
+    });
+
+    if (conversationId) {
+      await this.persistArtifact(ctx, {
+        conversationId,
+        clientId,
+        title: `Reply: ${replySubject}`,
+        kind: 'email_reply',
+        bodyText: `Reply to: ${lastMsg.fromEmail}\nSubject: ${replySubject}\n\n${body}`,
+        metadata: { to: lastMsg.fromEmail, subject: replySubject, sentFrom: connection.accountEmail, threadId },
+      });
+    }
+
+    return { ok: true, sentFrom: connection.accountEmail, to: lastMsg.fromEmail, subject: replySubject };
+  }
+
+  // ── Artifact persistence ────────────────────────────────────────────
 
   private async persistArtifact(ctx: TenantContext, input: ToolArtifactInput) {
     if (!input.conversationId) {

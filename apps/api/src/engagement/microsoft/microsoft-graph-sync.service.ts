@@ -13,6 +13,7 @@ import {
   type Configuration,
 } from '@azure/msal-node';
 import {
+  AssociationEntityType,
   EngagementConnectionStatus,
   EngagementProvider,
   EngagementSource,
@@ -594,7 +595,7 @@ export class MicrosoftGraphSyncService {
             externalId: event.id!,
           },
         },
-        select: { id: true, clientId: true },
+        select: { id: true, clientId: true, associationSignals: true },
       });
       const ownEmail = accountEmail?.trim().toLowerCase();
       const association = await this.association.associate(tx, tenantId, {
@@ -605,10 +606,22 @@ export class MicrosoftGraphSyncService {
           ...attendees.map((attendee) => attendee.email ?? ''),
         ].filter((e) => e && e !== ownEmail),
       });
-      // Respect manual/explicit associations — never overwrite a user-set clientId
-      const clientId = existing?.clientId ?? association.clientId;
+      const hasManualOverride = existing
+        ? await hasManualAssociationOverride(
+            tx,
+            tenantId,
+            AssociationEntityType.meeting,
+            existing.id,
+          )
+        : false;
+      // Respect manual/explicit associations, but let stale auto-links be corrected.
+      const clientId =
+        existing?.clientId &&
+        (hasManualOverride || hasManualAssociationSignal(existing.associationSignals))
+          ? existing.clientId
+          : association.clientId;
 
-      const contactsByEmail = await upsertContacts(tx, tenantId, attendees, clientId);
+      const contactsByEmail = await upsertContacts(tx, tenantId, attendees);
       const baseData = {
         clientId,
         connectionId,
@@ -705,7 +718,11 @@ export class MicrosoftGraphSyncService {
             externalId: message.id!,
           },
         },
-        include: { thread: { select: { id: true, clientId: true, lastMessageAt: true } } },
+        include: {
+          thread: {
+            select: { id: true, clientId: true, lastMessageAt: true, associationSignals: true },
+          },
+        },
       });
       const existingThread = existingMessage?.thread
         ? existingMessage.thread
@@ -717,16 +734,27 @@ export class MicrosoftGraphSyncService {
                 externalId: threadExternalId,
               },
             },
-            select: { id: true, clientId: true, lastMessageAt: true },
+            select: { id: true, clientId: true, lastMessageAt: true, associationSignals: true },
           });
       const association = await this.association.associate(tx, tenantId, {
         subject: message.subject,
         body: message.bodyPreview,
         participantEmails,
       });
+      const hasManualOverride = existingThread
+        ? await hasManualAssociationOverride(
+            tx,
+            tenantId,
+            AssociationEntityType.mail_thread,
+            existingThread.id,
+          )
+        : false;
       const clientId =
-        existingMessage?.thread.clientId ?? existingThread?.clientId ?? association.clientId;
-      if (!clientId) return 'skipped';
+        existingThread?.clientId &&
+        (hasManualOverride || hasManualAssociationSignal(existingThread.associationSignals))
+          ? existingThread.clientId
+          : association.clientId;
+      if (!clientId && !existingThread) return 'skipped';
 
       const participantJson = uniqueParticipants([
         fromEmail ? { email: fromEmail, name: clean(from?.name), role: 'from' } : null,
@@ -740,7 +768,7 @@ export class MicrosoftGraphSyncService {
         ? await tx.mailThread.update({
             where: { id: existingThread.id },
             data: {
-              clientId: existingThread.clientId ?? clientId,
+              clientId,
               connectionId,
               subject: clean(message.subject) || 'Untitled email thread',
               snippet: clean(message.bodyPreview),
@@ -1122,6 +1150,24 @@ export class MicrosoftGraphSyncService {
   }
 }
 
+async function hasManualAssociationOverride(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  entityType: AssociationEntityType,
+  entityId: string,
+) {
+  const override = await tx.clientAssociationOverride.findFirst({
+    where: { tenantId, entityType, entityId },
+    select: { id: true },
+  });
+  return Boolean(override);
+}
+
+function hasManualAssociationSignal(value: Prisma.JsonValue | null | undefined) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return (value as Record<string, unknown>).manual === true;
+}
+
 async function upsertContacts(
   tx: Prisma.TransactionClient,
   tenantId: string,
@@ -1129,7 +1175,6 @@ async function upsertContacts(
     email: string | null;
     name: string | null;
   }>,
-  clientId: string | null,
 ) {
   const contacts = new Map<string, { id: string }>();
   for (const attendee of attendees) {
@@ -1138,14 +1183,12 @@ async function upsertContacts(
       where: { tenantId_email: { tenantId, email: attendee.email } },
       update: {
         fullName: attendee.name ?? undefined,
-        ...(clientId ? { clientId } : {}),
       },
       create: {
         tenantId,
         email: attendee.email,
         fullName: attendee.name,
         source: 'microsoft_graph',
-        clientId,
       },
       select: { id: true },
     });

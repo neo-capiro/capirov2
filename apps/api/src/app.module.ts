@@ -26,6 +26,7 @@ import { LdaIntelModule } from './lda-intel/lda-intel.module.js';
 import { FederalRegisterModule } from './federal-register/federal-register.module.js';
 import { RegulatoryDocketModule } from './regulatory-docket/regulatory-docket.module.js';
 import { IntelligenceModule } from './intelligence/intelligence.module.js';
+import { ChatModule } from './chat/chat.module.js';
 
 @Module({
   imports: [
@@ -64,6 +65,7 @@ import { IntelligenceModule } from './intelligence/intelligence.module.js';
     FederalRegisterModule,
     RegulatoryDocketModule,
     IntelligenceModule,
+    ChatModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
