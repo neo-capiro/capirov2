@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { ApartmentOutlined, AppstoreOutlined, ProjectOutlined, RobotOutlined, WarningOutlined } from '@ant-design/icons';
+import { ApartmentOutlined, AppstoreOutlined, ProjectOutlined, WarningOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useApi } from '../../lib/use-api.js';
 
@@ -20,7 +20,6 @@ const TABS = [
   { path: '/workspace/catalog', label: 'Library', icon: <AppstoreOutlined /> },
   { path: '/workspace/kanban', label: 'Workflows', icon: <ProjectOutlined /> },
   { path: '/workspace/strategies', label: 'Strategies', icon: <ApartmentOutlined /> },
-  { path: '/workspace/clio', label: 'Clio', icon: <RobotOutlined /> },
 ] as const;
 
 export function WorkspaceLayout() {

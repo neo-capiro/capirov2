@@ -17,7 +17,6 @@ import { IntegrationsPage } from './pages/settings/IntegrationsPage.js';
 import { WorkspaceLayout } from './pages/workspace/WorkspaceLayout.js';
 import { CatalogView } from './pages/workspace/CatalogView.js';
 import { KanbanBoard } from './pages/workspace/KanbanBoard.js';
-import { ClioView } from './pages/workspace/ClioView.js';
 import { StrategiesList } from './pages/workspace/StrategiesList.js';
 import { StrategyWizard } from './pages/workspace/StrategyWizard.js';
 import { StrategyDashboard } from './pages/workspace/StrategyDashboard.js';
@@ -50,7 +49,6 @@ export function App() {
           <Route path="strategies" element={<StrategiesList />} />
           <Route path="strategy/new" element={<StrategyWizard />} />
           <Route path="strategy/:id" element={<StrategyDashboard />} />
-          <Route path="clio" element={<ClioView />} />
         </Route>
         <Route path="/intelligence" element={<IntelligenceCenterPage />} />
         <Route path="/intelligence/*" element={<Navigate to="/intelligence" replace />} />
