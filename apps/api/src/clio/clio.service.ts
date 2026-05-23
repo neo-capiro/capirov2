@@ -677,6 +677,9 @@ export class ClioService {
       void this.maybeLearnFromConversation(ctx.tenantId, conversationId, content, assistantContent).catch(() => {});
     }
 
+    // Generate proactive alerts in background
+    void this.generateProactiveAlerts(ctx.tenantId).catch(() => {});
+
     sse.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
   }
 
@@ -746,22 +749,27 @@ export class ClioService {
   // ── Memory: learn from conversations ──
 
   private async loadRelevantMemories(tenantId: string, query: string): Promise<Array<{ key: string; value: string }>> {
-    // Simple keyword-based memory lookup (semantic search upgrade in Phase 4)
+    // Try semantic search first (pgvector cosine similarity)
+    try {
+      const semantic = await this.semanticMemorySearch(tenantId, query, 5);
+      if (semantic.length > 0) return semantic.map(({ key, value }) => ({ key, value }));
+    } catch { /* fall through to keyword */ }
+
+    // Fallback: keyword-based memory lookup
     try {
       const memories = await this.prisma.withTenant(tenantId, (tx) =>
-        (tx as any).clioMemory.findMany({
+        tx.clioMemory.findMany({
           where: { tenantId },
           orderBy: { updatedAt: 'desc' },
           take: 10,
           select: { key: true, value: true },
         }),
       );
-      // Filter to relevant ones (simple keyword match for now)
       const queryLower = query.toLowerCase();
-      const words = queryLower.split(/\s+/).filter((w: string) => w.length > 3);
-      return (memories as Array<{ key: string; value: string }>).filter((m) => {
+      const words = queryLower.split(/\s+/).filter((w) => w.length > 3);
+      return memories.filter((m) => {
         const combined = `${m.key} ${m.value}`.toLowerCase();
-        return words.some((w: string) => combined.includes(w));
+        return words.some((w) => combined.includes(w));
       }).slice(0, 5);
     } catch {
       return [];
@@ -821,7 +829,7 @@ export class ClioService {
           );
         } else {
           await this.prisma.withTenant(tenantId, (tx) =>
-            (tx as any).clioMemory.create({
+            tx.clioMemory.create({
               data: {
                 tenantId,
                 key: mem.key.slice(0, 200),
@@ -831,6 +839,8 @@ export class ClioService {
               },
             }),
           );
+          // Generate embedding for this new memory in background
+          void this.embedAndStoreMemory(tenantId, mem.key.slice(0, 200), mem.value.slice(0, 4000)).catch(() => {});
         }
       }
     } catch (err) {
@@ -895,6 +905,159 @@ export class ClioService {
         },
       }),
     );
+  }
+
+  // ── Proactive Alert Generation ────────────────────────────────────────
+  // Called on each stream response to check if anything warrants a proactive alert.
+  // Also callable externally for scheduled scans.
+
+  async generateProactiveAlerts(tenantId: string): Promise<number> {
+    let created = 0;
+    try {
+      // 1. Upcoming meetings without prep (next 48 hours)
+      const tomorrow = new Date(Date.now() + 48 * 60 * 60 * 1000);
+      const upcomingMeetings = await this.prisma.withSystem((tx) =>
+        tx.meeting.findMany({
+          where: {
+            tenantId,
+            startsAt: { gte: new Date(), lte: tomorrow },
+            preps: { none: {} },
+          },
+          select: { id: true, subject: true, startsAt: true, clientId: true, client: { select: { name: true } } },
+          take: 5,
+        }),
+      );
+
+      for (const meeting of upcomingMeetings) {
+        const exists = await this.prisma.withSystem((tx) =>
+          tx.clioProactiveAlert.findFirst({
+            where: { tenantId, sourceType: 'meeting_prep', sourceId: meeting.id, status: 'pending' },
+          }),
+        );
+        if (!exists) {
+          await this.prisma.withSystem((tx) =>
+            tx.clioProactiveAlert.create({
+              data: {
+                tenantId,
+                clientId: meeting.clientId,
+                alertType: 'meeting_prep_needed',
+                title: `Meeting prep needed: ${meeting.subject}`,
+                body: `Your meeting "${meeting.subject}"${meeting.client?.name ? ` with ${meeting.client.name}` : ''} is in less than 48 hours and has no prep notes. Ask Clio to create a meeting brief.`,
+                priority: 'high',
+                sourceType: 'meeting_prep',
+                sourceId: meeting.id,
+                metadata: { meetingId: meeting.id, startsAt: meeting.startsAt.toISOString() },
+              },
+            }),
+          );
+          created++;
+        }
+      }
+
+      // 2. Clients with no recent engagement (30+ days)
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const staleClients = await this.prisma.withSystem((tx) =>
+        tx.client.findMany({
+          where: {
+            tenantId,
+            status: 'active',
+            meetings: { none: { startsAt: { gte: thirtyDaysAgo } } },
+          },
+          select: { id: true, name: true },
+          take: 5,
+        }),
+      );
+
+      for (const client of staleClients) {
+        const exists = await this.prisma.withSystem((tx) =>
+          tx.clioProactiveAlert.findFirst({
+            where: { tenantId, sourceType: 'stale_client', sourceId: client.id, status: 'pending' },
+          }),
+        );
+        if (!exists) {
+          await this.prisma.withSystem((tx) =>
+            tx.clioProactiveAlert.create({
+              data: {
+                tenantId,
+                clientId: client.id,
+                alertType: 'client_activity',
+                title: `No recent activity: ${client.name}`,
+                body: `${client.name} hasn't had a meeting or engagement in over 30 days. Consider scheduling a check-in.`,
+                priority: 'normal',
+                sourceType: 'stale_client',
+                sourceId: client.id,
+                metadata: {},
+              },
+            }),
+          );
+          created++;
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`Alert generation failed: ${(err as Error).message}`);
+    }
+    return created;
+  }
+
+  // ── Embedding-based memory search (Phase 4 semantic) ──────────────────
+
+  async embedAndStoreMemory(tenantId: string, key: string, value: string): Promise<void> {
+    const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
+    // Use OpenAI for embeddings (1536-dim text-embedding-3-small)
+    const openaiKey = this.config.get('OPENAI_API_KEY', { infer: true });
+    if (!openaiKey) return;
+
+    try {
+      const res = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'text-embedding-3-small', input: `${key}: ${value}` }),
+      });
+      if (!res.ok) return;
+      const json = await res.json() as { data?: Array<{ embedding?: number[] }> };
+      const embedding = json.data?.[0]?.embedding;
+      if (!embedding || embedding.length !== 1536) return;
+
+      const vecStr = `[${embedding.join(',')}]`;
+      await this.prisma.$executeRawUnsafe(
+        `UPDATE clio_memory SET embedding = $1::vector WHERE tenant_id = $2 AND key = $3`,
+        vecStr, tenantId, key,
+      );
+    } catch (err) {
+      this.logger.debug(`Embedding failed for memory ${key}: ${(err as Error).message}`);
+    }
+  }
+
+  async semanticMemorySearch(tenantId: string, query: string, limit = 5): Promise<Array<{ key: string; value: string; score: number }>> {
+    const openaiKey = this.config.get('OPENAI_API_KEY', { infer: true });
+    if (!openaiKey) return [];
+
+    try {
+      // Generate query embedding
+      const res = await fetch('https://api.openai.com/v1/embeddings', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'text-embedding-3-small', input: query }),
+      });
+      if (!res.ok) return [];
+      const json = await res.json() as { data?: Array<{ embedding?: number[] }> };
+      const embedding = json.data?.[0]?.embedding;
+      if (!embedding || embedding.length !== 1536) return [];
+
+      const vecStr = `[${embedding.join(',')}]`;
+      const results = await this.prisma.$queryRawUnsafe<Array<{ key: string; value: string; score: number }>>(
+        `SELECT key, value, 1 - (embedding <=> $1::vector) as score
+         FROM clio_memory
+         WHERE tenant_id = $2 AND embedding IS NOT NULL
+         ORDER BY embedding <=> $1::vector
+         LIMIT $3`,
+        vecStr, tenantId, limit,
+      );
+      return results.filter((r) => r.score > 0.3);
+    } catch (err) {
+      this.logger.debug(`Semantic search failed: ${(err as Error).message}`);
+      return [];
+    }
   }
 }
 
