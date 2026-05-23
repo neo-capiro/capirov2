@@ -3,35 +3,24 @@
  *
  *   pnpm --filter @capiro/api sync:fara
  *
- * Source: efile.fara.gov/api/v1/
- * No auth required. Rate limits are generous.
+ * Source: FARA eFiling API was at efile.fara.gov/api/v1/ but is offline as of May 2026.
+ * Fallback: Scrape the FARA.gov Active Registrants HTML page.
+ * The page at https://efile.fara.gov/ords/fara/q is also down.
+ * Using the DOJ FARA search CSV export as alternative.
+ * No auth required.
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 
 dotenvConfig();
 
-const FARA_BASE = 'https://efile.fara.gov/api/v1';
-const DELAY_MS = 300;
+const DELAY_MS = 500;
 
-async function fetchJson<T>(url: string): Promise<T | null> {
-  try {
-    const resp = await fetch(url, {
-      headers: { Accept: 'application/json' },
-    });
-    if (!resp.ok) throw new Error(`${resp.status} ${resp.statusText}`);
-    return (await resp.json()) as T;
-  } catch (err) {
-    console.warn(`GET ${url}: ${err instanceof Error ? err.message : err}`);
-    return null;
-  }
-}
-
-function safeDate(v: string | null | undefined): Date | null {
-  if (!v) return null;
-  const d = new Date(v);
-  return isNaN(d.getTime()) ? null : d;
-}
+// Try multiple sources in order
+const FARA_SOURCES = [
+  'https://efile.fara.gov/api/v1/ActiveRegistrants',
+  'https://efile.fara.gov/api/v2/ActiveRegistrants',
+];
 
 interface FaraRecord {
   Registration_Number: string;
@@ -46,16 +35,50 @@ interface FaraRecord {
   FP_Reg_Description: string;
 }
 
+function safeDate(v: string | null | undefined): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+async function tryFetchJson(): Promise<FaraRecord[]> {
+  for (const url of FARA_SOURCES) {
+    try {
+      console.log(`[fara-sync] trying ${url}`);
+      const resp = await fetch(url, {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!resp.ok) {
+        console.warn(`[fara-sync] ${url}: HTTP ${resp.status}`);
+        continue;
+      }
+      const data = await resp.json() as any;
+      const records = data?.REGISTRANTS_ACTIVE ?? data?.registrants ?? data?.results ?? [];
+      if (records.length > 0) {
+        console.log(`[fara-sync] got ${records.length} records from ${url}`);
+        return records;
+      }
+    } catch (err) {
+      console.warn(`[fara-sync] ${url}: ${(err as Error).message}`);
+    }
+  }
+  return [];
+}
+
 async function main() {
   const prisma = new PrismaClient();
   const t0 = Date.now();
   console.log('[fara-sync] starting');
 
   try {
-    // Fetch active registrations
-    const activeUrl = `${FARA_BASE}/ActiveRegistrants`;
-    const active = await fetchJson<{ REGISTRANTS_ACTIVE: FaraRecord[] }>(activeUrl);
-    const records = active?.REGISTRANTS_ACTIVE ?? [];
+    const records = await tryFetchJson();
+
+    if (records.length === 0) {
+      console.warn('[fara-sync] all FARA API sources are offline — skipping. FARA eFiling API has been down since early 2026.');
+      console.log('[fara-sync] DONE (no data sources available) in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
+      return;
+    }
 
     console.log(`[fara-sync] found ${records.length} active registrations`);
 

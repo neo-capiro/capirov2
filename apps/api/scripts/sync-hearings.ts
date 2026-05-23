@@ -15,10 +15,10 @@ const DELAY_MS = 300;
 async function fetchJson<T>(url: string): Promise<T | null> {
   try {
     const resp = await fetch(url);
-    if (!resp.ok) throw new Error(\`\${resp.status}\`);
+    if (!resp.ok) throw new Error(`${resp.status}`);
     return (await resp.json()) as T;
   } catch (err) {
-    console.warn(\`GET \${url}: \${(err as Error).message}\`);
+    console.warn(`GET ${url}: ${(err as Error).message}`);
     return null;
   }
 }
@@ -41,7 +41,7 @@ async function main() {
       let offset = 0;
       for (let page = 0; page < 20; page++) {
         await new Promise((r) => setTimeout(r, DELAY_MS));
-        const url = \`\${CONGRESS_BASE}/hearing/\${congress}?api_key=\${API_KEY}&format=json&limit=100&offset=\${offset}\`;
+        const url = `${CONGRESS_BASE}/hearing/${congress}?api_key=${API_KEY}&format=json&limit=100&offset=${offset}`;
         const data = await fetchJson<{ hearings: any[] }>(url);
         if (!data?.hearings?.length) break;
 
@@ -49,7 +49,7 @@ async function main() {
           const date = safeDate(h.date);
           if (!date) continue;
 
-          const id = h.jacketNumber ? \`\${congress}-\${h.jacketNumber}\` : \`hearing-\${congress}-\${offset}-\${total}\`;
+          const id = h.jacketNumber ? `${congress}-${h.jacketNumber}` : `hearing-${congress}-${offset}-${total}`;
           const chamber = h.chamber || (h.type?.includes('Senate') ? 'Senate' : h.type?.includes('House') ? 'House' : 'Joint');
 
           await (prisma as any).committeeHearing.upsert({
@@ -75,12 +75,12 @@ async function main() {
 
         offset += 100;
         if (!data.hearings.length || data.hearings.length < 100) break;
-        console.log(\`[hearings-sync] \${congress}th Congress: \${total} hearings...\`);
+        console.log(`[hearings-sync] ${congress}th Congress: ${total} hearings...`);
       }
     }
 
-    console.log(\`[hearings-sync] total: \${total}\`);
-    console.log(\`[hearings-sync] DONE in \${((Date.now() - t0) / 1000).toFixed(1)}s\`);
+    console.log(`[hearings-sync] total: ${total}`);
+    console.log(`[hearings-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   } finally { await prisma.$disconnect(); }
 }
 

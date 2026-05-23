@@ -16,6 +16,7 @@ import type { TenantContext } from '@capiro/shared';
 import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { IntelligenceService } from './intelligence.service.js';
 import { InsightGeneratorService } from './insight-generator.service.js';
+import { EntityResolutionService } from './entity-resolution.service.js';
 
 class ChangesQueryDto {
   @IsOptional()

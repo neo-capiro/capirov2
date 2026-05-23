@@ -8,7 +8,7 @@ import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 dotenvConfig();
 
-const GAO_RSS = 'https://www.gao.gov/rss/reports-testimonies.xml';
+const GAO_RSS = 'https://www.gao.gov/rss/reports.xml';
 const DELAY_MS = 500;
 
 function safeDate(v: string | null | undefined): Date | null {
@@ -29,7 +29,7 @@ async function main() {
 
   try {
     const resp = await fetch(GAO_RSS);
-    if (!resp.ok) throw new Error(\`RSS HTTP \${resp.status}\`);
+    if (!resp.ok) throw new Error(`RSS HTTP ${resp.status}`);
     const xml = await resp.text();
 
     // Simple XML parsing (RSS items)
@@ -47,7 +47,7 @@ async function main() {
       if (!url) continue;
 
       const reportNum = extractReportNumber(url);
-      const id = reportNum || \`gao-\${Buffer.from(url).toString('base64').slice(0, 20)}\`;
+      const id = reportNum || `gao-${Buffer.from(url).toString('base64').slice(0, 20)}`;
 
       await (prisma as any).gaoReport.upsert({
         where: { id },
@@ -71,8 +71,8 @@ async function main() {
       total++;
     }
 
-    console.log(\`[gao-sync] total: \${total} reports\`);
-    console.log(\`[gao-sync] DONE in \${((Date.now() - t0) / 1000).toFixed(1)}s\`);
+    console.log(`[gao-sync] total: ${total} reports`);
+    console.log(`[gao-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   } finally { await prisma.$disconnect(); }
 }
 

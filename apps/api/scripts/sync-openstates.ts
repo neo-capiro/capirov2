@@ -10,22 +10,43 @@ dotenvConfig();
 
 const OS_BASE = 'https://v3.openstates.org';
 const OS_KEY = process.env.OPENSTATES_API_KEY ?? '';
-const DELAY_MS = 500;
-// Focus on top lobbying states
-const PRIORITY_STATES = ['ca', 'tx', 'ny', 'fl', 'il', 'pa', 'oh', 'ga', 'nc', 'va', 'wa', 'ma', 'co', 'az', 'mn'];
+const DELAY_MS = 2000;
+const MAX_RETRIES = 3;
+const BATCH_SIZE = 10; // process 10 states per run to avoid rate limits
+// All states + DC
+const ALL_STATES = [
+  'al', 'ak', 'az', 'ar', 'ca', 'co', 'ct', 'de', 'dc', 'fl',
+  'ga', 'hi', 'id', 'il', 'in', 'ia', 'ks', 'ky', 'la', 'me',
+  'md', 'ma', 'mi', 'mn', 'ms', 'mo', 'mt', 'ne', 'nv', 'nh',
+  'nj', 'nm', 'ny', 'nc', 'nd', 'oh', 'ok', 'or', 'pa', 'ri',
+  'sc', 'sd', 'tn', 'tx', 'ut', 'vt', 'va', 'wa', 'wv', 'wi', 'wy',
+];
+// Pick batch based on day of month to cycle through all states
+const batchIndex = new Date().getDate() % Math.ceil(ALL_STATES.length / BATCH_SIZE);
+const PRIORITY_STATES = ALL_STATES.slice(batchIndex * BATCH_SIZE, (batchIndex + 1) * BATCH_SIZE);
 
 async function fetchOS<T>(path: string, params: Record<string, string> = {}): Promise<T | null> {
-  const url = new URL(\`\${OS_BASE}\${path}\`);
+  const url = new URL(`${OS_BASE}${path}`);
   url.searchParams.set('apikey', OS_KEY);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-  try {
-    const resp = await fetch(url.toString());
-    if (!resp.ok) throw new Error(\`\${resp.status}\`);
-    return (await resp.json()) as T;
-  } catch (err) {
-    console.warn(\`GET \${path}: \${(err as Error).message}\`);
-    return null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const resp = await fetch(url.toString());
+      if (resp.status === 429) {
+        const wait = Math.min(DELAY_MS * Math.pow(2, attempt + 1), 30000);
+        console.warn(`GET ${path}: 429 rate limited, retrying in ${wait}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+        await new Promise((r) => setTimeout(r, wait));
+        continue;
+      }
+      if (!resp.ok) throw new Error(`${resp.status}`);
+      return (await resp.json()) as T;
+    } catch (err) {
+      if (attempt < MAX_RETRIES && (err as Error).message?.includes('429')) continue;
+      console.warn(`GET ${path}: ${(err as Error).message}`);
+      return null;
+    }
   }
+  return null;
 }
 
 function safeDate(v: string | null | undefined): Date | null {
@@ -38,6 +59,7 @@ async function main() {
   const prisma = new PrismaClient();
   const t0 = Date.now();
   console.log('[openstates-sync] starting');
+  console.log(`[openstates-sync] batch ${batchIndex}: ${PRIORITY_STATES.map(s => s.toUpperCase()).join(', ')}`);
   if (!OS_KEY) throw new Error('OPENSTATES_API_KEY env var is required');
 
   try {
@@ -77,7 +99,7 @@ async function main() {
           });
           totalBills++;
         }
-        console.log(\`[openstates-sync] \${state.toUpperCase()} bills: \${bills.results.length}\`);
+        console.log(`[openstates-sync] ${state.toUpperCase()} bills: ${bills.results.length}`);
       }
 
       // Fetch current legislators
@@ -113,12 +135,12 @@ async function main() {
           });
           totalPeople++;
         }
-        console.log(\`[openstates-sync] \${state.toUpperCase()} legislators: \${people.results.length}\`);
+        console.log(`[openstates-sync] ${state.toUpperCase()} legislators: ${people.results.length}`);
       }
     }
 
-    console.log(\`[openstates-sync] total: \${totalBills} bills, \${totalPeople} legislators\`);
-    console.log(\`[openstates-sync] DONE in \${((Date.now() - t0) / 1000).toFixed(1)}s\`);
+    console.log(`[openstates-sync] total: ${totalBills} bills, ${totalPeople} legislators`);
+    console.log(`[openstates-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   } finally { await prisma.$disconnect(); }
 }
 

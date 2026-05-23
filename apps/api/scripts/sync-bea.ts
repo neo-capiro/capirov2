@@ -12,7 +12,7 @@ const BEA_BASE = 'https://apps.bea.gov/api/data';
 const BEA_API_KEY = process.env.BEA_API_KEY ?? '';
 
 interface BeaRow { LineDescription: string; LineNumber: string; SeriesCode: string; TimePeriod: string; DataValue: string; UNIT_MULT: string; }
-interface BeaResponse { BEAAPI: { Results: { Data?: BeaRow[]; Error?: { ErrorDetail: { Description: string } } } } }
+interface BeaResponse { BEAAPI: { Results: { Data?: BeaRow[]; Error?: any } } }
 
 async function fetchBea(params: Record<string, string>): Promise<BeaRow[]> {
   const url = new URL(BEA_BASE);
@@ -21,9 +21,13 @@ async function fetchBea(params: Record<string, string>): Promise<BeaRow[]> {
   url.searchParams.set('ResultFormat', 'JSON');
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const resp = await fetch(url.toString());
-  if (!resp.ok) throw new Error(\`BEA HTTP \${resp.status}\`);
+  if (!resp.ok) throw new Error(`BEA HTTP ${resp.status}`);
   const data = (await resp.json()) as BeaResponse;
-  if (data.BEAAPI.Results.Error) throw new Error(data.BEAAPI.Results.Error.ErrorDetail.Description);
+  if (data.BEAAPI.Results.Error) {
+    const err = data.BEAAPI.Results.Error;
+    const msg = err.ErrorDetail?.Description || err.APIErrorDescription || JSON.stringify(err);
+    throw new Error(msg);
+  }
   return data.BEAAPI.Results.Data ?? [];
 }
 
@@ -71,13 +75,13 @@ async function main() {
           });
           total++;
         }
-        console.log(\`[bea-sync] \${tbl.name}: \${rows.length} rows\`);
+        console.log(`[bea-sync] ${tbl.name}: ${rows.length} rows`);
       } catch (err) {
-        console.warn(\`[bea-sync] \${tbl.name} failed: \${(err as Error).message}\`);
+        console.warn(`[bea-sync] ${tbl.name} failed: ${(err as Error).message}`);
       }
     }
-    console.log(\`[bea-sync] total: \${total} data points\`);
-    console.log(\`[bea-sync] DONE in \${((Date.now() - t0) / 1000).toFixed(1)}s\`);
+    console.log(`[bea-sync] total: ${total} data points`);
+    console.log(`[bea-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   } finally { await prisma.$disconnect(); }
 }
 

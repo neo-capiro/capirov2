@@ -419,4 +419,30 @@ export class IntelligenceService {
       data: { confirmed },
     });
   }
+
+  /** Get all ClientIntelMappings for a tenant, grouped by clientId */
+  async getAllMappingsForTenant(tenantId: string) {
+    const clients = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findMany({ select: { id: true, name: true } }),
+    );
+
+    const clientIds = clients.map((c) => c.id);
+    if (!clientIds.length) return {};
+
+    const mappings = await this.prisma.clientIntelMapping.findMany({
+      where: { clientId: { in: clientIds } },
+      orderBy: { confidence: 'desc' },
+    });
+
+    const clientMap = new Map(clients.map((c) => [c.id, c.name]));
+    const grouped: Record<string, { clientName: string; mappings: typeof mappings }> = {};
+    for (const m of mappings) {
+      if (!grouped[m.clientId]) {
+        grouped[m.clientId] = { clientName: clientMap.get(m.clientId) ?? '', mappings: [] };
+      }
+      grouped[m.clientId]!.mappings.push(m);
+    }
+
+    return grouped;
+  }
 }

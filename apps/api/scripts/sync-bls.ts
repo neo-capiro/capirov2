@@ -3,8 +3,9 @@
  *
  *   pnpm --filter @capiro/api sync:bls
  *
- * Source: api.bls.gov/publicAPI/v2/
- * Auth: API key (500 req/day for v2). Key in env: BLS_API_KEY
+ * Source: api.bls.gov/publicAPI/v2/ (with key) or v1/ (no key, 25 req/day)
+ * Auth: Optional API key (500 req/day for v2). Key in env: BLS_API_KEY
+ *       Falls back to v1 (no key) if key is missing or invalid.
  *
  * Fetches key lobbying-relevant series: CPI, unemployment, employment by industry.
  */

@@ -24,7 +24,7 @@ const CONGRESS_API_KEY = process.env.CONGRESS_API_KEY ?? '';
 const LIMIT = 100;
 // Fetch up to 50 pages per congress (5000 bills per congress)
 const MAX_PAGES_PER_CONGRESS = 50;
-const TARGET_CONGRESSES = [118, 119];
+const TARGET_CONGRESSES = [117, 118, 119];
 
 // Policy areas relevant to lobbying. Used to filter bills for subject/committee detail fetching.
 const LOBBYING_POLICY_AREAS = new Set([

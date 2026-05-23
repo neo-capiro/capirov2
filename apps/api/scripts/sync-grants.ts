@@ -10,7 +10,7 @@ dotenvConfig();
 
 const GRANTS_BASE = 'https://api.grants.gov/v1/api/search2';
 const PAGE_SIZE = 100;
-const MAX_PAGES = 50;
+const MAX_PAGES = 100;
 const DELAY_MS = 300;
 
 function safeDate(v: string | null | undefined): Date | null {
@@ -39,7 +39,7 @@ async function main() {
           offset: page * PAGE_SIZE,
         }),
       });
-      if (!resp.ok) { console.warn(\`[grants-sync] HTTP \${resp.status}\`); break; }
+      if (!resp.ok) { console.warn(`[grants-sync] HTTP ${resp.status}`); break; }
       const data = await resp.json() as any;
       const hits = data?.oppHits ?? [];
       if (!hits.length) break;
@@ -63,7 +63,7 @@ async function main() {
             closeDate: safeDate(g.closeDate),
             status: g.oppStatus || null,
             description: (g.description || g.synopsis || '')?.slice(0, 10000) || null,
-            url: g.docURL || \`https://www.grants.gov/search-results-detail/\${id}\`,
+            url: g.docURL || `https://www.grants.gov/search-results-detail/${id}`,
             syncedAt: new Date(),
           },
           create: {
@@ -81,17 +81,17 @@ async function main() {
             closeDate: safeDate(g.closeDate),
             status: g.oppStatus || null,
             description: (g.description || g.synopsis || '')?.slice(0, 10000) || null,
-            url: g.docURL || \`https://www.grants.gov/search-results-detail/\${id}\`,
+            url: g.docURL || `https://www.grants.gov/search-results-detail/${id}`,
           },
         });
         total++;
       }
-      console.log(\`[grants-sync] page \${page + 1}: \${hits.length} grants (total: \${total})\`);
+      console.log(`[grants-sync] page ${page + 1}: ${hits.length} grants (total: ${total})`);
       if (hits.length < PAGE_SIZE) break;
     }
 
-    console.log(\`[grants-sync] total: \${total}\`);
-    console.log(\`[grants-sync] DONE in \${((Date.now() - t0) / 1000).toFixed(1)}s\`);
+    console.log(`[grants-sync] total: ${total}`);
+    console.log(`[grants-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   } finally { await prisma.$disconnect(); }
 }
 

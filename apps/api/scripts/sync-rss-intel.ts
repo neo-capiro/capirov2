@@ -17,38 +17,32 @@ const FEEDS = [
   { source: 'politico_congress', url: 'https://rss.politico.com/congress.xml' },
   { source: 'axios', url: 'https://api.axios.com/feed/' },
   { source: 'reuters_politics', url: 'https://www.reutersagency.com/feed/?taxonomy=best-sectors&post_type=best&best-sectors=political-general' },
-  // Agency press releases
-  { source: 'whitehouse', url: 'https://www.whitehouse.gov/feed/' },
-  { source: 'treasury', url: 'https://home.treasury.gov/system/files/136/treasury-rss.xml' },
+  // Agency press releases (verified May 2026)
   { source: 'dod', url: 'https://www.defense.gov/DesktopModules/ArticleCS/RSS.ashx?max=20&ContentType=1' },
   { source: 'hhs', url: 'https://www.hhs.gov/rss/news-releases.xml' },
-  { source: 'epa', url: 'https://www.epa.gov/rss/epa-news-releases.xml' },
-  { source: 'doe', url: 'https://www.energy.gov/rss/articles.xml' },
   { source: 'usda', url: 'https://www.usda.gov/rss/latest-releases.xml' },
   { source: 'doj', url: 'https://www.justice.gov/feeds/opa/justice-news.xml' },
   { source: 'state_dept', url: 'https://www.state.gov/rss-feed/press-releases/feed/' },
   { source: 'commerce', url: 'https://www.commerce.gov/feeds/news' },
-  { source: 'dhs', url: 'https://www.dhs.gov/rss/news-releases.xml' },
-  { source: 'dot', url: 'https://www.transportation.gov/rss/pressreleases' },
   { source: 'va', url: 'https://news.va.gov/feed/' },
-  { source: 'sba', url: 'https://www.sba.gov/rss/feed' },
+  // Fixed URLs (old ones returned 404, these verified working)
+  { source: 'doe', url: 'https://www.energy.gov/rss.xml' },
+  { source: 'dhs', url: 'https://www.dhs.gov/rss.xml' },
+  { source: 'heritage', url: 'https://www.heritage.org/rss' },
+  { source: 'urban', url: 'https://www.urban.org/research/rss.xml' },
+  { source: 'cato', url: 'https://www.cato.org/rss/recent-opeds' },
   // Think tanks
   { source: 'brookings', url: 'https://www.brookings.edu/feed/' },
-  { source: 'heritage', url: 'https://www.heritage.org/rss/all-research' },
   { source: 'aei', url: 'https://www.aei.org/feed/' },
-  { source: 'cap', url: 'https://www.americanprogress.org/feed/' },
-  { source: 'cato', url: 'https://www.cato.org/rss/recent-opeds' },
-  { source: 'rand', url: 'https://www.rand.org/content/rand/pubs/rss.xml' },
-  { source: 'cfr', url: 'https://www.cfr.org/rss' },
-  { source: 'urban', url: 'https://www.urban.org/rss.xml' },
   { source: 'bipartisan_policy', url: 'https://bipartisanpolicy.org/feed/' },
-  { source: 'third_way', url: 'https://www.thirdway.org/feed' },
+  // Removed (dead/404/WAF-blocked, no working alternative found):
+  // whitehouse.gov, treasury, epa, sba, dot, cap, rand, cfr, third_way
 ];
 
 function extractText(xml: string, tag: string): string | null {
-  const cdataMatch = xml.match(new RegExp(\`<\${tag}><!\\[CDATA\\[(.+?)\\]\\]><\/\${tag}>\`, 's'));
+  const cdataMatch = xml.match(new RegExp(`<${tag}><!\\[CDATA\\[(.+?)\\]\\]><\/${tag}>`, 's'));
   if (cdataMatch) return cdataMatch[1].trim();
-  const plainMatch = xml.match(new RegExp(\`<\${tag}>(.+?)<\/\${tag}>\`, 's'));
+  const plainMatch = xml.match(new RegExp(`<${tag}>(.+?)<\/${tag}>`, 's'));
   return plainMatch ? plainMatch[1].replace(/<[^>]+>/g, '').trim() : null;
 }
 
@@ -77,7 +71,7 @@ async function main() {
     try {
       const resp = await fetch(feed.url, {
         headers: { 'User-Agent': 'Capiro/1.0 (neo@capiro.ai)' },
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(20000),
       });
       if (!resp.ok) { feedsFailed++; continue; }
       const xml = await resp.text();
@@ -95,7 +89,7 @@ async function main() {
         const author = extractText(item, 'author') || extractText(item, 'dc:creator');
 
         if (!title || !link) continue;
-        const url = link.startsWith('http') ? link : \`https://\${link}\`;
+        const url = link.startsWith('http') ? link : `https://${link}`;
 
         try {
           await (prisma as any).intelArticle.upsert({
@@ -114,17 +108,17 @@ async function main() {
         } catch { /* skip dupes or invalid data */ }
       }
 
-      if (feedCount > 0) console.log(\`[rss-sync] \${feed.source}: \${feedCount} articles\`);
+      if (feedCount > 0) console.log(`[rss-sync] ${feed.source}: ${feedCount} articles`);
       feedsProcessed++;
     } catch (err) {
-      console.warn(\`[rss-sync] \${feed.source} failed: \${(err as Error).message}\`);
+      console.warn(`[rss-sync] ${feed.source} failed: ${(err as Error).message}`);
       feedsFailed++;
     }
   }
 
-  console.log(\`[rss-sync] feeds: \${feedsProcessed} ok, \${feedsFailed} failed\`);
-  console.log(\`[rss-sync] total: \${totalArticles} articles\`);
-  console.log(\`[rss-sync] DONE in \${((Date.now() - t0) / 1000).toFixed(1)}s\`);
+  console.log(`[rss-sync] feeds: ${feedsProcessed} ok, ${feedsFailed} failed`);
+  console.log(`[rss-sync] total: ${totalArticles} articles`);
+  console.log(`[rss-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
 
   await prisma.$disconnect();
 }

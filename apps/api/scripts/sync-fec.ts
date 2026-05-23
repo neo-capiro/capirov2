@@ -11,19 +11,19 @@ dotenvConfig();
 const FEC_BASE = 'https://api.open.fec.gov/v1';
 const FEC_KEY = process.env.FEC_API_KEY ?? '';
 const DELAY_MS = 500;
-const CYCLE = 2026;
+const CYCLES = [2022, 2024, 2026];
 
 async function fetchFec<T>(path: string, params: Record<string, string> = {}): Promise<T | null> {
-  const url = new URL(\`\${FEC_BASE}\${path}\`);
+  const url = new URL(`${FEC_BASE}${path}`);
   url.searchParams.set('api_key', FEC_KEY);
   url.searchParams.set('per_page', '100');
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   try {
     const resp = await fetch(url.toString());
-    if (!resp.ok) throw new Error(\`\${resp.status}\`);
+    if (!resp.ok) throw new Error(`${resp.status}`);
     return (await resp.json()) as T;
   } catch (err) {
-    console.warn(\`GET \${path}: \${(err as Error).message}\`);
+    console.warn(`GET ${path}: ${(err as Error).message}`);
     return null;
   }
 }
@@ -35,12 +35,13 @@ async function main() {
   if (!FEC_KEY) throw new Error('FEC_API_KEY env var is required');
 
   try {
-    // Fetch top committees by receipts for current cycle
+    // Fetch top committees by receipts for each cycle
     let totalComms = 0;
+    for (const cycle of CYCLES) {
     for (let page = 1; page <= 10; page++) {
       await new Promise((r) => setTimeout(r, DELAY_MS));
       const data = await fetchFec<{ results: any[] }>('/committees/', {
-        cycle: String(CYCLE), sort: '-receipts', page: String(page),
+        cycle: String(cycle), sort: '-receipts', page: String(page),
         committee_type: 'H,S,P', // House, Senate, Presidential
       });
       if (!data?.results?.length) break;
@@ -56,7 +57,7 @@ async function main() {
             totalReceipts: c.receipts || null, totalDisbursements: c.disbursements || null,
             cashOnHand: c.last_cash_on_hand_end_period || null,
             filingFrequency: c.filing_frequency || null,
-            cycle: CYCLE, syncedAt: new Date(),
+            cycle: cycle, syncedAt: new Date(),
           },
           create: {
             id: c.committee_id, name: c.name, designation: c.designation || null,
@@ -65,20 +66,22 @@ async function main() {
             state: c.state || null, treasurer: c.treasurer_name || null,
             totalReceipts: c.receipts || null, totalDisbursements: c.disbursements || null,
             cashOnHand: c.last_cash_on_hand_end_period || null,
-            filingFrequency: c.filing_frequency || null, cycle: CYCLE,
+            filingFrequency: c.filing_frequency || null, cycle: cycle,
           },
         });
         totalComms++;
       }
-      console.log(\`[fec-sync] committees page \${page}: \${data.results.length}\`);
+      console.log(`[fec-sync] committees page ${page} cycle ${cycle}: ${data.results.length}`);
     }
+    } // end cycles loop
 
-    // Fetch recent individual contributions (top by amount)
+    // Fetch recent individual contributions (top by amount) across cycles
     let totalContribs = 0;
+    for (const cycle of CYCLES) {
     for (let page = 1; page <= 5; page++) {
       await new Promise((r) => setTimeout(r, DELAY_MS));
       const data = await fetchFec<{ results: any[] }>('/schedules/schedule_a/', {
-        two_year_transaction_period: String(CYCLE), sort: '-contribution_receipt_amount',
+        two_year_transaction_period: String(cycle), sort: '-contribution_receipt_amount',
         min_amount: '10000', page: String(page),
       });
       if (!data?.results?.length) break;
@@ -95,16 +98,17 @@ async function main() {
             contributorCity: c.contributor_city || null,
             amount: c.contribution_receipt_amount,
             receiptDate: new Date(c.contribution_receipt_date || Date.now()),
-            receiptType: c.receipt_type || null, cycle: CYCLE,
+            receiptType: c.receipt_type || null, cycle: cycle,
           },
         }).catch(() => {}); // skip dupes
         totalContribs++;
       }
-      console.log(\`[fec-sync] contributions page \${page}: \${data.results.length}\`);
+      console.log(`[fec-sync] contributions page ${page} cycle ${cycle}: ${data.results.length}`);
     }
+    } // end contributions cycles loop
 
-    console.log(\`[fec-sync] total: \${totalComms} committees, \${totalContribs} contributions\`);
-    console.log(\`[fec-sync] DONE in \${((Date.now() - t0) / 1000).toFixed(1)}s\`);
+    console.log(`[fec-sync] total: ${totalComms} committees, ${totalContribs} contributions`);
+    console.log(`[fec-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   } finally { await prisma.$disconnect(); }
 }
 
