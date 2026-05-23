@@ -48,6 +48,12 @@ export function LobbyingPanel() {
   const maxIssueSpend = useMemo(() => Math.max(1, ...(overview.data?.hotIssues.map((s) => s.totalSpending ?? 0) ?? [])), [overview.data]);
   const data = overview.data;
   const isEmpty = !overview.isLoading && data && data.totalClients === 0;
+  // Total federal lobbying $ tracked across surfaced top spenders (LDA-derived).
+  // Now reflects actual aggregate from raw filings, not openlobby's pre-bucketed sum.
+  const totalTrackedSpend = useMemo(
+    () => (data?.topSpenders ?? []).reduce((sum, s) => sum + (s.totalSpending ?? 0), 0),
+    [data],
+  );
 
   return (
     <div>
@@ -55,7 +61,11 @@ export function LobbyingPanel() {
       {isEmpty ? <Alert type="info" showIcon message="No data yet" description={<span>Run <Text code>pnpm --filter @capiro/api sync:openlobby</Text> to populate.</span>} style={{ marginBottom: 24 }} /> : null}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 16 }}>
-        <Card size="small"><Statistic title="Tracked Clients" value={data?.totalClients ?? 0} loading={overview.isLoading} valueStyle={{ fontSize: 22 }} /></Card>
+        <Card size="small">
+          <Statistic title="Tracked Clients" value={data?.totalClients ?? 0} loading={overview.isLoading} valueStyle={{ fontSize: 22 }} />
+          <Text type="secondary" style={{ fontSize: 11 }}>of ~45.5K federal lobbying universe</Text>
+        </Card>
+        <Card size="small"><Statistic title="Total $ Tracked" value={totalTrackedSpend} loading={overview.isLoading} formatter={(v) => formatMoney(v as number)} valueStyle={{ fontSize: 22, color: '#2563eb' }} /></Card>
         <Card size="small"><Statistic title="Surging Issues" value={data?.surgingIssues.length ?? 0} loading={overview.isLoading} valueStyle={{ fontSize: 22, color: '#ef4444' }} prefix={<RiseOutlined />} /></Card>
         <Card size="small"><Statistic title="Exploding Clients" value={data?.exploding.length ?? 0} loading={overview.isLoading} valueStyle={{ fontSize: 22, color: '#f59e0b' }} prefix={<ThunderboltOutlined />} /></Card>
         <Card size="small"><Statistic title="Trending Terms" value={data?.trendingTopics.length ?? 0} loading={overview.isLoading} valueStyle={{ fontSize: 22 }} /></Card>
@@ -97,10 +107,10 @@ export function LobbyingPanel() {
             ) : <Empty description="No surge data yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />}
           </Card>
 
-          <Card size="small" title="Top Federal Lobbying Spenders" extra={<Text type="secondary" style={{ fontSize: 12 }}>2018–2025</Text>}>
+          <Card size="small" title="Top Federal Lobbying Spenders" extra={<Text type="secondary" style={{ fontSize: 12 }}>2018–2025 • LDA-derived</Text>}>
             {overview.isLoading ? <Skeleton active /> : data && data.topSpenders.length > 0 ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {data.topSpenders.slice(0, 12).map((c, i) => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 720, overflowY: 'auto' }}>
+                {data.topSpenders.slice(0, 50).map((c, i) => (
                   <div key={c.id} style={{ display: 'grid', gridTemplateColumns: '24px 1fr 140px 110px 60px', alignItems: 'center', gap: 10, padding: '6px 4px', borderBottom: '1px solid rgba(0,0,0,0.04)' }}>
                     <Text type="secondary" style={{ fontSize: 11 }}>{i + 1}</Text>
                     <Tooltip title={c.name}><Text ellipsis style={{ maxWidth: 360 }}>{c.name}</Text></Tooltip>
@@ -148,7 +158,7 @@ export function LobbyingPanel() {
 
           <Card size="small" title="About this data">
             <Paragraph style={{ fontSize: 12, marginBottom: 6 }} type="secondary">
-              Lobbying: <a href="https://www.openlobby.us/" target="_blank" rel="noreferrer">OpenLobby</a> / Senate <a href="https://lda.senate.gov/" target="_blank" rel="noreferrer">LDA</a>.
+              Lobbying: derived directly from Senate <a href="https://lda.senate.gov/" target="_blank" rel="noreferrer">LDA</a> filings (~512K records).
             </Paragraph>
             <Paragraph style={{ fontSize: 12, margin: 0 }} type="secondary">
               Contracting: <a href="https://www.openspending.us/" target="_blank" rel="noreferrer">OpenSpending</a> / <a href="https://www.usaspending.gov/" target="_blank" rel="noreferrer">USASpending.gov</a>.
