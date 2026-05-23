@@ -473,11 +473,12 @@ export class ClioToolsService {
 
   // ── Email tools ──────────────────────────────────────────────────────
 
-  private async findTenantEmailConnection(ctx: TenantContext) {
+  private async findUserEmailConnection(ctx: TenantContext) {
     return this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.integrationConnection.findFirst({
         where: {
           tenantId: ctx.tenantId,
+          createdByUserId: ctx.userId,
           provider: 'microsoft_365',
           status: 'connected',
           token: { isNot: null },
@@ -495,7 +496,7 @@ export class ClioToolsService {
     const clientId = optionalString(input, 'clientId', 36);
     const conversationId = optionalString(input, 'conversationId', 80);
 
-    const connection = await this.findTenantEmailConnection(ctx);
+    const connection = await this.findUserEmailConnection(ctx);
     if (!connection) {
       return {
         error: 'No connected Microsoft 365 account found. Please connect one in Settings → Integrations.',
@@ -526,7 +527,9 @@ export class ClioToolsService {
     const clientId = optionalString(input, 'clientId', 36);
     const limit = clampInt(input.limit, 1, 50, 15);
 
-    const where: Prisma.MailThreadWhereInput = {};
+    const where: Prisma.MailThreadWhereInput = {
+      ...ownMailThreadWhere(ctx.userId),
+    };
     if (clientId) where.clientId = clientId;
 
     const threads = await this.prisma.withTenant(ctx.tenantId, (tx) =>
@@ -570,7 +573,7 @@ export class ClioToolsService {
 
     const thread = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.mailThread.findFirst({
-        where: { id: threadId },
+        where: { id: threadId, ...ownMailThreadWhere(ctx.userId) },
         select: {
           id: true,
           subject: true,
@@ -587,7 +590,7 @@ export class ClioToolsService {
     const lastMsg = thread.messages[0];
     if (!lastMsg?.fromEmail) return { error: 'No messages in thread to reply to.' };
 
-    const connection = await this.findTenantEmailConnection(ctx);
+    const connection = await this.findUserEmailConnection(ctx);
     if (!connection) {
       return { error: 'No connected Microsoft 365 account found.' };
     }

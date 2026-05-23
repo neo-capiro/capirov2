@@ -672,6 +672,117 @@
   }
 }
 
+/* ─── Artifact Panel Content ─── */
+.clio-artifact-panel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.clio-artifact-list-pane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+.clio-artifact-list-item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  border-bottom: 1px solid #f3f4f6;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+.clio-artifact-list-item:hover {
+  background: #f9fafb;
+}
+.clio-artifact-list-item--active {
+  background: #eff6ff;
+  border-left: 3px solid #3b82f6;
+}
+.clio-artifact-list-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.clio-artifact-kind-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.clio-artifact-list-item-time {
+  font-size: 11px;
+  color: #9ca3af;
+}
+.clio-artifact-list-item-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clio-artifact-list-item-client {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+.clio-artifact-detail {
+  border-top: 2px solid #3b82f6;
+  padding: 16px;
+  overflow-y: auto;
+  max-height: 50vh;
+  background: #fafbfc;
+}
+.clio-artifact-detail-header {
+  margin-bottom: 12px;
+}
+.clio-artifact-detail-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+  margin: 6px 0 4px;
+  line-height: 1.3;
+}
+.clio-artifact-detail-client {
+  display: inline-block;
+  padding: 1px 8px;
+  background: #eff6ff;
+  color: #3b82f6;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-right: 8px;
+}
+.clio-artifact-detail-time {
+  font-size: 11px;
+  color: #9ca3af;
+}
+.clio-artifact-detail-body {
+  font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #374151;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 12px;
+  margin-top: 8px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
 /* ─── Session Rail ─── */
 .clio-session-rail {
   max-height: 240px;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { CloseOutlined, HistoryOutlined, MailOutlined, PlusOutlined } from '@ant-design/icons';
+import { CloseOutlined, FileTextOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons';
 import { useAuth } from '@clerk/clerk-react';
 import { config } from '../../env.js';
 import { useClientFilter } from '../../state/client-filter.js';
@@ -20,7 +20,7 @@ import {
 } from './chat-store.js';
 import { ChatInput } from './ChatInput.js';
 import { ChatMessage } from './ChatMessage.js';
-import { EmailPanel } from './EmailPanel.js';
+import { ArtifactPanel } from './ArtifactPanel.js';
 import { SessionRail } from './SessionRail.js';
 import './chat.css';
 
@@ -282,10 +282,10 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
               type="button"
               className="chat-header-btn"
               onClick={toggleEmailPanel}
-              title="Clio Mail"
-              aria-label="Toggle email panel"
+              title="Artifacts"
+              aria-label="Toggle artifacts panel"
             >
-              <MailOutlined />
+              <FileTextOutlined />
             </button>
             <button
               type="button"
@@ -372,7 +372,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         </svg>
       </button>
 
-      <EmailPanel />
+      <ArtifactPanel />
     </>
   );
 }
