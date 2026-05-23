@@ -14,6 +14,17 @@ export interface ActiveDraftContext {
   body: string;
 }
 
+export interface ClioAlert {
+  id: string;
+  alertType: string;
+  title: string;
+  body: string;
+  priority: string;
+  status: string;
+  clientId: string | null;
+  createdAt: string;
+}
+
 export interface ClioConversation {
   id: string;
   title: string;
@@ -32,6 +43,8 @@ interface ChatState {
   conversations: ClioConversation[];
   activeConversationId: string | null;
   sessionRailOpen: boolean;
+  alerts: ClioAlert[];
+  alertsBadge: number;
 }
 
 let state: ChatState = {
@@ -43,6 +56,8 @@ let state: ChatState = {
   conversations: [],
   activeConversationId: null,
   sessionRailOpen: false,
+  alerts: [],
+  alertsBadge: 0,
 };
 
 let activeDraft: ActiveDraftContext | null = null;
@@ -118,6 +133,16 @@ export function setActiveConversation(id: string | null): void {
 
 export function toggleSessionRail(): void {
   state = { ...state, sessionRailOpen: !state.sessionRailOpen };
+  notify();
+}
+
+export function setAlerts(alerts: ClioAlert[]): void {
+  state = { ...state, alerts, alertsBadge: alerts.filter(a => a.status === 'pending').length };
+  notify();
+}
+
+export function dismissAlert(id: string): void {
+  state = { ...state, alerts: state.alerts.map(a => a.id === id ? { ...a, status: 'read' } : a), alertsBadge: Math.max(0, state.alertsBadge - 1) };
   notify();
 }
 

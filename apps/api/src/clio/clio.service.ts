@@ -520,6 +520,382 @@ export class ClioService {
   private clioPlatformId(ctx: TenantContext): string {
     return `capiro:${ctx.tenantId}:${ctx.userId}`;
   }
+
+  // ── SSE Streaming (Phase 1: Unified brain) ──
+
+  async streamMessage(ctx: TenantContext, conversationId: string, body: string, sse: { write: (data: string) => void }) {
+    const conversation = await this.ensureConversation(ctx, conversationId);
+    const content = body.trim();
+    if (!content) throw new BadRequestException('Message body is empty');
+
+    // Persist user message
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMessage.create({
+        data: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          clientId: conversation.clientId ?? null,
+          conversationId,
+          role: 'user',
+          body: content,
+          metadata: {},
+        },
+      }),
+    );
+
+    // Load recent history
+    const history = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMessage.findMany({
+        where: { conversationId, role: { in: ['user', 'assistant'] } },
+        orderBy: { createdAt: 'asc' },
+        take: 20,
+        select: { role: true, body: true },
+      }),
+    );
+
+    // Classify intent
+    const intent = await this.classifyIntent(content);
+    this.logger.debug(`Stream intent: ${intent}`);
+
+    // Gather context
+    const contextParts: string[] = [];
+    if (conversation.clientId) {
+      try {
+        const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.client.findFirst({
+            where: { id: conversation.clientId! },
+            select: { name: true, description: true, productDescription: true },
+          }),
+        );
+        if (client) {
+          contextParts.push(`Client: ${client.name}`);
+          if (client.description) contextParts.push(`Description: ${client.description}`);
+          if (client.productDescription) contextParts.push(`Product/service: ${client.productDescription}`);
+        }
+      } catch { /* skip */ }
+    }
+
+    // Gather memories
+    const memories = await this.loadRelevantMemories(ctx.tenantId, content);
+    if (memories.length) {
+      contextParts.push('\nRelevant firm knowledge (from Clio memory):');
+      for (const mem of memories) {
+        contextParts.push(`- ${mem.value}`);
+      }
+    }
+
+    const unifiedSystemPrompt = this.buildUnifiedSystemPrompt(intent, contextParts.join('\n'));
+
+    sse.write(`data: ${JSON.stringify({ type: 'start', intent })}\n\n`);
+
+    let assistantContent = '';
+    try {
+      const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
+      if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not configured');
+
+      const messages = history.map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.body,
+      }));
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 90_000);
+
+      try {
+        const response = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': anthropicKey,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'claude-sonnet-4-6',
+            max_tokens: 4000,
+            stream: true,
+            system: unifiedSystemPrompt,
+            messages,
+          }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok || !response.body) {
+          throw new Error(`Anthropic HTTP ${response.status}`);
+        }
+
+        const decoder = new TextDecoder();
+        const responseBody = response.body as unknown as AsyncIterable<Uint8Array>;
+        let buffer = '';
+
+        for await (const chunk of responseBody) {
+          buffer += decoder.decode(chunk, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6).trim();
+            if (!payload || payload === '[DONE]') continue;
+            try {
+              const evt = JSON.parse(payload);
+              if (evt.type === 'content_block_delta') {
+                const delta = evt.delta ?? {};
+                if (delta.type === 'text_delta' && typeof delta.text === 'string') {
+                  assistantContent += delta.text;
+                  sse.write(`data: ${JSON.stringify({ type: 'text', text: delta.text })}\n\n`);
+                }
+              }
+            } catch { /* incomplete chunk */ }
+          }
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'AI generation failed';
+      sse.write(`data: ${JSON.stringify({ type: 'error', message: msg })}\n\n`);
+      assistantContent = `Error: ${msg}`;
+    }
+
+    // Persist assistant response
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMessage.create({
+        data: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          clientId: conversation.clientId ?? null,
+          conversationId,
+          role: 'assistant',
+          body: assistantContent,
+          metadata: { intent },
+        },
+      }),
+    );
+
+    // Auto-summarize for memory (if substantial)
+    if (assistantContent.length > 200) {
+      void this.maybeLearnFromConversation(ctx.tenantId, conversationId, content, assistantContent).catch(() => {});
+    }
+
+    sse.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+  }
+
+  private async classifyIntent(message: string): Promise<string> {
+    const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
+    if (!anthropicKey) return 'general_question';
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 50,
+          system: 'You classify user intent for a lobbying AI. Return only JSON: {"intent":"<intent>"}. Valid: query_intelligence, query_clients, query_engagement, query_workflow, edit_draft, edit_workflow_field, generate_draft, generate_briefing, navigate, general_question',
+          messages: [{ role: 'user', content: message }],
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json() as Record<string, unknown>;
+        const text = Array.isArray(json.content) ? (json.content[0] as Record<string, unknown>)?.text : '';
+        if (typeof text === 'string') {
+          const match = text.match(/"intent"\s*:\s*"([^"]+)"/);
+          if (match?.[1]) return match[1];
+        }
+      }
+    } catch { /* fallback */ }
+    return 'general_question';
+  }
+
+  private buildUnifiedSystemPrompt(intent: string, context: string): string {
+    const base = [
+      'You are Clio, the AI assistant for lobbying firms using the Capiro platform.',
+      'You are a shared firm-level intelligence that learns and grows over time.',
+      'You assist government affairs professionals with:',
+      '- Client relationship management and strategy',
+      '- Congressional outreach and stakeholder engagement',
+      '- Federal lobbying intelligence (bills, spending, LDA filings)',
+      '- Meeting preparation and follow-up',
+      '- Workflow management and regulatory submissions',
+      '- Email drafting and communication',
+      '',
+      'Be concise, professional, and precise. Cite data when available.',
+      'Do not fabricate facts. When uncertain, say so.',
+      'Remember: you are the firm\'s institutional knowledge — your insights improve over time.',
+    ].join('\n');
+
+    const intentGuidance: Record<string, string> = {
+      query_intelligence: 'The user is asking about federal lobbying intelligence. Synthesize data with clear takeaways.',
+      query_clients: 'The user is asking about their clients. Use available client data.',
+      query_engagement: 'The user is asking about meetings or outreach. Reference engagement records.',
+      query_workflow: 'The user is asking about workflows or submissions. Check workflow data.',
+      generate_draft: 'Generate a professional government affairs email with proper tone and structure.',
+      generate_briefing: 'Create an actionable briefing with key points, risks, and recommendations.',
+      general_question: 'Answer helpfully about lobbying, government affairs, or the Capiro platform.',
+    };
+
+    const parts = [base];
+    if (intentGuidance[intent]) parts.push(`\n${intentGuidance[intent]}`);
+    if (context) parts.push(`\nContext:\n${context}`);
+    return parts.join('\n');
+  }
+
+  // ── Memory: learn from conversations ──
+
+  private async loadRelevantMemories(tenantId: string, query: string): Promise<Array<{ key: string; value: string }>> {
+    // Simple keyword-based memory lookup (semantic search upgrade in Phase 4)
+    try {
+      const memories = await this.prisma.withTenant(tenantId, (tx) =>
+        (tx as any).clioMemory.findMany({
+          where: { tenantId },
+          orderBy: { updatedAt: 'desc' },
+          take: 10,
+          select: { key: true, value: true },
+        }),
+      );
+      // Filter to relevant ones (simple keyword match for now)
+      const queryLower = query.toLowerCase();
+      const words = queryLower.split(/\s+/).filter((w: string) => w.length > 3);
+      return (memories as Array<{ key: string; value: string }>).filter((m) => {
+        const combined = `${m.key} ${m.value}`.toLowerCase();
+        return words.some((w: string) => combined.includes(w));
+      }).slice(0, 5);
+    } catch {
+      return [];
+    }
+  }
+
+  private async maybeLearnFromConversation(
+    tenantId: string,
+    conversationId: string,
+    userMessage: string,
+    assistantResponse: string,
+  ): Promise<void> {
+    // Auto-extract and store key facts from conversations
+    const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
+    if (!anthropicKey) return;
+
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 500,
+          system: 'Extract 0-3 durable facts from this conversation exchange that a lobbying firm AI should remember for future sessions. Return JSON: {"memories":[{"key":"short_label","value":"fact to remember"}]}. Only extract facts that will be useful across multiple future conversations. Return {"memories":[]} if nothing worth remembering.',
+          messages: [{ role: 'user', content: `User: ${userMessage}\n\nAssistant: ${assistantResponse}` }],
+        }),
+      });
+
+      if (!res.ok) return;
+      const json = await res.json() as Record<string, unknown>;
+      const text = Array.isArray(json.content) ? (json.content[0] as Record<string, unknown>)?.text : '';
+      if (typeof text !== 'string') return;
+
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) return;
+      const parsed = JSON.parse(match[0]);
+      if (!Array.isArray(parsed.memories)) return;
+
+      for (const mem of parsed.memories) {
+        if (typeof mem.key !== 'string' || typeof mem.value !== 'string') continue;
+        // Upsert: update if key exists, create if not
+        const existing = await this.prisma.withTenant(tenantId, (tx) =>
+          (tx as any).clioMemory.findFirst({
+            where: { tenantId, key: mem.key.slice(0, 200) },
+          }),
+        );
+        if (existing) {
+          await this.prisma.withTenant(tenantId, (tx) =>
+            (tx as any).clioMemory.update({
+              where: { id: (existing as any).id },
+              data: { value: mem.value.slice(0, 4000), metadata: { conversationId, updatedBy: 'auto' } },
+            }),
+          );
+        } else {
+          await this.prisma.withTenant(tenantId, (tx) =>
+            (tx as any).clioMemory.create({
+              data: {
+                tenantId,
+                key: mem.key.slice(0, 200),
+                value: mem.value.slice(0, 4000),
+                source: 'conversation',
+                metadata: { conversationId, createdBy: 'auto' },
+              },
+            }),
+          );
+        }
+      }
+    } catch (err) {
+      this.logger.debug(`Memory extraction failed: ${(err as Error).message}`);
+    }
+  }
+
+  // ── Proactive Alerts ──────────────────────────────────────────────────
+
+  async listAlerts(ctx: TenantContext) {
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioProactiveAlert.findMany({
+        where: { tenantId: ctx.tenantId, status: 'pending' },
+        orderBy: { createdAt: 'desc' },
+        take: 20,
+        select: {
+          id: true,
+          alertType: true,
+          title: true,
+          body: true,
+          priority: true,
+          status: true,
+          clientId: true,
+          createdAt: true,
+        },
+      }),
+    );
+  }
+
+  async dismissAlert(ctx: TenantContext, alertId: string) {
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioProactiveAlert.updateMany({
+        where: { id: alertId, tenantId: ctx.tenantId },
+        data: { status: 'read', readAt: new Date() },
+      }),
+    );
+  }
+
+  // ── Artifact Versioning ───────────────────────────────────────────────
+
+  async createArtifactVersion(ctx: TenantContext, parentId: string, bodyText: string) {
+    const parent = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioArtifact.findFirst({
+        where: { id: parentId, tenantId: ctx.tenantId },
+      }),
+    );
+    if (!parent) throw new NotFoundException('Artifact not found');
+
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioArtifact.create({
+        data: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          clientId: parent.clientId,
+          conversationId: parent.conversationId,
+          parentArtifactId: parent.id,
+          title: parent.title,
+          kind: parent.kind,
+          contentType: parent.contentType,
+          bodyText,
+          metadata: { versionOf: parent.id, editedBy: ctx.userId },
+        },
+      }),
+    );
+  }
 }
 
 function normalizeRuntimeMessagesFromChatCompletion(

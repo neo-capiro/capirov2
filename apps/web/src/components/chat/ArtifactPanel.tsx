@@ -31,6 +31,8 @@ export function ArtifactPanel() {
   const [artifacts, setArtifacts] = useState<(ClioArtifact & { clientName?: string })[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editBody, setEditBody] = useState('');
 
   const authHeaders = useCallback(async (): Promise<Record<string, string>> => {
     const token = await getToken({ template: 'capiro' });
@@ -68,6 +70,20 @@ export function ArtifactPanel() {
   useEffect(() => {
     if (emailPanelOpen) void fetchArtifacts();
   }, [emailPanelOpen, fetchArtifacts]);
+
+  const handleSaveEdit = useCallback(async (artifactId: string) => {
+    try {
+      const res = await fetch(`${config.apiBaseUrl}/api/clio/artifacts/${artifactId}/version`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify({ bodyText: editBody }),
+      });
+      if (res.ok) {
+        setEditing(false);
+        void fetchArtifacts();
+      }
+    } catch { /* ignore */ }
+  }, [editBody, authHeaders, fetchArtifacts]);
 
   if (!emailPanelOpen) return null;
 
@@ -167,10 +183,35 @@ export function ArtifactPanel() {
                 <span className="clio-artifact-detail-client">{selected.clientName}</span>
               )}
               <time className="clio-artifact-detail-time">{new Date(selected.createdAt).toLocaleString()}</time>
+              <button
+                type="button"
+                className="clio-email-btn clio-email-btn--small"
+                onClick={() => { setEditing(!editing); setEditBody(selected.bodyText || ''); }}
+              >
+                {editing ? 'Cancel' : 'Edit'}
+              </button>
             </div>
-            <pre className="clio-artifact-detail-body">
-              {selected.bodyText || 'Artifact content is stored outside text view.'}
-            </pre>
+            {editing ? (
+              <div>
+                <textarea
+                  className="clio-artifact-edit-textarea"
+                  value={editBody}
+                  onChange={(e) => setEditBody(e.target.value)}
+                  rows={12}
+                />
+                <button
+                  type="button"
+                  className="clio-email-btn clio-email-btn--primary"
+                  onClick={() => void handleSaveEdit(selected.id)}
+                >
+                  Save New Version
+                </button>
+              </div>
+            ) : (
+              <pre className="clio-artifact-detail-body">
+                {selected.bodyText || 'Artifact content is stored outside text view.'}
+              </pre>
+            )}
           </div>
         )}
       </div>

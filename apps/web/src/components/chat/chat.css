@@ -906,3 +906,78 @@
   flex-shrink: 0;
   margin-top: 2px;
 }
+
+/* ─── Proactive Alerts ─── */
+.clio-alerts {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.clio-alert {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #eff6ff;
+  border-left: 3px solid #3b82f6;
+  font-size: 12px;
+}
+.clio-alert--high {
+  background: #fef2f2;
+  border-left-color: #ef4444;
+}
+.clio-alert--low {
+  background: #f0fdf4;
+  border-left-color: #22c55e;
+}
+.clio-alert-title {
+  font-weight: 600;
+  color: #1f2937;
+  margin-bottom: 2px;
+}
+.clio-alert-body {
+  color: #4b5563;
+  line-height: 1.4;
+}
+.clio-alert-dismiss {
+  border: none;
+  background: none;
+  color: #6b7280;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 0;
+  margin-top: 4px;
+}
+.clio-alert-dismiss:hover { color: #1f2937; }
+.chat-fab-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+.clio-artifact-edit-textarea {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  padding: 10px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 200px;
+  margin-bottom: 8px;
+}
+.clio-artifact-edit-textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+}

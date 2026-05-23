@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { IsOptional, IsString, IsUUID, Length } from 'class-validator';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
@@ -68,6 +68,22 @@ export class ClioController {
     return this.service.sendMessage(ctx, id, body.body);
   }
 
+  @Post('conversations/:id/stream')
+  async streamMessage(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: SendClioMessageDto,
+    @Req() _req: Request,
+    @Res() res: Response,
+  ) {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    await this.service.streamMessage(ctx, id, body.body, res);
+    res.end();
+  }
+
   @Get('tools')
   toolManifest() {
     return this.tools.manifest();
@@ -104,6 +120,29 @@ export class ClioController {
   @Post('emails/reply')
   replyEmail(@CurrentTenant() ctx: TenantContext, @Body() body: Record<string, unknown>) {
     return this.tools.executeFromAuthenticatedUser(ctx, 'reply_email', body);
+  }
+
+  // ── Proactive Alerts ──
+
+  @Get('alerts')
+  async listAlerts(@CurrentTenant() ctx: TenantContext) {
+    return this.service.listAlerts(ctx);
+  }
+
+  @Post('alerts/:id/dismiss')
+  async dismissAlert(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.dismissAlert(ctx, id);
+  }
+
+  // ── Artifact Versioning ──
+
+  @Post('artifacts/:id/version')
+  async createArtifactVersion(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: { bodyText: string },
+  ) {
+    return this.service.createArtifactVersion(ctx, id, body.bodyText);
   }
 }
 
