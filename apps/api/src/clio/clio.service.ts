@@ -584,6 +584,28 @@ export class ClioService {
       }
     }
 
+    // Auto-inject intelligence data for relevant intents
+    if (['query_intelligence', 'generate_briefing', 'general_question'].includes(intent)) {
+      try {
+        const clientName = conversation.clientId
+          ? await this.prisma.withTenant(ctx.tenantId, (tx) =>
+              tx.client.findFirst({
+                where: { id: conversation.clientId! },
+                select: { name: true },
+              }),
+            ).then((c) => c?.name ?? undefined)
+          : undefined;
+        const intelResult = await this.tools.execute(ctx, 'query_intelligence' as never, {
+          clientName: clientName ?? undefined,
+        });
+        const intelData = (intelResult as Record<string, unknown>)?.data;
+        if (typeof intelData === 'string' && intelData.length > 10) {
+          contextParts.push('\nFederal lobbying intelligence (from Capiro database):');
+          contextParts.push(intelData);
+        }
+      } catch { /* non-fatal — continue without intel context */ }
+    }
+
     const unifiedSystemPrompt = this.buildUnifiedSystemPrompt(intent, contextParts.join('\n'));
 
     sse.write(`data: ${JSON.stringify({ type: 'start', intent })}\n\n`);
@@ -725,18 +747,28 @@ export class ClioService {
       '- Workflow management and regulatory submissions',
       '- Email drafting and communication',
       '',
+      'You have access to a comprehensive database of:',
+      '- Congressional bills from the 118th and 119th Congress (synced from Congress.gov)',
+      '- LDA lobbying disclosure filings with client, registrant, and issue data',
+      '- Federal spending and contracting data',
+      '- Surging lobbying issues and trending policy topics',
+      '',
+      'When users ask about bills, legislation, lobbying activity, or federal data,',
+      'use the intelligence data provided in your context. Present specific bill numbers,',
+      'sponsors, policy areas, and latest actions. Never say you cannot access this data.',
+      '',
       'Be concise, professional, and precise. Cite data when available.',
       'Do not fabricate facts. When uncertain, say so.',
       'Remember: you are the firm\'s institutional knowledge — your insights improve over time.',
     ].join('\n');
 
     const intentGuidance: Record<string, string> = {
-      query_intelligence: 'The user is asking about federal lobbying intelligence. Synthesize data with clear takeaways.',
+      query_intelligence: 'The user is asking about federal lobbying intelligence. You have real data from the Capiro database — bills, LDA filings, spending, and trends. Synthesize this data with clear takeaways. List specific bill numbers, sponsors, and policy areas.',
       query_clients: 'The user is asking about their clients. Use available client data.',
       query_engagement: 'The user is asking about meetings or outreach. Reference engagement records.',
       query_workflow: 'The user is asking about workflows or submissions. Check workflow data.',
       generate_draft: 'Generate a professional government affairs email with proper tone and structure.',
-      generate_briefing: 'Create an actionable briefing with key points, risks, and recommendations.',
+      generate_briefing: 'Create an actionable briefing with key points, risks, and recommendations. Use intelligence data when relevant.',
       general_question: 'Answer helpfully about lobbying, government affairs, or the Capiro platform.',
     };
 

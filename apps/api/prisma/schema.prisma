@@ -1752,3 +1752,322 @@ model ChatMessage {
   @@index([tenantId, userId, sessionId])
   @@index([createdAt])
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// SEC EDGAR filings
+// GLOBAL table — no tenant_id, no RLS.
+// Source: data.sec.gov/submissions/ and data.sec.gov/api/xbrl/
+// ─────────────────────────────────────────────────────────────────────────
+
+model SecFiling {
+  id              String    @id @default(uuid())
+  cik             String    // Central Index Key (zero-padded 10 digits)
+  companyName     String    @map("company_name")
+  formType        String    @map("form_type") // 10-K, 10-Q, 8-K, DEF14A, S-1, etc.
+  accessionNumber String    @unique @map("accession_number")
+  filingDate      DateTime  @map("filing_date") @db.Date
+  reportDate      DateTime? @map("report_date") @db.Date
+  primaryDoc      String?   @map("primary_doc") // filename of the primary document
+  description     String?   @db.Text
+  sic             String?   // Standard Industrial Classification code
+  stateOfIncorp   String?   @map("state_of_incorp")
+  fiscalYearEnd   String?   @map("fiscal_year_end") // MMDD format
+  url             String?
+  syncedAt        DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([cik])
+  @@index([formType, filingDate])
+  @@index([companyName])
+  @@map("sec_filing")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// FARA — Foreign Agents Registration Act filings
+// GLOBAL table — no tenant_id, no RLS.
+// Source: efile.fara.gov/api/v1/
+// ─────────────────────────────────────────────────────────────────────────
+
+model FaraRegistration {
+  id                String    @id @default(uuid())
+  registrationNumber String   @unique @map("registration_number")
+  registrantName    String    @map("registrant_name")
+  foreignPrincipal  String    @map("foreign_principal")
+  country           String?
+  status            String?   // Active, Terminated
+  registrationDate  DateTime? @map("registration_date") @db.Date
+  terminationDate   DateTime? @map("termination_date") @db.Date
+  address           String?
+  state             String?
+  description       String?   @db.Text
+  syncedAt          DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([registrantName])
+  @@index([foreignPrincipal])
+  @@index([country])
+  @@map("fara_registration")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// BLS — Bureau of Labor Statistics time series data
+// GLOBAL table — no tenant_id, no RLS.
+// Source: api.bls.gov/publicAPI/v2/
+// ─────────────────────────────────────────────────────────────────────────
+
+model BlsSeries {
+  id          String   @id // series_id e.g. "CES0000000001"
+  title       String
+  surveyName  String?  @map("survey_name")
+  area        String?  // area code
+  industry    String?  // industry code
+  periodType  String   @map("period_type") // Monthly, Annual, Quarterly
+  syncedAt    DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  dataPoints  BlsDataPoint[]
+
+  @@map("bls_series")
+}
+
+model BlsDataPoint {
+  id        String   @id @default(uuid())
+  seriesId  String   @map("series_id")
+  year      Int
+  period    String   // M01-M12, Q01-Q05, A01
+  value     Float
+  footnotes String[] @default([])
+
+  series    BlsSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  @@unique([seriesId, year, period])
+  @@index([seriesId, year])
+  @@map("bls_data_point")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Census — ACS 5-Year data by congressional district
+// GLOBAL table — no tenant_id, no RLS.
+// Source: api.census.gov/data/2022/acs/acs5
+// ─────────────────────────────────────────────────────────────────────────
+
+model CensusDistrict {
+  id                   String   @id // e.g. "119-CA-52" (congress-state-district)
+  congress             Int      // 118, 119
+  state                String   // 2-letter state code
+  stateFips            String   @map("state_fips")
+  district             String   // district number or "AL" for at-large
+  totalPopulation      Int?     @map("total_population")
+  medianHouseholdIncome Int?    @map("median_household_income")
+  medianAge            Float?   @map("median_age")
+  percentBachelorPlus  Float?   @map("percent_bachelor_plus") // % with bachelor's degree+
+  percentPoverty       Float?   @map("percent_poverty")
+  percentVeteran       Float?   @map("percent_veteran")
+  percentUninsured     Float?   @map("percent_uninsured")
+  laborForceSize       Int?     @map("labor_force_size")
+  unemploymentRate     Float?   @map("unemployment_rate")
+  topIndustries        Json     @default("[]") @map("top_industries") // [{name, employment, percent}]
+  dataYear             Int      @map("data_year") // ACS vintage year
+  syncedAt             DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([congress, state])
+  @@index([state, district])
+  @@map("census_district")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// BEA — Bureau of Economic Analysis GDP/industry data
+// GLOBAL table — no tenant_id, no RLS.
+// Source: apps.bea.gov/api/data/
+// ─────────────────────────────────────────────────────────────────────────
+
+model BeaData {
+  id          String   @id @default(uuid())
+  datasetName String   @map("dataset_name") // NIPA, Regional, Industry
+  tableName   String   @map("table_name")
+  lineNumber  Int?     @map("line_number")
+  seriesCode  String?  @map("series_code")
+  description String   @db.Text
+  year        Int
+  period      String   // Q1-Q4, Annual
+  value       Float?
+  units       String?  // Billions of dollars, Index, Percent
+  geoFips     String?  @map("geo_fips") // state/county FIPS for regional
+  syncedAt    DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@unique([datasetName, tableName, seriesCode, year, period, geoFips])
+  @@index([datasetName, year])
+  @@index([geoFips])
+  @@map("bea_data")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Grants.gov — Federal grant opportunities (NOFOs)
+// GLOBAL table — no tenant_id, no RLS.
+// Source: api.grants.gov/v1/api/search2
+// ─────────────────────────────────────────────────────────────────────────
+
+model FederalGrant {
+  id                String    @id // opportunity ID from Grants.gov
+  title             String    @db.Text
+  agency            String    // awarding agency
+  subAgency         String?   @map("sub_agency")
+  opportunityNumber String?   @map("opportunity_number")
+  category          String?   // Discretionary, Mandatory, etc.
+  fundingInstrument String?   @map("funding_instrument") // Grant, Cooperative Agreement
+  eligibility       String[]  @default([]) // eligible applicant types
+  cfdaNumbers       String[]  @default([]) @map("cfda_numbers")
+  awardCeiling      Float?    @map("award_ceiling")
+  awardFloor        Float?    @map("award_floor")
+  estimatedFunding  Float?    @map("estimated_funding")
+  expectedAwards    Int?      @map("expected_awards")
+  openDate          DateTime? @map("open_date") @db.Date
+  closeDate         DateTime? @map("close_date") @db.Date
+  status            String?   // posted, closed, archived, forecasted
+  description       String?   @db.Text
+  url               String?
+  syncedAt          DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([agency])
+  @@index([closeDate])
+  @@index([status])
+  @@map("federal_grant")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// GAO — Government Accountability Office reports
+// GLOBAL table — no tenant_id, no RLS.
+// Source: gao.gov/api/products + RSS
+// ─────────────────────────────────────────────────────────────────────────
+
+model GaoReport {
+  id            String    @id // GAO report number e.g. "GAO-24-106155"
+  title         String    @db.Text
+  url           String?
+  publishDate   DateTime? @map("publish_date") @db.Date
+  reportType    String?   @map("report_type") // Report, Testimony, Correspondence
+  topics        String[]  @default([])
+  agencies      String[]  @default([]) // agencies covered
+  summary       String?   @db.Text
+  recommendations Int?    // number of recommendations
+  syncedAt      DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([publishDate])
+  @@index([reportType])
+  @@map("gao_report")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Open States — state legislature bills and legislators
+// GLOBAL table — no tenant_id, no RLS.
+// Source: v3.openstates.org/
+// ─────────────────────────────────────────────────────────────────────────
+
+model StateBill {
+  id              String    @id // openstates bill ID
+  state           String    // 2-letter state code
+  session         String    // legislative session
+  identifier      String    // e.g. "HB 1234"
+  title           String    @db.Text
+  chamber         String?   // upper, lower
+  classification  String[]  @default([]) // bill, resolution, etc.
+  subjects        String[]  @default([])
+  sponsorName     String?   @map("sponsor_name")
+  sponsorParty    String?   @map("sponsor_party")
+  latestActionDate DateTime? @map("latest_action_date") @db.Date
+  latestActionText String?  @map("latest_action_text")
+  url             String?
+  syncedAt        DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([state, session])
+  @@index([state, latestActionDate])
+  @@map("state_bill")
+}
+
+model StateLegislator {
+  id          String   @id // openstates person ID
+  name        String
+  state       String
+  chamber     String?  // upper, lower
+  district    String?
+  party       String?
+  email       String?
+  image       String?
+  url         String?
+  committees  Json     @default("[]") // [{name, role}]
+  active      Boolean  @default(true)
+  syncedAt    DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([state, chamber])
+  @@index([party, state])
+  @@map("state_legislator")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// CRS Reports — Congressional Research Service
+// GLOBAL table — no tenant_id, no RLS.
+// Source: crsreports.congress.gov (scrape index)
+// ─────────────────────────────────────────────────────────────────────────
+
+model CrsReport {
+  id          String    @id // CRS report number e.g. "R47650"
+  title       String    @db.Text
+  date        DateTime? @db.Date
+  authors     String[]  @default([])
+  topics      String[]  @default([])
+  summary     String?   @db.Text
+  pdfUrl      String?   @map("pdf_url")
+  htmlUrl     String?   @map("html_url")
+  active      Boolean   @default(true) // false if report is archived/withdrawn
+  syncedAt    DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([date])
+  @@map("crs_report")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// RSS News & Intelligence articles (aggregated from multiple sources)
+// GLOBAL table — no tenant_id, no RLS.
+// Sources: Roll Call, The Hill, Axios, Politico, agency press, think tanks
+// ─────────────────────────────────────────────────────────────────────────
+
+model IntelArticle {
+  id          String    @id @default(uuid())
+  source      String    // "roll_call", "the_hill", "brookings", "whitehouse", etc.
+  feedUrl     String?   @map("feed_url")
+  title       String    @db.Text
+  url         String    @unique
+  author      String?
+  publishedAt DateTime  @map("published_at") @db.Timestamptz(6)
+  summary     String?   @db.Text
+  categories  String[]  @default([])
+  agencies    String[]  @default([]) // extracted agency names
+  topics      String[]  @default([]) // extracted topic keywords
+  syncedAt    DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([source, publishedAt])
+  @@index([publishedAt])
+  @@map("intel_article")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Congressional Committee Activity (hearings, markups)
+// GLOBAL table — no tenant_id, no RLS.
+// Source: congress.gov API + committee RSS feeds
+// ─────────────────────────────────────────────────────────────────────────
+
+model CommitteeHearing {
+  id            String    @id @default(uuid())
+  chamber       String    // House, Senate, Joint
+  committeeName String    @map("committee_name")
+  committeeCode String?   @map("committee_code")
+  title         String    @db.Text
+  date          DateTime  @db.Date
+  time          String?   // "10:00 AM"
+  location      String?
+  type          String?   // hearing, markup, meeting
+  witnesses     String[]  @default([])
+  url           String?
+  syncedAt      DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([date])
+  @@index([committeeName, date])
+  @@map("committee_hearing")
+}

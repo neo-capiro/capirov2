@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -12,6 +13,9 @@ import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { EngagementService } from '../engagement/engagement.service.js';
 import { MicrosoftGraphSyncService } from '../engagement/microsoft/microsoft-graph-sync.service.js';
+import { LdaIntelService } from '../lda-intel/lda-intel.service.js';
+import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
+import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const PRODUCT_NAME = 'Clio';
@@ -24,6 +28,54 @@ const TOOL_DEFINITIONS = [
   {
     name: 'search_research_sources',
     description: 'Search authorized Capiro clients, meetings, mail, notes, and directory notes.',
+  },
+  {
+    name: 'query_intelligence',
+    description: 'Query federal lobbying intelligence: surging LDA issues, trending topics, recent congressional bills, federal spending data, and counts of available intelligence data sources (SEC filings, FARA registrations, GAO reports, grants, hearings, state bills, CRS reports, news articles, economic data). Optionally filter by a client name for contractor spending.',
+  },
+  {
+    name: 'search_congress_bills',
+    description: 'Search congressional bills in the Capiro database (118th and 119th Congress). Filter by keyword, policy area, congress number, or recent activity date. Returns bill title, sponsor, latest action, policy area, and cosponsors count.',
+  },
+  {
+    name: 'search_lda_filings',
+    description: 'Search LDA lobbying disclosure filings in the Capiro database. Filter by client name, registrant, issue area, or keyword.',
+  },
+  {
+    name: 'search_sec_filings',
+    description: 'Search SEC EDGAR filings (10-K, 10-Q, 8-K, DEF14A, S-1, etc.) in the Capiro database. Filter by company name, form type, CIK, or date range. Returns company, form type, filing date, and description.',
+  },
+  {
+    name: 'search_fara_registrations',
+    description: 'Search FARA (Foreign Agents Registration Act) registrations. Filter by registrant name, foreign principal, country, or status. Returns registrant, foreign principal, country, and status.',
+  },
+  {
+    name: 'search_federal_grants',
+    description: 'Search federal grant opportunities (NOFOs) from Grants.gov. Filter by agency, keyword, status (posted/closed/forecasted), or date range. Returns title, agency, funding amounts, eligibility, and deadlines.',
+  },
+  {
+    name: 'search_gao_reports',
+    description: 'Search GAO (Government Accountability Office) reports and testimonies. Filter by keyword, report type, topic, or agency. Returns title, report type, date, topics, and recommendations count.',
+  },
+  {
+    name: 'search_state_bills',
+    description: 'Search state legislature bills via OpenStates data. Filter by state (2-letter code), keyword, subject, or session. Returns identifier, title, sponsor, latest action, and subjects.',
+  },
+  {
+    name: 'search_intel_articles',
+    description: 'Search aggregated policy news and intelligence articles from sources like Roll Call, The Hill, Axios, Politico, Brookings, and agency press. Filter by keyword, source, or topic.',
+  },
+  {
+    name: 'search_committee_hearings',
+    description: 'Search congressional committee hearings, markups, and meetings. Filter by committee name, chamber (House/Senate/Joint), keyword, or date range.',
+  },
+  {
+    name: 'search_crs_reports',
+    description: 'Search Congressional Research Service (CRS) reports and analyses. Filter by keyword, topic, or author.',
+  },
+  {
+    name: 'query_economic_data',
+    description: 'Query economic indicators from BLS (Bureau of Labor Statistics), Census (ACS district demographics), and BEA (Bureau of Economic Analysis GDP/industry data). Specify data source and parameters like state, district, series, or year.',
   },
   {
     name: 'create_meeting_brief',
@@ -77,11 +129,16 @@ interface MeetingForBrief {
 
 @Injectable()
 export class ClioToolsService {
+  private readonly logger = new Logger(ClioToolsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<AppConfig, true>,
     private readonly engagement: EngagementService,
     private readonly microsoftGraph: MicrosoftGraphSyncService,
+    private readonly ldaIntel: LdaIntelService,
+    private readonly lobbyIntel: LobbyIntelService,
+    private readonly federalSpending: FederalSpendingService,
   ) {}
 
   manifest() {
@@ -109,6 +166,30 @@ export class ClioToolsService {
         return this.getClientContext(ctx, input);
       case 'search_research_sources':
         return this.searchResearchSources(ctx, input);
+      case 'query_intelligence':
+        return this.queryIntelligence(input);
+      case 'search_congress_bills':
+        return this.searchCongressBills(input);
+      case 'search_lda_filings':
+        return this.searchLdaFilings(input);
+      case 'search_sec_filings':
+        return this.searchSecFilings(input);
+      case 'search_fara_registrations':
+        return this.searchFaraRegistrations(input);
+      case 'search_federal_grants':
+        return this.searchFederalGrants(input);
+      case 'search_gao_reports':
+        return this.searchGaoReports(input);
+      case 'search_state_bills':
+        return this.searchStateBills(input);
+      case 'search_intel_articles':
+        return this.searchIntelArticles(input);
+      case 'search_committee_hearings':
+        return this.searchCommitteeHearings(input);
+      case 'search_crs_reports':
+        return this.searchCrsReports(input);
+      case 'query_economic_data':
+        return this.queryEconomicData(input);
       case 'create_meeting_brief':
         return this.createMeetingBrief(ctx, input);
       case 'draft_policy_memo':
@@ -135,6 +216,666 @@ export class ClioToolsService {
       generatedAt: new Date().toISOString(),
       context,
     };
+  }
+
+  // ── Intelligence tools (global data — no tenant scoping) ────────────
+
+  private async queryIntelligence(input: Record<string, unknown>) {
+    const clientName = optionalString(input, 'clientName', 200);
+    const parts: string[] = [];
+
+    // Lobby intel surging issues & trends
+    try {
+      const lobbyCtx = await this.lobbyIntel.getAiContext();
+      if (lobbyCtx.surgingIssues.length) {
+        const surge = lobbyCtx.surgingIssues
+          .slice(0, 8)
+          .map(
+            (s) =>
+              `${s.name}${s.surgePct != null ? ' (+' + Math.round(s.surgePct) + '% QoQ)' : ''}`,
+          )
+          .join(', ');
+        parts.push(`Surging LDA lobbying issues: ${surge}`);
+      }
+      if (lobbyCtx.trendingTopics.length) {
+        const trending = lobbyCtx.trendingTopics
+          .slice(0, 10)
+          .map((t) => t.word)
+          .filter(Boolean)
+          .join(', ');
+        if (trending) parts.push(`Trending terms in lobbying filings: ${trending}`);
+      }
+      if (lobbyCtx.latestQuarter) parts.push(`Latest LDA quarter: ${lobbyCtx.latestQuarter}`);
+    } catch (err) {
+      this.logger.warn(`Lobby intel fetch failed: ${(err as Error).message}`);
+    }
+
+    // Congress bills — recent activity
+    try {
+      const bills = await this.ldaIntel.getCongressBills(
+        undefined, // search
+        undefined, // policyArea
+        undefined, // congress
+        1,         // page
+        15,        // limit
+      );
+      const billsAny = bills as unknown as { data?: Array<Record<string, unknown>>; total?: number };
+      if (billsAny.data && billsAny.data.length) {
+        const billSummary = billsAny.data
+          .slice(0, 12)
+          .map(
+            (b) =>
+              `- ${b.billType ?? ''}${b.billNumber ?? ''}: ${summarizeText(b.title, 120)} [${b.policyArea ?? 'N/A'}] (Sponsor: ${b.sponsorName ?? 'N/A'}, ${b.sponsorParty ?? ''}${b.sponsorState ? '-' + b.sponsorState : ''}) Latest: ${summarizeText(b.latestActionText, 100)} (${b.latestActionDate ?? 'no date'})`,
+          )
+          .join('\n');
+        parts.push(`Recent congressional bills (${billsAny.total ?? 0} total in database):\n${billSummary}`);
+      }
+    } catch (err) {
+      this.logger.warn(`Congress bills fetch failed: ${(err as Error).message}`);
+    }
+
+    // Federal spending context (if client name provided)
+    if (clientName) {
+      try {
+        const spend = await this.federalSpending.getAiContext(clientName);
+        if (spend.matchedContractor) {
+          const mc = spend.matchedContractor;
+          const amt = mc.totalContracts != null ? `$${(mc.totalContracts / 1e9).toFixed(1)}B` : 'unknown';
+          parts.push(
+            `Federal contracting for ${mc.name}: ${amt} in contracts${mc.rankByContracts ? ' (rank #' + mc.rankByContracts + ' nationally)' : ''}`,
+          );
+          if (mc.topAgencies.length) {
+            const agencies = mc.topAgencies
+              .slice(0, 5)
+              .map((a: Record<string, unknown>) => `${a.name} ($${Math.round((a.amount as number) / 1e9)}B)`)
+              .join(', ');
+            parts.push(`Top awarding agencies: ${agencies}`);
+          }
+        }
+      } catch (err) {
+        this.logger.warn(`Federal spending fetch failed: ${(err as Error).message}`);
+      }
+    }
+
+    // Intelligence data source counts
+    try {
+      const [secCount, faraCount, gaoCount, grantCount, stateBillCount, intelArticleCount, hearingCount, crsCount] =
+        await Promise.all([
+          this.prisma.withSystem((tx) => tx.secFiling.count()).catch(() => 0),
+          this.prisma.withSystem((tx) => tx.faraRegistration.count()).catch(() => 0),
+          this.prisma.withSystem((tx) => tx.gaoReport.count()).catch(() => 0),
+          this.prisma.withSystem((tx) => tx.federalGrant.count()).catch(() => 0),
+          this.prisma.withSystem((tx) => tx.stateBill.count()).catch(() => 0),
+          this.prisma.withSystem((tx) => tx.intelArticle.count()).catch(() => 0),
+          this.prisma.withSystem((tx) => tx.committeeHearing.count()).catch(() => 0),
+          this.prisma.withSystem((tx) => tx.crsReport.count()).catch(() => 0),
+        ]);
+      const sourceSummary = [
+        secCount && `SEC filings: ${secCount}`,
+        faraCount && `FARA registrations: ${faraCount}`,
+        gaoCount && `GAO reports: ${gaoCount}`,
+        grantCount && `Federal grants: ${grantCount}`,
+        stateBillCount && `State bills: ${stateBillCount}`,
+        intelArticleCount && `News articles: ${intelArticleCount}`,
+        hearingCount && `Committee hearings: ${hearingCount}`,
+        crsCount && `CRS reports: ${crsCount}`,
+      ]
+        .filter(Boolean)
+        .join(', ');
+      if (sourceSummary) parts.push(`Available intelligence data sources: ${sourceSummary}`);
+    } catch (err) {
+      this.logger.warn(`Intelligence source counts failed: ${(err as Error).message}`);
+    }
+
+    return {
+      tool: 'query_intelligence',
+      generatedAt: new Date().toISOString(),
+      data: parts.join('\n') || 'No intelligence data currently available.',
+    };
+  }
+
+  private async searchCongressBills(input: Record<string, unknown>) {
+    const search = optionalString(input, 'query', 240) ?? optionalString(input, 'search', 240);
+    const policyArea = optionalString(input, 'policyArea', 120);
+    const congressNum = input.congress ? Number(input.congress) : undefined;
+    const activeSince = optionalString(input, 'activeSince', 30);
+    const limit = clampInt(input.limit, 1, 50, 20);
+    const page = clampInt(input.page, 1, 100, 1);
+
+    const bills = await this.ldaIntel.getCongressBills(
+      search ?? undefined,
+      policyArea ?? undefined,
+      congressNum,
+      page,
+      limit,
+      activeSince ?? undefined,
+    );
+
+    return {
+      tool: 'search_congress_bills',
+      generatedAt: new Date().toISOString(),
+      ...bills,
+    };
+  }
+
+  private async searchLdaFilings(input: Record<string, unknown>) {
+    const clientName = optionalString(input, 'clientName', 200) ?? optionalString(input, 'query', 200);
+    const issueCode = optionalString(input, 'issueCode', 120) ?? optionalString(input, 'issue', 120);
+    const registrantName = optionalString(input, 'registrantName', 200) ?? optionalString(input, 'registrant', 200);
+    const year = input.year ? Number(input.year) : undefined;
+    const limit = clampInt(input.limit, 1, 50, 15);
+    const page = clampInt(input.page, 1, 100, 1);
+
+    const filings = await this.ldaIntel.getFilings({
+      clientName: clientName ?? undefined,
+      issueCode: issueCode ?? undefined,
+      registrantName: registrantName ?? undefined,
+      year,
+      page,
+      limit,
+    });
+
+    return {
+      tool: 'search_lda_filings',
+      generatedAt: new Date().toISOString(),
+      ...filings,
+    };
+  }
+
+  // ── New intelligence data source tools ──────────────────────────────
+
+  private async searchSecFilings(input: Record<string, unknown>) {
+    const query = optionalString(input, 'query', 240) ?? optionalString(input, 'companyName', 240);
+    const formType = optionalString(input, 'formType', 20);
+    const cik = optionalString(input, 'cik', 20);
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    const where: Record<string, unknown> = {};
+    if (query) where.companyName = { contains: query, mode: 'insensitive' };
+    if (formType) where.formType = formType;
+    if (cik) where.cik = cik;
+
+    const [data, total] = await Promise.all([
+      this.prisma.withSystem((tx) =>
+        tx.secFiling.findMany({
+          where,
+          orderBy: { filingDate: 'desc' },
+          take: limit,
+        }),
+      ),
+      this.prisma.withSystem((tx) => tx.secFiling.count({ where })),
+    ]);
+
+    return {
+      tool: 'search_sec_filings',
+      generatedAt: new Date().toISOString(),
+      total,
+      data: data.map((f) => ({
+        id: f.id,
+        cik: f.cik,
+        companyName: f.companyName,
+        formType: f.formType,
+        accessionNumber: f.accessionNumber,
+        filingDate: f.filingDate,
+        description: summarizeText(f.description, 300),
+        url: f.url,
+      })),
+    };
+  }
+
+  private async searchFaraRegistrations(input: Record<string, unknown>) {
+    const query = optionalString(input, 'query', 240);
+    const registrantName = optionalString(input, 'registrantName', 240) ?? optionalString(input, 'registrant', 240);
+    const foreignPrincipal = optionalString(input, 'foreignPrincipal', 240);
+    const country = optionalString(input, 'country', 120);
+    const status = optionalString(input, 'status', 20);
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    const where: Record<string, unknown> = {};
+    if (query) {
+      where.OR = [
+        { registrantName: { contains: query, mode: 'insensitive' } },
+        { foreignPrincipal: { contains: query, mode: 'insensitive' } },
+        { description: { contains: query, mode: 'insensitive' } },
+      ];
+    }
+    if (registrantName) where.registrantName = { contains: registrantName, mode: 'insensitive' };
+    if (foreignPrincipal) where.foreignPrincipal = { contains: foreignPrincipal, mode: 'insensitive' };
+    if (country) where.country = { contains: country, mode: 'insensitive' };
+    if (status) where.status = status;
+
+    const [data, total] = await Promise.all([
+      this.prisma.withSystem((tx) =>
+        tx.faraRegistration.findMany({
+          where,
+          orderBy: { registrationDate: 'desc' },
+          take: limit,
+        }),
+      ),
+      this.prisma.withSystem((tx) => tx.faraRegistration.count({ where })),
+    ]);
+
+    return {
+      tool: 'search_fara_registrations',
+      generatedAt: new Date().toISOString(),
+      total,
+      data: data.map((r) => ({
+        id: r.id,
+        registrationNumber: r.registrationNumber,
+        registrantName: r.registrantName,
+        foreignPrincipal: r.foreignPrincipal,
+        country: r.country,
+        status: r.status,
+        registrationDate: r.registrationDate,
+        description: summarizeText(r.description, 300),
+      })),
+    };
+  }
+
+  private async searchFederalGrants(input: Record<string, unknown>) {
+    const query = optionalString(input, 'query', 240);
+    const agency = optionalString(input, 'agency', 240);
+    const status = optionalString(input, 'status', 30);
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    const where: Record<string, unknown> = {};
+    if (query) {
+      where.OR = [
+        { title: { contains: query, mode: 'insensitive' } },
+        { description: { contains: query, mode: 'insensitive' } },
+        { agency: { contains: query, mode: 'insensitive' } },
+      ];
+    }
+    if (agency) where.agency = { contains: agency, mode: 'insensitive' };
+    if (status) where.status = status;
+
+    const [data, total] = await Promise.all([
+      this.prisma.withSystem((tx) =>
+        tx.federalGrant.findMany({
+          where,
+          orderBy: { closeDate: 'desc' },
+          take: limit,
+        }),
+      ),
+      this.prisma.withSystem((tx) => tx.federalGrant.count({ where })),
+    ]);
+
+    return {
+      tool: 'search_federal_grants',
+      generatedAt: new Date().toISOString(),
+      total,
+      data: data.map((g) => ({
+        id: g.id,
+        title: summarizeText(g.title, 240),
+        agency: g.agency,
+        subAgency: g.subAgency,
+        opportunityNumber: g.opportunityNumber,
+        category: g.category,
+        awardCeiling: g.awardCeiling,
+        awardFloor: g.awardFloor,
+        estimatedFunding: g.estimatedFunding,
+        openDate: g.openDate,
+        closeDate: g.closeDate,
+        status: g.status,
+        eligibility: g.eligibility,
+        url: g.url,
+      })),
+    };
+  }
+
+  private async searchGaoReports(input: Record<string, unknown>) {
+    const query = optionalString(input, 'query', 240);
+    const reportType = optionalString(input, 'reportType', 60);
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    const where: Record<string, unknown> = {};
+    if (query) {
+      where.OR = [
+        { title: { contains: query, mode: 'insensitive' } },
+        { summary: { contains: query, mode: 'insensitive' } },
+        { topics: { hasSome: [query] } },
+        { agencies: { hasSome: [query] } },
+      ];
+    }
+    if (reportType) where.reportType = reportType;
+
+    const [data, total] = await Promise.all([
+      this.prisma.withSystem((tx) =>
+        tx.gaoReport.findMany({
+          where,
+          orderBy: { publishDate: 'desc' },
+          take: limit,
+        }),
+      ),
+      this.prisma.withSystem((tx) => tx.gaoReport.count({ where })),
+    ]);
+
+    return {
+      tool: 'search_gao_reports',
+      generatedAt: new Date().toISOString(),
+      total,
+      data: data.map((r) => ({
+        id: r.id,
+        title: summarizeText(r.title, 240),
+        url: r.url,
+        publishDate: r.publishDate,
+        reportType: r.reportType,
+        topics: r.topics,
+        agencies: r.agencies,
+        summary: summarizeText(r.summary, 400),
+        recommendations: r.recommendations,
+      })),
+    };
+  }
+
+  private async searchStateBills(input: Record<string, unknown>) {
+    const query = optionalString(input, 'query', 240);
+    const state = optionalString(input, 'state', 2);
+    const session = optionalString(input, 'session', 60);
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    const where: Record<string, unknown> = {};
+    if (query) {
+      where.OR = [
+        { title: { contains: query, mode: 'insensitive' } },
+        { identifier: { contains: query, mode: 'insensitive' } },
+        { subjects: { hasSome: [query] } },
+      ];
+    }
+    if (state) where.state = state.toUpperCase();
+    if (session) where.session = session;
+
+    const [data, total] = await Promise.all([
+      this.prisma.withSystem((tx) =>
+        tx.stateBill.findMany({
+          where,
+          orderBy: { latestActionDate: 'desc' },
+          take: limit,
+        }),
+      ),
+      this.prisma.withSystem((tx) => tx.stateBill.count({ where })),
+    ]);
+
+    return {
+      tool: 'search_state_bills',
+      generatedAt: new Date().toISOString(),
+      total,
+      data: data.map((b) => ({
+        id: b.id,
+        state: b.state,
+        session: b.session,
+        identifier: b.identifier,
+        title: summarizeText(b.title, 240),
+        chamber: b.chamber,
+        subjects: b.subjects,
+        sponsorName: b.sponsorName,
+        sponsorParty: b.sponsorParty,
+        latestActionDate: b.latestActionDate,
+        latestActionText: b.latestActionText,
+        url: b.url,
+      })),
+    };
+  }
+
+  private async searchIntelArticles(input: Record<string, unknown>) {
+    const query = optionalString(input, 'query', 240);
+    const source = optionalString(input, 'source', 60);
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    const where: Record<string, unknown> = {};
+    if (query) {
+      where.OR = [
+        { title: { contains: query, mode: 'insensitive' } },
+        { summary: { contains: query, mode: 'insensitive' } },
+        { categories: { hasSome: [query] } },
+        { topics: { hasSome: [query] } },
+      ];
+    }
+    if (source) where.source = source;
+
+    const [data, total] = await Promise.all([
+      this.prisma.withSystem((tx) =>
+        tx.intelArticle.findMany({
+          where,
+          orderBy: { publishedAt: 'desc' },
+          take: limit,
+        }),
+      ),
+      this.prisma.withSystem((tx) => tx.intelArticle.count({ where })),
+    ]);
+
+    return {
+      tool: 'search_intel_articles',
+      generatedAt: new Date().toISOString(),
+      total,
+      data: data.map((a) => ({
+        id: a.id,
+        source: a.source,
+        title: summarizeText(a.title, 240),
+        url: a.url,
+        author: a.author,
+        publishedAt: a.publishedAt,
+        summary: summarizeText(a.summary, 400),
+        categories: a.categories,
+        topics: a.topics,
+      })),
+    };
+  }
+
+  private async searchCommitteeHearings(input: Record<string, unknown>) {
+    const query = optionalString(input, 'query', 240);
+    const chamber = optionalString(input, 'chamber', 20);
+    const committeeName = optionalString(input, 'committeeName', 200) ?? optionalString(input, 'committee', 200);
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    const where: Record<string, unknown> = {};
+    if (query) {
+      where.OR = [
+        { title: { contains: query, mode: 'insensitive' } },
+        { committeeName: { contains: query, mode: 'insensitive' } },
+      ];
+    }
+    if (chamber) where.chamber = chamber;
+    if (committeeName) where.committeeName = { contains: committeeName, mode: 'insensitive' };
+
+    const [data, total] = await Promise.all([
+      this.prisma.withSystem((tx) =>
+        tx.committeeHearing.findMany({
+          where,
+          orderBy: { date: 'desc' },
+          take: limit,
+        }),
+      ),
+      this.prisma.withSystem((tx) => tx.committeeHearing.count({ where })),
+    ]);
+
+    return {
+      tool: 'search_committee_hearings',
+      generatedAt: new Date().toISOString(),
+      total,
+      data: data.map((h) => ({
+        id: h.id,
+        chamber: h.chamber,
+        committeeName: h.committeeName,
+        committeeCode: h.committeeCode,
+        title: summarizeText(h.title, 240),
+        date: h.date,
+        time: h.time,
+        location: h.location,
+        type: h.type,
+        witnesses: h.witnesses,
+        url: h.url,
+      })),
+    };
+  }
+
+  private async searchCrsReports(input: Record<string, unknown>) {
+    const query = optionalString(input, 'query', 240);
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    const where: Record<string, unknown> = { active: true };
+    if (query) {
+      where.OR = [
+        { title: { contains: query, mode: 'insensitive' } },
+        { summary: { contains: query, mode: 'insensitive' } },
+        { topics: { hasSome: [query] } },
+        { authors: { hasSome: [query] } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.withSystem((tx) =>
+        tx.crsReport.findMany({
+          where,
+          orderBy: { date: 'desc' },
+          take: limit,
+        }),
+      ),
+      this.prisma.withSystem((tx) => tx.crsReport.count({ where })),
+    ]);
+
+    return {
+      tool: 'search_crs_reports',
+      generatedAt: new Date().toISOString(),
+      total,
+      data: data.map((r) => ({
+        id: r.id,
+        title: summarizeText(r.title, 240),
+        date: r.date,
+        authors: r.authors,
+        topics: r.topics,
+        summary: summarizeText(r.summary, 400),
+        pdfUrl: r.pdfUrl,
+        htmlUrl: r.htmlUrl,
+      })),
+    };
+  }
+
+  private async queryEconomicData(input: Record<string, unknown>) {
+    const source = optionalString(input, 'source', 20) ?? 'census';
+    const state = optionalString(input, 'state', 2);
+    const district = optionalString(input, 'district', 10);
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    switch (source.toLowerCase()) {
+      case 'census': {
+        const where: Record<string, unknown> = {};
+        if (state) where.state = state.toUpperCase();
+        if (district) where.district = district;
+
+        const data = await this.prisma.withSystem((tx) =>
+          tx.censusDistrict.findMany({
+            where,
+            orderBy: { state: 'asc' },
+            take: limit,
+          }),
+        );
+
+        return {
+          tool: 'query_economic_data',
+          source: 'census',
+          generatedAt: new Date().toISOString(),
+          data: data.map((d) => ({
+            id: d.id,
+            state: d.state,
+            district: d.district,
+            congress: d.congress,
+            totalPopulation: d.totalPopulation,
+            medianHouseholdIncome: d.medianHouseholdIncome,
+            medianAge: d.medianAge,
+            percentBachelorPlus: d.percentBachelorPlus,
+            percentPoverty: d.percentPoverty,
+            unemploymentRate: d.unemploymentRate,
+            laborForceSize: d.laborForceSize,
+            topIndustries: d.topIndustries,
+          })),
+        };
+      }
+
+      case 'bls': {
+        const seriesId = optionalString(input, 'seriesId', 60);
+        const query = optionalString(input, 'query', 240);
+
+        const seriesWhere: Record<string, unknown> = {};
+        if (seriesId) seriesWhere.id = seriesId;
+        if (query) {
+          seriesWhere.OR = [
+            { title: { contains: query, mode: 'insensitive' } },
+            { surveyName: { contains: query, mode: 'insensitive' } },
+          ];
+        }
+
+        const series = await this.prisma.withSystem((tx) =>
+          tx.blsSeries.findMany({
+            where: seriesWhere,
+            include: {
+              dataPoints: {
+                orderBy: [{ year: 'desc' }, { period: 'desc' }],
+                take: 12,
+              },
+            },
+            take: limit,
+          }),
+        );
+
+        return {
+          tool: 'query_economic_data',
+          source: 'bls',
+          generatedAt: new Date().toISOString(),
+          data: series.map((s) => ({
+            seriesId: s.id,
+            title: s.title,
+            surveyName: s.surveyName,
+            periodType: s.periodType,
+            recentDataPoints: s.dataPoints.map((dp) => ({
+              year: dp.year,
+              period: dp.period,
+              value: dp.value,
+            })),
+          })),
+        };
+      }
+
+      case 'bea': {
+        const datasetName = optionalString(input, 'datasetName', 60) ?? optionalString(input, 'dataset', 60);
+        const query = optionalString(input, 'query', 240);
+        const year = input.year ? Number(input.year) : undefined;
+
+        const where: Record<string, unknown> = {};
+        if (datasetName) where.datasetName = datasetName;
+        if (year) where.year = year;
+        if (query) where.description = { contains: query, mode: 'insensitive' };
+
+        const data = await this.prisma.withSystem((tx) =>
+          tx.beaData.findMany({
+            where,
+            orderBy: [{ year: 'desc' }, { period: 'desc' }],
+            take: limit,
+          }),
+        );
+
+        return {
+          tool: 'query_economic_data',
+          source: 'bea',
+          generatedAt: new Date().toISOString(),
+          data: data.map((d) => ({
+            datasetName: d.datasetName,
+            tableName: d.tableName,
+            description: summarizeText(d.description, 240),
+            year: d.year,
+            period: d.period,
+            value: d.value,
+            units: d.units,
+          })),
+        };
+      }
+
+      default:
+        return {
+          tool: 'query_economic_data',
+          error: `Unknown source "${source}". Use "census", "bls", or "bea".`,
+        };
+    }
   }
 
   private async searchResearchSources(ctx: TenantContext, input: Record<string, unknown>) {

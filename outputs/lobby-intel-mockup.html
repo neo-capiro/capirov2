@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Lobby Intelligence — LDA-derived (mockup)</title>
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14171c;
+    --panel-2: #1a1e25;
+    --line: #262b34;
+    --text: #e8eaed;
+    --muted: #8b95a3;
+    --accent: #5b8def;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --pink: #ec4899;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 28px;
+    background: var(--bg); color: var(--text);
+    font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h2 { font-size: 13px; font-weight: 600; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  .sub { color: var(--muted); margin-bottom: 24px; font-size: 12px; }
+  .source-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    background: rgba(91,141,239,0.12); color: var(--accent);
+    font-size: 11px; font-weight: 500; margin-left: 8px;
+    border: 1px solid rgba(91,141,239,0.25);
+  }
+  .grid-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 14px 16px;
+  }
+  .stat-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .stat-value { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+  .stat-delta { font-size: 11px; color: var(--green); margin-left: 8px; font-weight: 500; }
+  .stat-delta.warn { color: var(--amber); }
+  .stat-sub { font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .row-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-weight: 500; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+  td { padding: 10px; border-bottom: 1px solid rgba(38,43,52,0.5); vertical-align: middle; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr:hover td { background: rgba(91,141,239,0.04); }
+  .tag {
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: 500; margin-right: 4px;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  }
+  .tag.exploding { background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.35); color: var(--amber); }
+  .tag.declining { background: rgba(248,113,113,0.10); border-color: rgba(248,113,113,0.30); color: var(--red); }
+  .tag.new { background: rgba(52,211,153,0.10); border-color: rgba(52,211,153,0.30); color: var(--green); }
+  .tag.steady { background: rgba(139,149,163,0.10); border-color: var(--line); color: var(--muted); }
+  .tag.surging { background: rgba(248,113,113,0.14); border-color: rgba(248,113,113,0.35); color: var(--red); }
+  .tag.growing { background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.35); color: var(--amber); }
+  .topic-pill {
+    display: inline-block; padding: 4px 10px; border-radius: 14px;
+    font-size: 11px; margin: 3px 4px 3px 0;
+    background: var(--panel-2); border: 1px solid var(--line);
+  }
+  .topic-pill .delta { color: var(--green); font-weight: 500; margin-left: 6px; }
+  .topic-pill .delta.down { color: var(--red); }
+  .footer-note { margin-top: 24px; padding: 14px 16px; background: rgba(91,141,239,0.06); border-left: 3px solid var(--accent); border-radius: 4px; font-size: 12px; color: var(--muted); }
+  .footer-note strong { color: var(--text); }
+  .compare {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    margin-top: 6px; margin-bottom: 28px;
+    padding: 12px; background: var(--panel-2); border-radius: 6px; border: 1px dashed var(--line);
+  }
+  .compare h3 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
+  .compare .col p { margin: 4px 0; font-size: 12px; color: var(--muted); }
+  .compare .col p strong { color: var(--text); font-weight: 500; }
+  .compare .col.before { opacity: 0.7; }
+  .compare .col.after strong { color: var(--green); }
+  .spark { display: inline-block; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<h1>Lobby Intelligence <span class="source-pill">source: lda_filing</span></h1>
+<div class="sub">Top federal lobbying clients — drilled from raw Senate LDA filings. No external dependency.</div>
+
+<div class="compare">
+  <div class="col before">
+    <h3>Before — OpenLobby snapshot</h3>
+    <p><strong>5,000</strong> top clients (hard cap)</p>
+    <p><strong>0</strong> registered lobbyists</p>
+    <p><strong>0</strong> registrant firms</p>
+    <p>Snapshot only — no time-series drill</p>
+    <p>Refreshed via <code style="font-size:11px">sync-openlobby.ts</code> cron</p>
+  </div>
+  <div class="col after">
+    <h3>After — LDA-derived view</h3>
+    <p><strong>134,212</strong> clients (full universe)</p>
+    <p><strong>88,403</strong> registered lobbyists</p>
+    <p><strong>17,094</strong> registrant firms</p>
+    <p>Full 6-year quarterly drill on demand</p>
+    <p>Refreshed by <code style="font-size:11px">REFRESH MATERIALIZED VIEW</code></p>
+  </div>
+</div>
+
+<h2>Overview</h2>
+<div class="grid-stats">
+  <div class="card">
+    <div class="stat-label">Tracked Clients</div>
+    <div class="stat-value">5,000<span class="stat-delta">+129k available</span></div>
+    <div class="stat-sub">Top by 5-yr spend · drill past cap on demand</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Surging Issues</div>
+    <div class="stat-value" style="color: var(--red)">12</div>
+    <div class="stat-sub">&gt; +25% q/q income · last 7 days</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Exploding Clients</div>
+    <div class="stat-value" style="color: var(--amber)">87</div>
+    <div class="stat-sub">growth rate &gt; +50% vs 3-yr avg</div>
+  </div>
+  <div class="card">
+    <div class="stat-label">Trending Terms</div>
+    <div class="stat-value">183</div>
+    <div class="stat-sub">mined from filing descriptions</div>
+  </div>
+</div>
+
+<div class="row-2">
+  <div class="card">
+    <h2 style="margin-bottom: 14px;">Top Spenders · 2026 YTD</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>State</th>
+          <th class="num">Total Spend</th>
+          <th>Trajectory</th>
+          <th>Top LDA Issues</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>National Assn of Realtors</strong></td>
+          <td>IL</td>
+          <td class="num">$84.1M</td>
+          <td>
+            <svg class="spark" width="80" height="22" viewBox="0 0 80 22"><polyline fill="none" stroke="#34d399" stroke-width="1.5" points="2,16 14,14 26,11 38,9 50,7 62,5 74,3"/></svg>
+            <span class="tag exploding">exploding</span>
+          </td>
+          <td><span class="tag">TAX</span><span class="tag">HOU</span><span class="tag">BAN</span><span class="tag">RRR</span></td>
+        </tr>
+        <tr>
+          <td><strong>US Chamber of Commerce</strong></td>
+          <td>DC</td>
+          <td class="num">$71.6M</td>
+          <td>
+            <svg class="spark" width="80" height="22" viewBox="0 0 80 22"><polyline fill="none" stroke="#8b95a3" stroke-width="1.5" points="2,8 14,9 26,7 38,10 50,8 62,9 74,7"/></svg>
+            <span class="tag steady">steady</span>
+          </td>
+          <td><span class="tag">TAX</span><span class="tag">TRD</span><span class="tag">FIN</span><span class="tag">ENV</span></td>
+        </tr>
+        <tr>
+          <td><strong>Meta Platforms Inc</strong></td>
+          <td>CA</td>
+          <td class="num">$24.4M</td>
+          <td>
+            <svg class="spark" width="80" height="22" viewBox="0 0 80 22"><polyline fill="none" stroke="#fbbf24" stroke-width="1.5" points="2,14 14,12 26,10 38,8 50,6 62,5 74,4"/></svg>
+            <span class="tag exploding">exploding</span>
+          </td>
+          <td><span class="tag">TEC</span><span class="tag">CPT</span><span class="tag">TRD</span></td>
+        </tr>
+        <tr>
+          <td><strong>Pharmaceutical Research &amp; Mfg</strong></td>
+          <td>DC</td>
+          <td class="num">$23.9M</td>
+          <td>
+            <svg class="spark" width="80" height="22" viewBox="0 0 80 22"><polyline fill="none" stroke="#8b95a3" stroke-width="1.5" points="2,10 14,8 26,9 38,8 50,7 62,8 74,7"/></svg>
+            <span class="tag steady">steady</span>
+          </td>
+          <td><span class="tag">HCR</span><span class="tag">MMM</span><span class="tag">TAX</span></td>
+        </tr>
+        <tr>
+          <td><strong>Anthropic PBC</strong></td>
+          <td>CA</td>
+          <td class="num">$1.9M</td>
+          <td>
+            <svg class="spark" width="80" height="22" viewBox="0 0 80 22"><polyline fill="none" stroke="#34d399" stroke-width="1.5" points="2,20 14,20 26,18 38,12 50,8 62,5 74,2"/></svg>
+            <span class="tag new">new</span>
+          </td>
+          <td><span class="tag">TEC</span><span class="tag">SCI</span></td>
+        </tr>
+        <tr>
+          <td><strong>Boeing Co</strong></td>
+          <td>VA</td>
+          <td class="num">$15.2M</td>
+          <td>
+            <svg class="spark" width="80" height="22" viewBox="0 0 80 22"><polyline fill="none" stroke="#f87171" stroke-width="1.5" points="2,3 14,5 26,7 38,9 50,11 62,14 74,17"/></svg>
+            <span class="tag declining">declining</span>
+          </td>
+          <td><span class="tag">DEF</span><span class="tag">AVI</span><span class="tag">TRD</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-bottom: 14px;">Issue Surge</h2>
+    <table>
+      <thead>
+        <tr><th>Code</th><th>Issue</th><th class="num">Δ q/q</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>TEC</strong></td><td>Technology</td><td class="num"><span class="tag surging">+42%</span></td></tr>
+        <tr><td><strong>HCR</strong></td><td>Health Issues</td><td class="num"><span class="tag surging">+31%</span></td></tr>
+        <tr><td><strong>TAX</strong></td><td>Taxation</td><td class="num"><span class="tag growing">+18%</span></td></tr>
+        <tr><td><strong>ENV</strong></td><td>Environment</td><td class="num"><span class="tag growing">+12%</span></td></tr>
+        <tr><td><strong>DEF</strong></td><td>Defense</td><td class="num"><span class="tag steady">+3%</span></td></tr>
+        <tr><td><strong>TRD</strong></td><td>Trade</td><td class="num"><span class="tag steady">−2%</span></td></tr>
+        <tr><td><strong>BAN</strong></td><td>Banking</td><td class="num"><span class="tag declining">−14%</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-bottom: 16px;">
+  <h2 style="margin-bottom: 12px;">Trending Terms <span style="font-size:11px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">— mined from <code style="font-size:11px">lda_filing.lobbying_activities</code></span></h2>
+  <div>
+    <span class="topic-pill">artificial intelligence <span class="delta">+218%</span></span>
+    <span class="topic-pill">stablecoin <span class="delta">+184%</span></span>
+    <span class="topic-pill">tariff reciprocity <span class="delta">+121%</span></span>
+    <span class="topic-pill">section 230 <span class="delta">+97%</span></span>
+    <span class="topic-pill">data center siting <span class="delta">+82%</span></span>
+    <span class="topic-pill">PBM reform <span class="delta">+71%</span></span>
+    <span class="topic-pill">grid interconnect <span class="delta">+64%</span></span>
+    <span class="topic-pill">CBDC <span class="delta">+58%</span></span>
+    <span class="topic-pill">deepfake <span class="delta">+44%</span></span>
+    <span class="topic-pill">SALT cap <span class="delta">+38%</span></span>
+    <span class="topic-pill">ESG <span class="delta down">−29%</span></span>
+    <span class="topic-pill">crypto wash sale <span class="delta">+33%</span></span>
+    <span class="topic-pill">methane fee <span class="delta down">−18%</span></span>
+    <span class="topic-pill">prior authorization <span class="delta">+27%</span></span>
+  </div>
+</div>
+
+<div class="footer-note">
+  <strong>What changed.</strong> Same visual surface — but every number on this page now comes from <code>lda_filing</code> /
+  <code>lda_client</code> / <code>lda_issue_code</code> via a materialized view, instead of being fetched from
+  openlobby.us as a pre-aggregated snapshot. The <em>5,000 clients</em> stat is now a display cap, not a data cap:
+  drill-down can hit all 134k clients, 88k lobbyists, and 192k LD-203 contribution records without an external round-trip.
+  No more <code>sync-openlobby.ts</code>, no more <code>LobbyIntel</code> / <code>LobbyIssueRef</code> tables, no more divergence between
+  the OpenLobby snapshot and the raw filings underneath it.
+</div>
+
+</body>
+</html>
