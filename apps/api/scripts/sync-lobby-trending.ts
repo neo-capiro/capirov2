@@ -100,7 +100,7 @@ async function main() {
 
   try {
     // Fetch the last 5 quarters of filings. We rank by quarter_ord descending
-    // and bucket into 5 windows — the latest plus 4 prior.
+    // and bucket into the 5 latest quarters — the latest plus 4 prior.
     const rows = await prisma.$queryRaw<
       Array<{
         filing_year: number;
@@ -124,13 +124,13 @@ async function main() {
         FROM lda_filing
         WHERE filing_period IS NOT NULL
       ),
-      window AS (
+      latest_quarters AS (
         SELECT DISTINCT quarter_ord FROM ranked WHERE quarter_ord > 0
         ORDER BY quarter_ord DESC LIMIT 5
       )
       SELECT r.filing_year, r.filing_period, r.lobbying_activities
       FROM ranked r
-      JOIN window w ON w.quarter_ord = r.quarter_ord
+      JOIN latest_quarters w ON w.quarter_ord = r.quarter_ord
     `;
 
     console.log(`[lobby-trending-sync] tokenizing ${rows.length} filings`);
