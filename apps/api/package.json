@@ -17,6 +17,8 @@
     "bootstrap:tenant": "tsx scripts/bootstrap-tenant.ts",
     "bootstrap:capiro-admin": "tsx scripts/bootstrap-capiro-admin.ts",
     "sync:openlobby": "tsx scripts/sync-openlobby.ts",
+    "sync:lobby-trending": "tsx scripts/sync-lobby-trending.ts",
+    "refresh:lobby-intel": "tsx scripts/refresh-lobby-intel-mv.ts",
     "sync:openspending": "tsx scripts/sync-openspending.ts",
     "sync:lda": "tsx scripts/sync-lda.ts",
     "sync:lda:incremental": "tsx scripts/sync-lda.ts --incremental",
