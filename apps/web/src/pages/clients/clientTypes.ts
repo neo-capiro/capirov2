@@ -91,6 +91,11 @@ export interface Client {
   logoUrl?: string | null;
   intakeData: ClientIntakeData | null;
   status: string;
+  // Portfolio v2 additions — controlled vocab (see @capiro/shared).
+  sectorTag?: string | null;
+  profileType?: string | null;
+  profileStatus?: string | null;
+  submissionTracks?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -104,6 +109,10 @@ export interface ClientPayload {
   primaryContactEmail?: string;
   primaryContactPhone?: string;
   intakeData?: Record<string, unknown>;
+  sectorTag?: string | null;
+  profileType?: string | null;
+  profileStatus?: string | null;
+  submissionTracks?: string[];
 }
 
 export interface ClientAttachment {
@@ -127,7 +136,10 @@ export interface ClientFormValues {
   primaryContactName?: string;
   primaryContactEmail?: string;
   primaryContactPhone?: string;
-  sector?: string;
+  /** Controlled SectorTag — see SECTOR_TAGS in @capiro/shared. */
+  sectorTag?: string;
+  /** Controlled SubmissionTrack[] — see SUBMISSION_TRACKS in @capiro/shared. */
+  submissionTracks?: string[];
   trl?: string;
   fundingAsk?: string;
   requestType?: string;

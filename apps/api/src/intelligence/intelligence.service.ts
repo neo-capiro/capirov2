@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EngagementTaskStatus } from '@prisma/client';
+import { normalizeSector } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const AGENCY_SECTOR_MAP: Record<string, string[]> = {
@@ -356,22 +357,67 @@ export class IntelligenceService {
   private async findRelevantBills(issueCodes: string[]) {
     if (!issueCodes.length) return { total: 0, bills: [] };
 
-    // Map common LDA issue codes to policy area keywords
-    const bills = await this.prisma.congressBill.findMany({
-      where: {
-        latestActionDate: { gte: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000) },
-      },
-      orderBy: { latestActionDate: 'desc' },
-      take: 10,
-    });
+    // Bridge LDA issue codes -> English subject names via lda_issue_code,
+    // then ILIKE-match against congress_bill_subject.name. Mirrors the logic in
+    // getTrackedBills() so the Related Bills tab and Tracked Bills tab agree.
+    const nameRows = await this.prisma.$queryRaw<Array<{ name: string }>>`
+      SELECT name FROM lda_issue_code WHERE code = ANY(${issueCodes}::text[])
+    `;
+    const issueNames = nameRows.map((r) => r.name);
+    if (!issueNames.length) return { total: 0, bills: [] };
 
-    const total = await this.prisma.congressBill.count({
-      where: {
-        latestActionDate: { gte: new Date(Date.now() - 180 * 24 * 60 * 60 * 1000) },
-      },
-    });
+    const patterns = issueNames.map((n) => `%${n.toLowerCase()}%`);
 
-    return { total, bills };
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        congress: number;
+        bill_type: string;
+        bill_number: string;
+        title: string;
+        introduced_date: Date | null;
+        sponsor_name: string | null;
+        sponsor_party: string | null;
+        sponsor_state: string | null;
+        latest_action_text: string | null;
+        latest_action_date: Date | null;
+        policy_area: string | null;
+        subjects: string[];
+      }>
+    >`
+      SELECT * FROM (
+        SELECT DISTINCT ON (cb.id)
+          cb.id, cb.congress, cb.bill_type, cb.bill_number, cb.title,
+          cb.introduced_date, cb.sponsor_name, cb.sponsor_party, cb.sponsor_state,
+          cb.latest_action_text, cb.latest_action_date, cb.policy_area, cb.subjects
+        FROM congress_bill cb
+        JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
+        WHERE LOWER(cbs.name) ILIKE ANY(${patterns}::text[])
+        ORDER BY cb.id
+      ) q
+      ORDER BY q.latest_action_date DESC NULLS LAST
+      LIMIT 25
+    `;
+
+    // Match the shape callers (and `ClientIntelProfile.relevantBills`) already
+    // expect — the prior implementation returned raw congress_bill rows.
+    const bills = rows.map((r) => ({
+      id: r.id,
+      congress: r.congress,
+      billType: r.bill_type,
+      billNumber: r.bill_number,
+      title: r.title,
+      introducedDate: r.introduced_date,
+      sponsorName: r.sponsor_name,
+      sponsorParty: r.sponsor_party,
+      sponsorState: r.sponsor_state,
+      latestActionText: r.latest_action_text,
+      latestActionDate: r.latest_action_date,
+      policyArea: r.policy_area,
+      subjects: r.subjects ?? [],
+    }));
+
+    return { total: bills.length, bills };
   }
 
   /** Find active regulations with open comment periods */
@@ -1027,14 +1073,16 @@ export class IntelligenceService {
       for (const client of clientsWithCaps) {
         let baseRelevance = 0;
 
-        // Agency-sector match against client sectorTag
+        // Agency-sector match against client sectorTag (already controlled enum)
         if (client.sectorTag && docSectors.has(client.sectorTag)) {
           baseRelevance = Math.max(baseRelevance, 0.5);
         }
 
-        // Agency-sector match against capability sectors
+        // Agency-sector match against capability sectors. cap.sector is free text
+        // in legacy data; normalize through the shared taxonomy before comparing.
         for (const cap of client.capabilities) {
-          if (cap.sector && docSectors.has(cap.sector)) {
+          const normalized = normalizeSector(cap.sector);
+          if (normalized && docSectors.has(normalized)) {
             baseRelevance = Math.max(baseRelevance, 0.5);
           }
         }

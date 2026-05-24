@@ -51,7 +51,22 @@ import type {
   TrackedBill,
   TrackedBillsResult,
 } from './types.js';
-import { formatMoney, formatNum, issueTagColor, trajectoryTag } from './utils.jsx';
+import {
+  formatMoney,
+  formatNum,
+  issueTagColor,
+  trajectoryTag,
+  subjectSectorColor,
+  MATCHED_TOPIC_COLOR,
+} from './utils.jsx';
+import {
+  OUTCOME_COLORS,
+  OUTCOME_LABELS,
+  SECTOR_COLORS,
+  SECTOR_LABELS,
+  normalizeOutcome,
+  normalizeSector,
+} from '@capiro/shared';
 
 const { Text, Paragraph } = Typography;
 
@@ -613,8 +628,15 @@ function BillsTab({
       title: 'Policy Area',
       dataIndex: 'policyArea',
       width: 120,
-      render: (v: string | null) =>
-        v ? <Tag style={{ fontSize: 10 }}>{v}</Tag> : <Text type="secondary">—</Text>,
+      render: (v: string | null) => {
+        if (!v) return <Text type="secondary">—</Text>;
+        const c = subjectSectorColor(v);
+        return c ? (
+          <Tag color={c} style={{ fontSize: 10 }}>{v}</Tag>
+        ) : (
+          <Tag style={{ fontSize: 10 }}>{v}</Tag>
+        );
+      },
     },
     {
       title: 'Latest Action',
@@ -714,7 +736,14 @@ function TrackedBillsTab({ clientId }: { clientId: string }) {
       dataIndex: 'subjectNames',
       render: (subjects: string[]) => (
         <Space wrap size={[2, 2]}>
-          {subjects.slice(0, 3).map((s) => <Tag key={s} style={{ fontSize: 10 }}>{s}</Tag>)}
+          {subjects.slice(0, 3).map((s) => {
+            const c = subjectSectorColor(s);
+            return c ? (
+              <Tag key={s} color={c} style={{ fontSize: 10 }}>{s}</Tag>
+            ) : (
+              <Tag key={s} style={{ fontSize: 10 }}>{s}</Tag>
+            );
+          })}
           {subjects.length > 3 && <Tag style={{ fontSize: 10 }}>+{subjects.length - 3}</Tag>}
         </Space>
       ),
@@ -1436,7 +1465,7 @@ function LifecycleTab({ clientId }: { clientId: string }) {
                 render: (topics: string[]) => (
                   <Space wrap size={[2, 2]}>
                     {topics.slice(0, 2).map((t) => (
-                      <Tag key={t} color="blue" style={{ fontSize: 10 }}>{t}</Tag>
+                      <Tag key={t} color={MATCHED_TOPIC_COLOR} style={{ fontSize: 10 }}>{t}</Tag>
                     ))}
                     {topics.length > 2 && <Tag style={{ fontSize: 10 }}>+{topics.length - 2}</Tag>}
                   </Space>
@@ -1542,7 +1571,7 @@ function ResearchTab({ clientId }: { clientId: string }) {
                       <div style={{ marginTop: 4 }}>
                         <Space wrap size={[2, 2]}>
                           {r.topics.slice(0, 3).map((t) => (
-                            <Tag key={t} color="blue" style={{ fontSize: 10 }}>{t}</Tag>
+                            <Tag key={t} color={MATCHED_TOPIC_COLOR} style={{ fontSize: 10 }}>{t}</Tag>
                           ))}
                           {r.reportType && <Tag style={{ fontSize: 10 }}>{r.reportType}</Tag>}
                           {r.recommendations != null && r.recommendations > 0 && (
@@ -1583,7 +1612,7 @@ function ResearchTab({ clientId }: { clientId: string }) {
                       <div style={{ marginTop: 4 }}>
                         <Space wrap size={[2, 2]}>
                           {r.topics.slice(0, 3).map((t) => (
-                            <Tag key={t} color="purple" style={{ fontSize: 10 }}>{t}</Tag>
+                            <Tag key={t} color={MATCHED_TOPIC_COLOR} style={{ fontSize: 10 }}>{t}</Tag>
                           ))}
                         </Space>
                       </div>
@@ -1680,12 +1709,14 @@ export function ReportCardView({ data }: { data: Record<string, unknown> }) {
                 <Text style={{ fontSize: 12, fontWeight: 500 }}>{o.title}</Text>
                 <Space size={4}>
                   <Tag style={{ fontSize: 10 }}>FY{o.fiscalYear}</Tag>
-                  <Tag
-                    color={o.outcomeType === 'won' ? 'green' : o.outcomeType === 'lost' ? 'red' : 'orange'}
-                    style={{ fontSize: 10 }}
-                  >
-                    {o.outcomeType}
-                  </Tag>
+                  {(() => {
+                    const k = normalizeOutcome(o.outcomeType);
+                    return (
+                      <Tag color={OUTCOME_COLORS[k]} style={{ fontSize: 10 }}>
+                        {OUTCOME_LABELS[k]}
+                      </Tag>
+                    );
+                  })()}
                 </Space>
               </div>
               {o.capability && (

@@ -32,6 +32,11 @@ import {
   Upload,
 } from 'antd';
 import { useApi } from '../../lib/use-api.js';
+import {
+  CAPABILITY_TAG_SUGGESTIONS,
+  SECTOR_LABELS,
+  SECTOR_TAGS,
+} from '@capiro/shared';
 import type { Capability } from './CapabilityDrawer.js';
 import { CapabilityDrawer } from './CapabilityDrawer.js';
 import type { Client, ClientAttachment, ClientFormSubmit } from './clientTypes.js';
@@ -1101,6 +1106,7 @@ function AddCapabilityModal({
             type: values.type ?? 'product',
             description: values.description ?? null,
             sector: values.sector ?? null,
+            tags: Array.isArray(values.tags) ? values.tags : [],
             trl: values.trl ? Number(values.trl) : null,
             mrl: values.mrl ? Number(values.mrl) : null,
             fundingAsk: values.fundingAsk ? Number(values.fundingAsk) : null,
@@ -1121,8 +1127,29 @@ function AddCapabilityModal({
             ]}
           />
         </Form.Item>
-        <Form.Item name="sector" label="Sector">
-          <Input placeholder="e.g. Maritime Autonomy" />
+        <Form.Item
+          name="sector"
+          label="Sector"
+          tooltip="Pick the closest sector. Used for downstream agency/policy matching."
+        >
+          <Select
+            allowClear
+            placeholder="Pick a sector"
+            options={SECTOR_TAGS.map((t) => ({ label: SECTOR_LABELS[t], value: t }))}
+          />
+        </Form.Item>
+        <Form.Item
+          name="tags"
+          label="Tags"
+          tooltip="Pick from suggestions or type-and-enter custom tags. Used for bill matching and intelligence triage."
+        >
+          <Select
+            mode="tags"
+            allowClear
+            placeholder="Pick or add tags"
+            tokenSeparators={[',']}
+            options={CAPABILITY_TAG_SUGGESTIONS.map((t) => ({ label: t, value: t }))}
+          />
         </Form.Item>
         <Form.Item name="description" label="Description">
           <Input.TextArea rows={3} />

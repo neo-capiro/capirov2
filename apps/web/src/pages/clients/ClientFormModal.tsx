@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
 import { UploadOutlined } from '@ant-design/icons';
-import { Button, Col, Divider, Form, Input, Modal, Row, Upload, type UploadFile } from 'antd';
+import { Button, Col, Divider, Form, Input, Modal, Row, Select, Upload, type UploadFile } from 'antd';
+import {
+  SECTOR_LABELS,
+  SECTOR_TAGS,
+  SUBMISSION_TRACKS,
+  SUBMISSION_TRACK_LABELS,
+  normalizeSector,
+} from '@capiro/shared';
 import type {
   Client,
   ClientDocument,
@@ -97,8 +104,30 @@ export function ClientFormModal({
             </Form.Item>
           </Col>
           <Col xs={24} md={12}>
-            <Form.Item name="sector" label="Sector">
-              <Input placeholder="Autonomous Systems" />
+            <Form.Item
+              name="sectorTag"
+              label="Sector"
+              tooltip="Controlled vocabulary. Drives sector-adaptive intelligence panels and comment-period alerts."
+            >
+              <Select
+                allowClear
+                placeholder="Pick a sector"
+                options={SECTOR_TAGS.map((t) => ({ label: SECTOR_LABELS[t], value: t }))}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="submissionTracks"
+              label="Submission tracks"
+              tooltip="Which legislative/advocacy vehicles this client uses."
+            >
+              <Select
+                mode="multiple"
+                allowClear
+                placeholder="Pick one or more"
+                options={SUBMISSION_TRACKS.map((t) => ({ label: SUBMISSION_TRACK_LABELS[t], value: t }))}
+              />
             </Form.Item>
           </Col>
         </Row>
@@ -291,7 +320,9 @@ export function formValuesToClientPayload(values: ClientFormValues): ClientPaylo
   });
 
   const intakeData = compactObject({
-    sector: optionalText(values.sector),
+    // Legacy free-text sector is no longer collected; sectorTag is now the source
+    // of truth at the top level. Preserve the field name during transition so
+    // older intake reads still work.
     trl: optionalText(values.trl),
     fundingAsk: formatMoney(values.fundingAsk),
     requestType: optionalText(values.requestType),
@@ -324,6 +355,8 @@ export function formValuesToClientPayload(values: ClientFormValues): ClientPaylo
     }),
   };
   payload.intakeData = intakeData;
+  if (values.sectorTag) payload.sectorTag = values.sectorTag;
+  if (values.submissionTracks?.length) payload.submissionTracks = values.submissionTracks;
   return payload;
 }
 
@@ -342,7 +375,12 @@ export function clientToFormValues(client?: Client): ClientFormValues {
     primaryContactName: client.primaryContactName ?? undefined,
     primaryContactEmail: client.primaryContactEmail ?? undefined,
     primaryContactPhone: client.primaryContactPhone ?? undefined,
-    sector: readText(intake, ['sector']),
+    // Prefer top-level controlled sectorTag; fall back to normalized legacy
+    // intake.sector string for clients created before Portfolio v2.
+    sectorTag:
+      (client.sectorTag ?? undefined) ||
+      (normalizeSector(readText(intake, ['sector'])) ?? undefined),
+    submissionTracks: client.submissionTracks ?? [],
     trl: readText(intake, ['trl']),
     fundingAsk: readText(intake, ['fundingAsk', 'funding_ask', 'funding ask']),
     requestType: readText(intake, ['requestType', 'request_type', 'request type']),
