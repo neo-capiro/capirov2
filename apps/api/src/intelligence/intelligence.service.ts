@@ -428,9 +428,11 @@ export class IntelligenceService {
 
   /**
    * Find active regulations with open comment periods that match this client's
-   * LDA issue codes. Filters federal_register_document by topic overlap with
-   * the English names of the client's issue codes. Without the filter we'd
-   * return every federal regulation with an open comment period — useless.
+   * LDA issue codes. Two-pass match: (1) topic array contains an LDA issue name
+   * as a whole word, OR (2) the document title mentions one of the issue names.
+   * The pure exact-equality variant we tried first was too strict — LDA issue
+   * names like "Defense" rarely equal FR topic strings like "Defense department"
+   * verbatim, so it returned zero rows even for clients with obvious matches.
    */
   private async findActiveRegulations(issueCodes: string[]) {
     if (!issueCodes.length) return { total: 0, documents: [] };
@@ -441,9 +443,8 @@ export class IntelligenceService {
     const issueNames = nameRows.map((r) => r.name);
     if (!issueNames.length) return { total: 0, documents: [] };
 
-    // Topics match: any federal-register topic equals one of the issue names
-    // (case-insensitive). topics is a text[] column, so we use ARRAY operators.
     const lowerNames = issueNames.map((n) => n.toLowerCase());
+    const wordPatterns = lowerNames.map((n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`);
 
     const docs = await this.prisma.$queryRaw<
       Array<{
@@ -463,9 +464,12 @@ export class IntelligenceService {
              comment_end_date, publication_date, significant_rule, html_url
       FROM federal_register_document
       WHERE comment_end_date > NOW()
-        AND EXISTS (
-          SELECT 1 FROM unnest(topics) t
-          WHERE LOWER(t) = ANY(${lowerNames}::text[])
+        AND (
+          EXISTS (
+            SELECT 1 FROM unnest(topics) t
+            WHERE LOWER(t) ~ ANY(${wordPatterns}::text[])
+          )
+          OR LOWER(title) ~ ANY(${wordPatterns}::text[])
         )
       ORDER BY comment_end_date ASC
       LIMIT 50
