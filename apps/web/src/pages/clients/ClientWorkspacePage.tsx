@@ -5,7 +5,7 @@ import {
   MoreOutlined,
   PlusOutlined,
 } from '@ant-design/icons';
-import { hasAtLeast } from '@capiro/shared';
+import { hasAtLeast, SECTOR_LABELS } from '@capiro/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   App as AntApp,
@@ -437,7 +437,14 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
 
       <div className="client-card-details">
         <DetailPair label="Primary POC" value={formatPoc(intake, client.primaryContactName)} />
-        <DetailPair label="Sector" value={readText(intake, ['sector'])} />
+        <DetailPair
+          label="Sector"
+          value={
+            client.sectorTag
+              ? (SECTOR_LABELS[client.sectorTag as keyof typeof SECTOR_LABELS] ?? client.sectorTag)
+              : readText(intake, ['sector'])
+          }
+        />
         <DetailPair label="Engagement" value={formatEngagement(intake, client.createdAt)} />
       </div>
 
