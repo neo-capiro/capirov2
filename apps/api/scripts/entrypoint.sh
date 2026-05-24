@@ -95,12 +95,32 @@ case "${1:-serve}" in
     echo "Running bootstrap-roles (rotate capiro_app password)"
     exec ./node_modules/.bin/tsx scripts/bootstrap-roles.ts "$@"
     ;;
+  emit-changes)
+    echo "Running emit-changes (post-sync IntelligenceChange emitter)"
+    exec ./node_modules/.bin/tsx scripts/emit-changes.ts
+    ;;
+  backfill-sectors)
+    echo "Running backfill-sector-tags"
+    exec ./node_modules/.bin/tsx scripts/backfill-sector-tags.ts
+    ;;
+  generate-briefings)
+    echo "Running generate-briefings"
+    exec ./node_modules/.bin/tsx scripts/generate-briefings.ts
+    ;;
+  compute-health-scores)
+    echo "Running compute-health-scores"
+    exec ./node_modules/.bin/tsx scripts/compute-health-scores.ts
+    ;;
+  check-comment-periods)
+    echo "Running check-comment-periods"
+    exec ./node_modules/.bin/tsx scripts/check-comment-periods.ts
+    ;;
   serve)
     echo "Starting Capiro API"
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods)" >&2
     exit 1
     ;;
 esac
