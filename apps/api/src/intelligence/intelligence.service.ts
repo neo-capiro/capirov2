@@ -366,7 +366,12 @@ export class IntelligenceService {
     const issueNames = nameRows.map((r) => r.name);
     if (!issueNames.length) return { total: 0, bills: [] };
 
-    const patterns = issueNames.map((n) => `%${n.toLowerCase()}%`);
+    // Whole-word match (not substring) to avoid false positives like
+    // "9/11 Memorial and Museum Act" matching any client with "Defense" in
+    // their LDA issues just because the subject "Federal Defense Officers"
+    // happens to contain the word.
+    const lowerNames = issueNames.map((n) => n.toLowerCase());
+    const wordPatterns = lowerNames.map((n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`);
 
     const rows = await this.prisma.$queryRaw<
       Array<{
@@ -392,7 +397,8 @@ export class IntelligenceService {
           cb.latest_action_text, cb.latest_action_date, cb.policy_area, cb.subjects
         FROM congress_bill cb
         JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
-        WHERE LOWER(cbs.name) ILIKE ANY(${patterns}::text[])
+        WHERE LOWER(cbs.name) = ANY(${lowerNames}::text[])
+           OR LOWER(cbs.name) ~ ANY(${wordPatterns}::text[])
         ORDER BY cb.id
       ) q
       ORDER BY q.latest_action_date DESC NULLS LAST
@@ -420,22 +426,65 @@ export class IntelligenceService {
     return { total: bills.length, bills };
   }
 
-  /** Find active regulations with open comment periods */
+  /**
+   * Find active regulations with open comment periods that match this client's
+   * LDA issue codes. Filters federal_register_document by topic overlap with
+   * the English names of the client's issue codes. Without the filter we'd
+   * return every federal regulation with an open comment period — useless.
+   */
   private async findActiveRegulations(issueCodes: string[]) {
-    const now = new Date();
-    const docs = await this.prisma.federalRegisterDocument.findMany({
-      where: {
-        commentEndDate: { gt: now },
-      },
-      orderBy: { commentEndDate: 'asc' },
-      take: 10,
-    });
+    if (!issueCodes.length) return { total: 0, documents: [] };
 
-    const total = await this.prisma.federalRegisterDocument.count({
-      where: { commentEndDate: { gt: now } },
-    });
+    const nameRows = await this.prisma.$queryRaw<Array<{ name: string }>>`
+      SELECT name FROM lda_issue_code WHERE code = ANY(${issueCodes}::text[])
+    `;
+    const issueNames = nameRows.map((r) => r.name);
+    if (!issueNames.length) return { total: 0, documents: [] };
 
-    return { total, documents: docs };
+    // Topics match: any federal-register topic equals one of the issue names
+    // (case-insensitive). topics is a text[] column, so we use ARRAY operators.
+    const lowerNames = issueNames.map((n) => n.toLowerCase());
+
+    const docs = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        document_number: string;
+        type: string;
+        title: string;
+        agency_names: string[];
+        topics: string[];
+        comment_end_date: Date | null;
+        publication_date: Date;
+        significant_rule: boolean;
+        html_url: string | null;
+      }>
+    >`
+      SELECT id, document_number, type, title, agency_names, topics,
+             comment_end_date, publication_date, significant_rule, html_url
+      FROM federal_register_document
+      WHERE comment_end_date > NOW()
+        AND EXISTS (
+          SELECT 1 FROM unnest(topics) t
+          WHERE LOWER(t) = ANY(${lowerNames}::text[])
+        )
+      ORDER BY comment_end_date ASC
+      LIMIT 50
+    `;
+
+    const documents = docs.map((d) => ({
+      id: d.id,
+      documentNumber: d.document_number,
+      type: d.type,
+      title: d.title,
+      agencyNames: d.agency_names,
+      topics: d.topics,
+      commentEndDate: d.comment_end_date,
+      publicationDate: d.publication_date,
+      significantRule: d.significant_rule,
+      htmlUrl: d.html_url,
+    }));
+
+    return { total: documents.length, documents };
   }
 
   /** Find competitors: other entities lobbying on the same issue codes */
@@ -821,7 +870,12 @@ export class IntelligenceService {
     const allTerms = [...issueNames, ...capKeywords];
     if (!allTerms.length) return { total: 0, bills: [], issueCodes };
 
-    const patterns = allTerms.map((n) => `%${n.toLowerCase()}%`);
+    // Require subject-name OVERLAP — exact equality OR the subject contains the
+    // whole-term as a regex word boundary. Substring ILIKE was returning
+    // false positives like "9/11 Memorial and Museum Act" for any client with
+    // "Defense" in their issues (subject "Federal Defense Officers" matched).
+    const lowerTerms = allTerms.map((n) => n.toLowerCase());
+    const wordPatterns = lowerTerms.map((n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`);
 
     const bills = await this.prisma.$queryRaw<
       Array<{
@@ -839,7 +893,8 @@ export class IntelligenceService {
                cb.sponsor_name, cb.sponsor_party, cb.subjects
         FROM congress_bill cb
         JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
-        WHERE LOWER(cbs.name) ILIKE ANY(${patterns}::text[])
+        WHERE LOWER(cbs.name) = ANY(${lowerTerms}::text[])
+           OR LOWER(cbs.name) ~ ANY(${wordPatterns}::text[])
         ORDER BY cb.id
       ) q
       ORDER BY q.latest_action_date DESC NULLS LAST
