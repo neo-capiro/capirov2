@@ -16,9 +16,18 @@ export interface CreateClientInput {
   primaryContactEmail?: string;
   primaryContactPhone?: string;
   intakeData?: Record<string, unknown>;
+  profileType?: string;
+  sectorTag?: string;
+  submissionTracks?: string[];
+  profileStatus?: string;
 }
 
 export type UpdateClientInput = Partial<CreateClientInput> & { status?: string };
+
+export interface ListClientsFilter {
+  profileStatus?: string;
+  sectorTag?: string;
+}
 
 const ALLOWED_LOGO_MIME = new Set(['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp']);
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
@@ -41,9 +50,13 @@ export class ClientsService {
     this.s3 = new S3Client({ region: config.get('AWS_REGION_DEFAULT', { infer: true }) });
   }
 
-  async list(ctx: TenantContext) {
+  async list(ctx: TenantContext, filter: ListClientsFilter = {}) {
+    const where: Record<string, unknown> = {};
+    if (filter.profileStatus) where.profileStatus = filter.profileStatus;
+    if (filter.sectorTag) where.sectorTag = filter.sectorTag;
+
     const clients = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.client.findMany({ orderBy: { createdAt: 'desc' } }),
+      tx.client.findMany({ where, orderBy: { createdAt: 'desc' } }),
     );
     return this.withLogoUrls(clients);
   }
@@ -69,6 +82,10 @@ export class ClientsService {
           primaryContactEmail: input.primaryContactEmail ?? null,
           primaryContactPhone: input.primaryContactPhone ?? null,
           intakeData: (input.intakeData ?? {}) as object,
+          profileType: input.profileType ?? null,
+          sectorTag: input.sectorTag ?? null,
+          submissionTracks: input.submissionTracks ?? [],
+          profileStatus: input.profileStatus ?? 'ACTIVE',
           createdByUserId: ctx.userId,
         },
       }),
@@ -98,6 +115,10 @@ export class ClientsService {
             : {}),
           ...('intakeData' in input ? { intakeData: (input.intakeData ?? {}) as object } : {}),
           ...('status' in input ? { status: input.status! } : {}),
+          ...('profileType' in input ? { profileType: input.profileType ?? null } : {}),
+          ...('sectorTag' in input ? { sectorTag: input.sectorTag ?? null } : {}),
+          ...('submissionTracks' in input ? { submissionTracks: input.submissionTracks ?? [] } : {}),
+          ...('profileStatus' in input ? { profileStatus: input.profileStatus! } : {}),
         },
       }),
     );

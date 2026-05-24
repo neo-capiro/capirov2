@@ -37,7 +37,8 @@
     "sync:crs": "tsx scripts/sync-crs.ts",
     "sync:rss": "tsx scripts/sync-rss-intel.ts",
     "sync:hearings": "tsx scripts/sync-hearings.ts",
-    "sync:all": "tsx scripts/sync-congress.ts && tsx scripts/sync-sec-edgar.ts && tsx scripts/sync-fara.ts && tsx scripts/sync-bls.ts && tsx scripts/sync-census.ts && tsx scripts/sync-bea.ts && tsx scripts/sync-grants.ts && tsx scripts/sync-gao.ts && tsx scripts/sync-openstates.ts && tsx scripts/sync-fec.ts && tsx scripts/sync-crs.ts && tsx scripts/sync-rss-intel.ts && tsx scripts/sync-hearings.ts && tsx scripts/sync-federal-register.ts && tsx scripts/sync-regulations.ts && tsx scripts/sync-lda.ts"
+    "sync:all": "tsx scripts/sync-congress.ts && tsx scripts/sync-sec-edgar.ts && tsx scripts/sync-fara.ts && tsx scripts/sync-bls.ts && tsx scripts/sync-census.ts && tsx scripts/sync-bea.ts && tsx scripts/sync-grants.ts && tsx scripts/sync-gao.ts && tsx scripts/sync-openstates.ts && tsx scripts/sync-fec.ts && tsx scripts/sync-crs.ts && tsx scripts/sync-rss-intel.ts && tsx scripts/sync-hearings.ts && tsx scripts/sync-federal-register.ts && tsx scripts/sync-regulations.ts && tsx scripts/sync-lda.ts",
+    "emit:changes": "tsx scripts/emit-changes.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.665.0",

@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import {
+  IsArray,
   IsEmail,
   IsIn,
   IsInt,
@@ -51,6 +52,23 @@ class CreateClientDto {
   @IsOptional()
   @IsObject()
   intakeData?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
+  profileType?: string;
+
+  @IsOptional()
+  @IsString()
+  sectorTag?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  submissionTracks?: string[];
+
+  @IsOptional()
+  @IsString()
+  profileStatus?: string;
 }
 
 class UpdateClientDto {
@@ -89,6 +107,33 @@ class UpdateClientDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  profileType?: string;
+
+  @IsOptional()
+  @IsString()
+  sectorTag?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  submissionTracks?: string[];
+
+  @IsOptional()
+  @IsString()
+  profileStatus?: string;
+}
+
+class ListClientsQueryDto {
+  @IsOptional()
+  @IsString()
+  profileStatus?: string;
+
+  @IsOptional()
+  @IsString()
+  sectorTag?: string;
 }
 
 class ClientLogoUploadUrlDto {
@@ -126,8 +171,8 @@ export class ClientsController {
   constructor(private readonly service: ClientsService) {}
 
   @Get()
-  list(@CurrentTenant() ctx: TenantContext) {
-    return this.service.list(ctx);
+  list(@CurrentTenant() ctx: TenantContext, @Query() query: ListClientsQueryDto) {
+    return this.service.list(ctx, { profileStatus: query.profileStatus, sectorTag: query.sectorTag });
   }
 
   @Get(':id')

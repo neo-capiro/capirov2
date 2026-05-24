@@ -12,6 +12,7 @@ import { BillingPage } from './pages/admin/BillingPage.js';
 import { CapiroAdminPage } from './pages/capiro-admin/CapiroAdminPage.js';
 import { ClientWorkspacePage } from './pages/clients/ClientWorkspacePage.js';
 import { DirectoryPage } from './pages/directory/DirectoryPage.js';
+import { HomePage } from './pages/HomePage.js';
 import { EngagementPage } from './pages/engagement/EngagementPage.js';
 import { IntegrationsPage } from './pages/settings/IntegrationsPage.js';
 import { WorkspaceLayout } from './pages/workspace/WorkspaceLayout.js';
@@ -21,6 +22,9 @@ import { StrategiesList } from './pages/workspace/StrategiesList.js';
 import { StrategyWizard } from './pages/workspace/StrategyWizard.js';
 import { StrategyDashboard } from './pages/workspace/StrategyDashboard.js';
 import { IntelligenceCenterPage } from './pages/intelligence/IntelligenceCenterPage.js';
+import { ChangesInboxPage } from './pages/intelligence/ChangesInboxPage.js';
+import { IntelligenceMappingsPage } from './pages/settings/IntelligenceMappingsPage.js';
+import { IssueLeaderboardPage } from './pages/intelligence/IssueLeaderboardPage.js';
 
 export function App() {
   return (
@@ -39,7 +43,7 @@ export function App() {
           </>
         }
       >
-        <Route path="/" element={<Navigate to="/clients" replace />} />
+        <Route path="/" element={<HomePage />} />
         <Route path="/clients" element={<ClientWorkspacePage />} />
         <Route path="/engagement" element={<EngagementPage />} />
         <Route path="/workspace" element={<WorkspaceLayout />}>
@@ -51,6 +55,10 @@ export function App() {
           <Route path="strategy/:id" element={<StrategyDashboard />} />
         </Route>
         <Route path="/intelligence" element={<IntelligenceCenterPage />} />
+        <Route path="/intelligence/changes" element={<ChangesInboxPage />} />
+        <Route path="/intelligence/issues/:code" element={<IssueLeaderboardPage />} />
+        <Route path="/intelligence/client/:clientId" element={<Navigate to="/clients" replace />} />
+        <Route path="/intelligence/client/:clientId/graph" element={<Navigate to="/clients" replace />} />
         <Route path="/intelligence/*" element={<Navigate to="/intelligence" replace />} />
         <Route path="/directory" element={<DirectoryPage />} />
         <Route path="/portal/*" element={<Navigate to="/clients" replace />} />
@@ -67,6 +75,7 @@ export function App() {
           <Route path="clients" element={<ClientsPage />} />
           <Route path="integrations" element={<IntegrationsPage />} />
           <Route path="billing" element={<BillingPage />} />
+          <Route path="intelligence-mappings" element={<IntelligenceMappingsPage />} />
           <Route path="tenants" element={<CapiroAdminPage />} />
         </Route>
 

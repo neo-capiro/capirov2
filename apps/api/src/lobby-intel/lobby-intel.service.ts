@@ -372,14 +372,14 @@ export class LobbyIntelService {
         years: number[];
         trajectory: string | null;
         growth_rate: number | null;
-        yearly_spend_jsonb: unknown;
+        yearly_spend: unknown;
         sim: number;
       }>
     >`
       SELECT id, slug, name, state, total_spending, filings, issues, years,
-             trajectory, growth_rate, yearly_spend_jsonb,
+             trajectory, growth_rate, yearly_spend,
              similarity(name, ${name}) AS sim
-      FROM lobby_intel
+      FROM lobby_intel_mv
       WHERE name % ${name}
       ORDER BY sim DESC
       LIMIT 1
@@ -398,8 +398,8 @@ export class LobbyIntelService {
       years: r.years ?? [],
       trajectory: r.trajectory,
       growthRate: r.growth_rate,
-      yearlySpend: Array.isArray(r.yearly_spend_jsonb)
-        ? (r.yearly_spend_jsonb as { year: number; amount: number }[])
+      yearlySpend: Array.isArray(r.yearly_spend)
+        ? (r.yearly_spend as { year: number; amount: number }[])
         : [],
     };
   }

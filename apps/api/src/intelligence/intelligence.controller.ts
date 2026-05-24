@@ -8,7 +8,7 @@ import {
   Body,
   UseGuards,
 } from '@nestjs/common';
-import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
@@ -17,6 +17,7 @@ import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { IntelligenceService } from './intelligence.service.js';
 import { InsightGeneratorService } from './insight-generator.service.js';
 import { EntityResolutionService } from './entity-resolution.service.js';
+import { ReportCardService } from './report-card.service.js';
 
 class ChangesQueryDto {
   @IsOptional()
@@ -68,6 +69,18 @@ class InsightsQueryDto {
   limit?: number;
 }
 
+class ReportCardQueryDto {
+  @IsOptional()
+  @IsIn(['quarter', 'year'])
+  period?: 'quarter' | 'year';
+}
+
+class OutreachContextQueryDto {
+  @IsOptional()
+  @IsString()
+  recipientOffice?: string;
+}
+
 @Controller('intelligence')
 @UseGuards(RolesGuard)
 @Roles('standard_user')
@@ -75,6 +88,8 @@ export class IntelligenceController {
   constructor(
     private readonly service: IntelligenceService,
     private readonly insights: InsightGeneratorService,
+    private readonly entityResolution: EntityResolutionService,
+    private readonly reportCard: ReportCardService,
   ) {}
 
   @Get('client-profile/:clientId')
@@ -85,9 +100,78 @@ export class IntelligenceController {
     return this.service.getClientProfile(clientId, ctx.tenantId);
   }
 
+  @Post('resolve-all')
+  resolveAll(@CurrentTenant() ctx: TenantContext) {
+    return this.entityResolution.resolveAllForTenant(ctx.tenantId);
+  }
+
+  @Get('changes/unread-count')
+  getUnreadChangesCount() {
+    return this.service.getUnreadChangesCount();
+  }
+
+  @Patch('changes/:id')
+  markChangeConsumed(
+    @Param('id') id: string,
+    @Body() body: { consumed: boolean },
+  ) {
+    return this.service.markChangeConsumed(id, body.consumed);
+  }
+
   @Get('changes')
   getChanges(@Query() q: ChangesQueryDto) {
     return this.service.getChanges(q.since, q.clientId, q.source);
+  }
+
+  @Get('clients/:clientId/lobbying-roi')
+  getLobbyingRoi(@Param('clientId') clientId: string) {
+    return this.service.getLobbyingRoi(clientId);
+  }
+
+  @Get('clients/:clientId/competitor-board')
+  getCompetitorBoard(@Param('clientId') clientId: string) {
+    return this.service.getCompetitorBoard(clientId);
+  }
+
+  @Get('clients/:clientId/ex-staffers')
+  getExStaffers(@Param('clientId') clientId: string) {
+    return this.service.getExStaffers(clientId);
+  }
+
+  @Get('clients/:clientId/bills')
+  getClientBills(@Param('clientId') clientId: string) {
+    return this.service.getClientBills(clientId);
+  }
+
+  @Get('clients/:clientId/tracked-bills')
+  getTrackedBills(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getTrackedBills(clientId, ctx.tenantId);
+  }
+
+  @Get('clients/:clientId/health-score')
+  getHealthScore(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.computeEngagementHealth(clientId, ctx.tenantId);
+  }
+
+  @Get('issues/:code/leaderboard')
+  getIssueLeaderboard(@Param('code') code: string) {
+    return this.service.getIssueLeaderboard(code);
+  }
+
+  @Get('comment-alerts')
+  getCommentAlerts(@CurrentTenant() ctx: TenantContext) {
+    return this.service.getCommentPeriodAlerts(ctx.tenantId);
+  }
+
+  @Get('mappings')
+  getAllMappings(@CurrentTenant() ctx: TenantContext) {
+    return this.service.getAllMappingsForTenant(ctx.tenantId);
   }
 
   @Get('mappings/:clientId')
@@ -109,6 +193,47 @@ export class IntelligenceController {
     @Body() body: ConfirmMappingDto,
   ) {
     return this.service.confirmMapping(mappingId, body.confirmed);
+  }
+
+  // ── Feature 4.1: Report Card ───────────────────────────────────────────
+
+  @Get('clients/:clientId/report-card')
+  getReportCard(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Query() q: ReportCardQueryDto,
+  ) {
+    return this.reportCard.generateReportCard(clientId, ctx.tenantId, q.period ?? 'quarter');
+  }
+
+  @Get('clients/:clientId/report-card/export')
+  exportReportCard(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Query() q: ReportCardQueryDto,
+  ) {
+    return this.reportCard.generateReportCard(clientId, ctx.tenantId, q.period ?? 'quarter');
+  }
+
+  // ── Feature 4.2: Knowledge Graph ───────────────────────────────────────
+
+  @Get('clients/:clientId/knowledge-graph')
+  getKnowledgeGraph(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getKnowledgeGraph(clientId, ctx.tenantId);
+  }
+
+  // ── Feature 4.3: Outreach Context ──────────────────────────────────────
+
+  @Get('clients/:clientId/outreach-context')
+  getOutreachContext(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Query() q: OutreachContextQueryDto,
+  ) {
+    return this.service.getOutreachContext(clientId, ctx.tenantId, q.recipientOffice);
   }
 
   // ── AI Insight Pipeline (Phase 4) ──────────────────────────────────────
@@ -139,5 +264,31 @@ export class IntelligenceController {
     @Param('clientId') clientId: string,
   ) {
     return this.insights.generateClientBriefing(clientId, ctx.tenantId);
+  }
+
+  // ─── Phase 2 cross-references ─────────────────────────────────────────
+
+  @Get('clients/:clientId/district-nexus')
+  getDistrictNexus(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getDistrictNexus(clientId, ctx.tenantId);
+  }
+
+  @Get('clients/:clientId/bill-regulation-links')
+  getBillRegulationLinks(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getBillRegulationLinks(clientId, ctx.tenantId);
+  }
+
+  @Get('clients/:clientId/bill-research')
+  getBillResearchAttachments(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getBillResearchAttachments(clientId, ctx.tenantId);
   }
 }

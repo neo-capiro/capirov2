@@ -8,7 +8,6 @@ import { useImpersonation } from '../../state/impersonation.js';
 import {
   appendChatMessage,
   clearChatSession,
-  dismissAlert,
   getActiveDraft,
   setAlerts,
   setActiveConversation,
@@ -68,7 +67,7 @@ interface ChatDrawerProps {
 }
 
 export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
-  const { isOpen, messages, sessionId, isStreaming, alertsBadge, alerts } = useChatStore();
+  const { isOpen, messages, sessionId, isStreaming, alertsBadge } = useChatStore();
   const { getToken } = useAuth();
   const { actAsTenantSlug } = useImpersonation();
   const { selectedClientId } = useClientFilter();
@@ -339,23 +338,6 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         <SessionRail />
 
         <div className="chat-messages" role="log" aria-live="polite" aria-label="Conversation">
-          {alerts.length > 0 && alerts.some(a => a.status === 'pending') && (
-            <div className="clio-alerts">
-              {alerts.filter(a => a.status === 'pending').slice(0, 3).map((alert) => (
-                <div key={alert.id} className={`clio-alert clio-alert--${alert.priority}`}>
-                  <div className="clio-alert-title">{alert.title}</div>
-                  <div className="clio-alert-body">{alert.body}</div>
-                  <button
-                    type="button"
-                    className="clio-alert-dismiss"
-                    onClick={() => dismissAlert(alert.id)}
-                  >
-                    Dismiss
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
           {messages.length === 0 && !isStreaming && (
             <div className="chat-empty">
               <div className="chat-empty-icon" aria-hidden="true">✦</div>

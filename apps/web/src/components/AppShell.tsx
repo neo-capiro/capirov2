@@ -96,7 +96,6 @@ const NAV: NavItem[] = [
     label: 'Dashboard',
     path: '/',
     icon: <DashboardOutlined />,
-    disabled: true,
   },
   {
     key: 'engagement',
@@ -190,6 +189,18 @@ export function AppShell() {
     enabled: Boolean(me.data),
     staleTime: 240_000,
     refetchInterval: 240_000,
+  });
+
+  const changesUnread = useQuery<number>({
+    queryKey: ['intel-changes-unread'],
+    queryFn: async () => {
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const res = await api.get<Array<{ id: string; consumed?: boolean }>>('/api/intelligence/changes', { params: { since } });
+      return res.data.filter((c) => !c.consumed).length;
+    },
+    enabled: Boolean(me.data),
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
   });
 
   const visibleClients = useMemo(
@@ -759,7 +770,6 @@ function pageConfigFor(pathname: string): PageConfig {
     'not-found': 'Not found',
   };
   const showClientDropdown =
-    key === 'home' ||
     key === 'engagement' ||
     pathname.startsWith('/workspace/catalog') ||
     pathname.startsWith('/workspace/kanban');

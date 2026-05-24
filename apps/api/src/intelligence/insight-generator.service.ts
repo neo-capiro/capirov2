@@ -110,22 +110,50 @@ const INSIGHTS_SCHEMA = {
   },
 };
 
-const BRIEFING_SCHEMA = {
+const DAILY_BRIEFING_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['briefing', 'keyFindings'],
+  required: ['heroSummary', 'whatsNew', 'whatsComing', 'suggestedActions'],
   properties: {
-    briefing: { type: 'string' },
-    keyFindings: {
+    heroSummary: { type: 'string' },
+    whatsNew: {
       type: 'array',
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['source', 'metric', 'value'],
+        required: ['title', 'source', 'detail', 'citation'],
         properties: {
+          title: { type: 'string' },
           source: { type: 'string' },
-          metric: { type: 'string' },
-          value: { type: 'string' },
+          detail: { type: 'string' },
+          citation: { type: 'string' },
+        },
+      },
+    },
+    whatsComing: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'date', 'type', 'action'],
+        properties: {
+          title: { type: 'string' },
+          date: { type: 'string' },
+          type: { type: 'string' },
+          action: { type: 'string' },
+        },
+      },
+    },
+    suggestedActions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['action', 'rationale', 'urgency'],
+        properties: {
+          action: { type: 'string' },
+          rationale: { type: 'string' },
+          urgency: { type: 'string', enum: ['high', 'medium', 'low'] },
         },
       },
     },
@@ -210,7 +238,7 @@ export class InsightGeneratorService {
     return { insights: saved, provider: result.provider, model: result.model };
   }
 
-  /** Generate a detailed executive briefing for a specific CRM client */
+  /** Generate a structured daily intelligence briefing for a specific CRM client */
   async generateClientBriefing(clientId: string, tenantId: string) {
     const client = await this.prisma.withTenant(tenantId, (tx) =>
       tx.client.findFirst({
@@ -220,21 +248,58 @@ export class InsightGeneratorService {
     );
     if (!client) throw new NotFoundException('Client not found');
 
-    // Gather context
-    const [lobbyCtx, spendCtx] = await Promise.all([
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const fourteenDaysOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+    // Resolve LDA issue codes via confirmed mapping
+    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
+      where: { clientId, source: 'lda', confirmed: true },
+    });
+    let issueCodes: string[] = [];
+    if (ldaMapping) {
+      const codeRows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`
+        SELECT COALESCE(issue_codes, '{}') AS issue_codes
+        FROM lda_client WHERE id = ${Number(ldaMapping.externalId)}
+      `;
+      issueCodes = codeRows[0]?.issue_codes ?? [];
+    }
+
+    // Build OR conditions avoiding conditional spreads inside Prisma calls
+    const changeOrConditions: Record<string, unknown>[] = [{ relatedClientIds: { has: clientId } }];
+    if (issueCodes.length) changeOrConditions.push({ relatedIssues: { hasSome: issueCodes } });
+    const changeWhere: Record<string, unknown> = { detectedAt: { gte: yesterday }, OR: changeOrConditions };
+
+    // Gather all context in parallel
+    const [lobbyCtx, spendCtx, ldaMatch, recentChanges, upcomingHearings, commentDeadlines] = await Promise.all([
       this.lobbyIntel.getAiContext().catch(() => null),
       this.federalSpending.getAiContext(client.name).catch(() => null),
+      this.prisma.$queryRaw<Array<{ name: string; total_filings: number; total_spending: number | null; issue_codes: string[]; similarity: number }>>`
+        SELECT name, total_filings, total_spending, COALESCE(issue_codes, '{}') as issue_codes,
+               similarity(name, ${client.name}) as similarity
+        FROM lda_client WHERE similarity(name, ${client.name}) > 0.3
+        ORDER BY similarity DESC LIMIT 1
+      `.catch(() => []),
+      this.prisma.intelligenceChange.findMany({
+        where: changeWhere,
+        orderBy: { detectedAt: 'desc' },
+        take: 20,
+      }),
+      this.prisma.committeeHearing.findMany({
+        where: { date: { gte: now, lte: fourteenDaysOut } },
+        orderBy: { date: 'asc' },
+        take: 10,
+      }),
+      this.prisma.federalRegisterDocument.findMany({
+        where: {
+          type: { in: ['PROPOSED_RULE', 'RULE'] },
+          commentEndDate: { gt: now, lte: fourteenDaysOut },
+        },
+        orderBy: { commentEndDate: 'asc' },
+        take: 10,
+        select: { title: true, type: true, commentEndDate: true, agencyNames: true, topics: true },
+      }),
     ]);
-
-    // Fuzzy match against LDA
-    const ldaMatch = await this.prisma.$queryRaw<
-      Array<{ name: string; total_filings: number; total_spending: number | null; issue_codes: string[]; similarity: number }>
-    >`
-      SELECT name, total_filings, total_spending, COALESCE(issue_codes, '{}') as issue_codes,
-             similarity(name, ${client.name}) as similarity
-      FROM lda_client WHERE similarity(name, ${client.name}) > 0.3
-      ORDER BY similarity DESC LIMIT 1
-    `.catch(() => []);
 
     const contextParts: string[] = [];
     contextParts.push(`CLIENT: ${client.name}`);
@@ -246,50 +311,71 @@ export class InsightGeneratorService {
     if (ldaMatch.length) {
       const m = ldaMatch[0]!;
       contextParts.push(`LDA MATCH: ${m.name} (${Math.round(m.similarity * 100)}% confidence)`);
-      contextParts.push(`  Total filings: ${m.total_filings}, Total spending: ${m.total_spending ? `$${(m.total_spending / 1e6).toFixed(1)}M` : 'unknown'}`);
+      contextParts.push(`  Total filings: ${m.total_filings}, Spending: ${m.total_spending ? `$${(m.total_spending / 1e6).toFixed(1)}M` : 'unknown'}`);
       if (m.issue_codes.length) contextParts.push(`  Active issue areas: ${m.issue_codes.join(', ')}`);
     }
 
     if (spendCtx?.matchedContractor) {
       const mc = spendCtx.matchedContractor;
-      contextParts.push(`FEDERAL CONTRACTOR MATCH: ${mc.name}`);
-      contextParts.push(`  Total contracts: ${mc.totalContracts ? `$${(mc.totalContracts / 1e9).toFixed(1)}B` : 'unknown'}, Rank: #${mc.rankByContracts ?? 'unknown'}`);
+      contextParts.push(`CONTRACTOR: ${mc.name}, Contracts: ${mc.totalContracts ? `$${(mc.totalContracts / 1e9).toFixed(1)}B` : 'unknown'}, Rank: #${mc.rankByContracts ?? 'unknown'}`);
       if (mc.topAgencies?.length) {
-        contextParts.push(`  Top agencies: ${mc.topAgencies.slice(0, 5).map((a) => a.name).join(', ')}`);
+        contextParts.push(`  Top agencies: ${mc.topAgencies.slice(0, 5).map((a: { name: string }) => a.name).join(', ')}`);
       }
     }
 
-    if (lobbyCtx) {
-      const relevantSurges = lobbyCtx.surgingIssues.slice(0, 5)
+    if (lobbyCtx?.surgingIssues.length) {
+      const surges = lobbyCtx.surgingIssues.slice(0, 5)
         .map((s) => `${s.code} (${s.name}): +${Math.round(s.surgePct ?? 0)}%`)
         .join('; ');
-      if (relevantSurges) contextParts.push(`MARKET CONTEXT — SURGING ISSUES: ${relevantSurges}`);
+      contextParts.push(`MARKET SURGES: ${surges}`);
     }
 
-    // Get recent regulations with open comment periods
-    const openRegs = await this.prisma.federalRegisterDocument.findMany({
-      where: { commentEndDate: { gt: new Date() } },
-      orderBy: { commentEndDate: 'asc' },
-      take: 5,
-      select: { title: true, type: true, commentEndDate: true, agencyNames: true },
-    });
-    if (openRegs.length) {
-      const regList = openRegs.map((r) => {
-        const daysLeft = Math.ceil((r.commentEndDate!.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-        return `${r.title} (${r.type}, ${daysLeft}d left, ${(r.agencyNames as string[]).join('/')})`;
+    // Section: What's New (24h)
+    if (recentChanges.length) {
+      const changeList = recentChanges
+        .map((c) => `[${c.source}/${c.changeType}] ${c.title}: ${c.description}`)
+        .join('\n  ');
+      contextParts.push(`WHAT'S NEW (last 24h):\n  ${changeList}`);
+    } else {
+      contextParts.push(`WHAT'S NEW (last 24h): No significant changes detected`);
+    }
+
+    // Section: What's Coming (14 days)
+    if (upcomingHearings.length) {
+      const hearingList = upcomingHearings.map((h) => {
+        const daysOut = Math.ceil((new Date(h.date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        return `${h.committeeName} — "${h.title.slice(0, 80)}" (in ${daysOut}d, ${h.chamber})`;
       }).join('\n  ');
-      contextParts.push(`OPEN COMMENT PERIODS:\n  ${regList}`);
+      contextParts.push(`UPCOMING HEARINGS (14d):\n  ${hearingList}`);
     }
 
-    const prompt = `Write a 3-5 paragraph executive intelligence briefing for the following government affairs client. Cover: (1) their lobbying landscape and spending trends, (2) regulatory exposure and upcoming deadlines, (3) competitive dynamics in their issue areas, and (4) recommended next steps. Be specific and actionable — this is for a senior lobbyist, not a general audience.\n\n${contextParts.join('\n')}`;
+    if (commentDeadlines.length) {
+      const deadlineList = commentDeadlines.map((r) => {
+        const daysLeft = Math.ceil((r.commentEndDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        return `"${r.title.slice(0, 70)}" (${r.type}, ${daysLeft}d left, ${(r.agencyNames as string[]).join('/')})`;
+      }).join('\n  ');
+      contextParts.push(`COMMENT DEADLINES (14d):\n  ${deadlineList}`);
+    }
 
-    const result = await this.callAi(prompt, BRIEFING_SCHEMA, 'briefing');
+    const prompt = `You are a senior federal government affairs analyst. Generate a structured daily intelligence briefing for the client below.
+
+${contextParts.join('\n')}
+
+Structure your response as:
+- heroSummary: 2-3 sentence executive summary of the most critical developments
+- whatsNew: Items from WHAT'S NEW section above (leave empty array if no changes)
+- whatsComing: Upcoming hearings and comment deadlines from the UPCOMING sections above
+- suggestedActions: 2-4 concrete recommended actions with urgency ratings (high/medium/low)`;
+
+    const result = await this.callAi(prompt, DAILY_BRIEFING_SCHEMA, 'daily_briefing');
     const parsed = parseJsonObject(result.text);
 
     return {
-      briefing: typeof parsed.briefing === 'string' ? parsed.briefing : '',
+      heroSummary: typeof parsed.heroSummary === 'string' ? parsed.heroSummary : '',
+      whatsNew: Array.isArray(parsed.whatsNew) ? parsed.whatsNew : [],
+      whatsComing: Array.isArray(parsed.whatsComing) ? parsed.whatsComing : [],
+      suggestedActions: Array.isArray(parsed.suggestedActions) ? parsed.suggestedActions : [],
       generatedAt: new Date().toISOString(),
-      dataPoints: Array.isArray(parsed.keyFindings) ? parsed.keyFindings : [],
       provider: result.provider,
       model: result.model,
     };
@@ -340,6 +426,48 @@ export class InsightGeneratorService {
       orderBy: { generatedAt: 'desc' },
       take: Math.min(limit, 50),
     });
+  }
+
+  // ── Public free-text generation (no JSON schema) ──────────────────────
+
+  async generateFreeText(prompt: string): Promise<string> {
+    const result = await this.withProviderFallback('Free text generation', async (provider) => {
+      if (provider === 'openai') {
+        return this.callOpenAiFreeText(prompt);
+      } else {
+        return this.callAnthropicFreeText(prompt);
+      }
+    });
+    return result.text;
+  }
+
+  private async callOpenAiFreeText(prompt: string) {
+    if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY not configured');
+    const res = await fetchWithTimeout('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.openaiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: this.openaiModel, instructions: SYSTEM_PROMPT, input: prompt }),
+    });
+    const json = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) throw new ServiceUnavailableException(`OpenAI failed: ${JSON.stringify(json).slice(0, 200)}`);
+    return { text: extractOpenAiText(json), provider: 'openai' as const, model: this.openaiModel };
+  }
+
+  private async callAnthropicFreeText(prompt: string) {
+    if (!this.anthropicKey) throw new ServiceUnavailableException('ANTHROPIC_API_KEY not configured');
+    const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': this.anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: this.anthropicModel,
+        max_tokens: 2000,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const json = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) throw new ServiceUnavailableException(`Anthropic failed: ${JSON.stringify(json).slice(0, 200)}`);
+    return { text: extractAnthropicText(json), provider: 'anthropic' as const, model: this.anthropicModel };
   }
 
   // ── AI provider abstraction ────────────────────────────────────────────

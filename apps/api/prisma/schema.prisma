@@ -129,6 +129,9 @@ model Tenant {
   logoS3Key       String?      @map("logo_s3_key")
   logoContentType String?      @map("logo_content_type")
   logoUploadedAt  DateTime?    @map("logo_uploaded_at") @db.Timestamptz(6)
+  // Portfolio Tab v2 additions
+  accountType     String?      @map("account_type")
+  planTier        String       @default("FOUNDATION") @map("plan_tier")
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -252,6 +255,11 @@ model Client {
   logoUploadedAt      DateTime? @map("logo_uploaded_at") @db.Timestamptz(6)
   intakeData          Json      @default("{}") @map("intake_data_jsonb")
   status              String    @default("active")
+  // Portfolio Tab v2 additions
+  sectorTag           String?   @map("sector_tag")
+  profileType         String?   @default("CLIENT") @map("profile_type")
+  profileStatus       String    @default("ACTIVE") @map("profile_status")
+  submissionTracks    String[]  @default([]) @map("submission_tracks")
   createdByUserId     String?   @map("created_by_user_id") @db.Uuid
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -2070,4 +2078,24 @@ model CommitteeHearing {
   @@index([date])
   @@index([committeeName, date])
   @@map("committee_hearing")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SyncRun — observability for sync scripts
+// GLOBAL table — no tenant_id, no RLS. One row per sync execution.
+// ─────────────────────────────────────────────────────────────────────────
+
+model SyncRun {
+  id           String    @id @default(uuid()) @db.Uuid
+  source       String
+  startedAt    DateTime  @map("started_at") @db.Timestamptz(6)
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz(6)
+  rowsInserted Int       @default(0) @map("rows_inserted")
+  rowsUpdated  Int       @default(0) @map("rows_updated")
+  errorCount   Int       @default(0) @map("error_count")
+  status       String    @default("running")
+  errorMessage String?   @map("error_message")
+
+  @@index([source, startedAt(sort: Desc)], map: "sync_run_source_started_at_idx")
+  @@map("sync_run")
 }

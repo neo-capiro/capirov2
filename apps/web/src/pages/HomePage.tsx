@@ -1,185 +1,158 @@
 import {
-  CalendarOutlined,
-  CheckCircleOutlined,
-  MailOutlined,
+  BellOutlined,
   TeamOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import type { ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Empty, List, Spin, Typography } from 'antd';
+import { Alert, Badge, Card, Empty, List, Spin, Tag, Typography } from 'antd';
+import { Link } from 'react-router-dom';
 import { useApi } from '../lib/use-api.js';
-import { useClientFilter } from '../state/client-filter.js';
 import type { Client } from './clients/clientTypes.js';
+import type { CommentAlert, IntelligenceChange } from './intelligence/types.js';
 
-interface CommandMeeting {
-  id: string;
-  subject: string;
-  startsAt: string;
-  endsAt: string;
-  location: string | null;
-  client: Pick<Client, 'id' | 'name'> | null;
-}
-
-interface CommandTask {
-  id: string;
-  title: string;
-  dueDate: string | null;
-  status: string;
-  client: Pick<Client, 'id' | 'name'> | null;
-}
-
-interface CommandMailThread {
-  id: string;
-  subject: string;
-  lastMessageAt: string | null;
-  status: string;
-  client: Pick<Client, 'id' | 'name'> | null;
-}
+const SEVERITY_COLOR: Record<string, string> = {
+  info: 'blue',
+  notable: 'gold',
+  critical: 'red',
+};
 
 export function HomePage() {
   const api = useApi();
-  const { selectedClientId } = useClientFilter();
-  const today = dateWindow(todayInputValue());
 
   const clients = useQuery<Client[]>({
     queryKey: ['clients'],
     queryFn: async () => (await api.get<Client[]>('/api/clients')).data,
+    staleTime: 60_000,
   });
 
-  const meetings = useQuery<CommandMeeting[]>({
-    queryKey: ['command-meetings', selectedClientId, today.from, today.to],
-    queryFn: async () =>
-      (
-        await api.get<CommandMeeting[]>('/api/engagement/meetings', {
-          params: { clientId: selectedClientId ?? undefined, from: today.from, to: today.to },
-        })
-      ).data,
+  const intelChanges = useQuery<IntelligenceChange[]>({
+    queryKey: ['intel-changes-recent'],
+    queryFn: async () => {
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      return (
+        await api.get<IntelligenceChange[]>('/api/intelligence/changes', { params: { since } })
+      ).data;
+    },
+    staleTime: 2 * 60 * 1000,
   });
 
-  const tasks = useQuery<CommandTask[]>({
-    queryKey: ['command-tasks', selectedClientId],
-    queryFn: async () =>
-      (
-        await api.get<CommandTask[]>('/api/engagement/tasks', {
-          params: { clientId: selectedClientId ?? undefined },
-        })
-      ).data,
+  const commentAlerts = useQuery<{ alerts: CommentAlert[] }>({
+    queryKey: ['comment-alerts'],
+    queryFn: async () => {
+      try {
+        return (await api.get<{ alerts: CommentAlert[] }>('/api/intelligence/comment-alerts')).data;
+      } catch {
+        return { alerts: [] };
+      }
+    },
+    staleTime: 5 * 60 * 1000,
   });
 
-  const mailThreads = useQuery<CommandMailThread[]>({
-    queryKey: ['command-mail-threads', selectedClientId],
-    queryFn: async () =>
-      (
-        await api.get<CommandMailThread[]>('/api/engagement/mail-threads', {
-          params: { clientId: selectedClientId ?? undefined },
-        })
-      ).data,
-  });
-
-  const selectedClient = (clients.data ?? []).find((client) => client.id === selectedClientId);
-  const activeClients = (clients.data ?? []).filter((client) => client.status !== 'archived');
-  const openTasks = (tasks.data ?? []).filter((task) => task.status !== 'done');
+  const activeClients = (clients.data ?? []).filter((c) => c.status !== 'archived');
+  const changes = intelChanges.data ?? [];
+  const unreadCount = changes.filter((c) => !c.consumed).length;
+  const alertList = commentAlerts.data?.alerts ?? [];
 
   return (
     <section className="command-page">
       <div className="command-summary-grid">
         <CommandMetricCard
-          icon={<CalendarOutlined />}
-          label="Meetings Today"
-          value={meetings.data?.length ?? 0}
-          loading={meetings.isLoading}
+          icon={<BellOutlined />}
+          label="Intelligence Updates"
+          value={unreadCount}
+          loading={intelChanges.isLoading}
         />
         <CommandMetricCard
-          icon={<CheckCircleOutlined />}
-          label="Open Follow-ups"
-          value={openTasks.length}
-          loading={tasks.isLoading}
-        />
-        <CommandMetricCard
-          icon={<MailOutlined />}
-          label="Relevant Mail Threads"
-          value={mailThreads.data?.length ?? 0}
-          loading={mailThreads.isLoading}
+          icon={<WarningOutlined />}
+          label="Comment Alerts"
+          value={alertList.length}
+          loading={commentAlerts.isLoading}
         />
         <CommandMetricCard
           icon={<TeamOutlined />}
-          label={selectedClient ? 'Selected Client' : 'Active Clients'}
-          value={selectedClient ? 1 : activeClients.length}
+          label="Active Clients"
+          value={activeClients.length}
           loading={clients.isLoading}
         />
       </div>
 
-      <div className="command-work-grid">
-        <Card title="Today's Meetings">
-          {meetings.isLoading ? (
-            <Spin />
-          ) : meetings.data?.length ? (
-            <List
-              dataSource={meetings.data.slice(0, 6)}
-              renderItem={(meeting) => (
-                <List.Item>
-                  <List.Item.Meta
-                    title={meeting.subject}
-                    description={[
-                      formatTimeRange(meeting.startsAt, meeting.endsAt),
-                      meeting.client?.name,
-                      meeting.location,
-                    ]
-                      .filter(Boolean)
-                      .join(' | ')}
-                  />
-                </List.Item>
-              )}
-            />
-          ) : (
-            <Empty description="No client-matched meetings today." />
-          )}
-        </Card>
+      <Card
+        title={
+          <span>
+            Intelligence Updates{' '}
+            <Badge count={unreadCount} overflowCount={99} style={{ marginLeft: 4 }} />
+          </span>
+        }
+        extra={<Link to="/intelligence/changes">View All →</Link>}
+        style={{ marginBottom: 24 }}
+      >
+        {intelChanges.isLoading ? (
+          <Spin />
+        ) : changes.length ? (
+          <List
+            size="small"
+            dataSource={changes}
+            pagination={{ pageSize: 25, showSizeChanger: false }}
+            renderItem={(change) => (
+              <List.Item style={{ padding: '8px 0', gap: 8, flexWrap: 'nowrap' }}>
+                <Tag
+                  color={SEVERITY_COLOR[change.severity] ?? 'default'}
+                  style={{ textTransform: 'capitalize', flexShrink: 0, fontSize: 11 }}
+                >
+                  {change.severity}
+                </Tag>
+                <Typography.Text
+                  style={{ flex: 1, fontSize: 13, minWidth: 0 }}
+                  ellipsis={{ tooltip: change.title }}
+                >
+                  {change.title}
+                </Typography.Text>
+                <Typography.Text type="secondary" style={{ fontSize: 11, flexShrink: 0 }}>
+                  {relativeTime(change.detectedAt)}
+                </Typography.Text>
+              </List.Item>
+            )}
+          />
+        ) : (
+          <Empty
+            description="No intelligence changes detected yet. Data will appear after the next sync cycle."
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+          />
+        )}
+      </Card>
 
-        <Card title="Suggested Actions">
-          {tasks.isLoading ? (
-            <Spin />
-          ) : openTasks.length ? (
-            <List
-              dataSource={openTasks.slice(0, 6)}
-              renderItem={(task) => (
-                <List.Item>
-                  <List.Item.Meta
-                    title={task.title}
-                    description={[task.client?.name, formatOptionalDate(task.dueDate)]
-                      .filter(Boolean)
-                      .join(' | ')}
-                  />
-                </List.Item>
-              )}
+      {alertList.length > 0 ? (
+        <Card title="Comment Period Alerts">
+          {alertList.map((alert) => (
+            <Alert
+              key={alert.documentId}
+              type={
+                alert.daysToDeadline < 3
+                  ? 'error'
+                  : alert.daysToDeadline <= 7
+                    ? 'warning'
+                    : 'info'
+              }
+              message={
+                <span style={{ fontSize: 12 }}>
+                  <strong>{alert.daysToDeadline}d left</strong>
+                  {' — '}
+                  {alert.title.length > 60 ? alert.title.slice(0, 60) + '…' : alert.title}
+                </span>
+              }
+              description={
+                <span style={{ fontSize: 11 }}>
+                  {alert.agencies.slice(0, 2).join(' / ')}
+                  {alert.agencies.length > 2 ? ` +${alert.agencies.length - 2}` : ''}
+                </span>
+              }
+              showIcon
+              style={{ marginBottom: 8 }}
             />
-          ) : (
-            <Empty description="No open follow-ups." />
-          )}
+          ))}
         </Card>
-
-        <Card className="command-wide-card" title="Relevant Mail">
-          {mailThreads.isLoading ? (
-            <Spin />
-          ) : mailThreads.data?.length ? (
-            <List
-              dataSource={mailThreads.data.slice(0, 6)}
-              renderItem={(thread) => (
-                <List.Item>
-                  <List.Item.Meta
-                    title={thread.subject}
-                    description={[thread.client?.name, formatOptionalDate(thread.lastMessageAt)]
-                      .filter(Boolean)
-                      .join(' | ')}
-                  />
-                </List.Item>
-              )}
-            />
-          ) : (
-            <Empty description="No relevant mail threads yet." />
-          )}
-        </Card>
-      </div>
+      ) : null}
     </section>
   );
 }
@@ -204,34 +177,13 @@ function CommandMetricCard({
   );
 }
 
-function todayInputValue(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${now.getFullYear()}-${month}-${day}`;
-}
-
-function dateWindow(date: string) {
-  const [year, month, day] = date.split('-').map(Number);
-  const from = new Date(year ?? new Date().getFullYear(), (month ?? 1) - 1, day ?? 1);
-  const to = new Date(from);
-  to.setDate(to.getDate() + 1);
-  return { from: from.toISOString(), to: to.toISOString() };
-}
-
-function formatTimeRange(from: string, to: string): string {
-  return `${formatTime(from)} - ${formatTime(to)}`;
-}
-
-function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(
-    new Date(value),
-  );
-}
-
-function formatOptionalDate(value: string | null): string {
-  if (!value) return '';
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(
-    new Date(value),
-  );
+function relativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const minutes = Math.floor(diff / 60_000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
 }

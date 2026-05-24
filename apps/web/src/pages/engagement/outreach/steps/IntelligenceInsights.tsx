@@ -1,6 +1,7 @@
-import { Badge, Button, Card, Col, Input, Row, Spin, Switch, Tag, Typography } from 'antd';
-import { BulbOutlined, DollarOutlined, FileTextOutlined, RiseOutlined } from '@ant-design/icons';
+import { Badge, Button, Card, Col, Collapse, Input, Row, Spin, Switch, Tag, Typography } from 'antd';
+import { BulbOutlined, DollarOutlined, FileTextOutlined, RiseOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { useApi } from '../../../../lib/use-api.js';
 
 interface InsightCard {
@@ -104,6 +105,8 @@ export function IntelligenceInsights({
   onChange,
 }: IntelligenceInsightsProps) {
   const api = useApi();
+  const [enrichContext, setEnrichContext] = useState<string | null>(null);
+  const [enrichOpen, setEnrichOpen] = useState(false);
 
   const insights = useQuery<InsightsData>({
     queryKey: ['outreach-wizard-insights', clientId],
@@ -113,6 +116,19 @@ export function IntelligenceInsights({
           params: clientId ? { clientId } : {},
         })
       ).data,
+  });
+
+  const enrichMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.get<{ context: string }>(
+        `/api/intelligence/clients/${clientId!}/outreach-context`,
+      );
+      return res.data.context;
+    },
+    onSuccess: (ctx) => {
+      setEnrichContext(ctx);
+      setEnrichOpen(true);
+    },
   });
 
   const talkingPoints = useMutation({
@@ -224,6 +240,55 @@ export function IntelligenceInsights({
             </div>
           );
         })
+      )}
+
+      {/* Enrich with Intelligence Context */}
+      {clientId && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <Typography.Text strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <ThunderboltOutlined style={{ color: '#f59e0b' }} />
+              Live Intelligence Context
+            </Typography.Text>
+            <Button
+              size="small"
+              icon={<ThunderboltOutlined />}
+              loading={enrichMutation.isPending}
+              onClick={() => void enrichMutation.mutateAsync()}
+            >
+              {enrichContext ? 'Refresh' : 'Enrich with Intelligence'}
+            </Button>
+          </div>
+          {enrichContext && (
+            <Collapse
+              activeKey={enrichOpen ? ['ctx'] : []}
+              onChange={(keys) => setEnrichOpen(Array.isArray(keys) ? keys.includes('ctx') : keys === 'ctx')}
+              items={[
+                {
+                  key: 'ctx',
+                  label: 'Current intelligence context (click to expand)',
+                  extra: (
+                    <Button
+                      size="small"
+                      type="link"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onChange({ insightsNotes: insightsNotes ? `${insightsNotes}\n\n${enrichContext}` : enrichContext });
+                      }}
+                    >
+                      Inject into notes →
+                    </Button>
+                  ),
+                  children: (
+                    <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: 0, color: '#374151' }}>
+                      {enrichContext}
+                    </pre>
+                  ),
+                },
+              ]}
+            />
+          )}
+        </div>
       )}
 
       <div style={{ marginTop: 8 }}>
