@@ -37,9 +37,16 @@ import { SessionRail } from './SessionRail.js';
 import './chat.css';
 
 type SseEvent =
-  | { type: 'start'; intent: string }
-  | { type: 'text'; text: string }
+  | { type: 'start'; intent: string; tier?: 'fast' | 'deep' }
+  | {
+      type: 'trace';
+      trace: Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>;
+      policy?: { tier?: 'fast' | 'deep' };
+    }
   | { type: 'sources'; sources: ClioSourceAttribution[] }
+  | { type: 'conflict'; conflict: { title: string; detail: string } }
+  | { type: 'template'; template: { heading: string; sections: string[] } }
+  | { type: 'text'; text: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
   | { type: 'draft_updated'; engagementId: string; recipientId?: string; subject: string; body: string }
@@ -93,6 +100,10 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const [sessionTitle, setSessionTitle] = useState('');
   const [sessionClientId, setSessionClientId] = useState('');
   const [sourceBadges, setSourceBadges] = useState<ClioSourceAttribution[]>([]);
+  const [orchestratorTrace, setOrchestratorTrace] = useState<Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>>([]);
+  const [orchestratorTier, setOrchestratorTier] = useState<'fast' | 'deep' | null>(null);
+  const [orchestratorConflict, setOrchestratorConflict] = useState<{ title: string; detail: string } | null>(null);
+  const [orchestratorTemplate, setOrchestratorTemplate] = useState<{ heading: string; sections: string[] } | null>(null);
   const [isSavingMeta, setIsSavingMeta] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
 
@@ -174,6 +185,10 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   useEffect(() => {
     if (!messages.length) {
       setSourceBadges([]);
+      setOrchestratorTrace([]);
+      setOrchestratorTier(null);
+      setOrchestratorConflict(null);
+      setOrchestratorTemplate(null);
     }
   }, [messages.length]);
 
@@ -264,6 +279,10 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     abortRef.current?.abort();
     clearChatSession();
     setSourceBadges([]);
+    setOrchestratorTrace([]);
+    setOrchestratorTier(null);
+    setOrchestratorConflict(null);
+    setOrchestratorTemplate(null);
     await doCreateSession();
   }, [doCreateSession]);
 
@@ -328,7 +347,16 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             continue;
           }
 
-          if (event.type === 'text') {
+          if (event.type === 'start') {
+            setOrchestratorTier(event.tier ?? null);
+          } else if (event.type === 'trace') {
+            setOrchestratorTrace(Array.isArray(event.trace) ? event.trace : []);
+            if (event.policy?.tier) setOrchestratorTier(event.policy.tier);
+          } else if (event.type === 'template') {
+            setOrchestratorTemplate(event.template);
+          } else if (event.type === 'conflict') {
+            setOrchestratorConflict(event.conflict);
+          } else if (event.type === 'text') {
             accumulated += event.text;
             updateChatMessage(assistantId, accumulated);
           } else if (event.type === 'sources') {
@@ -484,14 +512,49 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             </button>
           </div>
           {metaError && <div className="chat-session-error">{metaError}</div>}
+          {orchestratorTier && (
+            <div className="chat-tier-pill">Orchestrator: {orchestratorTier.toUpperCase()}</div>
+          )}
           {sourceBadges.length > 0 && (
             <div className="chat-sources" aria-label="Orchestrator sources">
               {sourceBadges.map((source) => (
-                <span key={`${source.tool}:${source.summary}`} className="chat-source-pill" title={source.summary}>
-                  {toolNameLabel(source.tool)}{typeof source.count === 'number' ? ` (${source.count})` : ''}
+                <span
+                  key={`${source.tool}:${source.summary}`}
+                  className={`chat-source-pill chat-source-pill--${source.confidence ?? 'medium'}`}
+                  title={source.summary}
+                >
+                  {toolNameLabel(source.tool)}
+                  {typeof source.count === 'number' ? ` (${source.count})` : ''}
+                  {source.confidence ? ` · ${source.confidence}` : ''}
                 </span>
               ))}
             </div>
+          )}
+          {orchestratorConflict && (
+            <div className="chat-orchestrator-conflict" role="status">
+              <strong>{orchestratorConflict.title}</strong>: {orchestratorConflict.detail}
+            </div>
+          )}
+          {orchestratorTemplate && (
+            <div className="chat-orchestrator-template" role="note">
+              <div className="chat-orchestrator-template-title">{orchestratorTemplate.heading}</div>
+              <div className="chat-orchestrator-template-sections">
+                {orchestratorTemplate.sections.join(' · ')}
+              </div>
+            </div>
+          )}
+          {orchestratorTrace.length > 0 && (
+            <details className="chat-orchestrator-trace">
+              <summary>Orchestrator trace</summary>
+              <ul>
+                {orchestratorTrace.map((step, idx) => (
+                  <li key={`${step.tool}-${idx}`}>
+                    <span className={`chat-trace-badge chat-trace-badge--${step.action}`}>{step.action}</span>
+                    <strong>{toolNameLabel(step.tool)}</strong>: {step.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
 

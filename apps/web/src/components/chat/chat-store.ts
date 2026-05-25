@@ -38,6 +38,7 @@ export interface ClioSourceAttribution {
   tool: string;
   count?: number;
   summary: string;
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 interface ChatState {

@@ -23,10 +23,52 @@ interface UpdateConversationInput {
   clientId?: string | null;
 }
 
+type ConfidenceLevel = 'high' | 'medium' | 'low';
+
+type RetrievalTier = 'fast' | 'deep';
+
+interface OrchestratorPolicy {
+  tier: RetrievalTier;
+  contextCharBudget: number;
+  researchLimit: number;
+  researchChars: number;
+  intelChars: number;
+  clientContextChars: number;
+}
+
+interface OrchestratorTraceStep {
+  tool: string;
+  action: 'selected' | 'skipped';
+  reason: string;
+}
+
 interface ClioSourceAttribution {
   tool: string;
   count?: number;
   summary: string;
+  confidence: ConfidenceLevel;
+}
+
+interface OrchestratorConflict {
+  title: string;
+  detail: string;
+}
+
+interface OrchestratorResult {
+  context: string;
+  sources: ClioSourceAttribution[];
+  policy: OrchestratorPolicy;
+  trace: OrchestratorTraceStep[];
+  conflict: OrchestratorConflict | null;
+  template: {
+    heading: string;
+    sections: string[];
+  } | null;
+}
+
+interface StreamControl {
+  traceEnabled: boolean;
+  cleanContent: string;
 }
 
 interface RuntimeMessage {
@@ -627,7 +669,8 @@ export class ClioService {
 
   async streamMessage(ctx: TenantContext, conversationId: string, body: string, sse: { write: (data: string) => void }) {
     const conversation = await this.ensureConversation(ctx, conversationId);
-    const content = body.trim();
+    const streamControl = this.extractStreamControl(body);
+    const content = streamControl.cleanContent.trim();
     if (!content) throw new BadRequestException('Message body is empty');
 
     // Persist user message
@@ -660,11 +703,20 @@ export class ClioService {
     this.logger.debug(`Stream intent: ${intent}`);
 
     const orchestration = await this.orchestrateContext(ctx, conversation.clientId, intent, content);
-    const unifiedSystemPrompt = this.buildUnifiedSystemPrompt(intent, orchestration.context);
+    const unifiedSystemPrompt = this.buildUnifiedSystemPrompt(intent, orchestration.context, orchestration.template);
 
-    sse.write(`data: ${JSON.stringify({ type: 'start', intent })}\n\n`);
+    sse.write(`data: ${JSON.stringify({ type: 'start', intent, tier: orchestration.policy.tier })}\n\n`);
+    if (streamControl.traceEnabled) {
+      sse.write(`data: ${JSON.stringify({ type: 'trace', trace: orchestration.trace, policy: orchestration.policy })}\n\n`);
+    }
     if (orchestration.sources.length) {
       sse.write(`data: ${JSON.stringify({ type: 'sources', sources: orchestration.sources })}\n\n`);
+    }
+    if (orchestration.conflict) {
+      sse.write(`data: ${JSON.stringify({ type: 'conflict', conflict: orchestration.conflict })}\n\n`);
+    }
+    if (orchestration.template) {
+      sse.write(`data: ${JSON.stringify({ type: 'template', template: orchestration.template })}\n\n`);
     }
 
     let assistantContent = '';
@@ -748,7 +800,10 @@ export class ClioService {
           body: assistantContent,
           metadata: {
             intent,
+            tier: orchestration.policy.tier,
             sources: orchestration.sources.map((source) => source.tool),
+            sourceConfidence: orchestration.sources.map((source) => ({ tool: source.tool, confidence: source.confidence })),
+            hasConflict: Boolean(orchestration.conflict),
           },
         },
       }),
@@ -770,11 +825,14 @@ export class ClioService {
     clientId: string | null,
     intent: string,
     query: string,
-  ): Promise<{ context: string; sources: ClioSourceAttribution[] }> {
+  ): Promise<OrchestratorResult> {
+    const policy = this.policyForIntent(intent, query);
     const contextParts: string[] = [];
     const sources: ClioSourceAttribution[] = [];
+    const trace: OrchestratorTraceStep[] = [];
 
     if (clientId) {
+      trace.push({ tool: 'client_profile', action: 'selected', reason: 'Client-linked conversation has priority context.' });
       try {
         const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
           tx.client.findFirst({
@@ -786,11 +844,18 @@ export class ClioService {
           contextParts.push(`Client: ${client.name}`);
           if (client.description) contextParts.push(`Description: ${client.description}`);
           if (client.productDescription) contextParts.push(`Product/service: ${client.productDescription}`);
-          sources.push({ tool: 'client_profile', count: 1, summary: `Client profile loaded for ${client.name}` });
+          sources.push({
+            tool: 'client_profile',
+            count: 1,
+            summary: `Client profile loaded for ${client.name}`,
+            confidence: 'high',
+          });
         }
       } catch {
-        // ignore context failures
+        trace.push({ tool: 'client_profile', action: 'skipped', reason: 'Client profile fetch failed.' });
       }
+    } else {
+      trace.push({ tool: 'client_profile', action: 'skipped', reason: 'Conversation is not attached to a client.' });
     }
 
     try {
@@ -798,35 +863,54 @@ export class ClioService {
       if (memories.length) {
         contextParts.push('\nRelevant firm knowledge (from Clio memory):');
         for (const mem of memories) contextParts.push(`- ${mem.value}`);
-        sources.push({ tool: 'clio_memory', count: memories.length, summary: `Loaded ${memories.length} memory items` });
+        sources.push({
+          tool: 'clio_memory',
+          count: memories.length,
+          summary: `Loaded ${memories.length} memory items`,
+          confidence: memories.length >= 3 ? 'high' : 'medium',
+        });
+        trace.push({ tool: 'clio_memory', action: 'selected', reason: `Loaded ${memories.length} relevant memories.` });
+      } else {
+        trace.push({ tool: 'clio_memory', action: 'skipped', reason: 'No high-signal memories matched query.' });
       }
     } catch {
-      // ignore memory failures
+      trace.push({ tool: 'clio_memory', action: 'skipped', reason: 'Memory retrieval failed.' });
     }
 
-    const shouldLoadResearch = ['query_clients', 'query_engagement', 'query_workflow', 'generate_draft', 'general_question'].includes(intent);
+    const shouldLoadResearch = ['query_clients', 'query_engagement', 'query_workflow', 'generate_draft', 'general_question', 'generate_briefing'].includes(intent);
     if (shouldLoadResearch) {
+      trace.push({ tool: 'search_research_sources', action: 'selected', reason: `Intent ${intent} benefits from workspace research context.` });
       try {
         const research = await this.tools.execute(ctx, 'search_research_sources' as never, {
           query,
           clientId: clientId ?? undefined,
-          limit: 10,
+          limit: policy.researchLimit,
         });
         const results = Array.isArray((research as { results?: unknown[] }).results)
           ? ((research as { results?: unknown[] }).results ?? [])
           : [];
         if (results.length) {
           contextParts.push('\nCapiro research context:');
-          contextParts.push(summarizeJsonForPrompt(results, 5500));
-          sources.push({ tool: 'search_research_sources', count: results.length, summary: `Loaded ${results.length} research records` });
+          contextParts.push(summarizeJsonForPrompt(results, policy.researchChars));
+          sources.push({
+            tool: 'search_research_sources',
+            count: results.length,
+            summary: `Loaded ${results.length} research records`,
+            confidence: results.length >= 5 ? 'high' : 'medium',
+          });
+        } else {
+          trace.push({ tool: 'search_research_sources', action: 'skipped', reason: 'No research results returned.' });
         }
       } catch {
-        // ignore research failures
+        trace.push({ tool: 'search_research_sources', action: 'skipped', reason: 'Research tool request failed.' });
       }
+    } else {
+      trace.push({ tool: 'search_research_sources', action: 'skipped', reason: `Intent ${intent} does not require research scan.` });
     }
 
     const shouldLoadIntel = ['query_intelligence', 'generate_briefing', 'general_question'].includes(intent);
     if (shouldLoadIntel) {
+      trace.push({ tool: 'query_intelligence', action: 'selected', reason: `Intent ${intent} requests intelligence context.` });
       try {
         const clientName = clientId
           ? await this.prisma.withTenant(ctx.tenantId, (tx) =>
@@ -839,31 +923,55 @@ export class ClioService {
         const intelData = (intelResult as Record<string, unknown>)?.data;
         if (typeof intelData === 'string' && intelData.length > 10) {
           contextParts.push('\nFederal lobbying intelligence (from Capiro database):');
-          contextParts.push(intelData);
-          sources.push({ tool: 'query_intelligence', summary: 'Federal intelligence snapshot loaded' });
+          contextParts.push(truncateText(intelData, policy.intelChars));
+          sources.push({
+            tool: 'query_intelligence',
+            summary: 'Federal intelligence snapshot loaded',
+            confidence: 'high',
+          });
+        } else {
+          trace.push({ tool: 'query_intelligence', action: 'skipped', reason: 'No intelligence text payload returned.' });
         }
       } catch {
-        // ignore intel failures
+        trace.push({ tool: 'query_intelligence', action: 'skipped', reason: 'Intelligence tool request failed.' });
       }
+    } else {
+      trace.push({ tool: 'query_intelligence', action: 'skipped', reason: `Intent ${intent} does not need intelligence query.` });
     }
 
     if (clientId && ['query_clients', 'query_engagement', 'generate_briefing', 'generate_draft'].includes(intent)) {
+      trace.push({ tool: 'get_client_context', action: 'selected', reason: `Intent ${intent} needs detailed client context.` });
       try {
         const clientCtx = await this.tools.execute(ctx, 'get_client_context' as never, { clientId });
         const rawCtx = (clientCtx as Record<string, unknown>)?.context;
         if (rawCtx) {
           contextParts.push('\nDetailed client context:');
-          contextParts.push(summarizeJsonForPrompt(rawCtx, 5000));
-          sources.push({ tool: 'get_client_context', summary: 'Loaded structured client context' });
+          contextParts.push(summarizeJsonForPrompt(rawCtx, policy.clientContextChars));
+          sources.push({
+            tool: 'get_client_context',
+            summary: 'Loaded structured client context',
+            confidence: 'high',
+          });
+        } else {
+          trace.push({ tool: 'get_client_context', action: 'skipped', reason: 'Client context returned empty payload.' });
         }
       } catch {
-        // ignore detailed context failures
+        trace.push({ tool: 'get_client_context', action: 'skipped', reason: 'Detailed client context fetch failed.' });
       }
+    } else {
+      trace.push({ tool: 'get_client_context', action: 'skipped', reason: 'No client-linked deep context required.' });
     }
 
+    const template = this.templateForIntent(intent);
+    const conflict = this.detectOrchestratorConflict(query, sources);
+
     return {
-      context: contextParts.join('\n'),
+      context: truncateText(contextParts.join('\n'), policy.contextCharBudget),
       sources,
+      policy,
+      trace,
+      conflict,
+      template,
     };
   }
 
@@ -897,7 +1005,11 @@ export class ClioService {
     return 'general_question';
   }
 
-  private buildUnifiedSystemPrompt(intent: string, context: string): string {
+  private buildUnifiedSystemPrompt(
+    intent: string,
+    context: string,
+    template: { heading: string; sections: string[] } | null,
+  ): string {
     const base = [
       'You are Clio, the AI assistant for lobbying firms using the Capiro platform.',
       'You are a shared firm-level intelligence that learns and grows over time.',
@@ -936,8 +1048,120 @@ export class ClioService {
 
     const parts = [base];
     if (intentGuidance[intent]) parts.push(`\n${intentGuidance[intent]}`);
+    if (template) {
+      parts.push(`\nOutput template: ${template.heading}`);
+      parts.push(`Required sections: ${template.sections.join(' | ')}`);
+    }
     if (context) parts.push(`\nContext:\n${context}`);
     return parts.join('\n');
+  }
+
+  private extractStreamControl(rawBody: string): StreamControl {
+    const tracePattern = /\s*#trace\s*$/i;
+    const traceEnabled = tracePattern.test(rawBody);
+    const cleanContent = traceEnabled ? rawBody.replace(tracePattern, '').trimEnd() : rawBody;
+    return { traceEnabled, cleanContent };
+  }
+
+  private policyForIntent(intent: string, query: string): OrchestratorPolicy {
+    const deepIntent = ['generate_briefing', 'query_intelligence', 'generate_draft'].includes(intent);
+    const longQuery = query.length > 220;
+    const tier: RetrievalTier = deepIntent || longQuery ? 'deep' : 'fast';
+    if (tier === 'deep') {
+      return {
+        tier,
+        contextCharBudget: 19_000,
+        researchLimit: 18,
+        researchChars: 8_500,
+        intelChars: 8_500,
+        clientContextChars: 7_500,
+      };
+    }
+    return {
+      tier,
+      contextCharBudget: 9_500,
+      researchLimit: 8,
+      researchChars: 3_800,
+      intelChars: 3_800,
+      clientContextChars: 3_500,
+    };
+  }
+
+  private detectOrchestratorConflict(query: string, sources: ClioSourceAttribution[]): OrchestratorConflict | null {
+    const queryKeywords = extractKeywords(query);
+    if (!queryKeywords.length || sources.length < 2) return null;
+
+    const highConfidence = sources.filter((source) => confidenceRank(source.confidence) >= 2);
+    if (highConfidence.length < 2) return null;
+
+    const coverage = highConfidence.map((source) => {
+      const combined = `${source.summary} ${source.tool}`.toLowerCase();
+      const matched = queryKeywords.filter((word) => combined.includes(word)).length;
+      return { source, matched };
+    });
+
+    const maxMatched = Math.max(...coverage.map((item) => item.matched));
+    const minMatched = Math.min(...coverage.map((item) => item.matched));
+    if (maxMatched - minMatched < 3) return null;
+
+    const weakest = coverage.find((item) => item.matched === minMatched)?.source;
+    if (!weakest) return null;
+
+    return {
+      title: 'Potential cross-source mismatch',
+      detail: `${weakest.tool} appears less aligned with the query than other retrieved sources.`,
+    };
+  }
+
+  private templateForIntent(intent: string): { heading: string; sections: string[] } | null {
+    if (intent === 'generate_briefing') {
+      return {
+        heading: 'Government Affairs Briefing',
+        sections: ['Executive Summary', 'Signal Scan', 'Opportunities', 'Risks', 'Recommended Actions'],
+      };
+    }
+    if (intent === 'generate_draft') {
+      return {
+        heading: 'Outreach Draft',
+        sections: ['Subject Line', 'Opening', 'Core Message', 'Ask / CTA', 'Close'],
+      };
+    }
+    return null;
+  }
+
+  private shouldAttemptMemoryLearning(userMessage: string, assistantResponse: string): boolean {
+    if (assistantResponse.length < 220) return false;
+    const combined = `${userMessage}\n${assistantResponse}`.toLowerCase();
+    const noiseMarkers = [
+      'error',
+      'traceback',
+      'http',
+      'status code',
+      'build failed',
+      'typecheck',
+      'temporary',
+      'for now',
+      'todo',
+      'next step',
+    ];
+    if (noiseMarkers.some((marker) => combined.includes(marker))) return false;
+    return true;
+  }
+
+  private normalizeMemoryCandidate(key: string, value: string): { key: string; value: string } | null {
+    const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, '_').slice(0, 200);
+    const normalizedValue = value.trim().replace(/\s+/g, ' ').slice(0, 4000);
+    if (!normalizedKey || !normalizedValue) return null;
+
+    const volatilePatterns = [
+      /\b(today|tomorrow|yesterday|next week|this week)\b/i,
+      /\b\d{1,2}:\d{2}\b/,
+      /\b(issue|ticket|task)\s*#?\d+/i,
+      /\b(temp|temporary|draft only)\b/i,
+    ];
+    if (volatilePatterns.some((pattern) => pattern.test(normalizedValue))) return null;
+
+    return { key: normalizedKey, value: normalizedValue };
   }
 
   // ── Memory: learn from conversations ──
@@ -976,7 +1200,8 @@ export class ClioService {
     userMessage: string,
     assistantResponse: string,
   ): Promise<void> {
-    // Auto-extract and store key facts from conversations
+    if (!this.shouldAttemptMemoryLearning(userMessage, assistantResponse)) return;
+
     const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
     if (!anthropicKey) return;
 
@@ -991,7 +1216,7 @@ export class ClioService {
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 500,
-          system: 'Extract 0-3 durable facts from this conversation exchange that a lobbying firm AI should remember for future sessions. Return JSON: {"memories":[{"key":"short_label","value":"fact to remember"}]}. Only extract facts that will be useful across multiple future conversations. Return {"memories":[]} if nothing worth remembering.',
+          system: 'Extract 0-3 durable facts from this conversation exchange that a lobbying firm AI should remember for future sessions. Ignore temporary statuses, one-off tasks, runtime errors, specific timestamps, and operational chatter. Return JSON: {"memories":[{"key":"short_label","value":"fact to remember"}]}. Return {"memories":[]} if nothing worth remembering.',
           messages: [{ role: 'user', content: `User: ${userMessage}\n\nAssistant: ${assistantResponse}` }],
         }),
       });
@@ -1003,22 +1228,24 @@ export class ClioService {
 
       const match = text.match(/\{[\s\S]*\}/);
       if (!match) return;
-      const parsed = JSON.parse(match[0]);
+      const parsed = JSON.parse(match[0]) as { memories?: Array<{ key?: unknown; value?: unknown }> };
       if (!Array.isArray(parsed.memories)) return;
 
       for (const mem of parsed.memories) {
         if (typeof mem.key !== 'string' || typeof mem.value !== 'string') continue;
-        // Upsert: update if key exists, create if not
+        const normalized = this.normalizeMemoryCandidate(mem.key, mem.value);
+        if (!normalized) continue;
+
         const existing = await this.prisma.withTenant(tenantId, (tx) =>
-          (tx as any).clioMemory.findFirst({
-            where: { tenantId, key: mem.key.slice(0, 200) },
+          tx.clioMemory.findFirst({
+            where: { tenantId, key: normalized.key },
           }),
         );
         if (existing) {
           await this.prisma.withTenant(tenantId, (tx) =>
-            (tx as any).clioMemory.update({
-              where: { id: (existing as any).id },
-              data: { value: mem.value.slice(0, 4000), metadata: { conversationId, updatedBy: 'auto' } },
+            tx.clioMemory.update({
+              where: { id: existing.id },
+              data: { value: normalized.value, metadata: { conversationId, updatedBy: 'auto' } },
             }),
           );
         } else {
@@ -1026,15 +1253,14 @@ export class ClioService {
             tx.clioMemory.create({
               data: {
                 tenantId,
-                key: mem.key.slice(0, 200),
-                value: mem.value.slice(0, 4000),
+                key: normalized.key,
+                value: normalized.value,
                 source: 'conversation',
                 metadata: { conversationId, createdBy: 'auto' },
               },
             }),
           );
-          // Generate embedding for this new memory in background
-          void this.embedAndStoreMemory(tenantId, mem.key.slice(0, 200), mem.value.slice(0, 4000)).catch(() => {});
+          void this.embedAndStoreMemory(tenantId, normalized.key, normalized.value).catch(() => {});
         }
       }
     } catch (err) {
@@ -1379,6 +1605,34 @@ function summarizeJsonForPrompt(value: unknown, maxChars = 5000): string {
   } catch {
     return '';
   }
+}
+
+function truncateText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`;
+}
+
+function confidenceRank(confidence: ConfidenceLevel): number {
+  switch (confidence) {
+    case 'high':
+      return 3;
+    case 'medium':
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+function extractKeywords(text: string): string[] {
+  return Array.from(
+    new Set(
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((word) => word.length >= 5),
+    ),
+  ).slice(0, 20);
 }
 
 function errorMessage(error: unknown): string {

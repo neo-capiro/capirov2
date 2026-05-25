@@ -199,6 +199,110 @@
   line-height: 1.4;
 }
 
+.chat-source-pill--high {
+  border-color: #86efac;
+  background: #f0fdf4;
+  color: #166534;
+}
+
+.chat-source-pill--medium {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.chat-source-pill--low {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.chat-tier-pill {
+  margin-top: 6px;
+  display: inline-flex;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #374151;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.chat-orchestrator-conflict {
+  margin-top: 6px;
+  border: 1px solid #fecaca;
+  background: #fff1f2;
+  color: #9f1239;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+.chat-orchestrator-template {
+  margin-top: 6px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.chat-orchestrator-template-title {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.chat-orchestrator-template-sections {
+  margin-top: 2px;
+  font-size: 11px;
+  color: #6b7280;
+}
+
+.chat-orchestrator-trace {
+  margin-top: 6px;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #374151;
+}
+
+.chat-orchestrator-trace summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.chat-orchestrator-trace ul {
+  margin: 6px 0 0;
+  padding-left: 16px;
+}
+
+.chat-orchestrator-trace li {
+  margin-bottom: 4px;
+}
+
+.chat-trace-badge {
+  display: inline-block;
+  min-width: 56px;
+  border-radius: 999px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.chat-trace-badge--selected {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.chat-trace-badge--skipped {
+  background: #f3f4f6;
+  color: #4b5563;
+}
+
 /* ── Messages area ────────────────────────────────────────────── */
 
 .chat-messages {
