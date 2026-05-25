@@ -64,8 +64,11 @@ RUN groupadd --system --gid 1001 capiro \
  && useradd --system --uid 1001 --gid capiro --shell /usr/sbin/nologin capiro \
  && apt-get update \
  && apt-get install -y --no-install-recommends wget ca-certificates dumb-init openssl \
- && rm -rf /var/lib/apt/lists/* \
- && mkdir -p /app/tmp /tmp \
+ && rm -rf /var/lib/apt/lists/*
+# Separate RUN so the apt layer above stays cacheable. tsx (used by entrypoint
+# to run sync-*.ts) needs a writable temp dir; default /tmp gives ENOENT for
+# uid 1001, so use /app/tmp explicitly via TMPDIR.
+RUN mkdir -p /app/tmp /tmp \
  && chmod 1777 /tmp \
  && chown capiro:capiro /app/tmp
 WORKDIR /app
