@@ -55,11 +55,19 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 ENV NODE_ENV=production
 ENV NODE_OPTIONS=--enable-source-maps
+# tsx (used by entrypoint to run scripts/*.ts) needs a writable scratch dir
+# for its IPC server. Default os.tmpdir() = /tmp; on Fargate the capiro user
+# (uid 1001) hits ENOENT trying to create /tmp/tsx-1001. Give it an explicit
+# writable dir under /app and point TMPDIR at it.
+ENV TMPDIR=/app/tmp
 RUN groupadd --system --gid 1001 capiro \
  && useradd --system --uid 1001 --gid capiro --shell /usr/sbin/nologin capiro \
  && apt-get update \
  && apt-get install -y --no-install-recommends wget ca-certificates dumb-init openssl \
- && rm -rf /var/lib/apt/lists/*
+ && rm -rf /var/lib/apt/lists/* \
+ && mkdir -p /app/tmp /tmp \
+ && chmod 1777 /tmp \
+ && chown capiro:capiro /app/tmp
 WORKDIR /app
 
 # Copy the entire workspace — pnpm's symlinked node_modules + the generated
