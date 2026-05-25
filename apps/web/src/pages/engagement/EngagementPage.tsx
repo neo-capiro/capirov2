@@ -870,6 +870,9 @@ export function EngagementPage() {
 
   return (
     <section className="engagement-page redesign">
+      <header className="eng-head">
+        <h1 className="eng-page-h1">Engagement</h1>
+      </header>
       <Tabs
         className="engagement-tabs"
         activeKey={activeEngagementTab}

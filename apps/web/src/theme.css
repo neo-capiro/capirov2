@@ -3460,7 +3460,8 @@ body {
   background: #d1d5db;
 }
 
-.engagement-page {
+/* Legacy engagement layout (used by non-redesign pages, if any) */
+.engagement-page:not(.redesign) {
   display: flex;
   height: calc(100vh - 180px);
   min-height: 640px;
@@ -3468,7 +3469,7 @@ body {
   flex-direction: column;
 }
 
-.engagement-tabs {
+.engagement-page:not(.redesign) .engagement-tabs {
   display: flex;
   min-height: 0;
   flex: 1;
@@ -3476,21 +3477,77 @@ body {
   padding: 0 2px;
 }
 
-.engagement-tabs > .ant-tabs-content-holder {
+.engagement-page:not(.redesign) .engagement-tabs > .ant-tabs-content-holder {
   min-height: 0;
   flex: 1;
   overflow: hidden;
 }
 
-.engagement-tabs > .ant-tabs-content-holder > .ant-tabs-content,
-.engagement-tabs > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane {
+.engagement-page:not(.redesign) .engagement-tabs > .ant-tabs-content-holder > .ant-tabs-content,
+.engagement-page:not(.redesign) .engagement-tabs > .ant-tabs-content-holder > .ant-tabs-content > .ant-tabs-tabpane {
   height: 100%;
   min-height: 0;
 }
 
-.engagement-tabs > .ant-tabs-nav {
+.engagement-page:not(.redesign) .engagement-tabs > .ant-tabs-nav {
   flex: 0 0 auto;
   margin-bottom: 16px;
+}
+
+/* Redesign — engagement page shell matching sample .eng-page */
+.engagement-page.redesign {
+  padding: 26px 32px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: var(--bg-canvas);
+  font-family: var(--font-sans-rd);
+}
+.engagement-page.redesign .eng-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.engagement-page.redesign .eng-page-h1 {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.022em;
+  line-height: 1.1;
+  color: var(--ink-1);
+}
+
+/* Restyle the AntD Tabs nav inside .engagement-page.redesign to match the sample's
+   underline-style .eng-tabs. */
+.engagement-page.redesign .engagement-tabs {
+  font-family: var(--font-sans-rd);
+}
+.engagement-page.redesign .engagement-tabs > .ant-tabs-nav {
+  margin: 0 0 18px;
+  padding: 0 4px;
+}
+.engagement-page.redesign .engagement-tabs > .ant-tabs-nav::before {
+  border-bottom: 1px solid var(--border-1) !important;
+}
+.engagement-page.redesign .engagement-tabs .ant-tabs-tab {
+  padding: 10px 14px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-2);
+  margin: 0 6px 0 0;
+}
+.engagement-page.redesign .engagement-tabs .ant-tabs-tab:hover {
+  color: var(--ink-1);
+}
+.engagement-page.redesign .engagement-tabs .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--ink-1) !important;
+  font-weight: 600;
+}
+.engagement-page.redesign .engagement-tabs .ant-tabs-ink-bar {
+  height: 2.5px !important;
+  background: var(--accent) !important;
+  border-radius: 2px 2px 0 0;
 }
 
 .engagement-tab-actions {
@@ -11714,8 +11771,8 @@ body {
 .engagement-overview {
   display: flex;
   flex-direction: column;
-  gap: 48px;
-  padding: 8px 4px 32px;
+  gap: 36px;
+  padding-top: 6px;
   font-family: var(--font-sans-rd);
   color: var(--ink-1);
 }
@@ -11723,52 +11780,71 @@ body {
   color: var(--ink-3);
   margin: 0 6px;
 }
+/* eo-hero-meta separators (• between stats) */
+.engagement-overview .eo-hero-meta b {
+  color: var(--ink-1);
+  font-weight: 600;
+}
 
 /* Hero */
 .eo-hero {
   display: grid;
-  grid-template-columns: 1fr minmax(300px, 400px);
-  gap: 40px;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 32px;
   align-items: center;
+  padding: 36px 40px;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(42, 87, 206, 0.10), transparent 50%),
+    radial-gradient(circle at 10% 100%, rgba(217, 119, 87, 0.06), transparent 45%),
+    var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: 16px;
+  overflow: hidden;
 }
 
 .eo-eyebrow {
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--accent);
+  letter-spacing: 0.14em;
+  color: var(--accent-ink);
   display: inline-block;
-  margin-bottom: 8px;
-  padding: 3px 8px;
+  padding: 4px 10px;
   background: var(--accent-soft);
-  border-radius: 4px;
+  border-radius: 999px;
+  margin-bottom: 14px;
 }
 
 .eo-hero-title {
-  font-size: 32px !important;
+  font-size: 44px !important;
   font-weight: 700 !important;
-  letter-spacing: -0.018em !important;
-  line-height: 1.15 !important;
-  margin: 0 0 12px !important;
+  letter-spacing: -0.026em !important;
+  line-height: 1.05 !important;
+  margin: 0 0 14px !important;
+  color: var(--ink-1) !important;
+  text-wrap: balance;
 }
 
 .eo-hero-title em {
-  color: var(--accent);
+  font-family: var(--font-serif-rd);
   font-style: italic;
+  font-weight: 500;
+  color: var(--accent-ink);
 }
 
 .eo-hero-sub {
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 15px;
+  line-height: 1.55;
   color: var(--ink-2) !important;
-  margin: 0 0 18px !important;
+  margin: 0 0 22px !important;
+  max-width: 520px;
+  text-wrap: pretty;
 }
 
 .eo-hero-cta {
   display: flex;
   gap: 10px;
-  margin-bottom: 18px;
+  margin-bottom: 22px;
 }
 
 .eo-btn {
@@ -11904,14 +11980,19 @@ body {
 
 /* Section head / flow */
 .eo-section-head {
-  margin-bottom: 24px;
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-1);
 }
 
 .eo-section-title {
-  margin: 0 0 4px !important;
+  margin: 0 !important;
   font-size: 22px !important;
   font-weight: 700 !important;
-  letter-spacing: -0.02em !important;
+  letter-spacing: -0.018em !important;
 }
 
 .eo-section-sub {
@@ -11921,54 +12002,64 @@ body {
 }
 
 .eo-flow-steps {
-  display: flex;
-  align-items: flex-start;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: 1fr 28px 1fr 28px 1fr 28px 1fr;
+  gap: 14px;
+  align-items: center;
 }
 
 .eo-flow-step {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: 12px;
+  padding: 18px 18px 20px;
   display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
 }
 
 .eo-flow-num {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-  font-size: 12px;
-  font-weight: 700;
+  background: var(--ink-1);
+  color: #fff;
   display: grid;
   place-items: center;
-  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
+.eo-flow-step > div { display: flex; flex-direction: column; gap: 4px; }
+.eo-flow-step .ant-typography-strong { font-size: 14px; font-weight: 700 !important; letter-spacing: -0.01em; }
+
 .eo-flow-desc {
-  font-size: 12.5px;
-  line-height: 1.45;
+  font-size: 12.5px !important;
+  line-height: 1.5 !important;
   color: var(--ink-2) !important;
-  margin-top: 4px;
   display: block;
 }
 
 .eo-flow-arrow {
-  flex-shrink: 0;
   display: grid;
   place-items: center;
-  padding-top: 3px;
+  color: var(--accent);
 }
 
 /* Clio card */
 .eo-clio {
-  background: var(--bg-dark);
-  border-radius: var(--r-xl);
-  padding: 28px 32px;
-  display: flex;
-  gap: 24px;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 28px;
+  align-items: center;
+  padding: 30px 36px;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(42, 87, 206, 0.35), transparent 55%),
+    var(--bg-dark);
+  color: var(--ink-on-dark);
+  border-radius: 16px;
   position: relative;
   overflow: hidden;
 }
@@ -11976,17 +12067,21 @@ body {
 .eo-clio::after {
   content: '';
   position: absolute;
-  top: -40%;
-  right: -10%;
-  width: 260px;
-  height: 260px;
-  background: radial-gradient(circle, var(--accent-glow), transparent 70%);
+  top: -40px;
+  right: -40px;
+  width: 280px;
+  height: 280px;
+  border: 1px dashed rgba(255, 255, 255, 0.06);
   border-radius: 50%;
   pointer-events: none;
 }
 
 .eo-clio-glyph {
   position: relative;
+  width: 120px;
+  height: 120px;
+  display: grid;
+  place-items: center;
   flex-shrink: 0;
 }
 
@@ -11994,27 +12089,49 @@ body {
   width: 56px;
   height: 56px;
   border-radius: 50%;
-  background: var(--accent);
+  background: linear-gradient(135deg, #4E78D8, #1A3F9F);
   display: grid;
   place-items: center;
   position: relative;
   z-index: 1;
 }
+.eo-clio-avatar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 50%, transparent 25%, transparent 55%),
+    conic-gradient(from 0deg, transparent, rgba(255, 255, 255, 0.85), transparent 25%);
+  mask:
+    radial-gradient(circle at 50% 50%, transparent 35%, #000 38%, #000 62%, transparent 65%);
+}
+.eo-clio-avatar::after {
+  content: '';
+  position: absolute;
+  inset: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+}
 
 .eo-clio-pulse {
   position: absolute;
-  width: 56px;
-  height: 56px;
+  inset: 0;
   border-radius: 50%;
-  border: 2px solid var(--accent);
+  border: 1.5px solid rgba(255, 255, 255, 0.15);
   animation: eo-pulse 3s ease-out infinite;
-  top: 0;
-  left: 0;
+}
+.eo-clio-pulse::before {
+  content: '';
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
 }
 
 @keyframes eo-pulse {
-  0%   { transform: scale(1); opacity: .6; }
-  100% { transform: scale(1.8); opacity: 0; }
+  0%   { transform: scale(0.85); opacity: 0.8; }
+  100% { transform: scale(1.1); opacity: 0; }
 }
 
 .eo-clio:hover .eo-clio-pulse {
@@ -12022,13 +12139,13 @@ body {
 }
 
 .eo-clio .eo-eyebrow {
-  background: rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.85);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .eo-clio-title {
   color: #fff !important;
-  margin: 8px 0 8px !important;
+  margin: 0 0 8px !important;
   font-size: 26px !important;
   font-weight: 700 !important;
   letter-spacing: -0.02em !important;
@@ -12037,9 +12154,10 @@ body {
 .eo-clio-desc {
   font-size: 14px;
   line-height: 1.55;
-  color: rgba(255,255,255,0.78) !important;
+  color: rgba(255, 255, 255, 0.78) !important;
   max-width: 640px;
   display: block;
+  text-wrap: pretty;
 }
 
 .eo-clio-desc strong {
@@ -12051,19 +12169,24 @@ body {
   display: flex;
   gap: 8px;
   margin-top: 14px;
+  flex-wrap: wrap;
 }
 
 .eo-clio-quote {
-  font-size: 11px;
-  color: rgba(255,255,255,0.45);
+  font-family: var(--font-serif-rd);
   font-style: italic;
+  font-size: 13px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.85);
 }
 
-/* Quote */
+/* Pull quote */
 .eo-quote {
   text-align: center;
-  max-width: 560px;
-  margin: 0 auto;
+  padding: 0 60px;
 }
 
 .eo-quote svg {
@@ -12073,16 +12196,24 @@ body {
 }
 
 .eo-quote blockquote {
-  font-size: 15px;
-  line-height: 1.55;
-  color: var(--ink-2);
-  margin: 0 0 8px;
+  font-family: var(--font-serif-rd);
+  font-size: 22px;
+  line-height: 1.4;
+  font-weight: 400;
+  font-style: italic;
+  margin: 0 0 10px;
+  color: var(--ink-1);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
 }
 
 .eo-quote cite {
-  font-size: 12.5px;
-  color: var(--ink-3);
   font-style: normal;
+  font-size: 12px;
+  color: var(--ink-3);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
 /* Pick where to start */
@@ -12095,14 +12226,15 @@ body {
 .eo-pick-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-1);
-  border-radius: var(--r-lg);
-  padding: 20px 22px;
+  border-radius: 12px;
+  padding: 22px 22px 20px;
   cursor: pointer;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
   text-align: left;
+  font-family: inherit;
   transition: box-shadow .15s, border-color .15s, transform .15s;
 }
 
@@ -12122,17 +12254,23 @@ body {
 }
 
 .eo-pick-h {
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   color: var(--ink-1);
-  letter-spacing: -0.015em;
-  margin-bottom: 4px;
+  letter-spacing: -0.018em;
+}
+
+.eo-pick-card .ant-typography-secondary {
+  margin: 6px 0 0;
+  font-size: 12.5px !important;
+  color: var(--ink-2) !important;
+  line-height: 1.5;
+  display: block;
 }
 
 .eo-pick-arr {
-  font-size: 16px;
-  color: var(--ink-3);
-  margin-top: 4px;
+  font-size: 22px;
+  color: var(--accent);
   flex-shrink: 0;
 }
 
