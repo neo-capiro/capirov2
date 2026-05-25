@@ -34,6 +34,12 @@ export interface ClioConversation {
   updatedAt: string;
 }
 
+export interface ClioSourceAttribution {
+  tool: string;
+  count?: number;
+  summary: string;
+}
+
 interface ChatState {
   isOpen: boolean;
   messages: ChatMessage[];
@@ -123,6 +129,24 @@ export function toggleEmailPanel(): void {
 
 export function setConversations(conversations: ClioConversation[]): void {
   state = { ...state, conversations };
+  notify();
+}
+
+export function upsertConversation(conversation: ClioConversation): void {
+  const existing = state.conversations.find((c) => c.id === conversation.id);
+  const conversations = existing
+    ? state.conversations.map((c) => (c.id === conversation.id ? conversation : c))
+    : [conversation, ...state.conversations];
+  state = { ...state, conversations };
+  notify();
+}
+
+export function removeConversation(conversationId: string): void {
+  const conversations = state.conversations.filter((c) => c.id !== conversationId);
+  const activeConversationId = state.activeConversationId === conversationId ? null : state.activeConversationId;
+  const sessionId = state.sessionId === conversationId ? null : state.sessionId;
+  const messages = state.activeConversationId === conversationId ? [] : state.messages;
+  state = { ...state, conversations, activeConversationId, sessionId, messages };
   notify();
 }
 

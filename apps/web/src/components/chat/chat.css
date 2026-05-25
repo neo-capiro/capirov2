@@ -129,6 +129,76 @@
   text-overflow: ellipsis;
 }
 
+.chat-session-meta {
+  border-bottom: 1px solid #e5e7eb;
+  background: #f8fafc;
+  padding: 8px 12px;
+}
+
+.chat-session-meta-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 180px) auto auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.chat-session-input,
+.chat-session-select {
+  width: 100%;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #111827;
+  background: #fff;
+}
+
+.chat-session-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  color: #374151;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.chat-session-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-session-btn--danger {
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.chat-session-error {
+  margin-top: 6px;
+  color: #b91c1c;
+  font-size: 11px;
+}
+
+.chat-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.chat-source-pill {
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 /* ── Messages area ────────────────────────────────────────────── */
 
 .chat-messages {
@@ -179,18 +249,23 @@
 }
 
 .chat-msg-avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #1c2e4a;
-  color: #fff;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  display: flex;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(28, 46, 74, 0.16);
+  background: #fff;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
+}
+
+.chat-msg-avatar-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .chat-msg-bubble {
@@ -845,8 +920,18 @@
 }
 .clio-rail-item {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   width: 100%;
+  border: none;
+  border-radius: 6px;
+  overflow: hidden;
+  transition: background 0.12s;
+  margin-bottom: 2px;
+}
+.clio-rail-item-main {
+  display: flex;
+  align-items: flex-start;
+  flex: 1;
   padding: 6px 8px;
   border: none;
   background: none;
@@ -854,9 +939,7 @@
   font-size: 12px;
   color: #374151;
   text-align: left;
-  border-radius: 6px;
   gap: 8px;
-  transition: background 0.12s;
 }
 .clio-rail-item:hover {
   background: #e5e7eb;
@@ -867,6 +950,18 @@
 }
 .clio-rail-item--active:hover {
   background: #bfdbfe;
+}
+.clio-rail-item-archive {
+  border: none;
+  background: none;
+  color: #9ca3af;
+  width: 24px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.clio-rail-item-archive:hover {
+  color: #dc2626;
 }
 .clio-rail-item-icon {
   margin-top: 2px;

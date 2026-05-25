@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { CloseOutlined, FileTextOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons';
+import {
+  CloseOutlined,
+  DeleteOutlined,
+  FileTextOutlined,
+  HistoryOutlined,
+  PlusOutlined,
+  SaveOutlined,
+} from '@ant-design/icons';
 import { useAuth } from '@clerk/clerk-react';
 import { config } from '../../env.js';
 import { useClientFilter } from '../../state/client-filter.js';
@@ -8,7 +15,9 @@ import { useImpersonation } from '../../state/impersonation.js';
 import {
   appendChatMessage,
   clearChatSession,
+  ClioSourceAttribution,
   getActiveDraft,
+  removeConversation,
   setAlerts,
   setActiveConversation,
   setChatOpen,
@@ -18,6 +27,7 @@ import {
   toggleEmailPanel,
   toggleSessionRail,
   updateChatMessage,
+  upsertConversation,
   useChatStore,
 } from './chat-store.js';
 import { ChatInput } from './ChatInput.js';
@@ -27,7 +37,9 @@ import { SessionRail } from './SessionRail.js';
 import './chat.css';
 
 type SseEvent =
+  | { type: 'start'; intent: string }
   | { type: 'text'; text: string }
+  | { type: 'sources'; sources: ClioSourceAttribution[] }
   | { type: 'done' }
   | { type: 'error'; message: string }
   | { type: 'draft_updated'; engagementId: string; recipientId?: string; subject: string; body: string }
@@ -35,16 +47,6 @@ type SseEvent =
 
 function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
-function pageKeyFor(pathname: string): string {
-  if (pathname.startsWith('/engagement')) return 'engagement';
-  if (pathname.startsWith('/intelligence')) return 'intelligence';
-  if (pathname.startsWith('/workspace')) return 'workspace';
-  if (pathname.startsWith('/directory')) return 'directory';
-  if (pathname.startsWith('/clients')) return 'clients';
-  if (pathname.startsWith('/settings')) return 'settings';
-  return 'other';
 }
 
 function contextLabelFor(pathname: string): string {
@@ -62,12 +64,24 @@ function contextLabelFor(pathname: string): string {
   return 'Capiro';
 }
 
+interface ClientOption {
+  id: string;
+  name: string;
+}
+
+function toolNameLabel(tool: string): string {
+  return tool
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 interface ChatDrawerProps {
   selectedClientName?: string | null;
 }
 
 export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
-  const { isOpen, messages, sessionId, isStreaming, alertsBadge } = useChatStore();
+  const { isOpen, messages, sessionId, isStreaming, alertsBadge, conversations, activeConversationId } = useChatStore();
   const { getToken } = useAuth();
   const { actAsTenantSlug } = useImpersonation();
   const { selectedClientId } = useClientFilter();
@@ -75,10 +89,23 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [sessionTitle, setSessionTitle] = useState('');
+  const [sessionClientId, setSessionClientId] = useState('');
+  const [sourceBadges, setSourceBadges] = useState<ClioSourceAttribution[]>([]);
+  const [isSavingMeta, setIsSavingMeta] = useState(false);
+  const [metaError, setMetaError] = useState<string | null>(null);
+
   const contextLabel =
     selectedClientName && !location.pathname.startsWith('/clients')
       ? `${contextLabelFor(location.pathname)} · ${selectedClientName}`
       : contextLabelFor(location.pathname);
+
+  const selectedClientValue = useMemo(() => {
+    if (!sessionClientId) return '';
+    const found = clients.find((client) => client.id === sessionClientId);
+    return found ? found.id : '';
+  }, [clients, sessionClientId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -118,6 +145,99 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     })();
   }, [isOpen, authHeaders]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    void (async () => {
+      try {
+        const res = await fetch(`${config.apiBaseUrl}/api/clients`, { headers: await authHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          const options = data
+            .map((client) => ({ id: String(client.id ?? ''), name: String(client.name ?? '') }))
+            .filter((client) => Boolean(client.id && client.name));
+          setClients(options);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, [isOpen, authHeaders]);
+
+  useEffect(() => {
+    const active = conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
+    setSessionTitle(active?.title ?? '');
+    setSessionClientId(active?.clientId ?? selectedClientId ?? '');
+    setMetaError(null);
+  }, [conversations, activeConversationId, selectedClientId]);
+
+  useEffect(() => {
+    if (!messages.length) {
+      setSourceBadges([]);
+    }
+  }, [messages.length]);
+
+  const saveConversationMeta = useCallback(async () => {
+    if (!activeConversationId || isSavingMeta) return;
+    setIsSavingMeta(true);
+    setMetaError(null);
+    try {
+      const payload: Record<string, unknown> = {};
+      const trimmedTitle = sessionTitle.trim();
+      if (trimmedTitle) payload.title = trimmedTitle;
+      payload.clientId = selectedClientValue || null;
+
+      const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${activeConversationId}`, {
+        method: 'PATCH',
+        headers: await authHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+
+      const updated = await res.json();
+      if (updated && typeof updated.id === 'string') {
+        upsertConversation({
+          id: updated.id,
+          title: updated.title,
+          clientId: updated.clientId ?? null,
+          client: updated.client ?? null,
+          latestMessage:
+            updated.latestMessage && typeof updated.latestMessage.body === 'string'
+              ? { body: updated.latestMessage.body, createdAt: updated.latestMessage.createdAt }
+              : null,
+          updatedAt: updated.updatedAt,
+        });
+      }
+    } catch (err) {
+      setMetaError(err instanceof Error ? err.message : 'Failed to save conversation settings');
+    } finally {
+      setIsSavingMeta(false);
+    }
+  }, [activeConversationId, authHeaders, isSavingMeta, selectedClientValue, sessionTitle]);
+
+  const archiveConversation = useCallback(async () => {
+    if (!activeConversationId) return;
+    try {
+      const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${activeConversationId}/archive`, {
+        method: 'PATCH',
+        headers: await authHeaders(),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      removeConversation(activeConversationId);
+      clearChatSession();
+      setSourceBadges([]);
+    } catch (err) {
+      setMetaError(err instanceof Error ? err.message : 'Failed to archive conversation');
+    }
+  }, [activeConversationId, authHeaders]);
+
   const doCreateSession = useCallback(async (): Promise<string | null> => {
     try {
       const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations`, {
@@ -143,6 +263,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const handleNewSession = useCallback(async () => {
     abortRef.current?.abort();
     clearChatSession();
+    setSourceBadges([]);
     await doCreateSession();
   }, [doCreateSession]);
 
@@ -165,21 +286,6 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     abortRef.current = controller;
 
     try {
-      const draft = getActiveDraft();
-      const context: Record<string, unknown> = {
-        page: pageKeyFor(location.pathname),
-        ...(selectedClientId ? { clientId: selectedClientId } : {}),
-        ...(selectedClientName ? { clientName: selectedClientName } : {}),
-        ...(draft
-          ? {
-              engagementId: draft.engagementId,
-              recipientId: draft.recipientId,
-              draftSubject: draft.subject,
-              draftBody: draft.body,
-            }
-          : {}),
-      };
-
       const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${sid}/stream`, {
         method: 'POST',
         headers: await authHeaders(),
@@ -225,6 +331,8 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           if (event.type === 'text') {
             accumulated += event.text;
             updateChatMessage(assistantId, accumulated);
+          } else if (event.type === 'sources') {
+            setSourceBadges(Array.isArray(event.sources) ? event.sources : []);
           } else if (event.type === 'done') {
             break outer;
           } else if (event.type === 'error') {
@@ -333,6 +441,58 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         <div className="chat-context-bar">
           <span className="chat-context-icon" aria-hidden="true">●</span>
           <span className="chat-context-value">{contextLabel}</span>
+        </div>
+
+        <div className="chat-session-meta" aria-label="Conversation settings">
+          <div className="chat-session-meta-row">
+            <input
+              className="chat-session-input"
+              value={sessionTitle}
+              onChange={(event) => setSessionTitle(event.target.value)}
+              placeholder="Conversation title"
+              maxLength={160}
+            />
+            <select
+              className="chat-session-select"
+              value={selectedClientValue}
+              onChange={(event) => setSessionClientId(event.target.value)}
+            >
+              <option value="">General (no client)</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>{client.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="chat-session-btn"
+              onClick={() => void saveConversationMeta()}
+              disabled={!activeConversationId || isSavingMeta}
+              title="Save title/client assignment"
+              aria-label="Save conversation settings"
+            >
+              <SaveOutlined />
+            </button>
+            <button
+              type="button"
+              className="chat-session-btn chat-session-btn--danger"
+              onClick={() => void archiveConversation()}
+              disabled={!activeConversationId}
+              title="Archive conversation"
+              aria-label="Archive conversation"
+            >
+              <DeleteOutlined />
+            </button>
+          </div>
+          {metaError && <div className="chat-session-error">{metaError}</div>}
+          {sourceBadges.length > 0 && (
+            <div className="chat-sources" aria-label="Orchestrator sources">
+              {sourceBadges.map((source) => (
+                <span key={`${source.tool}:${source.summary}`} className="chat-source-pill" title={source.summary}>
+                  {toolNameLabel(source.tool)}{typeof source.count === 'number' ? ` (${source.count})` : ''}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <SessionRail />

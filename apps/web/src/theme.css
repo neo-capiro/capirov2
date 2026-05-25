@@ -7038,6 +7038,525 @@ body {
   line-height: 1.45;
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Workspace Overview — redesign sample port
+   (hero, pillars, tracks infographic, ecosystem mindmap, flow)
+   Scoped under .workspace-overview so it doesn't bleed into other layouts.
+   ────────────────────────────────────────────────────────────────────────── */
+
+.workspace-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  padding-top: 4px;
+  font-family: var(--font-sans-rd);
+}
+
+.wso-hero {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr;
+  gap: 28px;
+  align-items: center;
+  padding: 32px 36px;
+  background:
+    radial-gradient(circle at 88% 0%, rgba(42, 87, 206, 0.10), transparent 50%),
+    radial-gradient(circle at 6% 100%, rgba(217, 119, 87, 0.05), transparent 45%),
+    var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: 16px;
+}
+.wso-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--accent-ink);
+  display: inline-block;
+  padding: 4px 10px;
+  background: var(--accent-soft);
+  border-radius: 999px;
+  margin-bottom: 12px;
+}
+.wso-hero-title {
+  font-size: 40px;
+  line-height: 1.05;
+  letter-spacing: -0.024em;
+  font-weight: 700;
+  margin: 0 0 12px;
+  color: var(--ink-1);
+  text-wrap: balance;
+}
+.wso-hero-title em {
+  font-family: var(--font-serif-rd);
+  font-style: italic;
+  font-weight: 500;
+  color: var(--accent-ink);
+}
+.wso-hero-sub {
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink-2);
+  margin: 0 0 18px;
+  max-width: 540px;
+  text-wrap: pretty;
+}
+.wso-hero-cta {
+  display: flex;
+  gap: 8px;
+}
+.wso-hero-vis {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.wso-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-1);
+}
+.wso-section-head h3 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  color: var(--ink-1);
+}
+.wso-section-head .sub {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+}
+
+.wso-pillars {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+.wso-pillar {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: 14px;
+  padding: 22px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-family: inherit;
+  text-align: left;
+  color: var(--ink-1);
+  transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+}
+.wso-pillar:hover {
+  box-shadow: var(--shadow-2);
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+.wso-pillar .ico {
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+}
+.wso-pillar[data-tone='library']    .ico { background: var(--info-soft);    color: var(--info); }
+.wso-pillar[data-tone='workflows']  .ico { background: var(--notable-soft); color: var(--notable); }
+.wso-pillar[data-tone='strategies'] .ico { background: var(--accent-soft);  color: var(--accent-ink); }
+.wso-pillar h4 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+}
+.wso-pillar p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+.wso-pillar .link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-ink);
+  margin-top: 4px;
+}
+
+/* Flow */
+.wso-flow {
+  display: grid;
+  grid-template-columns: 1fr 24px 1fr 24px 1fr 24px 1fr 24px 1fr;
+  gap: 8px;
+  align-items: stretch;
+}
+.wso-flow-step {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  padding: 14px 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 100%;
+}
+.wso-flow-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--ink-1);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.wso-flow-step h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink-1);
+}
+.wso-flow-step p {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.wso-flow-arrow {
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+
+/* Tracks infographic */
+.ig-tracks {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.ig-tracks-head {
+  padding: 22px 26px 18px;
+  border-bottom: 1px solid var(--border-1);
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+}
+.ig-tracks-head h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  color: var(--ink-1);
+}
+.ig-tracks-head .sub {
+  font-size: 13px;
+  color: var(--ink-3);
+  font-style: italic;
+}
+
+.ig-track {
+  padding: 26px 32px;
+  border-bottom: 1px dashed var(--border-1);
+}
+.ig-track:last-child { border-bottom: none; }
+.ig-track-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 22px;
+  margin-bottom: 22px;
+}
+.ig-track-head .left { flex: 0 0 220px; }
+.ig-track-head .badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-bottom: 8px;
+}
+.ig-track-head .badge.auth     { background: var(--info-soft);    color: var(--info); }
+.ig-track-head .badge.approps  { background: var(--accent-soft);  color: var(--accent-ink); }
+.ig-track-head .badge.support  { background: var(--success-soft); color: var(--success); }
+.ig-track-head h3 {
+  margin: 0 0 6px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-family: var(--font-serif-rd);
+  font-style: italic;
+  color: var(--ink-1);
+}
+.ig-track-head .lede {
+  font-size: 13.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+  flex: 1;
+  text-wrap: pretty;
+}
+.ig-track-head .lede b { color: var(--ink-1); font-weight: 600; }
+
+/* Authorization timeline */
+.ig-auth-list { display: flex; flex-direction: column; gap: 12px; }
+.ig-auth-row {
+  display: grid;
+  grid-template-columns: 220px 1fr 120px;
+  gap: 18px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+.ig-auth-row .ig-auth-name { display: flex; flex-direction: column; gap: 4px; }
+.ig-auth-row .code {
+  font-family: var(--font-mono-rd);
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--info-soft);
+  color: var(--info);
+  padding: 3px 9px;
+  border-radius: 4px;
+  width: max-content;
+  letter-spacing: 0.05em;
+}
+.ig-auth-row .name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-1);
+  line-height: 1.25;
+}
+.ig-auth-row .note {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.4;
+}
+.ig-cycle {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  height: 36px;
+}
+.ig-cycle-cell {
+  flex: 1;
+  border-right: 1px solid var(--bg-surface);
+  background: var(--bg-sunken);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono-rd);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+}
+.ig-cycle-cell:first-child { border-radius: 6px 0 0 6px; }
+.ig-cycle-cell:last-child  { border-radius: 0 6px 6px 0; border-right: none; }
+.ig-cycle-cell[data-state='past']    { background: var(--bg-sunken);    color: var(--ink-4); }
+.ig-cycle-cell[data-state='current'] {
+  background: var(--info);
+  color: #fff;
+  font-weight: 700;
+  font-size: 11.5px;
+  box-shadow: 0 2px 8px rgba(42, 87, 206, 0.32);
+}
+.ig-cycle-cell[data-state='reauth']  {
+  background: var(--notable);
+  color: #fff;
+  font-weight: 700;
+}
+.ig-cycle-cell[data-state='future']  {
+  background: var(--bg-surface-2);
+  color: var(--ink-3);
+  border: 1px solid var(--border-1);
+}
+.ig-auth-row .ig-cycle-meta {
+  font-size: 11px;
+  color: var(--ink-3);
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ig-auth-row .ig-cycle-meta b {
+  color: var(--ink-1);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Pinwheels */
+.ig-wheels {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 22px;
+  align-items: start;
+}
+.ig-wheel {
+  background: var(--bg-surface-2);
+  border: 1px solid var(--border-1);
+  border-radius: 12px;
+  padding: 22px;
+}
+.ig-wheel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.ig-wheel-head .name {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--ink-1);
+}
+.ig-wheel-head .meta {
+  font-size: 11px;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+.ig-wheel svg { display: block; width: 100%; height: auto; }
+.ig-wheel-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-1);
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.ig-wheel-legend .swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
+/* Supporting pyramid */
+.ig-pyramid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-width: 760px;
+  margin: 0 auto;
+}
+.ig-pyramid-row {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 0;
+}
+.ig-pyramid-bar {
+  padding: 14px 18px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-left: 4px solid;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.ig-pyramid-bar .code {
+  font-family: var(--font-mono-rd);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.ig-pyramid-bar .name { font-size: 14px; font-weight: 700; color: var(--ink-1); }
+.ig-pyramid-bar .sub  { font-size: 12px; color: var(--ink-3); margin-left: auto; }
+.ig-pyramid-row .descr {
+  font-size: 12.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.ig-pyramid-bar[data-tier='0'] { border-left-color: var(--critical); width: 96%; }
+.ig-pyramid-bar[data-tier='1'] { border-left-color: var(--accent);   width: 88%; }
+.ig-pyramid-bar[data-tier='2'] { border-left-color: var(--info);     width: 78%; }
+.ig-pyramid-bar[data-tier='3'] { border-left-color: var(--success);  width: 68%; }
+.ig-pyramid-bar[data-tier='0'] .code { background: var(--critical-soft); color: var(--critical); }
+.ig-pyramid-bar[data-tier='1'] .code { background: var(--accent-soft);   color: var(--accent-ink); }
+.ig-pyramid-bar[data-tier='2'] .code { background: var(--info-soft);     color: var(--info); }
+.ig-pyramid-bar[data-tier='3'] .code { background: var(--success-soft);  color: var(--success); }
+
+/* Ecosystem mindmap */
+.eco-map {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.eco-map-head {
+  padding: 22px 26px 18px;
+  border-bottom: 1px solid var(--border-1);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.eco-map-head .ttl h2 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.018em;
+  color: var(--ink-1);
+}
+.eco-map-head .ttl p {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--ink-3);
+  line-height: 1.5;
+  max-width: 640px;
+}
+.eco-map-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--ink-2);
+}
+.eco-map-legend .item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.eco-map-legend .swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.eco-map-canvas {
+  position: relative;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(42, 87, 206, 0.04), transparent 60%),
+    var(--bg-surface);
+  padding: 18px;
+}
+.eco-map-canvas svg { display: block; width: 100%; height: auto; }
+.eco-node circle {
+  transition: filter 0.15s, transform 0.15s;
+  transform-origin: center;
+  transform-box: fill-box;
+  cursor: pointer;
+}
+.eco-node:hover circle { filter: brightness(1.05); transform: scale(1.06); }
+
 .workflows-view {
   display: flex;
   flex-direction: column;

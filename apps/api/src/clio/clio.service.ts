@@ -185,7 +185,9 @@ export class ClioService {
 
     if (input.clientId !== undefined) {
       if (input.clientId) await this.ensureClientVisible(ctx, input.clientId);
-      data.clientId = input.clientId ?? null;
+      data.client = input.clientId
+        ? { connect: { id: input.clientId } }
+        : { disconnect: true };
     }
 
     if (!Object.keys(data).length) {
@@ -657,58 +659,13 @@ export class ClioService {
     const intent = await this.classifyIntent(content);
     this.logger.debug(`Stream intent: ${intent}`);
 
-    // Gather context
-    const contextParts: string[] = [];
-    if (conversation.clientId) {
-      try {
-        const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-          tx.client.findFirst({
-            where: { id: conversation.clientId! },
-            select: { name: true, description: true, productDescription: true },
-          }),
-        );
-        if (client) {
-          contextParts.push(`Client: ${client.name}`);
-          if (client.description) contextParts.push(`Description: ${client.description}`);
-          if (client.productDescription) contextParts.push(`Product/service: ${client.productDescription}`);
-        }
-      } catch { /* skip */ }
-    }
-
-    // Gather memories
-    const memories = await this.loadRelevantMemories(ctx.tenantId, content);
-    if (memories.length) {
-      contextParts.push('\nRelevant firm knowledge (from Clio memory):');
-      for (const mem of memories) {
-        contextParts.push(`- ${mem.value}`);
-      }
-    }
-
-    // Auto-inject intelligence data for relevant intents
-    if (['query_intelligence', 'generate_briefing', 'general_question'].includes(intent)) {
-      try {
-        const clientName = conversation.clientId
-          ? await this.prisma.withTenant(ctx.tenantId, (tx) =>
-              tx.client.findFirst({
-                where: { id: conversation.clientId! },
-                select: { name: true },
-              }),
-            ).then((c) => c?.name ?? undefined)
-          : undefined;
-        const intelResult = await this.tools.execute(ctx, 'query_intelligence' as never, {
-          clientName: clientName ?? undefined,
-        });
-        const intelData = (intelResult as Record<string, unknown>)?.data;
-        if (typeof intelData === 'string' && intelData.length > 10) {
-          contextParts.push('\nFederal lobbying intelligence (from Capiro database):');
-          contextParts.push(intelData);
-        }
-      } catch { /* non-fatal — continue without intel context */ }
-    }
-
-    const unifiedSystemPrompt = this.buildUnifiedSystemPrompt(intent, contextParts.join('\n'));
+    const orchestration = await this.orchestrateContext(ctx, conversation.clientId, intent, content);
+    const unifiedSystemPrompt = this.buildUnifiedSystemPrompt(intent, orchestration.context);
 
     sse.write(`data: ${JSON.stringify({ type: 'start', intent })}\n\n`);
+    if (orchestration.sources.length) {
+      sse.write(`data: ${JSON.stringify({ type: 'sources', sources: orchestration.sources })}\n\n`);
+    }
 
     let assistantContent = '';
     try {
@@ -789,7 +746,10 @@ export class ClioService {
           conversationId,
           role: 'assistant',
           body: assistantContent,
-          metadata: { intent },
+          metadata: {
+            intent,
+            sources: orchestration.sources.map((source) => source.tool),
+          },
         },
       }),
     );
@@ -803,6 +763,108 @@ export class ClioService {
     void this.generateProactiveAlerts(ctx.tenantId).catch(() => {});
 
     sse.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+  }
+
+  private async orchestrateContext(
+    ctx: TenantContext,
+    clientId: string | null,
+    intent: string,
+    query: string,
+  ): Promise<{ context: string; sources: ClioSourceAttribution[] }> {
+    const contextParts: string[] = [];
+    const sources: ClioSourceAttribution[] = [];
+
+    if (clientId) {
+      try {
+        const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.client.findFirst({
+            where: { id: clientId },
+            select: { name: true, description: true, productDescription: true },
+          }),
+        );
+        if (client) {
+          contextParts.push(`Client: ${client.name}`);
+          if (client.description) contextParts.push(`Description: ${client.description}`);
+          if (client.productDescription) contextParts.push(`Product/service: ${client.productDescription}`);
+          sources.push({ tool: 'client_profile', count: 1, summary: `Client profile loaded for ${client.name}` });
+        }
+      } catch {
+        // ignore context failures
+      }
+    }
+
+    try {
+      const memories = await this.loadRelevantMemories(ctx.tenantId, query);
+      if (memories.length) {
+        contextParts.push('\nRelevant firm knowledge (from Clio memory):');
+        for (const mem of memories) contextParts.push(`- ${mem.value}`);
+        sources.push({ tool: 'clio_memory', count: memories.length, summary: `Loaded ${memories.length} memory items` });
+      }
+    } catch {
+      // ignore memory failures
+    }
+
+    const shouldLoadResearch = ['query_clients', 'query_engagement', 'query_workflow', 'generate_draft', 'general_question'].includes(intent);
+    if (shouldLoadResearch) {
+      try {
+        const research = await this.tools.execute(ctx, 'search_research_sources' as never, {
+          query,
+          clientId: clientId ?? undefined,
+          limit: 10,
+        });
+        const results = Array.isArray((research as { results?: unknown[] }).results)
+          ? ((research as { results?: unknown[] }).results ?? [])
+          : [];
+        if (results.length) {
+          contextParts.push('\nCapiro research context:');
+          contextParts.push(summarizeJsonForPrompt(results, 5500));
+          sources.push({ tool: 'search_research_sources', count: results.length, summary: `Loaded ${results.length} research records` });
+        }
+      } catch {
+        // ignore research failures
+      }
+    }
+
+    const shouldLoadIntel = ['query_intelligence', 'generate_briefing', 'general_question'].includes(intent);
+    if (shouldLoadIntel) {
+      try {
+        const clientName = clientId
+          ? await this.prisma.withTenant(ctx.tenantId, (tx) =>
+              tx.client.findFirst({ where: { id: clientId }, select: { name: true } }),
+            ).then((c) => c?.name ?? undefined)
+          : undefined;
+        const intelResult = await this.tools.execute(ctx, 'query_intelligence' as never, {
+          clientName: clientName ?? undefined,
+        });
+        const intelData = (intelResult as Record<string, unknown>)?.data;
+        if (typeof intelData === 'string' && intelData.length > 10) {
+          contextParts.push('\nFederal lobbying intelligence (from Capiro database):');
+          contextParts.push(intelData);
+          sources.push({ tool: 'query_intelligence', summary: 'Federal intelligence snapshot loaded' });
+        }
+      } catch {
+        // ignore intel failures
+      }
+    }
+
+    if (clientId && ['query_clients', 'query_engagement', 'generate_briefing', 'generate_draft'].includes(intent)) {
+      try {
+        const clientCtx = await this.tools.execute(ctx, 'get_client_context' as never, { clientId });
+        const rawCtx = (clientCtx as Record<string, unknown>)?.context;
+        if (rawCtx) {
+          contextParts.push('\nDetailed client context:');
+          contextParts.push(summarizeJsonForPrompt(rawCtx, 5000));
+          sources.push({ tool: 'get_client_context', summary: 'Loaded structured client context' });
+        }
+      } catch {
+        // ignore detailed context failures
+      }
+    }
+
+    return {
+      context: contextParts.join('\n'),
+      sources,
+    };
   }
 
   private async classifyIntent(message: string): Promise<string> {
@@ -1306,6 +1368,17 @@ function titleFromMessage(body: string): string {
     .find(Boolean);
   if (!firstLine) return 'New Clio session';
   return firstLine.length > 72 ? `${firstLine.slice(0, 69)}...` : firstLine;
+}
+
+function summarizeJsonForPrompt(value: unknown, maxChars = 5000): string {
+  try {
+    const text = JSON.stringify(value, null, 2);
+    if (!text) return '';
+    if (text.length <= maxChars) return text;
+    return `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`;
+  } catch {
+    return '';
+  }
 }
 
 function errorMessage(error: unknown): string {
