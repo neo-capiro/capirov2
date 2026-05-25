@@ -5,6 +5,7 @@ import {
   AuditOutlined,
   BankOutlined,
   BookOutlined,
+  ClockCircleOutlined,
   DollarOutlined,
   FileSearchOutlined,
   FileTextOutlined,
@@ -61,7 +62,8 @@ type SourceKey =
   | 'fara'
   | 'sec'
   | 'articles'
-  | 'state-bills';
+  | 'state-bills'
+  | 'comment-deadlines';
 
 interface SourceMeta {
   key: SourceKey;
@@ -83,6 +85,7 @@ const SOURCES: SourceMeta[] = [
   { key: 'sec', label: 'SEC Filings', description: '8-K, 10-Q, S-1 from SEC EDGAR.', icon: <AuditOutlined /> },
   { key: 'articles', label: 'News Feed', description: 'RSS-ingested intel articles (Politico, RollCall, etc.).', icon: <ReadOutlined /> },
   { key: 'state-bills', label: 'State Bills', description: 'State legislation via OpenStates.', icon: <SolutionOutlined /> },
+  { key: 'comment-deadlines', label: 'Comment Deadlines', description: 'Open comment periods on federal rules, closing soonest.', icon: <ClockCircleOutlined /> },
 ];
 
 type DrillIn = { source: SourceKey; id: string; rowSummary: ReactNode } | null;
@@ -134,6 +137,7 @@ export function DataExplorerPage() {
         {source === 'sec' ? <SecExplorer onRowClick={(id, row) => setDrillIn({ source: 'sec', id, rowSummary: row.companyName })} /> : null}
         {source === 'articles' ? <ArticlesExplorer onRowClick={(id, row) => setDrillIn({ source: 'articles', id, rowSummary: row.title })} /> : null}
         {source === 'state-bills' ? <StateBillsExplorer onRowClick={(id, row) => setDrillIn({ source: 'state-bills', id, rowSummary: `${row.state} ${row.identifier}` })} /> : null}
+        {source === 'comment-deadlines' ? <CommentDeadlinesExplorer onRowClick={(id, row) => setDrillIn({ source: 'comment-deadlines', id, rowSummary: row.title })} /> : null}
       </div>
 
       <ExplorerDrillInDrawer drillIn={drillIn} onClose={() => setDrillIn(null)} />
@@ -758,6 +762,131 @@ function FedRegExplorer({
             dataIndex: 'significantRule',
             width: 110,
             render: (b: boolean) => (b ? <Tag color="gold">significant</Tag> : null),
+          },
+        ]}
+      />
+    </>
+  );
+}
+
+/* ── Comment Deadlines (Federal Register, open-comment preset) ──────────── */
+
+function CommentDeadlinesExplorer({
+  onRowClick,
+}: {
+  onRowClick: (id: string, row: ExplorerFedRegRow) => void;
+}) {
+  const api = useApi();
+  const [q, setQ] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [agencies, setAgencies] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [q, agencies]);
+
+  const facets = useQuery<FedRegFacets>({
+    queryKey: ['explorer-fed-reg-facets'],
+    queryFn: async () => (await api.get<FedRegFacets>('/api/explorer/fed-reg-facets')).data,
+    staleTime: 10 * 60 * 1000,
+  });
+
+  const rowsQuery = useQuery<ExplorerResponse<ExplorerFedRegRow>>({
+    queryKey: ['explorer-comment-deadlines', q, agencies, page],
+    queryFn: async () =>
+      (
+        await api.get<ExplorerResponse<ExplorerFedRegRow>>('/api/explorer/federal-register', {
+          params: {
+            q: q || undefined,
+            agencies: agencies.length ? agencies.join(',') : undefined,
+            openCommentOnly: true,
+            sort: 'comment-close',
+            page,
+            pageSize: PAGE_SIZE,
+          },
+        })
+      ).data,
+    placeholderData: (previous) => previous,
+  });
+
+  return (
+    <>
+      <ExplorerFilterBar
+        searchPlaceholder="Search rule title or abstract…"
+        searchInput={searchInput}
+        onSearchInput={setSearchInput}
+        onSearchSubmit={() => setQ(searchInput.trim())}
+        onClearSearch={() => {
+          setSearchInput('');
+          setQ('');
+        }}
+        controls={
+          <MultiSelect
+            label="Agency"
+            placeholder="Any agency"
+            options={(facets.data?.agencies ?? []).map((a) => ({ value: a, label: a }))}
+            values={agencies}
+            onChange={setAgencies}
+            loading={facets.isLoading}
+          />
+        }
+      />
+
+      <ExplorerTable
+        loading={rowsQuery.isLoading}
+        rows={rowsQuery.data?.rows ?? []}
+        total={rowsQuery.data?.total ?? 0}
+        page={page}
+        onPageChange={setPage}
+        rowKey="id"
+        onRowClick={onRowClick}
+        columns={[
+          {
+            title: 'Comment closes',
+            dataIndex: 'commentEndDate',
+            width: 170,
+            render: (d: string | null) => {
+              if (!d) return <span style={{ color: 'var(--ink-3)' }}>—</span>;
+              const days = Math.ceil((new Date(d).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+              const sev: 'critical' | 'notable' | 'info' =
+                days <= 3 ? 'critical' : days <= 14 ? 'notable' : 'info';
+              return (
+                <span className="num">
+                  <span className={`pill ${sev}`} style={{ marginRight: 8 }}>
+                    {days <= 0 ? 'closed' : `${days}d left`}
+                  </span>
+                  {formatDate(d)}
+                </span>
+              );
+            },
+          },
+          {
+            title: 'Title',
+            dataIndex: 'title',
+            ellipsis: true,
+            render: (title: string, r: ExplorerFedRegRow) =>
+              r.htmlUrl ? (
+                <a href={r.htmlUrl} target="_blank" rel="noreferrer">
+                  {title}
+                </a>
+              ) : (
+                title
+              ),
+          },
+          {
+            title: 'Agency',
+            dataIndex: 'agencyNames',
+            width: 220,
+            render: (a: string[]) => (
+              <span>
+                {a.slice(0, 1).join('')}
+                {a.length > 1 ? <span style={{ color: 'var(--ink-3)' }}> +{a.length - 1}</span> : null}
+              </span>
+            ),
+          },
+          {
+            title: 'Type',
+            dataIndex: 'type',
+            width: 140,
+            render: (t: string) => <Tag className="redesign-mono-tag">{t.replace(/_/g, ' ')}</Tag>,
           },
         ]}
       />

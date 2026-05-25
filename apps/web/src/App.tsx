@@ -22,6 +22,7 @@ import { WorkspaceOverview } from './pages/workspace/WorkspaceOverview.js';
 import { StrategiesList } from './pages/workspace/StrategiesList.js';
 import { StrategyWizard } from './pages/workspace/StrategyWizard.js';
 import { StrategyDashboard } from './pages/workspace/StrategyDashboard.js';
+import { WhitePaperEditorPage } from './pages/workspace/WhitePaperEditorPage.js';
 import { IntelligenceCenterPage } from './pages/intelligence/IntelligenceCenterPage.js';
 import { ChangesInboxPage } from './pages/intelligence/ChangesInboxPage.js';
 import { IntelligenceMappingsPage } from './pages/settings/IntelligenceMappingsPage.js';
@@ -56,6 +57,7 @@ export function App() {
           <Route path="strategies" element={<StrategiesList />} />
           <Route path="strategy/new" element={<StrategyWizard />} />
           <Route path="strategy/:id" element={<StrategyDashboard />} />
+          <Route path="strategy/:id/white-paper/:instanceId" element={<WhitePaperEditorPage />} />
           <Route path="catalog" element={<Navigate to="/workspace/library" replace />} />
           <Route path="kanban" element={<Navigate to="/workspace/workflows" replace />} />
         </Route>

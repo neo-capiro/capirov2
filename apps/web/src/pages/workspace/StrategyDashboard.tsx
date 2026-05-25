@@ -452,12 +452,25 @@ export function StrategyDashboard() {
       width: 180,
       render: (_: unknown, inst: WorkflowInstance & { template: WorkflowTemplate }) => {
         const isSupporting = inst.template?.category === 'supporting';
+        const slug = String(inst.templateSlug ?? (inst.template as any)?.slug ?? '').toLowerCase();
+        const isProgramWhitePaper =
+          slug === 'program-white-paper' ||
+          slug === 'program_white_paper' ||
+          (slug.includes('white') && slug.includes('paper'));
         const hasGeneratedDoc = Boolean((inst.formData ?? {}).generated_document);
         const isGenerating = generatingIds.has(String(inst.id));
 
         return (
           <Space size="small">
-            {isSupporting && !hasGeneratedDoc ? (
+            {isProgramWhitePaper ? (
+              <Button
+                size="small"
+                type="primary"
+                onClick={() => navigate(`/workspace/strategy/${id}/white-paper/${inst.id}`)}
+              >
+                View & Edit
+              </Button>
+            ) : isSupporting && !hasGeneratedDoc ? (
               <Button
                 size="small"
                 type="primary"

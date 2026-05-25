@@ -1634,8 +1634,17 @@ body {
 }
 
 .home-overnight-body {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.home-overnight-body::-webkit-scrollbar { height: 6px; }
+.home-overnight-body::-webkit-scrollbar-track { background: transparent; }
+.home-overnight-body::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
 }
 
 .home-overnight-cell {
@@ -1644,6 +1653,10 @@ body {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 0 0 calc(100% / 3);
+  min-width: 260px;
+  scroll-snap-align: start;
+  box-sizing: border-box;
 }
 .home-overnight-cell:last-child { border-right: none; }
 
@@ -9557,6 +9570,103 @@ body {
   margin: 0;
 }
 
+/* Knowledge Graph — React Flow custom nodes */
+.kg-flow-container {
+  height: 640px;
+  background: var(--bg-canvas);
+  border-top: 1px solid var(--border-1);
+  border-radius: 0 0 var(--r-lg) var(--r-lg);
+  font-family: var(--font-sans-rd);
+}
+.kg-flow-container .react-flow__edge-text {
+  font-family: var(--font-sans-rd);
+}
+.kg-flow-container .react-flow__controls {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  box-shadow: var(--shadow-1);
+}
+.kg-flow-container .react-flow__controls button {
+  background: var(--bg-surface);
+  border: none;
+  border-bottom: 1px solid var(--border-1);
+  color: var(--ink-2);
+}
+.kg-flow-container .react-flow__controls button:hover {
+  background: var(--bg-surface-2);
+}
+.kg-flow-container .react-flow__minimap {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: var(--r-sm);
+}
+.kg-node {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: var(--r-md);
+  padding: 10px 14px;
+  font-family: var(--font-sans-rd);
+  box-shadow: var(--shadow-1);
+  min-width: 180px;
+  max-width: 220px;
+}
+.kg-node-client {
+  background: var(--bg-dark);
+  color: var(--ink-on-dark);
+  border: 1px solid var(--bg-dark-2);
+  padding: 18px 22px;
+  min-width: 220px;
+  text-align: center;
+  border-radius: var(--r-lg);
+}
+.kg-node-client-name {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.kg-node-client-sector {
+  margin-top: 8px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  display: inline-block;
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--r-xs);
+  color: var(--ink-on-dark-2);
+}
+.kg-node-client-meta {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--ink-on-dark-3);
+}
+.kg-node-entity {
+  border-top: 3px solid transparent;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.kg-node-entity-eyebrow {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  font-family: var(--font-mono-rd);
+}
+.kg-node-entity-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-1);
+  line-height: 1.25;
+}
+.kg-node-entity-sub {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.3;
+}
+
 /* Drill-in drawer (row click → side drawer with full record) */
 .explorer-drill-drawer .ant-drawer-header {
   background: var(--bg-surface-2);
@@ -12039,5 +12149,263 @@ body {
   }
   .eo-flow-arrow {
     transform: rotate(90deg);
+  }
+}
+
+/* White Paper editor */
+.wp-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: var(--bg-canvas);
+  display: flex;
+  flex-direction: column;
+}
+
+.wp-topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-1);
+  background: var(--bg-surface);
+}
+
+.wp-topbar .back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.wp-topbar .crumb {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+.wp-topbar .crumb b {
+  color: var(--ink-2);
+}
+
+.wp-topbar .title-input {
+  flex: 1;
+  min-width: 240px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 8px 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink-1);
+}
+
+.wp-topbar .title-input:hover,
+.wp-topbar .title-input:focus {
+  border-color: var(--border-1);
+  background: var(--bg-surface-2);
+  outline: none;
+}
+
+.wp-topbar .saved {
+  font-size: 11px;
+  color: var(--ink-3);
+  min-width: 100px;
+  text-align: right;
+}
+
+.wp-topbar .actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wp-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr) 280px;
+}
+
+.wp-sidebar {
+  background: var(--bg-surface-2);
+  border-right: 1px solid var(--border-1);
+  padding: 18px 14px;
+  overflow-y: auto;
+}
+
+.wp-sidebar h4 {
+  margin: 0 0 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--ink-3);
+}
+
+.wp-outline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wp-outline-item {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-left: 2px solid transparent;
+  color: var(--ink-2);
+  border-radius: 6px;
+}
+
+.wp-outline-item:hover {
+  background: var(--bg-surface);
+}
+
+.wp-outline-item.active {
+  background: var(--bg-surface);
+  border-left-color: var(--accent);
+  color: var(--ink-1);
+  font-weight: 600;
+}
+
+.wp-outline-item .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--border-2);
+  flex-shrink: 0;
+}
+
+.wp-outline-item.has-content .dot {
+  background: var(--success);
+}
+
+.wp-stats {
+  margin-top: 16px;
+  border-top: 1px solid var(--border-1);
+  padding-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+
+.wp-stats .row {
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
+.wp-stats .row b {
+  color: var(--ink-1);
+}
+
+.wp-paper-wrap {
+  overflow-y: auto;
+  padding: 22px;
+}
+
+.wp-paper {
+  max-width: 880px;
+  margin: 0 auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: 12px;
+  padding: 22px;
+  box-shadow: var(--shadow-2);
+}
+
+.wp-paper .ant-input.wp-paper-h1 {
+  border: 0;
+  padding: 0;
+  box-shadow: none;
+  font-size: 30px;
+  font-family: var(--font-serif);
+  margin-bottom: 14px;
+}
+
+.wp-paper .ant-input.wp-paper-h1:focus,
+.wp-paper .ant-input.wp-paper-h1:hover {
+  box-shadow: none;
+}
+
+.wp-paper .ant-input-affix-wrapper,
+.wp-paper .ant-input,
+.wp-paper .ant-input-textarea {
+  border-color: var(--border-1);
+}
+
+.wp-section-body textarea {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.wp-clio {
+  background: var(--bg-surface);
+  border-left: 1px solid var(--border-1);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.wp-clio-head {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.wp-clio-head .title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-1);
+}
+
+.wp-clio-head .sub {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.wp-clio-section h5 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+@media (max-width: 1200px) {
+  .wp-body {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .wp-clio {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .wp-topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .wp-body {
+    grid-template-columns: 1fr;
+  }
+
+  .wp-sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-1);
+    max-height: 220px;
   }
 }

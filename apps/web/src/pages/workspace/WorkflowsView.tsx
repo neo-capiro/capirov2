@@ -85,6 +85,17 @@ export function WorkflowsView() {
   );
 
   const openCard = (workflow: WorkflowInstance) => {
+    const slug = String(workflow.templateSlug ?? workflow.template?.slug ?? '').toLowerCase();
+    const isProgramWhitePaper =
+      slug === 'program-white-paper' ||
+      slug === 'program_white_paper' ||
+      (slug.includes('white') && slug.includes('paper'));
+
+    if (isProgramWhitePaper && workflow.strategyId) {
+      navigate(`/workspace/strategy/${workflow.strategyId}/white-paper/${workflow.id}`);
+      return;
+    }
+
     setSelectedInstance(workflow);
     setDrawerOpen(true);
   };

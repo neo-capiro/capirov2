@@ -8,7 +8,6 @@ import type { Client } from './clients/clientTypes.js';
 import type {
   ComingUpItem,
   ComingUpResult,
-  CommentAlert,
   DailyBrief,
   IntelligenceChange,
   LiveTickerItem,
@@ -46,18 +45,6 @@ export function HomePage() {
       }
     },
     staleTime: 2 * 60 * 1000,
-  });
-
-  const commentAlerts = useQuery<{ alerts: CommentAlert[] }>({
-    queryKey: ['comment-alerts'],
-    queryFn: async () => {
-      try {
-        return (await api.get<{ alerts: CommentAlert[] }>('/api/intelligence/comment-alerts')).data;
-      } catch {
-        return { alerts: [] };
-      }
-    },
-    staleTime: 5 * 60 * 1000,
   });
 
   const timeline = useQuery<TodayTimeline>({
@@ -145,8 +132,6 @@ export function HomePage() {
         loading={comingUp.isLoading}
         isError={comingUp.isError}
       />
-
-      <CommentAlertsCard alerts={commentAlerts.data?.alerts ?? []} />
     </section>
   );
 }
@@ -285,53 +270,6 @@ function ComingUpStrip({
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-/* ── Comment alerts card (redesign styling) ─────────────────────────────── */
-
-function CommentAlertsCard({ alerts }: { alerts: CommentAlert[] }) {
-  if (!alerts.length) return null;
-  // Dedupe by documentId — getCommentPeriodAlerts emits one row per (doc × client).
-  // We show one row per doc with a count of how many clients it touches.
-  const byDoc = new Map<string, CommentAlert & { clientCount: number; clientNames: string[] }>();
-  for (const a of alerts) {
-    const existing = byDoc.get(a.documentId);
-    if (existing) {
-      existing.clientCount += 1;
-      if (existing.clientNames.length < 3) existing.clientNames.push(a.clientName);
-    } else {
-      byDoc.set(a.documentId, { ...a, clientCount: 1, clientNames: [a.clientName] });
-    }
-  }
-  const rows = [...byDoc.values()].sort((a, b) => a.daysToDeadline - b.daysToDeadline);
-
-  return (
-    <div className="home-alerts-card">
-      <div className="home-alerts-head">Comment-period deadlines</div>
-      {rows.map((a) => {
-        const sev: TimelineEventSeverity =
-          a.daysToDeadline < 3 ? 'critical' : a.daysToDeadline <= 7 ? 'notable' : 'info';
-        const namesSuffix =
-          a.clientCount > a.clientNames.length
-            ? `, +${a.clientCount - a.clientNames.length} more`
-            : '';
-        return (
-          <div key={a.documentId} className={`home-alert-row sev-${sev}`}>
-            <span className="home-alert-stripe" aria-hidden />
-            <div>
-              <p className="home-alert-title">
-                {a.title.length > 90 ? a.title.slice(0, 90) + '…' : a.title}
-              </p>
-              <p className="home-alert-dek">
-                {a.clientNames.join(', ')}{namesSuffix} · {a.agencies.slice(0, 2).join(' / ')}
-              </p>
-            </div>
-            <span className={`pill ${sev}`}>{a.daysToDeadline}d left</span>
-          </div>
-        );
-      })}
     </div>
   );
 }
