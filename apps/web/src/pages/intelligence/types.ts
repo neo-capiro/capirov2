@@ -221,8 +221,21 @@ export interface CongressBillDetail extends CongressBill {
 
 /* ── Client Intelligence Profile ──────────────────────────────────────── */
 
+export interface ClientCapabilityRef {
+  name: string;
+  sector: string | null;
+  tags: string[];
+}
+
 export interface ClientIntelProfile {
-  client: { id: string; name: string; description: string | null; capabilities: string[] };
+  client: {
+    id: string;
+    name: string;
+    description: string | null;
+    sectorTag: string | null;
+    submissionTracks: string[];
+    capabilities: ClientCapabilityRef[];
+  };
   lda: {
     matched: boolean; ldaClientId: number | null; confidence: number;
     totalFilings: number; totalSpending: number | null; issueCodes: string[];
@@ -322,6 +335,33 @@ export interface IssueLeaderboard {
   registrants: LeaderboardRegistrant[];
 }
 
+export interface CompetitorBoardEntry {
+  registrantName: string;
+  filingCount: number;
+  isNewEntrant: boolean;
+  issueOverlap: string[];
+}
+
+export interface CompetitorBoard {
+  competitors: CompetitorBoardEntry[];
+  leaderboards: IssueLeaderboard[];
+}
+
+export interface ExStafferCoveredPosition {
+  position_title?: string;
+  offices?: Array<{ name?: string }>;
+  dates_covered?: string;
+}
+
+export interface ExStafferEntry {
+  name: string;
+  coveredPositions: ExStafferCoveredPosition[];
+}
+
+export interface ExStaffersResult {
+  lobbyists: ExStafferEntry[];
+}
+
 export interface HealthScore {
   score: number;
   breakdown: {
@@ -346,6 +386,73 @@ export interface CommentAlert {
   clientId: string;
   clientName: string;
   relevanceScore: number;
+}
+
+/* ── Home dashboard — today timeline + ticker + Clio brief ─────────────── */
+
+export type TimelineEventSeverity = 'info' | 'notable' | 'critical';
+export type TimelineEventKind = 'hearing' | 'deadline' | 'change' | 'brief';
+
+export interface TimelineEvent {
+  id: string;
+  kind: TimelineEventKind;
+  label: string;
+  title: string;
+  detail: string | null;
+  severity: TimelineEventSeverity;
+  time: string | null;
+  timestamp: string;
+  href: string | null;
+}
+
+export interface TodayTimeline {
+  events: TimelineEvent[];
+  counts: { critical: number; notable: number; info: number };
+  today: string;
+}
+
+export interface LiveTickerItem {
+  id: string;
+  source: string;
+  title: string;
+  severity: string;
+  detectedAt: string;
+}
+
+export interface DailyBrief {
+  brief: string;
+  generatedAt: string;
+  provider: string | null;
+  model: string | null;
+  empty: boolean;
+}
+
+export type ComingUpItemKind = 'hearing' | 'markup' | 'deadline';
+
+export interface ComingUpItem {
+  id: string;
+  kind: ComingUpItemKind;
+  label: string;
+  title: string;
+  detail: string | null;
+  severity: TimelineEventSeverity;
+  date: string;
+  time: string | null;
+  href: string | null;
+}
+
+export interface ComingUpResult {
+  items: ComingUpItem[];
+  totalThisWeek: number;
+}
+
+export interface PortfolioSummary {
+  activeClients: number;
+  openWorkflows: number;
+  needAttention: number;
+  ldaSpendQtd: number;
+  billsTracked: number;
+  activeRegulations: number;
 }
 
 /* ── Report Card (Feature 4.1) ─────────────────────────────────────────── */

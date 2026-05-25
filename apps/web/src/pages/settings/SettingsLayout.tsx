@@ -47,15 +47,20 @@ export function SettingsLayout() {
     visibleTabs[0]?.key ??
     '/settings/personal';
   return (
-    <Card>
-      <Tabs
-        activeKey={active}
-        items={visibleTabs.map((t) => ({
-          key: t.key,
-          label: <Link to={t.key}>{t.label}</Link>,
-        }))}
-      />
-      <Outlet />
-    </Card>
+    <section className="settings-shell">
+      <Card className="settings-panel" bordered={false}>
+        <Tabs
+          className="settings-tabs"
+          activeKey={active}
+          items={visibleTabs.map((t) => ({
+            key: t.key,
+            label: <Link to={t.key}>{t.label}</Link>,
+          }))}
+        />
+        <div className="settings-content">
+          <Outlet />
+        </div>
+      </Card>
+    </section>
   );
 }

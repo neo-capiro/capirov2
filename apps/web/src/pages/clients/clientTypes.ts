@@ -140,6 +140,10 @@ export interface ClientFormValues {
   sectorTag?: string;
   /** Controlled SubmissionTrack[] — see SUBMISSION_TRACKS in @capiro/shared. */
   submissionTracks?: string[];
+  /** Controlled ProfileType — see PROFILE_TYPES in @capiro/shared. */
+  profileType?: string;
+  /** Controlled ProfileStatus — see PROFILE_STATUSES in @capiro/shared. */
+  profileStatus?: string;
   trl?: string;
   fundingAsk?: string;
   requestType?: string;

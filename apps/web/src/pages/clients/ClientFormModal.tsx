@@ -2,12 +2,26 @@ import { useEffect, useState } from 'react';
 import { UploadOutlined } from '@ant-design/icons';
 import { Button, Col, Divider, Form, Input, Modal, Row, Select, Upload, type UploadFile } from 'antd';
 import {
+  PROFILE_STATUSES,
+  PROFILE_TYPES,
   SECTOR_LABELS,
   SECTOR_TAGS,
   SUBMISSION_TRACKS,
   SUBMISSION_TRACK_LABELS,
   normalizeSector,
 } from '@capiro/shared';
+
+const PROFILE_TYPE_LABELS: Record<(typeof PROFILE_TYPES)[number], string> = {
+  CLIENT: 'Client',
+  PROGRAM: 'Program',
+};
+
+const PROFILE_STATUS_LABELS: Record<(typeof PROFILE_STATUSES)[number], string> = {
+  ACTIVE: 'Active',
+  PAUSED: 'Paused',
+  MONITORING: 'Monitoring',
+  ARCHIVED: 'Archived',
+};
 import type {
   Client,
   ClientDocument,
@@ -127,6 +141,32 @@ export function ClientFormModal({
                 allowClear
                 placeholder="Pick one or more"
                 options={SUBMISSION_TRACKS.map((t) => ({ label: SUBMISSION_TRACK_LABELS[t], value: t }))}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="profileType"
+              label="Profile type"
+              tooltip="Client = an external organization you represent. Program = an internal advocacy program."
+            >
+              <Select
+                allowClear
+                placeholder="Client"
+                options={PROFILE_TYPES.map((t) => ({ label: PROFILE_TYPE_LABELS[t], value: t }))}
+              />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={12}>
+            <Form.Item
+              name="profileStatus"
+              label="Profile status"
+              tooltip="Drives which clients surface in proactive alerts and the active portfolio view."
+            >
+              <Select
+                allowClear
+                placeholder="Active"
+                options={PROFILE_STATUSES.map((s) => ({ label: PROFILE_STATUS_LABELS[s], value: s }))}
               />
             </Form.Item>
           </Col>
@@ -357,6 +397,8 @@ export function formValuesToClientPayload(values: ClientFormValues): ClientPaylo
   payload.intakeData = intakeData;
   if (values.sectorTag) payload.sectorTag = values.sectorTag;
   if (values.submissionTracks?.length) payload.submissionTracks = values.submissionTracks;
+  if (values.profileType) payload.profileType = values.profileType;
+  if (values.profileStatus) payload.profileStatus = values.profileStatus;
   return payload;
 }
 
@@ -381,6 +423,8 @@ export function clientToFormValues(client?: Client): ClientFormValues {
       (client.sectorTag ?? undefined) ||
       (normalizeSector(readText(intake, ['sector'])) ?? undefined),
     submissionTracks: client.submissionTracks ?? [],
+    profileType: client.profileType ?? undefined,
+    profileStatus: client.profileStatus ?? undefined,
     trl: readText(intake, ['trl']),
     fundingAsk: readText(intake, ['fundingAsk', 'funding_ask', 'funding ask']),
     requestType: readText(intake, ['requestType', 'request_type', 'request type']),

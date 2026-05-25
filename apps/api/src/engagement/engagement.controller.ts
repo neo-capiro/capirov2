@@ -492,7 +492,64 @@ class UpsertReportTargetOfficeDto extends CreateReportTargetOfficeDto {
   source?: string;
 }
 
+class OutreachContextPoolItemDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  sourceType?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 2000)
+  summary?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 2000)
+  note?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  scope?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  recipientIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  matches?: string[];
+}
+
 class OutreachRecipientDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  id?: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsIn(['on-behalf', 'to-clients'])
+  direction?: 'on-behalf' | 'to-clients';
+
   @IsOptional()
   @IsString()
   @Length(1, 160)
@@ -725,6 +782,10 @@ class CreateOutreachRecordDto {
   @IsUUID()
   meetingId?: string;
 
+  @IsOptional()
+  @IsIn(['on-behalf', 'to-clients'])
+  direction?: 'on-behalf' | 'to-clients';
+
   @IsString()
   @Length(1, 240)
   title!: string;
@@ -746,13 +807,20 @@ class CreateOutreachRecordDto {
   recipients?: OutreachRecipientDto[];
 
   @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachContextPoolItemDto)
+  contextPool?: OutreachContextPoolItemDto[];
+
+  @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
 
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(5)
+  @Max(7)
   lastStep?: number;
 }
 
@@ -764,6 +832,10 @@ class UpdateOutreachRecordDto {
   @IsOptional()
   @IsUUID()
   meetingId?: string | null;
+
+  @IsOptional()
+  @IsIn(['on-behalf', 'to-clients'])
+  direction?: 'on-behalf' | 'to-clients' | null;
 
   @IsOptional()
   @IsIn(outreachStatuses)
@@ -791,13 +863,20 @@ class UpdateOutreachRecordDto {
   recipients?: OutreachRecipientDto[];
 
   @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachContextPoolItemDto)
+  contextPool?: OutreachContextPoolItemDto[];
+
+  @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
 
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(5)
+  @Max(7)
   lastStep?: number;
 }
 
@@ -807,11 +886,22 @@ class GenerateOutreachDraftDto {
   objective?: string;
 
   @IsOptional()
+  @IsIn(['on-behalf', 'to-clients'])
+  direction?: 'on-behalf' | 'to-clients';
+
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(500)
   @ValidateNested({ each: true })
   @Type(() => OutreachRecipientDto)
   recipients?: OutreachRecipientDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachContextPoolItemDto)
+  contextPool?: OutreachContextPoolItemDto[];
 
   @IsOptional()
   @IsIn(outreachPromptTemplates)

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { OutreachWizard } from './outreach/OutreachWizard.js';
 import {
   CheckOutlined,
@@ -90,6 +91,9 @@ const PROMPT_TEMPLATES: Array<{ value: PromptTemplate; label: string; hint: stri
 ];
 
 export interface OutreachRecipient {
+  id?: string;
+  clientId?: string;
+  direction?: 'on-behalf' | 'to-clients';
   name?: string;
   email?: string;
   office?: string;
@@ -114,7 +118,7 @@ export interface OutreachRecipient {
   meetingLocation?: string;
 }
 
-interface OutreachRecord {
+export interface OutreachRecord {
   id: string;
   clientId: string | null;
   meetingId: string | null;
@@ -191,7 +195,7 @@ interface ClientContext {
   };
 }
 
-interface OutreachWorkflowState {
+export interface OutreachWorkflowState {
   record: OutreachRecord | null;
   step: number;
   campaignName: string;
@@ -398,6 +402,8 @@ export function OutreachView({
   const api = useApi();
   const qc = useQueryClient();
   const { message, modal } = App.useApp();
+  const navigate = useNavigate();
+  const location = useLocation();
   const today = todayInputValue();
   const [from, setFrom] = useState(inputValueFromDate(addLocalDays(new Date(), -30)));
   const [to, setTo] = useState(today);
@@ -410,6 +416,49 @@ export function OutreachView({
   }));
   const [readonlyRecord, setReadonlyRecord] = useState<OutreachRecord | null>(null);
   const [directoryQuery, setDirectoryQuery] = useState('');
+  const syncingFromUrlRef = useRef(false);
+  const draftRecordIdFromPath = useMemo(() => {
+    if (!location.pathname.startsWith('/engagement/outreach/draft/')) return null;
+    const value = location.pathname.replace('/engagement/outreach/draft/', '').split('/')[0];
+    return value ? decodeURIComponent(value) : null;
+  }, [location.pathname]);
+
+  useEffect(() => {
+    const path = location.pathname;
+    if (!path.startsWith('/engagement/outreach')) return;
+
+    const rest = path.replace('/engagement/outreach', '');
+    let nextMode: 'landing' | 'selector' | WorkflowType | 'readonly' = 'landing';
+    if (rest === '/new') nextMode = 'selector';
+    else if (rest === '/new/wizard') nextMode = 'campaign';
+    else if (rest.startsWith('/draft/')) nextMode = 'campaign';
+
+    if (mode !== nextMode) {
+      syncingFromUrlRef.current = true;
+      setMode(nextMode);
+    }
+  }, [location.pathname, mode]);
+
+  useEffect(() => {
+    if (!location.pathname.startsWith('/engagement/outreach')) return;
+    if (syncingFromUrlRef.current) {
+      syncingFromUrlRef.current = false;
+      return;
+    }
+
+    let nextPath = '/engagement/outreach';
+    if (mode === 'selector') {
+      nextPath = '/engagement/outreach/new';
+    } else if (mode === 'campaign') {
+      nextPath = workflow.record?.id
+        ? `/engagement/outreach/draft/${encodeURIComponent(workflow.record.id)}`
+        : '/engagement/outreach/new/wizard';
+    }
+
+    if (location.pathname !== nextPath) {
+      navigate({ pathname: nextPath }, { replace: true });
+    }
+  }, [location.pathname, mode, navigate, workflow.record?.id]);
 
   useEffect(() => {
     const locked = mode !== 'landing';
@@ -447,6 +496,22 @@ export function OutreachView({
         })
       ).data,
   });
+
+  const draftRecord = useQuery<OutreachRecord>({
+    queryKey: ['engagement-outreach-record', draftRecordIdFromPath],
+    queryFn: async () =>
+      (await api.get<OutreachRecord>(`/api/engagement/outreach/${draftRecordIdFromPath}`)).data,
+    enabled: Boolean(draftRecordIdFromPath),
+  });
+
+  useEffect(() => {
+    if (!draftRecordIdFromPath || mode !== 'campaign') return;
+    if (workflow.record?.id === draftRecordIdFromPath) return;
+    if (draftRecord.isLoading || !draftRecord.data) return;
+
+    syncingFromUrlRef.current = true;
+    setWorkflow(hydrateWorkflowFromRecord(draftRecord.data, EMPTY_WORKFLOW));
+  }, [draftRecord.data, draftRecord.isLoading, draftRecordIdFromPath, mode, workflow.record?.id]);
 
   const integrations = useQuery<IntegrationConnection[]>({
     queryKey: ['engagement-integrations'],

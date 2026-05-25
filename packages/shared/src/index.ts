@@ -133,6 +133,73 @@ export function normalizeSector(raw: string | null | undefined): SectorTag | nul
 }
 
 // ---------------------------------------------------------------------------
+// Federal agency → SectorTag mapping.
+// Used by comment-period relevance scoring and any future agency-driven alerts.
+// Keep keys aligned with Federal Register agency_names + common abbreviations.
+// ---------------------------------------------------------------------------
+
+export const AGENCY_SECTOR_MAP: Record<string, SectorTag[]> = {
+  'Department of Defense': ['DEFENSE'],
+  DOD: ['DEFENSE'],
+  'Environmental Protection Agency': ['ENVIRONMENT_WATER'],
+  EPA: ['ENVIRONMENT_WATER'],
+  'Department of Health and Human Services': ['HEALTH'],
+  HHS: ['HEALTH'],
+  'Food and Drug Administration': ['HEALTH'],
+  FDA: ['HEALTH'],
+  'Department of Energy': ['ENERGY'],
+  DOE: ['ENERGY'],
+  'Department of Transportation': ['TRANSPORTATION'],
+  DOT: ['TRANSPORTATION'],
+  'Department of Agriculture': ['AGRICULTURE'],
+  USDA: ['AGRICULTURE'],
+  'Department of Homeland Security': ['HOMELAND_SECURITY'],
+  DHS: ['HOMELAND_SECURITY'],
+  'Department of Commerce': ['COMMERCE_TECH'],
+  'Federal Communications Commission': ['COMMERCE_TECH'],
+  FCC: ['COMMERCE_TECH'],
+  'Department of Education': ['EDUCATION'],
+  'Securities and Exchange Commission': ['FINANCIAL_SERVICES'],
+  SEC: ['FINANCIAL_SERVICES'],
+  'Department of the Treasury': ['FINANCIAL_SERVICES'],
+  'Consumer Financial Protection Bureau': ['FINANCIAL_SERVICES'],
+  'Department of the Interior': ['ENVIRONMENT_WATER'],
+  'Army Corps of Engineers': ['ENVIRONMENT_WATER', 'DEFENSE'],
+};
+
+// ---------------------------------------------------------------------------
+// SectorTag → canonical LDA issue codes.
+// Bridges the controlled SectorTag taxonomy to the LDA filing taxonomy so
+// market-wide intel changes can be tagged with `relatedIssues` (LDA codes)
+// when the emitter only has sector context. Codes are the 3-letter LDA
+// issue-code identifiers (see lda_issue_code table). Multiple codes per
+// sector is intentional — a "DEFENSE" sector touches DEF + HOM + AER.
+// ---------------------------------------------------------------------------
+
+export const SECTOR_TO_LDA_CODES: Record<SectorTag, string[]> = {
+  DEFENSE: ['DEF', 'HOM', 'AER', 'INT'],
+  HEALTH: ['HCR', 'MMM', 'PHA', 'MED'],
+  ENERGY: ['ENG', 'FUE'],
+  TRANSPORTATION: ['TRA', 'AVI', 'RRR', 'MAR', 'AUT'],
+  AGRICULTURE: ['AGR', 'FOO'],
+  HOMELAND_SECURITY: ['HOM', 'IMM', 'LAW'],
+  ENVIRONMENT_WATER: ['ENV', 'WAT', 'CAW', 'NAT'],
+  COMMERCE_TECH: ['CPT', 'COM', 'TEC', 'SCI', 'TEL', 'SMB'],
+  EDUCATION: ['EDU'],
+  FINANCIAL_SERVICES: ['BAN', 'FIN', 'TAX', 'INS', 'ACC'],
+  OTHER: [],
+};
+
+/** Collect LDA issue codes for a list of sectors, deduped. */
+export function ldaCodesForSectors(sectors: readonly SectorTag[]): string[] {
+  const out = new Set<string>();
+  for (const sector of sectors) {
+    for (const code of SECTOR_TO_LDA_CODES[sector] ?? []) out.add(code);
+  }
+  return [...out];
+}
+
+// ---------------------------------------------------------------------------
 // Submission tracks (Portfolio v2 §2.5)
 // ---------------------------------------------------------------------------
 

@@ -17,7 +17,8 @@ import { EngagementPage } from './pages/engagement/EngagementPage.js';
 import { IntegrationsPage } from './pages/settings/IntegrationsPage.js';
 import { WorkspaceLayout } from './pages/workspace/WorkspaceLayout.js';
 import { CatalogView } from './pages/workspace/CatalogView.js';
-import { KanbanBoard } from './pages/workspace/KanbanBoard.js';
+import { WorkflowsView } from './pages/workspace/WorkflowsView.js';
+import { WorkspaceOverview } from './pages/workspace/WorkspaceOverview.js';
 import { StrategiesList } from './pages/workspace/StrategiesList.js';
 import { StrategyWizard } from './pages/workspace/StrategyWizard.js';
 import { StrategyDashboard } from './pages/workspace/StrategyDashboard.js';
@@ -25,6 +26,7 @@ import { IntelligenceCenterPage } from './pages/intelligence/IntelligenceCenterP
 import { ChangesInboxPage } from './pages/intelligence/ChangesInboxPage.js';
 import { IntelligenceMappingsPage } from './pages/settings/IntelligenceMappingsPage.js';
 import { IssueLeaderboardPage } from './pages/intelligence/IssueLeaderboardPage.js';
+import { DataExplorerPage } from './pages/explorer/DataExplorerPage.js';
 
 export function App() {
   return (
@@ -45,21 +47,29 @@ export function App() {
       >
         <Route path="/" element={<HomePage />} />
         <Route path="/clients" element={<ClientWorkspacePage />} />
-        <Route path="/engagement" element={<EngagementPage />} />
+        <Route path="/engagement/*" element={<EngagementPage />} />
         <Route path="/workspace" element={<WorkspaceLayout />}>
-          <Route index element={<Navigate to="/workspace/catalog" replace />} />
-          <Route path="catalog" element={<CatalogView />} />
-          <Route path="kanban" element={<KanbanBoard />} />
+          <Route index element={<Navigate to="/workspace/overview" replace />} />
+          <Route path="overview" element={<WorkspaceOverview />} />
+          <Route path="library" element={<CatalogView />} />
+          <Route path="workflows" element={<WorkflowsView />} />
           <Route path="strategies" element={<StrategiesList />} />
           <Route path="strategy/new" element={<StrategyWizard />} />
           <Route path="strategy/:id" element={<StrategyDashboard />} />
+          <Route path="catalog" element={<Navigate to="/workspace/library" replace />} />
+          <Route path="kanban" element={<Navigate to="/workspace/workflows" replace />} />
         </Route>
-        <Route path="/intelligence" element={<IntelligenceCenterPage />} />
+        <Route path="/explorer" element={<DataExplorerPage />} />
+        {/* Intelligence routes kept for legacy URLs — the page renames itself
+            to "Data Explorer" in the sidebar, but ChangesInbox + IssueLeaderboard
+            stay reachable for now. The main /intelligence path redirects. */}
+        <Route path="/intelligence" element={<Navigate to="/explorer" replace />} />
         <Route path="/intelligence/changes" element={<ChangesInboxPage />} />
         <Route path="/intelligence/issues/:code" element={<IssueLeaderboardPage />} />
         <Route path="/intelligence/client/:clientId" element={<Navigate to="/clients" replace />} />
         <Route path="/intelligence/client/:clientId/graph" element={<Navigate to="/clients" replace />} />
-        <Route path="/intelligence/*" element={<Navigate to="/intelligence" replace />} />
+        <Route path="/intelligence/*" element={<Navigate to="/explorer" replace />} />
+        <Route path="/intelligence-center" element={<IntelligenceCenterPage />} />
         <Route path="/directory" element={<DirectoryPage />} />
         <Route path="/portal/*" element={<Navigate to="/clients" replace />} />
 

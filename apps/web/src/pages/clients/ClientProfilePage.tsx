@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeftOutlined,
@@ -28,6 +28,7 @@ import {
   Space,
   Spin,
   Tag,
+  Tooltip,
   Typography,
   Upload,
 } from 'antd';
@@ -36,6 +37,10 @@ import {
   CAPABILITY_TAG_SUGGESTIONS,
   SECTOR_LABELS,
   SECTOR_TAGS,
+  SUBMISSION_TRACK_LABELS,
+  normalizeSector,
+  type SectorTag,
+  type SubmissionTrack,
 } from '@capiro/shared';
 import type { Capability } from './CapabilityDrawer.js';
 import { CapabilityDrawer } from './CapabilityDrawer.js';
@@ -119,7 +124,8 @@ export function ClientProfilePage({
     queryKey: ['client-people', client.id],
     queryFn: async () =>
       (await api.get<ClientPerson[]>(`/api/clients/${client.id}/people`)).data,
-    enabled: activeTab === 'people',
+    // Eager-load for tab badge counts; cheap query and lets the tab strip
+    // show "(N)" without waiting for the user to click in.
   });
 
   const workflows = useQuery<WorkflowInstance[]>({
@@ -130,7 +136,17 @@ export function ClientProfilePage({
           params: { clientId: client.id },
         })
       ).data,
-    enabled: activeTab === 'workflows',
+  });
+
+  const docsCount = useQuery<{ id: string }[]>({
+    queryKey: ['client-attachments-count', client.id],
+    queryFn: async () =>
+      (
+        await api.get<{ id: string }[]>('/api/engagement/attachments', {
+          params: { clientId: client.id },
+        })
+      ).data,
+    staleTime: 60_000,
   });
 
   const createCapability = useMutation({
@@ -180,7 +196,12 @@ export function ClientProfilePage({
   const tags = portfolioTags(client);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+    <div
+      className="redesign"
+      style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--bg-canvas)' }}
+    >
+      <h1 className="cp-page-title">Portfolio</h1>
+
       {/* Banner */}
       <div className="cp-banner">
         <button className="cp-back" onClick={onBack} aria-label="Back to clients">
@@ -215,7 +236,7 @@ export function ClientProfilePage({
               </a>
             ) : null}
             {client.primaryContactPhone ? (
-              <a href={`tel:${client.primaryContactPhone.replace(/\s/g, '')}`}>
+              <a href={`tel:${client.primaryContactPhone.replace(/[^\d+]/g, '')}`}>
                 <PhoneOutlined /> {client.primaryContactPhone}
               </a>
             ) : null}
@@ -236,21 +257,27 @@ export function ClientProfilePage({
             accept="image/png,image/jpeg,image/svg+xml,image/webp"
             showUploadList={false}
             beforeUpload={(file) => {
+              if ((file as File).size > 2 * 1024 * 1024) {
+                void message.error('Logo must be 2 MB or smaller.');
+                return Upload.LIST_IGNORE;
+              }
               void onUploadLogo(client, file as File).then(() => onClientUpdated());
               return false;
             }}
           >
-            <Button
-              size="small"
-              icon={<UploadOutlined />}
-              style={{
-                borderColor: 'rgba(255,255,255,.25)',
-                color: 'rgba(255,255,255,.8)',
-                background: 'transparent',
-              }}
-            >
-              Logo
-            </Button>
+            <Tooltip title="PNG, JPG, SVG or WebP. Max 2 MB.">
+              <Button
+                size="small"
+                icon={<UploadOutlined />}
+                style={{
+                  borderColor: 'rgba(255,255,255,.25)',
+                  color: 'rgba(255,255,255,.8)',
+                  background: 'transparent',
+                }}
+              >
+                Logo
+              </Button>
+            </Tooltip>
           </Upload>
           <Button
             size="small"
@@ -282,26 +309,43 @@ export function ClientProfilePage({
 
       {/* Tab nav */}
       <div className="cp-tabs">
-        {(['overview', 'capabilities', 'people', 'workflows', 'documents', 'intelligence'] as ProfileTab[]).map((tab) => (
-          <div
-            key={tab}
-            className={`cp-tab${activeTab === tab ? ' active' : ''}`}
-            onClick={() => setActiveTab(tab)}
-            role="tab"
-          >
-            {tab === 'overview'
-              ? 'Overview'
-              : tab === 'capabilities'
-                ? `Capabilities${capabilities.data?.length ? ` (${capabilities.data.length})` : ''}`
-                : tab === 'people'
-                  ? 'People'
-                  : tab === 'workflows'
-                    ? 'Workflows'
-                    : tab === 'documents'
-                      ? 'Documents'
-                      : 'Intelligence'}
-          </div>
-        ))}
+        {(['overview', 'capabilities', 'people', 'workflows', 'documents', 'intelligence'] as ProfileTab[]).map((tab) => {
+          const badge =
+            tab === 'capabilities'
+              ? capabilities.data?.length
+              : tab === 'people'
+                ? people.data?.length
+                : tab === 'workflows'
+                  ? workflows.data?.length
+                  : tab === 'documents'
+                    ? docsCount.data?.length
+                    : null;
+          return (
+            <div
+              key={tab}
+              className={`cp-tab${activeTab === tab ? ' active' : ''}`}
+              onClick={() => setActiveTab(tab)}
+              role="tab"
+            >
+              <span>
+                {tab === 'overview'
+                  ? 'Overview'
+                  : tab === 'capabilities'
+                    ? 'Capabilities'
+                    : tab === 'people'
+                      ? 'People'
+                      : tab === 'workflows'
+                        ? 'Workflows'
+                        : tab === 'documents'
+                          ? 'Documents'
+                          : 'Intelligence'}
+              </span>
+              {badge != null && badge > 0 ? (
+                <span className="cp-tab-badge num">{badge}</span>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
 
       {/* Body */}
@@ -316,7 +360,10 @@ export function ClientProfilePage({
               intake={intake}
               capabilities={capabilities.data ?? []}
               capsLoading={capabilities.isLoading}
+              people={people.data ?? []}
+              peopleLoading={people.isLoading}
               onViewAllCaps={() => setActiveTab('capabilities')}
+              onViewAllPeople={() => setActiveTab('people')}
               onCapClick={setSelectedCapability}
               onAddCap={() => setAddCapabilityOpen(true)}
             />
@@ -405,7 +452,10 @@ function OverviewTab({
   intake,
   capabilities,
   capsLoading,
+  people,
+  peopleLoading,
   onViewAllCaps,
+  onViewAllPeople,
   onCapClick,
   onAddCap,
 }: {
@@ -413,105 +463,391 @@ function OverviewTab({
   intake: Record<string, unknown>;
   capabilities: Capability[];
   capsLoading: boolean;
+  people: ClientPerson[];
+  peopleLoading: boolean;
   onViewAllCaps: () => void;
+  onViewAllPeople: () => void;
   onCapClick: (c: Capability) => void;
   onAddCap: () => void;
 }) {
+  const api = useApi();
   const cageCode = readText(intake, ['cageCode', 'cage_code']);
   const uei = readText(intake, ['uei']);
   const primaryNaics = readText(intake, ['primaryNaics', 'primary_naics', 'naics']);
   const samStatus = readText(intake, ['samStatus', 'sam_status']);
   const existingContracts = readText(intake, ['existingContracts', 'existing_contracts']);
 
+  const sectorLabel = sectorLabelFor(client) ?? readText(intake, ['sector']);
+  const submissionTracks = (client.submissionTracks ?? []).map(
+    (t) => SUBMISSION_TRACK_LABELS[t as SubmissionTrack] ?? t,
+  );
+
+  // Engagement snapshot — uses existing endpoints; falls back to 0/— if any
+  // single endpoint is unavailable so the card always renders.
+  const trackedBills = useQuery<{ total: number } | null>({
+    queryKey: ['tracked-bills', client.id, 'overview'],
+    queryFn: async () => {
+      try {
+        return (
+          await api.get<{ total: number }>(`/api/intelligence/clients/${client.id}/tracked-bills`)
+        ).data;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  const profile = useQuery<{ lda?: { totalSpending: number | null } } | null>({
+    queryKey: ['client-intel-profile', client.id, 'overview'],
+    queryFn: async () => {
+      try {
+        return (await api.get<{ lda?: { totalSpending: number | null } }>(
+          `/api/intelligence/client-profile/${client.id}`,
+        )).data;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  // Engagement snapshot card advertises "last 90 days" — pass `from` so the
+  // count actually reflects that window instead of all-time.
+  const meetingsFromIso = useMemo(
+    () => new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+    [],
+  );
+  const meetings = useQuery<unknown[]>({
+    queryKey: ['client-meetings', client.id, meetingsFromIso],
+    queryFn: async () => {
+      try {
+        return (
+          await api.get<unknown[]>('/api/engagement/meetings', {
+            params: { clientId: client.id, from: meetingsFromIso },
+          })
+        ).data;
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 60_000,
+  });
+  const commentAlerts = useQuery<{ alerts: Array<{ clientId: string; daysToDeadline: number }> }>({
+    queryKey: ['comment-alerts'],
+    queryFn: async () => {
+      try {
+        return (
+          await api.get<{ alerts: Array<{ clientId: string; daysToDeadline: number }> }>(
+            '/api/intelligence/comment-alerts',
+          )
+        ).data;
+      } catch {
+        return { alerts: [] };
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const activeDeadlines = (commentAlerts.data?.alerts ?? []).filter((a) => a.clientId === client.id);
+
+  const snapshotCells: Array<{
+    label: string;
+    value: string;
+    detail: string;
+    tone?: 'critical' | 'info' | 'notable';
+  }> = [
+    {
+      label: 'Meetings',
+      value: String(meetings.data?.length ?? 0),
+      detail: 'Last 90 days',
+    },
+    {
+      label: 'Bills tracked',
+      value: String(trackedBills.data?.total ?? 0),
+      detail: 'Via LDA issue codes',
+      tone: 'info',
+    },
+    {
+      label: 'Active deadlines',
+      value: String(activeDeadlines.length),
+      detail:
+        activeDeadlines.length > 0
+          ? `${activeDeadlines.filter((a) => a.daysToDeadline < 7).length} this week`
+          : 'None in next 14 days',
+      tone: activeDeadlines.length > 0 ? 'critical' : undefined,
+    },
+    {
+      label: 'LDA spend (LTM)',
+      value: profile.data?.lda?.totalSpending
+        ? formatCompactDollars(profile.data.lda.totalSpending)
+        : '$0',
+      detail: profile.data?.lda?.totalSpending ? 'From confirmed mapping' : 'No LDA mapping',
+    },
+  ];
+
   return (
     <div className="overview-grid">
       <div>
-        <div className="profile-section">
-          <div className="ps-title">Company Information</div>
-          <ProfileField label="Name" value={client.name} />
-          <ProfileField
-            label="Website"
-            value={
-              client.website ? (
-                <a href={externalUrl(client.website)} target="_blank" rel="noreferrer">
-                  {client.website}
-                </a>
-              ) : null
-            }
-          />
-          <ProfileField label="Description" value={client.description} />
-          <ProfileField label="Sector" value={readText(intake, ['sector'])} />
-          <ProfileField label="Product / Service" value={client.productDescription} />
-        </div>
+        {/* Engagement snapshot — last 90 days */}
+        <section className="surface" style={{ marginBottom: 14 }}>
+          <header className="surface-head">
+            <h3>Engagement snapshot</h3>
+            <span className="sub">last 90 days</span>
+          </header>
+          <div className="snapshot-grid">
+            {snapshotCells.map((s) => (
+              <div className="snapshot-cell" key={s.label}>
+                <div className="snapshot-label">{s.label}</div>
+                <div
+                  className="snapshot-value num"
+                  style={
+                    s.tone === 'critical'
+                      ? { color: 'var(--critical)' }
+                      : s.tone === 'info'
+                        ? { color: 'var(--info)' }
+                        : s.tone === 'notable'
+                          ? { color: 'var(--notable)' }
+                          : undefined
+                  }
+                >
+                  {s.value}
+                </div>
+                <div className="snapshot-detail">{s.detail}</div>
+              </div>
+            ))}
+          </div>
+        </section>
 
-        <div className="profile-section">
-          <div className="ps-title">Government Registration</div>
-          <ProfileField label="CAGE Code" value={cageCode} />
-          <ProfileField label="UEI (SAM)" value={uei} />
-          <ProfileField label="Primary NAICS" value={primaryNaics} />
-          <ProfileField label="SAM Status" value={samStatus} />
-          <ProfileField label="Existing Contracts" value={existingContracts} />
-        </div>
+        {/* Company information */}
+        <section className="surface">
+          <header className="surface-head">
+            <h3>Company information</h3>
+          </header>
+          <div className="info-table">
+            <InfoRow label="Name" value={<span style={{ fontWeight: 600 }}>{client.name}</span>} />
+            <InfoRow
+              label="Website"
+              value={
+                client.website ? (
+                  <a
+                    href={externalUrl(client.website)}
+                    target="_blank"
+                    rel="noreferrer"
+                    style={{ color: 'var(--info)' }}
+                  >
+                    {client.website}
+                  </a>
+                ) : null
+              }
+            />
+            <InfoRow label="Description" value={client.description} />
+            <InfoRow
+              label="Sector"
+              value={
+                sectorLabel ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span
+                      className="tag-chip"
+                      style={{
+                        background: 'var(--accent-soft)',
+                        color: 'var(--accent-ink)',
+                        borderColor: 'transparent',
+                        fontWeight: 600,
+                      }}
+                    >
+                      {sectorLabel}
+                    </span>
+                  </span>
+                ) : null
+              }
+            />
+            <InfoRow
+              label="Submission tracks"
+              value={
+                submissionTracks.length ? (
+                  <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {submissionTracks.map((t) => (
+                      <span key={t} className="tag-chip">
+                        {t}
+                      </span>
+                    ))}
+                  </span>
+                ) : null
+              }
+            />
+            <InfoRow label="Product / Service" value={client.productDescription} />
+            <InfoRow
+              label="Engagement"
+              value={
+                <span>
+                  <span style={{ color: STATUS_COLOR[client.status] ?? '#8c8c8c', fontWeight: 600 }}>
+                    {titleCase(client.status)}
+                  </span>
+                  {' · since '}
+                  {formatDate(client.createdAt)}
+                </span>
+              }
+            />
+          </div>
+        </section>
 
-        <div className="profile-section">
-          <div className="ps-title">Engagement Info</div>
-          <ProfileField
-            label="Status"
-            value={
-              <span style={{ color: STATUS_COLOR[client.status] ?? '#8c8c8c', fontWeight: 600 }}>
-                {titleCase(client.status)}
-              </span>
-            }
-          />
-          <ProfileField label="Primary Contact" value={client.primaryContactName} />
-          <ProfileField label="Email" value={client.primaryContactEmail} />
-          <ProfileField label="Phone" value={client.primaryContactPhone} />
-          <ProfileField label="Created" value={formatDate(client.createdAt)} />
-        </div>
+        {/* Government Registration — only show if any field is populated */}
+        {cageCode || uei || primaryNaics || samStatus || existingContracts ? (
+          <section className="surface" style={{ marginTop: 14 }}>
+            <header className="surface-head">
+              <h3>Government registration</h3>
+            </header>
+            <div className="info-table">
+              <InfoRow label="CAGE Code" value={cageCode} />
+              <InfoRow label="UEI (SAM)" value={uei} />
+              <InfoRow label="Primary NAICS" value={primaryNaics} />
+              <InfoRow label="SAM Status" value={samStatus} />
+              <InfoRow label="Existing Contracts" value={existingContracts} />
+            </div>
+          </section>
+        ) : null}
       </div>
 
       <div>
-        <div className="profile-section">
-          <div className="overview-right-title">
-            <span>
-              Capabilities
-              {capabilities.length ? (
-                <span style={{ fontWeight: 400, marginLeft: 4 }}>{capabilities.length} total</span>
-              ) : null}
-            </span>
-            <button
-              onClick={onViewAllCaps}
-              style={{
-                background: 'none',
-                border: 'none',
-                cursor: 'pointer',
-                color: '#1c2e4a',
-                fontSize: 11,
-              }}
-            >
-              View all
+        {/* Capabilities preview */}
+        <section className="surface">
+          <header className="surface-head">
+            <h3>Capabilities</h3>
+            <span className="sub">{capabilities.length} total</span>
+            <button className="surface-link" onClick={onViewAllCaps} type="button">
+              View all →
             </button>
+          </header>
+          <div style={{ padding: 4 }}>
+            {capsLoading ? (
+              <Skeleton active paragraph={{ rows: 3 }} />
+            ) : capabilities.length === 0 ? (
+              <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-3)' }}>
+                No capabilities yet.
+              </div>
+            ) : (
+              capabilities.slice(0, 4).map((cap) => (
+                <button
+                  type="button"
+                  key={cap.id}
+                  onClick={() => onCapClick(cap)}
+                  className="overview-cap-row"
+                >
+                  <span className="overview-cap-name">{cap.name}</span>
+                  <span className="overview-cap-meta">
+                    {cap.type ? (
+                      <span className={`cap-pill ${cap.type.toLowerCase()}`}>{cap.type}</span>
+                    ) : null}
+                    {cap.sector ? <span className="cap-sector">{cap.sector}</span> : null}
+                  </span>
+                  <span className="overview-cap-trl num">
+                    {cap.trl != null ? `TRL ${cap.trl}` : '—'}
+                    {cap.mrl != null ? ` · MRL ${cap.mrl}` : ''}
+                  </span>
+                </button>
+              ))
+            )}
           </div>
-
-          {capsLoading ? (
-            <Skeleton active paragraph={{ rows: 3 }} />
-          ) : capabilities.length ? (
-            capabilities.slice(0, 3).map((cap) => (
-              <CapabilityCard key={cap.id} cap={cap} onClick={() => onCapClick(cap)} />
-            ))
-          ) : (
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              No capabilities yet.
-            </Typography.Text>
-          )}
-
-          <button className="she-add-btn" onClick={onAddCap} style={{ marginTop: 8 }}>
+          <button className="she-add-btn" onClick={onAddCap} style={{ margin: '4px 14px 14px' }}>
             <PlusOutlined /> Add capability
           </button>
-        </div>
+        </section>
+
+        {/* Primary contacts preview */}
+        <section className="surface" style={{ marginTop: 14 }}>
+          <header className="surface-head">
+            <h3>Primary contacts</h3>
+            {people.length > 0 ? <span className="sub">{people.length} total</span> : null}
+            {people.length > 0 ? (
+              <button className="surface-link" onClick={onViewAllPeople} type="button">
+                View all →
+              </button>
+            ) : null}
+          </header>
+          <div style={{ padding: '6px 14px 14px' }}>
+            {peopleLoading ? (
+              <Skeleton active paragraph={{ rows: 2 }} />
+            ) : people.length === 0 ? (
+              <div style={{ padding: '20px 0', fontSize: 12, color: 'var(--ink-3)' }}>
+                No people added yet.
+              </div>
+            ) : (
+              people.slice(0, 3).map((p) => (
+                <div key={p.id} className="overview-person-row">
+                  <span className="overview-person-avatar" style={{ background: avatarColor(p.id) }}>
+                    {personInitials(p.name)}
+                  </span>
+                  <span className="overview-person-text">
+                    <span className="overview-person-name">{p.name}</span>
+                    {p.title ? <span className="overview-person-title">{p.title}</span> : null}
+                  </span>
+                  {p.role ? <PersonRoleTag role={p.role} /> : null}
+                </div>
+              ))
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
+}
+
+function InfoRow({ label, value }: { label: string; value: ReactNode }) {
+  const empty = value === null || value === undefined || value === '';
+  return (
+    <div className="info-row">
+      <span className="k">{label}</span>
+      <span className={`v${empty ? ' muted' : ''}`}>{empty ? '—' : value}</span>
+    </div>
+  );
+}
+
+function PersonRoleTag({ role }: { role: string }) {
+  const lower = role.toLowerCase();
+  const isPoc = lower.includes('primary') || lower.includes('poc');
+  const isExec = lower.includes('exec') || lower.includes('ceo') || lower.includes('cfo') || lower.includes('president');
+  const bg = isPoc ? 'var(--accent-soft)' : isExec ? 'var(--notable-soft)' : 'var(--bg-sunken)';
+  const color = isPoc ? 'var(--accent-ink)' : isExec ? 'var(--notable)' : 'var(--ink-2)';
+  return (
+    <span
+      style={{
+        fontSize: 10,
+        fontWeight: 600,
+        textTransform: 'uppercase',
+        letterSpacing: '0.08em',
+        padding: '3px 8px',
+        borderRadius: 4,
+        background: bg,
+        color,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {role}
+    </span>
+  );
+}
+
+function personInitials(name: string | null | undefined): string {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}`.toUpperCase();
+}
+
+const AVATAR_PALETTE = ['#5e7ce2', '#7a3fb5', '#c98a1d', '#2e6b43', '#b5301b', '#1a3f9f', '#3a7a4d'];
+function avatarColor(seed: string): string {
+  let h = 0;
+  for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) & 0xffff;
+  return AVATAR_PALETTE[h % AVATAR_PALETTE.length] ?? AVATAR_PALETTE[0]!;
+}
+
+function formatCompactDollars(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return '$0';
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `$${Math.round(value / 1_000)}K`;
+  return `$${Math.round(value)}`;
 }
 
 /* ── Capabilities Tab ────────────────────────────────────────────────────── */
@@ -536,27 +872,18 @@ function CapabilitiesTab({
 
   return (
     <>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 18,
-        }}
-      >
+      <header className="cp-tab-header">
         <div>
-          <Typography.Text strong style={{ fontSize: 15 }}>
-            Capabilities
-          </Typography.Text>
-          <div style={{ fontSize: 12, color: '#8c8c8c', marginTop: 2 }}>
+          <h3 className="cp-tab-h3">Capabilities</h3>
+          <p className="cp-tab-dek">
             Products, services, technologies, and programs — with full submission history per
-            capability
-          </div>
+            capability.
+          </p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} size="small" onClick={onAddCap}>
           Add capability
         </Button>
-      </div>
+      </header>
 
       {capabilities.length ? (
         capabilities.map((cap) => (
@@ -622,21 +949,18 @@ function PeopleTab({
 
   return (
     <>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 18,
-        }}
-      >
-        <Typography.Text strong style={{ fontSize: 15 }}>
-          People
-        </Typography.Text>
+      <header className="cp-tab-header">
+        <div>
+          <h3 className="cp-tab-h3">People</h3>
+          <p className="cp-tab-dek">
+            Key contacts at this client — executives, government affairs, compliance, and
+            operational POCs.
+          </p>
+        </div>
         <Button type="primary" icon={<PlusOutlined />} size="small" onClick={onAddPerson}>
           Add person
         </Button>
-      </div>
+      </header>
 
       {people.length ? (
         <div className="cp-people-grid">
@@ -665,32 +989,70 @@ function WorkflowsTab({
   workflows: WorkflowInstance[];
   loading: boolean;
 }) {
-  if (loading) return <Skeleton active paragraph={{ rows: 4 }} />;
+  if (loading) return <Skeleton active paragraph={{ rows: 6 }} />;
 
-  if (!workflows.length) {
-    return (
-      <div className="cp-tab-empty">
-        <Empty description="No workflows for this client yet." />
-      </div>
-    );
+  // Group workflow statuses into 3 spec columns. The backend has more granular
+  // statuses (triage, in_progress, review, submitted, complete, cancelled);
+  // we collapse review+submitted into "In Progress" and complete+cancelled
+  // into "Done" so the column count matches the spec.
+  const cols: Array<{ key: 'triage' | 'in-progress' | 'done'; title: string; statuses: string[] }> = [
+    { key: 'triage', title: 'Triage', statuses: ['triage'] },
+    { key: 'in-progress', title: 'In Progress', statuses: ['in_progress', 'review', 'submitted'] },
+    { key: 'done', title: 'Done', statuses: ['complete', 'cancelled'] },
+  ];
+
+  const grouped = new Map<string, WorkflowInstance[]>();
+  for (const c of cols) grouped.set(c.key, []);
+  for (const wf of workflows) {
+    const col = cols.find((c) => c.statuses.includes(wf.status))?.key ?? 'triage';
+    grouped.get(col)!.push(wf);
   }
 
   return (
     <>
-      {workflows.map((wf) => (
-        <div className="cp-workflow-row" key={wf.id}>
-          <Tag color={WORKFLOW_STATUS_COLORS[wf.status] ?? 'default'}>{titleCase(wf.status)}</Tag>
-          {wf.template ? (
-            <Tag color="blue" style={{ fontSize: 10 }}>
-              {wf.template.category}
-            </Tag>
-          ) : null}
-          <span className="cp-workflow-title">{wf.title}</span>
-          <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-            {formatDate(wf.createdAt)}
-          </Typography.Text>
+      <header className="cp-tab-header">
+        <div>
+          <h3 className="cp-tab-h3">Workflows</h3>
+          <p className="cp-tab-dek">
+            Active engagement work — drafts, requests, outreach, intel runs. Status moves the card.
+          </p>
         </div>
-      ))}
+        <Button type="primary" icon={<PlusOutlined />} size="small" disabled>
+          New workflow
+        </Button>
+      </header>
+
+      <div className="kanban">
+        {cols.map((col) => {
+          const cards = grouped.get(col.key) ?? [];
+          return (
+            <div key={col.key} className="kb-col" data-status={col.key}>
+              <div className="kb-col-head">
+                <span className="kb-col-dot" aria-hidden />
+                <span className="kb-col-title">{col.title}</span>
+                <span className="kb-col-count num">{cards.length}</span>
+              </div>
+              {cards.length === 0 ? (
+                <div className="kb-col-empty">Nothing here yet</div>
+              ) : (
+                cards.map((wf) => {
+                  const category = (wf.template?.category ?? 'supporting').toLowerCase();
+                  return (
+                    <div className="kb-card" key={wf.id} data-cat={category}>
+                      <span className="cat">{wf.template?.category ?? 'Workflow'}</span>
+                      <div className="title">{wf.title}</div>
+                      <div className="foot">
+                        <span className="num">{formatDate(wf.createdAt)}</span>
+                        <span className="owner">{wf.title.charAt(0).toUpperCase()}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          );
+        })}
+      </div>
     </>
   );
 }
@@ -803,6 +1165,18 @@ function DocumentsTab({
         }}
       />
 
+      <header className="cp-tab-header">
+        <div>
+          <h3 className="cp-tab-h3">Documents</h3>
+          <p className="cp-tab-dek">
+            Capiro auto-parses every upload and routes findings into the Intelligence tab.
+          </p>
+        </div>
+        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+          {docs.data?.length ?? 0} file{(docs.data?.length ?? 0) === 1 ? '' : 's'}
+        </span>
+      </header>
+
       <div
         className={`doc-drop-zone${dragging ? ' dragging' : ''}`}
         onClick={() => !uploading && fileInputRef.current?.click()}
@@ -827,11 +1201,11 @@ function DocumentsTab({
             <div className="doc-drop-zone-icon">
               <CloudUploadOutlined />
             </div>
-            <div>
+            <div style={{ fontFamily: 'var(--font-sans-rd)' }}>
               Drop files here or{' '}
-              <span style={{ color: 'var(--cp-accent)', fontWeight: 600 }}>click to upload</span>
+              <span style={{ color: 'var(--accent)', fontWeight: 600 }}>click to upload</span>
             </div>
-            <div style={{ fontSize: 11, marginTop: 4, color: '#9aa4b2' }}>
+            <div style={{ fontSize: 11, marginTop: 4, color: 'var(--ink-3)' }}>
               PDF, DOC, DOCX, TXT, images · max 25 MB each
             </div>
           </>
@@ -955,35 +1329,42 @@ function CapabilityCard({
   onClick: () => void;
   large?: boolean;
 }) {
-  const TYPE_CSS: Record<string, string> = {
-    product: 'cap-type-product',
-    service: 'cap-type-service',
-    platform: 'cap-type-platform',
-    technology: 'cap-type-technology',
-  };
-  const typeClass = TYPE_CSS[cap.type] ?? 'cap-type-product';
+  const typeKey = (cap.type ?? 'product').toLowerCase();
   const tags = Array.isArray(cap.tags) ? (cap.tags as string[]) : [];
+  const ownerInitial = (cap.peNumber || cap.name || '?')[0]?.toUpperCase() ?? '?';
 
   return (
-    <div className="cap-card" onClick={onClick}>
+    <div className={`cap-card${large ? ' cap-card-large' : ''}`} onClick={onClick}>
       <div className="cap-card-hd">
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="cap-name" style={large ? { fontSize: 14 } : undefined}>
+          <div className="cap-name" style={large ? { fontSize: 16 } : undefined}>
             {cap.name}
+            {large ? <span className={`cap-pill ${typeKey}`}>{cap.type ?? 'Product'}</span> : null}
           </div>
-          <div className="cap-tags-row">
-            <span className={`cap-type-tag ${typeClass}`} style={{ textTransform: 'capitalize' }}>
-              {cap.type}
-            </span>
-            {cap.sector ? <span className="cap-sector-tag">{cap.sector}</span> : null}
-            {tags.slice(0, 2).map((t) => (
-              <span key={t} className="cap-sector-tag">
-                {t}
+          {!large ? (
+            <div className="cap-tags-row">
+              <span className={`cap-pill ${typeKey}`} style={{ textTransform: 'capitalize' }}>
+                {cap.type}
               </span>
-            ))}
-          </div>
-          {large && cap.description ? <div className="cap-desc">{cap.description}</div> : null}
-          {cap.trl != null || cap.mrl != null ? (
+              {cap.sector ? <span className="cap-sector">{cap.sector}</span> : null}
+              {tags.slice(0, 2).map((t) => (
+                <span key={t} className="cap-sector">
+                  {t}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div className="cap-sectors">
+              {cap.sector ? <span className="cap-sector">{cap.sector}</span> : null}
+              {tags.slice(0, 4).map((t) => (
+                <span key={t} className="cap-sector">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+          {large && cap.description ? <p className="cap-desc">{cap.description}</p> : null}
+          {!large && (cap.trl != null || cap.mrl != null) ? (
             <div className="cap-trl">
               {[cap.trl != null ? `TRL ${cap.trl}` : null, cap.mrl != null ? `MRL ${cap.mrl}` : null]
                 .filter(Boolean)
@@ -991,7 +1372,7 @@ function CapabilityCard({
             </div>
           ) : null}
         </div>
-        {cap.fundingAsk != null ? (
+        {!large && cap.fundingAsk != null ? (
           <div className="cap-ask">
             ${(cap.fundingAsk / 1_000_000).toFixed(cap.fundingAsk >= 10_000_000 ? 0 : 1)}M
             {cap.fundingAskLabel ? (
@@ -1000,6 +1381,38 @@ function CapabilityCard({
           </div>
         ) : null}
       </div>
+
+      {large ? (
+        <aside className="cap-trl-block">
+          <div className="cap-trl-label">Maturity</div>
+          <div className="cap-trl-row">
+            <span className="cap-trl-key">TRL</span>
+            <div className="cap-trl-bar">
+              <span style={{ width: `${((cap.trl ?? 0) / 9) * 100}%`, background: 'var(--accent)' }} />
+            </div>
+            <span className="cap-trl-val num">{cap.trl ?? '—'}/9</span>
+          </div>
+          <div className="cap-trl-row">
+            <span className="cap-trl-key">MRL</span>
+            <div className="cap-trl-bar">
+              <span style={{ width: `${((cap.mrl ?? 0) / 10) * 100}%`, background: 'var(--notable)' }} />
+            </div>
+            <span className="cap-trl-val num">{cap.mrl ?? '—'}/10</span>
+          </div>
+          {cap.fundingAsk != null ? (
+            <div className="cap-trl-foot">
+              <span className="cap-trl-foot-label">Funding ask</span>
+              <span className="cap-trl-foot-value num">
+                ${(cap.fundingAsk / 1_000_000).toFixed(cap.fundingAsk >= 10_000_000 ? 0 : 1)}M
+              </span>
+            </div>
+          ) : null}
+          <div className="cap-trl-foot" style={{ borderTop: '1px solid var(--border-1)', paddingTop: 10 }}>
+            <span className="cap-trl-owner-avatar">{ownerInitial}</span>
+            <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>Capability owner</span>
+          </div>
+        </aside>
+      ) : null}
     </div>
   );
 }
@@ -1028,21 +1441,33 @@ function PersonCard({ person, onDelete }: { person: ClientPerson; onDelete: () =
             </Typography.Text>
           ) : null}
         </div>
-        {person.role ? <span className="cp-person-role">{person.role}</span> : null}
+        {person.role ? <PersonRoleTag role={person.role} /> : null}
         <Button size="small" type="text" icon={<DeleteOutlined />} danger onClick={onDelete} />
       </div>
 
       <div
-        style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 12, color: '#595959' }}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 3,
+          fontSize: 12,
+          color: 'var(--ink-2, #595959)',
+        }}
       >
         {person.email ? (
-          <a href={`mailto:${person.email}`} style={{ color: '#595959' }}>
+          <a
+            href={`mailto:${person.email}`}
+            style={{ color: 'var(--ink-2, #595959)', textDecoration: 'none' }}
+          >
             <MailOutlined style={{ marginRight: 5 }} />
             {person.email}
           </a>
         ) : null}
         {person.phone ? (
-          <a href={`tel:${person.phone}`} style={{ color: '#595959' }}>
+          <a
+            href={`tel:${person.phone.replace(/[^\d+]/g, '')}`}
+            style={{ color: 'var(--ink-2, #595959)', textDecoration: 'none' }}
+          >
             <PhoneOutlined style={{ marginRight: 5 }} />
             {person.phone}
           </a>
@@ -1249,15 +1674,34 @@ function AddPersonModal({
 
 function portfolioTags(client: Client): string[] {
   const intake = toRecord(client.intakeData);
+  const tags: string[] = [];
+  const sectorLabel = sectorLabelFor(client);
+  if (sectorLabel) tags.push(sectorLabel);
+  for (const track of client.submissionTracks ?? []) {
+    const label = SUBMISSION_TRACK_LABELS[track as SubmissionTrack] ?? track;
+    if (label) tags.push(label);
+  }
   const raw = (intake['portfolio'] ?? intake['tags']) as unknown;
-  const tags = Array.isArray(raw)
+  const explicit = Array.isArray(raw)
     ? (raw as unknown[]).map((t) => String(t ?? '').trim()).filter(Boolean)
     : [];
-  if (tags.length) return tags;
-  return [
-    readText(intake, ['sector']),
-    readText(intake, ['requestType', 'request_type']),
-  ].filter((t): t is string => Boolean(t));
+  for (const t of explicit) if (!tags.includes(t)) tags.push(t);
+  if (!tags.length) {
+    const fallback = readText(intake, ['requestType', 'request_type']);
+    if (fallback) tags.push(fallback);
+  }
+  return tags;
+}
+
+function sectorLabelFor(client: Client): string | undefined {
+  if (client.sectorTag) {
+    return SECTOR_LABELS[client.sectorTag as SectorTag] ?? client.sectorTag;
+  }
+  const intake = toRecord(client.intakeData);
+  const raw = readText(intake, ['sector']);
+  if (!raw) return undefined;
+  const normalized = normalizeSector(raw);
+  return normalized ? SECTOR_LABELS[normalized] : raw;
 }
 
 function readText(record: Record<string, unknown>, keys: string[]): string | undefined {

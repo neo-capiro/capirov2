@@ -14,10 +14,12 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Empty, Form, Input, Modal, Select, Space, Tabs, Tag, Typography } from 'antd';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMe } from '../../lib/me.js';
 import { useApi } from '../../lib/use-api.js';
 import { useClientFilter } from '../../state/client-filter.js';
 import type { Client } from '../clients/clientTypes.js';
+import { OverviewTab } from './OverviewTab.js';
 import { OutreachView } from './OutreachView.js';
 
 interface EngagementCapabilities {
@@ -309,13 +311,16 @@ export function EngagementPage() {
   const qc = useQueryClient();
   const { message } = App.useApp();
   const me = useMe();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { selectedClientId, setSelectedClientId } = useClientFilter();
   const defaultRange = useMemo(() => defaultMeetingRange(), []);
   const [rangeStart, setRangeStart] = useState(defaultRange.start);
   const [rangeEnd, setRangeEnd] = useState(defaultRange.end);
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [meetingDetailTab, setMeetingDetailTab] = useState('prep');
-  const [activeEngagementTab, setActiveEngagementTab] = useState('meetings');
+  const [activeEngagementTab, setActiveEngagementTab] = useState<'overview' | 'meetings' | 'outreach' | 'reports'>('overview');
   const [meetingViewMode, setMeetingViewMode] = useState<'list' | 'calendar'>('list');
   const [historyBatch, setHistoryBatch] = useState(0);
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('current');
@@ -332,6 +337,111 @@ export function EngagementPage() {
   const [taskForm] = Form.useForm<TaskFormValues>();
   const [prepForm] = Form.useForm<PrepFormValues>();
   const [targetOfficeForm] = Form.useForm<TargetOfficeFormValues>();
+  const syncingFromUrlRef = useRef(false);
+
+  useEffect(() => {
+    const segments = location.pathname.split('/').filter(Boolean);
+    const section = segments[0] === 'engagement' ? segments[1] ?? 'overview' : null;
+    const nextTab =
+      section && ['overview', 'meetings', 'outreach', 'reports'].includes(section)
+        ? (section as 'overview' | 'meetings' | 'outreach' | 'reports')
+        : null;
+    const nextMeetingId =
+      nextTab === 'meetings' && segments[2] ? decodeURIComponent(segments[2]) : null;
+    const nextDetail = searchParams.get('detail');
+    const nextView = searchParams.get('view');
+    const nextFrom = searchParams.get('from');
+    const nextTo = searchParams.get('to');
+    const nextPeriod = searchParams.get('period');
+
+    const hasUrlStateChange =
+      (nextTab && nextTab !== activeEngagementTab) ||
+      (nextTab === 'meetings' && nextMeetingId !== selectedMeetingId) ||
+      (nextTab === 'meetings' && nextDetail && nextDetail !== meetingDetailTab) ||
+      (nextTab === 'meetings' && (nextView === 'list' || nextView === 'calendar') && nextView !== meetingViewMode) ||
+      (nextTab === 'meetings' && nextFrom && nextFrom !== rangeStart) ||
+      (nextTab === 'meetings' && nextTo && nextTo !== rangeEnd) ||
+      (nextTab === 'reports' && ['current', 'previous', 'all'].includes(nextPeriod ?? '') && nextPeriod !== reportPeriod);
+
+    if (!hasUrlStateChange) return;
+    syncingFromUrlRef.current = true;
+
+    if (nextTab) {
+      setActiveEngagementTab(nextTab);
+    }
+    if (nextTab === 'meetings') {
+      setSelectedMeetingId(nextMeetingId);
+      if (nextDetail) setMeetingDetailTab(nextDetail);
+      if (nextView === 'list' || nextView === 'calendar') {
+        setMeetingViewMode(nextView);
+      }
+      if (nextFrom) setRangeStart(nextFrom);
+      if (nextTo) setRangeEnd(nextTo);
+    }
+    if (nextTab === 'reports' && ['current', 'previous', 'all'].includes(nextPeriod ?? '')) {
+      setReportPeriod(nextPeriod as ReportPeriod);
+    }
+  }, [
+    activeEngagementTab,
+    location.pathname,
+    meetingDetailTab,
+    meetingViewMode,
+    rangeEnd,
+    rangeStart,
+    reportPeriod,
+    searchParams,
+    selectedMeetingId,
+  ]);
+
+  useEffect(() => {
+    if (syncingFromUrlRef.current) {
+      syncingFromUrlRef.current = false;
+      return;
+    }
+
+    const nextParams = new URLSearchParams();
+    let nextPath = '/engagement/overview';
+
+    if (activeEngagementTab === 'meetings') {
+      nextPath = selectedMeetingId
+        ? `/engagement/meetings/${encodeURIComponent(selectedMeetingId)}`
+        : '/engagement/meetings';
+      if (meetingDetailTab && meetingDetailTab !== 'prep') nextParams.set('detail', meetingDetailTab);
+      if (meetingViewMode !== 'list') nextParams.set('view', meetingViewMode);
+      if (rangeStart) nextParams.set('from', rangeStart);
+      if (rangeEnd) nextParams.set('to', rangeEnd);
+    } else if (activeEngagementTab === 'outreach') {
+      nextPath = location.pathname.startsWith('/engagement/outreach')
+        ? location.pathname
+        : '/engagement/outreach';
+    } else if (activeEngagementTab === 'reports') {
+      nextPath = '/engagement/reports';
+      if (reportPeriod !== 'current') nextParams.set('period', reportPeriod);
+    }
+
+    const nextSearch = nextParams.toString();
+    const currentSearch = searchParams.toString();
+    if (location.pathname === nextPath && currentSearch === nextSearch) return;
+
+    navigate(
+      {
+        pathname: nextPath,
+        search: nextSearch ? `?${nextSearch}` : '',
+      },
+      { replace: true },
+    );
+  }, [
+    activeEngagementTab,
+    location.pathname,
+    meetingDetailTab,
+    meetingViewMode,
+    navigate,
+    rangeEnd,
+    rangeStart,
+    reportPeriod,
+    searchParams,
+    selectedMeetingId,
+  ]);
 
   const meetingWindow = useMemo(
     () => dateRangeWindow(rangeStart, rangeEnd, historyBatch),
@@ -376,14 +486,24 @@ export function EngagementPage() {
       ).data,
   });
 
+  // ── Tenant-scoped mock meetings (only for "capiro" tenant when API returns nothing)
+  const isCapiroTenant = me.data?.tenant?.slug === 'capiro';
+  const meetingsWithMock = useMemo(() => {
+    const realMeetings = meetings.data ?? [];
+    if (isCapiroTenant && realMeetings.length === 0) {
+      return MOCK_MEETINGS_FOR_CAPIRO;
+    }
+    return realMeetings;
+  }, [meetings.data, isCapiroTenant]);
+
   const visibleMeetings = useMemo(
     () =>
-      [...(meetings.data ?? [])].sort((left, right) => {
+      [...meetingsWithMock].sort((left, right) => {
         const leftTime = new Date(left.startsAt).getTime();
         const rightTime = new Date(right.startsAt).getTime();
         return meetingViewMode === 'calendar' ? leftTime - rightTime : rightTime - leftTime;
       }),
-    [meetingViewMode, meetings.data],
+    [meetingViewMode, meetingsWithMock],
   );
   const selectedMeetingFromVisible = useMemo(
     () => visibleMeetings.find((meeting) => meeting.id === selectedMeetingId) ?? null,
@@ -742,12 +862,18 @@ export function EngagementPage() {
     generatePrep.mutate(meeting.id);
   };
 
+  const handleTabChange = (nextKey: string) => {
+    if (nextKey === 'overview' || nextKey === 'meetings' || nextKey === 'outreach' || nextKey === 'reports') {
+      setActiveEngagementTab(nextKey);
+    }
+  };
+
   return (
-    <section className="engagement-page">
+    <section className="engagement-page redesign">
       <Tabs
         className="engagement-tabs"
         activeKey={activeEngagementTab}
-        onChange={setActiveEngagementTab}
+        onChange={handleTabChange}
         tabBarExtraContent={
           activeEngagementTab === 'meetings'
             ? {
@@ -765,6 +891,20 @@ export function EngagementPage() {
             : undefined
         }
         items={[
+          {
+            key: 'overview',
+            label: 'Overview',
+            children: (
+              <OverviewTab
+                onNavigate={(tab) => setActiveEngagementTab(tab)}
+                stats={{
+                  meetingsThisWeek: meetings.data?.length ?? 0,
+                  debriefsPending: (meetings.data ?? []).filter((m) => m.debriefs.length === 0).length,
+                  draftsOpen: 0,
+                }}
+              />
+            ),
+          },
           {
             key: 'meetings',
             label: 'Meetings',
@@ -1215,35 +1355,41 @@ function MeetingListView({
   onGeneratePrep: (meeting: Meeting) => void;
   onLoadMore: () => void;
 }) {
-  const groups = groupMeetingsByLocalDate(meetings);
+  const weekGroups = groupMeetingsByLocalWeek(meetings);
   return (
     <div className="engagement-list-view">
       <div className="engagement-agenda-list">
-        {groups.map((group, index) => (
-          <div className="engagement-date-group" key={group.key}>
-            {group.isPast && !groups[index - 1]?.isPast ? (
+        {weekGroups.map((weekGroup, index) => (
+          <div className="engagement-date-group" key={weekGroup.key}>
+            {weekGroup.isPastWeek && !weekGroups[index - 1]?.isPastWeek ? (
               <div className="engagement-earlier-divider">
                 <span />
                 <strong>Earlier</strong>
                 <span />
               </div>
             ) : null}
-            <div className={`engagement-date-header${group.isToday ? ' today' : ''}`}>
-              {group.isToday ? `Today - ${formatFullDay(group.date)}` : formatFullDay(group.date)}
-            </div>
-            {group.meetings.map((meeting) => (
-              <MeetingListItem
-                key={meeting.id}
-                meeting={meeting}
-                selected={meeting.id === selectedId}
-                aiConfigured={aiConfigured}
-                generating={generatingMeetingId === meeting.id}
-                onSelect={(tab) => onSelect(meeting, tab)}
-                onGeneratePrep={() => onGeneratePrep(meeting)}
-              />
+            <div className="engagement-date-header">{weekGroup.label}</div>
+            {weekGroup.days.map((group) => (
+              <div className="engagement-date-subgroup" key={group.key}>
+                <div className={`engagement-date-header${group.isToday ? ' today' : ''}`}>
+                  {group.isToday ? `Today - ${formatFullDay(group.date)}` : formatFullDay(group.date)}
+                </div>
+                {group.meetings.map((meeting) => (
+                  <MeetingListItem
+                    key={meeting.id}
+                    meeting={meeting}
+                    selected={meeting.id === selectedId}
+                    aiConfigured={aiConfigured}
+                    generating={generatingMeetingId === meeting.id}
+                    onSelect={(tab) => onSelect(meeting, tab)}
+                    onGeneratePrep={() => onGeneratePrep(meeting)}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         ))}
+
         {historyBatch < 12 ? (
           <Button className="engagement-load-more" onClick={onLoadMore}>
             Load More Meetings
@@ -2811,6 +2957,89 @@ function groupMeetingsByLocalDate(meetings: Meeting[]): Array<{
     }));
 }
 
+function startOfLocalWeek(date: Date): Date {
+  const normalized = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = normalized.getDay();
+  const sundayOffset = day;
+  normalized.setDate(normalized.getDate() - sundayOffset);
+  normalized.setHours(0, 0, 0, 0);
+  return normalized;
+}
+
+function formatWeekRangeLabel(weekStart: Date): string {
+  const weekEnd = addLocalDays(weekStart, 6);
+  const monthFormatter = new Intl.DateTimeFormat(undefined, { month: 'short' });
+  const dayFormatter = new Intl.DateTimeFormat(undefined, { day: 'numeric' });
+  const yearFormatter = new Intl.DateTimeFormat(undefined, { year: 'numeric' });
+
+  const startMonth = monthFormatter.format(weekStart);
+  const endMonth = monthFormatter.format(weekEnd);
+  const startDay = dayFormatter.format(weekStart);
+  const endDay = dayFormatter.format(weekEnd);
+  const startYear = yearFormatter.format(weekStart);
+  const endYear = yearFormatter.format(weekEnd);
+
+  if (startMonth === endMonth && startYear === endYear) {
+    return `Week of ${startMonth} ${startDay}-${endDay}, ${startYear}`;
+  }
+  if (startYear === endYear) {
+    return `Week of ${startMonth} ${startDay} - ${endMonth} ${endDay}, ${startYear}`;
+  }
+  return `Week of ${startMonth} ${startDay}, ${startYear} - ${endMonth} ${endDay}, ${endYear}`;
+}
+
+function groupMeetingsByLocalWeek(meetings: Meeting[]): Array<{
+  key: string;
+  weekStart: Date;
+  label: string;
+  isPastWeek: boolean;
+  days: Array<{
+    key: string;
+    date: Date;
+    isToday: boolean;
+    isPast: boolean;
+    meetings: Meeting[];
+  }>;
+}> {
+  const days = groupMeetingsByLocalDate(meetings);
+  const byWeek = new Map<
+    string,
+    {
+      weekStart: Date;
+      days: Array<{
+        key: string;
+        date: Date;
+        isToday: boolean;
+        isPast: boolean;
+        meetings: Meeting[];
+      }>;
+    }
+  >();
+
+  for (const day of days) {
+    const weekStart = startOfLocalWeek(day.date);
+    const key = inputValueFromDate(weekStart);
+    const existing = byWeek.get(key);
+    if (existing) {
+      existing.days.push(day);
+      continue;
+    }
+    byWeek.set(key, { weekStart, days: [day] });
+  }
+
+  const currentWeekKey = inputValueFromDate(startOfLocalWeek(new Date()));
+
+  return Array.from(byWeek.entries())
+    .sort(([left], [right]) => right.localeCompare(left))
+    .map(([key, value]) => ({
+      key,
+      weekStart: value.weekStart,
+      label: formatWeekRangeLabel(value.weekStart),
+      isPastWeek: key < currentWeekKey,
+      days: value.days.sort((left, right) => right.key.localeCompare(left.key)),
+    }));
+}
+
 function meetingStatus(meeting: Meeting): {
   kind: 'missing' | 'needs-prep' | 'prepped' | 'complete' | 'active';
   label: string;
@@ -3302,3 +3531,39 @@ function safeFileName(value: string): string {
       .slice(0, 80) || 'meeting'
   );
 }
+
+/**
+ * Mock meeting data — only injected for the Capiro tenant when the API
+ * returns zero meetings. Other tenants never see these records.
+ */
+const MOCK_MEETINGS_FOR_CAPIRO: Meeting[] = (() => {
+  const now = new Date();
+  const from = (d: number, h = 14, m = 0) => {
+    const date = new Date(now);
+    date.setDate(date.getDate() + d);
+    date.setHours(h, m, 0, 0);
+    return date.toISOString();
+  };
+
+  return [
+    {
+      id: 'mock-m1', subject: 'Capiro Platform Review', source: 'google', description: 'Review the Capiro platform capabilities and discuss partnership alignment.', location: 'Microsoft Teams Meeting',
+      startsAt: from(2), endsAt: from(2, 14, 45), organizerEmail: 'jordan@capiro.ai', organizerName: 'Jordan Clayton', status: 'confirmed', metadata: null, associationScore: null, associationReason: null,
+      client: { id: 'c1', name: 'Brightdefense', website: null, primaryContactName: null, primaryContactEmail: null }, attendees: [
+        { id: 'a1', email: 'jordan@capiro.ai', name: 'Jordan Clayton', role: 'organizer' },
+        { id: 'a2', email: 'neo@capiro.ai', name: 'Neo Martinez', role: 'required' },
+        { id: 'a3', email: 'jham@mavenadvocacy.com', name: 'Justin Ham', role: 'required' },
+      ], attachments: [], preps: [], notes: [], debriefs: [],
+    },
+    {
+      id: 'mock-m2', subject: 'Intro meeting with Persues consultant', source: 'google', description: null, location: 'Room 16, 112 Main St Los Angeles CA',
+      startsAt: from(1, 13), endsAt: from(1, 13, 30), organizerEmail: 'neo@capiro.ai', organizerName: 'Neo Martinez', status: 'confirmed', metadata: null, associationScore: null, associationReason: null,
+      client: { id: 'c1', name: 'Brightdefense', website: null, primaryContactName: null, primaryContactEmail: null }, attendees: [], attachments: [], preps: [], notes: [], debriefs: [],
+    },
+    {
+      id: 'mock-m3', subject: 'HASC Seapower PSM coffee — Rachel Kim', source: 'google', description: 'Discuss Jaia authorization language.', location: 'Rayburn HOB, Room 2118',
+      startsAt: from(-3, 9), endsAt: from(-3, 9, 30), organizerEmail: 'neo@capiro.ai', organizerName: 'Neo Martinez', status: 'confirmed', metadata: null, associationScore: null, associationReason: null,
+      client: { id: 'c2', name: 'SAGINT INC.', website: null, primaryContactName: null, primaryContactEmail: null }, attendees: [], attachments: [], preps: [], notes: [], debriefs: [],
+    },
+  ];
+})();

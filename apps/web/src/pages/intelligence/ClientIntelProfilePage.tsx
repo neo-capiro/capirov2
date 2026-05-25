@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Alert,
+  App as AntApp,
   Badge,
   Button,
   Card,
@@ -40,8 +41,10 @@ import type {
   BriefingWhatsComingItem,
   BriefingWhatsNewItem,
   ClientIntelProfile,
+  CompetitorBoard,
   CongressBill,
   EnhancedBriefing,
+  ExStaffersResult,
   FederalRegisterDoc,
   HealthScore,
   IntelligenceChange,
@@ -56,6 +59,7 @@ import {
   formatNum,
   issueTagColor,
   trajectoryTag,
+  formatPosition,
   subjectSectorColor,
   MATCHED_TOPIC_COLOR,
 } from './utils.jsx';
@@ -113,10 +117,9 @@ interface ClientIntelOverviewProps {
 
 export function ClientIntelOverview({ clientId, clientName }: ClientIntelOverviewProps) {
   const api = useApi();
+  const { message } = AntApp.useApp();
   const [activeTab, setActiveTab] = useState('lda');
   const [sourceDrawer, setSourceDrawer] = useState<{ title: string; data: unknown } | null>(null);
-  const [generatingBriefing, setGeneratingBriefing] = useState(false);
-  const [briefing, setBriefing] = useState<EnhancedBriefing | null>(null);
 
   const profileQuery = useQuery<ClientIntelProfile>({
     queryKey: ['client-intel-profile', clientId],
@@ -199,16 +202,23 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
     return Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100);
   }, [profile]);
 
-  async function handleGenerateBriefing() {
-    if (!clientId) return;
-    setGeneratingBriefing(true);
-    try {
+  const briefingMutation = useMutation<EnhancedBriefing, Error>({
+    mutationKey: ['client-briefing', clientId],
+    mutationFn: async () => {
       const res = await api.get<EnhancedBriefing>(`/api/intelligence/briefing/${clientId}`);
-      setBriefing(res.data);
-    } finally {
-      setGeneratingBriefing(false);
-    }
-  }
+      return res.data;
+    },
+    onError: (err) => {
+      const detail = err instanceof Error ? err.message : 'Request failed';
+      void message.error(`Briefing generation failed — ${detail}`);
+    },
+  });
+  const briefing = briefingMutation.data ?? null;
+  const generatingBriefing = briefingMutation.isPending;
+  const handleGenerateBriefing = () => {
+    if (!clientId) return;
+    briefingMutation.mutate();
+  };
 
   if (profileQuery.isError) {
     return (
@@ -298,7 +308,7 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
             </Card>
             <Card size="small">
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>Mapping Confidence</Text>
+                <Text type="secondary" style={{ fontSize: 12 }}>LDA Match Confidence</Text>
                 {avgConfidence !== null ? (
                   <Progress
                     type="circle"
@@ -449,6 +459,11 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
                 children: <CompetitorsTab profile={profile} clientId={clientId!} />,
               },
               {
+                key: 'revolving-door',
+                label: 'Revolving Door',
+                children: <RevolvingDoorTab clientId={clientId!} />,
+              },
+              {
                 key: 'briefing',
                 label: 'AI Briefing',
                 children: (
@@ -456,7 +471,7 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
                     profile={profile}
                     briefing={briefing}
                     generating={generatingBriefing}
-                    onGenerate={() => void handleGenerateBriefing()}
+                    onGenerate={handleGenerateBriefing}
                   />
                 ),
               },
@@ -1063,9 +1078,184 @@ function CompetitorsTab({
         </>
       )}
 
+      <CompetitorBoardSection clientId={clientId} />
+
       {competitors.topBySpend.length === 0 && competitors.newEntrants.length === 0 && issueCodes.length === 0 && (
         <Empty description="No competitor data" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 32 }} />
       )}
+    </div>
+  );
+}
+
+/* ── Competitor Board (last 90 days) ────────────────────────────────────── */
+
+function CompetitorBoardSection({ clientId }: { clientId: string }) {
+  const api = useApi();
+
+  const query = useQuery<CompetitorBoard | null>({
+    queryKey: ['competitor-board', clientId],
+    queryFn: async () => {
+      try {
+        return (
+          await api.get<CompetitorBoard>(`/api/intelligence/clients/${clientId}/competitor-board`)
+        ).data;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (query.isLoading) {
+    return <Skeleton active paragraph={{ rows: 4 }} style={{ marginTop: 16 }} />;
+  }
+  const data = query.data;
+  if (!data || !data.competitors.length) return null;
+
+  return (
+    <div style={{ marginTop: 24 }}>
+      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+        Recent Activity (last 90 days)
+      </Text>
+      <Table
+        rowKey="registrantName"
+        size="small"
+        dataSource={data.competitors}
+        pagination={{ pageSize: 10, showSizeChanger: false }}
+        columns={[
+          {
+            title: '',
+            width: 70,
+            render: (_: unknown, r: CompetitorBoard['competitors'][number]) =>
+              r.isNewEntrant ? <Tag color="cyan" style={{ fontSize: 10 }}>NEW</Tag> : null,
+          },
+          { title: 'Firm', dataIndex: 'registrantName', ellipsis: true },
+          {
+            title: 'Filings (90d)',
+            dataIndex: 'filingCount',
+            width: 110,
+            sorter: (a: CompetitorBoard['competitors'][number], b: CompetitorBoard['competitors'][number]) =>
+              a.filingCount - b.filingCount,
+            defaultSortOrder: 'descend' as const,
+            render: (v: number) => <Text strong>{formatNum(v)}</Text>,
+          },
+          {
+            title: 'Shared Issues',
+            dataIndex: 'issueOverlap',
+            render: (issues: string[]) => (
+              <Space wrap size={[2, 2]}>
+                {issues.slice(0, 5).map((iss) => (
+                  <Tag key={iss} color={issueTagColor(iss)} style={{ fontSize: 10 }}>
+                    {iss}
+                  </Tag>
+                ))}
+                {issues.length > 5 ? <Tag style={{ fontSize: 10 }}>+{issues.length - 5}</Tag> : null}
+              </Space>
+            ),
+          },
+        ]}
+      />
+    </div>
+  );
+}
+
+/* ── Revolving Door (ex-staffers on the client's rosters) ────────────────── */
+
+function RevolvingDoorTab({ clientId }: { clientId: string }) {
+  const api = useApi();
+
+  const query = useQuery<ExStaffersResult | null>({
+    queryKey: ['ex-staffers', clientId],
+    queryFn: async () => {
+      try {
+        return (await api.get<ExStaffersResult>(`/api/intelligence/clients/${clientId}/ex-staffers`)).data;
+      } catch {
+        return null;
+      }
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+
+  if (query.isLoading) return <Skeleton active paragraph={{ rows: 6 }} />;
+  const lobbyists = query.data?.lobbyists ?? [];
+  if (!lobbyists.length) {
+    return (
+      <Empty
+        description="No revolving-door coverage detected. Either no confirmed LDA registrant for this client, or none of the registrant's lobbyists have logged covered positions."
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        style={{ marginTop: 32 }}
+      />
+    );
+  }
+
+  // Group by primary current office for "where do we have warm contacts?" lens.
+  const byOffice = new Map<string, typeof lobbyists>();
+  for (const l of lobbyists) {
+    const primary = l.coveredPositions[0];
+    const officeName = primary?.offices?.[0]?.name?.trim() || 'Other / Unknown';
+    if (!byOffice.has(officeName)) byOffice.set(officeName, []);
+    byOffice.get(officeName)!.push(l);
+  }
+  const groups = [...byOffice.entries()].sort(([, a], [, b]) => b.length - a.length);
+
+  return (
+    <div>
+      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+        {lobbyists.length} lobbyist{lobbyists.length === 1 ? '' : 's'} on this client's registrant rosters
+        previously held federal positions. Grouped by most recent office.
+      </Text>
+      <Collapse
+        defaultActiveKey={groups.slice(0, 3).map(([office]) => office)}
+        items={groups.map(([office, people]) => ({
+          key: office,
+          label: (
+            <Space>
+              <Text strong style={{ fontSize: 13 }}>{office}</Text>
+              <Tag color="orange" style={{ fontSize: 10 }}>{people.length}</Tag>
+            </Space>
+          ),
+          children: (
+            <Table
+              rowKey={(r) => `${r.name}-${r.coveredPositions[0]?.position_title ?? ''}`}
+              size="small"
+              dataSource={people}
+              pagination={false}
+              columns={[
+                {
+                  title: 'Lobbyist',
+                  dataIndex: 'name',
+                  width: 200,
+                  render: (name: string) => <Text strong style={{ fontSize: 12 }}>{name}</Text>,
+                },
+                {
+                  title: 'Prior gov positions',
+                  dataIndex: 'coveredPositions',
+                  render: (positions: ExStaffersResult['lobbyists'][number]['coveredPositions']) =>
+                    positions.length === 0 ? (
+                      <Text type="secondary">—</Text>
+                    ) : (
+                      <Space direction="vertical" size={2}>
+                        {positions.slice(0, 4).map((p, idx) => {
+                          const text = formatPosition(p);
+                          return text ? (
+                            <Text key={`${p.position_title ?? ''}-${idx}`} style={{ fontSize: 12 }}>
+                              {text}
+                            </Text>
+                          ) : null;
+                        })}
+                        {positions.length > 4 ? (
+                          <Text type="secondary" style={{ fontSize: 11 }}>
+                            +{positions.length - 4} earlier
+                          </Text>
+                        ) : null}
+                      </Space>
+                    ),
+                },
+              ]}
+            />
+          ),
+        }))}
+      />
     </div>
   );
 }

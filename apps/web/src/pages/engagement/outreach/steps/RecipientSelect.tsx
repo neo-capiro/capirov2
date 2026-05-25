@@ -111,7 +111,7 @@ export function RecipientSelect({ recipients, clientId, onChange }: RecipientSel
       render: (name: string, entry) => (
         <div>
           <div style={{ fontWeight: 500 }}>{name}</div>
-          <div style={{ fontSize: 12, color: '#888' }}>{entry.title}</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{entry.title}</div>
         </div>
       ),
     },
@@ -187,7 +187,7 @@ export function RecipientSelect({ recipients, clientId, onChange }: RecipientSel
           Select recipients
         </Typography.Title>
         {recipients.length > 0 && (
-          <Badge count={recipients.length} style={{ backgroundColor: '#1c2e4a' }} />
+          <Badge count={recipients.length} style={{ backgroundColor: 'var(--accent-ink)' }} />
         )}
       </div>
 

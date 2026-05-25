@@ -5,38 +5,10 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { AGENCY_SECTOR_MAP, ldaCodesForSectors, type SectorTag } from '@capiro/shared';
 dotenvConfig();
 
 const prisma = new PrismaClient();
-
-const AGENCY_SECTOR_MAP: Record<string, string[]> = {
-  'Department of Defense': ['DEFENSE'],
-  'DOD': ['DEFENSE'],
-  'Environmental Protection Agency': ['ENVIRONMENT_WATER'],
-  'EPA': ['ENVIRONMENT_WATER'],
-  'Department of Health and Human Services': ['HEALTH'],
-  'HHS': ['HEALTH'],
-  'Food and Drug Administration': ['HEALTH'],
-  'FDA': ['HEALTH'],
-  'Department of Energy': ['ENERGY'],
-  'DOE': ['ENERGY'],
-  'Department of Transportation': ['TRANSPORTATION'],
-  'DOT': ['TRANSPORTATION'],
-  'Department of Agriculture': ['AGRICULTURE'],
-  'USDA': ['AGRICULTURE'],
-  'Department of Homeland Security': ['HOMELAND_SECURITY'],
-  'DHS': ['HOMELAND_SECURITY'],
-  'Department of Commerce': ['COMMERCE_TECH'],
-  'Federal Communications Commission': ['COMMERCE_TECH'],
-  'FCC': ['COMMERCE_TECH'],
-  'Department of Education': ['EDUCATION'],
-  'Securities and Exchange Commission': ['FINANCIAL_SERVICES'],
-  'SEC': ['FINANCIAL_SERVICES'],
-  'Department of the Treasury': ['FINANCIAL_SERVICES'],
-  'Consumer Financial Protection Bureau': ['FINANCIAL_SERVICES'],
-  'Department of the Interior': ['ENVIRONMENT_WATER'],
-  'Army Corps of Engineers': ['ENVIRONMENT_WATER', 'DEFENSE'],
-};
 
 interface FrDoc {
   id: string;
@@ -116,23 +88,27 @@ async function main() {
       const agencies = doc.agency_names as string[];
 
       // Map agencies to sectors
-      const docSectors = new Set<string>();
+      const docSectors = new Set<SectorTag>();
       for (const agency of agencies) {
-        for (const sector of (AGENCY_SECTOR_MAP[agency] ?? [])) {
+        for (const sector of AGENCY_SECTOR_MAP[agency] ?? []) {
           docSectors.add(sector);
         }
       }
+      const docLdaCodes = ldaCodesForSectors([...docSectors]);
 
       for (const client of clientsWithCaps) {
         let baseRelevance = 0;
+        const matchedSectors = new Set<SectorTag>();
 
-        if (client.sector_tag && docSectors.has(client.sector_tag)) {
+        if (client.sector_tag && docSectors.has(client.sector_tag as SectorTag)) {
           baseRelevance = Math.max(baseRelevance, 0.5);
+          matchedSectors.add(client.sector_tag as SectorTag);
         }
 
         for (const cap of client.capabilities) {
-          if (cap.sector && docSectors.has(cap.sector)) {
+          if (cap.sector && docSectors.has(cap.sector as SectorTag)) {
             baseRelevance = Math.max(baseRelevance, 0.5);
+            matchedSectors.add(cap.sector as SectorTag);
           }
         }
 
@@ -162,6 +138,9 @@ async function main() {
         if (finalScore <= 0.3) continue;
 
         try {
+          const matchedLdaCodes = matchedSectors.size
+            ? ldaCodesForSectors([...matchedSectors])
+            : docLdaCodes;
           await prisma.intelligenceChange.create({
             data: {
               source: 'federal_register',
@@ -170,7 +149,7 @@ async function main() {
               title: `Comment period closing in ${daysToDeadline}d: ${String(doc.title).slice(0, 80)}`,
               description: `${doc.type} from ${agencies.slice(0, 2).join('/')} has a comment deadline in ${daysToDeadline} days. Relevant to ${client.name} (relevance: ${Math.round(finalScore * 100)}%).`,
               relatedClientIds: [client.id],
-              relatedIssues: [],
+              relatedIssues: matchedLdaCodes,
               data: { documentId: doc.id, daysToDeadline, relevanceScore: finalScore, tenantId: tenant.id },
             },
           });

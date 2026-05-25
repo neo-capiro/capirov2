@@ -152,7 +152,21 @@ export type ReportStatus = 'auto' | 'not_started' | 'in_progress' | 'complete';
 export type OutreachType = 'campaign' | 'follow_up' | 'prep' | 'outbound_campaign';
 export type OutreachStatus = 'draft' | 'sent' | 'opened_in_email' | 'failed';
 
+export interface OutreachContextPoolItemInput {
+  id?: string;
+  sourceType?: string;
+  title?: string;
+  summary?: string;
+  note?: string;
+  scope?: string;
+  recipientIds?: string[];
+  matches?: string[];
+}
+
 export interface OutreachRecipientInput {
+  id?: string;
+  clientId?: string;
+  direction?: 'on-behalf' | 'to-clients';
   name?: string;
   email?: string;
   office?: string;
@@ -219,10 +233,12 @@ export interface CreateOutreachRecordInput {
   type: OutreachType;
   clientId?: string;
   meetingId?: string;
+  direction?: 'on-behalf' | 'to-clients';
   title: string;
   subject?: string;
   body?: string;
   recipients?: OutreachRecipientInput[];
+  contextPool?: OutreachContextPoolItemInput[];
   metadata?: Record<string, unknown>;
   lastStep?: number;
 }
@@ -230,11 +246,13 @@ export interface CreateOutreachRecordInput {
 export interface UpdateOutreachRecordInput {
   clientId?: string | null;
   meetingId?: string | null;
+  direction?: 'on-behalf' | 'to-clients' | null;
   status?: OutreachStatus;
   title?: string;
   subject?: string | null;
   body?: string | null;
   recipients?: OutreachRecipientInput[];
+  contextPool?: OutreachContextPoolItemInput[];
   metadata?: Record<string, unknown>;
   lastStep?: number;
 }
@@ -710,12 +728,22 @@ export class EngagementService {
     if (!type) {
       throw new BadRequestException('type must be campaign, follow_up, prep, or outbound_campaign');
     }
-    const recipients = normalizeOutreachRecipients(input.recipients);
+    const direction = normalizeOutreachDirection(input.direction);
+    const recipients = applyOutreachDirection(
+      normalizeOutreachRecipients(input.recipients),
+      direction,
+    );
+    const contextPool = normalizeOutreachContextPool(input.contextPool);
     const clientId = input.clientId?.trim() || null;
     const meetingId = input.meetingId?.trim() || null;
 
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       await this.validateOutreachParents(tx, ctx, clientId, meetingId);
+
+      const metadata = mergeJsonObjects(sanitizeOutreachMetadata(input.metadata), {
+        direction,
+        contextPool,
+      });
 
       return tx.outreachRecord.create({
         data: {
@@ -730,8 +758,8 @@ export class EngagementService {
           body: optionalText(input.body) ?? null,
           recipients: recipients as unknown as Prisma.InputJsonValue,
           recipientCount: recipients.length,
-          metadata: sanitizeOutreachMetadata(input.metadata) as Prisma.InputJsonValue,
-          lastStep: clampInt(input.lastStep, 1, 1, 5),
+          metadata: metadata as Prisma.InputJsonValue,
+          lastStep: clampInt(input.lastStep, 1, 1, 7),
         },
         include: outreachInclude(),
       });
@@ -751,11 +779,28 @@ export class EngagementService {
       const nextClientId = 'clientId' in input ? input.clientId?.trim() || null : existing.clientId;
       const nextMeetingId =
         'meetingId' in input ? input.meetingId?.trim() || null : existing.meetingId;
+      const direction =
+        'direction' in input
+          ? normalizeOutreachDirection(input.direction)
+          : normalizeOutreachDirection(readMetadataString(existing.metadata, 'direction'));
+      const contextPool =
+        'contextPool' in input
+          ? normalizeOutreachContextPool(input.contextPool)
+          : normalizeOutreachContextPool(readMetadataUnknown(existing.metadata, 'contextPool'));
       await this.validateOutreachParents(tx, ctx, nextClientId, nextMeetingId);
-      const recipients =
+      const recipients = applyOutreachDirection(
         'recipients' in input
           ? normalizeOutreachRecipients(input.recipients)
-          : normalizeOutreachRecipients(existing.recipients);
+          : normalizeOutreachRecipients(existing.recipients),
+        direction,
+      );
+      const mergedMetadata = mergeJsonObjects(
+        mergeJsonObjects(
+          existing.metadata,
+          'metadata' in input ? sanitizeOutreachMetadata(input.metadata) : {},
+        ),
+        { direction, contextPool },
+      );
 
       return tx.outreachRecord.update({
         where: { id },
@@ -766,21 +811,14 @@ export class EngagementService {
           ...('title' in input ? { title: requiredReportText(input.title, 'title', 240) } : {}),
           ...('subject' in input ? { subject: optionalReportText(input.subject, 300) } : {}),
           ...('body' in input ? { body: optionalText(input.body) ?? null } : {}),
-          ...('recipients' in input
+          ...('recipients' in input || 'direction' in input
             ? {
                 recipients: recipients as unknown as Prisma.InputJsonValue,
                 recipientCount: recipients.length,
               }
             : {}),
-          ...('metadata' in input
-            ? {
-                metadata: mergeJsonObjects(
-                  existing.metadata,
-                  sanitizeOutreachMetadata(input.metadata),
-                ) as Prisma.InputJsonValue,
-              }
-            : {}),
-          ...('lastStep' in input ? { lastStep: clampInt(input.lastStep, 1, 1, 5) } : {}),
+          metadata: mergedMetadata as Prisma.InputJsonValue,
+          ...('lastStep' in input ? { lastStep: clampInt(input.lastStep, 1, 1, 7) } : {}),
         },
         include: outreachInclude(),
       });
@@ -792,7 +830,9 @@ export class EngagementService {
     id: string,
     input: {
       objective?: string;
+      direction?: 'on-behalf' | 'to-clients';
       recipients?: OutreachRecipientInput[];
+      contextPool?: OutreachContextPoolItemInput[];
       promptTemplate?: string;
       metadata?: Record<string, unknown>;
     },
@@ -802,7 +842,16 @@ export class EngagementService {
       throw new BadRequestException('Only draft outreach can be regenerated');
     }
 
-    const recipients = normalizeOutreachRecipients(input.recipients ?? record.recipients);
+    const direction = normalizeOutreachDirection(
+      input.direction ?? readMetadataString(record.metadata, 'direction'),
+    );
+    const contextPool = normalizeOutreachContextPool(
+      input.contextPool ?? readMetadataUnknown(record.metadata, 'contextPool'),
+    );
+    const recipients = applyOutreachDirection(
+      normalizeOutreachRecipients(input.recipients ?? record.recipients),
+      direction,
+    );
     if ((record.type === 'campaign' || record.type === 'outbound_campaign') && !recipients.length) {
       throw new BadRequestException('At least one recipient is required before drafting');
     }
@@ -824,7 +873,12 @@ export class EngagementService {
               ),
             }
           : input.metadata;
-    const context = await this.outreachContext(ctx, record, recipients, requestMetadata);
+    const context = await this.outreachContext(
+      ctx,
+      record,
+      recipients,
+      mergeJsonObjects(requestMetadata ?? {}, { direction, contextPool }),
+    );
     const promptTemplate =
       input.promptTemplate ?? readMetadataString(record.metadata, 'promptTemplate') ?? null;
     const generated = await this.ai.generateOutreachDraft({
@@ -839,17 +893,20 @@ export class EngagementService {
       existingBody: outboundTemplateBody(record, requestMetadata) ?? record.body,
     });
 
-    const nextMetadata = mergeJsonObjects(record.metadata, {
-      ...(requestMetadata ?? {}),
-      objective: input.objective ?? readMetadataString(record.metadata, 'objective') ?? null,
-      promptTemplate,
-      clioContextNote: generated.contextNote,
-      ai: {
-        provider: generated.provider,
-        model: generated.model,
-        generatedAt: generatedAt.toISOString(),
-      },
-    });
+    const nextMetadata = mergeJsonObjects(
+      mergeJsonObjects(record.metadata, {
+        ...(requestMetadata ?? {}),
+        objective: input.objective ?? readMetadataString(record.metadata, 'objective') ?? null,
+        promptTemplate,
+        clioContextNote: generated.contextNote,
+        ai: {
+          provider: generated.provider,
+          model: generated.model,
+          generatedAt: generatedAt.toISOString(),
+        },
+      }),
+      { direction, contextPool },
+    );
     const draftSubject =
       record.type === 'campaign'
         ? resolveGeneratedCampaignDraft(generated.subject, recipients, nextMetadata)
@@ -860,11 +917,13 @@ export class EngagementService {
         : generated.body;
 
     return this.updateOutreachRecord(ctx, id, {
+      direction,
       subject: draftSubject,
       body: draftBody,
       recipients,
+      contextPool,
       metadata: nextMetadata,
-      lastStep: Math.max(record.lastStep, record.type === 'campaign' ? 3 : 3),
+      lastStep: Math.max(record.lastStep, 5),
     });
   }
 
@@ -4313,6 +4372,12 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
     .map((entry) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
       const record = entry as Record<string, unknown>;
+      const id = readString(record.id);
+      const clientId = readString(record.clientId);
+      const direction =
+        record.direction === 'on-behalf' || record.direction === 'to-clients'
+          ? (record.direction as 'on-behalf' | 'to-clients')
+          : undefined;
       const email = normalizeEmailAddress(readString(record.email));
       const name = readString(record.name);
       const office = readString(record.office);
@@ -4335,8 +4400,11 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
       const prepSummary = readString(record.prepSummary);
       const debriefSummary = readString(record.debriefSummary);
       const meetingLocation = readString(record.meetingLocation);
-      if (!email && !name) return null;
+      if (!email && !name && !id && !directoryContactId) return null;
       return {
+        ...(id ? { id: id.slice(0, 240) } : {}),
+        ...(clientId ? { clientId: clientId.slice(0, 80) } : {}),
+        ...(direction ? { direction } : {}),
         ...(name ? { name: name.slice(0, 160) } : {}),
         ...(email ? { email } : {}),
         ...(office ? { office: office.slice(0, 240) } : {}),
@@ -4367,6 +4435,58 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
     .slice(0, 500);
 }
 
+function normalizeOutreachDirection(value?: unknown): 'on-behalf' | 'to-clients' {
+  if (value === 'to-clients') return 'to-clients';
+  return 'on-behalf';
+}
+
+function applyOutreachDirection(
+  recipients: OutreachRecipientInput[],
+  direction: 'on-behalf' | 'to-clients',
+): OutreachRecipientInput[] {
+  return recipients.map((recipient) => ({ ...recipient, direction }));
+}
+
+function normalizeOutreachContextPool(value?: unknown): OutreachContextPoolItemInput[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+      const record = entry as Record<string, unknown>;
+      const id = readString(record.id);
+      const sourceType = readString(record.sourceType);
+      const title = readString(record.title);
+      const summary = readString(record.summary);
+      const note = readString(record.note);
+      const scope = readString(record.scope);
+      const recipientIds = Array.isArray(record.recipientIds)
+        ? record.recipientIds
+            .map((item) => readString(item))
+            .filter((item): item is string => Boolean(item))
+            .slice(0, 200)
+        : [];
+      const matches = Array.isArray(record.matches)
+        ? record.matches
+            .map((item) => readString(item))
+            .filter((item): item is string => Boolean(item))
+            .slice(0, 200)
+        : [];
+      if (!id && !title && !summary && !note) return null;
+      return {
+        ...(id ? { id: id.slice(0, 240) } : {}),
+        ...(sourceType ? { sourceType: sourceType.slice(0, 80) } : {}),
+        ...(title ? { title: title.slice(0, 240) } : {}),
+        ...(summary ? { summary: summary.slice(0, 2000) } : {}),
+        ...(note ? { note: note.slice(0, 2000) } : {}),
+        ...(scope ? { scope: scope.slice(0, 240) } : {}),
+        ...(recipientIds.length ? { recipientIds } : {}),
+        ...(matches.length ? { matches } : {}),
+      };
+    })
+    .filter((entry): entry is OutreachContextPoolItemInput => Boolean(entry))
+    .slice(0, 500);
+}
+
 function sanitizeOutreachMetadata(value?: Record<string, unknown>): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
@@ -4386,6 +4506,11 @@ function mergeJsonObjects(
 function readMetadataString(metadata: unknown, key: string): string | null {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
   return readString((metadata as Record<string, unknown>)[key]);
+}
+
+function readMetadataUnknown(metadata: unknown, key: string): unknown {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  return (metadata as Record<string, unknown>)[key];
 }
 
 function readString(value: unknown): string | null {

@@ -20,14 +20,18 @@ import {
   type MenuProps,
 } from 'antd';
 import {
+  BankOutlined,
   CopyOutlined,
   CheckOutlined,
   DownOutlined,
+  HomeOutlined,
   LinkOutlined,
   MailOutlined,
   PhoneOutlined,
   SearchOutlined,
   SendOutlined,
+  TeamOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
@@ -67,6 +71,19 @@ function partyLabel(party: Party): string {
   if (party === 'D') return 'Democrat';
   if (party === 'R') return 'Republican';
   return 'Independent';
+}
+
+function partyShortCode(party: Party): string | null {
+  if (party === 'D' || party === 'R' || party === 'I') return party;
+  return null;
+}
+
+function stateDistrict(entry: DirectoryEntry): string {
+  const state = entry.state || '';
+  const district = entry.district || '';
+  if (!state) return district;
+  if (district && !district.includes(state)) return `${state}-${district}`;
+  return district || state;
 }
 
 function genderLabel(gender: DirectoryEntry['gender']): string {
@@ -299,7 +316,16 @@ export function DirectoryPage() {
   }
 
   return (
-    <div className="directory-page">
+    <div className="directory-page redesign">
+      <header className="directory-page-head">
+        <div>
+          <h1>Directory</h1>
+          <p className="directory-page-dek">
+            All federal members of Congress and governors — updated daily from official sources.
+          </p>
+        </div>
+      </header>
+
       <DirectoryStatsRow totals={totals} loading={initialLoading || directoryUnavailable} />
 
       <div className="directory-filter-bar" aria-label="Directory filters">
@@ -592,10 +618,21 @@ export function DirectoryPage() {
                 {initials(selectedEntry.memberName)}
               </Avatar>
               <div className="directory-profile-main">
-                <Space size={8} wrap>
-                  <Tag className="directory-profile-member-tag">Member</Tag>
-                  <Tag color={partyColor(selectedEntry.party)}>{selectedEntry.party}</Tag>
-                  <Tag>{selectedEntry.district}</Tag>
+                <Space size={8} wrap className="directory-profile-pills">
+                  <Tag className="directory-profile-member-tag">
+                    {selectedEntry.chamber || 'Member'}
+                  </Tag>
+                  {partyShortCode(selectedEntry.party) ? (
+                    <span
+                      className={`party-pill ${partyShortCode(selectedEntry.party)!.toLowerCase()}`}
+                      title={partyLabel(selectedEntry.party)}
+                    >
+                      {partyShortCode(selectedEntry.party)}
+                    </span>
+                  ) : null}
+                  {stateDistrict(selectedEntry) ? (
+                    <span className="state-pill num">{stateDistrict(selectedEntry)}</span>
+                  ) : null}
                 </Space>
                 <Typography.Title level={2}>{selectedEntry.fullName}</Typography.Title>
                 <Typography.Text>{selectedEntry.title}</Typography.Text>
@@ -876,22 +913,33 @@ function DirectoryStatsRow({
   totals: DirectoryApiResponse['totals'];
   loading: boolean;
 }) {
-  const stats = [
-    ['All Members', totals.all],
-    ['House', totals.house],
-    ['Senate', totals.senate],
-    ['Governors', totals.governors],
-  ] as const;
+  const stats: Array<{
+    label: string;
+    value: number;
+    tone: 'accent' | 'info' | 'notable' | 'muted';
+    icon: ReactNode;
+  }> = [
+    { label: 'All Members', value: totals.all, tone: 'accent', icon: <TeamOutlined /> },
+    { label: 'House', value: totals.house, tone: 'info', icon: <HomeOutlined /> },
+    { label: 'Senate', value: totals.senate, tone: 'notable', icon: <BankOutlined /> },
+    { label: 'Governors', value: totals.governors, tone: 'muted', icon: <UserOutlined /> },
+  ];
 
   return (
-    <div className="directory-stats-row">
-      {stats.map(([label, value]) => (
+    <div className="dir-stats">
+      {stats.map((s) => (
         <div
-          className={loading ? 'directory-stat-cell is-loading' : 'directory-stat-cell'}
-          key={label}
+          key={s.label}
+          className={loading ? 'dir-stat is-loading' : 'dir-stat'}
+          data-tone={s.tone}
         >
-          <Typography.Text>{label}</Typography.Text>
-          <strong>{loading ? '—' : value}</strong>
+          <div>
+            <div className="l">{s.label}</div>
+            <div className="v num">{loading ? '—' : s.value.toLocaleString()}</div>
+          </div>
+          <div className="ico" aria-hidden>
+            {s.icon}
+          </div>
         </div>
       ))}
     </div>
@@ -1052,9 +1100,12 @@ function DirectoryMemberCard({
   onOpen: () => void;
   onCopy: (value: string, label: string) => Promise<void>;
 }) {
+  const partyShort = partyShortCode(entry.party);
+  const stateCode = stateDistrict(entry);
+  const servingYear = yearFromDate(entry.servingSince);
   return (
     <article
-      className="directory-person-card"
+      className="dir-card directory-person-card"
       role="button"
       tabIndex={0}
       onClick={onOpen}
@@ -1065,27 +1116,49 @@ function DirectoryMemberCard({
         }
       }}
     >
-      <div className="directory-person-topline">
-        <Avatar src={entry.photoUrl || undefined} size={58} className="directory-person-avatar">
-          {initials(entry.memberName)}
-        </Avatar>
-        <div className="directory-person-title">
-          <Typography.Text strong>{entry.fullName}</Typography.Text>
-          <Typography.Text type="secondary">{entry.title}</Typography.Text>
+      <div className="dir-card-top">
+        <div className={`dir-card-avatar${entry.photoUrl ? ' has-photo' : ''}`}>
+          {entry.photoUrl ? (
+            <img src={entry.photoUrl} alt={entry.memberName} />
+          ) : (
+            <span>{initials(entry.memberName)}</span>
+          )}
+        </div>
+        <div className="dir-card-title">
+          <div className="dir-card-name">{entry.fullName}</div>
+          <div className="dir-card-role">{entry.title}</div>
         </div>
       </div>
 
-      <div className="directory-card-office">
-        <Typography.Text>{properCaseOfficeLine(entry.office)}</Typography.Text>
-        <Typography.Text type="secondary">
-          {[entry.chamber, partyLabel(entry.party), entry.district].filter(Boolean).join(' | ')}
-        </Typography.Text>
-        <Typography.Text type="secondary">
-          Serving Since {yearFromDate(entry.servingSince)}
-        </Typography.Text>
+      <div>
+        <div className="dir-card-office">{properCaseOfficeLine(entry.office)}</div>
+        <div className="dir-card-meta">
+          <span>{entry.chamber}</span>
+          {partyShort ? (
+            <>
+              <span className="dir-sep">·</span>
+              <span className={`party-pill ${partyShort.toLowerCase()}`} title={partyLabel(entry.party)}>
+                {partyShort}
+              </span>
+              <span>{partyLabel(entry.party)}</span>
+            </>
+          ) : null}
+          {stateCode ? (
+            <>
+              <span className="dir-sep">·</span>
+              <span className="state-pill num">{stateCode}</span>
+            </>
+          ) : null}
+        </div>
+        {servingYear ? (
+          <div className="dir-card-since">
+            Serving Since{' '}
+            <b className="num">{servingYear}</b>
+          </div>
+        ) : null}
       </div>
 
-      <div className="directory-card-contact">
+      <div className="dir-contact">
         <CopyContactLine
           icon={<PhoneOutlined />}
           value={entry.phone}
@@ -1102,7 +1175,7 @@ function DirectoryMemberCard({
         />
       </div>
 
-      <div className="directory-card-meta">
+      <div className="dir-committee directory-card-meta">
         {(entry.leadershipPositions[0] || entry.committees[0] || entry.focusAreas[0]) ??
           'No Policy Coverage Listed'}
       </div>

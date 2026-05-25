@@ -37,10 +37,10 @@ interface IntelligenceInsightsProps {
 }
 
 const CATEGORY_META = {
-  lobbying: { label: 'Lobbying Trends', icon: <RiseOutlined />, color: '#1c2e4a' },
-  spending: { label: 'Federal Spending', icon: <DollarOutlined />, color: '#52c41a' },
-  legislative: { label: 'Legislative Activity', icon: <FileTextOutlined />, color: '#722ed1' },
-  lda: { label: 'Client LDA History', icon: <BulbOutlined />, color: '#fa8c16' },
+  lobbying: { label: 'Lobbying Trends', icon: <RiseOutlined />, color: 'var(--accent-ink)' },
+  spending: { label: 'Federal Spending', icon: <DollarOutlined />, color: 'var(--success)' },
+  legislative: { label: 'Legislative Activity', icon: <FileTextOutlined />, color: 'var(--info)' },
+  lda: { label: 'Client LDA History', icon: <BulbOutlined />, color: 'var(--notable)' },
 };
 
 function buildInsightCards(data: InsightsData): InsightCard[] {
@@ -184,7 +184,7 @@ export function IntelligenceInsights({
           </Typography.Text>
         </div>
         {selectedInsights.length > 0 && (
-          <Badge count={selectedInsights.length} style={{ backgroundColor: '#1c2e4a' }} />
+          <Badge count={selectedInsights.length} style={{ backgroundColor: 'var(--accent-ink)' }} />
         )}
       </div>
 
@@ -221,7 +221,7 @@ export function IntelligenceInsights({
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <div style={{ flex: 1, marginRight: 8 }}>
                             <div style={{ fontWeight: 500, fontSize: 13 }}>{card.title}</div>
-                            <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{card.detail}</div>
+                            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>{card.detail}</div>
                           </div>
                           <Switch
                             size="small"
@@ -247,7 +247,7 @@ export function IntelligenceInsights({
         <div style={{ marginTop: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
             <Typography.Text strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <ThunderboltOutlined style={{ color: '#f59e0b' }} />
+              <ThunderboltOutlined style={{ color: 'var(--notable)' }} />
               Live Intelligence Context
             </Typography.Text>
             <Button
@@ -280,7 +280,7 @@ export function IntelligenceInsights({
                     </Button>
                   ),
                   children: (
-                    <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: 0, color: '#374151' }}>
+                    <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: 0, color: 'var(--ink-2)' }}>
                       {enrichContext}
                     </pre>
                   ),

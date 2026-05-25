@@ -36,6 +36,26 @@ export interface CreateSubmissionHistoryInput {
 
 export type UpdateSubmissionHistoryInput = Partial<CreateSubmissionHistoryInput>;
 
+/**
+ * Normalize free-text capability tags so cross-client matching (comment-period
+ * alerts, briefing keyword overlap) doesn't lose hits to typos and case drift.
+ * Lowercases, trims, collapses whitespace, dedupes; preserves order of first
+ * occurrence so the user-visible tag row reads the way it was entered.
+ */
+function normalizeCapabilityTags(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of raw) {
+    if (typeof value !== 'string') continue;
+    const cleaned = value.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+  }
+  return out;
+}
+
 @Injectable()
 export class ClientCapabilitiesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -69,7 +89,7 @@ export class ClientCapabilitiesService {
           type: input.type ?? 'product',
           description: input.description ?? null,
           sector: input.sector ?? null,
-          tags: (input.tags ?? []) as object,
+          tags: normalizeCapabilityTags(input.tags) as object,
           trl: input.trl ?? null,
           mrl: input.mrl ?? null,
           peNumber: input.peNumber ?? null,
@@ -107,7 +127,7 @@ export class ClientCapabilitiesService {
           ...('type' in input ? { type: input.type } : {}),
           ...('description' in input ? { description: input.description ?? null } : {}),
           ...('sector' in input ? { sector: input.sector ?? null } : {}),
-          ...('tags' in input ? { tags: (input.tags ?? []) as object } : {}),
+          ...('tags' in input ? { tags: normalizeCapabilityTags(input.tags) as object } : {}),
           ...('trl' in input ? { trl: input.trl ?? null } : {}),
           ...('mrl' in input ? { mrl: input.mrl ?? null } : {}),
           ...('peNumber' in input ? { peNumber: input.peNumber ?? null } : {}),

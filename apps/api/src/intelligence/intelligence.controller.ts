@@ -119,8 +119,8 @@ export class IntelligenceController {
   }
 
   @Get('changes')
-  getChanges(@Query() q: ChangesQueryDto) {
-    return this.service.getChanges(q.since, q.clientId, q.source);
+  getChanges(@CurrentTenant() ctx: TenantContext, @Query() q: ChangesQueryDto) {
+    return this.service.getChanges(ctx.tenantId, q.since, q.clientId, q.source);
   }
 
   @Get('clients/:clientId/lobbying-roi')
@@ -167,6 +167,31 @@ export class IntelligenceController {
   @Get('comment-alerts')
   getCommentAlerts(@CurrentTenant() ctx: TenantContext) {
     return this.service.getCommentPeriodAlerts(ctx.tenantId);
+  }
+
+  @Get('today-timeline')
+  getTodayTimeline(@CurrentTenant() ctx: TenantContext) {
+    return this.service.getTodayTimeline(ctx.tenantId);
+  }
+
+  @Get('coming-up')
+  getComingUp(@CurrentTenant() ctx: TenantContext) {
+    return this.service.getComingUp(ctx.tenantId);
+  }
+
+  @Get('portfolio-summary')
+  getPortfolioSummary(@CurrentTenant() ctx: TenantContext) {
+    return this.service.getPortfolioSummary(ctx.tenantId);
+  }
+
+  @Get('live-ticker')
+  getLiveTicker(@CurrentTenant() ctx: TenantContext) {
+    return this.service.getLiveTicker(ctx.tenantId);
+  }
+
+  @Get('daily-brief')
+  getDailyBrief(@CurrentTenant() ctx: TenantContext) {
+    return this.insights.generateDailyBrief(ctx.tenantId);
   }
 
   @Get('mappings')

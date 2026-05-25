@@ -93,7 +93,10 @@ export function IssueLeaderboardPage() {
   const sharedLobbyistCount = data?.registrants.filter((r) => r.sharedLobbyists.length > 0).length ?? 0;
 
   return (
-    <div style={{ padding: '24px 32px', overflow: 'auto', height: '100%' }}>
+    <div
+      className="redesign"
+      style={{ padding: '24px 32px', overflow: 'auto', height: '100%', background: 'var(--bg-canvas)' }}
+    >
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
         <Button icon={<ArrowLeftOutlined />} type="text" onClick={() => navigate(-1)} />
         <TrophyOutlined style={{ fontSize: 20, color: '#faad14' }} />

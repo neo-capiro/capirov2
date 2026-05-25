@@ -26,6 +26,7 @@ import { LdaIntelModule } from './lda-intel/lda-intel.module.js';
 import { FederalRegisterModule } from './federal-register/federal-register.module.js';
 import { RegulatoryDocketModule } from './regulatory-docket/regulatory-docket.module.js';
 import { IntelligenceModule } from './intelligence/intelligence.module.js';
+import { ExplorerModule } from './explorer/explorer.module.js';
 import { ChatModule } from './chat/chat.module.js';
 
 @Module({
@@ -65,6 +66,7 @@ import { ChatModule } from './chat/chat.module.js';
     FederalRegisterModule,
     RegulatoryDocketModule,
     IntelligenceModule,
+    ExplorerModule,
     ChatModule,
   ],
   controllers: [HealthController],

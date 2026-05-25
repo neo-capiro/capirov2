@@ -119,8 +119,8 @@ const NAV: NavItem[] = [
   },
   {
     key: 'intelligence',
-    label: 'Intelligence',
-    path: '/intelligence',
+    label: 'Data Explorer',
+    path: '/explorer',
     icon: <BulbOutlined />,
   },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
@@ -746,7 +746,7 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname.startsWith('/clients')) return 'clients';
   if (pathname.startsWith('/engagement')) return 'engagement';
   if (pathname.startsWith('/workspace')) return 'workspace';
-  if (pathname.startsWith('/intelligence')) return 'intelligence';
+  if (pathname.startsWith('/explorer') || pathname.startsWith('/intelligence')) return 'intelligence';
   if (pathname.startsWith('/directory')) return 'directory';
   if (pathname.startsWith('/portal')) return 'portal';
   if (pathname.startsWith('/settings')) return 'settings';
@@ -761,7 +761,7 @@ function pageConfigFor(pathname: string): PageConfig {
     engagement: 'Engagement',
     workspace: 'Workspace',
     planner: 'Planner',
-    intelligence: 'Intelligence',
+    intelligence: 'Data Explorer',
     directory: 'Directory',
     stakeholders: 'Stakeholders',
     collaborators: 'Collaborators',
@@ -771,8 +771,8 @@ function pageConfigFor(pathname: string): PageConfig {
   };
   const showClientDropdown =
     key === 'engagement' ||
-    pathname.startsWith('/workspace/catalog') ||
-    pathname.startsWith('/workspace/kanban');
+    pathname.startsWith('/workspace/library') ||
+    pathname.startsWith('/workspace/workflows');
   return { key, title: titleByKey[key], showClientDropdown };
 }
 

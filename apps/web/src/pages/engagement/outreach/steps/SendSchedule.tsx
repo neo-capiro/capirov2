@@ -51,7 +51,7 @@ export function SendSchedule({
           {
             label: 'Emails ready',
             children: (
-              <span style={{ color: readyEmails.length > 0 ? '#52c41a' : '#aaa' }}>
+              <span style={{ color: readyEmails.length > 0 ? 'var(--success)' : 'var(--ink-3)' }}>
                 {readyEmails.length} of {recipients.length}
               </span>
             ),
@@ -64,7 +64,7 @@ export function SendSchedule({
                 {sendFrom}
               </span>
             ) : (
-              <span style={{ color: '#f5222d' }}>No email connected</span>
+              <span style={{ color: 'var(--critical)' }}>No email connected</span>
             ),
           },
         ]}
@@ -124,11 +124,11 @@ export function SendSchedule({
             renderItem={(email) => (
               <List.Item>
                 <List.Item.Meta
-                  avatar={<CheckCircleOutlined style={{ color: '#52c41a', marginTop: 3 }} />}
+                  avatar={<CheckCircleOutlined style={{ color: 'var(--success)', marginTop: 3 }} />}
                   title={email.recipient.name || email.recipient.email || 'Recipient'}
                   description={
                     <span>
-                      <span style={{ fontSize: 12, color: '#555' }}>
+                      <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>
                         {email.subject || 'No subject'}
                       </span>
                       {email.recipient.state && (
@@ -137,7 +137,7 @@ export function SendSchedule({
                       {email.status === 'edited' && (
                         <Badge
                           count="Edited"
-                          style={{ backgroundColor: '#1c2e4a', fontSize: 10, marginLeft: 4 }}
+                          style={{ backgroundColor: 'var(--accent-ink)', fontSize: 10, marginLeft: 4 }}
                         />
                       )}
                     </span>

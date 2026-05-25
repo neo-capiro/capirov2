@@ -41,7 +41,7 @@ export function CatalogView() {
     onSuccess: () => {
       message.success('Workflow added to your board');
       qc.invalidateQueries({ queryKey: ['workflow-instances'] });
-      navigate('/workspace/kanban');
+      navigate('/workspace/workflows');
     },
     onError: (err) => message.error(errorMessage(err)),
     onSettled: () => setAddingSlug(null),

@@ -1,36 +1,13 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EngagementTaskStatus } from '@prisma/client';
-import { normalizeSector } from '@capiro/shared';
+import {
+  AGENCY_SECTOR_MAP,
+  ldaCodesForSectors,
+  normalizeSector,
+  type SectorTag,
+} from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
-
-const AGENCY_SECTOR_MAP: Record<string, string[]> = {
-  'Department of Defense': ['DEFENSE'],
-  'DOD': ['DEFENSE'],
-  'Environmental Protection Agency': ['ENVIRONMENT_WATER'],
-  'EPA': ['ENVIRONMENT_WATER'],
-  'Department of Health and Human Services': ['HEALTH'],
-  'HHS': ['HEALTH'],
-  'Food and Drug Administration': ['HEALTH'],
-  'FDA': ['HEALTH'],
-  'Department of Energy': ['ENERGY'],
-  'DOE': ['ENERGY'],
-  'Department of Transportation': ['TRANSPORTATION'],
-  'DOT': ['TRANSPORTATION'],
-  'Department of Agriculture': ['AGRICULTURE'],
-  'USDA': ['AGRICULTURE'],
-  'Department of Homeland Security': ['HOMELAND_SECURITY'],
-  'DHS': ['HOMELAND_SECURITY'],
-  'Department of Commerce': ['COMMERCE_TECH'],
-  'Federal Communications Commission': ['COMMERCE_TECH'],
-  'FCC': ['COMMERCE_TECH'],
-  'Department of Education': ['EDUCATION'],
-  'Securities and Exchange Commission': ['FINANCIAL_SERVICES'],
-  'SEC': ['FINANCIAL_SERVICES'],
-  'Department of the Treasury': ['FINANCIAL_SERVICES'],
-  'Consumer Financial Protection Bureau': ['FINANCIAL_SERVICES'],
-  'Department of the Interior': ['ENVIRONMENT_WATER'],
-  'Army Corps of Engineers': ['ENVIRONMENT_WATER', 'DEFENSE'],
-};
+import { addDateInZone, dateBoundsInZone, dayBoundsInZone } from './time-bounds.js';
 
 @Injectable()
 export class IntelligenceService {
@@ -54,9 +31,13 @@ export class IntelligenceService {
     if (!client) throw new NotFoundException('Client not found');
 
     const clientName = client.name;
-    const capabilityNames = (client.capabilities ?? []).map(
-      (c) => c.name,
-    );
+    const capabilityRefs = (client.capabilities ?? []).map((c) => ({
+      name: c.name,
+      sector: c.sector ?? null,
+      tags: Array.isArray(c.tags)
+        ? (c.tags as unknown[]).filter((t): t is string => typeof t === 'string')
+        : [],
+    }));
 
     // 2. Fetch existing confirmed mappings, then resolve each source.
     //    Confirmed mappings skip fuzzy re-match and query by externalId directly.
@@ -100,7 +81,9 @@ export class IntelligenceService {
         id: client.id,
         name: client.name,
         description: client.description,
-        capabilities: capabilityNames,
+        sectorTag: client.sectorTag,
+        submissionTracks: client.submissionTracks ?? [],
+        capabilities: capabilityRefs,
       },
       mappings: existingMappings,
       lda: ldaMatch ?? {
@@ -540,12 +523,50 @@ export class IntelligenceService {
     };
   }
 
-  /** Get recent intelligence changes */
-  async getChanges(since?: string, clientId?: string, source?: string) {
+  /**
+   * Get recent intelligence changes, scoped to the requesting tenant.
+   *
+   * Cross-tenant safety: `intelligence_change` is a GLOBAL table (no tenant_id).
+   * Comment-period emitters write per-(doc × client) rows with descriptions
+   * referencing the matched client by name. Returning those globally would
+   * leak client names across tenants. We filter to:
+   *   - Rows that explicitly touch one of this tenant's clients, OR
+   *   - Tenant-neutral rows (empty `relatedClientIds`) which are general
+   *     market signals like "5 new GAO reports detected in last 24h".
+   *
+   * Pass `tenantClientIds` from the caller — typically resolved once with
+   * `withTenant(...).client.findMany({ select: { id: true } })`.
+   */
+  async getChanges(
+    tenantId: string,
+    since?: string,
+    clientId?: string,
+    source?: string,
+  ) {
+    const tenantClientIds = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findMany({ where: { status: { not: 'archived' } }, select: { id: true } }),
+    );
+    const ids = tenantClientIds.map((c) => c.id);
+
+    // Validate the optional clientId query param is one of this tenant's clients.
+    if (clientId && !ids.includes(clientId)) {
+      return [];
+    }
+
     const where: Record<string, unknown> = {};
     if (since) where.detectedAt = { gte: new Date(since) };
     if (source) where.source = source;
-    if (clientId) where.relatedClientIds = { has: clientId };
+
+    if (clientId) {
+      where.relatedClientIds = { has: clientId };
+    } else {
+      // Either touches one of this tenant's clients, or is tenant-neutral
+      // (no related clients at all = general market signal).
+      where.OR = [
+        { relatedClientIds: { hasSome: ids } },
+        { relatedClientIds: { isEmpty: true } },
+      ];
+    }
 
     return this.prisma.intelligenceChange.findMany({
       where,
@@ -1122,19 +1143,25 @@ export class IntelligenceService {
       const agencies = doc.agencyNames as string[];
 
       // Determine which sectors this document touches via agency mapping
-      const docSectors = new Set<string>();
+      const docSectors = new Set<SectorTag>();
       for (const agency of agencies) {
-        for (const sector of (AGENCY_SECTOR_MAP[agency] ?? [])) {
+        for (const sector of AGENCY_SECTOR_MAP[agency] ?? []) {
           docSectors.add(sector);
         }
       }
+      // LDA codes derived from doc sectors — feeds IntelligenceChange.relatedIssues
+      // so the hasSome branch in getCommentPeriodAlerts / generateClientBriefing
+      // can surface this change for clients lobbying on the same codes.
+      const docLdaCodes = ldaCodesForSectors([...docSectors]);
 
       for (const client of clientsWithCaps) {
         let baseRelevance = 0;
+        const matchedSectors = new Set<SectorTag>();
 
         // Agency-sector match against client sectorTag (already controlled enum)
-        if (client.sectorTag && docSectors.has(client.sectorTag)) {
+        if (client.sectorTag && docSectors.has(client.sectorTag as SectorTag)) {
           baseRelevance = Math.max(baseRelevance, 0.5);
+          matchedSectors.add(client.sectorTag as SectorTag);
         }
 
         // Agency-sector match against capability sectors. cap.sector is free text
@@ -1143,6 +1170,7 @@ export class IntelligenceService {
           const normalized = normalizeSector(cap.sector);
           if (normalized && docSectors.has(normalized)) {
             baseRelevance = Math.max(baseRelevance, 0.5);
+            matchedSectors.add(normalized);
           }
         }
 
@@ -1185,6 +1213,9 @@ export class IntelligenceService {
           relevanceScore: Math.round(finalScore * 100) / 100,
         });
 
+        const matchedLdaCodes = matchedSectors.size
+          ? ldaCodesForSectors([...matchedSectors])
+          : docLdaCodes;
         changesToCreate.push({
           source: 'federal_register',
           changeType: 'comment_deadline_approaching',
@@ -1192,7 +1223,7 @@ export class IntelligenceService {
           title: `Comment period closing in ${daysToDeadline}d: ${doc.title.slice(0, 80)}`,
           description: `${doc.type} from ${agencies.slice(0, 2).join('/')} has a comment deadline in ${daysToDeadline} days. Relevant to ${client.name}.`,
           relatedClientIds: [client.id],
-          relatedIssues: [],
+          relatedIssues: matchedLdaCodes,
           data: { documentId: doc.id, daysToDeadline, relevanceScore: finalScore },
         });
       }
@@ -1409,7 +1440,10 @@ export class IntelligenceService {
       issueCodes = codeRows[0]?.issue_codes ?? [];
     }
 
-    // Tracked bills + upcoming hearings + recent changes + comment deadlines in parallel
+    // Tracked bills + upcoming hearings + recent changes + comment deadlines in parallel.
+    // Comment-period emitters now populate `relatedIssues` via SECTOR_TO_LDA_CODES;
+    // other sync emitters (emit-changes, compute-health-scores) still leave it empty,
+    // so the hasSome branch surfaces sector-mapped events but not source-summary rows.
     const changeOrConditions: Record<string, unknown>[] = [{ relatedClientIds: { has: clientId } }];
     if (issueCodes.length) changeOrConditions.push({ relatedIssues: { hasSome: issueCodes } });
 
@@ -1840,4 +1874,355 @@ export class IntelligenceService {
       totalReports: gaoRows.length + crsRows.length,
     };
   }
+
+  /**
+   * Today's calendar feed for the home dashboard. Aggregates:
+   *  - Congressional hearings on date=today
+   *  - Federal Register comment-period deadlines closing today (tenant-filtered)
+   *  - Critical/notable intel changes detected in the last 24h that relate to tenant clients
+   * Returns chronologically sorted events with severity counts.
+   */
+  async getTodayTimeline(tenantId: string) {
+    const now = new Date();
+    // ET day bounds for timestamp columns; UTC-midnight bounds for @db.Date columns.
+    const { start: startOfDay, end: endOfDay } = dayBoundsInZone(now, 'America/New_York');
+    const dateBounds = dateBoundsInZone(now, 'America/New_York');
+    const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+    const [hearings, deadlines, changes, clientIds] = await Promise.all([
+      this.prisma.committeeHearing.findMany({
+        where: { date: { gte: dateBounds.start, lte: dateBounds.end } },
+        orderBy: { time: 'asc' },
+        take: 30,
+      }),
+      this.prisma.federalRegisterDocument.findMany({
+        where: {
+          type: { in: ['PROPOSED_RULE', 'RULE'] },
+          commentEndDate: { gte: dateBounds.start, lte: dateBounds.end },
+        },
+        orderBy: { commentEndDate: 'asc' },
+        take: 20,
+      }),
+      this.prisma.intelligenceChange.findMany({
+        where: {
+          detectedAt: { gte: last24h },
+          severity: { in: ['critical', 'notable', 'info'] },
+        },
+        orderBy: { detectedAt: 'desc' },
+        take: 30,
+      }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.client.findMany({ where: { status: { not: 'archived' } }, select: { id: true } }),
+      ),
+    ]);
+
+    const tenantClientIds = new Set(clientIds.map((c) => c.id));
+
+    type TimelineEvent = {
+      id: string;
+      kind: 'hearing' | 'deadline' | 'change' | 'brief';
+      label: string;
+      title: string;
+      detail: string | null;
+      severity: 'info' | 'notable' | 'critical';
+      time: string | null;
+      timestamp: string;
+      href: string | null;
+    };
+
+    const events: TimelineEvent[] = [];
+
+    for (const h of hearings) {
+      const isMarkup = h.type === 'markup';
+      events.push({
+        id: `hearing-${h.id}`,
+        kind: 'hearing',
+        label: isMarkup ? 'MARKUP' : 'HEARING',
+        title: `${h.committeeName} — ${h.title}`,
+        detail: h.location ?? h.witnesses.slice(0, 3).join(', ') ?? null,
+        severity: isMarkup ? 'notable' : 'info',
+        time: h.time ?? null,
+        timestamp: h.date.toISOString(),
+        href: h.url ?? null,
+      });
+    }
+
+    for (const d of deadlines) {
+      events.push({
+        id: `deadline-${d.id}`,
+        kind: 'deadline',
+        label: 'COMMENT DEADLINE',
+        title: d.title,
+        detail: d.agencyNames.slice(0, 2).join(' / '),
+        severity: 'critical',
+        time: 'before EOD',
+        timestamp: (d.commentEndDate ?? endOfDay).toISOString(),
+        href: d.htmlUrl ?? null,
+      });
+    }
+
+    for (const c of changes) {
+      // Three states:
+      //   neutral     = relatedClientIds empty → general market signal, include
+      //   tenantTouch = at least one related client belongs to this tenant → include
+      //   foreign     = relatedClientIds only references other tenants → EXCLUDE
+      //                 (descriptions can include the matched client's name)
+      const isNeutral = c.relatedClientIds.length === 0;
+      const touchesTenant =
+        !isNeutral && c.relatedClientIds.some((id) => tenantClientIds.has(id));
+      if (!isNeutral && !touchesTenant) continue;
+      events.push({
+        id: `change-${c.id}`,
+        kind: 'change',
+        label: c.source.toUpperCase().slice(0, 16),
+        title: c.title,
+        detail: c.description ? c.description.slice(0, 160) : null,
+        severity: (c.severity as TimelineEvent['severity']) ?? 'info',
+        time: null,
+        timestamp: c.detectedAt.toISOString(),
+        href: null,
+      });
+    }
+
+    events.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+    const counts = { critical: 0, notable: 0, info: 0 };
+    for (const e of events) counts[e.severity]++;
+
+    return { events, counts, today: startOfDay.toISOString() };
+  }
+
+  /**
+   * Live ticker: most recent intel changes for the right-rail feed.
+   * Tenant-aware — prefers changes touching this tenant's clients, falls back
+   * to TENANT-NEUTRAL recent changes (empty relatedClientIds) to keep the feed
+   * populated. Never returns changes that touch other tenants' clients —
+   * those rows include client names in their description and would leak across
+   * tenants if returned.
+   */
+  async getLiveTicker(tenantId: string, limit = 12) {
+    const clientIds = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findMany({ where: { status: { not: 'archived' } }, select: { id: true } }),
+    );
+    const tenantClientIds = clientIds.map((c) => c.id);
+
+    const tenantChanges = tenantClientIds.length
+      ? await this.prisma.intelligenceChange.findMany({
+          where: { relatedClientIds: { hasSome: tenantClientIds } },
+          orderBy: { detectedAt: 'desc' },
+          take: limit,
+        })
+      : [];
+
+    let items = tenantChanges;
+    if (items.length < limit) {
+      const fill = await this.prisma.intelligenceChange.findMany({
+        where: {
+          id: { notIn: items.map((i) => i.id) },
+          relatedClientIds: { isEmpty: true },
+        },
+        orderBy: { detectedAt: 'desc' },
+        take: limit - items.length,
+      });
+      items = [...items, ...fill];
+    }
+
+    return items.map((c) => ({
+      id: c.id,
+      source: c.source,
+      title: c.title,
+      severity: c.severity,
+      detectedAt: c.detectedAt.toISOString(),
+    }));
+  }
+
+  /**
+   * Coming Up: next-7-day forward calendar for the home dashboard.
+   * Aggregates hearings + comment-period closes opening tomorrow through +7d,
+   * picks the 3 highest-leverage items. Sorted by date ascending.
+   * Tomorrow is computed in ET to match the dashboard's "all times ET" framing.
+   */
+  async getComingUp(tenantId: string) {
+    const now = new Date();
+    // Both `hearing.date` and `comment_end_date` come back at UTC midnight;
+    // bounds must also be UTC midnight to include rows on the boundary day.
+    const tomorrowStart = addDateInZone(now, 1, 'America/New_York');
+    const sevenDaysOut = new Date(tomorrowStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const [hearings, deadlines, clientIds] = await Promise.all([
+      this.prisma.committeeHearing.findMany({
+        where: { date: { gte: tomorrowStart, lte: sevenDaysOut } },
+        orderBy: { date: 'asc' },
+        take: 30,
+      }),
+      this.prisma.federalRegisterDocument.findMany({
+        where: {
+          type: { in: ['PROPOSED_RULE', 'RULE'] },
+          commentEndDate: { gte: tomorrowStart, lte: sevenDaysOut },
+        },
+        orderBy: { commentEndDate: 'asc' },
+        take: 20,
+      }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.client.findMany({ where: { status: { not: 'archived' } }, select: { id: true } }),
+      ),
+    ]);
+    // tenantClientIds reserved for future relevance ranking
+    void clientIds;
+
+    type ComingUpItem = {
+      id: string;
+      kind: 'hearing' | 'markup' | 'deadline';
+      label: string;
+      title: string;
+      detail: string | null;
+      severity: 'info' | 'notable' | 'critical';
+      date: string;
+      time: string | null;
+      href: string | null;
+    };
+
+    const items: ComingUpItem[] = [];
+
+    for (const h of hearings) {
+      const isMarkup = h.type === 'markup';
+      items.push({
+        id: `hearing-${h.id}`,
+        kind: isMarkup ? 'markup' : 'hearing',
+        label: isMarkup ? 'MARKUP' : 'HEARING',
+        title: `${h.committeeName} — ${h.title}`,
+        detail: h.location ?? null,
+        severity: isMarkup ? 'critical' : 'notable',
+        date: h.date.toISOString(),
+        time: h.time ?? null,
+        href: h.url ?? null,
+      });
+    }
+
+    for (const d of deadlines) {
+      items.push({
+        id: `deadline-${d.id}`,
+        kind: 'deadline',
+        label: 'DEADLINE',
+        title: d.title,
+        detail: d.agencyNames.slice(0, 2).join(' / '),
+        severity: 'notable',
+        date: (d.commentEndDate ?? sevenDaysOut).toISOString(),
+        time: 'before EOD',
+        href: d.htmlUrl ?? null,
+      });
+    }
+
+    items.sort((a, b) => a.date.localeCompare(b.date));
+
+    const SEVERITY_RANK: Record<ComingUpItem['severity'], number> = {
+      critical: 3,
+      notable: 2,
+      info: 1,
+    };
+    const top = [...items]
+      .sort((a, b) => {
+        const sev = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
+        if (sev !== 0) return sev;
+        return a.date.localeCompare(b.date);
+      })
+      .slice(0, 3)
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return { items: top, totalThisWeek: items.length };
+  }
+
+  /**
+   * Portfolio summary — six numbers for the Portfolio list stat strip.
+   * All cheap counts; LDA spend is summed across clients with confirmed
+   * mappings using current-quarter filings.
+   */
+  async getPortfolioSummary(tenantId: string) {
+    const now = new Date();
+    const quarterStart = startOfQuarter(now);
+
+    const [clients, mappings] = await Promise.all([
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.client.findMany({
+          where: { status: { not: 'archived' } },
+          select: { id: true, profileStatus: true },
+        }),
+      ),
+      this.prisma.clientIntelMapping.findMany({
+        where: { confirmed: true, source: 'lda' },
+        select: { clientId: true, externalId: true },
+      }),
+    ]);
+
+    const tenantClientIds = new Set(clients.map((c) => c.id));
+    const tenantLdaIds = mappings
+      .filter((m) => tenantClientIds.has(m.clientId))
+      .map((m) => Number(m.externalId))
+      .filter((n) => Number.isFinite(n));
+
+    const needAttention = clients.filter(
+      (c) => c.profileStatus === 'PAUSED' || c.profileStatus === 'MONITORING',
+    ).length;
+
+    const [workflowsOpen, ldaSpendRows, billsTracked, regulationsTracked] = await Promise.all([
+      // workflow_instance has no RLS policy; explicit tenantId filter required
+      // even inside withTenant(). Mirrors workflows.service.ts list() pattern.
+      this.prisma.workflowInstance.count({
+        where: { tenantId, status: { notIn: ['complete', 'cancelled'] } },
+      }),
+      tenantLdaIds.length
+        ? this.prisma.$queryRaw<Array<{ total: string | null }>>`
+            SELECT COALESCE(SUM(income), 0)::text AS total
+            FROM lda_filing
+            WHERE client_id = ANY(${tenantLdaIds}::int[])
+              AND dt_posted >= ${quarterStart}
+          `
+        : Promise.resolve([{ total: '0' }]),
+      tenantLdaIds.length
+        ? this.prisma.$queryRaw<Array<{ count: bigint }>>`
+            SELECT COUNT(DISTINCT b.id)::bigint AS count
+            FROM congress_bill b
+            JOIN congress_bill_subject s ON s.bill_id = b.id
+            WHERE lower(b.latest_action_text) NOT LIKE '%became public law%'
+              AND lower(b.latest_action_text) NOT LIKE '%vetoed%'
+              AND s.name ILIKE ANY(
+                ARRAY(
+                  SELECT DISTINCT name FROM lda_issue_code
+                  WHERE code = ANY(
+                    SELECT DISTINCT unnest(issue_codes)
+                    FROM lda_client
+                    WHERE id = ANY(${tenantLdaIds}::int[])
+                  )
+                )
+              )
+          `
+        : Promise.resolve([{ count: 0n }]),
+      this.prisma.federalRegisterDocument.count({
+        where: {
+          type: { in: ['PROPOSED_RULE', 'RULE'] },
+          commentEndDate: { gt: now },
+        },
+      }),
+    ]);
+
+    // LDA `income` is stored as Decimal dollars (not cents); SUM returns a
+    // numeric string via the text cast, parsed back to a plain JS number.
+    const ldaSpendDollars = Number(ldaSpendRows[0]?.total ?? '0');
+    const billsTrackedCount = Number(billsTracked[0]?.count ?? 0n);
+
+    return {
+      activeClients: clients.length,
+      openWorkflows: workflowsOpen,
+      needAttention,
+      ldaSpendQtd: ldaSpendDollars,
+      billsTracked: billsTrackedCount,
+      activeRegulations: regulationsTracked,
+    };
+  }
+}
+
+function startOfQuarter(now: Date): Date {
+  const month = now.getMonth();
+  const quarterStartMonth = Math.floor(month / 3) * 3;
+  return new Date(now.getFullYear(), quarterStartMonth, 1);
 }

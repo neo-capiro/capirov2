@@ -72,7 +72,15 @@ export function IntelligenceCenterPage() {
   ];
 
   return (
-    <div style={{ padding: '24px 32px', overflow: 'auto', height: '100%' }}>
+    <div
+      className="redesign"
+      style={{
+        padding: '24px 32px',
+        overflow: 'auto',
+        height: '100%',
+        background: 'var(--bg-canvas)',
+      }}
+    >
       <InsightsBanner />
 
       {/* Executive KPI row — gives the user a one-glance read on the breadth of

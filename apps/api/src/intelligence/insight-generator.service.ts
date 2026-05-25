@@ -1,10 +1,15 @@
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import {
+  SUBMISSION_TRACK_LABELS,
+  type SubmissionTrack,
+} from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
 import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
+import { addDateInZone, dateBoundsInZone } from './time-bounds.js';
 
 const AI_TIMEOUT_MS = 90_000;
 
@@ -265,7 +270,9 @@ export class InsightGeneratorService {
       issueCodes = codeRows[0]?.issue_codes ?? [];
     }
 
-    // Build OR conditions avoiding conditional spreads inside Prisma calls
+    // Build OR conditions avoiding conditional spreads inside Prisma calls.
+    // Comment-period emitters populate `relatedIssues` via SECTOR_TO_LDA_CODES, so
+    // sector-mapped events now reach this OR branch even without explicit client linkage.
     const changeOrConditions: Record<string, unknown>[] = [{ relatedClientIds: { has: clientId } }];
     if (issueCodes.length) changeOrConditions.push({ relatedIssues: { hasSome: issueCodes } });
     const changeWhere: Record<string, unknown> = { detectedAt: { gte: yesterday }, OR: changeOrConditions };
@@ -307,6 +314,14 @@ export class InsightGeneratorService {
 
     const capabilities = (client.capabilities ?? []).map((c) => c.name).filter(Boolean);
     if (capabilities.length) contextParts.push(`CAPABILITIES: ${capabilities.join(', ')}`);
+
+    const tracks = (client.submissionTracks ?? []) as SubmissionTrack[];
+    if (tracks.length) {
+      const trackLabels = tracks.map((t) => SUBMISSION_TRACK_LABELS[t] ?? t).join(', ');
+      contextParts.push(
+        `SUBMISSION TRACKS: ${trackLabels} (weight upcoming events on these legislative vehicles)`,
+      );
+    }
 
     if (ldaMatch.length) {
       const m = ldaMatch[0]!;
@@ -379,6 +394,155 @@ Structure your response as:
       provider: result.provider,
       model: result.model,
     };
+  }
+
+  /**
+   * Tenant-wide Clio Brief for the home dashboard. Pulls today's calendar
+   * (hearings, comment deadlines) + recent high-severity intel changes
+   * touching this tenant's clients and asks the LLM for a 3-4 sentence
+   * narrative pointing to today's highest-leverage moves.
+   */
+  async generateDailyBrief(tenantId: string) {
+    const now = new Date();
+    // Use UTC-midnight bounds for @db.Date columns (committee_hearing.date,
+    // federal_register_document.comment_end_date — both come back at UTC
+    // midnight regardless of intended timezone). setHours(0,0,0,0) resolves
+    // in server-local time, which works on UTC prod but skews 4-5h on ET dev
+    // and excludes today's rows from the calendar query.
+    const { start: startOfDay } = dateBoundsInZone(now, 'America/New_York');
+    const sevenDaysOut = addDateInZone(now, 7, 'America/New_York');
+    const fourteenDaysOut = addDateInZone(now, 14, 'America/New_York');
+    const last48h = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+
+    const clients = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findMany({
+        where: { status: { not: 'archived' } },
+        select: { id: true, name: true, sectorTag: true, submissionTracks: true },
+      }),
+    );
+    const tenantClientIds = new Set(clients.map((c) => c.id));
+    const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
+    // Roll up submission tracks across the active portfolio with client counts
+    // so the brief can lean on track-specific timing ("HASC markup is Thursday").
+    const trackCounts = new Map<SubmissionTrack, number>();
+    for (const c of clients) {
+      for (const track of (c.submissionTracks ?? []) as SubmissionTrack[]) {
+        trackCounts.set(track, (trackCounts.get(track) ?? 0) + 1);
+      }
+    }
+    const tracksBlock = trackCounts.size
+      ? [...trackCounts.entries()]
+          .sort(([, a], [, b]) => b - a)
+          .map(([t, n]) => `${SUBMISSION_TRACK_LABELS[t] ?? t} (${n})`)
+          .join(', ')
+      : '(none on file)';
+
+    const [hearings, deadlines, changes] = await Promise.all([
+      this.prisma.committeeHearing.findMany({
+        where: { date: { gte: startOfDay, lte: sevenDaysOut } },
+        orderBy: { date: 'asc' },
+        take: 12,
+      }),
+      this.prisma.federalRegisterDocument.findMany({
+        where: {
+          type: { in: ['PROPOSED_RULE', 'RULE'] },
+          commentEndDate: { gte: startOfDay, lte: fourteenDaysOut },
+        },
+        orderBy: { commentEndDate: 'asc' },
+        take: 10,
+      }),
+      this.prisma.intelligenceChange.findMany({
+        where: {
+          detectedAt: { gte: last48h },
+          severity: { in: ['critical', 'notable'] },
+        },
+        orderBy: { detectedAt: 'desc' },
+        take: 20,
+      }),
+    ]);
+
+    const tenantChanges = changes.filter(
+      (c) => c.relatedClientIds.length === 0 || c.relatedClientIds.some((id) => tenantClientIds.has(id)),
+    );
+
+    const todayLabel = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const tenantClientList = clients.slice(0, 30).map((c) => c.name).join(', ');
+
+    const hearingsBlock = hearings
+      .slice(0, 8)
+      .map((h) => {
+        const dayLabel = h.date.toDateString() === now.toDateString() ? 'TODAY' : h.date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        return `- ${dayLabel} ${h.time ?? ''} ${h.chamber} ${h.committeeName}: ${h.title}`;
+      })
+      .join('\n') || '(none on schedule)';
+
+    const deadlinesBlock = deadlines
+      .slice(0, 6)
+      .map((d) => {
+        const days = d.commentEndDate
+          ? Math.max(0, Math.ceil((d.commentEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+          : 0;
+        return `- ${days}d: ${d.agencyNames.slice(0, 2).join('/')} — ${d.title.slice(0, 110)}`;
+      })
+      .join('\n') || '(no comment-period deadlines in next 14 days)';
+
+    const changesBlock = tenantChanges
+      .slice(0, 10)
+      .map((c) => {
+        const tenantTouched = c.relatedClientIds.filter((id) => tenantClientIds.has(id));
+        const clientHint = tenantTouched.length
+          ? ` [touches: ${tenantTouched.map((id) => clientNameById.get(id) ?? id).slice(0, 3).join(', ')}]`
+          : '';
+        return `- [${c.severity.toUpperCase()}] ${c.source}: ${c.title}${clientHint}`;
+      })
+      .join('\n') || '(no high-severity changes detected in last 48h)';
+
+    if (!hearings.length && !deadlines.length && !tenantChanges.length) {
+      return {
+        brief: `${todayLabel} — quiet day on the federal calendar. No hearings, no comment deadlines closing, no high-severity changes in the last 48 hours. Use the window to advance long-running outreach.`,
+        generatedAt: now.toISOString(),
+        provider: null as string | null,
+        model: null as string | null,
+        empty: true as const,
+      };
+    }
+
+    const prompt = `You are writing today's leverage brief for a federal lobbying firm. Write 3-5 sentences in a punchy, voice-of-Capiro-Clio tone — concrete, specific, name names, and point to the single highest-leverage action for today. Do not list everything; pick the 1-2 things that actually matter. Reference the firm's active clients by name when the data supports it. Avoid hedging.
+
+TODAY: ${todayLabel}
+ACTIVE CLIENTS: ${tenantClientList || '(no active clients)'}
+ACTIVE SUBMISSION TRACKS: ${tracksBlock}
+
+UPCOMING HEARINGS / MARKUPS (next 7 days):
+${hearingsBlock}
+
+COMMENT-PERIOD DEADLINES (next 14 days):
+${deadlinesBlock}
+
+HIGH-SEVERITY CHANGES (last 48h, tenant-relevant):
+${changesBlock}
+
+Write the brief now. Start with "Today's leverage is" or similar. Do not include headers, bullets, or markdown. Plain prose only.`;
+
+    try {
+      const text = await this.generateFreeText(prompt);
+      return {
+        brief: text.trim(),
+        generatedAt: now.toISOString(),
+        provider: this.resolveProvider(),
+        model: this.preferredProvider === 'anthropic' ? this.anthropicModel : this.openaiModel,
+        empty: false as const,
+      };
+    } catch (err) {
+      this.logger.warn(`Daily brief generation failed: ${(err as Error).message}`);
+      return {
+        brief: `${todayLabel} — ${hearings.length} hearing(s), ${deadlines.length} comment deadline(s), ${tenantChanges.length} high-severity change(s) in the last 48 hours. AI brief unavailable; review the timeline.`,
+        generatedAt: now.toISOString(),
+        provider: null as string | null,
+        model: null as string | null,
+        empty: true as const,
+      };
+    }
   }
 
   /** Generate insights from change events */

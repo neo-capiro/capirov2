@@ -55,7 +55,15 @@ export class WorkflowsService {
         title: dto.title ?? template.name,
         status: WorkflowStatus.triage,
       },
-      include: { template: true },
+      include: {
+        template: true,
+        client: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
   }
 
@@ -66,15 +74,31 @@ export class WorkflowsService {
         ...(filters?.status ? { status: filters.status as WorkflowStatus } : {}),
         ...(filters?.clientId ? { clientId: filters.clientId } : {}),
       },
-      include: { template: true },
-      orderBy: { createdAt: 'desc' },
+      include: {
+        template: true,
+        client: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
     });
   }
 
   async getInstance(tenantId: string, id: string) {
     const instance = await this.prisma.workflowInstance.findUnique({
       where: { id },
-      include: { template: true },
+      include: {
+        template: true,
+        client: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
     if (!instance || instance.tenantId !== tenantId) {
       throw new NotFoundException(`Workflow instance '${id}' not found`);
@@ -99,7 +123,15 @@ export class WorkflowsService {
     return this.prisma.workflowInstance.update({
       where: { id },
       data,
-      include: { template: true },
+      include: {
+        template: true,
+        client: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
     });
   }
 
