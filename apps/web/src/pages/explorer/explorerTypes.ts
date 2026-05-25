@@ -278,3 +278,63 @@ export interface FedRegDetail {
     pdfUrl: string | null;
   };
 }
+
+/* Detail shapes for the 8 newer sources. Backend returns the full row from
+   each table — these types pick up extra (non-list-column) fields from the
+   schema (e.g. SEC `description`, `sic`, `primaryDoc`; FEC `transactionId`,
+   `memoText`; FARA `services`, `address`; intel article `content`) where
+   they exist. Unknown fields read as undefined and the views just skip them. */
+
+export interface HearingDetail {
+  hearing: ExplorerHearingRow & {
+    syncedAt?: string | null;
+  };
+}
+
+export interface GaoDetail {
+  report: ExplorerGaoRow & {
+    syncedAt?: string | null;
+  };
+}
+
+export interface CrsDetail {
+  report: ExplorerCrsRow & {
+    syncedAt?: string | null;
+  };
+}
+
+export interface FecDetail {
+  contribution: ExplorerFecRow & {
+    transactionId?: string | null;
+    memoText?: string | null;
+    image?: string | null;
+  };
+}
+
+export interface FaraDetail {
+  registration: ExplorerFaraRow & {
+    address?: string | null;
+    services?: string | null;
+  };
+}
+
+export interface SecDetail {
+  filing: ExplorerSecRow & {
+    primaryDoc?: string | null;
+    stateOfIncorp?: string | null;
+    fiscalYearEnd?: string | null;
+  };
+}
+
+export interface IntelArticleDetail {
+  article: ExplorerIntelArticleRow & {
+    content?: string | null;
+    feedUrl?: string | null;
+  };
+}
+
+export interface StateBillDetail {
+  bill: ExplorerStateBillRow & {
+    abstract?: string | null;
+  };
+}

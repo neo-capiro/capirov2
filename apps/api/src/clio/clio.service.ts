@@ -18,6 +18,17 @@ interface CreateConversationInput {
   title?: string;
 }
 
+interface UpdateConversationInput {
+  title?: string;
+  clientId?: string | null;
+}
+
+interface ClioSourceAttribution {
+  tool: string;
+  count?: number;
+  summary: string;
+}
+
 interface RuntimeMessage {
   id?: unknown;
   role?: unknown;

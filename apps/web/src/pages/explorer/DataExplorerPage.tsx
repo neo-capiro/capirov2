@@ -21,6 +21,7 @@ import {
   type BillFacets,
   type ContractorDetail,
   type ContractorFacets,
+  type CrsDetail,
   type CrsFacets,
   type ExplorerBillRow,
   type ExplorerContractorRow,
@@ -35,16 +36,23 @@ import {
   type ExplorerResponse,
   type ExplorerSecRow,
   type ExplorerStateBillRow,
+  type FaraDetail,
   type FaraFacets,
+  type FecDetail,
   type FecFacets,
   type FedRegDetail,
   type FedRegFacets,
+  type GaoDetail,
   type GaoFacets,
+  type HearingDetail,
   type HearingFacets,
+  type IntelArticleDetail,
   type IntelArticleFacets,
   type LdaFacets,
   type LdaFilingDetail,
+  type SecDetail,
   type SecFacets,
+  type StateBillDetail,
   type StateBillFacets,
 } from './explorerTypes.js';
 
@@ -1480,10 +1488,19 @@ function DrillInContent({ drillIn }: { drillIn: NonNullable<DrillIn> }) {
   if (drillIn.source === 'lda') return <LdaFilingDetailView id={drillIn.id} />;
   if (drillIn.source === 'bills') return <BillDetailView id={drillIn.id} />;
   if (drillIn.source === 'contractors') return <ContractorDetailView id={drillIn.id} />;
-  if (drillIn.source === 'fedreg') return <FedRegDetailView id={drillIn.id} />;
+  if (drillIn.source === 'fedreg' || drillIn.source === 'comment-deadlines')
+    return <FedRegDetailView id={drillIn.id} />;
+  if (drillIn.source === 'hearings') return <HearingDetailView id={drillIn.id} />;
+  if (drillIn.source === 'gao') return <GaoDetailView id={drillIn.id} />;
+  if (drillIn.source === 'crs') return <CrsDetailView id={drillIn.id} />;
+  if (drillIn.source === 'fec') return <FecDetailView id={drillIn.id} />;
+  if (drillIn.source === 'fara') return <FaraDetailView id={drillIn.id} />;
+  if (drillIn.source === 'sec') return <SecDetailView id={drillIn.id} />;
+  if (drillIn.source === 'articles') return <IntelArticleDetailView id={drillIn.id} />;
+  if (drillIn.source === 'state-bills') return <StateBillDetailView id={drillIn.id} />;
   return (
     <div style={{ padding: 24, fontSize: 12.5, color: 'var(--ink-3)' }}>
-      Detailed view for this source isn't wired yet. The full row data is available via the table.
+      Detailed view for this source isn't wired yet.
     </div>
   );
 }
@@ -1689,6 +1706,245 @@ function FedRegDetailView({ id }: { id: string }) {
           <ChipList items={document.topics} max={20} />
         </DrillSection>
       ) : null}
+    </div>
+  );
+}
+
+function HearingDetailView({ id }: { id: string }) {
+  const api = useApi();
+  const query = useQuery<HearingDetail | null>({
+    queryKey: ['explorer-hearing-detail', id],
+    queryFn: async () => (await api.get<HearingDetail>(`/api/explorer/hearings/${id}`)).data,
+  });
+  if (query.isLoading) return <Skeleton active paragraph={{ rows: 8 }} />;
+  if (!query.data) return <Empty description="Hearing not found." />;
+  const { hearing } = query.data;
+  return (
+    <div className="drill-content">
+      <DrillSection title="Hearing">
+        <DrillKV label="Title" value={hearing.title} />
+        <DrillKV label="Chamber" value={hearing.chamber} />
+        <DrillKV label="Committee" value={hearing.committeeName} />
+        {hearing.committeeCode ? <DrillKV label="Code" value={<span className="num">{hearing.committeeCode}</span>} /> : null}
+        <DrillKV label="Date" value={formatDate(hearing.date)} />
+        {hearing.time ? <DrillKV label="Time" value={hearing.time} /> : null}
+        {hearing.location ? <DrillKV label="Location" value={hearing.location} /> : null}
+        {hearing.type ? <DrillKV label="Type" value={hearing.type} /> : null}
+        {hearing.url ? <DrillKV label="Source" value={<a href={hearing.url} target="_blank" rel="noreferrer">Open hearing page →</a>} /> : null}
+      </DrillSection>
+      {hearing.witnesses?.length ? (
+        <DrillSection title={`Witnesses (${hearing.witnesses.length})`}>
+          <ul className="drill-list">
+            {hearing.witnesses.map((w, i) => (
+              <li key={i}><span>{w}</span></li>
+            ))}
+          </ul>
+        </DrillSection>
+      ) : null}
+    </div>
+  );
+}
+
+function GaoDetailView({ id }: { id: string }) {
+  const api = useApi();
+  const query = useQuery<GaoDetail | null>({
+    queryKey: ['explorer-gao-detail', id],
+    queryFn: async () => (await api.get<GaoDetail>(`/api/explorer/gao/${id}`)).data,
+  });
+  if (query.isLoading) return <Skeleton active paragraph={{ rows: 8 }} />;
+  if (!query.data) return <Empty description="GAO report not found." />;
+  const { report } = query.data;
+  return (
+    <div className="drill-content">
+      <DrillSection title="Report">
+        <DrillKV label="Title" value={report.title} />
+        <DrillKV label="ID" value={<span className="num">{report.id}</span>} />
+        {report.reportType ? <DrillKV label="Type" value={report.reportType} /> : null}
+        {report.publishDate ? <DrillKV label="Published" value={formatDate(report.publishDate)} /> : null}
+        {report.recommendations != null ? <DrillKV label="Recommendations" value={<span className="num">{report.recommendations}</span>} /> : null}
+        {report.url ? <DrillKV label="Source" value={<a href={report.url} target="_blank" rel="noreferrer">Open on gao.gov →</a>} /> : null}
+      </DrillSection>
+      {report.summary ? (
+        <DrillSection title="Summary">
+          <p style={{ fontSize: 13, lineHeight: 1.55, color: 'var(--ink-1)' }}>{report.summary}</p>
+        </DrillSection>
+      ) : null}
+      {report.topics?.length ? <DrillSection title="Topics"><ChipList items={report.topics} max={20} /></DrillSection> : null}
+      {report.agencies?.length ? <DrillSection title="Agencies"><ChipList items={report.agencies} max={20} /></DrillSection> : null}
+    </div>
+  );
+}
+
+function CrsDetailView({ id }: { id: string }) {
+  const api = useApi();
+  const query = useQuery<CrsDetail | null>({
+    queryKey: ['explorer-crs-detail', id],
+    queryFn: async () => (await api.get<CrsDetail>(`/api/explorer/crs/${id}`)).data,
+  });
+  if (query.isLoading) return <Skeleton active paragraph={{ rows: 8 }} />;
+  if (!query.data) return <Empty description="CRS report not found." />;
+  const { report } = query.data;
+  return (
+    <div className="drill-content">
+      <DrillSection title="Report">
+        <DrillKV label="Title" value={report.title} />
+        <DrillKV label="ID" value={<span className="num">{report.id}</span>} />
+        {report.date ? <DrillKV label="Date" value={formatDate(report.date)} /> : null}
+        <DrillKV label="Active" value={report.active ? 'Yes' : 'Archived'} />
+        {report.htmlUrl ? <DrillKV label="HTML" value={<a href={report.htmlUrl} target="_blank" rel="noreferrer">Open HTML →</a>} /> : null}
+        {report.pdfUrl ? <DrillKV label="PDF" value={<a href={report.pdfUrl} target="_blank" rel="noreferrer">Open PDF →</a>} /> : null}
+      </DrillSection>
+      {report.summary ? <DrillSection title="Summary"><p style={{ fontSize: 13, lineHeight: 1.55 }}>{report.summary}</p></DrillSection> : null}
+      {report.authors?.length ? <DrillSection title="Authors"><ChipList items={report.authors} max={10} /></DrillSection> : null}
+      {report.topics?.length ? <DrillSection title="Topics"><ChipList items={report.topics} max={20} /></DrillSection> : null}
+    </div>
+  );
+}
+
+function FecDetailView({ id }: { id: string }) {
+  const api = useApi();
+  const query = useQuery<FecDetail | null>({
+    queryKey: ['explorer-fec-detail', id],
+    queryFn: async () => (await api.get<FecDetail>(`/api/explorer/fec-contributions/${id}`)).data,
+  });
+  if (query.isLoading) return <Skeleton active paragraph={{ rows: 8 }} />;
+  if (!query.data) return <Empty description="Contribution not found." />;
+  const { contribution: c } = query.data;
+  return (
+    <div className="drill-content">
+      <DrillSection title="Contribution">
+        <DrillKV label="Amount" value={<span className="num drill-amount">{formatMoney(c.amount)}</span>} />
+        {c.contributionDate ? <DrillKV label="Date" value={formatDate(c.contributionDate)} /> : null}
+        {c.cycle ? <DrillKV label="Cycle" value={<span className="num">{c.cycle}</span>} /> : null}
+        {c.receiptType ? <DrillKV label="Type" value={c.receiptType} /> : null}
+        {c.state ? <DrillKV label="State" value={c.state} /> : null}
+        {c.transactionId ? <DrillKV label="Tx ID" value={<span className="num">{c.transactionId}</span>} /> : null}
+      </DrillSection>
+      <DrillSection title="Contributor">
+        {c.contributorName ? <DrillKV label="Name" value={c.contributorName} /> : null}
+        {c.contributorEmployer ? <DrillKV label="Employer" value={c.contributorEmployer} /> : null}
+        {c.contributorOccupation ? <DrillKV label="Occupation" value={c.contributorOccupation} /> : null}
+      </DrillSection>
+      <DrillSection title="Recipient">
+        {c.committeeName ? <DrillKV label="Committee" value={c.committeeName} /> : null}
+        <DrillKV label="Committee ID" value={<span className="num">{c.committeeId}</span>} />
+        {c.candidateName ? <DrillKV label="Candidate" value={c.candidateName} /> : null}
+        {c.candidateId ? <DrillKV label="Candidate ID" value={<span className="num">{c.candidateId}</span>} /> : null}
+      </DrillSection>
+      {c.memoText ? <DrillSection title="Memo"><p style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{c.memoText}</p></DrillSection> : null}
+    </div>
+  );
+}
+
+function FaraDetailView({ id }: { id: string }) {
+  const api = useApi();
+  const query = useQuery<FaraDetail | null>({
+    queryKey: ['explorer-fara-detail', id],
+    queryFn: async () => (await api.get<FaraDetail>(`/api/explorer/fara/${id}`)).data,
+  });
+  if (query.isLoading) return <Skeleton active paragraph={{ rows: 8 }} />;
+  if (!query.data) return <Empty description="FARA registration not found." />;
+  const { registration: r } = query.data;
+  return (
+    <div className="drill-content">
+      <DrillSection title="Registration">
+        <DrillKV label="Registrant" value={r.registrantName} />
+        <DrillKV label="Reg. #" value={<span className="num">{r.registrationNumber}</span>} />
+        {r.status ? <DrillKV label="Status" value={r.status} /> : null}
+        {r.registrationDate ? <DrillKV label="Registered" value={formatDate(r.registrationDate)} /> : null}
+        {r.terminationDate ? <DrillKV label="Terminated" value={formatDate(r.terminationDate)} /> : null}
+        {r.state ? <DrillKV label="State" value={r.state} /> : null}
+      </DrillSection>
+      <DrillSection title="Foreign Principal">
+        <DrillKV label="Principal" value={r.foreignPrincipal} />
+        {r.country ? <DrillKV label="Country" value={r.country} /> : null}
+      </DrillSection>
+      {r.description ? <DrillSection title="Description"><p style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{r.description}</p></DrillSection> : null}
+      {r.services ? <DrillSection title="Services"><p style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{r.services}</p></DrillSection> : null}
+    </div>
+  );
+}
+
+function SecDetailView({ id }: { id: string }) {
+  const api = useApi();
+  const query = useQuery<SecDetail | null>({
+    queryKey: ['explorer-sec-detail', id],
+    queryFn: async () => (await api.get<SecDetail>(`/api/explorer/sec/${id}`)).data,
+  });
+  if (query.isLoading) return <Skeleton active paragraph={{ rows: 8 }} />;
+  if (!query.data) return <Empty description="Filing not found." />;
+  const { filing: f } = query.data;
+  return (
+    <div className="drill-content">
+      <DrillSection title="Filing">
+        <DrillKV label="Company" value={f.companyName} />
+        <DrillKV label="CIK" value={<span className="num">{f.cik}</span>} />
+        <DrillKV label="Form" value={<Tag className="redesign-mono-tag">{f.formType}</Tag>} />
+        <DrillKV label="Accession #" value={<span className="num">{f.accessionNumber}</span>} />
+        <DrillKV label="Filed" value={formatDate(f.filingDate)} />
+        {f.reportDate ? <DrillKV label="Reporting period" value={formatDate(f.reportDate)} /> : null}
+        {f.sic ? <DrillKV label="SIC" value={<span className="num">{f.sic}</span>} /> : null}
+        {f.stateOfIncorp ? <DrillKV label="State of incorporation" value={f.stateOfIncorp} /> : null}
+        {f.fiscalYearEnd ? <DrillKV label="Fiscal year end" value={<span className="num">{f.fiscalYearEnd}</span>} /> : null}
+        {f.url ? <DrillKV label="EDGAR" value={<a href={f.url} target="_blank" rel="noreferrer">Open on SEC.gov →</a>} /> : null}
+        {f.primaryDoc ? <DrillKV label="Primary doc" value={<span className="num">{f.primaryDoc}</span>} /> : null}
+      </DrillSection>
+      {f.description ? <DrillSection title="Description"><p style={{ fontSize: 12.5, color: 'var(--ink-2)' }}>{f.description}</p></DrillSection> : null}
+    </div>
+  );
+}
+
+function IntelArticleDetailView({ id }: { id: string }) {
+  const api = useApi();
+  const query = useQuery<IntelArticleDetail | null>({
+    queryKey: ['explorer-article-detail', id],
+    queryFn: async () => (await api.get<IntelArticleDetail>(`/api/explorer/intel-articles/${id}`)).data,
+  });
+  if (query.isLoading) return <Skeleton active paragraph={{ rows: 8 }} />;
+  if (!query.data) return <Empty description="Article not found." />;
+  const { article: a } = query.data;
+  return (
+    <div className="drill-content">
+      <DrillSection title="Article">
+        <DrillKV label="Title" value={a.title} />
+        <DrillKV label="Source" value={<Tag className="redesign-mono-tag">{a.source}</Tag>} />
+        {a.author ? <DrillKV label="Author" value={a.author} /> : null}
+        <DrillKV label="Published" value={formatDate(a.publishedAt)} />
+        <DrillKV label="Link" value={<a href={a.url} target="_blank" rel="noreferrer">Open article →</a>} />
+        {a.feedUrl ? <DrillKV label="Feed" value={<a href={a.feedUrl} target="_blank" rel="noreferrer">{a.feedUrl}</a>} /> : null}
+      </DrillSection>
+      {a.summary ? <DrillSection title="Summary"><p style={{ fontSize: 13, lineHeight: 1.55 }}>{a.summary}</p></DrillSection> : null}
+      {a.content ? <DrillSection title="Excerpt"><p style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.55 }}>{a.content}</p></DrillSection> : null}
+      {a.topics?.length ? <DrillSection title="Topics"><ChipList items={a.topics} max={20} /></DrillSection> : null}
+      {a.agencies?.length ? <DrillSection title="Agencies"><ChipList items={a.agencies} max={20} /></DrillSection> : null}
+    </div>
+  );
+}
+
+function StateBillDetailView({ id }: { id: string }) {
+  const api = useApi();
+  const query = useQuery<StateBillDetail | null>({
+    queryKey: ['explorer-state-bill-detail', id],
+    queryFn: async () => (await api.get<StateBillDetail>(`/api/explorer/state-bills/${id}`)).data,
+  });
+  if (query.isLoading) return <Skeleton active paragraph={{ rows: 8 }} />;
+  if (!query.data) return <Empty description="State bill not found." />;
+  const { bill: b } = query.data;
+  return (
+    <div className="drill-content">
+      <DrillSection title="Bill">
+        <DrillKV label="ID" value={<Tag className="redesign-mono-tag">{`${b.state} ${b.identifier}`}</Tag>} />
+        <DrillKV label="Title" value={b.title} />
+        <DrillKV label="State" value={b.state} />
+        <DrillKV label="Session" value={<span className="num">{b.session}</span>} />
+        {b.chamber ? <DrillKV label="Chamber" value={b.chamber} /> : null}
+        {b.sponsorName ? <DrillKV label="Sponsor" value={`${b.sponsorName}${b.sponsorParty ? ` (${b.sponsorParty})` : ''}`} /> : null}
+        {b.latestActionDate ? <DrillKV label="Latest action" value={`${formatDate(b.latestActionDate)}${b.latestActionText ? ` — ${b.latestActionText}` : ''}`} /> : null}
+        {b.url ? <DrillKV label="Source" value={<a href={b.url} target="_blank" rel="noreferrer">Open on OpenStates →</a>} /> : null}
+      </DrillSection>
+      {b.abstract ? <DrillSection title="Abstract"><p style={{ fontSize: 13, lineHeight: 1.55 }}>{b.abstract}</p></DrillSection> : null}
+      {b.subjects?.length ? <DrillSection title="Subjects"><ChipList items={b.subjects} max={20} /></DrillSection> : null}
+      {b.classification?.length ? <DrillSection title="Classification"><ChipList items={b.classification} max={10} /></DrillSection> : null}
     </div>
   );
 }

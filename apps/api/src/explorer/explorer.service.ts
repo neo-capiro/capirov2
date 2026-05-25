@@ -942,6 +942,99 @@ export class ExplorerService {
       },
     };
   }
+
+  /* ── Detail endpoints for the 8 newer sources ──────────────────────── */
+
+  async hearingDetail(id: string) {
+    const h = await this.prisma.committeeHearing.findUnique({ where: { id } });
+    if (!h) return null;
+    return {
+      hearing: {
+        ...h,
+        date: h.date.toISOString(),
+      },
+    };
+  }
+
+  async gaoDetail(id: string) {
+    const r = await this.prisma.gaoReport.findUnique({ where: { id } });
+    if (!r) return null;
+    return {
+      report: {
+        ...r,
+        publishDate: r.publishDate?.toISOString() ?? null,
+      },
+    };
+  }
+
+  async crsDetail(id: string) {
+    const r = await this.prisma.crsReport.findUnique({ where: { id } });
+    if (!r) return null;
+    return {
+      report: {
+        ...r,
+        date: r.date?.toISOString() ?? null,
+      },
+    };
+  }
+
+  async fecDetail(id: string) {
+    const c = await this.prisma.fecContribution.findUnique({ where: { id } });
+    if (!c) return null;
+    return {
+      contribution: {
+        ...c,
+        amount: c.amount ? Number(c.amount) : 0,
+        contributionDate: c.contributionDate?.toISOString() ?? null,
+      },
+    };
+  }
+
+  async faraDetail(id: string) {
+    const r = await this.prisma.faraRegistration.findUnique({ where: { id } });
+    if (!r) return null;
+    return {
+      registration: {
+        ...r,
+        registrationDate: r.registrationDate?.toISOString() ?? null,
+        terminationDate: r.terminationDate?.toISOString() ?? null,
+      },
+    };
+  }
+
+  async secDetail(id: string) {
+    const f = await this.prisma.secFiling.findUnique({ where: { id } });
+    if (!f) return null;
+    return {
+      filing: {
+        ...f,
+        filingDate: f.filingDate.toISOString(),
+        reportDate: f.reportDate?.toISOString() ?? null,
+      },
+    };
+  }
+
+  async intelArticleDetail(id: string) {
+    const a = await this.prisma.intelArticle.findUnique({ where: { id } });
+    if (!a) return null;
+    return {
+      article: {
+        ...a,
+        publishedAt: a.publishedAt.toISOString(),
+      },
+    };
+  }
+
+  async stateBillDetail(id: string) {
+    const b = await this.prisma.stateBill.findUnique({ where: { id } });
+    if (!b) return null;
+    return {
+      bill: {
+        ...b,
+        latestActionDate: b.latestActionDate?.toISOString() ?? null,
+      },
+    };
+  }
 }
 
 function clampPageSize(value: number | undefined): number {

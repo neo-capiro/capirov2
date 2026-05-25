@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
-import { IsOptional, IsString, IsUUID, Length } from 'class-validator';
+import { Body, Controller, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { IsOptional, IsString, IsUUID, Length, ValidateIf } from 'class-validator';
 import type { Request, Response } from 'express';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
@@ -23,6 +23,18 @@ class SendClioMessageDto {
   @IsString()
   @Length(1, 24_000)
   body!: string;
+}
+
+class UpdateClioConversationDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 160)
+  title?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  clientId?: string | null;
 }
 
 @Controller('clio')
@@ -52,6 +64,25 @@ export class ClioController {
   @Get('conversations/:id')
   conversation(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.getConversation(ctx, id);
+  }
+
+  @Patch('conversations/:id')
+  updateConversation(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: UpdateClioConversationDto,
+  ) {
+    return this.service.updateConversation(ctx, id, body);
+  }
+
+  @Patch('conversations/:id/archive')
+  archiveConversation(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.archiveConversation(ctx, id);
+  }
+
+  @Patch('conversations/:id/restore')
+  restoreConversation(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.restoreConversation(ctx, id);
   }
 
   @Get('conversations/:id/messages')

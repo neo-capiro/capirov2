@@ -392,4 +392,44 @@ export class ExplorerController {
   fedRegDetail(@Param('id') id: string) {
     return this.service.fedRegDetail(id);
   }
+
+  @Get('hearings/:id')
+  hearingDetail(@Param('id') id: string) {
+    return this.service.hearingDetail(id);
+  }
+
+  @Get('gao/:id')
+  gaoDetail(@Param('id') id: string) {
+    return this.service.gaoDetail(id);
+  }
+
+  @Get('crs/:id')
+  crsDetail(@Param('id') id: string) {
+    return this.service.crsDetail(id);
+  }
+
+  @Get('fec-contributions/:id')
+  fecDetail(@Param('id') id: string) {
+    return this.service.fecDetail(id);
+  }
+
+  @Get('fara/:id')
+  faraDetail(@Param('id') id: string) {
+    return this.service.faraDetail(id);
+  }
+
+  @Get('sec/:id')
+  secDetail(@Param('id') id: string) {
+    return this.service.secDetail(id);
+  }
+
+  @Get('intel-articles/:id')
+  intelArticleDetail(@Param('id') id: string) {
+    return this.service.intelArticleDetail(id);
+  }
+
+  @Get('state-bills/:id')
+  stateBillDetail(@Param('id') id: string) {
+    return this.service.stateBillDetail(id);
+  }
 }

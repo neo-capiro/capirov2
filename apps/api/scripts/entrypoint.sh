@@ -115,12 +115,38 @@ case "${1:-serve}" in
     echo "Running check-comment-periods"
     exec ./node_modules/.bin/tsx scripts/check-comment-periods.ts
     ;;
+  # ── Federal data sync jobs ─────────────────────────────────────────────
+  # These populate the Data Explorer source tables (LDA, Congress, FedReg,
+  # Hearings, GAO, CRS, FEC, FARA, SEC, RSS intel, state bills, economic
+  # indicators, grants). Wired so EventBridge can dispatch each as a
+  # one-off ECS task — keep the case names in kebab-case matching the
+  # script file so cron rules stay trivially mappable.
+  sync-lda)               exec ./node_modules/.bin/tsx scripts/sync-lda.ts ;;
+  sync-congress)          exec ./node_modules/.bin/tsx scripts/sync-congress.ts ;;
+  sync-federal-register)  exec ./node_modules/.bin/tsx scripts/sync-federal-register.ts ;;
+  sync-regulations)       exec ./node_modules/.bin/tsx scripts/sync-regulations.ts ;;
+  sync-hearings)          exec ./node_modules/.bin/tsx scripts/sync-hearings.ts ;;
+  sync-gao)               exec ./node_modules/.bin/tsx scripts/sync-gao.ts ;;
+  sync-crs)               exec ./node_modules/.bin/tsx scripts/sync-crs.ts ;;
+  sync-fec)               exec ./node_modules/.bin/tsx scripts/sync-fec.ts ;;
+  sync-fara)              exec ./node_modules/.bin/tsx scripts/sync-fara.ts ;;
+  sync-sec-edgar)         exec ./node_modules/.bin/tsx scripts/sync-sec-edgar.ts ;;
+  sync-rss-intel)         exec ./node_modules/.bin/tsx scripts/sync-rss-intel.ts ;;
+  sync-openstates)        exec ./node_modules/.bin/tsx scripts/sync-openstates.ts ;;
+  sync-bls)               exec ./node_modules/.bin/tsx scripts/sync-bls.ts ;;
+  sync-bea)               exec ./node_modules/.bin/tsx scripts/sync-bea.ts ;;
+  sync-census)            exec ./node_modules/.bin/tsx scripts/sync-census.ts ;;
+  sync-grants)            exec ./node_modules/.bin/tsx scripts/sync-grants.ts ;;
+  sync-openlobby)         exec ./node_modules/.bin/tsx scripts/sync-openlobby.ts ;;
+  sync-openspending)      exec ./node_modules/.bin/tsx scripts/sync-openspending.ts ;;
+  sync-lobby-trending)    exec ./node_modules/.bin/tsx scripts/sync-lobby-trending.ts ;;
+  refresh-lobby-intel-mv) exec ./node_modules/.bin/tsx scripts/refresh-lobby-intel-mv.ts ;;
   serve)
     echo "Starting Capiro API"
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv)" >&2
     exit 1
     ;;
 esac
