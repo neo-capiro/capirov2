@@ -9,6 +9,7 @@ export interface MeResponse {
     email: string | null;
     firstName: string | null;
     lastName: string | null;
+    title: string | null;
   };
   tenant: { id: string; slug: string; name: string };
   role: TenantRole;

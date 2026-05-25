@@ -172,6 +172,7 @@ export function AppShell() {
     me.data?.user.email ||
     user?.primaryEmailAddress?.emailAddress ||
     'Account';
+  const displayTitle = me.data?.user.title ?? null;
 
   const page = useMemo(() => pageConfigFor(location.pathname), [location.pathname]);
 
@@ -439,6 +440,7 @@ export function AppShell() {
             logoUrl={branding.data?.logoUrl ?? null}
             name={branding.data?.name ?? me.data?.tenant.name ?? 'Capiro'}
           />
+          <TopbarSearch />
           <span className="app-topbar-spacer" />
           <button
             className="app-topbar-icon-button"
@@ -460,34 +462,18 @@ export function AppShell() {
               type="button"
               aria-label={`Open account menu for ${displayName}`}
             >
-              <Avatar size={30} src={user?.imageUrl || undefined} icon={<UserOutlined />}>
+              <Avatar size={36} src={user?.imageUrl || undefined} icon={<UserOutlined />}>
                 {initials(displayName)}
               </Avatar>
-              <span className="app-topbar-account-name">{displayName}</span>
+              <span className="app-topbar-account-stack">
+                <span className="app-topbar-account-name">{displayName}</span>
+                {displayTitle ? (
+                  <span className="app-topbar-account-title">{displayTitle}</span>
+                ) : null}
+              </span>
             </button>
           </Dropdown>
         </Header>
-
-        <div className="app-page-header">
-          <Typography.Text className="app-page-title" role="heading" aria-level={1}>
-            {page.title}
-          </Typography.Text>
-          {page.showClientDropdown ? (
-            <>
-              <span className="app-page-header-divider" aria-hidden="true" />
-              <ClientDropdown
-                clients={visibleClients}
-                selectedClient={selectedClient}
-                selectedClientId={selectedClientId}
-                loading={clients.isLoading}
-                onSelect={setSelectedClientId}
-                onNavigateToClients={() => navigate('/clients')}
-              />
-            </>
-          ) : null}
-          <span className="app-page-header-spacer" />
-          <PageActions page={page.key} />
-        </div>
 
         {page.showClientDropdown && selectedClient ? (
           <ClientContextBanner client={selectedClient} onClear={clearClientFilter} />
@@ -530,6 +516,32 @@ function TopbarTenantBrand({ logoUrl, name }: { logoUrl: string | null; name: st
       </span>
       <span className="app-topbar-tenant-name">{name}</span>
     </div>
+  );
+}
+
+/**
+ * Global search input in the top bar. Visual-only for now — wiring it up to a
+ * real cross-tenant index is a separate piece of work (see /docs/global-search.md
+ * for the proposed scope). The ⌘K hint is for future keyboard-trigger UX.
+ */
+function TopbarSearch() {
+  return (
+    <form
+      className="app-topbar-search"
+      role="search"
+      onSubmit={(e) => e.preventDefault()}
+      aria-label="Global search (coming soon)"
+    >
+      <SearchOutlined className="app-topbar-search-icon" aria-hidden />
+      <input
+        type="search"
+        className="app-topbar-search-input"
+        placeholder="Search bills, agencies, stakeholders…"
+        disabled
+        aria-disabled="true"
+      />
+      <span className="app-topbar-search-hint" aria-hidden>⌘K</span>
+    </form>
   );
 }
 

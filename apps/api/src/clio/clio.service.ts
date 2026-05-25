@@ -811,7 +811,7 @@ export class ClioService {
 
     // Auto-summarize for memory (if substantial)
     if (assistantContent.length > 200) {
-      void this.maybeLearnFromConversation(ctx.tenantId, conversationId, content, assistantContent).catch(() => {});
+      void this.maybeLearnFromConversation(ctx.tenantId, ctx.userId, conversationId, content, assistantContent).catch(() => {});
     }
 
     // Generate proactive alerts in background
@@ -859,7 +859,7 @@ export class ClioService {
     }
 
     try {
-      const memories = await this.loadRelevantMemories(ctx.tenantId, query);
+      const memories = await this.loadRelevantMemories(ctx.tenantId, ctx.userId, query);
       if (memories.length) {
         contextParts.push('\nRelevant firm knowledge (from Clio memory):');
         for (const mem of memories) contextParts.push(`- ${mem.value}`);
@@ -1164,31 +1164,65 @@ export class ClioService {
     return { key: normalizedKey, value: normalizedValue };
   }
 
+  private classifyMemoryType(key: string, value: string): 'firm' | 'user_private' {
+    const combined = `${key} ${value}`.toLowerCase();
+    const styleSignals = [
+      'writing style',
+      'tone',
+      'voice',
+      'format preference',
+      'verbosity',
+      'concise',
+      'detailed',
+      'prefers',
+      'communication style',
+      'how they write',
+    ];
+    return styleSignals.some((signal) => combined.includes(signal)) ? 'user_private' : 'firm';
+  }
+
+  private userScopedMemoryKey(userId: string, key: string): string {
+    return `user:${userId}:${key}`;
+  }
+
   // ── Memory: learn from conversations ──
 
-  private async loadRelevantMemories(tenantId: string, query: string): Promise<Array<{ key: string; value: string }>> {
-    // Try semantic search first (pgvector cosine similarity)
+  private async loadRelevantMemories(
+    tenantId: string,
+    userId: string,
+    query: string,
+  ): Promise<Array<{ key: string; value: string }>> {
     try {
-      const semantic = await this.semanticMemorySearch(tenantId, query, 5);
-      if (semantic.length > 0) return semantic.map(({ key, value }) => ({ key, value }));
-    } catch { /* fall through to keyword */ }
+      const semantic = await this.semanticMemorySearch(tenantId, userId, query, 8);
+      if (semantic.length > 0) {
+        return semantic.map(({ key, value }) => ({ key, value }));
+      }
+    } catch {
+      // fall through to keyword strategy
+    }
 
-    // Fallback: keyword-based memory lookup
     try {
       const memories = await this.prisma.withTenant(tenantId, (tx) =>
         tx.clioMemory.findMany({
-          where: { tenantId },
+          where: {
+            tenantId,
+            OR: [
+              { scope: 'firm' },
+              { scope: 'user_private', ownerUserId: userId },
+            ],
+          },
           orderBy: { updatedAt: 'desc' },
-          take: 10,
+          take: 20,
           select: { key: true, value: true },
         }),
       );
-      const queryLower = query.toLowerCase();
-      const words = queryLower.split(/\s+/).filter((w) => w.length > 3);
-      return memories.filter((m) => {
-        const combined = `${m.key} ${m.value}`.toLowerCase();
-        return words.some((w) => combined.includes(w));
-      }).slice(0, 5);
+      const words = extractKeywords(query);
+      return memories
+        .filter((m) => {
+          const combined = `${m.key} ${m.value}`.toLowerCase();
+          return words.some((w) => combined.includes(w));
+        })
+        .slice(0, 8);
     } catch {
       return [];
     }
@@ -1196,6 +1230,7 @@ export class ClioService {
 
   private async maybeLearnFromConversation(
     tenantId: string,
+    userId: string,
     conversationId: string,
     userMessage: string,
     assistantResponse: string,
@@ -1216,13 +1251,14 @@ export class ClioService {
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 500,
-          system: 'Extract 0-3 durable facts from this conversation exchange that a lobbying firm AI should remember for future sessions. Ignore temporary statuses, one-off tasks, runtime errors, specific timestamps, and operational chatter. Return JSON: {"memories":[{"key":"short_label","value":"fact to remember"}]}. Return {"memories":[]} if nothing worth remembering.',
+          system:
+            'Extract 0-3 durable facts from this conversation exchange. Split outputs into either firm-level institutional facts or user-specific writing/tone preferences. Ignore temporary statuses, one-off tasks, runtime errors, specific timestamps, and operational chatter. Return JSON: {"memories":[{"key":"short_label","value":"fact to remember"}]}. Return {"memories":[]} if nothing worth remembering.',
           messages: [{ role: 'user', content: `User: ${userMessage}\n\nAssistant: ${assistantResponse}` }],
         }),
       });
 
       if (!res.ok) return;
-      const json = await res.json() as Record<string, unknown>;
+      const json = (await res.json()) as Record<string, unknown>;
       const text = Array.isArray(json.content) ? (json.content[0] as Record<string, unknown>)?.text : '';
       if (typeof text !== 'string') return;
 
@@ -1236,16 +1272,39 @@ export class ClioService {
         const normalized = this.normalizeMemoryCandidate(mem.key, mem.value);
         if (!normalized) continue;
 
+        const memoryType = this.classifyMemoryType(normalized.key, normalized.value);
+        const keyWithoutPrefix = memoryType === 'user_private' ? this.userScopedMemoryKey(userId, normalized.key) : normalized.key;
+        const scope = memoryType;
+        const ownerUserId = scope === 'user_private' ? userId : null;
+        const storedKey = keyWithoutPrefix;
+        const source = scope === 'user_private' ? 'user_style' : 'firm';
+        const memoryMetadata = {
+          conversationId,
+          updatedBy: 'auto',
+          userId,
+          visibility: scope,
+        };
+
         const existing = await this.prisma.withTenant(tenantId, (tx) =>
           tx.clioMemory.findFirst({
-            where: { tenantId, key: normalized.key },
+            where: {
+              tenantId,
+              scope,
+              ownerUserId,
+              key: storedKey,
+            },
           }),
         );
+
         if (existing) {
           await this.prisma.withTenant(tenantId, (tx) =>
             tx.clioMemory.update({
               where: { id: existing.id },
-              data: { value: normalized.value, metadata: { conversationId, updatedBy: 'auto' } },
+              data: {
+                value: normalized.value,
+                source,
+                metadata: memoryMetadata,
+              },
             }),
           );
         } else {
@@ -1253,15 +1312,18 @@ export class ClioService {
             tx.clioMemory.create({
               data: {
                 tenantId,
-                key: normalized.key,
+                scope,
+                ownerUserId,
+                key: storedKey,
                 value: normalized.value,
-                source: 'conversation',
-                metadata: { conversationId, createdBy: 'auto' },
+                source,
+                metadata: { ...memoryMetadata, createdBy: 'auto' },
               },
             }),
           );
-          void this.embedAndStoreMemory(tenantId, normalized.key, normalized.value).catch(() => {});
         }
+
+        void this.embedAndStoreMemory(tenantId, storedKey, normalized.value).catch(() => {});
       }
     } catch (err) {
       this.logger.debug(`Memory extraction failed: ${(err as Error).message}`);
@@ -1448,19 +1510,23 @@ export class ClioService {
     }
   }
 
-  async semanticMemorySearch(tenantId: string, query: string, limit = 5): Promise<Array<{ key: string; value: string; score: number }>> {
+  async semanticMemorySearch(
+    tenantId: string,
+    userId: string,
+    query: string,
+    limit = 5,
+  ): Promise<Array<{ key: string; value: string; score: number }>> {
     const openaiKey = this.config.get('OPENAI_API_KEY', { infer: true });
     if (!openaiKey) return [];
 
     try {
-      // Generate query embedding
       const res = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: 'text-embedding-3-small', input: query }),
       });
       if (!res.ok) return [];
-      const json = await res.json() as { data?: Array<{ embedding?: number[] }> };
+      const json = (await res.json()) as { data?: Array<{ embedding?: number[] }> };
       const embedding = json.data?.[0]?.embedding;
       if (!embedding || embedding.length !== 1536) return [];
 
@@ -1468,10 +1534,18 @@ export class ClioService {
       const results = await this.prisma.$queryRawUnsafe<Array<{ key: string; value: string; score: number }>>(
         `SELECT key, value, 1 - (embedding <=> $1::vector) as score
          FROM clio_memory
-         WHERE tenant_id = $2 AND embedding IS NOT NULL
+         WHERE tenant_id = $2
+           AND embedding IS NOT NULL
+           AND (
+             scope = 'firm'
+             OR (scope = 'user_private' AND owner_user_id = $3::uuid)
+           )
          ORDER BY embedding <=> $1::vector
-         LIMIT $3`,
-        vecStr, tenantId, limit,
+         LIMIT $4`,
+        vecStr,
+        tenantId,
+        userId,
+        limit,
       );
       return results.filter((r) => r.score > 0.3);
     } catch (err) {
