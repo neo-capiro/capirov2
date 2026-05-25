@@ -173,6 +173,80 @@ export class ClioService {
     return this.ensureConversation(ctx, conversationId);
   }
 
+  async updateConversation(ctx: TenantContext, conversationId: string, input: UpdateConversationInput) {
+    const conversation = await this.ensureConversation(ctx, conversationId);
+    const data: Prisma.ClioConversationUpdateInput = {};
+
+    if (typeof input.title === 'string') {
+      const title = input.title.trim();
+      if (!title) throw new BadRequestException('Conversation title cannot be empty');
+      data.title = title;
+    }
+
+    if (input.clientId !== undefined) {
+      if (input.clientId) await this.ensureClientVisible(ctx, input.clientId);
+      data.clientId = input.clientId ?? null;
+    }
+
+    if (!Object.keys(data).length) {
+      return conversation;
+    }
+
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const updated = await tx.clioConversation.update({
+        where: { id: conversationId },
+        data: { ...data, updatedAt: new Date() },
+        include: { client: { select: { id: true, name: true } } },
+      });
+
+      if (input.clientId !== undefined) {
+        await Promise.all([
+          tx.clioMessage.updateMany({
+            where: {
+              tenantId: ctx.tenantId,
+              userId: ctx.userId,
+              conversationId,
+            },
+            data: { clientId: input.clientId ?? null },
+          }),
+          tx.clioArtifact.updateMany({
+            where: {
+              tenantId: ctx.tenantId,
+              userId: ctx.userId,
+              conversationId,
+            },
+            data: { clientId: input.clientId ?? null },
+          }),
+        ]);
+      }
+
+      return updated;
+    });
+  }
+
+  async archiveConversation(ctx: TenantContext, conversationId: string) {
+    await this.ensureConversation(ctx, conversationId);
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioConversation.update({
+        where: { id: conversationId },
+        data: { archivedAt: new Date(), status: 'archived' },
+      }),
+    );
+    return { ok: true, id: conversationId };
+  }
+
+  async restoreConversation(ctx: TenantContext, conversationId: string) {
+    const conversation = await this.ensureConversationAnyStatus(ctx, conversationId);
+    if (!conversation.archivedAt) return conversation;
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioConversation.update({
+        where: { id: conversationId },
+        data: { archivedAt: null, status: 'active', updatedAt: new Date() },
+        include: { client: { select: { id: true, name: true } } },
+      }),
+    );
+  }
+
   async listMessages(ctx: TenantContext, conversationId: string) {
     await this.ensureConversation(ctx, conversationId);
     return this.prisma.withTenant(ctx.tenantId, (tx) =>
@@ -307,6 +381,21 @@ export class ClioService {
           tenantId: ctx.tenantId,
           userId: ctx.userId,
           archivedAt: null,
+        },
+        include: { client: { select: { id: true, name: true } } },
+      }),
+    );
+    if (!conversation) throw new NotFoundException('Clio conversation not found');
+    return conversation;
+  }
+
+  private async ensureConversationAnyStatus(ctx: TenantContext, conversationId: string) {
+    const conversation = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioConversation.findFirst({
+        where: {
+          id: conversationId,
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
         },
         include: { client: { select: { id: true, name: true } } },
       }),

@@ -338,8 +338,18 @@ export function EngagementPage() {
   const [prepForm] = Form.useForm<PrepFormValues>();
   const [targetOfficeForm] = Form.useForm<TargetOfficeFormValues>();
   const syncingFromUrlRef = useRef(false);
+  const lastProcessedUrlRef = useRef<string>('');
 
   useEffect(() => {
+    // Only sync URL → state when the URL itself has changed since we last saw it.
+    // Without this guard, this effect re-runs whenever activeEngagementTab (or any
+    // other dep) updates from a user click — and because the URL hasn't caught up
+    // yet, it would clobber the new state back to the URL's stale value before
+    // the navigate effect below ever runs. Net result: tab clicks would revert.
+    const urlKey = `${location.pathname}?${searchParams.toString()}`;
+    if (lastProcessedUrlRef.current === urlKey) return;
+    lastProcessedUrlRef.current = urlKey;
+
     const segments = location.pathname.split('/').filter(Boolean);
     const section = segments[0] === 'engagement' ? segments[1] ?? 'overview' : null;
     const nextTab =
@@ -422,6 +432,10 @@ export function EngagementPage() {
     const nextSearch = nextParams.toString();
     const currentSearch = searchParams.toString();
     if (location.pathname === nextPath && currentSearch === nextSearch) return;
+
+    // Pre-record the URL we're about to write so the URL→state effect skips it
+    // when location updates (state already reflects the change).
+    lastProcessedUrlRef.current = `${nextPath}?${nextSearch}`;
 
     navigate(
       {
