@@ -216,7 +216,6 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
   const api = useApi();
   const { message } = AntApp.useApp();
   const [activeTab, setActiveTab] = useState('lda');
-  const [sourceDrawer, setSourceDrawer] = useState<{ title: string; data: unknown } | null>(null);
 
   const profileQuery = useQuery<ClientIntelProfile>({
     queryKey: ['client-intel-profile', clientId],
@@ -244,14 +243,32 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
     staleTime: 2 * 60 * 1000,
   });
 
-  const roiQuery = useQuery<{ lobbySpend: number; contractWins: number; roi: number } | null>({
+  const roiQuery = useQuery<
+    {
+      clientId: string;
+      clientName: string | null;
+      mappedLdaClientId: string | null;
+      mappedContractorId: string | null;
+      lobbySpend: number;
+      contractWins: number;
+      roi: number | null;
+      gap: number;
+    } | null
+  >({
     queryKey: ['client-lobbying-roi', clientId],
     queryFn: async () => {
       try {
         return (
-          await api.get<{ lobbySpend: number; contractWins: number; roi: number }>(
-            `/api/intelligence/clients/${clientId!}/lobbying-roi`,
-          )
+          await api.get<{
+            clientId: string;
+            clientName: string | null;
+            mappedLdaClientId: string | null;
+            mappedContractorId: string | null;
+            lobbySpend: number;
+            contractWins: number;
+            roi: number | null;
+            gap: number;
+          }>(`/api/intelligence/clients/${clientId!}/lobbying-roi`)
         ).data;
       } catch {
         return null;
@@ -468,14 +485,26 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
               <Card size="small">
                 <Statistic
                   title="Lobbying ROI"
-                  value={roiQuery.data.roi}
+                  value={roiQuery.data.roi ?? 0}
                   suffix="x"
-                  valueStyle={{ fontSize: 20, color: roiQuery.data.roi >= 1 ? '#52c41a' : '#ff4d4f' }}
+                  valueStyle={{
+                    fontSize: 20,
+                    color:
+                      (roiQuery.data.roi ?? 0) >= 1 ? '#52c41a' : '#ff4d4f',
+                  }}
                   prefix={<DollarOutlined />}
                 />
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  {formatMoney(roiQuery.data.lobbySpend)} spent → {formatMoney(roiQuery.data.contractWins)} won
-                </Text>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {formatMoney(roiQuery.data.lobbySpend)} spent → {formatMoney(roiQuery.data.contractWins)} won
+                  </Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    Gap: {formatMoney(roiQuery.data.gap)}
+                  </Text>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    Mapping: LDA {roiQuery.data.mappedLdaClientId ?? '—'} · Contractor {roiQuery.data.mappedContractorId ?? '—'}
+                  </Text>
+                </div>
               </Card>
             )}
           </div>
@@ -560,13 +589,19 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
                 children: <ContractingTab profile={profile} />,
               },
               {
+                // Consolidated bills tab. The older "Related Bills" tab was
+                // dropped — after the intel fixes (capability fallback +
+                // policy_area matching), both code paths produced essentially
+                // the same result and the tracked-bills surface had the more
+                // useful UI (matched-issue-code chips at the top, per-bill
+                // subject tags). The tab uses the dedicated /tracked-bills
+                // endpoint which carries the issue codes for the header.
+                // `profile.relevantBills.total` is used for the badge count
+                // because that's the unified-fetch number computed against
+                // the same match rules; the table contents come from the
+                // tracked-bills query.
                 key: 'bills',
-                label: tabLabel('Related Bills', profile.relevantBills.total),
-                children: <BillsTab profile={profile} onSourceClick={setSourceDrawer} />,
-              },
-              {
-                key: 'tracked-bills',
-                label: tabLabel('Tracked Bills', trackedBillsCount),
+                label: tabLabel('Bills', profile.relevantBills.total),
                 children: <TrackedBillsTab clientId={clientId!} />,
               },
               {
@@ -619,18 +654,6 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
         </>
       )}
 
-      <Drawer
-        title={sourceDrawer?.title ?? 'Source Record'}
-        open={!!sourceDrawer}
-        onClose={() => setSourceDrawer(null)}
-        width={500}
-      >
-        {sourceDrawer && (
-          <pre style={{ fontSize: 12, overflow: 'auto' }}>
-            {JSON.stringify(sourceDrawer.data, null, 2)}
-          </pre>
-        )}
-      </Drawer>
     </div>
   );
 }
@@ -727,90 +750,6 @@ function ContractingTab({ profile }: { profile: ClientIntelProfile }) {
         pagination={{ pageSize: 10, showSizeChanger: false }}
       />
     </div>
-  );
-}
-
-function BillsTab({
-  profile,
-  onSourceClick,
-}: {
-  profile: ClientIntelProfile;
-  onSourceClick: (src: { title: string; data: unknown }) => void;
-}) {
-  const columns = [
-    {
-      title: 'Bill',
-      width: 100,
-      render: (_: unknown, r: CongressBill) => (
-        <Tooltip title={r.title}>
-          <Text strong style={{ fontSize: 12 }}>
-            {r.billType.toUpperCase()} {r.billNumber}
-          </Text>
-        </Tooltip>
-      ),
-    },
-    { title: 'Title', dataIndex: 'title', ellipsis: true },
-    {
-      title: 'Sponsor',
-      dataIndex: 'sponsorName',
-      width: 140,
-      render: (n: string | null, r: CongressBill) =>
-        n ? (
-          <Text style={{ fontSize: 11 }}>
-            {n} ({r.sponsorParty ?? '?'}-{r.sponsorState ?? ''})
-          </Text>
-        ) : (
-          <Text type="secondary">—</Text>
-        ),
-    },
-    {
-      title: 'Policy Area',
-      dataIndex: 'policyArea',
-      width: 120,
-      render: (v: string | null) => {
-        if (!v) return <Text type="secondary">—</Text>;
-        const c = subjectSectorColor(v);
-        return c ? (
-          <Tag color={c} style={{ fontSize: 10 }}>{v}</Tag>
-        ) : (
-          <Tag style={{ fontSize: 10 }}>{v}</Tag>
-        );
-      },
-    },
-    {
-      title: 'Latest Action',
-      dataIndex: 'latestActionText',
-      ellipsis: true,
-      render: (t: string | null) => (
-        <Text type="secondary" style={{ fontSize: 11 }}>
-          {t ?? '—'}
-        </Text>
-      ),
-    },
-    {
-      title: '',
-      width: 60,
-      render: (_: unknown, r: CongressBill) => (
-        <Button
-          size="small"
-          type="link"
-          onClick={() => onSourceClick({ title: r.title, data: r })}
-        >
-          Detail
-        </Button>
-      ),
-    },
-  ];
-
-  return (
-    <Table<CongressBill>
-      rowKey="id"
-      size="small"
-      dataSource={profile.relevantBills.bills}
-      columns={columns}
-      pagination={{ pageSize: 15, showSizeChanger: false }}
-      locale={{ emptyText: <Empty description="No relevant bills" image={Empty.PRESENTED_IMAGE_SIMPLE} /> }}
-    />
   );
 }
 
@@ -1537,6 +1476,17 @@ interface DistrictNexusResult {
     capabilityName: string;
     capabilitySector: string | null;
     districtNexus: string | null;
+    totalSupportedJobs: number | null;
+    talkingPoints: Array<{
+      district: string;
+      headline: string;
+      evidence: {
+        laborForceSize: number | null;
+        unemploymentRate: number | null;
+        topIndustries: Array<{ name?: string; employment?: number; percent?: number }>;
+        dataYear: number;
+      };
+    }>;
     districts: Array<{
       id: string;
       congress: number;
