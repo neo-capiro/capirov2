@@ -70,9 +70,18 @@ export class IntelligenceService {
     const issueCodes: string[] = ldaMatch?.issueCodes ?? [];
 
     // 4. Find relevant bills and regulations in parallel
+    // When LDA didn't match (no issue codes), fall back to the client's own
+    // capability metadata so the Bills + Regulations tabs aren't empty for
+    // unmapped clients. This mirrors getTrackedBills() and keeps the
+    // standalone /tracked-bills endpoint and the profile's relevantBills in
+    // agreement.
+    const capabilityFallbackTerms = issueCodes.length
+      ? []
+      : await this.capabilityFallbackTerms(tenantId, clientId);
+
     const [relevantBills, activeRegulations, competitors] = await Promise.all([
-      this.findRelevantBills(issueCodes),
-      this.findActiveRegulations(issueCodes),
+      this.findRelevantBills(issueCodes, capabilityFallbackTerms),
+      this.findActiveRegulations(issueCodes, capabilityFallbackTerms),
       this.findCompetitors(clientName, issueCodes),
     ]);
 
@@ -337,24 +346,85 @@ export class IntelligenceService {
   }
 
   /** Find Congress bills relevant to the client's issue areas */
-  private async findRelevantBills(issueCodes: string[]) {
-    if (!issueCodes.length) return { total: 0, bills: [] };
+  /**
+   * Pull capability-derived match terms for a client. Mirrors the keyword
+   * extraction inside getTrackedBills() so the profile's `relevantBills` /
+   * `activeRegulations` and the standalone /tracked-bills endpoint produce
+   * the same fallback set when LDA matching yields no issue codes.
+   */
+  private async capabilityFallbackTerms(tenantId: string, clientId: string): Promise<string[]> {
+    const terms: string[] = [];
+    const caps = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientCapability.findMany({
+        where: { clientId },
+        select: { sector: true, name: true, tags: true },
+      }),
+    );
+    for (const cap of caps) {
+      if (cap.sector) terms.push(cap.sector);
+      if (cap.name) {
+        cap.name
+          .split(/\s+/)
+          .filter((w) => w.length > 3)
+          .forEach((w) => terms.push(w));
+      }
+      const tags = Array.isArray(cap.tags) ? (cap.tags as unknown[]) : [];
+      for (const t of tags) {
+        if (typeof t === 'string' && t.length > 3) terms.push(t);
+      }
+    }
+    return terms;
+  }
 
-    // Bridge LDA issue codes -> English subject names via lda_issue_code,
-    // then ILIKE-match against congress_bill_subject.name. Mirrors the logic in
-    // getTrackedBills() so the Related Bills tab and Tracked Bills tab agree.
-    const nameRows = await this.prisma.$queryRaw<Array<{ name: string }>>`
-      SELECT name FROM lda_issue_code WHERE code = ANY(${issueCodes}::text[])
+  private async findRelevantBills(
+    issueCodes: string[],
+    fallbackTerms: string[] = [],
+  ) {
+    // Resolve LDA issue codes → English issue names via lda_issue_code, then
+    // match those names (whole-word) against congress_bill_subject.name. The
+    // fallbackTerms come from client capabilities when LDA didn't match —
+    // they're already English-language strings so they're appended after
+    // resolution. Whole-word match (not substring) avoids false positives
+    // like "Federal Defense Officers" matching any client with the word
+    // "Defense" in their LDA issues.
+    const issueNames: string[] = [];
+    if (issueCodes.length) {
+      const nameRows = await this.prisma.$queryRaw<Array<{ name: string }>>`
+        SELECT name FROM lda_issue_code WHERE code = ANY(${issueCodes}::text[])
+      `;
+      issueNames.push(...nameRows.map((r) => r.name));
+    }
+    const allTerms = [...issueNames, ...fallbackTerms];
+    if (!allTerms.length) return { total: 0, bills: [] };
+
+    const lowerTerms = allTerms.map((n) => n.toLowerCase());
+    const wordPatterns = lowerTerms.map(
+      (n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`,
+    );
+
+    // Total is computed in its own COUNT(DISTINCT) so the UI's "Tracked
+    // Bills" statistic reflects the real cardinality, not the LIMIT 25 cap
+    // that bounds the rendered list. Prior implementation returned
+    // `bills.length` which silently capped at 25 even when 200+ bills
+    // matched.
+    //
+    // Match surfaces (the spec calls out "bill subjects/policy areas"):
+    //   • congress_bill_subject.name   — granular topic tags from CRS.
+    //   • congress_bill.policy_area    — single canonical area per bill
+    //                                    (e.g. "Armed Forces and National
+    //                                    Security"). Matching this catches
+    //                                    bills tagged only at the broad
+    //                                    policy level when no subject row
+    //                                    has the matching keyword.
+    const countRows = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
+      SELECT COUNT(DISTINCT cb.id)::bigint AS total
+      FROM congress_bill cb
+      LEFT JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
+      WHERE LOWER(cbs.name) = ANY(${lowerTerms}::text[])
+         OR LOWER(cbs.name) ~ ANY(${wordPatterns}::text[])
+         OR LOWER(cb.policy_area) = ANY(${lowerTerms}::text[])
+         OR LOWER(cb.policy_area) ~ ANY(${wordPatterns}::text[])
     `;
-    const issueNames = nameRows.map((r) => r.name);
-    if (!issueNames.length) return { total: 0, bills: [] };
-
-    // Whole-word match (not substring) to avoid false positives like
-    // "9/11 Memorial and Museum Act" matching any client with "Defense" in
-    // their LDA issues just because the subject "Federal Defense Officers"
-    // happens to contain the word.
-    const lowerNames = issueNames.map((n) => n.toLowerCase());
-    const wordPatterns = lowerNames.map((n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`);
 
     const rows = await this.prisma.$queryRaw<
       Array<{
@@ -379,17 +449,17 @@ export class IntelligenceService {
           cb.introduced_date, cb.sponsor_name, cb.sponsor_party, cb.sponsor_state,
           cb.latest_action_text, cb.latest_action_date, cb.policy_area, cb.subjects
         FROM congress_bill cb
-        JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
-        WHERE LOWER(cbs.name) = ANY(${lowerNames}::text[])
+        LEFT JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
+        WHERE LOWER(cbs.name) = ANY(${lowerTerms}::text[])
            OR LOWER(cbs.name) ~ ANY(${wordPatterns}::text[])
+           OR LOWER(cb.policy_area) = ANY(${lowerTerms}::text[])
+           OR LOWER(cb.policy_area) ~ ANY(${wordPatterns}::text[])
         ORDER BY cb.id
       ) q
       ORDER BY q.latest_action_date DESC NULLS LAST
       LIMIT 25
     `;
 
-    // Match the shape callers (and `ClientIntelProfile.relevantBills`) already
-    // expect — the prior implementation returned raw congress_bill rows.
     const bills = rows.map((r) => ({
       id: r.id,
       congress: r.congress,
@@ -406,7 +476,7 @@ export class IntelligenceService {
       subjects: r.subjects ?? [],
     }));
 
-    return { total: bills.length, bills };
+    return { total: Number(countRows[0]?.total ?? 0), bills };
   }
 
   /**
@@ -417,17 +487,38 @@ export class IntelligenceService {
    * names like "Defense" rarely equal FR topic strings like "Defense department"
    * verbatim, so it returned zero rows even for clients with obvious matches.
    */
-  private async findActiveRegulations(issueCodes: string[]) {
-    if (!issueCodes.length) return { total: 0, documents: [] };
+  private async findActiveRegulations(
+    issueCodes: string[],
+    fallbackTerms: string[] = [],
+  ) {
+    const issueNames: string[] = [];
+    if (issueCodes.length) {
+      const nameRows = await this.prisma.$queryRaw<Array<{ name: string }>>`
+        SELECT name FROM lda_issue_code WHERE code = ANY(${issueCodes}::text[])
+      `;
+      issueNames.push(...nameRows.map((r) => r.name));
+    }
+    const allTerms = [...issueNames, ...fallbackTerms];
+    if (!allTerms.length) return { total: 0, documents: [] };
 
-    const nameRows = await this.prisma.$queryRaw<Array<{ name: string }>>`
-      SELECT name FROM lda_issue_code WHERE code = ANY(${issueCodes}::text[])
+    const lowerTerms = allTerms.map((n) => n.toLowerCase());
+    const wordPatterns = lowerTerms.map(
+      (n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`,
+    );
+
+    // Separate COUNT so total isn't truncated by the LIMIT 50 page.
+    const countRows = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
+      SELECT COUNT(*)::bigint AS total
+      FROM federal_register_document
+      WHERE comment_end_date > NOW()
+        AND (
+          EXISTS (
+            SELECT 1 FROM unnest(topics) t
+            WHERE LOWER(t) ~ ANY(${wordPatterns}::text[])
+          )
+          OR LOWER(title) ~ ANY(${wordPatterns}::text[])
+        )
     `;
-    const issueNames = nameRows.map((r) => r.name);
-    if (!issueNames.length) return { total: 0, documents: [] };
-
-    const lowerNames = issueNames.map((n) => n.toLowerCase());
-    const wordPatterns = lowerNames.map((n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`);
 
     const docs = await this.prisma.$queryRaw<
       Array<{
@@ -471,7 +562,7 @@ export class IntelligenceService {
       htmlUrl: d.html_url,
     }));
 
-    return { total: documents.length, documents };
+    return { total: Number(countRows[0]?.total ?? 0), documents };
   }
 
   /** Find competitors: other entities lobbying on the same issue codes */
@@ -902,6 +993,24 @@ export class IntelligenceService {
     const lowerTerms = allTerms.map((n) => n.toLowerCase());
     const wordPatterns = lowerTerms.map((n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`);
 
+    // Separate COUNT so the UI's "Tracked Bills" stat reports the real
+    // cardinality rather than the LIMIT 50 cap on the rendered table.
+    //
+    // Match surfaces: subject names (granular CRS tags) OR policy_area
+    // (canonical area per bill). Adding policy_area catches bills that are
+    // only tagged at the broad level — important for clients whose LDA
+    // issues / capability sectors map to the policy-area vocabulary more
+    // cleanly than to subject vocabulary.
+    const countRows = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
+      SELECT COUNT(DISTINCT cb.id)::bigint AS total
+      FROM congress_bill cb
+      LEFT JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
+      WHERE LOWER(cbs.name) = ANY(${lowerTerms}::text[])
+         OR LOWER(cbs.name) ~ ANY(${wordPatterns}::text[])
+         OR LOWER(cb.policy_area) = ANY(${lowerTerms}::text[])
+         OR LOWER(cb.policy_area) ~ ANY(${wordPatterns}::text[])
+    `;
+
     const bills = await this.prisma.$queryRaw<
       Array<{
         id: string;
@@ -911,15 +1020,18 @@ export class IntelligenceService {
         sponsor_name: string | null;
         sponsor_party: string | null;
         subjects: string[];
+        policy_area: string | null;
       }>
     >`
       SELECT * FROM (
         SELECT DISTINCT ON (cb.id) cb.id, cb.title, cb.latest_action_date, cb.latest_action_text,
-               cb.sponsor_name, cb.sponsor_party, cb.subjects
+               cb.sponsor_name, cb.sponsor_party, cb.subjects, cb.policy_area
         FROM congress_bill cb
-        JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
+        LEFT JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
         WHERE LOWER(cbs.name) = ANY(${lowerTerms}::text[])
            OR LOWER(cbs.name) ~ ANY(${wordPatterns}::text[])
+           OR LOWER(cb.policy_area) = ANY(${lowerTerms}::text[])
+           OR LOWER(cb.policy_area) ~ ANY(${wordPatterns}::text[])
         ORDER BY cb.id
       ) q
       ORDER BY q.latest_action_date DESC NULLS LAST
@@ -927,7 +1039,7 @@ export class IntelligenceService {
     `;
 
     return {
-      total: bills.length,
+      total: Number(countRows[0]?.total ?? 0),
       issueCodes,
       bills: bills.map((b) => ({
         identifier: b.id,
