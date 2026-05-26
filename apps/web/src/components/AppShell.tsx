@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ChatDrawer } from './chat/ChatDrawer.js';
 import {
   ApartmentOutlined,
+  BellOutlined,
   BulbOutlined,
   CalendarOutlined,
   CheckOutlined,
@@ -300,12 +301,33 @@ export function AppShell() {
     return () => window.removeEventListener('capiro:sync-inbox', handler);
   }, [connectedInboxConnections.length, navigate, syncInbox]);
 
+  // Counts pulled from caches already populated above. We don't fire new
+  // queries just to show a chip — if the page hasn't loaded them yet,
+  // the chip is hidden until the data arrives.
+  const navCounts = useMemo<Partial<Record<AppSection, number>>>(() => {
+    return {
+      clients: visibleClients.length || undefined,
+      intelligence: changesUnread.data || undefined,
+    };
+  }, [visibleClients.length, changesUnread.data]);
+
   const items = useMemo(() => {
     const result: NonNullable<MenuProps['items']> = [];
     for (const n of NAV) {
       if (n.key === 'clients') {
         result.push({ type: 'divider' });
       }
+      const count = navCounts[n.key];
+      const labelInner = (
+        <span className="app-nav-label-row">
+          <span className="app-nav-label-text">{n.label}</span>
+          {count != null && count > 0 ? (
+            <span className="app-nav-count num" aria-label={`${count} items`}>
+              {count > 99 ? '99+' : count}
+            </span>
+          ) : null}
+        </span>
+      );
       result.push({
         key: n.key,
         icon: n.icon,
@@ -316,7 +338,7 @@ export function AppShell() {
             .filter(Boolean)
             .join(' ') || undefined,
         label: n.disabled ? (
-          <span>{n.label}</span>
+          labelInner
         ) : (
           <Link
             to={n.path}
@@ -327,13 +349,13 @@ export function AppShell() {
               message.info('Cancel or complete the outreach workflow before navigating away.');
             }}
           >
-            {n.label}
+            {labelInner}
           </Link>
         ),
       });
     }
     return result;
-  }, [message, workflowLocked]);
+  }, [message, navCounts, workflowLocked]);
 
   const selectedKey = page.key === 'not-found' ? 'home' : page.key;
 
@@ -442,6 +464,25 @@ export function AppShell() {
           />
           <TopbarSearch />
           <span className="app-topbar-spacer" />
+          <button
+            className="app-topbar-icon-button"
+            type="button"
+            aria-label={
+              changesUnread.data
+                ? `Open intelligence feed (${changesUnread.data} unread)`
+                : 'Open intelligence feed'
+            }
+            onClick={() => {
+              if (workflowLocked) {
+                message.info('Cancel or complete the outreach workflow before navigating away.');
+                return;
+              }
+              navigate('/explorer');
+            }}
+          >
+            <BellOutlined />
+            {changesUnread.data ? <span className="app-topbar-dot-badge" aria-hidden /> : null}
+          </button>
           <button
             className="app-topbar-icon-button"
             type="button"

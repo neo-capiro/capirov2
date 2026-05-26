@@ -357,6 +357,48 @@ body {
   padding-left: 8px;
 }
 
+/* Make the menu item's label row hold a count chip on the right.
+   AntD renders the label content inside .ant-menu-title-content; we
+   wrap label + count in .app-nav-label-row so flexbox spreads them. */
+.app-nav-menu .ant-menu-title-content > a,
+.app-nav-menu .ant-menu-title-content > span.app-nav-label-row {
+  display: flex;
+  width: 100%;
+}
+.app-nav-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+.app-nav-label-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-nav-count {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgba(245, 242, 235, 0.62);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 1px 7px;
+  border-radius: 9px;
+  line-height: 1.5;
+}
+.app-nav-menu.ant-menu-dark .ant-menu-item-selected .app-nav-count {
+  background: rgba(42, 87, 206, 0.32);
+  color: #c7d4f4;
+}
+/* Hide counts when the sidebar is collapsed — only the icon is visible. */
+.app-shell-sider.ant-layout-sider-collapsed .app-nav-count {
+  display: none;
+}
+
 .app-nav-menu .app-nav-item--nested::before {
   position: absolute;
   left: 25px;
@@ -811,6 +853,23 @@ body {
   outline: none;
 }
 
+/* Bell/notification dot — small accent pip in the top-right corner
+   that matches the mockup .tb-iconbtn .dot-badge. */
+.app-topbar-icon-button {
+  position: relative;
+}
+.app-topbar-dot-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1.5px solid #fff;
+  pointer-events: none;
+}
+
 .app-topbar-account {
   display: inline-flex;
   max-width: min(320px, 32vw);
@@ -835,7 +894,7 @@ body {
 
 .app-topbar-account .ant-avatar {
   flex: 0 0 auto;
-  background: #1c2e4a;
+  background: linear-gradient(135deg, #4e78d8, #1a3f9f);
   color: #fff;
   font-size: 13px;
   font-weight: 800;
@@ -13160,10 +13219,77 @@ body {
   border-color: var(--border-1);
 }
 
+.wp-paper-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.wp-paper-meta span {
+  font-size: 11px;
+  color: var(--ink-3);
+  border: 1px solid var(--border-1);
+  border-radius: 999px;
+  padding: 2px 8px;
+  background: var(--bg-surface-2);
+}
+
+.wp-section {
+  border-top: 1px dashed var(--border-1);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+.wp-section-h {
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 22px;
+  font-family: var(--font-serif);
+  font-weight: 700;
+}
+
+.wp-section-h:hover,
+.wp-section-h:focus {
+  box-shadow: none;
+}
+
+.wp-section-body {
+  margin-bottom: 8px;
+}
+
 .wp-section-body textarea {
   font-family: var(--font-serif);
   font-size: 16px;
   line-height: 1.65;
+}
+
+.wp-section-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.wp-section-action {
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--bg-surface);
+  cursor: pointer;
+}
+
+.wp-section-action:hover {
+  background: var(--bg-surface-2);
+}
+
+.wp-section-action.clio {
+  color: var(--accent-strong);
+  border-color: var(--accent);
 }
 
 .wp-clio {
@@ -13174,6 +13300,92 @@ body {
   flex-direction: column;
   gap: 12px;
   overflow-y: auto;
+}
+
+.wp-ctx-list {
+  display: grid;
+  gap: 8px;
+}
+
+.wp-ctx-item {
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.wp-ctx-item .cb {
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-2);
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--bg-surface);
+  background: transparent;
+  flex-shrink: 0;
+}
+
+.wp-ctx-item .txt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.wp-ctx-item .t {
+  color: var(--ink-1);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wp-ctx-item .s {
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+.wp-ctx-item.on {
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 6%, var(--bg-surface));
+}
+
+.wp-ctx-item.on .cb {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.wp-clio-cta {
+  margin-top: 4px;
+}
+
+.wp-clio .sw-select {
+  width: 100%;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: var(--bg-surface);
+  color: var(--ink-1);
+}
+
+.wp-clio .sw-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.wp-clio-note {
+  resize: vertical;
 }
 
 .wp-clio-head {
