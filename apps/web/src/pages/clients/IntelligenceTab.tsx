@@ -10,6 +10,7 @@ import { useApi } from '../../lib/use-api.js';
 import {
   ClientIntelOverview,
   ReportCardView,
+  DistrictNexusTab,
 } from '../intelligence/ClientIntelProfilePage.js';
 import { KnowledgeGraphView } from '../intelligence/KnowledgeGraphPage.js';
 
@@ -18,15 +19,18 @@ interface IntelligenceTabProps {
   clientName: string;
 }
 
+type IntelMainTab = 'overview' | 'graph' | 'report-card' | 'district-nexus';
+
 export function IntelligenceTab({ clientId, clientName }: IntelligenceTabProps) {
-  const [active, setActive] = useState<'overview' | 'graph' | 'report-card'>('overview');
+  const [active, setActive] = useState<IntelMainTab>('overview');
 
   return (
-    <Tabs
-      activeKey={active}
-      onChange={(k) => setActive(k as 'overview' | 'graph' | 'report-card')}
-      destroyInactiveTabPane
-      items={[
+    <div className="intel-main-tabs">
+      <Tabs
+        activeKey={active}
+        onChange={(k) => setActive(k as IntelMainTab)}
+        destroyInactiveTabPane
+        items={[
         {
           key: 'overview',
           label: (
@@ -54,8 +58,14 @@ export function IntelligenceTab({ clientId, clientName }: IntelligenceTabProps) 
           ),
           children: <ReportCardPanel clientId={clientId} />,
         },
-      ]}
-    />
+        {
+          key: 'district-nexus',
+          label: <span>District Nexus</span>,
+          children: <DistrictNexusTab clientId={clientId} />,
+        },
+        ]}
+      />
+    </div>
   );
 }
 

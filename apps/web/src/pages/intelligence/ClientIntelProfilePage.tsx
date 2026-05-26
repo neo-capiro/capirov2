@@ -96,6 +96,103 @@ function deadlineTag(dateStr: string | null | undefined) {
   return <Tag color="blue">{days}d left</Tag>;
 }
 
+function minutesAgoLabel(isoDate: string | null | undefined): string {
+  if (!isoDate) return 'Synced recently';
+  const d = new Date(isoDate);
+  if (Number.isNaN(d.getTime())) return 'Synced recently';
+  const mins = Math.max(1, Math.round((Date.now() - d.getTime()) / (1000 * 60)));
+  if (mins < 60) return `Synced ${mins} min ago`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `Synced ${hours} hr ago`;
+  const days = Math.round(hours / 24);
+  return `Synced ${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+function clioSignalText(score: number | null | undefined): string {
+  if (score == null) return 'Engagement signal unavailable — complete intake and sync activity data.';
+  if (score < 30) return 'Engagement is critically low — prioritize immediate outreach and meeting cadence recovery.';
+  if (score < 70) return 'Engagement is at risk — increase meeting frequency and close-loop debriefs this cycle.';
+  return 'Engagement is healthy — maintain momentum and push policy priorities into execution.';
+}
+
+function clioSignalTone(score: number | null | undefined): 'error' | 'warning' | 'success' {
+  if (score == null) return 'warning';
+  if (score < 30) return 'error';
+  if (score < 70) return 'warning';
+  return 'success';
+}
+
+function clioToneColor(score: number | null | undefined): string {
+  if (score == null) return '#faad14';
+  if (score < 30) return '#ff4d4f';
+  if (score < 70) return '#faad14';
+  return '#52c41a';
+}
+
+
+function clioAvatar(size = 20) {
+  return (
+    <span
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: 'linear-gradient(135deg, #4e78d8, #1a3f9f)',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: '#fff',
+        boxShadow: '0 0 0 2px rgba(42, 87, 206, 0.12)',
+      }}
+      aria-label="Clio"
+    >
+      <BulbOutlined style={{ fontSize: Math.max(10, Math.round(size * 0.45)) }} />
+    </span>
+  );
+}
+
+function clioBadge(label = 'Clio') {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
+        fontSize: 11,
+        fontWeight: 600,
+        color: 'var(--ink-1)',
+        background: 'var(--bg-surface-2)',
+        border: '1px solid var(--border-1)',
+        borderRadius: 999,
+        padding: '2px 8px',
+      }}
+    >
+      {clioAvatar(16)}
+      {label}
+    </span>
+  );
+}
+
+function reportForwardLookParagraphs(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  return value
+    .split(/\n{2,}/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function reportForwardLookHeadline(paragraphs: string[]): string {
+  const first = paragraphs[0] ?? 'Forward look available.';
+  const sentence = first.split(/(?<=[.!?])\s/)[0] ?? first;
+  return sentence.trim();
+}
+
+function firstName(value: unknown): string {
+  if (typeof value !== 'string') return 'client team';
+  const token = value.trim().split(/\s+/)[0];
+  return token || 'client team';
+}
+
 function tabLabel(label: string, count: number) {
   return (
     <span>
@@ -238,11 +335,14 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
       {/* Match banner */}
       {profile && (
         <div style={{ marginBottom: 16 }}>
-          <Space size={8}>
+          <Space size={8} wrap>
             <Text type="secondary" style={{ fontSize: 12 }}>{clientName}</Text>
             <Tag color={profile.lda.matched ? 'green' : 'default'}>
               {profile.lda.matched ? 'LDA Matched' : 'Unmatched'}
             </Tag>
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {minutesAgoLabel(profile.lastUpdated)} · 25 endpoints
+            </Text>
           </Space>
         </div>
       )}
@@ -380,6 +480,25 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
             )}
           </div>
 
+          {/* Clio signal */}
+          <Alert
+            style={{ marginBottom: 16 }}
+            type={clioSignalTone(healthScore?.score)}
+            showIcon
+            message={
+              <Space align="center" size={8}>
+                {clioAvatar(24)}
+                <Text strong style={{ fontSize: 13 }}>Clio Signal</Text>
+              </Space>
+            }
+            description={clioSignalText(healthScore?.score)}
+            action={
+              <Button size="small" type="link">
+                Review forward-look →
+              </Button>
+            }
+          />
+
           {/* What's new this week */}
           <Card
             size="small"
@@ -388,6 +507,11 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
                 <WarningOutlined style={{ color: '#f59e0b' }} />
                 <span>What&apos;s New This Week</span>
               </Space>
+            }
+            extra={
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {Math.min(changes.length, 5)} of {trackedBillsCount || profile.relevantBills.total} tracked items
+              </Text>
             }
             style={{ marginBottom: 16 }}
           >
@@ -1429,7 +1553,7 @@ interface DistrictNexusResult {
   }>;
 }
 
-function DistrictNexusTab({ clientId }: { clientId: string }) {
+export function DistrictNexusTab({ clientId }: { clientId: string }) {
   const api = useApi();
   const query = useQuery<DistrictNexusResult>({
     queryKey: ['district-nexus', clientId],
@@ -1830,7 +1954,7 @@ interface ReportCardOutcome {
 }
 interface ReportCardHealth { week: string; score: number; }
 interface ReportCardParsed {
-  client: { name: string; sectorTag: string | null };
+  client: { name: string; sectorTag: string | null; primaryPocName?: string | null };
   tenant: { name: string };
   period: { start: string; end: string; label: string };
   activity: ReportCardActivity;
@@ -1861,14 +1985,21 @@ export function ReportCardView({ data }: { data: Record<string, unknown> }) {
   ];
 
   const maxScore = Math.max(...rc.healthTrend.map((h) => h.score), 1);
+  const forwardParagraphs = reportForwardLookParagraphs(rc.aiForwardLook);
+  const forwardHeadline = reportForwardLookHeadline(forwardParagraphs);
+  const healthNow = rc.healthTrend.length ? rc.healthTrend[rc.healthTrend.length - 1]?.score ?? 0 : null;
+  const clioColor = clioToneColor(healthNow);
+  const pocFirst = firstName(rc.client.primaryPocName);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <Text type="secondary" style={{ fontSize: 12 }}>
           {rc.period.label} &nbsp;·&nbsp;{' '}
           {new Date(rc.period.start).toLocaleDateString()} – {new Date(rc.period.end).toLocaleDateString()}
         </Text>
+        <span style={{ color: 'var(--ink-4)' }}>·</span>
+        {clioBadge('Clio')}
       </div>
 
       <Space wrap>
@@ -1922,7 +2053,17 @@ export function ReportCardView({ data }: { data: Record<string, unknown> }) {
 
       {/* Health trend sparkline */}
       {rc.healthTrend.length > 0 && (
-        <Card size="small" title="Engagement Health Trend">
+        <Card
+          size="small"
+          title="Engagement Health Trend"
+          extra={
+            healthNow !== null ? (
+              <Text strong style={{ fontSize: 11, color: clioColor }}>
+                Health {healthNow < 30 ? 'critically low' : healthNow < 70 ? 'at risk' : 'stable'} across period
+              </Text>
+            ) : null
+          }
+        >
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 60 }}>
             {rc.healthTrend.map((h) => (
               <Tooltip key={h.week} title={`${h.week}: ${h.score}`}>
@@ -1950,11 +2091,35 @@ export function ReportCardView({ data }: { data: Record<string, unknown> }) {
       )}
 
       {/* AI Forward Look */}
-      {rc.aiForwardLook && (
-        <Card size="small" title="AI Forward Look">
-          <Text style={{ fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
-            {rc.aiForwardLook}
-          </Text>
+      {forwardParagraphs.length > 0 && (
+        <Card
+          size="small"
+          title={
+            <Space align="center" size={8}>
+              {clioAvatar(20)}
+              <span>Clio Forward Look</span>
+            </Space>
+          }
+          extra={<Text type="secondary" style={{ fontSize: 11 }}>Synthesized from tracked policy + engagement data</Text>}
+        >
+          <Alert
+            type={clioSignalTone(healthNow)}
+            showIcon
+            message={forwardHeadline}
+            style={{ marginBottom: 12 }}
+          />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+            {forwardParagraphs.map((p, idx) => (
+              <Paragraph key={idx} style={{ margin: 0, fontSize: 13, lineHeight: 1.7 }}>
+                {p}
+              </Paragraph>
+            ))}
+          </div>
+          <Space wrap>
+            <Button type="primary" size="small">Generate outreach plan</Button>
+            <Button size="small">Schedule kickoff with {pocFirst}</Button>
+            <Button size="small">Regenerate</Button>
+          </Space>
         </Card>
       )}
 

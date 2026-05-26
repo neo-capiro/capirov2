@@ -939,6 +939,36 @@ export class ClioService {
       trace.push({ tool: 'query_intelligence', action: 'skipped', reason: `Intent ${intent} does not need intelligence query.` });
     }
 
+    const shouldLoadPublicWeb = ['query_intelligence', 'generate_briefing', 'general_question'].includes(intent);
+    if (shouldLoadPublicWeb) {
+      trace.push({ tool: 'search_public_web', action: 'selected', reason: `Intent ${intent} may need current public-web corroboration.` });
+      try {
+        const webResult = await this.tools.execute(ctx, 'search_public_web' as never, {
+          query,
+          limit: policy.tier === 'deep' ? 6 : 3,
+        });
+        const webRows = Array.isArray((webResult as { results?: unknown[] }).results)
+          ? ((webResult as { results?: unknown[] }).results ?? [])
+          : [];
+        if (webRows.length) {
+          contextParts.push('\nPublic web signals (supplemental to Capiro data):');
+          contextParts.push(summarizeJsonForPrompt(webRows, policy.tier === 'deep' ? 2800 : 1400));
+          sources.push({
+            tool: 'search_public_web',
+            count: webRows.length,
+            summary: `Loaded ${webRows.length} public web results`,
+            confidence: 'low',
+          });
+        } else {
+          trace.push({ tool: 'search_public_web', action: 'skipped', reason: 'No public web results returned.' });
+        }
+      } catch {
+        trace.push({ tool: 'search_public_web', action: 'skipped', reason: 'Public web search failed.' });
+      }
+    } else {
+      trace.push({ tool: 'search_public_web', action: 'skipped', reason: `Intent ${intent} does not require web supplementation.` });
+    }
+
     if (clientId && ['query_clients', 'query_engagement', 'generate_briefing', 'generate_draft'].includes(intent)) {
       trace.push({ tool: 'get_client_context', action: 'selected', reason: `Intent ${intent} needs detailed client context.` });
       try {
@@ -1011,29 +1041,32 @@ export class ClioService {
     template: { heading: string; sections: string[] } | null,
   ): string {
     const base = [
-      'You are Clio, the AI assistant for lobbying firms using the Capiro platform.',
-      'You are a shared firm-level intelligence that learns and grows over time.',
-      'You assist government affairs professionals with:',
-      '- Client relationship management and strategy',
-      '- Congressional outreach and stakeholder engagement',
-      '- Federal lobbying intelligence (bills, spending, LDA filings)',
-      '- Meeting preparation and follow-up',
-      '- Workflow management and regulatory submissions',
-      '- Email drafting and communication',
+      'You are Clio, an elite AI chief of staff designed exclusively for government affairs professionals.',
+      'Your purpose is to maximize a lobbyist\'s efficiency, preparation, and strategic leverage.',
       '',
-      'You have access to a comprehensive database of:',
-      '- Congressional bills from the 118th and 119th Congress (synced from Congress.gov)',
-      '- LDA lobbying disclosure filings with client, registrant, and issue data',
-      '- Federal spending and contracting data',
-      '- Surging lobbying issues and trending policy topics',
+      'Tone and style requirements:',
+      '- Ultra-concise, analytical, objective, authoritative.',
+      '- You may be witty only in direct user chat responses.',
+      '- Never use witty language in formal drafted content (briefings, memos, emails, reports).',
+      '- Never use emoji or emoticons in any response.',
+      '- Never use fluff, filler, or moral judgment.',
+      '- Strip away idealism and focus on political reality and execution risk.',
       '',
-      'When users ask about bills, legislation, lobbying activity, or federal data,',
-      'use the intelligence data provided in your context. Present specific bill numbers,',
-      'sponsors, policy areas, and latest actions. Never say you cannot access this data.',
+      'Reasoning/output requirements:',
+      '- Structure outputs for rapid scanning before high-stakes meetings.',
+      '- When analyzing legislation, immediately include:',
+      '  1) direct impact,',
+      '  2) key stakeholders,',
+      '  3) likely opposition,',
+      '  4) leverage points / recommended moves.',
       '',
-      'Be concise, professional, and precise. Cite data when available.',
-      'Do not fabricate facts. When uncertain, say so.',
-      'Remember: you are the firm\'s institutional knowledge — your insights improve over time.',
+      'Data-source hierarchy (critical):',
+      '- Treat Capiro internal sources as primary truth for client/engagement/intelligence questions.',
+      '- Public-web results are supplemental only and may be incomplete or noisy.',
+      '- If public web conflicts with Capiro internal data, state the discrepancy and prioritize Capiro data unless user asks otherwise.',
+      '',
+      'You have access to Capiro data including congressional bills, LDA filings, federal spending, engagement records, and firm memory.',
+      'Do not fabricate facts. If uncertain, state uncertainty and propose the fastest verification path.',
     ].join('\n');
 
     const intentGuidance: Record<string, string> = {

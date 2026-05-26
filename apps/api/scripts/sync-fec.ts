@@ -88,20 +88,35 @@ async function main() {
 
       for (const c of data.results) {
         if (!c.contribution_receipt_amount) continue;
-        await (prisma as any).fecContribution.create({
-          data: {
-            committeeId: c.committee_id || '', committeeName: c.committee?.name || '',
-            contributorName: c.contributor_name || 'Unknown',
-            contributorEmployer: c.contributor_employer || null,
-            contributorOccupation: c.contributor_occupation || null,
-            contributorState: c.contributor_state || null,
-            contributorCity: c.contributor_city || null,
-            amount: c.contribution_receipt_amount,
-            receiptDate: new Date(c.contribution_receipt_date || Date.now()),
-            receiptType: c.receipt_type || null, cycle: cycle,
-          },
-        }).catch(() => {}); // skip dupes
-        totalContribs++;
+
+        const contributionDate = c.contribution_receipt_date ? new Date(c.contribution_receipt_date) : null;
+        const safeContributionDate = contributionDate && !Number.isNaN(contributionDate.getTime()) ? contributionDate : null;
+
+        try {
+          await (prisma as any).fecContribution.create({
+            data: {
+              committeeId: c.committee_id || '',
+              committeeName: c.committee?.name || c.committee_name || null,
+              candidateId: c.candidate_id || c.candidate?.candidate_id || null,
+              candidateName: c.candidate_name || c.candidate?.name || null,
+              contributorName: c.contributor_name || 'Unknown',
+              contributorEmployer: c.contributor_employer || null,
+              contributorOccupation: c.contributor_occupation || null,
+              amount: c.contribution_receipt_amount,
+              contributionDate: safeContributionDate,
+              receiptType: c.receipt_type || null,
+              memoText: c.memo_text || null,
+              state: c.contributor_state || c.committee?.state || null,
+              cycle,
+            },
+          });
+          totalContribs++;
+        } catch (err: any) {
+          // P2002 = unique constraint hit (expected for re-runs); keep quiet.
+          if (err?.code !== 'P2002') {
+            console.warn(`[fec-sync] contribution insert failed: ${err?.message ?? String(err)}`);
+          }
+        }
       }
       console.log(`[fec-sync] contributions page ${page} cycle ${cycle}: ${data.results.length}`);
     }

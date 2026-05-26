@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ForbiddenException,
   Injectable,
@@ -76,6 +77,10 @@ const TOOL_DEFINITIONS = [
   {
     name: 'query_economic_data',
     description: 'Query economic indicators from BLS (Bureau of Labor Statistics), Census (ACS district demographics), and BEA (Bureau of Economic Analysis GDP/industry data). Specify data source and parameters like state, district, series, or year.',
+  },
+  {
+    name: 'search_public_web',
+    description: 'Search public internet sources for recent developments. Use this only as supplemental context after Capiro internal data tools for government-affairs answers.',
   },
   {
     name: 'create_meeting_brief',
@@ -190,6 +195,8 @@ export class ClioToolsService {
         return this.searchCrsReports(input);
       case 'query_economic_data':
         return this.queryEconomicData(input);
+      case 'search_public_web':
+        return this.searchPublicWeb(input);
       case 'create_meeting_brief':
         return this.createMeetingBrief(ctx, input);
       case 'draft_policy_memo':
@@ -876,6 +883,18 @@ export class ClioToolsService {
           error: `Unknown source "${source}". Use "census", "bls", or "bea".`,
         };
     }
+  }
+
+  private async searchPublicWeb(input: Record<string, unknown>) {
+    const query = requiredString(input, 'query', 240);
+    const limit = clampInt(input.limit, 1, 12, 6);
+    const results = await queryDuckDuckGoNews(query, limit);
+    return {
+      tool: 'search_public_web',
+      generatedAt: new Date().toISOString(),
+      total: results.length,
+      results,
+    };
   }
 
   private async searchResearchSources(ctx: TenantContext, input: Record<string, unknown>) {
@@ -1661,6 +1680,70 @@ function summarizeText(value: unknown, max = 500): string {
   if (typeof value !== 'string') return '';
   const normalized = value.replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
+}
+
+async function queryDuckDuckGoNews(query: string, limit: number) {
+  const q = encodeURIComponent(query);
+  const url = `https://duckduckgo.com/html/?q=${q}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (compatible; Capiro-Clio/1.0; +https://capiro.ai)',
+      Accept: 'text/html,application/xhtml+xml',
+    },
+  });
+  if (!response.ok) {
+    throw new BadGatewayException(`Public web search failed (${response.status})`);
+  }
+  const html = await response.text();
+
+  const results: Array<{ title: string; url: string; snippet: string | null; source: string }> = [];
+  const resultRegex = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>|<div[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/div>)?/g;
+  let match: RegExpExecArray | null;
+  while ((match = resultRegex.exec(html)) && results.length < limit) {
+    const rawHref = decodeHtmlEntities(match[1] ?? '').trim();
+    const title = stripHtml(match[2] ?? '').trim();
+    const snippet = stripHtml(match[3] ?? match[4] ?? '').trim();
+    const resolvedUrl = unwrapDuckDuckGoUrl(rawHref);
+    if (!title || !resolvedUrl) continue;
+    results.push({
+      title: summarizeText(title, 180),
+      url: resolvedUrl,
+      snippet: snippet ? summarizeText(snippet, 320) : null,
+      source: 'duckduckgo',
+    });
+  }
+
+  return results;
+}
+
+function unwrapDuckDuckGoUrl(value: string): string {
+  try {
+    if (value.startsWith('/l/?')) {
+      const parsed = new URL(`https://duckduckgo.com${value}`);
+      const target = parsed.searchParams.get('uddg');
+      if (target) return decodeURIComponent(target);
+    }
+  } catch {
+    return value;
+  }
+  return value;
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function stripHtml(value: string): string {
+  return decodeHtmlEntities(value)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function formatDate(value: Date): string {

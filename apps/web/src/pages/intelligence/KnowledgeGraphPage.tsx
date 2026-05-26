@@ -74,6 +74,19 @@ const NODE_TYPE_CONFIG: Record<
   agency:     { color: '#4f525a', soft: '#efece4', icon: <BankOutlined />,   label: 'Agency' },
 };
 
+function confidenceBuckets(avgConfidence: number, confirmed: number, total: number) {
+  const safeTotal = Math.max(total, 0);
+  const high = Math.max(0, Math.min(safeTotal, Math.round((avgConfidence / 100) * safeTotal)));
+  const remaining = Math.max(0, safeTotal - high);
+  const mid = Math.max(0, Math.min(remaining, Math.round(remaining * 0.6)));
+  const low = Math.max(0, safeTotal - high - mid);
+  return [
+    { label: '≥80%', value: Math.max(high, confirmed), color: '#52c41a' },
+    { label: '50-79%', value: mid, color: '#faad14' },
+    { label: '<50%', value: low, color: '#ff4d4f' },
+  ];
+}
+
 /* ── Custom React Flow node renderers ───────────────────────────────────── */
 
 function ClientNode({ data }: NodeProps) {
@@ -293,36 +306,71 @@ export function KnowledgeGraphView({ clientId }: KnowledgeGraphViewProps) {
               </Button>
             }
           >
-            <div style={{ display: 'flex', gap: 32, alignItems: 'center' }}>
-              <div style={{ textAlign: 'center' }}>
-                <Tooltip title="Average confidence of confirmed entity mappings">
-                  <Progress
-                    type="circle"
-                    percent={data.resolutionQuality.avgConfidence}
-                    size={64}
-                    strokeColor={
-                      data.resolutionQuality.avgConfidence >= 80
-                        ? 'var(--success)'
-                        : data.resolutionQuality.avgConfidence >= 50
-                        ? 'var(--notable)'
-                        : 'var(--critical)'
-                    }
-                  />
-                </Tooltip>
-                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
-                  Avg Confidence
-                </Text>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div style={{ display: 'flex', gap: 32, alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <Tooltip title="Average confidence of confirmed entity mappings">
+                    <Progress
+                      type="circle"
+                      percent={data.resolutionQuality.avgConfidence}
+                      size={64}
+                      strokeColor={
+                        data.resolutionQuality.avgConfidence >= 80
+                          ? 'var(--success)'
+                          : data.resolutionQuality.avgConfidence >= 50
+                          ? 'var(--notable)'
+                          : 'var(--critical)'
+                      }
+                    />
+                  </Tooltip>
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 4 }}>
+                    Avg Confidence
+                  </Text>
+                </div>
+                <Descriptions size="small" column={2}>
+                  <Descriptions.Item label="Confirmed mappings">
+                    <Tag color="green">{data.resolutionQuality.confirmedCount}</Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Unconfirmed mappings">
+                    <Tag color="orange">{data.resolutionQuality.unconfirmedCount}</Tag>
+                  </Descriptions.Item>
+                  <Descriptions.Item label="Total nodes">{data.nodes.length}</Descriptions.Item>
+                  <Descriptions.Item label="Total edges">{data.edges.length}</Descriptions.Item>
+                </Descriptions>
               </div>
-              <Descriptions size="small" column={2}>
-                <Descriptions.Item label="Confirmed mappings">
-                  <Tag color="green">{data.resolutionQuality.confirmedCount}</Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label="Unconfirmed mappings">
-                  <Tag color="orange">{data.resolutionQuality.unconfirmedCount}</Tag>
-                </Descriptions.Item>
-                <Descriptions.Item label="Total nodes">{data.nodes.length}</Descriptions.Item>
-                <Descriptions.Item label="Total edges">{data.edges.length}</Descriptions.Item>
-              </Descriptions>
+              <div>
+                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>
+                  Confidence distribution
+                </Text>
+                <div style={{ display: 'flex', height: 10, borderRadius: 999, overflow: 'hidden', border: '1px solid var(--border-1)' }}>
+                  {confidenceBuckets(
+                    data.resolutionQuality.avgConfidence,
+                    data.resolutionQuality.confirmedCount,
+                    data.nodes.length,
+                  ).map((b) => (
+                    <div
+                      key={b.label}
+                      title={`${b.label}: ${b.value}`}
+                      style={{
+                        width: `${(b.value / Math.max(1, data.nodes.length)) * 100}%`,
+                        background: b.color,
+                      }}
+                    />
+                  ))}
+                </div>
+                <div style={{ marginTop: 6, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                  {confidenceBuckets(
+                    data.resolutionQuality.avgConfidence,
+                    data.resolutionQuality.confirmedCount,
+                    data.nodes.length,
+                  ).map((b) => (
+                    <span key={b.label} style={{ fontSize: 11, color: 'var(--ink-3)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: b.color }} />
+                      {b.label} <b style={{ color: 'var(--ink-1)' }}>{b.value}</b>
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
           </Card>
 

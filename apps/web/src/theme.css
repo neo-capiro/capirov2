@@ -12445,24 +12445,43 @@ body {
   margin: 18px 0 6px;
 }
 
-/* AntD Tab override for inner Intelligence tabs (nested IntelligenceTab + Overview) */
-.redesign .ant-tabs-top > .ant-tabs-nav::before,
-.redesign .ant-tabs-tab,
-.redesign .ant-tabs-tab-btn {
+/* AntD Tab override for inner Intelligence tabs (nested IntelligenceTab + Overview)
+   Scoped to .intel-main-tabs so global tabs don't get unintentionally restyled. */
+.redesign .intel-main-tabs .ant-tabs-top > .ant-tabs-nav::before,
+.redesign .intel-main-tabs .ant-tabs-tab,
+.redesign .intel-main-tabs .ant-tabs-tab-btn {
   font-family: var(--font-sans-rd);
 }
-.redesign .ant-tabs-tab {
+.redesign .intel-main-tabs > .ant-tabs > .ant-tabs-nav {
+  margin: 0 0 14px;
+  padding: 0 4px;
+}
+.redesign .intel-main-tabs > .ant-tabs > .ant-tabs-nav::before {
+  border-bottom: 1px solid var(--border-1) !important;
+}
+.redesign .intel-main-tabs > .ant-tabs > .ant-tabs-nav .ant-tabs-tab {
+  padding: 8px 12px 12px;
+  margin: 0;
   font-size: 13px !important;
   color: var(--ink-2) !important;
   font-weight: 500 !important;
 }
-.redesign .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
+.redesign .intel-main-tabs > .ant-tabs > .ant-tabs-nav .ant-tabs-tab.ant-tabs-tab-active .ant-tabs-tab-btn {
   color: var(--ink-1) !important;
   font-weight: 600 !important;
 }
-.redesign .ant-tabs-ink-bar {
+.redesign .intel-main-tabs > .ant-tabs > .ant-tabs-nav .ant-tabs-ink-bar {
   background: var(--accent) !important;
   height: 2px !important;
+}
+.redesign .intel-main-tabs .ant-tabs-content-holder {
+  min-height: 0;
+}
+.redesign .intel-main-tabs .ant-tabs-tabpane {
+  animation-duration: 0s;
+}
+.redesign .intel-main-tabs .ant-card-head {
+  min-height: 48px;
 }
 
 /* AntD Card override inside profile */
@@ -13387,6 +13406,20 @@ body {
 
 .wp-clio-note {
   resize: vertical;
+}
+
+.wp-reco-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+  color: var(--ink-2);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.wp-reco-list li {
+  margin: 0;
 }
 
 .wp-clio-head {
