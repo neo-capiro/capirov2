@@ -245,16 +245,19 @@ export function NewOutreachWizard({
         direction: state.direction,
         contextItems: state.contextItems,
       };
-      const res = await api.post<{ drafts: Array<{ recipientId: string; subject: string; body: string }> }>(
-        '/api/engagement/outreach/generate-batch',
-        payload,
-      );
+      // The backend endpoint returns { results: [...] }, NOT { drafts: [...] }.
+      // The wizard previously read data.drafts and silently no-op'd because
+      // that key didn't exist on the response — the request actually
+      // succeeded but no drafts ever landed in state.
+      const res = await api.post<{
+        results: Array<{ recipientId: string; subject: string; body: string }>;
+      }>('/api/engagement/outreach/generate-batch', payload);
       return res.data;
     },
     onSuccess: (data) => {
       setState((prev) => {
         const generatedEmails = { ...prev.generatedEmails };
-        for (const d of data.drafts) {
+        for (const d of data.results) {
           generatedEmails[d.recipientId] = {
             subject: d.subject,
             body: d.body,
@@ -263,7 +266,7 @@ export function NewOutreachWizard({
         }
         return { ...prev, generatedEmails };
       });
-      message.success(`Generated ${data.drafts.length} drafts`);
+      message.success(`Generated ${data.results.length} drafts`);
     },
     onError: () => {
       // Endpoint may not exist yet — fall back to a placeholder draft so the
@@ -523,12 +526,21 @@ function StepSetup({
   );
 }
 
+// Template IDs MUST match the backend's SYSTEM_AI_TEMPLATES.id values
+// (engagement.service.ts). When the wizard sent values like 'introduction'
+// the service couldn't find a system template, fell through to a DB lookup
+// against outreach_ai_template by UUID, and Postgres rejected the non-UUID
+// id with a 500. Keeping these aligned with the backend IDs is the
+// contract.
 const TEMPLATES = [
-  { id: 'introduction', name: 'Introduction', desc: 'Introductory outreach explaining the client and reason for engaging.' },
-  { id: 'meeting-req', name: 'Meeting Request', desc: 'Request a meeting with scheduling options and a brief agenda.' },
-  { id: 'policy', name: 'Policy Alert', desc: 'Policy alert informing of a relevant legislative or regulatory development.' },
-  { id: 'status', name: 'Status Update', desc: 'Brief progress update on client activity and next steps.' },
-  { id: 'post-meeting', name: 'Post-Meeting Memo', desc: 'Internal post-meeting memo built from meeting and debrief context.' },
+  { id: 'system-introduction', name: 'Introduction', desc: 'Introductory outreach explaining the client and reason for engaging.' },
+  { id: 'system-meeting-request', name: 'Meeting Request', desc: 'Request a meeting with scheduling options and a brief agenda.' },
+  { id: 'system-policy-alert', name: 'Policy Alert', desc: 'Policy alert informing of a relevant legislative or regulatory development.' },
+  { id: 'system-status-update', name: 'Status Update', desc: 'Brief progress update on client activity and next steps.' },
+  { id: 'system-post-meeting-memo', name: 'Post-Meeting Memo', desc: 'Internal post-meeting memo built from meeting and debrief context.' },
+  { id: 'system-thank-you', name: 'Thank You', desc: 'Warm thank-you acknowledging a specific recent action or support.' },
+  { id: 'system-follow-up', name: 'Follow-Up', desc: 'Follow-up referencing a prior meeting with a clear next step.' },
+  { id: 'system-memo', name: 'Memo / Position Paper', desc: 'Concise position memo with background, ask, and supporting points.' },
 ];
 
 function StepTemplate({
