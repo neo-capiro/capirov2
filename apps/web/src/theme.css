@@ -3610,6 +3610,29 @@ body {
   line-height: 1.1;
   color: var(--ink-1);
 }
+/* Client filter trigger in the engagement page head ("All Clients ▾").
+   Matches the sample's .eng-client-pick visual style. */
+.engagement-page.redesign .eng-client-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  font-family: var(--font-sans-rd);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-1);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.engagement-page.redesign .eng-client-pick:hover,
+.engagement-page.redesign .eng-client-pick:focus-visible {
+  border-color: var(--border-strong);
+  background: var(--bg-surface-2);
+  outline: none;
+}
 
 /* Restyle the AntD Tabs nav inside .engagement-page.redesign to match the sample's
    underline-style .eng-tabs. */

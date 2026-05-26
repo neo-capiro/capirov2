@@ -3,6 +3,7 @@ import {
   CalendarOutlined,
   CheckCircleOutlined,
   ClockCircleOutlined,
+  DownOutlined,
   DownloadOutlined,
   EditOutlined,
   ExportOutlined,
@@ -13,7 +14,7 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Empty, Form, Input, Modal, Select, Space, Tabs, Tag, Typography } from 'antd';
+import { App, Button, Dropdown, Empty, Form, Input, Modal, Select, Space, Tabs, Tag, Typography } from 'antd';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMe } from '../../lib/me.js';
 import { useApi } from '../../lib/use-api.js';
@@ -884,10 +885,18 @@ export function EngagementPage() {
     }
   };
 
+  const visibleClients = (clients.data ?? []).filter((c) => c.status !== 'archived');
+  const selectedClient = visibleClients.find((c) => c.id === selectedClientId) ?? null;
+
   return (
     <section className="engagement-page redesign">
       <header className="eng-head">
         <h1 className="eng-page-h1">Engagement</h1>
+        <EngClientPicker
+          clients={visibleClients}
+          selectedClient={selectedClient}
+          onSelect={setSelectedClientId}
+        />
       </header>
       <Tabs
         className="engagement-tabs"
@@ -3279,9 +3288,18 @@ function dateWindow(date: string) {
 }
 
 function defaultMeetingRange(): { start: string; end: string } {
-  const end = new Date();
-  const start = addLocalDays(end, -30);
-  return { start: inputValueFromDate(start), end: inputValueFromDate(end) };
+  // Default visible window is the CURRENT WEEK (Monday → Sunday in local time).
+  // We still fetch a 30-day backstop of Outlook context so the timeline scrolls
+  // back when the user explicitly widens the range or scrolls to history; that
+  // wider fetch is driven by historyBatch in dateRangeWindow(), not by this
+  // visible default.
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dow = today.getDay(); // 0=Sun, 1=Mon ... 6=Sat
+  const daysSinceMonday = (dow + 6) % 7; // Mon → 0, Sun → 6
+  const monday = addLocalDays(today, -daysSinceMonday);
+  const sunday = addLocalDays(monday, 6);
+  return { start: inputValueFromDate(monday), end: inputValueFromDate(sunday) };
 }
 
 function dateRangeWindow(start: string, end: string, historyBatch: number) {
@@ -3678,6 +3696,47 @@ function safeFileName(value: string): string {
       .replace(/[^a-z0-9._-]+/gi, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 80) || 'meeting'
+  );
+}
+
+/**
+ * Engagement page client filter. Drives the global useClientFilter() state
+ * — same store that other pages and the chat drawer subscribe to. When a
+ * client is picked, the meetings/outreach/reports views filter to that
+ * client's records (the per-tab queries already read selectedClientId from
+ * the shared store).
+ */
+function EngClientPicker({
+  clients,
+  selectedClient,
+  onSelect,
+}: {
+  clients: Client[];
+  selectedClient: Client | null;
+  onSelect: (id: string | null) => void;
+}) {
+  const menu = {
+    items: [
+      {
+        key: '__all',
+        label: 'All Clients',
+        onClick: () => onSelect(null),
+      },
+      { type: 'divider' as const },
+      ...clients.map((c) => ({
+        key: c.id,
+        label: c.name,
+        onClick: () => onSelect(c.id),
+      })),
+    ],
+  };
+  return (
+    <Dropdown menu={menu} trigger={['click']} placement="bottomRight">
+      <button type="button" className="eng-client-pick" aria-label="Filter by client">
+        <span>{selectedClient?.name ?? 'All Clients'}</span>
+        <DownOutlined style={{ fontSize: 10, color: 'var(--ink-3)' }} />
+      </button>
+    </Dropdown>
   );
 }
 
