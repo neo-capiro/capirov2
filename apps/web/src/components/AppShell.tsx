@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ChatDrawer } from './chat/ChatDrawer.js';
+import { ChangesInboxBell } from './ChangesInboxBell.js';
 import {
   ApartmentOutlined,
-  BellOutlined,
   BulbOutlined,
   CalendarOutlined,
   CheckOutlined,
@@ -464,25 +464,23 @@ export function AppShell() {
           />
           <TopbarSearch />
           <span className="app-topbar-spacer" />
-          <button
-            className="app-topbar-icon-button"
-            type="button"
-            aria-label={
-              changesUnread.data
-                ? `Open intelligence feed (${changesUnread.data} unread)`
-                : 'Open intelligence feed'
-            }
-            onClick={() => {
+          {/*
+            Bell opens an inline Changes Inbox dropdown instead of navigating
+            to /explorer. The full inbox at /intelligence/changes is still
+            reachable via the dropdown's "View all" footer and via deep-links.
+            The workflow-lock guard is hoisted into the bell so navigation
+            from inside the dropdown still respects the in-progress outreach
+            wizard.
+          */}
+          <ChangesInboxBell
+            guardNavigation={() => {
               if (workflowLocked) {
                 message.info('Cancel or complete the outreach workflow before navigating away.');
-                return;
+                return false;
               }
-              navigate('/explorer');
+              return true;
             }}
-          >
-            <BellOutlined />
-            {changesUnread.data ? <span className="app-topbar-dot-badge" aria-hidden /> : null}
-          </button>
+          />
           <button
             className="app-topbar-icon-button"
             type="button"
