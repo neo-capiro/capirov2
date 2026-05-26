@@ -404,7 +404,9 @@ function TodayCard({
         </span>
       </div>
       <div className="home-today-body">
-        <ClockSpine events={events} now={now} loading={loading} isError={isError} />
+        <div className="home-clock-scroll">
+          <ClockSpine events={events} now={now} loading={loading} isError={isError} />
+        </div>
         <Rail
           brief={brief}
           briefLoading={briefLoading}

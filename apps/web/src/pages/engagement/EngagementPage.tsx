@@ -321,7 +321,7 @@ export function EngagementPage() {
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [meetingDetailTab, setMeetingDetailTab] = useState('prep');
   const [activeEngagementTab, setActiveEngagementTab] = useState<'overview' | 'meetings' | 'outreach' | 'reports'>('overview');
-  const [meetingViewMode, setMeetingViewMode] = useState<'list' | 'calendar'>('list');
+  const [meetingViewMode, setMeetingViewMode] = useState<'list' | 'calendar' | 'day'>('list');
   const [historyBatch, setHistoryBatch] = useState(0);
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('current');
   const [reportStatusFilter, setReportStatusFilter] = useState<'all' | ReportStatus>('all');
@@ -368,7 +368,7 @@ export function EngagementPage() {
       (nextTab && nextTab !== activeEngagementTab) ||
       (nextTab === 'meetings' && nextMeetingId !== selectedMeetingId) ||
       (nextTab === 'meetings' && nextDetail && nextDetail !== meetingDetailTab) ||
-      (nextTab === 'meetings' && (nextView === 'list' || nextView === 'calendar') && nextView !== meetingViewMode) ||
+      (nextTab === 'meetings' && (nextView === 'list' || nextView === 'calendar' || nextView === 'day') && nextView !== meetingViewMode) ||
       (nextTab === 'meetings' && nextFrom && nextFrom !== rangeStart) ||
       (nextTab === 'meetings' && nextTo && nextTo !== rangeEnd) ||
       (nextTab === 'reports' && ['current', 'previous', 'all'].includes(nextPeriod ?? '') && nextPeriod !== reportPeriod);
@@ -382,7 +382,7 @@ export function EngagementPage() {
     if (nextTab === 'meetings') {
       setSelectedMeetingId(nextMeetingId);
       if (nextDetail) setMeetingDetailTab(nextDetail);
-      if (nextView === 'list' || nextView === 'calendar') {
+      if (nextView === 'list' || nextView === 'calendar' || nextView === 'day') {
         setMeetingViewMode(nextView);
       }
       if (nextFrom) setRangeStart(nextFrom);
@@ -515,7 +515,9 @@ export function EngagementPage() {
       [...meetingsWithMock].sort((left, right) => {
         const leftTime = new Date(left.startsAt).getTime();
         const rightTime = new Date(right.startsAt).getTime();
-        return meetingViewMode === 'calendar' ? leftTime - rightTime : rightTime - leftTime;
+        return meetingViewMode === 'calendar' || meetingViewMode === 'day'
+          ? leftTime - rightTime
+          : rightTime - leftTime;
       }),
     [meetingViewMode, meetingsWithMock],
   );
@@ -945,6 +947,13 @@ export function EngagementPage() {
                       >
                         Calendar
                       </button>
+                      <button
+                        type="button"
+                        className={meetingViewMode === 'day' ? 'active' : ''}
+                        onClick={() => setMeetingViewMode('day')}
+                      >
+                        Day
+                      </button>
                     </div>
                   </div>
 
@@ -988,6 +997,21 @@ export function EngagementPage() {
                           handleGeneratePrep(meeting);
                         }}
                         onLoadMore={() => setHistoryBatch((value) => value + 1)}
+                      />
+                    ) : meetingViewMode === 'day' ? (
+                      <MeetingDayTimeline
+                        meetings={visibleMeetings}
+                        selectedId={selectedMeeting?.id ?? null}
+                        rangeStart={rangeStart}
+                        rangeEnd={rangeEnd}
+                        onSelect={(meetingId) => {
+                          setSelectedMeetingId(meetingId);
+                          setMeetingDetailTab('prep');
+                        }}
+                        onAction={(meetingId, tab) => {
+                          setSelectedMeetingId(meetingId);
+                          setMeetingDetailTab(tab);
+                        }}
                       />
                     ) : (
                       <MeetingCalendarList
@@ -1632,6 +1656,114 @@ function MeetingCalendarList({
         <span>
           <i className="prepped" /> {counts.prepped} Prepped
         </span>
+      </div>
+    </div>
+  );
+}
+
+function MeetingDayTimeline({
+  meetings,
+  selectedId,
+  rangeStart,
+  rangeEnd,
+  onSelect,
+  onAction,
+}: {
+  meetings: Meeting[];
+  selectedId: string | null;
+  rangeStart: string;
+  rangeEnd: string;
+  onSelect: (id: string) => void;
+  onAction: (id: string, tab: string) => void;
+}) {
+  const days = dateRangeDays(rangeStart, rangeEnd);
+  const grouped = groupMeetingsByDate(meetings);
+  const initialKey = localDateKey(new Date());
+  const defaultDayKey =
+    grouped.has(initialKey)
+      ? initialKey
+      : days.find((day) => (grouped.get(localDateKey(day)) ?? []).length > 0)
+        ? localDateKey(days.find((day) => (grouped.get(localDateKey(day)) ?? []).length > 0) as Date)
+        : localDateKey(days[0] ?? new Date());
+  const [selectedDayKey, setSelectedDayKey] = useState(defaultDayKey);
+
+  useEffect(() => {
+    if (!days.length) return;
+    const hasDay = days.some((day) => localDateKey(day) === selectedDayKey);
+    if (!hasDay) setSelectedDayKey(localDateKey(days[0] ?? new Date()));
+  }, [days, selectedDayKey]);
+
+  const dayMeetings = grouped.get(selectedDayKey) ?? [];
+  const selectedDayDate =
+    days.find((day) => localDateKey(day) === selectedDayKey) ??
+    localDateFromInput(selectedDayKey || rangeStart);
+
+  return (
+    <div className="engagement-week-calendar">
+      <div className="engagement-week-toolbar">
+        <Typography.Text strong>{formatMeetingDay(selectedDayKey)}</Typography.Text>
+        <Typography.Text type="secondary">{dayMeetings.length} meetings</Typography.Text>
+      </div>
+
+      <div className="engagement-day-calendar-scroller">
+        <div className="engagement-day-calendar" role="tablist" aria-label="Select day">
+          {days.map((day) => {
+            const key = localDateKey(day);
+            const items = grouped.get(key) ?? [];
+            const selected = key === selectedDayKey;
+            return (
+              <button
+                key={key}
+                type="button"
+                className={selected ? 'selected' : ''}
+                onClick={() => setSelectedDayKey(key)}
+                aria-pressed={selected}
+              >
+                <span>{weekdayShort(day)}</span>
+                <strong>{day.getDate()}</strong>
+                <small>{items.length ? `${items.length} meeting${items.length === 1 ? '' : 's'}` : 'No meetings'}</small>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="engagement-day-timeline-scroll" role="region" aria-label="Day meetings">
+        <div className="engagement-day-timeline">
+          {dayMeetings.length ? (
+            dayMeetings.map((meeting) => {
+              const status = meetingStatus(meeting);
+              return (
+                <button
+                  key={meeting.id}
+                  type="button"
+                  className={`engagement-week-event engagement-week-event--${status.kind}${meeting.id === selectedId ? ' selected' : ''}`}
+                  onClick={() => onSelect(meeting.id)}
+                >
+                  <span>{formatTime(meeting.startsAt)}</span>
+                  <strong>{meeting.subject}</strong>
+                  <small>{meeting.client?.name ?? meeting.location ?? sourceLabel(meeting.source)}</small>
+                  {status.kind === 'missing' ? (
+                    <em
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onAction(meeting.id, 'debrief');
+                      }}
+                    >
+                      Debrief Missing -&gt;
+                    </em>
+                  ) : status.label ? (
+                    <em>{status.label}</em>
+                  ) : null}
+                </button>
+              );
+            })
+          ) : (
+            <div className="engagement-list-empty">
+              <Empty description={`No meetings on ${formatCalendarRange(selectedDayDate, selectedDayDate)}`} />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

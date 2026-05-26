@@ -887,18 +887,9 @@ function CapabilitiesTab({
 
       {capabilities.length ? (
         capabilities.map((cap) => (
-          <div key={cap.id} style={{ position: 'relative', marginBottom: 8 }}>
+          <div key={cap.id} className="cap-card-row">
             <CapabilityCard cap={cap} onClick={() => onCapClick(cap)} large />
-            <div
-              style={{
-                position: 'absolute',
-                top: 10,
-                right: 10,
-                display: 'flex',
-                gap: 6,
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
+            <div className="cap-card-actions" onClick={(e) => e.stopPropagation()}>
               <Button
                 size="small"
                 type="default"
