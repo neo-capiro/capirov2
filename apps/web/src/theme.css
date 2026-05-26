@@ -458,7 +458,8 @@ body {
 }
 
 .app-sync-dot--green {
-  background: #34d399;
+  background: #58d27c;
+  box-shadow: 0 0 0 3px rgba(88, 210, 124, 0.18);
 }
 
 .app-sync-dot--yellow {
