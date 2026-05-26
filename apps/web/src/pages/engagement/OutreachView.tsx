@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { OutreachWizard } from './outreach/OutreachWizard.js';
+// v2 wizard — replaces the older OutreachWizard. The old file at
+// ./outreach/OutreachWizard.tsx is preserved for reference / quick rollback;
+// import { OutreachWizard } from './outreach/OutreachWizard.js';
+import { NewOutreachWizard as OutreachWizard } from './outreach/v2/index.js';
 import {
   CheckOutlined,
   DeleteOutlined,

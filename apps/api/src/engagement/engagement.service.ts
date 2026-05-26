@@ -213,6 +213,17 @@ export interface UpdateAiTemplateInput {
   tone?: string;
 }
 
+/** v2 wizard's per-item scoped context object. */
+export interface OutreachSelectedContextItemInput {
+  id: string;
+  kind: 'bill' | 'intel' | 'email' | 'meeting' | 'note';
+  title: string;
+  body?: string;
+  /** 'all' = shared across every recipient; else recipient-key string. */
+  scope: 'all' | string;
+  note?: string;
+}
+
 export interface GenerateBatchEmailInput {
   campaignId?: string;
   clientId?: string;
@@ -221,6 +232,9 @@ export interface GenerateBatchEmailInput {
   insights?: string[];
   additionalContext?: string;
   tone?: string;
+  // v2 wizard additions — older callers that omit these are unaffected.
+  direction?: 'on-behalf' | 'to-clients';
+  contextItems?: OutreachSelectedContextItemInput[];
 }
 
 export interface GenerateTalkingPointsInput {
@@ -1517,7 +1531,16 @@ export class EngagementService {
   }
 
   async generateBatchEmails(ctx: TenantContext, input: GenerateBatchEmailInput) {
-    const { templateId, recipients, insights, additionalContext, tone, clientId } = input;
+    const {
+      templateId,
+      recipients,
+      insights,
+      additionalContext,
+      tone,
+      clientId,
+      contextItems,
+      direction,
+    } = input;
 
     const systemTemplate = SYSTEM_AI_TEMPLATES.find((t) => t.id === templateId);
     let templatePrompt: string;
@@ -1556,6 +1579,28 @@ export class EngagementService {
       ? `Selected intelligence insights:\n${insights.join('\n')}`
       : null;
 
+    // Bucket the v2 wizard's scoped context items so we can hand the AI
+    // shared-context-vs-recipient-context distinctly per draft below.
+    const sharedItems = (contextItems ?? []).filter((c) => c.scope === 'all');
+    const recipientScopedItems = new Map<string, typeof sharedItems>();
+    for (const c of contextItems ?? []) {
+      if (c.scope === 'all') continue;
+      const bucket = recipientScopedItems.get(c.scope) ?? [];
+      bucket.push(c);
+      recipientScopedItems.set(c.scope, bucket);
+    }
+    const formatItems = (items: OutreachSelectedContextItemInput[]) =>
+      items
+        .map((c) => {
+          const note = c.note ? `\n  Instruction: ${c.note}` : '';
+          const body = c.body ? `\n  ${c.body}` : '';
+          return `- [${c.kind}] ${c.title}${body}${note}`;
+        })
+        .join('\n');
+    const sharedContextText = sharedItems.length
+      ? `Shared context (every recipient):\n${formatItems(sharedItems)}`
+      : null;
+
     const results: Array<{ recipientId: string; subject: string; body: string }> = [];
 
     for (const recipient of recipients) {
@@ -1564,11 +1609,33 @@ export class EngagementService {
         (recipient as Record<string, unknown>).email?.toString() ||
         String(results.length);
 
+      // Per-recipient scoped context — drawn from contextItems[].scope == this
+      // recipient's stable key. The wizard's recipient key is the same fallback
+      // chain used by recipientKey() on the frontend, so look up by every
+      // identifier we have rather than guessing.
+      const recipientKeyCandidates = [
+        (recipient as Record<string, unknown>).id?.toString(),
+        (recipient as Record<string, unknown>).directoryContactId?.toString(),
+        (recipient as Record<string, unknown>).email?.toString(),
+        (recipient as Record<string, unknown>).name?.toString(),
+      ].filter((s): s is string => Boolean(s));
+      const personalItems = recipientKeyCandidates.flatMap((k) =>
+        recipientScopedItems.get(k) ?? [],
+      );
+      const personalContextText = personalItems.length
+        ? `Personalized context for this recipient:\n${formatItems(personalItems)}`
+        : null;
+      const combinedContextNotes = [sharedContextText, personalContextText]
+        .filter((s): s is string => Boolean(s))
+        .join('\n\n');
+
       try {
         const context: Record<string, unknown> = {
           tone: tone ?? 'professional',
+          ...(direction ? { direction } : {}),
           ...(insightsContext ? { insights: insightsContext } : {}),
           ...(additionalContext ? { additionalContext } : {}),
+          ...(combinedContextNotes ? { contextItems: combinedContextNotes } : {}),
           ...(clientContextForCampaign ? { clientContext: clientContextForCampaign } : {}),
         };
 
@@ -2293,64 +2360,13 @@ export class EngagementService {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      // Fetch recent email threads from last 30 days for this client.
-      // Match by: client association + domain matching on attendee emails.
-      // IMPORTANT: Exclude the user's own domain and generic domains
-      // to avoid pulling in ALL threads from the user's mailbox.
-      const attendeeEmails = meeting.attendees
-        .map((a) => a.email)
-        .filter((e): e is string => Boolean(e));
-
-      // Get the user's own email domain to exclude it
-      const connection = await tx.integrationConnection.findFirst({
-        where: { tenantId: ctx.tenantId, createdByUserId: ctx.userId },
-        select: { accountEmail: true },
-      });
-      const ownDomain = connection?.accountEmail?.split('@')[1]?.toLowerCase();
-
-      const GENERIC_THREAD_DOMAINS = new Set([
-        'gmail.com',
-        'googlemail.com',
-        'outlook.com',
-        'hotmail.com',
-        'live.com',
-        'yahoo.com',
-        'aol.com',
-        'icloud.com',
-        'me.com',
-        'protonmail.com',
-        'proton.me',
-        'senate.gov',
-        'house.gov',
-        'mail.house.gov',
-        'mail.senate.gov',
-      ]);
-
-      const attendeeDomains = [
-        ...new Set(
-          attendeeEmails
-            .map((e) => e.split('@')[1]?.toLowerCase())
-            .filter(
-              (d): d is string =>
-                typeof d === 'string' &&
-                d.length > 0 &&
-                d !== ownDomain &&
-                !GENERIC_THREAD_DOMAINS.has(d),
-            ),
-        ),
-      ];
-
+      // Fetch recent email threads from last 30 days associated to this client only.
+      // Do NOT infer context from attendee/to/cc domains, which can pull unrelated people.
       const threadFilters: Prisma.MailThreadWhereInput[] = [];
       if (effectiveClientId) {
         threadFilters.push(
           await this.clientMailThreadAssociationWhere(tx, ctx.tenantId, effectiveClientId),
         );
-      }
-      // Match threads where any message is from an attendee's domain
-      if (attendeeDomains.length) {
-        for (const domain of attendeeDomains) {
-          threadFilters.push({ messages: { some: { fromEmail: { endsWith: `@${domain}` } } } });
-        }
       }
 
       const recentThreads = threadFilters.length
@@ -2561,21 +2577,13 @@ export class EngagementService {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const attendeeDomains = [
-        ...new Set(attendeeEmails.map((e) => e.split('@')[1]).filter(Boolean)),
-      ];
-
+      // Keep prep context scoped to client-linked email threads only.
+      // Do NOT pull by attendee/to/cc domains to avoid unrelated coworker context.
       const threadFilters: Prisma.MailThreadWhereInput[] = [];
       if (correctClientId) {
         threadFilters.push(
           await this.clientMailThreadAssociationWhere(tx, ctx.tenantId, correctClientId),
         );
-      }
-      // Match threads where any message is from an attendee's domain
-      if (attendeeDomains.length) {
-        for (const domain of attendeeDomains) {
-          threadFilters.push({ messages: { some: { fromEmail: { endsWith: `@${domain}` } } } });
-        }
       }
 
       const recentThreads = threadFilters.length

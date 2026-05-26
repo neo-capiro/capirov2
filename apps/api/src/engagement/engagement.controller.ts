@@ -738,6 +738,36 @@ class GenerateTalkingPointsDto {
   additionalContext?: string;
 }
 
+/**
+ * Optional per-item context object the v2 wizard sends. The shape mirrors
+ * the wizard's `SelectedContextItem`: every item carries an explicit scope
+ * (either 'all' for shared or a recipient key string for per-recipient
+ * targeting) and a free-form note. The service may use these to build
+ * recipient-specific prompts; older callers that send `insights[]` or
+ * `additionalContext` continue to work unchanged.
+ */
+class OutreachSelectedContextItemDto {
+  @IsString()
+  id!: string;
+
+  @IsIn(['bill', 'intel', 'email', 'meeting', 'note'])
+  kind!: 'bill' | 'intel' | 'email' | 'meeting' | 'note';
+
+  @IsString()
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  body?: string;
+
+  @IsString()
+  scope!: 'all' | string;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
 class GenerateBatchEmailDto {
   @IsOptional()
   @IsUUID()
@@ -768,6 +798,18 @@ class GenerateBatchEmailDto {
   @IsOptional()
   @IsString()
   tone?: string;
+
+  // ---- v2 wizard additions (additive, no breaking change for v1) ----
+  @IsOptional()
+  @IsIn(['on-behalf', 'to-clients'])
+  direction?: 'on-behalf' | 'to-clients';
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachSelectedContextItemDto)
+  contextItems?: OutreachSelectedContextItemDto[];
 }
 
 class CreateOutreachRecordDto {

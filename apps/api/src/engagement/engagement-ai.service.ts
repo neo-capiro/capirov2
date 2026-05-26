@@ -988,13 +988,59 @@ export class EngagementAiService {
         ? PROMPT_TEMPLATE_GUIDANCE[input.promptTemplate]
         : null;
 
+    // The v2 outreach wizard sends a curated `contextItems` block as part
+    // of `input.context`. Each item carries the user's intent: shared items
+    // form the spine of the message, personalized items must be reflected
+    // for that specific recipient, and per-item `Instruction:` lines are
+    // direct user directives (e.g. "lead with this", "omit the deadline
+    // language"). We hoist the block out of the raw JSON dump so the model
+    // sees it as a first-class section with explicit guidance, and we
+    // remove it from the JSON to avoid duplication that dilutes attention.
+    const direction =
+      typeof input.context?.direction === 'string' ? input.context.direction : null;
+    const contextItemsBlock =
+      typeof input.context?.contextItems === 'string' &&
+      (input.context.contextItems as string).trim().length > 0
+        ? (input.context.contextItems as string).trim()
+        : null;
+    const contextWithoutItems = contextItemsBlock
+      ? Object.fromEntries(
+          Object.entries(input.context ?? {}).filter(
+            ([k]) => k !== 'contextItems' && k !== 'direction',
+          ),
+        )
+      : (input.context ?? {});
+    const inputForJson: OutreachDraftInput = contextItemsBlock
+      ? { ...input, context: contextWithoutItems }
+      : input;
+
+    const directionGuidance = direction
+      ? direction === 'on-behalf'
+        ? "Direction: on-behalf-of-client. The sender is the lobbyist's user, writing as the representative of `client`. The recipient is a congressional or federal-agency contact. Use the client's voice and the client's asks; reference the client by name where natural. Sign as the user, not the client."
+        : 'Direction: from-lobbyist-to-clients. The sender is the lobbyist writing directly to their own portfolio client(s). The tone is internal briefing — informative, candid, action-oriented. Do not write as if pitching the client; you ARE the client\'s trusted operator.'
+      : null;
+
+    const contextItemsGuidance = contextItemsBlock
+      ? [
+          'CURATED CONTEXT — treat this as the source-of-truth for what to include and how. The list below is grouped into:',
+          '  • "Shared context" — must inform every recipient\'s draft. These are the campaign\'s spine.',
+          '  • "Personalized context for this recipient" — must be reflected explicitly in this draft only. If a per-item `Instruction:` line is present, follow it (e.g. "lead with this", "omit the deadline language", "soften the ask").',
+          'When a personalized item conflicts with a shared item, the personalized item wins for that recipient. If an item is a `[note]` kind, treat its body and Instruction as a direct user directive to obey, not as fact to cite.',
+          'Do not cite items the user did not curate — do not pull from the raw JSON dump if those facts are not in the curated block. Do not enumerate the items back to the recipient; weave them into a coherent message.',
+          '',
+          contextItemsBlock,
+        ].join('\n')
+      : null;
+
     return [
       workflowGuidance,
+      directionGuidance,
       templateGuidance ? `Prompt template: ${input.promptTemplate}. ${templateGuidance}` : null,
       'Use only the provided client, meeting, recipient, and engagement context. Do not invent facts.',
       'Never return unresolved template variables or bracket placeholders in subject or body. Use real provided values or omit the unsupported line/phrase.',
+      contextItemsGuidance,
       'Return JSON with subject, body, and contextNote. The body must be directly editable by the user.',
-      JSON.stringify(input, null, 2),
+      JSON.stringify(inputForJson, null, 2),
     ]
       .filter((line): line is string => Boolean(line))
       .join('\n\n');
