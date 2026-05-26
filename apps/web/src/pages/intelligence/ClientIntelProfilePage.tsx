@@ -640,6 +640,11 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
                 children: <DistrictNexusTab clientId={clientId} />,
               },
               {
+                key: 'money-flow',
+                label: 'FEC Money Flow',
+                children: <FecMoneyFlowTab clientId={clientId} />,
+              },
+              {
                 key: 'lifecycle',
                 label: 'Bill → Regulation',
                 children: <LifecycleTab clientId={clientId} />,
@@ -1224,7 +1229,7 @@ function CompetitorBoardSection({ clientId }: { clientId: string }) {
 
 /* ── Revolving Door (ex-staffers on the client's rosters) ────────────────── */
 
-function RevolvingDoorTab({ clientId }: { clientId: string }) {
+export function RevolvingDoorTab({ clientId }: { clientId: string }) {
   const api = useApi();
 
   const query = useQuery<ExStaffersResult | null>({
@@ -1540,9 +1545,29 @@ export function DistrictNexusTab({ clientId }: { clientId: string }) {
           </Space>
         }>
           {cap.districtNexus && (
-            <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
+            <Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 8 }}>
               {cap.districtNexus}
             </Paragraph>
+          )}
+          {cap.totalSupportedJobs != null && (
+            <Alert
+              type="success"
+              showIcon
+              style={{ marginBottom: 10 }}
+              message={`Estimated jobs supported: ${formatNum(cap.totalSupportedJobs)}`}
+            />
+          )}
+          {cap.talkingPoints?.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              <Text strong style={{ fontSize: 12 }}>Talking points</Text>
+              <ul style={{ margin: '6px 0 0 18px', padding: 0 }}>
+                {cap.talkingPoints.slice(0, 4).map((tp, idx) => (
+                  <li key={`${tp.district}-${idx}`}>
+                    <Text style={{ fontSize: 12 }}>{tp.headline}</Text>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           <Table
             size="small"
@@ -1599,6 +1624,130 @@ export function DistrictNexusTab({ clientId }: { clientId: string }) {
               },
             ]}
           />
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+interface FecMoneyFlowResult {
+  clientId: string;
+  clientName: string | null;
+  mappedEmployer: string | null;
+  summary: {
+    totalContributions: number;
+    totalAmount: number;
+    committeeCount: number;
+    candidateCount: number;
+    memberCount: number;
+    billCount: number;
+  };
+  committees: Array<{
+    committeeId: string;
+    committeeName: string;
+    totalAmount: number;
+    contributionCount: number;
+    latestContributionDate: string | null;
+    candidates: Array<{
+      candidateName: string;
+      totalAmount: number;
+      contributionCount: number;
+      linkedMembers: Array<{ memberName: string; billCount: number }>;
+    }>;
+    bills: Array<{ billId: string; billTitle: string; sponsorName: string | null }>;
+  }>;
+}
+
+export function FecMoneyFlowTab({ clientId }: { clientId: string }) {
+  const api = useApi();
+  const query = useQuery<FecMoneyFlowResult>({
+    queryKey: ['fec-money-flow', clientId],
+    queryFn: async () =>
+      (await api.get<FecMoneyFlowResult>(`/api/intelligence/clients/${clientId}/fec-money-flow`)).data,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (query.isLoading) return <Skeleton active paragraph={{ rows: 5 }} />;
+  const data = query.data;
+  if (!data || !data.mappedEmployer || !data.committees.length) {
+    return (
+      <Empty
+        description="No FEC money flow found. Confirm a fec_employer mapping for this client and ensure contributions are ingested."
+        image={Empty.PRESENTED_IMAGE_SIMPLE}
+        style={{ marginTop: 32 }}
+      />
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Alert
+        type="info"
+        showIcon
+        message={`Mapped employer: ${data.mappedEmployer}`}
+        description={`${formatMoney(data.summary.totalAmount)} across ${formatNum(data.summary.totalContributions)} contributions → ${data.summary.candidateCount} candidates → ${data.summary.memberCount} members → ${data.summary.billCount} bills`}
+      />
+      {data.committees.map((c) => (
+        <Card
+          key={c.committeeId}
+          size="small"
+          title={
+            <Space>
+              <Text strong>{c.committeeName}</Text>
+              <Tag>{c.committeeId}</Tag>
+              <Tag color="green">{formatMoney(c.totalAmount)}</Tag>
+            </Space>
+          }
+        >
+          <Table
+            size="small"
+            rowKey={(r) => r.candidateName}
+            pagination={false}
+            dataSource={c.candidates}
+            columns={[
+              { title: 'Candidate', dataIndex: 'candidateName', width: 220 },
+              {
+                title: 'Amount',
+                dataIndex: 'totalAmount',
+                width: 120,
+                render: (v: number) => formatMoney(v),
+              },
+              {
+                title: 'Contribs',
+                dataIndex: 'contributionCount',
+                width: 90,
+                render: (v: number) => formatNum(v),
+              },
+              {
+                title: 'Linked members',
+                dataIndex: 'linkedMembers',
+                render: (members: Array<{ memberName: string; billCount: number }>) =>
+                  members.length ? (
+                    <Space wrap size={[2, 2]}>
+                      {members.slice(0, 4).map((m) => (
+                        <Tag key={m.memberName} style={{ fontSize: 10 }}>
+                          {m.memberName} ({m.billCount})
+                        </Tag>
+                      ))}
+                    </Space>
+                  ) : (
+                    <Text type="secondary">—</Text>
+                  ),
+              },
+            ]}
+          />
+          {c.bills.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <Text type="secondary" style={{ fontSize: 11 }}>Related committee bills:</Text>
+              <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
+                {c.bills.slice(0, 8).map((b) => (
+                  <li key={b.billId}>
+                    <Text style={{ fontSize: 12 }}>{b.billId.toUpperCase()} — {b.billTitle}</Text>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Card>
       ))}
     </div>

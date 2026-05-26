@@ -1063,6 +1063,7 @@ model ClientCapability {
   description          String?  @db.Text
   sector               String?
   tags                 Json     @default("[]") @map("tags_jsonb")
+  issueCodes           Json     @default("[]") @map("issue_codes_jsonb")
   trl                  Int?
   mrl                  Int?
   peNumber             String?  @map("pe_number")

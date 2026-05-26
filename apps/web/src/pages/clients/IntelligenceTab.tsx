@@ -11,6 +11,8 @@ import {
   ClientIntelOverview,
   ReportCardView,
   DistrictNexusTab,
+  FecMoneyFlowTab,
+  RevolvingDoorTab,
 } from '../intelligence/ClientIntelProfilePage.js';
 import { KnowledgeGraphView } from '../intelligence/KnowledgeGraphPage.js';
 
@@ -19,7 +21,13 @@ interface IntelligenceTabProps {
   clientName: string;
 }
 
-type IntelMainTab = 'overview' | 'graph' | 'report-card' | 'district-nexus';
+type IntelMainTab =
+  | 'overview'
+  | 'graph'
+  | 'report-card'
+  | 'district-nexus'
+  | 'money-flow'
+  | 'ex-staffer-network';
 
 export function IntelligenceTab({ clientId, clientName }: IntelligenceTabProps) {
   const [active, setActive] = useState<IntelMainTab>('overview');
@@ -50,6 +58,21 @@ export function IntelligenceTab({ clientId, clientName }: IntelligenceTabProps) 
           children: <KnowledgeGraphView clientId={clientId} />,
         },
         {
+          key: 'district-nexus',
+          label: <span>District Nexus</span>,
+          children: <DistrictNexusTab clientId={clientId} />,
+        },
+        {
+          key: 'money-flow',
+          label: <span>FEC Money Flow</span>,
+          children: <FecMoneyFlowTab clientId={clientId} />,
+        },
+        {
+          key: 'ex-staffer-network',
+          label: <span>Ex Staffer Network</span>,
+          children: <RevolvingDoorTab clientId={clientId} />,
+        },
+        {
           key: 'report-card',
           label: (
             <span>
@@ -57,12 +80,7 @@ export function IntelligenceTab({ clientId, clientName }: IntelligenceTabProps) 
             </span>
           ),
           children: <ReportCardPanel clientId={clientId} />,
-        },
-        {
-          key: 'district-nexus',
-          label: <span>District Nexus</span>,
-          children: <DistrictNexusTab clientId={clientId} />,
-        },
+        }
         ]}
       />
     </div>

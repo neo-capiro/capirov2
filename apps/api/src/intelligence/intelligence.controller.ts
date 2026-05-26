@@ -124,8 +124,19 @@ export class IntelligenceController {
   }
 
   @Get('clients/:clientId/lobbying-roi')
-  getLobbyingRoi(@Param('clientId') clientId: string) {
-    return this.service.getLobbyingRoi(clientId);
+  getLobbyingRoi(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getLobbyingRoi(clientId, ctx.tenantId);
+  }
+
+  @Get('clients/:clientId/fec-money-flow')
+  getFecMoneyFlow(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getFecMoneyFlow(clientId, ctx.tenantId);
   }
 
   @Get('clients/:clientId/competitor-board')

@@ -28,6 +28,7 @@ import {
   MiniMap,
   Position,
   ReactFlow,
+  MarkerType,
   type Edge,
   type Node,
   type NodeProps,
@@ -49,6 +50,14 @@ interface GraphEdge {
   target: string;
   type: string;
   label: string;
+  confidence?: number | null;
+}
+
+interface EdgeStyleConfig {
+  color: string;
+  marker: MarkerType;
+  animated: boolean;
+  emphasis: 'high' | 'medium' | 'low';
 }
 
 interface KnowledgeGraphData {
@@ -85,6 +94,54 @@ function confidenceBuckets(avgConfidence: number, confirmed: number, total: numb
     { label: '50-79%', value: mid, color: '#faad14' },
     { label: '<50%', value: low, color: '#ff4d4f' },
   ];
+}
+
+function edgeStyleFor(edgeType: string): EdgeStyleConfig {
+  const type = edgeType.toLowerCase();
+
+  if (type.includes('under_pe') || type.includes('depends') || type.includes('supports')) {
+    return { color: '#7a3aa6', marker: MarkerType.ArrowClosed, animated: true, emphasis: 'high' };
+  }
+  if (type.includes('mapped_to') || type.includes('manual')) {
+    return { color: '#2c5bd4', marker: MarkerType.ArrowClosed, animated: false, emphasis: 'high' };
+  }
+  if (type.includes('has_capability') || type.includes('with_client')) {
+    return { color: '#1c2e4a', marker: MarkerType.ArrowClosed, animated: false, emphasis: 'high' };
+  }
+  if (type.includes('bill_') || type.includes('filing_')) {
+    return { color: '#a26913', marker: MarkerType.Arrow, animated: false, emphasis: 'medium' };
+  }
+  if (type.includes('contribution') || type.includes('committee') || type.includes('candidate')) {
+    return { color: '#b5301b', marker: MarkerType.Arrow, animated: false, emphasis: 'medium' };
+  }
+
+  return { color: '#8a8780', marker: MarkerType.Arrow, animated: false, emphasis: 'low' };
+}
+
+function edgeLegendItems(edges: GraphEdge[]) {
+  const entries = new Map<string, number>();
+  for (const edge of edges) {
+    const label = edge.label || edge.type.replace(/_/g, ' ');
+    entries.set(label, (entries.get(label) ?? 0) + 1);
+  }
+  return [...entries.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8)
+    .map(([label, count]) => ({ label, count }));
+}
+
+function dependencyEdgeCount(edges: GraphEdge[]): number {
+  return edges.filter((edge) => {
+    const t = edge.type.toLowerCase();
+    return t.includes('under_pe') || t.includes('depends') || t.includes('supports') || t.includes('has_capability');
+  }).length;
+}
+
+function hasCapabilityDependencySignal(edges: GraphEdge[]): boolean {
+  return edges.some((edge) => {
+    const t = edge.type.toLowerCase();
+    return t.includes('under_pe') || t.includes('has_capability');
+  });
 }
 
 /* ── Custom React Flow node renderers ───────────────────────────────────── */
@@ -219,6 +276,10 @@ export function KnowledgeGraphView({ clientId }: KnowledgeGraphViewProps) {
     [data?.nodes],
   );
 
+  const dependencyEdges = useMemo(() => dependencyEdgeCount(data?.edges ?? []), [data?.edges]);
+  const legend = useMemo(() => edgeLegendItems(data?.edges ?? []), [data?.edges]);
+  const dependencySignal = useMemo(() => hasCapabilityDependencySignal(data?.edges ?? []), [data?.edges]);
+
   const { rfNodes, rfEdges } = useMemo(() => {
     if (!data) return { rfNodes: [] as Node[], rfEdges: [] as Edge[] };
     const positions = radialLayout(centerNode, satellites);
@@ -255,19 +316,38 @@ export function KnowledgeGraphView({ clientId }: KnowledgeGraphViewProps) {
     }
 
     const edges: Edge[] = data.edges.map((e, i) => {
-      const targetNode = data.nodes.find((n) => n.id === e.target);
-      const stroke = targetNode
-        ? NODE_TYPE_CONFIG[targetNode.type]?.color ?? '#8a8780'
-        : '#8a8780';
+      const styleConfig = edgeStyleFor(e.type);
+      const strokeWidth = styleConfig.emphasis === 'high' ? 2.2 : styleConfig.emphasis === 'medium' ? 1.7 : 1.2;
       return {
         id: `e-${i}`,
         source: e.source,
         target: e.target,
         label: e.label,
-        labelStyle: { fontSize: 10, fill: 'var(--ink-3)' },
-        labelBgStyle: { fill: 'var(--bg-canvas)' },
-        labelBgPadding: [4, 2] as [number, number],
-        style: { stroke, strokeWidth: 1.5, opacity: 0.55 },
+        labelStyle: {
+          fontSize: styleConfig.emphasis === 'high' ? 11 : 10,
+          fontWeight: styleConfig.emphasis === 'high' ? 700 : 500,
+          fill: 'var(--ink-3)',
+        },
+        labelBgStyle: {
+          fill: 'var(--bg-canvas)',
+          stroke: styleConfig.color,
+          strokeOpacity: styleConfig.emphasis === 'high' ? 0.35 : 0.15,
+          strokeWidth: 1,
+        },
+        labelBgPadding: [5, 2] as [number, number],
+        style: {
+          stroke: styleConfig.color,
+          strokeWidth,
+          opacity: styleConfig.emphasis === 'low' ? 0.45 : 0.8,
+          strokeDasharray: styleConfig.emphasis === 'low' ? '5 4' : undefined,
+        },
+        markerEnd: {
+          type: styleConfig.marker,
+          color: styleConfig.color,
+          width: styleConfig.emphasis === 'high' ? 20 : 16,
+          height: styleConfig.emphasis === 'high' ? 20 : 16,
+        },
+        animated: styleConfig.animated,
         type: 'default',
       };
     });
@@ -382,33 +462,56 @@ export function KnowledgeGraphView({ clientId }: KnowledgeGraphViewProps) {
               style={{ marginTop: 32 }}
             />
           ) : (
-            <Card
-              size="small"
-              title="Relationship graph"
-              extra={
+            <>
+              {!dependencySignal ? (
+                <Alert
+                  type="warning"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message="Dependency edges are missing"
+                  description="This graph has entities, but no capability dependency edges (client_has_capability / capability_under_pe). District Nexus and FEC tabs may still render, but the dependency map will be incomplete until capability mappings are present."
+                />
+              ) : null}
+              <Card
+                size="small"
+                title="Relationship graph"
+                extra={
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {data.edges.length} relationships · {dependencyEdges} dependency edges · {satellites.length} entities
+                  </Text>
+                }
+                style={{ marginBottom: 12 }}
+              >
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                  {legend.map((item) => (
+                    <Tag key={item.label} style={{ fontSize: 11 }}>
+                      {item.label}: {item.count}
+                    </Tag>
+                  ))}
+                </div>
                 <Text type="secondary" style={{ fontSize: 11 }}>
-                  {data.edges.length} relationships · {satellites.length} entities · drag nodes to rearrange
+                  Directional arrows indicate dependency flow. Thick solid links are primary dependencies/mappings.
                 </Text>
-              }
-              styles={{ body: { padding: 0 } }}
-            >
-              <div className="kg-flow-container">
-                <ReactFlow
-                  nodes={rfNodes}
-                  edges={rfEdges}
-                  nodeTypes={NODE_TYPES}
-                  fitView
-                  fitViewOptions={{ padding: 0.2 }}
-                  minZoom={0.2}
-                  maxZoom={2}
-                  proOptions={{ hideAttribution: true }}
-                >
-                  <Background gap={24} size={1} color="var(--border-1)" />
-                  <Controls showInteractive={false} />
-                  <MiniMap pannable zoomable nodeColor={minimapNodeColor} maskColor="rgba(232,228,217,0.6)" />
-                </ReactFlow>
-              </div>
-            </Card>
+              </Card>
+              <Card size="small" styles={{ body: { padding: 0 } }}>
+                <div className="kg-flow-container">
+                  <ReactFlow
+                    nodes={rfNodes}
+                    edges={rfEdges}
+                    nodeTypes={NODE_TYPES}
+                    fitView
+                    fitViewOptions={{ padding: 0.2 }}
+                    minZoom={0.2}
+                    maxZoom={2}
+                    proOptions={{ hideAttribution: true }}
+                  >
+                    <Background gap={24} size={1} color="var(--border-1)" />
+                    <Controls showInteractive={false} />
+                    <MiniMap pannable zoomable nodeColor={minimapNodeColor} maskColor="rgba(232,228,217,0.6)" />
+                  </ReactFlow>
+                </div>
+              </Card>
+            </>
           )}
         </>
       )}

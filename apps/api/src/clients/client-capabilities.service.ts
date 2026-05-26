@@ -8,6 +8,7 @@ export interface CreateCapabilityInput {
   description?: string;
   sector?: string;
   tags?: unknown[];
+  issueCodes?: unknown[];
   trl?: number;
   mrl?: number;
   peNumber?: string;
@@ -22,6 +23,7 @@ export interface CreateCapabilityInput {
   notes?: string;
   sortOrder?: number;
 }
+
 
 export type UpdateCapabilityInput = Partial<CreateCapabilityInput>;
 
@@ -90,6 +92,7 @@ export class ClientCapabilitiesService {
           description: input.description ?? null,
           sector: input.sector ?? null,
           tags: normalizeCapabilityTags(input.tags) as object,
+          issueCodes: normalizeCapabilityTags(input.issueCodes) as object,
           trl: input.trl ?? null,
           mrl: input.mrl ?? null,
           peNumber: input.peNumber ?? null,
@@ -128,6 +131,9 @@ export class ClientCapabilitiesService {
           ...('description' in input ? { description: input.description ?? null } : {}),
           ...('sector' in input ? { sector: input.sector ?? null } : {}),
           ...('tags' in input ? { tags: normalizeCapabilityTags(input.tags) as object } : {}),
+          ...('issueCodes' in input
+            ? { issueCodes: normalizeCapabilityTags(input.issueCodes) as object }
+            : {}),
           ...('trl' in input ? { trl: input.trl ?? null } : {}),
           ...('mrl' in input ? { mrl: input.mrl ?? null } : {}),
           ...('peNumber' in input ? { peNumber: input.peNumber ?? null } : {}),

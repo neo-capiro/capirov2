@@ -12,6 +12,11 @@ import {
 } from 'antd';
 import { useApi } from '../../lib/use-api.js';
 
+interface LdaIssueOption {
+  code: string;
+  name: string;
+}
+
 export interface Capability {
   id: string;
   clientId: string;
@@ -20,6 +25,7 @@ export interface Capability {
   description: string | null;
   sector: string | null;
   tags: string[];
+  issueCodes: string[];
   trl: number | null;
   mrl: number | null;
   peNumber: string | null;
@@ -249,6 +255,19 @@ function ProfileTab({
   capability: Capability;
   onPatch: (patch: Record<string, unknown>) => void;
 }) {
+  const api = useApi();
+
+  const issuesQuery = useQuery<LdaIssueOption[]>({
+    queryKey: ['lda-issues-options'],
+    queryFn: async () => (await api.get<LdaIssueOption[]>('/api/lda-intel/issues')).data,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  const issueCodeOptions = (issuesQuery.data ?? []).map((issue) => ({
+    value: issue.code,
+    label: `${issue.code} — ${issue.name}`,
+  }));
+
   return (
     <>
       <div className="readiness-matrix">
@@ -335,6 +354,23 @@ function ProfileTab({
           value={capability.districtNexus ?? ''}
           placeholder="Connection to district/state..."
           onSave={(v) => onPatch({ districtNexus: v || null })}
+        />
+      </div>
+
+      <div style={{ marginTop: 8, marginBottom: 8 }}>
+        <div className="ps-title" style={{ marginBottom: 6 }}>LDA Issue Codes</div>
+        <Select
+          mode="multiple"
+          allowClear
+          showSearch
+          placeholder={issuesQuery.isLoading ? 'Loading issue codes…' : 'Select issue codes'}
+          value={Array.isArray(capability.issueCodes) ? capability.issueCodes : []}
+          options={issueCodeOptions}
+          optionFilterProp="label"
+          loading={issuesQuery.isLoading}
+          disabled={issuesQuery.isError}
+          onChange={(values) => onPatch({ issueCodes: values })}
+          style={{ width: '100%' }}
         />
       </div>
 
