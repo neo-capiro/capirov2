@@ -417,6 +417,7 @@ export function OutreachView({
   const [readonlyRecord, setReadonlyRecord] = useState<OutreachRecord | null>(null);
   const [directoryQuery, setDirectoryQuery] = useState('');
   const syncingFromUrlRef = useRef(false);
+  const lastProcessedUrlRef = useRef<string>('');
   const draftRecordIdFromPath = useMemo(() => {
     if (!location.pathname.startsWith('/engagement/outreach/draft/')) return null;
     const value = location.pathname.replace('/engagement/outreach/draft/', '').split('/')[0];
@@ -424,8 +425,17 @@ export function OutreachView({
   }, [location.pathname]);
 
   useEffect(() => {
+    // URL → mode sync. Only run when the URL itself actually changed
+    // since we last saw it. Without this guard, this effect re-runs
+    // whenever `mode` changes from a user click (because mode is in
+    // the deps via the comparison below) — and because the URL hasn't
+    // caught up yet, the effect would compute nextMode from the stale
+    // path and clobber the new mode back to 'landing'. Net result:
+    // clicking "New Outreach" silently does nothing.
     const path = location.pathname;
     if (!path.startsWith('/engagement/outreach')) return;
+    if (lastProcessedUrlRef.current === path) return;
+    lastProcessedUrlRef.current = path;
 
     const rest = path.replace('/engagement/outreach', '');
     let nextMode: 'landing' | 'selector' | WorkflowType | 'readonly' = 'landing';
@@ -456,6 +466,9 @@ export function OutreachView({
     }
 
     if (location.pathname !== nextPath) {
+      // Pre-record the URL we're about to write so the URL→mode effect
+      // skips it when location updates (mode already reflects the change).
+      lastProcessedUrlRef.current = nextPath;
       navigate({ pathname: nextPath }, { replace: true });
     }
   }, [location.pathname, mode, navigate, workflow.record?.id]);
