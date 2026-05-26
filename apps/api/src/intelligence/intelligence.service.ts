@@ -794,7 +794,23 @@ export class IntelligenceService {
   }
 
   /** Lobbying $ vs Contract $ ROI for a client via confirmed mappings */
-  async getLobbyingRoi(clientId: string) {
+  async getLobbyingRoi(clientId: string, tenantId: string) {
+    const client = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({ where: { id: clientId }, select: { id: true, name: true } }),
+    );
+    if (!client) {
+      return {
+        clientId,
+        clientName: null,
+        mappedLdaClientId: null,
+        mappedContractorId: null,
+        lobbySpend: 0,
+        contractWins: 0,
+        roi: null,
+        gap: 0,
+      };
+    }
+
     const [ldaMapping, contractingMapping] = await Promise.all([
       this.prisma.clientIntelMapping.findFirst({
         where: { clientId, source: 'lda', confirmed: true },
@@ -826,7 +842,223 @@ export class IntelligenceService {
     }
 
     const roi = lobbySpend > 0 ? contractWins / lobbySpend : null;
-    return { lobbySpend, contractWins, roi };
+    return {
+      clientId,
+      clientName: client.name,
+      mappedLdaClientId: ldaMapping?.externalId ?? null,
+      mappedContractorId: contractingMapping?.externalId ?? null,
+      lobbySpend,
+      contractWins,
+      roi,
+      gap: contractWins - lobbySpend,
+    };
+  }
+
+  /**
+   * Phase 2.2 — FEC money flow trace.
+   * contributor_employer (mapped client) → committee → candidate → sponsoring member → committee → bill
+   */
+  async getFecMoneyFlow(clientId: string, tenantId: string) {
+    const client = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({ where: { id: clientId }, select: { id: true, name: true } }),
+    );
+    if (!client) {
+      return {
+        clientId,
+        clientName: null,
+        mappedEmployer: null,
+        summary: {
+          totalContributions: 0,
+          totalAmount: 0,
+          committeeCount: 0,
+          candidateCount: 0,
+          memberCount: 0,
+          billCount: 0,
+        },
+        committees: [],
+      };
+    }
+
+    const fecMapping = await this.prisma.clientIntelMapping.findFirst({
+      where: { clientId, source: 'fec_employer', confirmed: true },
+      orderBy: { confidence: 'desc' },
+    });
+
+    const employer = fecMapping?.externalName?.trim() ?? null;
+    if (!employer) {
+      return {
+        clientId,
+        clientName: client.name,
+        mappedEmployer: null,
+        summary: {
+          totalContributions: 0,
+          totalAmount: 0,
+          committeeCount: 0,
+          candidateCount: 0,
+          memberCount: 0,
+          billCount: 0,
+        },
+        committees: [],
+      };
+    }
+
+    const flowRows = await this.prisma.$queryRaw<
+      Array<{
+        committee_id: string;
+        committee_name: string | null;
+        candidate_name: string | null;
+        contribution_count: number;
+        total_amount: number;
+        latest_contribution_date: Date | null;
+      }>
+    >`
+      SELECT
+        fc.committee_id,
+        MAX(fc.committee_name) AS committee_name,
+        fc.candidate_name,
+        COUNT(*)::int AS contribution_count,
+        COALESCE(SUM(fc.amount), 0)::float AS total_amount,
+        MAX(fc.contribution_date) AS latest_contribution_date
+      FROM fec_contribution fc
+      WHERE LOWER(fc.contributor_employer) = LOWER(${employer})
+      GROUP BY fc.committee_id, fc.candidate_name
+      ORDER BY total_amount DESC
+      LIMIT 250
+    `;
+
+    const committeeIds = Array.from(new Set(flowRows.map((r) => r.committee_id).filter(Boolean)));
+    const candidateNames = Array.from(new Set(flowRows.map((r) => r.candidate_name).filter((v): v is string => Boolean(v))));
+
+    const memberRows = candidateNames.length
+      ? await this.prisma.$queryRaw<Array<{ candidate_name: string; member_name: string; bill_count: number }>>`
+          SELECT
+            x.candidate_name,
+            cb.sponsor_name AS member_name,
+            COUNT(DISTINCT cb.id)::int AS bill_count
+          FROM (
+            SELECT UNNEST(${candidateNames}::text[]) AS candidate_name
+          ) x
+          JOIN congress_bill cb
+            ON LOWER(cb.sponsor_name) = LOWER(x.candidate_name)
+          GROUP BY x.candidate_name, cb.sponsor_name
+        `
+      : [];
+
+    const committeeBillRows = committeeIds.length
+      ? await this.prisma.$queryRaw<Array<{ committee_id: string; bill_id: string; bill_title: string; sponsor_name: string | null }>>`
+          SELECT
+            cbc.committee_code AS committee_id,
+            cb.id AS bill_id,
+            cb.title AS bill_title,
+            cb.sponsor_name
+          FROM congress_bill_committee cbc
+          JOIN congress_bill cb ON cb.id = cbc.bill_id
+          WHERE cbc.committee_code = ANY(${committeeIds}::text[])
+          ORDER BY cb.latest_action_date DESC NULLS LAST
+          LIMIT 500
+        `
+      : [];
+
+    const memberByCandidate = new Map<string, Array<{ memberName: string; billCount: number }>>();
+    for (const r of memberRows) {
+      const key = r.candidate_name.toLowerCase();
+      const arr = memberByCandidate.get(key) ?? [];
+      arr.push({ memberName: r.member_name, billCount: r.bill_count });
+      memberByCandidate.set(key, arr);
+    }
+
+    const billsByCommittee = new Map<string, Array<{ billId: string; billTitle: string; sponsorName: string | null }>>();
+    for (const r of committeeBillRows) {
+      const arr = billsByCommittee.get(r.committee_id) ?? [];
+      arr.push({ billId: r.bill_id, billTitle: r.bill_title, sponsorName: r.sponsor_name });
+      billsByCommittee.set(r.committee_id, arr);
+    }
+
+    const grouped = new Map<
+      string,
+      {
+        committeeId: string;
+        committeeName: string;
+        totalAmount: number;
+        contributionCount: number;
+        latestContributionDate: Date | null;
+        candidates: Array<{
+          candidateName: string;
+          totalAmount: number;
+          contributionCount: number;
+          linkedMembers: Array<{ memberName: string; billCount: number }>;
+        }>;
+      }
+    >();
+
+    for (const row of flowRows) {
+      const committeeName = row.committee_name ?? row.committee_id;
+      const candidateName = row.candidate_name ?? 'Unknown candidate';
+      if (!grouped.has(row.committee_id)) {
+        grouped.set(row.committee_id, {
+          committeeId: row.committee_id,
+          committeeName,
+          totalAmount: 0,
+          contributionCount: 0,
+          latestContributionDate: row.latest_contribution_date,
+          candidates: [],
+        });
+      }
+
+      const g = grouped.get(row.committee_id)!;
+      g.totalAmount += row.total_amount;
+      g.contributionCount += row.contribution_count;
+      if (
+        row.latest_contribution_date &&
+        (!g.latestContributionDate || row.latest_contribution_date > g.latestContributionDate)
+      ) {
+        g.latestContributionDate = row.latest_contribution_date;
+      }
+
+      g.candidates.push({
+        candidateName,
+        totalAmount: row.total_amount,
+        contributionCount: row.contribution_count,
+        linkedMembers: memberByCandidate.get(candidateName.toLowerCase()) ?? [],
+      });
+    }
+
+    const committees = Array.from(grouped.values())
+      .sort((a, b) => b.totalAmount - a.totalAmount)
+      .map((g) => ({
+        ...g,
+        candidates: g.candidates.sort((a, b) => b.totalAmount - a.totalAmount),
+        bills: (billsByCommittee.get(g.committeeId) ?? []).slice(0, 15),
+      }));
+
+    const uniqueCandidates = new Set<string>();
+    const uniqueMembers = new Set<string>();
+    const uniqueBills = new Set<string>();
+    for (const c of committees) {
+      for (const cand of c.candidates) {
+        uniqueCandidates.add(cand.candidateName.toLowerCase());
+        for (const m of cand.linkedMembers) uniqueMembers.add(m.memberName.toLowerCase());
+      }
+      for (const b of c.bills) uniqueBills.add(b.billId);
+    }
+
+    const totalAmount = committees.reduce((sum, c) => sum + c.totalAmount, 0);
+    const totalContributions = committees.reduce((sum, c) => sum + c.contributionCount, 0);
+
+    return {
+      clientId,
+      clientName: client.name,
+      mappedEmployer: employer,
+      summary: {
+        totalContributions,
+        totalAmount,
+        committeeCount: committees.length,
+        candidateCount: uniqueCandidates.size,
+        memberCount: uniqueMembers.size,
+        billCount: uniqueBills.size,
+      },
+      committees,
+    };
   }
 
   /** Competitor surge detector: other registrants lobbying on same issue codes in last 90 days */
@@ -1354,9 +1586,9 @@ export class IntelligenceService {
     return { alerts };
   }
 
-  /** Knowledge graph nodes + edges for hub-and-spoke visualization */
+  /** Knowledge graph nodes + edges for hub-and-spoke visualization (powered by kg_walk view/function layer) */
   async getKnowledgeGraph(clientId: string, tenantId: string) {
-    const [client, mappings] = await Promise.all([
+    const [client, mappings, walkRows] = await Promise.all([
       this.prisma.withTenant(tenantId, (tx) =>
         tx.client.findFirst({
           where: { id: clientId },
@@ -1367,147 +1599,278 @@ export class IntelligenceService {
         where: { clientId },
         orderBy: { confidence: 'desc' },
       }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.$queryRaw<
+          Array<{
+            depth: number;
+            src_kind: string;
+            src_id: string;
+            dst_kind: string;
+            dst_id: string;
+            edge_type: string;
+            confidence: number | null;
+            source: string | null;
+            observed_at: Date | null;
+            tenant_id: string | null;
+          }>
+        >`
+          SELECT depth, src_kind, src_id, dst_kind, dst_id, edge_type, confidence, source, observed_at, tenant_id
+          FROM kg_walk('client', ${clientId}, 2, NULL)
+          LIMIT 500
+        `,
+      ),
     ]);
 
     const clientLabel = client?.name ?? clientId;
-    const nodes: Array<{ id: string; type: string; label: string; metadata: Record<string, unknown> }> = [];
-    const edges: Array<{ source: string; target: string; type: string; label: string }> = [];
-
     const centerNodeId = `client:${clientId}`;
-    nodes.push({
+
+    // Step 1 — drop unconfirmed auto-match noise.
+    //
+    // The entity resolver writes a row to client_intel_mapping for EVERY
+    // candidate LDA/FEC/contracting match it finds, then waits for a human
+    // to confirm one. Until then those mappings have `confirmed = false`
+    // and our view emits one client→lda_client edge per candidate — which
+    // is what produced the 68-node "all AGENCY" mess in the screenshot.
+    //
+    // The graph should reflect the *resolved* state, not the candidate
+    // pool. We drop edges where source='auto_matched' (the marker we set
+    // in kg_tenant_edges for unconfirmed mappings) so only manually
+    // confirmed bridges + canonical edges remain.
+    const filteredWalkRows = walkRows.filter((r) => r.source !== 'auto_matched');
+
+    // Step 2 — batch-resolve human labels for ID-keyed kinds.
+    //
+    // Many node kinds use opaque numeric IDs (LDA client = int, LDA
+    // registrant = int, LDA lobbyist = int, FEC committee = string code)
+    // or UUIDs (federal_contractor, capability). Without a name lookup
+    // the graph rendered "189497" / "67101" / raw UUIDs as labels.
+    // Collect the ids per kind across the filtered walk, then do one
+    // SELECT per kind to build a kind:id → name map.
+    const idsByKind = new Map<string, Set<string>>();
+    const collect = (kind: string, id: string) => {
+      const set = idsByKind.get(kind) ?? new Set<string>();
+      set.add(id);
+      idsByKind.set(kind, set);
+    };
+    for (const row of filteredWalkRows) {
+      collect(row.src_kind, row.src_id);
+      collect(row.dst_kind, row.dst_id);
+    }
+    const labelByNodeKey = new Map<string, string>();
+    const lookups: Array<Promise<void>> = [];
+
+    const ldaClientIds = Array.from(idsByKind.get('lda_client') ?? [])
+      .map(Number)
+      .filter((n) => Number.isFinite(n));
+    if (ldaClientIds.length) {
+      lookups.push(
+        this.prisma
+          .$queryRaw<Array<{ id: number; name: string }>>`
+            SELECT id, name FROM lda_client WHERE id = ANY(${ldaClientIds}::int[])
+          `
+          .then((rows) => {
+            for (const r of rows) labelByNodeKey.set(`lda_client:${r.id}`, r.name);
+          }),
+      );
+    }
+
+    const ldaRegistrantIds = Array.from(idsByKind.get('lda_registrant') ?? [])
+      .map(Number)
+      .filter((n) => Number.isFinite(n));
+    if (ldaRegistrantIds.length) {
+      lookups.push(
+        this.prisma
+          .$queryRaw<Array<{ id: number; name: string }>>`
+            SELECT id, name FROM lda_registrant WHERE id = ANY(${ldaRegistrantIds}::int[])
+          `
+          .then((rows) => {
+            for (const r of rows) labelByNodeKey.set(`lda_registrant:${r.id}`, r.name);
+          }),
+      );
+    }
+
+    const ldaLobbyistIds = Array.from(idsByKind.get('lda_lobbyist') ?? [])
+      .map(Number)
+      .filter((n) => Number.isFinite(n));
+    if (ldaLobbyistIds.length) {
+      lookups.push(
+        this.prisma
+          .$queryRaw<Array<{ id: number; first_name: string; last_name: string }>>`
+            SELECT id, first_name, last_name FROM lda_lobbyist WHERE id = ANY(${ldaLobbyistIds}::int[])
+          `
+          .then((rows) => {
+            for (const r of rows) {
+              const name = `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim();
+              labelByNodeKey.set(`lda_lobbyist:${r.id}`, name || `Lobbyist ${r.id}`);
+            }
+          }),
+      );
+    }
+
+    const contractorIds = Array.from(idsByKind.get('federal_contractor') ?? []);
+    if (contractorIds.length) {
+      lookups.push(
+        this.prisma
+          .$queryRaw<Array<{ id: string; name: string }>>`
+            SELECT id, name FROM federal_contractor WHERE id::text = ANY(${contractorIds}::text[])
+          `
+          .then((rows) => {
+            for (const r of rows) labelByNodeKey.set(`federal_contractor:${r.id}`, r.name);
+          }),
+      );
+    }
+
+    const fecCommitteeIds = Array.from(idsByKind.get('fec_committee') ?? []);
+    if (fecCommitteeIds.length) {
+      lookups.push(
+        this.prisma
+          .$queryRaw<Array<{ committee_id: string; committee_name: string | null }>>`
+            SELECT DISTINCT committee_id, committee_name
+            FROM fec_contribution
+            WHERE committee_id = ANY(${fecCommitteeIds}::text[])
+              AND committee_name IS NOT NULL
+          `
+          .then((rows) => {
+            for (const r of rows) {
+              if (r.committee_name) labelByNodeKey.set(`fec_committee:${r.committee_id}`, r.committee_name);
+            }
+          }),
+      );
+    }
+
+    const capabilityIds = Array.from(idsByKind.get('capability') ?? []);
+    if (capabilityIds.length) {
+      lookups.push(
+        this.prisma
+          .withTenant(tenantId, (tx) =>
+            tx.clientCapability.findMany({
+              where: { id: { in: capabilityIds }, tenantId },
+              select: { id: true, name: true },
+            }),
+          )
+          .then((rows) => {
+            for (const r of rows) labelByNodeKey.set(`capability:${r.id}`, r.name);
+          }),
+      );
+    }
+
+    await Promise.all(lookups);
+
+    // Step 3 — expand kindToUiType so distinct kinds get distinct visual
+    // treatment instead of all collapsing onto "AGENCY".
+    const kindToUiType = (kind: string): 'client' | 'registrant' | 'lobbyist' | 'contractor' | 'bill' | 'pac' | 'agency' => {
+      switch (kind) {
+        case 'client':
+          return 'client';
+        case 'lda_client':
+        case 'lda_registrant':
+        case 'registrant':
+          // LDA clients/registrants are both org-like; render with the
+          // registrant chrome since they share the "lobbying firm" feel.
+          return 'registrant';
+        case 'lda_lobbyist':
+        case 'lobbyist':
+        case 'member':
+        case 'candidate':
+          // People — legislators, candidates, registered lobbyists.
+          return 'lobbyist';
+        case 'federal_contractor':
+        case 'contractor':
+          return 'contractor';
+        case 'bill':
+        case 'congress_bill':
+        case 'subject':
+        case 'policy_area':
+        case 'lda_issue_code':
+          // Bill-adjacent topical nodes share the bill chrome.
+          return 'bill';
+        case 'fec_committee':
+        case 'fec_contribution':
+        case 'employer':
+        case 'pac':
+          return 'pac';
+        case 'capability':
+        case 'program_element':
+        case 'committee':
+        case 'hearing':
+        case 'agency':
+        case 'docket':
+        case 'fr_document':
+        default:
+          return 'agency';
+      }
+    };
+
+    const prettyLabel = (kind: string, id: string) => {
+      if (kind === 'client') return clientLabel;
+      // Use the batch-resolved name if we have one.
+      const resolved = labelByNodeKey.get(`${kind}:${id}`);
+      if (resolved) {
+        return resolved.length > 96 ? `${resolved.slice(0, 96)}…` : resolved;
+      }
+      // Some kinds carry meaningful values as their id (bill numbers,
+      // committee codes, issue code names) — let those pass through
+      // verbatim.
+      if (
+        kind === 'bill' ||
+        kind === 'subject' ||
+        kind === 'policy_area' ||
+        kind === 'committee' ||
+        kind === 'agency' ||
+        kind === 'employer' ||
+        kind === 'candidate' ||
+        kind === 'member' ||
+        kind === 'program_element' ||
+        kind === 'foreign_principal' ||
+        kind === 'sec_company'
+      ) {
+        return id.length > 96 ? `${id.slice(0, 96)}…` : id;
+      }
+      // Last resort — opaque ID. Prefix with kind so it's at least
+      // legible as "(lda_client) 189497" rather than a naked number.
+      return `(${kind.replace(/_/g, ' ')}) ${id.length > 24 ? id.slice(0, 24) + '…' : id}`;
+    };
+
+    const nodeMap = new Map<string, { id: string; type: string; label: string; metadata: Record<string, unknown> }>();
+    const edgeMap = new Map<string, { source: string; target: string; type: string; label: string }>();
+
+    nodeMap.set(centerNodeId, {
       id: centerNodeId,
       type: 'client',
       label: clientLabel,
       metadata: { sectorTag: client?.sectorTag ?? null },
     });
 
-    const ldaMapping = mappings.find((m) => m.source === 'lda' && m.confirmed);
-    const contractingMapping = mappings.find((m) => m.source === 'contracting' && m.confirmed);
-
-    if (ldaMapping) {
-      const ldaClientId = Number(ldaMapping.externalId);
-
-      // Registrant nodes
-      const registrants = await this.prisma.$queryRaw<
-        Array<{ registrant_id: number | null; registrant_name: string; filing_count: number }>
-      >`
-        SELECT registrant_id, registrant_name, COUNT(*)::int AS filing_count
-        FROM lda_filing WHERE client_id = ${ldaClientId} AND registrant_name != ''
-        GROUP BY registrant_id, registrant_name
-        ORDER BY filing_count DESC LIMIT 10
-      `;
-
-      for (const reg of registrants) {
-        const regNodeId = `registrant:${reg.registrant_id ?? reg.registrant_name}`;
-        nodes.push({
-          id: regNodeId,
-          type: 'registrant',
-          label: reg.registrant_name,
-          metadata: { registrantId: reg.registrant_id, filingCount: reg.filing_count },
+    const upsertNode = (kind: string, id: string, extras: Record<string, unknown> = {}) => {
+      const nodeId = `${kind}:${id}`;
+      if (!nodeMap.has(nodeId)) {
+        nodeMap.set(nodeId, {
+          id: nodeId,
+          type: kindToUiType(kind),
+          label: prettyLabel(kind, id),
+          metadata: { kind, rawId: id, ...extras },
         });
-        edges.push({
-          source: centerNodeId,
-          target: regNodeId,
-          type: 'lda_match',
-          label: `LDA: ${Math.round((ldaMapping.confidence ?? 0) * 100)}%`,
-        });
-
-        // Lobbyists for this registrant (top 5)
-        if (reg.registrant_id) {
-          const lobbyists = await this.prisma.$queryRaw<
-            Array<{ id: number; first_name: string; last_name: string; covered_positions: unknown }>
-          >`
-            SELECT id, first_name, last_name, covered_positions
-            FROM lda_lobbyist WHERE ${reg.registrant_id} = ANY(registrant_ids)
-            LIMIT 5
-          `;
-          for (const l of lobbyists) {
-            const positions = Array.isArray(l.covered_positions) ? l.covered_positions : [];
-            const lobbyistNodeId = `lobbyist:${l.id}`;
-            nodes.push({
-              id: lobbyistNodeId,
-              type: 'lobbyist',
-              label: `${l.first_name} ${l.last_name}`.trim(),
-              metadata: { coveredPositions: (positions as unknown[]).slice(0, 3) },
-            });
-            edges.push({ source: regNodeId, target: lobbyistNodeId, type: 'employs', label: 'employs' });
-          }
-        }
       }
+      return nodeId;
+    };
 
-      // Bills derived from issue codes
-      const codeRows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`
-        SELECT COALESCE(issue_codes, '{}') AS issue_codes FROM lda_client WHERE id = ${ldaClientId}
-      `;
-      const issueCodes = codeRows[0]?.issue_codes ?? [];
-      if (issueCodes.length) {
-        const nameRows = await this.prisma.$queryRaw<Array<{ name: string }>>`
-          SELECT name FROM lda_issue_code WHERE code = ANY(${issueCodes}::text[])
-        `;
-        if (nameRows.length) {
-          const patterns = nameRows.map((r) => `%${r.name.toLowerCase()}%`);
-          const bills = await this.prisma.$queryRaw<
-            Array<{ id: string; title: string; latest_action_date: Date | null }>
-          >`
-            SELECT DISTINCT cb.id, cb.title, cb.latest_action_date
-            FROM congress_bill cb
-            JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
-            WHERE LOWER(cbs.name) ILIKE ANY(${patterns}::text[])
-            ORDER BY latest_action_date DESC NULLS LAST
-            LIMIT 10
-          `;
-          for (const bill of bills) {
-            const billNodeId = `bill:${bill.id}`;
-            nodes.push({
-              id: billNodeId,
-              type: 'bill',
-              label: bill.id,
-              metadata: { title: bill.title.slice(0, 80), latestActionDate: bill.latest_action_date },
-            });
-            edges.push({ source: centerNodeId, target: billNodeId, type: 'tracks', label: 'tracks' });
-          }
-        }
-      }
-    }
-
-    if (contractingMapping) {
-      const contractorNodeId = `contractor:${contractingMapping.externalId}`;
-      nodes.push({
-        id: contractorNodeId,
-        type: 'contractor',
-        label: contractingMapping.externalName,
-        metadata: {},
+    for (const row of filteredWalkRows) {
+      const srcNodeId = upsertNode(row.src_kind, row.src_id, {
+        source: row.source,
+        observedAt: row.observed_at,
       });
-      edges.push({
-        source: centerNodeId,
-        target: contractorNodeId,
-        type: 'contracting_match',
-        label: 'contractor match',
+      const dstNodeId = upsertNode(row.dst_kind, row.dst_id, {
+        source: row.source,
+        observedAt: row.observed_at,
       });
 
-      // Top agencies for contractor
-      const agencyRows = await this.prisma.$queryRaw<Array<{ name: string; amount: number }>>`
-        SELECT (agency->>'name') AS name, (agency->>'amount')::float AS amount
-        FROM federal_contractor,
-             LATERAL jsonb_array_elements(COALESCE(top_agencies_jsonb, '[]'::jsonb)) AS agency
-        WHERE id = ${contractingMapping.externalId}::uuid
-        LIMIT 5
-      `;
-      for (const agency of agencyRows) {
-        const agencyNodeId = `agency:${agency.name}`;
-        if (!nodes.find((n) => n.id === agencyNodeId)) {
-          nodes.push({
-            id: agencyNodeId,
-            type: 'agency',
-            label: agency.name,
-            metadata: { amount: agency.amount },
-          });
-        }
-        edges.push({
-          source: contractorNodeId,
-          target: agencyNodeId,
-          type: 'awarded_by',
-          label: agency.amount ? `$${(agency.amount / 1e9).toFixed(1)}B` : 'awarded by',
+      const edgeKey = `${srcNodeId}->${dstNodeId}:${row.edge_type}`;
+      if (!edgeMap.has(edgeKey)) {
+        edgeMap.set(edgeKey, {
+          source: srcNodeId,
+          target: dstNodeId,
+          type: row.edge_type,
+          label: row.edge_type.replace(/_/g, ' '),
         });
       }
     }
@@ -1519,8 +1882,8 @@ export class IntelligenceService {
         : 0;
 
     return {
-      nodes,
-      edges,
+      nodes: Array.from(nodeMap.values()),
+      edges: Array.from(edgeMap.values()),
       resolutionQuality: {
         avgConfidence: Math.round(avgConfidence * 100),
         confirmedCount: confirmedMappings.length,
@@ -1707,13 +2070,12 @@ export class IntelligenceService {
       }),
     );
 
-    // State-district pattern: 2-letter state code + (1-3 digits or "AL" for at-large),
-    // separated by "-", "/", whitespace, or "CD". Examples: "CA-52", "TX 3", "FL-AL".
     const pattern = /\b([A-Z]{2})[\s\-\/]+(?:CD[\s\-]?)?(\d{1,3}|AL)\b/g;
-    const allKeys = new Set<string>();
+    const allKeys: string[] = [];
     const capDistricts = caps.map((cap) => {
       const text = cap.districtNexus ?? '';
-      const matches = new Set<string>();
+      const seen = new Set<string>();
+      const districtKeys: string[] = [];
       let m: RegExpExecArray | null;
       while ((m = pattern.exec(text.toUpperCase())) !== null) {
         const state = m[1];
@@ -1721,13 +2083,16 @@ export class IntelligenceService {
         if (!state || !raw) continue;
         const district = raw === 'AL' ? 'AL' : String(parseInt(raw, 10));
         const key = `${state}-${district}`;
-        matches.add(key);
-        allKeys.add(key);
+        if (!seen.has(key)) {
+          seen.add(key);
+          districtKeys.push(key);
+          allKeys.push(key);
+        }
       }
-      return { cap, districtKeys: [...matches] };
+      return { cap, districtKeys };
     });
 
-    if (!allKeys.size) {
+    if (!allKeys.length) {
       return {
         capabilities: caps.map((c) => ({
           capabilityId: c.id,
@@ -1735,11 +2100,12 @@ export class IntelligenceService {
           capabilitySector: c.sector,
           districtNexus: c.districtNexus,
           districts: [],
+          talkingPoints: [],
+          totalSupportedJobs: null,
         })),
       };
     }
 
-    // Pull the latest CensusDistrict per (state, district) — highest congress wins.
     const districtRows = await this.prisma.$queryRaw<
       Array<{
         id: string;
@@ -1759,19 +2125,23 @@ export class IntelligenceService {
         id, congress, state, district, total_population, median_household_income,
         labor_force_size, unemployment_rate, percent_veteran, top_industries, data_year
       FROM census_district
-      WHERE state || '-' || district = ANY(${[...allKeys]}::text[])
+      WHERE state || '-' || district = ANY(${allKeys}::text[])
       ORDER BY state, district, congress DESC
     `;
 
     const districtMap = new Map(districtRows.map((r) => [`${r.state}-${r.district}`, r]));
 
+    const extractJobs = (value: string | null): number | null => {
+      if (!value) return null;
+      const m = value.match(/(\d[\d,]*)\s*(jobs?|employees?|workers?)/i);
+      if (!m?.[1]) return null;
+      const n = Number(m[1].replace(/,/g, ''));
+      return Number.isFinite(n) ? n : null;
+    };
+
     return {
-      capabilities: capDistricts.map(({ cap, districtKeys }) => ({
-        capabilityId: cap.id,
-        capabilityName: cap.name,
-        capabilitySector: cap.sector,
-        districtNexus: cap.districtNexus,
-        districts: districtKeys
+      capabilities: capDistricts.map(({ cap, districtKeys }) => {
+        const districts = districtKeys
           .map((key) => districtMap.get(key))
           .filter((d): d is NonNullable<typeof d> => Boolean(d))
           .map((d) => ({
@@ -1786,8 +2156,38 @@ export class IntelligenceService {
             percentVeteran: d.percent_veteran,
             topIndustries: Array.isArray(d.top_industries) ? d.top_industries : [],
             dataYear: d.data_year,
-          })),
-      })),
+          }));
+
+        const explicitJobs = extractJobs(cap.existingContracts ?? null) ?? extractJobs(cap.districtNexus ?? null);
+        const jobsPerDistrict = explicitJobs != null
+          ? Math.max(1, Math.round(explicitJobs / Math.max(districts.length, 1)))
+          : null;
+        const talkingPoints = districts.map((d) => {
+          const headline = jobsPerDistrict != null
+            ? `${cap.name} supports ~${jobsPerDistrict.toLocaleString()} jobs in ${d.state}-${d.district}.`
+            : `${cap.name} has district nexus in ${d.state}-${d.district} with labor force ${d.laborForceSize ? d.laborForceSize.toLocaleString() : 'N/A'}.`;
+          return {
+            district: `${d.state}-${d.district}`,
+            headline,
+            evidence: {
+              laborForceSize: d.laborForceSize,
+              unemploymentRate: d.unemploymentRate,
+              topIndustries: d.topIndustries,
+              dataYear: d.dataYear,
+            },
+          };
+        });
+
+        return {
+          capabilityId: cap.id,
+          capabilityName: cap.name,
+          capabilitySector: cap.sector,
+          districtNexus: cap.districtNexus,
+          districts,
+          talkingPoints,
+          totalSupportedJobs: jobsPerDistrict != null ? jobsPerDistrict * districts.length : null,
+        };
+      }),
     };
   }
 
