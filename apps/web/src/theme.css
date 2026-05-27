@@ -3168,6 +3168,19 @@ body {
   gap: 16px;
 }
 
+/* The redesigned card stacks: topline (18px pad) → details (4px 18px 14px
+ * margin) → tag-row (0 18px 14px) → footer. The base .client-card-footer
+ * style sets padding-top + border-top but no horizontal padding, so without
+ * this override the footer text hugs the right edge and the top border
+ * runs flush against the card while every other section insets by 18px.
+ * Match the 18px gutter and use the redesign border token. */
+.redesign .client-card-footer {
+  padding: 12px 18px 14px;
+  border-top-color: var(--border-1);
+  color: var(--ink-3);
+  font-size: 12px;
+}
+
 .redesign .client-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-1);
@@ -8763,6 +8776,15 @@ body {
   overflow: hidden;
   display: flex;
   min-height: 0;
+}
+
+/* When a capability drawer is open, the body lays out cp-content + drawer
+ * side-by-side. Without this, the earlier `.cp-body { flex-direction: column }`
+ * declaration above wins and the 560px-wide drawer renders below cp-content,
+ * gets clipped by overflow:hidden, and looks like clicking a capability does
+ * nothing. */
+.cp-body--with-drawer {
+  flex-direction: row;
 }
 
 .cp-content {

@@ -83,6 +83,10 @@ const TOOL_DEFINITIONS = [
     description: 'Search public internet sources for recent developments. Use this only as supplemental context after Capiro internal data tools for government-affairs answers.',
   },
   {
+    name: 'scrape_web_page',
+    description: 'Fetch and extract readable text from a public webpage URL for grounded analysis. Blocks localhost/private-network targets.',
+  },
+  {
     name: 'create_meeting_brief',
     description: 'Create and persist a deterministic meeting brief artifact from authorized Capiro data.',
   },
@@ -197,6 +201,8 @@ export class ClioToolsService {
         return this.queryEconomicData(input);
       case 'search_public_web':
         return this.searchPublicWeb(input);
+      case 'scrape_web_page':
+        return this.scrapeWebPage(input);
       case 'create_meeting_brief':
         return this.createMeetingBrief(ctx, input);
       case 'draft_policy_memo':
@@ -894,6 +900,51 @@ export class ClioToolsService {
       generatedAt: new Date().toISOString(),
       total: results.length,
       results,
+    };
+  }
+
+  private async scrapeWebPage(input: Record<string, unknown>) {
+    const rawUrl = requiredString(input, 'url', 2000);
+    const mode = optionalString(input, 'mode', 20) ?? 'summary';
+    const maxChars = clampInt(input.maxChars, 500, 20000, mode === 'extract' ? 12000 : 4000);
+
+    const parsed = parseAndValidatePublicUrl(rawUrl);
+    const response = await fetchWithTimeout(parsed.toString(), {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Capiro-Clio/1.0; +https://capiro.ai)',
+        Accept: 'text/html,application/xhtml+xml',
+      },
+      redirect: 'follow',
+    }, 10000);
+
+    if (!response.ok) {
+      throw new BadGatewayException(`Web scrape failed (${response.status})`);
+    }
+
+    const finalUrl = response.url || parsed.toString();
+    const finalParsed = parseAndValidatePublicUrl(finalUrl);
+
+    const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+    if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
+      throw new BadRequestException(`Unsupported content type for scraping: ${contentType || 'unknown'}`);
+    }
+
+    const html = await response.text();
+    const title = extractHtmlTitle(html);
+    const text = extractReadableText(html, maxChars);
+    const links = extractTopLinks(html, finalParsed.origin, 8);
+
+    return {
+      tool: 'scrape_web_page',
+      generatedAt: new Date().toISOString(),
+      url: finalParsed.toString(),
+      title,
+      contentType,
+      text,
+      totalChars: text.length,
+      truncated: text.length >= maxChars,
+      links,
     };
   }
 
@@ -1680,6 +1731,112 @@ function summarizeText(value: unknown, max = 500): string {
   if (typeof value !== 'string') return '';
   const normalized = value.replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max - 3)}...` : normalized;
+}
+
+function parseAndValidatePublicUrl(value: string): URL {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new BadRequestException('url must be a valid absolute URL');
+  }
+
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new BadRequestException('Only http/https URLs are allowed');
+  }
+
+  const host = (parsed.hostname || '').toLowerCase();
+  if (!host) throw new BadRequestException('URL hostname is required');
+  if (isPrivateOrLocalHost(host)) {
+    throw new BadRequestException('Private/local network URLs are not allowed');
+  }
+
+  return parsed;
+}
+
+function isPrivateOrLocalHost(host: string): boolean {
+  if (host === 'localhost' || host.endsWith('.local')) return true;
+
+  if (host.startsWith('[') && host.endsWith(']')) {
+    const inner = host.slice(1, -1).toLowerCase();
+    return inner === '::1' || inner.startsWith('fc') || inner.startsWith('fd') || inner.startsWith('fe80:');
+  }
+
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
+    const parts = host.split('.').map((p) => Number(p));
+    if (parts.some((n) => !Number.isFinite(n) || n < 0 || n > 255)) return true;
+    const a = parts[0] ?? -1;
+    const b = parts[1] ?? -1;
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+  }
+
+  return false;
+}
+
+async function fetchWithTimeout(
+  input: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new BadGatewayException('Web scrape timed out');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function extractHtmlTitle(html: string): string | null {
+  const match = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+  if (!match) return null;
+  const value = stripHtml(match[1] ?? '').trim();
+  return value || null;
+}
+
+function extractReadableText(html: string, maxChars: number): string {
+  let text = html;
+  text = text.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, ' ');
+  text = text.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, ' ');
+  text = text.replace(/<noscript\b[^<]*(?:(?!<\/noscript>)<[^<]*)*<\/noscript>/gi, ' ');
+  text = stripHtml(text);
+  text = text.replace(/\s+/g, ' ').trim();
+  return summarizeText(text, maxChars);
+}
+
+function extractTopLinks(html: string, origin: string, limit: number) {
+  const links: Array<{ url: string; text: string | null }> = [];
+  const seen = new Set<string>();
+  const regex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(html)) && links.length < limit) {
+    const href = decodeHtmlEntities((match[1] ?? '').trim());
+    if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('mailto:')) {
+      continue;
+    }
+    let resolved: URL;
+    try {
+      resolved = new URL(href, origin);
+    } catch {
+      continue;
+    }
+    if (!['http:', 'https:'].includes(resolved.protocol)) continue;
+    if (isPrivateOrLocalHost(resolved.hostname.toLowerCase())) continue;
+    const url = resolved.toString();
+    if (seen.has(url)) continue;
+    seen.add(url);
+    const text = summarizeText(stripHtml(match[2] ?? ''), 120) || null;
+    links.push({ url, text });
+  }
+  return links;
 }
 
 async function queryDuckDuckGoNews(query: string, limit: number) {

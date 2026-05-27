@@ -7,6 +7,8 @@ import {
   type SectorTag,
 } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { EMBEDDING_MODEL, embedText, normalize, vectorLiteral } from '../embeddings/embedder.js';
+import { classifyTrajectory } from './trajectory-classifier.model.js';
 import { addDateInZone, dateBoundsInZone, dayBoundsInZone } from './time-bounds.js';
 
 @Injectable()
@@ -710,13 +712,29 @@ export class IntelligenceService {
       now,
     });
 
+    const trajectoryModel = classifyTrajectory({
+      yearlySpend: profile.lda.yearlySpend,
+      growthRate: profile.lobbyIntel.growthRate,
+      totalSpending: profile.lobbyIntel.totalSpending,
+      sourceLabel: profile.lobbyIntel.trajectory,
+    });
+
     const sections = this.normalizeProfileV1Sections({
       snapshot: {
         trajectory: {
-          label: profile.lobbyIntel.trajectory,
+          label: trajectoryModel.label,
           growthRate: profile.lobbyIntel.growthRate,
           totalSpending: profile.lobbyIntel.totalSpending,
           yearlySpend: profile.lda.yearlySpend,
+          model: {
+            label: trajectoryModel.label,
+            confidence: trajectoryModel.confidence,
+            score: trajectoryModel.score,
+            source: trajectoryModel.source,
+          },
+          fallback: {
+            label: profile.lobbyIntel.trajectory,
+          },
         },
         health,
         dailyBriefing,
@@ -788,7 +806,7 @@ export class IntelligenceService {
         competitorIssuePage: competitorIssueHref,
         billDetailBase: '/explorer',
         entityResolutionQueue: '/settings/intelligence-mappings',
-      }
+      },
       actionTargets: {
         snapshot: {
           seeAllChanges: {
@@ -1116,13 +1134,8 @@ export class IntelligenceService {
     issueCodes: string[],
     fallbackTerms: string[] = [],
   ) {
-    // Resolve LDA issue codes → English issue names via lda_issue_code, then
-    // match those names (whole-word) against congress_bill_subject.name. The
-    // fallbackTerms come from client capabilities when LDA didn't match —
-    // they're already English-language strings so they're appended after
-    // resolution. Whole-word match (not substring) avoids false positives
-    // like "Federal Defense Officers" matching any client with the word
-    // "Defense" in their LDA issues.
+    // Resolve LDA issue codes -> English issue names once, then run
+    // embeddings-first bill retrieval with transparent keyword fallback.
     const issueNames: string[] = [];
     if (issueCodes.length) {
       const nameRows = await this.prisma.$queryRaw<Array<{ name: string }>>`
@@ -1130,28 +1143,130 @@ export class IntelligenceService {
       `;
       issueNames.push(...nameRows.map((r) => r.name));
     }
-    const allTerms = [...issueNames, ...fallbackTerms];
+
+    const allTerms = [...issueNames, ...fallbackTerms]
+      .map((t) => (typeof t === 'string' ? t.trim() : ''))
+      .filter((t) => t.length > 0);
     if (!allTerms.length) return { total: 0, bills: [] };
 
+    const embedded = await this.findRelevantBillsByEmbeddings(allTerms);
+    if (embedded) return embedded;
+
+    return this.findRelevantBillsByKeyword(allTerms);
+  }
+
+  private async findRelevantBillsByEmbeddings(
+    allTerms: string[],
+  ): Promise<
+    | {
+        total: number;
+        bills: Array<{
+          id: string;
+          congress: number;
+          billType: string;
+          billNumber: string;
+          title: string;
+          introducedDate: Date | null;
+          sponsorName: string | null;
+          sponsorParty: string | null;
+          sponsorState: string | null;
+          latestActionText: string | null;
+          latestActionDate: Date | null;
+          policyArea: string | null;
+          subjects: string[];
+        }>;
+      }
+    | null
+  > {
+    const query = normalize(`Issue-bill linker query: ${allTerms.join(' ; ')}`);
+    if (query.length < 10) return null;
+
+    try {
+      const vector = await embedText(query);
+      const vecLiteral = vectorLiteral(vector);
+      const candidateRows = await this.prisma.$queryRawUnsafe<Array<{ source_id: string; score: number }>>(
+        `SELECT ce.source_id,
+                (1 - (ce.embedding <=> $1::vector))::float8 AS score
+           FROM context_embeddings ce
+          WHERE ce.source_type = 'bill'
+            AND ce.model = $2
+            AND ce.embedding IS NOT NULL
+          ORDER BY ce.embedding <=> $1::vector
+          LIMIT 150`,
+        vecLiteral,
+        EMBEDDING_MODEL,
+      );
+
+      const candidateIds = Array.from(
+        new Set(
+          candidateRows
+            .filter((r) => typeof r.source_id === 'string' && r.source_id.trim().length > 0)
+            .map((r) => r.source_id.trim()),
+        ),
+      );
+      if (!candidateIds.length) return null;
+
+      const rows = await this.prisma.$queryRaw<
+        Array<{
+          id: string;
+          congress: number;
+          bill_type: string;
+          bill_number: string;
+          title: string;
+          introduced_date: Date | null;
+          sponsor_name: string | null;
+          sponsor_party: string | null;
+          sponsor_state: string | null;
+          latest_action_text: string | null;
+          latest_action_date: Date | null;
+          policy_area: string | null;
+          subjects: string[];
+        }>
+      >`
+        SELECT cb.id, cb.congress, cb.bill_type, cb.bill_number, cb.title,
+               cb.introduced_date, cb.sponsor_name, cb.sponsor_party, cb.sponsor_state,
+               cb.latest_action_text, cb.latest_action_date, cb.policy_area, cb.subjects
+        FROM congress_bill cb
+        WHERE cb.id = ANY(${candidateIds}::text[])
+        ORDER BY cb.latest_action_date DESC NULLS LAST
+        LIMIT 25
+      `;
+
+      if (!rows.length) return null;
+
+      const bills = rows.map((r) => ({
+        id: r.id,
+        congress: r.congress,
+        billType: r.bill_type,
+        billNumber: r.bill_number,
+        title: r.title,
+        introducedDate: r.introduced_date,
+        sponsorName: r.sponsor_name,
+        sponsorParty: r.sponsor_party,
+        sponsorState: r.sponsor_state,
+        latestActionText: r.latest_action_text,
+        latestActionDate: r.latest_action_date,
+        policyArea: r.policy_area,
+        subjects: r.subjects ?? [],
+      }));
+
+      return { total: candidateIds.length, bills };
+    } catch (error) {
+      this.logger.warn(
+        `Issue-bill embeddings lookup failed, falling back to keyword matcher: ${(error as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  private async findRelevantBillsByKeyword(allTerms: string[]) {
+    // Whole-word keyword fallback (legacy source). Keeps behavior stable when
+    // embeddings are unavailable or backfill has not populated bill vectors.
     const lowerTerms = allTerms.map((n) => n.toLowerCase());
     const wordPatterns = lowerTerms.map(
       (n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`,
     );
 
-    // Total is computed in its own COUNT(DISTINCT) so the UI's "Tracked
-    // Bills" statistic reflects the real cardinality, not the LIMIT 25 cap
-    // that bounds the rendered list. Prior implementation returned
-    // `bills.length` which silently capped at 25 even when 200+ bills
-    // matched.
-    //
-    // Match surfaces (the spec calls out "bill subjects/policy areas"):
-    //   • congress_bill_subject.name   — granular topic tags from CRS.
-    //   • congress_bill.policy_area    — single canonical area per bill
-    //                                    (e.g. "Armed Forces and National
-    //                                    Security"). Matching this catches
-    //                                    bills tagged only at the broad
-    //                                    policy level when no subject row
-    //                                    has the matching keyword.
     const countRows = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
       SELECT COUNT(DISTINCT cb.id)::bigint AS total
       FROM congress_bill cb
@@ -1960,24 +2075,128 @@ export class IntelligenceService {
       }
     }
 
-    const allTerms = [...issueNames, ...capKeywords];
+    const allTerms = [...issueNames, ...capKeywords]
+      .map((n) => (typeof n === 'string' ? n.trim() : ''))
+      .filter((n) => n.length > 0);
     if (!allTerms.length) return { total: 0, bills: [], issueCodes };
 
-    // Require subject-name OVERLAP — exact equality OR the subject contains the
-    // whole-term as a regex word boundary. Substring ILIKE was returning
-    // false positives like "9/11 Memorial and Museum Act" for any client with
-    // "Defense" in their issues (subject "Federal Defense Officers" matched).
+    const embedded = await this.findTrackedBillsByEmbeddings(allTerms);
+    if (embedded) {
+      return {
+        total: embedded.total,
+        issueCodes,
+        bills: embedded.bills,
+      };
+    }
+
+    const keyword = await this.findTrackedBillsByKeyword(allTerms);
+    return {
+      total: keyword.total,
+      issueCodes,
+      bills: keyword.bills,
+    };
+  }
+
+  private async findTrackedBillsByEmbeddings(
+    allTerms: string[],
+  ): Promise<
+    | {
+        total: number;
+        bills: Array<{
+          identifier: string;
+          title: string;
+          latestActionDate: Date | null;
+          latestActionText: string | null;
+          sponsorName: string | null;
+          sponsorParty: string | null;
+          subjectNames: string[];
+        }>;
+      }
+    | null
+  > {
+    const query = normalize(`Issue-bill tracker query: ${allTerms.join(' ; ')}`);
+    if (query.length < 10) return null;
+
+    try {
+      const vector = await embedText(query);
+      const vecLiteral = vectorLiteral(vector);
+      const candidateRows = await this.prisma.$queryRawUnsafe<Array<{ source_id: string; score: number }>>(
+        `SELECT ce.source_id,
+                (1 - (ce.embedding <=> $1::vector))::float8 AS score
+           FROM context_embeddings ce
+          WHERE ce.source_type = 'bill'
+            AND ce.model = $2
+            AND ce.embedding IS NOT NULL
+          ORDER BY ce.embedding <=> $1::vector
+          LIMIT 200`,
+        vecLiteral,
+        EMBEDDING_MODEL,
+      );
+
+      const rankedIds = Array.from(
+        new Set(
+          candidateRows
+            .filter((r) => typeof r.source_id === 'string' && r.source_id.trim().length > 0)
+            .map((r) => r.source_id.trim()),
+        ),
+      );
+      if (!rankedIds.length) return null;
+
+      const bills = await this.prisma.$queryRaw<
+        Array<{
+          id: string;
+          title: string;
+          latest_action_date: Date | null;
+          latest_action_text: string | null;
+          sponsor_name: string | null;
+          sponsor_party: string | null;
+          subjects: string[];
+        }>
+      >`
+        SELECT cb.id, cb.title, cb.latest_action_date, cb.latest_action_text,
+               cb.sponsor_name, cb.sponsor_party, cb.subjects
+        FROM congress_bill cb
+        WHERE cb.id = ANY(${rankedIds}::text[])
+        ORDER BY cb.latest_action_date DESC NULLS LAST
+        LIMIT 50
+      `;
+      if (!bills.length) return null;
+
+      return {
+        total: rankedIds.length,
+        bills: bills.map((b) => ({
+          identifier: b.id,
+          title: b.title,
+          latestActionDate: b.latest_action_date,
+          latestActionText: b.latest_action_text,
+          sponsorName: b.sponsor_name,
+          sponsorParty: b.sponsor_party,
+          subjectNames: b.subjects ?? [],
+        })),
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Tracked-bills embeddings lookup failed, falling back to keyword matcher: ${(error as Error).message}`,
+      );
+      return null;
+    }
+  }
+
+  private async findTrackedBillsByKeyword(allTerms: string[]): Promise<{
+    total: number;
+    bills: Array<{
+      identifier: string;
+      title: string;
+      latestActionDate: Date | null;
+      latestActionText: string | null;
+      sponsorName: string | null;
+      sponsorParty: string | null;
+      subjectNames: string[];
+    }>;
+  }> {
     const lowerTerms = allTerms.map((n) => n.toLowerCase());
     const wordPatterns = lowerTerms.map((n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`);
 
-    // Separate COUNT so the UI's "Tracked Bills" stat reports the real
-    // cardinality rather than the LIMIT 50 cap on the rendered table.
-    //
-    // Match surfaces: subject names (granular CRS tags) OR policy_area
-    // (canonical area per bill). Adding policy_area catches bills that are
-    // only tagged at the broad level — important for clients whose LDA
-    // issues / capability sectors map to the policy-area vocabulary more
-    // cleanly than to subject vocabulary.
     const countRows = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
       SELECT COUNT(DISTINCT cb.id)::bigint AS total
       FROM congress_bill cb
@@ -1997,12 +2216,11 @@ export class IntelligenceService {
         sponsor_name: string | null;
         sponsor_party: string | null;
         subjects: string[];
-        policy_area: string | null;
       }>
     >`
       SELECT * FROM (
         SELECT DISTINCT ON (cb.id) cb.id, cb.title, cb.latest_action_date, cb.latest_action_text,
-               cb.sponsor_name, cb.sponsor_party, cb.subjects, cb.policy_area
+               cb.sponsor_name, cb.sponsor_party, cb.subjects
         FROM congress_bill cb
         LEFT JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
         WHERE LOWER(cbs.name) = ANY(${lowerTerms}::text[])
@@ -2017,7 +2235,6 @@ export class IntelligenceService {
 
     return {
       total: Number(countRows[0]?.total ?? 0),
-      issueCodes,
       bills: bills.map((b) => ({
         identifier: b.id,
         title: b.title,
@@ -3306,7 +3523,12 @@ export class IntelligenceService {
     const tomorrowStart = addDateInZone(now, 1, 'America/New_York');
     const sevenDaysOut = new Date(tomorrowStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
-    const [hearings, deadlines, clientIds] = await Promise.all([
+    // Meetings come from this tenant's connected calendar (Outlook sync) or
+    // manually-created meetings. We pull the same tomorrow→+7d window. The
+    // href is the in-app meeting detail route so clicking on the dashboard
+    // card opens the meeting inside Capiro; the Outlook webLink (stored in
+    // metadata) is reachable from there.
+    const [hearings, deadlines, meetings, clientIds] = await Promise.all([
       this.prisma.committeeHearing.findMany({
         where: { date: { gte: tomorrowStart, lte: sevenDaysOut } },
         orderBy: { date: 'asc' },
@@ -3321,6 +3543,24 @@ export class IntelligenceService {
         take: 20,
       }),
       this.prisma.withTenant(tenantId, (tx) =>
+        tx.meeting.findMany({
+          where: {
+            startsAt: { gte: tomorrowStart, lte: sevenDaysOut },
+            status: { not: 'cancelled' },
+          },
+          orderBy: { startsAt: 'asc' },
+          take: 30,
+          select: {
+            id: true,
+            subject: true,
+            startsAt: true,
+            location: true,
+            organizerName: true,
+            organizerEmail: true,
+          },
+        }),
+      ),
+      this.prisma.withTenant(tenantId, (tx) =>
         tx.client.findMany({ where: { status: { not: 'archived' } }, select: { id: true } }),
       ),
     ]);
@@ -3329,7 +3569,7 @@ export class IntelligenceService {
 
     type ComingUpItem = {
       id: string;
-      kind: 'hearing' | 'markup' | 'deadline';
+      kind: 'hearing' | 'markup' | 'deadline' | 'meeting';
       label: string;
       title: string;
       detail: string | null;
@@ -3370,21 +3610,68 @@ export class IntelligenceService {
       });
     }
 
+    for (const m of meetings) {
+      const startsAt = m.startsAt;
+      // ET time string for the card. Falls back to null if formatting fails
+      // (e.g. exotic timezone string the DB returned unexpectedly).
+      let timeLabel: string | null = null;
+      try {
+        timeLabel = startsAt.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          timeZone: 'America/New_York',
+        });
+      } catch {
+        timeLabel = null;
+      }
+      const organizer = m.organizerName ?? m.organizerEmail ?? null;
+      items.push({
+        id: `meeting-${m.id}`,
+        kind: 'meeting',
+        label: 'MEETING',
+        title: m.subject,
+        detail:
+          [m.location, organizer ? `Organizer: ${organizer}` : null]
+            .filter((v): v is string => Boolean(v))
+            .join(' · ') || null,
+        severity: 'info',
+        date: startsAt.toISOString(),
+        time: timeLabel,
+        href: `/engagement/meetings/${m.id}`,
+      });
+    }
+
     items.sort((a, b) => a.date.localeCompare(b.date));
+
+    // Meetings are always the user's own calendar — they should be visible
+    // on the home dashboard even if there are higher-severity hearings or
+    // deadlines competing for slots. Strategy:
+    //   1. Include up to 4 meetings, soonest first.
+    //   2. Fill remaining slots (up to 6 total) with the highest-severity
+    //      non-meeting items, soonest first within the same severity.
+    //   3. Sort the final list by date so the dashboard reads chronologically.
+    const meetingItems = items
+      .filter((i) => i.kind === 'meeting')
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(0, 4);
 
     const SEVERITY_RANK: Record<ComingUpItem['severity'], number> = {
       critical: 3,
       notable: 2,
       info: 1,
     };
-    const top = [...items]
+    const nonMeetingPicks = items
+      .filter((i) => i.kind !== 'meeting')
       .sort((a, b) => {
         const sev = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
         if (sev !== 0) return sev;
         return a.date.localeCompare(b.date);
       })
-      .slice(0, 3)
-      .sort((a, b) => a.date.localeCompare(b.date));
+      .slice(0, Math.max(0, 6 - meetingItems.length));
+
+    const top = [...meetingItems, ...nonMeetingPicks].sort((a, b) =>
+      a.date.localeCompare(b.date),
+    );
 
     return { items: top, totalThisWeek: items.length };
   }

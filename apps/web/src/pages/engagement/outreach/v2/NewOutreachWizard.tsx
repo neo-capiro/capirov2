@@ -10,8 +10,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Input, Select, Space, Tag, Typography } from 'antd';
-import { ArrowRightOutlined, CheckOutlined, SendOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { App, Button, Form, Input, Modal, Select, Skeleton, Space, Tag, Typography } from 'antd';
+import {
+  ArrowRightOutlined,
+  CheckOutlined,
+  EyeOutlined,
+  PlusOutlined,
+  SendOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons';
 import { useApi } from '../../../../lib/use-api.js';
 import type { Client } from '../../../clients/clientTypes.js';
 import type { OutreachRecipient } from '../../OutreachView.js';
@@ -429,9 +436,12 @@ export function NewOutreachWizard({
         </div>
 
         <div className="ov2-wiz-foot">
-          <Button onClick={stepIdx === 0 ? onCancel : back}>
-            {stepIdx === 0 ? 'Cancel' : 'Back'}
-          </Button>
+          {/* Cancel is now available on every step (previously only on
+              step 0). Back is shown alongside Cancel once the user has
+              advanced past the first step. Calling onCancel here surfaces
+              the parent's "abandon this outreach?" confirmation dialog. */}
+          <Button onClick={onCancel}>Cancel</Button>
+          {stepIdx > 0 && <Button onClick={back}>Back</Button>}
           <span className="step-label">
             Step {stepIdx + 1} of {WIZARD_STEPS.length}
           </span>
@@ -540,22 +550,22 @@ function StepSetup({
   );
 }
 
-// Template IDs MUST match the backend's SYSTEM_AI_TEMPLATES.id values
-// (engagement.service.ts). When the wizard sent values like 'introduction'
-// the service couldn't find a system template, fell through to a DB lookup
-// against outreach_ai_template by UUID, and Postgres rejected the non-UUID
-// id with a 500. Keeping these aligned with the backend IDs is the
-// contract.
-const TEMPLATES = [
-  { id: 'system-introduction', name: 'Introduction', desc: 'Introductory outreach explaining the client and reason for engaging.' },
-  { id: 'system-meeting-request', name: 'Meeting Request', desc: 'Request a meeting with scheduling options and a brief agenda.' },
-  { id: 'system-policy-alert', name: 'Policy Alert', desc: 'Policy alert informing of a relevant legislative or regulatory development.' },
-  { id: 'system-status-update', name: 'Status Update', desc: 'Brief progress update on client activity and next steps.' },
-  { id: 'system-post-meeting-memo', name: 'Post-Meeting Memo', desc: 'Internal post-meeting memo built from meeting and debrief context.' },
-  { id: 'system-thank-you', name: 'Thank You', desc: 'Warm thank-you acknowledging a specific recent action or support.' },
-  { id: 'system-follow-up', name: 'Follow-Up', desc: 'Follow-up referencing a prior meeting with a clear next step.' },
-  { id: 'system-memo', name: 'Memo / Position Paper', desc: 'Concise position memo with background, ask, and supporting points.' },
-];
+// Shape returned by GET /api/engagement/outreach/ai-templates. The backend
+// merges system templates (hardcoded in engagement.service.ts) with any
+// user-created custom templates from outreach_ai_template. We render both
+// in the same grid; the only visible difference is a "Custom" tag on
+// user-owned ones so the user can find their own templates at a glance.
+interface AiTemplate {
+  id: string;
+  source: 'system' | 'user';
+  name: string;
+  category: string;
+  prompt: string;
+  description: string | null;
+  samplePreview: string | null;
+  tone: string;
+  usageCount: number;
+}
 
 function StepTemplate({
   templateId,
@@ -564,24 +574,72 @@ function StepTemplate({
   templateId: string | null;
   onChange: (id: string) => void;
 }) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const { message } = App.useApp();
+  const [previewing, setPreviewing] = useState<AiTemplate | null>(null);
+  const [creatingOpen, setCreatingOpen] = useState(false);
+
+  const templatesQuery = useQuery<AiTemplate[]>({
+    queryKey: ['outreach-ai-templates'],
+    queryFn: async () =>
+      (await api.get<AiTemplate[]>('/api/engagement/outreach/ai-templates')).data,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (input: {
+      name: string;
+      category: string;
+      prompt: string;
+      description?: string;
+      tone?: string;
+    }) =>
+      (await api.post<AiTemplate>('/api/engagement/outreach/ai-templates', input)).data,
+    onSuccess: (created) => {
+      message.success(`Created "${created.name}"`);
+      qc.invalidateQueries({ queryKey: ['outreach-ai-templates'] });
+      setCreatingOpen(false);
+      // Auto-select the newly created template so the user doesn't have
+      // to click it again before continuing.
+      onChange(created.id);
+    },
+    onError: () => message.error('Could not create template'),
+  });
+
+  const templates = templatesQuery.data ?? [];
+
+  if (templatesQuery.isLoading) {
+    return (
+      <div>
+        <h2>Choose a template</h2>
+        <Skeleton active paragraph={{ rows: 6 }} />
+      </div>
+    );
+  }
+
   return (
     <div>
       <h2>Choose a template</h2>
       <div className="ov2-pane-sub">
-        Templates seed the structure. Clio fills it from your context. You can edit per-recipient in the next step.
+        Templates seed the structure. Clio fills it from your context. Preview to see a sample, or create your own.
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-        {TEMPLATES.map((t) => (
+        {templates.map((t) => (
           <div
             key={t.id}
             onClick={() => onChange(t.id)}
             style={{
               background: 'var(--ov2-bg-surface)',
-              border: '1.5px solid ' + (templateId === t.id ? 'var(--ov2-accent)' : 'var(--ov2-border-1)'),
+              border:
+                '1.5px solid ' +
+                (templateId === t.id ? 'var(--ov2-accent)' : 'var(--ov2-border-1)'),
               borderRadius: 8,
               padding: '16px 18px',
               cursor: 'pointer',
               position: 'relative',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
             }}
           >
             {templateId === t.id && (
@@ -603,12 +661,303 @@ function StepTemplate({
                 <CheckOutlined />
               </span>
             )}
-            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>{t.name}</div>
-            <div style={{ fontSize: 12, color: 'var(--ov2-ink-2)', lineHeight: 1.45 }}>{t.desc}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>{t.name}</div>
+              {t.source === 'user' && (
+                <Tag color="blue" style={{ fontSize: 10, lineHeight: 1.4, padding: '0 6px' }}>
+                  Custom
+                </Tag>
+              )}
+            </div>
+            <div
+              style={{
+                fontSize: 12,
+                color: 'var(--ov2-ink-2)',
+                lineHeight: 1.45,
+                flex: 1,
+              }}
+            >
+              {t.description ?? 'No description'}
+            </div>
+            <Button
+              size="small"
+              type="text"
+              icon={<EyeOutlined />}
+              // stopPropagation so clicking Preview doesn't also select the
+              // template — the user might want to compare a few before
+              // committing to one.
+              onClick={(e) => {
+                e.stopPropagation();
+                setPreviewing(t);
+              }}
+              style={{ alignSelf: 'flex-start', padding: 0, height: 22, fontSize: 12 }}
+            >
+              Preview
+            </Button>
           </div>
         ))}
+
+        {/* "Create custom" tile — same grid slot as a template card so the
+            shape stays predictable as the catalog grows. */}
+        <button
+          type="button"
+          onClick={() => setCreatingOpen(true)}
+          style={{
+            background: 'transparent',
+            border: '1.5px dashed var(--ov2-border-1)',
+            borderRadius: 8,
+            padding: '16px 18px',
+            cursor: 'pointer',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 4,
+            color: 'var(--ov2-ink-2)',
+            minHeight: 110,
+            font: 'inherit',
+          }}
+        >
+          <PlusOutlined style={{ fontSize: 18 }} />
+          <span style={{ fontSize: 13, fontWeight: 600 }}>Create custom template</span>
+          <span style={{ fontSize: 11 }}>Define your own prompt</span>
+        </button>
       </div>
+
+      <PreviewTemplateModal
+        template={previewing}
+        onClose={() => setPreviewing(null)}
+        onSelect={(id) => {
+          onChange(id);
+          setPreviewing(null);
+        }}
+      />
+      <CreateTemplateModal
+        open={creatingOpen}
+        onCancel={() => setCreatingOpen(false)}
+        onSubmit={(input) => createMutation.mutate(input)}
+        submitting={createMutation.isPending}
+      />
     </div>
+  );
+}
+
+function PreviewTemplateModal({
+  template,
+  onClose,
+  onSelect,
+}: {
+  template: AiTemplate | null;
+  onClose: () => void;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <Modal
+      open={!!template}
+      onCancel={onClose}
+      title={template ? `Preview · ${template.name}` : ''}
+      footer={
+        template
+          ? [
+              <Button key="close" onClick={onClose}>
+                Close
+              </Button>,
+              <Button key="use" type="primary" onClick={() => onSelect(template.id)}>
+                Use this template
+              </Button>,
+            ]
+          : null
+      }
+      width={640}
+    >
+      {template && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                color: 'var(--ov2-ink-3)',
+                marginBottom: 4,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+              }}
+            >
+              Description
+            </div>
+            <div style={{ fontSize: 13.5, color: 'var(--ov2-ink-1)' }}>
+              {template.description ?? 'No description provided.'}
+            </div>
+          </div>
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                color: 'var(--ov2-ink-3)',
+                marginBottom: 4,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+              }}
+            >
+              Sample output
+            </div>
+            <pre
+              style={{
+                fontSize: 12.5,
+                lineHeight: 1.55,
+                background: 'var(--ov2-bg-surface)',
+                border: '1px solid var(--ov2-border-1)',
+                borderRadius: 6,
+                padding: 14,
+                whiteSpace: 'pre-wrap',
+                fontFamily: 'inherit',
+                margin: 0,
+              }}
+            >
+              {template.samplePreview ?? '(no sample preview available)'}
+            </pre>
+          </div>
+          <div>
+            <div
+              style={{
+                fontSize: 11,
+                color: 'var(--ov2-ink-3)',
+                marginBottom: 4,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+              }}
+            >
+              Prompt sent to Clio
+            </div>
+            <div
+              style={{
+                fontSize: 12.5,
+                color: 'var(--ov2-ink-2)',
+                background: 'var(--ov2-bg-surface)',
+                border: '1px solid var(--ov2-border-1)',
+                borderRadius: 6,
+                padding: 14,
+                lineHeight: 1.55,
+              }}
+            >
+              {template.prompt}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--ov2-ink-3)' }}>
+            <span>
+              Tone: <b style={{ color: 'var(--ov2-ink-1)' }}>{template.tone}</b>
+            </span>
+            <span>
+              Category: <b style={{ color: 'var(--ov2-ink-1)' }}>{template.category}</b>
+            </span>
+            {template.source === 'user' && (
+              <span>
+                Used: <b style={{ color: 'var(--ov2-ink-1)' }}>{template.usageCount}×</b>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function CreateTemplateModal({
+  open,
+  onCancel,
+  onSubmit,
+  submitting,
+}: {
+  open: boolean;
+  onCancel: () => void;
+  onSubmit: (input: {
+    name: string;
+    category: string;
+    prompt: string;
+    description?: string;
+    tone?: string;
+  }) => void;
+  submitting: boolean;
+}) {
+  const [form] = Form.useForm();
+
+  useEffect(() => {
+    if (!open) form.resetFields();
+  }, [open, form]);
+
+  return (
+    <Modal
+      open={open}
+      onCancel={onCancel}
+      title="Create custom template"
+      okText="Create"
+      okButtonProps={{ loading: submitting }}
+      onOk={() => {
+        form
+          .validateFields()
+          .then((values) => {
+            onSubmit({
+              name: values.name,
+              category: values.category || 'general',
+              prompt: values.prompt,
+              description: values.description || undefined,
+              tone: values.tone || 'professional',
+            });
+          })
+          .catch(() => {
+            /* validation errors render inline */
+          });
+      }}
+      width={620}
+      destroyOnClose
+    >
+      <Form form={form} layout="vertical" initialValues={{ tone: 'professional', category: 'general' }}>
+        <Form.Item
+          name="name"
+          label="Name"
+          rules={[{ required: true, message: 'Name is required' }]}
+        >
+          <Input placeholder="e.g. FY27 NDAA position memo" maxLength={120} />
+        </Form.Item>
+        <Form.Item name="description" label="Short description (optional)">
+          <Input placeholder="One-line summary shown on the template card" maxLength={500} />
+        </Form.Item>
+        <Form.Item
+          name="prompt"
+          label="Prompt"
+          tooltip="What Clio is told to produce. Be specific about structure, length, and tone."
+          rules={[{ required: true, message: 'Prompt is required' }, { min: 20, message: 'Prompt should be at least 20 characters' }]}
+        >
+          <Input.TextArea
+            rows={6}
+            placeholder="Write a concise email to a congressional office that... Include... Under 200 words."
+            maxLength={5000}
+            showCount
+          />
+        </Form.Item>
+        <Space size={12} style={{ display: 'flex' }}>
+          <Form.Item name="category" label="Category" style={{ flex: 1 }}>
+            <Select
+              options={[
+                { value: 'general', label: 'General' },
+                { value: 'meeting', label: 'Meeting' },
+                { value: 'follow_up', label: 'Follow-up' },
+                { value: 'policy', label: 'Policy' },
+              ]}
+            />
+          </Form.Item>
+          <Form.Item name="tone" label="Tone" style={{ flex: 1 }}>
+            <Select
+              options={[
+                { value: 'professional', label: 'Professional' },
+                { value: 'friendly', label: 'Friendly' },
+                { value: 'formal', label: 'Formal' },
+                { value: 'concise', label: 'Concise' },
+              ]}
+            />
+          </Form.Item>
+        </Space>
+      </Form>
+    </Modal>
   );
 }
 

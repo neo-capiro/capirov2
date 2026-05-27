@@ -65,8 +65,10 @@ export function ResolutionGraphCard({
   const expandEnabled = canExpand && hasExpandableOverflow;
 
   const buildDrillHref = (node: ResolutionGraphNode): string => {
-    if (nodeDrillHrefBuilder) return nodeDrillHrefBuilder(node);
-    return `/intelligence/issues?node=${encodeURIComponent(node.id)}`;
+    if (nodeDrillHrefBuilder) {
+      return nodeDrillHrefBuilder(node) || '';
+    }
+    return '';
   };
 
   return (
@@ -101,12 +103,30 @@ export function ResolutionGraphCard({
         {visibleNodes.map((node) => {
           const href = buildDrillHref(node);
           const focused = focusedNodeId === node.id;
+          const commonClass = `iv1-rgc-node ${node.kind} ${focused ? 'is-focused' : ''}`;
+          const title = `${kindLabel(node.kind)} · ${node.label}`;
+
+          if (!href) {
+            return (
+              <button
+                key={node.id}
+                type="button"
+                className={commonClass}
+                title={title}
+                onClick={() => setFocusedNodeId(node.id)}
+              >
+                <span className="iv1-rgc-node-kind">{kindLabel(node.kind)}</span>
+                <span className="iv1-rgc-node-label">{node.label}</span>
+              </button>
+            );
+          }
+
           return (
             <a
               key={node.id}
               href={href}
-              className={`iv1-rgc-node ${node.kind} ${focused ? 'is-focused' : ''}`}
-              title={`${kindLabel(node.kind)} · ${node.label}`}
+              className={commonClass}
+              title={title}
               onClick={(e) => {
                 if (!focused) {
                   e.preventDefault();

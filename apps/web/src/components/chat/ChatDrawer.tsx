@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   CloseOutlined,
   DeleteOutlined,
-  FileTextOutlined,
   HistoryOutlined,
   PlusOutlined,
   SaveOutlined,
@@ -24,7 +23,6 @@ import {
   setChatSession,
   setStreaming,
   toggleChat,
-  toggleEmailPanel,
   toggleSessionRail,
   updateChatMessage,
   upsertConversation,
@@ -32,25 +30,22 @@ import {
 } from './chat-store.js';
 import { ChatInput } from './ChatInput.js';
 import { ChatMessage } from './ChatMessage.js';
-import { ArtifactPanel } from './ArtifactPanel.js';
 import { SessionRail } from './SessionRail.js';
+import clioBubbleImage from '../../assets/chat/clio-bubble.png';
 import './chat.css';
 
 type SseEvent =
   | { type: 'start'; intent: string; tier?: 'fast' | 'deep' }
-  | {
-      type: 'trace';
-      trace: Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>;
-      policy?: { tier?: 'fast' | 'deep' };
-    }
-  | { type: 'sources'; sources: ClioSourceAttribution[] }
-  | { type: 'conflict'; conflict: { title: string; detail: string } }
-  | { type: 'template'; template: { heading: string; sections: string[] } }
+  | { type: 'trace'; trace?: Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>; policy?: { tier?: 'fast' | 'deep' } }
+  | { type: 'template'; template?: { heading: string; sections: string[] } }
+  | { type: 'conflict'; conflict?: { title: string; detail: string } }
+  | { type: 'sources'; sources?: ClioSourceAttribution[] }
   | { type: 'text'; text: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
   | { type: 'draft_updated'; engagementId: string; recipientId?: string; subject: string; body: string }
-  | { type: 'workflow_updated'; instanceId: string; fieldKey: string; updatedValue: string };
+  | { type: 'workflow_updated'; instanceId: string; fieldKey: string; updatedValue: string }
+  | { type: 'page_write'; target: 'outreach_draft'; engagementId?: string; recipientId?: string; subject?: string; body?: string; note?: string };
 
 function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -106,6 +101,10 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const [orchestratorTemplate, setOrchestratorTemplate] = useState<{ heading: string; sections: string[] } | null>(null);
   const [isSavingMeta, setIsSavingMeta] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
+  const [writeMode, setWriteMode] = useState(false);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+  const resizingRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const [drawerWidth, setDrawerWidth] = useState(420);
 
   const contextLabel =
     selectedClientName && !location.pathname.startsWith('/clients')
@@ -289,6 +288,9 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const sendMessage = useCallback(async (content: string) => {
     if (isStreaming) return;
 
+    const writePrefix = 'write on this page:';
+    const outgoing = writeMode ? `${writePrefix} ${content}` : content;
+
     // Ensure we have a session ID (create one if missing)
     let sid = sessionId;
     if (!sid) {
@@ -308,7 +310,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
       const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${sid}/stream`, {
         method: 'POST',
         headers: await authHeaders(),
-        body: JSON.stringify({ body: content }),
+        body: JSON.stringify({ body: outgoing }),
         signal: controller.signal,
       });
 
@@ -353,9 +355,9 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             setOrchestratorTrace(Array.isArray(event.trace) ? event.trace : []);
             if (event.policy?.tier) setOrchestratorTier(event.policy.tier);
           } else if (event.type === 'template') {
-            setOrchestratorTemplate(event.template);
+            setOrchestratorTemplate(event.template ?? null);
           } else if (event.type === 'conflict') {
-            setOrchestratorConflict(event.conflict);
+            setOrchestratorConflict(event.conflict ?? null);
           } else if (event.type === 'text') {
             accumulated += event.text;
             updateChatMessage(assistantId, accumulated);
@@ -387,6 +389,19 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                 },
               }),
             );
+          } else if (event.type === 'page_write') {
+            window.dispatchEvent(
+              new CustomEvent('capiro:page-write', {
+                detail: {
+                  target: event.target,
+                  engagementId: event.engagementId,
+                  recipientId: event.recipientId,
+                  subject: event.subject,
+                  body: event.body,
+                  note: event.note,
+                },
+              }),
+            );
           }
         }
       }
@@ -400,6 +415,37 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
   const handleClose = () => setChatOpen(false);
 
+  const handleResizePointerMove = useCallback((event: PointerEvent) => {
+    const state = resizingRef.current;
+    if (!state) return;
+    const deltaX = state.startX - event.clientX;
+    const viewportWidth = window.innerWidth;
+    const min = 360;
+    const max = Math.max(min, Math.floor(viewportWidth * 0.9));
+    const next = Math.max(min, Math.min(max, state.startWidth + deltaX));
+    setDrawerWidth(next);
+  }, []);
+
+  const stopResize = useCallback(() => {
+    const handle = drawerRef.current?.querySelector('.chat-resize-handle') as HTMLElement | null;
+    if (handle) handle.classList.remove('is-dragging');
+    resizingRef.current = null;
+    window.removeEventListener('pointermove', handleResizePointerMove);
+    window.removeEventListener('pointerup', stopResize);
+    window.removeEventListener('pointercancel', stopResize);
+  }, [handleResizePointerMove]);
+
+  useEffect(() => () => stopResize(), [stopResize]);
+
+  const startResize = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    const currentWidth = drawerRef.current?.getBoundingClientRect().width ?? drawerWidth;
+    resizingRef.current = { startX: event.clientX, startWidth: currentWidth };
+    event.currentTarget.classList.add('is-dragging');
+    event.currentTarget.setPointerCapture(event.pointerId);
+    window.addEventListener('pointermove', handleResizePointerMove);
+    window.addEventListener('pointerup', stopResize);
+    window.addEventListener('pointercancel', stopResize);
+  }, [drawerWidth, handleResizePointerMove, stopResize]);
   const showTypingIndicator =
     isStreaming &&
     messages.length > 0 &&
@@ -417,11 +463,20 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
       )}
 
       <div
+        ref={drawerRef}
         className={`chat-drawer${isOpen ? ' chat-drawer--open' : ''}`}
         role="complementary"
         aria-label="Clio assistant"
         aria-hidden={!isOpen}
+        style={{ width: `${drawerWidth}px` }}
       >
+        <button
+          type="button"
+          className="chat-resize-handle"
+          onPointerDown={startResize}
+          aria-label="Resize chat panel"
+          title="Drag to resize"
+        />
         <div className="chat-header">
           <span className="chat-header-title">
             <span className="chat-header-dot" aria-hidden="true" />
@@ -436,15 +491,6 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
               aria-label="Toggle conversation history"
             >
               <HistoryOutlined />
-            </button>
-            <button
-              type="button"
-              className="chat-header-btn"
-              onClick={toggleEmailPanel}
-              title="Artifacts"
-              aria-label="Toggle artifacts panel"
-            >
-              <FileTextOutlined />
             </button>
             <button
               type="button"
@@ -597,7 +643,12 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         </div>
 
         <div className="chat-input-area">
-          <ChatInput disabled={isStreaming} onSend={(c) => void sendMessage(c)} />
+          <ChatInput
+            disabled={isStreaming}
+            onSend={(c) => void sendMessage(c)}
+            writeMode={writeMode}
+            onToggleWriteMode={() => setWriteMode((current) => !current)}
+          />
         </div>
       </div>
 
@@ -610,18 +661,11 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         title="Clio"
         aria-expanded={isOpen}
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path
-            d="M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2Z"
-            fill="currentColor"
-          />
-        </svg>
+        <img src={clioBubbleImage} alt="" className="chat-toggle-fab-logo" />
         {alertsBadge > 0 && (
           <span className="chat-fab-badge">{alertsBadge}</span>
         )}
       </button>
-
-      <ArtifactPanel />
     </>
   );
 }

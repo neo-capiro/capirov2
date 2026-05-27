@@ -15,6 +15,26 @@ import { FinancialFootprintSection } from './sections/FinancialFootprintSection.
 import { LegislativeRegulatorySection } from './sections/LegislativeRegulatorySection.js';
 import { RelationshipsSection } from './sections/RelationshipsSection.js';
 
+function withClientContext(href: string, clientId: string): string {
+  const raw = href?.trim();
+  if (!raw) return `/engagement?clientId=${encodeURIComponent(clientId)}`;
+
+  try {
+    const isAbsolute = /^https?:\/\//i.test(raw);
+    const url = new URL(raw, isAbsolute ? undefined : 'http://localhost');
+
+    if (!url.searchParams.has('clientId')) {
+      url.searchParams.set('clientId', clientId);
+    }
+
+    if (isAbsolute) return url.toString();
+    return `${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    const joiner = raw.includes('?') ? '&' : '?';
+    return `${raw}${joiner}clientId=${encodeURIComponent(clientId)}`;
+  }
+}
+
 interface ClientIntelV1PageProps {
   clientId: string;
   clientName: string;
@@ -87,6 +107,25 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
 
   const navMeta = buildSectionNavMeta(profileQuery.data);
 
+  const issueHref = useMemo(() => {
+    const fromLinks = profileV1Query.data?.links.competitorIssuePage?.trim();
+    if (fromLinks) return fromLinks;
+
+    const code = profileV1Query.data?.sections.legislativeRegulatory.kanban.issueCodes.find(
+      (value) => typeof value === 'string' && value.trim().length > 0,
+    )?.trim();
+
+    return code ? `/intelligence/issues/${encodeURIComponent(code)}` : '';
+  }, [profileV1Query.data]);
+
+  // Scoped engagement href — always carries clientId so the Engagement Manager
+  // opens pre-filtered to this client. `withClientContext` is idempotent: it
+  // is a no-op if clientId is already present in the href.
+  const engagementHref = useMemo(
+    () => withClientContext('/engagement', clientId),
+    [clientId],
+  );
+
   return (
     <div className="iv1-page redesign">
       <header className="iv1-page__header">
@@ -135,7 +174,7 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
             <LegislativeRegulatorySection
               aggregate={profileV1Query.data ?? undefined}
               billDrillHref={profileV1Query.data?.links.billDetailBase ?? '/explorer'}
-              syncCalendarHref="/engagement"
+              syncCalendarHref={engagementHref}
               setAlertsHref={
                 profileV1Query.data?.links.changesInbox
                   ?? `/intelligence/changes?clientId=${encodeURIComponent(clientId)}`
@@ -144,8 +183,8 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
 
             <RelationshipsSection
               aggregate={profileV1Query.data ?? undefined}
-              issueHref={profileV1Query.data?.links.competitorIssuePage ?? '/intelligence/issues'}
-              expandEnabled={false}
+              issueHref={issueHref}
+              expandEnabled={Boolean(issueHref)}
             />
           </Space>
         </main>

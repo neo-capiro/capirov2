@@ -128,7 +128,8 @@ export function SnapshotSection({ clientId, clientName, aggregate }: SnapshotSec
   const meetings = meetingsQuery.data ?? [];
   const trackedTotal = aggregate?.sections.legislativeRegulatory.kanban.total ?? profile?.relevantBills?.total ?? 0;
   const healthScore = aggregate?.sections.snapshot.health?.score ?? health?.score ?? null;
-  const trajectory = aggregate?.sections.snapshot.trajectory?.label ?? profile?.lobbyIntel?.trajectory ?? null;
+  const trajectorySection = aggregate?.sections.snapshot.trajectory;
+  const trajectory = trajectorySection?.label ?? profile?.lobbyIntel?.trajectory ?? null;
   const activityRows = aggregate?.sections.snapshot.activity14d ?? null;
   const activityMeetings = activityRows ? activityRows.reduce((sum, d) => sum + d.meetings, 0) : meetings.length;
   const activityMax = Math.max(
@@ -159,6 +160,8 @@ export function SnapshotSection({ clientId, clientName, aggregate }: SnapshotSec
             <TrajectoryChipSparkline
               trajectory={trajectory}
               series={buildQuarterlySeries(profile)}
+              model={trajectorySection?.model ?? null}
+              fallback={trajectorySection?.fallback ?? null}
             />
             <span className="iv1-snap-delta">
               {profile?.lda?.totalSpending != null && (profile?.lda?.totalFilings ?? 0) > 0
@@ -234,7 +237,12 @@ export function SnapshotSection({ clientId, clientName, aggregate }: SnapshotSec
                 type="button"
                 className="iv1-btn-primary iv1-btn-sm"
                 style={{ flex: 1, textAlign: 'center' }}
-                onClick={() => navigate('/intelligence/changes')}
+                onClick={() =>
+                  navigate(
+                    aggregate?.links.changesInbox ??
+                      `/intelligence/changes?clientId=${encodeURIComponent(clientId)}`,
+                  )
+                }
               >
                 Changes inbox
               </button>

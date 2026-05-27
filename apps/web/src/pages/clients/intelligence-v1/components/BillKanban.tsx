@@ -4,7 +4,11 @@
  *
  * - Renders exactly 4 stage columns in declaration order.
  * - Max 5 cards visible per column; +N overflow row shown only when count > visible.
- * - Every card is a clickable anchor; identifier is appended as ?bill= / &bill= query param.
+ * - Every card is a clickable anchor.
+ * - Supports dedicated bill detail path templates when present (e.g. /intelligence/bills/:bill).
+ * - Falls back to query-param behavior (?bill= / &bill=) for existing explorer flow.
+ * - When billDrillHref is absent or malformed, falls back to /explorer?bill=<encoded>
+ *   so no bill card ever dead-ends.
  */
 
 import { PassageProbabilityBar } from './PassageProbabilityBar.js';
@@ -41,9 +45,22 @@ interface BillKanbanProps {
   billDrillHref: string;
 }
 
+/** Safe fallback destination when no bill-detail route is configured. */
+const EXPLORER_FALLBACK = '/explorer';
+
 function buildBillHref(base: string, identifier: string): string {
   const encoded = encodeURIComponent(identifier);
-  return base.includes('?') ? `${base}&bill=${encoded}` : `${base}?bill=${encoded}`;
+  const rawBase = base?.trim() || '';
+
+  // Empty or missing base → guaranteed explorer fallback; no dead-end.
+  if (!rawBase) return `${EXPLORER_FALLBACK}?bill=${encoded}`;
+
+  // Dedicated path template support.
+  if (rawBase.includes(':bill')) return rawBase.replace(':bill', encoded);
+  if (rawBase.includes('{bill}')) return rawBase.replace('{bill}', encoded);
+
+  // Existing query-param fallback.
+  return rawBase.includes('?') ? `${rawBase}&bill=${encoded}` : `${rawBase}?bill=${encoded}`;
 }
 
 export function BillKanban({ columns, billDrillHref }: BillKanbanProps) {
@@ -60,23 +77,43 @@ export function BillKanban({ columns, billDrillHref }: BillKanbanProps) {
               <span className="iv1-bill-col-count">{col.count}</span>
             </div>
 
-            {visible.map((card) => (
-              <a
-                key={card.num}
-                href={buildBillHref(billDrillHref, card.num)}
-                className="iv1-bill-card"
-              >
-                <div className="iv1-bill-num mono">{card.num}</div>
-                <div className="iv1-bill-title">{card.title}</div>
-                <PassageProbabilityBar score={card.pct} color={card.probColor} />
-                {card.clioTag && (
-                  <div className="iv1-clio-tag">
-                    <span className="iv1-clio-tag-dot" />
-                    {card.clioTag}
+            {visible.map((card) => {
+              const href = buildBillHref(billDrillHref, card.num);
+
+              if (!href) {
+                return (
+                  <div key={card.num} className="iv1-bill-card" aria-disabled="true">
+                    <div className="iv1-bill-num mono">{card.num}</div>
+                    <div className="iv1-bill-title">{card.title}</div>
+                    <PassageProbabilityBar score={card.pct} color={card.probColor} />
+                    {card.clioTag && (
+                      <div className="iv1-clio-tag">
+                        <span className="iv1-clio-tag-dot" />
+                        {card.clioTag}
+                      </div>
+                    )}
                   </div>
-                )}
-              </a>
-            ))}
+                );
+              }
+
+              return (
+                <a
+                  key={card.num}
+                  href={href}
+                  className="iv1-bill-card"
+                >
+                  <div className="iv1-bill-num mono">{card.num}</div>
+                  <div className="iv1-bill-title">{card.title}</div>
+                  <PassageProbabilityBar score={card.pct} color={card.probColor} />
+                  {card.clioTag && (
+                    <div className="iv1-clio-tag">
+                      <span className="iv1-clio-tag-dot" />
+                      {card.clioTag}
+                    </div>
+                  )}
+                </a>
+              );
+            })}
 
             {overflow > 0 && (
               <div className="iv1-bill-col-more">+{overflow} more</div>

@@ -69,6 +69,7 @@ interface OrchestratorResult {
 interface StreamControl {
   traceEnabled: boolean;
   cleanContent: string;
+  pageWriteEnabled: boolean;
 }
 
 interface RuntimeMessage {
@@ -706,6 +707,15 @@ export class ClioService {
     const unifiedSystemPrompt = this.buildUnifiedSystemPrompt(intent, orchestration.context, orchestration.template);
 
     sse.write(`data: ${JSON.stringify({ type: 'start', intent, tier: orchestration.policy.tier })}\n\n`);
+    if (streamControl.pageWriteEnabled) {
+      sse.write(
+        `data: ${JSON.stringify({
+          type: 'page_write',
+          target: 'outreach_draft',
+          note: 'Write mode enabled: updates will be applied to this page when supported.',
+        })}\n\n`,
+      );
+    }
     if (streamControl.traceEnabled) {
       sse.write(`data: ${JSON.stringify({ type: 'trace', trace: orchestration.trace, policy: orchestration.policy })}\n\n`);
     }
@@ -1090,10 +1100,17 @@ export class ClioService {
   }
 
   private extractStreamControl(rawBody: string): StreamControl {
+    let cleanContent = rawBody;
+
     const tracePattern = /\s*#trace\s*$/i;
-    const traceEnabled = tracePattern.test(rawBody);
-    const cleanContent = traceEnabled ? rawBody.replace(tracePattern, '').trimEnd() : rawBody;
-    return { traceEnabled, cleanContent };
+    const traceEnabled = tracePattern.test(cleanContent);
+    if (traceEnabled) cleanContent = cleanContent.replace(tracePattern, '').trimEnd();
+
+    const pageWritePattern = /^\s*write on this page:\s*/i;
+    const pageWriteEnabled = pageWritePattern.test(cleanContent);
+    if (pageWriteEnabled) cleanContent = cleanContent.replace(pageWritePattern, '').trimStart();
+
+    return { traceEnabled, cleanContent, pageWriteEnabled };
   }
 
   private policyForIntent(intent: string, query: string): OrchestratorPolicy {

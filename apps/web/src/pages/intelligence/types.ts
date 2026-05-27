@@ -427,7 +427,7 @@ export interface DailyBrief {
   empty: boolean;
 }
 
-export type ComingUpItemKind = 'hearing' | 'markup' | 'deadline';
+export type ComingUpItemKind = 'hearing' | 'markup' | 'deadline' | 'meeting';
 
 export interface ComingUpItem {
   id: string;

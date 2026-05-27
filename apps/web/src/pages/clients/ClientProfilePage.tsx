@@ -349,7 +349,7 @@ export function ClientProfilePage({
       </div>
 
       {/* Body */}
-      <div className="cp-body">
+      <div className={`cp-body${selectedCapability ? ' cp-body--with-drawer' : ''}`}>
         <div
           className="cp-content"
           style={selectedCapability ? { flex: 1, overflowY: 'auto' } : {}}

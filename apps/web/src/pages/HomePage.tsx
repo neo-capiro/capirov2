@@ -258,14 +258,27 @@ function ComingUpStrip({
                 {item.detail ? <p className="home-coming-dek">{item.detail}</p> : null}
               </>
             );
-            return item.href ? (
+            // Internal app routes (e.g. /engagement/meetings/<id>) route
+            // via React Router so the user stays inside Capiro. External
+            // URLs (Congress.gov, federalregister.gov) open in a new tab.
+            if (!item.href) {
+              return (
+                <div key={item.id} className="home-coming-card">
+                  {inner}
+                </div>
+              );
+            }
+            if (item.href.startsWith('/')) {
+              return (
+                <Link key={item.id} to={item.href} className="home-coming-card">
+                  {inner}
+                </Link>
+              );
+            }
+            return (
               <a key={item.id} className="home-coming-card" href={item.href} target="_blank" rel="noreferrer">
                 {inner}
               </a>
-            ) : (
-              <div key={item.id} className="home-coming-card">
-                {inner}
-              </div>
             );
           })}
         </div>

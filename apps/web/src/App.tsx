@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { RedirectToSignIn, SignIn, SignedIn, SignedOut, SignUp } from '@clerk/clerk-react';
 import { AppShell } from './components/AppShell.js';
 import { PlaceholderPage } from './pages/PlaceholderPage.js';
@@ -68,6 +68,7 @@ export function App() {
         <Route path="/intelligence" element={<Navigate to="/explorer" replace />} />
         <Route path="/intelligence/changes" element={<ChangesInboxPage />} />
         <Route path="/intelligence/issues/:code" element={<IssueLeaderboardPage />} />
+        <Route path="/intelligence/bills/:bill" element={<BillDetailRedirectRoute />} />
         <Route path="/intelligence/client/:clientId" element={<Navigate to="/clients" replace />} />
         <Route path="/intelligence/client/:clientId/graph" element={<Navigate to="/clients" replace />} />
         <Route path="/intelligence/*" element={<Navigate to="/explorer" replace />} />
@@ -105,6 +106,13 @@ export function App() {
       </Route>
     </Routes>
   );
+}
+
+function BillDetailRedirectRoute() {
+  const { bill } = useParams<{ bill: string }>();
+  const encodedBill = bill ? encodeURIComponent(bill) : '';
+  const target = encodedBill ? `/explorer?bill=${encodedBill}` : '/explorer';
+  return <Navigate to={target} replace />;
 }
 
 function AuthPage({ mode }: { mode: 'sign-in' | 'sign-up' }) {

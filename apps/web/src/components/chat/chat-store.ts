@@ -46,7 +46,6 @@ interface ChatState {
   messages: ChatMessage[];
   sessionId: string | null;
   isStreaming: boolean;
-  emailPanelOpen: boolean;
   conversations: ClioConversation[];
   activeConversationId: string | null;
   sessionRailOpen: boolean;
@@ -59,7 +58,6 @@ let state: ChatState = {
   messages: [],
   sessionId: null,
   isStreaming: false,
-  emailPanelOpen: false,
   conversations: [],
   activeConversationId: null,
   sessionRailOpen: false,
@@ -116,16 +114,6 @@ export function setActiveDraft(draft: ActiveDraftContext | null): void {
 
 export function getActiveDraft(): ActiveDraftContext | null {
   return activeDraft;
-}
-
-export function setEmailPanelOpen(open: boolean): void {
-  state = { ...state, emailPanelOpen: open };
-  notify();
-}
-
-export function toggleEmailPanel(): void {
-  state = { ...state, emailPanelOpen: !state.emailPanelOpen };
-  notify();
 }
 
 export function setConversations(conversations: ClioConversation[]): void {

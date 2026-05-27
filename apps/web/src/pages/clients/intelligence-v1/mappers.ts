@@ -94,6 +94,15 @@ export interface ClientProfileV1 {
         growthRate: number | null;
         totalSpending: number | null;
         yearlySpend: Array<{ year: number; amount: number }>;
+        model?: {
+          label?: string | null;
+          confidence?: number | null;
+          score?: number | null;
+          source?: 'model' | 'fallback' | string;
+        } | null;
+        fallback?: {
+          label?: string | null;
+        } | null;
       };
       health: {
         score: number;

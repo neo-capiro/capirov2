@@ -2846,7 +2846,7 @@ export class EngagementService {
         tx.engagementContact.findMany({
           where: { tenantId: ctx.tenantId, clientId },
           orderBy: { updatedAt: 'desc' },
-          take: 20,
+          take: 40,
         }),
         tx.engagementTask.findMany({
           where: {
@@ -2858,6 +2858,133 @@ export class EngagementService {
           take: 20,
         }),
       ]);
+
+      type StakeholderSource = 'contact' | 'meeting' | 'email_thread';
+      type Stakeholder = {
+        id: string;
+        email: string | null;
+        fullName: string | null;
+        title: string | null;
+        organization: string | null;
+        score: number;
+        recency: number;
+        sources: Set<StakeholderSource>;
+      };
+      const stakeholderMap = new Map<string, Stakeholder>();
+
+      const stakeholderSourceLabel = (sources: Set<StakeholderSource>): string => {
+        const labels: string[] = [];
+        if (sources.has('contact')) labels.push('Contact');
+        if (sources.has('meeting')) labels.push('Meeting');
+        if (sources.has('email_thread')) labels.push('Email');
+        return labels.join(' + ');
+      };
+
+      const upsertStakeholder = (
+        key: string,
+        value: Omit<Stakeholder, 'score' | 'recency' | 'sources'>,
+        scoreBoost: number,
+        recencyHint: Date,
+        source: StakeholderSource,
+      ) => {
+        const existing = stakeholderMap.get(key);
+        if (!existing) {
+          stakeholderMap.set(key, {
+            ...value,
+            score: scoreBoost,
+            recency: recencyHint.getTime(),
+            sources: new Set([source]),
+          });
+          return;
+        }
+        const mergedSources = new Set(existing.sources);
+        mergedSources.add(source);
+        stakeholderMap.set(key, {
+          ...existing,
+          id: existing.id || value.id,
+          email: existing.email || value.email,
+          fullName: existing.fullName || value.fullName,
+          title: existing.title || value.title,
+          organization: existing.organization || value.organization,
+          score: existing.score + scoreBoost,
+          recency: Math.max(existing.recency, recencyHint.getTime()),
+          sources: mergedSources,
+        });
+      };
+
+      for (const contact of contacts) {
+        const email = normalizeEmailAddress(contact.email);
+        const key = email || `contact:${contact.id}`;
+        upsertStakeholder(
+          key,
+          {
+            id: contact.id,
+            email: contact.email,
+            fullName: contact.fullName,
+            title: contact.title,
+            organization: contact.organization,
+          },
+          10,
+          contact.updatedAt,
+          'contact',
+        );
+      }
+
+      for (const meeting of meetings) {
+        for (const attendee of meeting.attendees) {
+          const email = normalizeEmailAddress(attendee.email);
+          const key = email || `meeting-attendee:${meeting.id}:${attendee.id}`;
+          upsertStakeholder(
+            key,
+            {
+              id: attendee.contactId ?? attendee.id,
+              email: attendee.email,
+              fullName: attendee.name,
+              title: attendee.role,
+              organization: null,
+            },
+            5,
+            meeting.startsAt,
+            'meeting',
+          );
+        }
+      }
+
+      for (const thread of threads) {
+        const threadDate = thread.lastMessageAt ?? thread.updatedAt;
+        for (const participant of parseMailThreadParticipants(thread.participants)) {
+          const email = normalizeEmailAddress(participant.email);
+          const key = email || `thread-participant:${thread.id}:${participant.name ?? 'unknown'}`;
+          upsertStakeholder(
+            key,
+            {
+              id: key,
+              email: participant.email,
+              fullName: participant.name,
+              title: participant.role,
+              organization: null,
+            },
+            4,
+            threadDate,
+            'email_thread',
+          );
+        }
+      }
+
+      const keyStakeholders = Array.from(stakeholderMap.values())
+        .sort((left, right) => {
+          if (right.score !== left.score) return right.score - left.score;
+          return right.recency - left.recency;
+        })
+        .slice(0, 40)
+        .map(({ id, email, fullName, title, organization, sources }) => ({
+          id,
+          email,
+          fullName,
+          title,
+          organization,
+          source: stakeholderSourceLabel(sources),
+        }));
 
       return {
         client,
@@ -2877,13 +3004,13 @@ export class EngagementService {
         ]
           .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime())
           .slice(0, 12),
-        keyStakeholders: contacts,
+        keyStakeholders,
         openThreads: threads.filter((thread) => thread.status !== 'closed'),
         openTasks: tasks,
         summary: {
           meetings: meetings.length,
           mailThreads: threads.length,
-          contacts: contacts.length,
+          contacts: keyStakeholders.length,
           openTasks: tasks.length,
           rag: 'pgvector storage is provisioned; embeddings are written once an embedding provider is configured.',
         },
@@ -4067,27 +4194,52 @@ function mailMessageEmails(message: {
   bccRecipients: Prisma.JsonValue;
 }): string[] {
   return unique([
-    message.fromEmail ?? '',
+    normalizeEmailAddress(message.fromEmail),
     ...recipientEmails(message.toRecipients),
     ...recipientEmails(message.ccRecipients),
     ...recipientEmails(message.bccRecipients),
-  ]).filter(Boolean);
+  ].filter((email): email is string => Boolean(email)));
 }
 
-function recipientEmails(value: Prisma.JsonValue): string[] {
+type MailThreadParticipant = {
+  email: string | null;
+  name: string | null;
+  role: string | null;
+};
+
+function parseMailThreadParticipants(value: Prisma.JsonValue): MailThreadParticipant[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-      const record = entry as Record<string, unknown>;
-      const email =
+
+  const rows: MailThreadParticipant[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+
+    const email =
+      normalizeEmailAddress(
         typeof record.email === 'string'
           ? record.email
           : typeof record.address === 'string'
             ? record.address
-            : null;
-      return normalizeEmailAddress(email);
-    })
+            : null,
+      ) ?? null;
+
+    const name =
+      typeof record.name === 'string' && record.name.trim().length > 0 ? record.name.trim() : null;
+
+    const role =
+      typeof record.role === 'string' && record.role.trim().length > 0 ? record.role.trim() : null;
+
+    if (!email && !name) continue;
+    rows.push({ email, name, role });
+  }
+
+  return rows;
+}
+
+function recipientEmails(value: Prisma.JsonValue): string[] {
+  return parseMailThreadParticipants(value)
+    .map((participant) => participant.email)
     .filter((email): email is string => Boolean(email));
 }
 

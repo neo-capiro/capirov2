@@ -58,7 +58,8 @@ export function RelationshipsSection({ aggregate, issueHref, expandEnabled }: Re
   const exStafferCount = relationships?.exStafferCount ?? offices.filter((office) =>
     office.tags.some((tag) => tag.label === 'ex-staffer')
   ).length;
-  const nodeDrillBase = issueHref?.trim() || '/intelligence/issues';
+  const issueLeaderboardHref = issueHref?.trim() || '';
+  const nodeDrillBase = issueLeaderboardHref;
 
   return (
     <section id="relationships" className="iv1-section">
@@ -75,10 +76,14 @@ export function RelationshipsSection({ aggregate, issueHref, expandEnabled }: Re
           scopedGraph={summary}
           canExpand={expandEnabled}
           exStafferCount={exStafferCount}
-          nodeDrillHrefBuilder={(node) => {
-            const separator = nodeDrillBase.includes('?') ? '&' : '?';
-            return `${nodeDrillBase}${separator}node=${encodeURIComponent(node.id)}`;
-          }}
+          nodeDrillHrefBuilder={
+            nodeDrillBase
+              ? (node) => {
+                  const separator = nodeDrillBase.includes('?') ? '&' : '?';
+                  return `${nodeDrillBase}${separator}node=${encodeURIComponent(node.id)}`;
+                }
+              : undefined
+          }
         />
 
         {/* Office recommender */}
@@ -86,12 +91,16 @@ export function RelationshipsSection({ aggregate, issueHref, expandEnabled }: Re
           <OfficeRecommenderList
             rows={offices}
             allCount={Math.max(24, offices.length)}
-            allHref={issueHref}
-            rowHrefBuilder={(row) => {
-              const base = issueHref?.trim() || '/intelligence/issues';
-              const separator = base.includes('?') ? '&' : '?';
-              return `${base}${separator}office=${encodeURIComponent(row.name)}`;
-            }}
+            allHref={issueLeaderboardHref || undefined}
+            rowHrefBuilder={
+              issueLeaderboardHref
+                ? (row) => {
+                    const base = issueLeaderboardHref;
+                    const separator = base.includes('?') ? '&' : '?';
+                    return `${base}${separator}office=${encodeURIComponent(row.name)}`;
+                  }
+                : undefined
+            }
           />
         </div>
       </div>

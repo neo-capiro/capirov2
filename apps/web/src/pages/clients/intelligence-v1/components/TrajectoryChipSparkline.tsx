@@ -13,6 +13,15 @@ interface Point {
 interface TrajectoryChipSparklineProps {
   trajectory: string | null;
   series: Point[];
+  model?: {
+    label?: string | null;
+    confidence?: number | null;
+    score?: number | null;
+    source?: 'model' | 'fallback' | string;
+  } | null;
+  fallback?: {
+    label?: string | null;
+  } | null;
 }
 
 function toneForTrajectory(value: string | null): TrajectoryTone {
@@ -20,6 +29,7 @@ function toneForTrajectory(value: string | null): TrajectoryTone {
   const lower = value.toLowerCase();
   if (lower.includes('grow') || lower.includes('increas') || lower.includes('explod')) return 'success';
   if (lower.includes('declin') || lower.includes('decreas') || lower.includes('contract')) return 'critical';
+  if (lower === 'unknown' || lower === 'insufficient_data' || lower === 'insufficient data') return 'neutral';
   return 'info';
 }
 
@@ -27,8 +37,9 @@ function titleCase(value: string): string {
   return value.replace(/[_-]/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
-export function TrajectoryChipSparkline({ trajectory, series }: TrajectoryChipSparklineProps) {
-  const tone = toneForTrajectory(trajectory);
+export function TrajectoryChipSparkline({ trajectory, series, model, fallback }: TrajectoryChipSparklineProps) {
+  const displayTrajectory = model?.label ?? trajectory ?? fallback?.label ?? null;
+  const tone = toneForTrajectory(displayTrajectory);
 
   const normalized = useMemo(() => {
     const filtered = series.filter(
@@ -57,7 +68,7 @@ export function TrajectoryChipSparkline({ trajectory, series }: TrajectoryChipSp
     <div className="iv1-trajectory">
       <span className={`pill ${tone}`} style={{ width: 'max-content' }}>
         <span className={`dot ${tone}`} />
-        {trajectory ? titleCase(trajectory) : 'Unknown'}
+        {displayTrajectory ? titleCase(displayTrajectory) : 'Unknown'}
       </span>
 
       {hasTrend ? (
