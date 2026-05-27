@@ -64,6 +64,7 @@ export class ComputeStack extends cdk.Stack {
   public readonly marketingService: ecs.FargateService;
   public readonly apiMigrateTaskDefinition: ecs.FargateTaskDefinition;
   public readonly apiBootstrapRolesTaskDefinition: ecs.FargateTaskDefinition;
+  public readonly apiEmbedBackfillTaskDefinition: ecs.FargateTaskDefinition;
   public readonly apiTargetGroup: elb.ApplicationTargetGroup;
   public readonly webTargetGroup: elb.ApplicationTargetGroup;
   public readonly marketingTargetGroup: elb.ApplicationTargetGroup;
@@ -233,6 +234,13 @@ export class ComputeStack extends cdk.Stack {
       retention: logs.RetentionDays.ONE_YEAR,
       removalPolicy: cfg.protectFromDestroy ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
     });
+    // Dedicated log group for the embed-backfill one-shot so a 3-hour LDA run
+    // doesn't bury the rest of the api-migrate logs.
+    const embedBackfillLogGroup = new logs.LogGroup(this, 'ApiEmbedBackfillLogs', {
+      logGroupName: `/capiro/${cfg.envName}/api-embed-backfill`,
+      retention: logs.RetentionDays.ONE_YEAR,
+      removalPolicy: cfg.protectFromDestroy ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+    });
 
     // ------------------------------------------------------------------ Task roles
     // Execution role: pulls images from ECR + writes logs + reads ECS-managed secrets.
@@ -289,6 +297,18 @@ export class ComputeStack extends cdk.Stack {
         resources: [
           demoRequestDomainIdentityArn,
           `arn:aws:ses:${this.region}:${this.account}:identity/sales@capiro.ai`,
+        ],
+      }),
+    );
+    // Bedrock — embeddings pipeline (apps/api/scripts/embed-backfill.ts and
+    // future on-write hooks) invokes Titan Text Embeddings v2. Scoped to that
+    // specific foundation-model ARN so the role can't reach Claude or
+    // other models even if a code path tried.
+    apiTaskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['bedrock:InvokeModel'],
+        resources: [
+          `arn:aws:bedrock:${this.region}::foundation-model/amazon.titan-embed-text-v2:0`,
         ],
       }),
     );
@@ -782,6 +802,56 @@ export class ComputeStack extends cdk.Stack {
       readonlyRootFilesystem: false,
     });
 
+    // -------------------------------------------------------- embed-backfill task
+    // One-shot Fargate task that runs apps/api/scripts/embed-backfill.ts
+    // against a chosen source. Container command is overridden per run
+    // (e.g. `--overrides` on `aws ecs run-task` to pass `--source lda`),
+    // so this single task definition serves all three backfills.
+    //
+    // Sized larger than migrate because:
+    //  * Bedrock InvokeModel calls hold open HTTP connections (default
+    //    concurrency 8 ⇒ ~8 in-flight requests + Prisma connections).
+    //  * LDA backfill iterates 500K rows over ~3h, page-buffering ~500
+    //    rows of source text at a time.
+    // 1 vCPU / 2 GiB is comfortably above the working set.
+    this.apiEmbedBackfillTaskDefinition = new ecs.FargateTaskDefinition(
+      this,
+      'ApiEmbedBackfillTaskDef',
+      {
+        family: `capiro-${cfg.envName}-api-embed-backfill`,
+        cpu: 1024,
+        memoryLimitMiB: 2048,
+        runtimePlatform: {
+          cpuArchitecture: ecs.CpuArchitecture.ARM64,
+          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+        },
+        taskRole: apiTaskRole,
+      },
+    );
+    grantSecretsAndKmsToExecutionRole(
+      this.apiEmbedBackfillTaskDefinition,
+      [dbSecretImported.secretArn, appDbSecretImported.secretArn],
+      [dataKey.keyArn],
+    );
+    this.apiEmbedBackfillTaskDefinition.addContainer('api-embed-backfill', {
+      image: ecs.ContainerImage.fromEcrRepository(this.apiRepo, 'latest'),
+      essential: true,
+      logging: ecs.LogDrivers.awsLogs({
+        logGroup: embedBackfillLogGroup,
+        streamPrefix: 'embed-backfill',
+      }),
+      // Default command runs bills. Override at run-task time with e.g.
+      // --overrides '{"containerOverrides":[{"name":"api-embed-backfill",
+      //   "command":["embed-backfill","--source","lda","--since","2024-01-01"]}]}'
+      command: ['embed-backfill', '--source', 'bills'],
+      environment: apiSharedEnv,
+      // The script connects via DATABASE_URL composed from DB_* secrets
+      // (entrypoint.sh handles the URL-encoding). Bedrock auth is from the
+      // task role — no API key needed.
+      secrets: apiMigrateSecrets,
+      readonlyRootFilesystem: false,
+    });
+
     // -------------------------------------------------------- bootstrap-roles task
     // One-shot task that connects to Aurora as the master role and
     // ALTER ROLEs `capiro_app` to whatever password is currently in the
@@ -1067,6 +1137,9 @@ export class ComputeStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ClioRuntimeServiceArn', { value: this.clioService.serviceArn });
     new cdk.CfnOutput(this, 'ApiMigrateTaskDefArn', {
       value: this.apiMigrateTaskDefinition.taskDefinitionArn,
+    });
+    new cdk.CfnOutput(this, 'ApiEmbedBackfillTaskDefArn', {
+      value: this.apiEmbedBackfillTaskDefinition.taskDefinitionArn,
     });
   }
 }

@@ -775,19 +775,30 @@ model ClientAssociationOverride {
 }
 
 model ContextEmbedding {
-  id          String                 @id @default(uuid()) @db.Uuid
-  tenantId    String                 @map("tenant_id") @db.Uuid
-  clientId    String?                @map("client_id") @db.Uuid
-  sourceType  String                 @map("source_type")
-  sourceId    String                 @map("source_id")
-  contentText String                 @map("content_text")
-  embedding   Unsupported("vector")?
-  metadata    Json                   @default("{}") @map("metadata_jsonb")
-  createdAt   DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  id          String                @id @default(uuid()) @db.Uuid
+  // Nullable so global content (CongressBill, LdaFiling — no tenant) can
+  // share this table. The RLS policy lets every tenant read NULL rows.
+  tenantId    String?               @map("tenant_id") @db.Uuid
+  clientId    String?               @map("client_id") @db.Uuid
+  sourceType  String                @map("source_type")
+  sourceId    String                @map("source_id")
+  // Model that produced the embedding, e.g. 'amazon.titan-embed-text-v2:0'.
+  // Stored so we can run multiple models side-by-side and migrate gradually.
+  model       String
+  contentText String                @map("content_text")
+  // sha256 of the normalized source text. Worker skips re-embed when the
+  // current hash matches the stored hash.
+  contentHash String                @map("content_hash")
+  embedding   Unsupported("vector")
+  metadata    Json                  @default("{}") @map("metadata_jsonb")
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, sourceType, sourceId, model], map: "context_embeddings_unique")
   @@index([tenantId, clientId], map: "context_embeddings_tenant_client_idx")
+  @@index([sourceType, sourceId], map: "context_embeddings_source_idx")
   @@map("context_embeddings")
 }
 

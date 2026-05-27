@@ -115,6 +115,14 @@ case "${1:-serve}" in
     echo "Running check-comment-periods"
     exec ./node_modules/.bin/tsx scripts/check-comment-periods.ts
     ;;
+  embed-backfill)
+    # Embedding backfill. Takes flags like `--source bills` /
+    # `--source lda --since 2024-01-01` / `--source capabilities --tenant <uuid>`.
+    # The CDK ApiEmbedBackfillTaskDef overrides container command to set them.
+    shift
+    echo "Running embed-backfill $*"
+    exec ./node_modules/.bin/tsx scripts/embed-backfill.ts "$@"
+    ;;
   # ── Federal data sync jobs ─────────────────────────────────────────────
   # These populate the Data Explorer source tables (LDA, Congress, FedReg,
   # Hearings, GAO, CRS, FEC, FARA, SEC, RSS intel, state bills, economic
@@ -146,7 +154,7 @@ case "${1:-serve}" in
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv)" >&2
     exit 1
     ;;
 esac
