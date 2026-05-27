@@ -66,6 +66,20 @@ export function buildSectionNavMeta(profile: ClientIntelProfile | null | undefin
 export interface ClientProfileV1 {
   client: { id: string; name: string };
   generatedAt: string;
+  meta?: {
+    schema?: string;
+    sectionOrder?: string[];
+    hasSnapshot?: boolean;
+    hasFinancialFootprint?: boolean;
+    hasLegislativeRegulatory?: boolean;
+    hasRelationships?: boolean;
+    /** ISO timestamp matching top-level generatedAt */
+    generatedAt?: string;
+    /** Count of distinct confirmed intel sources (lda, contracting, lobby_intel) */
+    sourceCount?: number;
+    /** Count of unconfirmed/pending mappings for this client */
+    unresolvedMappings?: number;
+  };
   links: {
     changesInbox: string;
     mappingsAdmin: string;
@@ -121,6 +135,7 @@ export interface ClientProfileV1 {
       series: {
         lobbying: Array<{ year: number; amount: number }>;
         obligations: Array<{ year: number; amount: number }>;
+        quarterSeries: Array<{ label: string; lobbying: number; obligations: number }>;
       };
       fecMoneyFlow: {
         mappedEmployer: string | null;
@@ -132,9 +147,32 @@ export interface ClientProfileV1 {
           memberCount: number;
           billCount: number;
         };
+        committees?: Array<{
+          committeeId: string;
+          committeeName: string;
+          totalAmount: number;
+          contributionCount: number;
+          latestContributionDate: string | Date | null;
+          candidates: Array<{
+            candidateName: string;
+            totalAmount: number;
+            contributionCount: number;
+            linkedMembers: Array<{ memberName: string; billCount: number }>;
+          }>;
+          bills: Array<{ billId: string; billTitle: string; sponsorName: string | null }>;
+        }>;
       };
       districtNexus: {
         topDistricts: Array<{ district: string; jobs: number; capability: string; dataYear: number }>;
+        capabilities?: Array<{
+          capabilityId: string;
+          capabilityName: string;
+          capabilitySector: string | null;
+          districtNexus: string | null;
+          districts: Array<{ district: string; jobs: number; stateName: string; dataYear: number }>;
+          talkingPoints: string[];
+          totalSupportedJobs: number | null;
+        }>;
       };
     };
     legislativeRegulatory: {
@@ -150,7 +188,7 @@ export interface ClientProfileV1 {
             title: string;
             latestActionDate: string | Date | null;
             latestActionText: string | null;
-            probability: number;
+            probability?: number | null;
           }>;
         }>;
       };

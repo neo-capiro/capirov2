@@ -65,7 +65,9 @@ export function BriefingCard({ briefing, fallbackSummary, ctaHref }: BriefingCar
   const summary = briefing?.summary?.trim();
   const generatedAt = briefing?.generatedAt;
   const eventCount = briefing?.eventCount;
-  const targetHref = briefing?.ctaHref || ctaHref;
+  // G1: Snapshot briefing CTA must route to client-filtered Changes Inbox.
+  // Prefer the parent-provided href (already scoped to client), then fall back.
+  const targetHref = ctaHref || briefing?.ctaHref || '/intelligence/changes';
 
   return (
     <div className="iv1-briefing-wrap">

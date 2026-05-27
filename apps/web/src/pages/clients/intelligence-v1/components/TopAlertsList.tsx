@@ -116,9 +116,26 @@ export function TopAlertsList({ aggregate, fallbackAlerts, loading, links }: Top
       });
   }, [aggregate, fallbackAlerts]);
 
+  const withClientFilter = (href: string): string => {
+    const base = href?.trim() || '/intelligence/changes';
+    const fallback = links.viewAllHref?.trim() || '/intelligence/changes';
+    const clientId = (() => {
+      const ix = fallback.indexOf('?');
+      const query = ix >= 0 ? fallback.slice(ix + 1) : '';
+      const params = new URLSearchParams(query);
+      return params.get('clientId');
+    })();
+
+    if (!clientId) return base;
+    if (base.includes('clientId=')) return base;
+
+    const sep = base.includes('?') ? '&' : '?';
+    return `${base}${sep}clientId=${encodeURIComponent(clientId)}`;
+  };
+
   const onRowClick = (row: TopAlertItem) => {
     if (row.href) {
-      navigate(row.href);
+      navigate(withClientFilter(row.href));
       return;
     }
     navigate(links.viewAllHref);

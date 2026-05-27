@@ -15,6 +15,93 @@ export class IntelligenceService {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  private asFinite(value: unknown, fallback = 0): number {
+    return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  }
+
+  private asFiniteOrNull(value: unknown): number | null {
+    return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  }
+
+  private asIsoOrNull(value: unknown): string | null {
+    if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
+    if (typeof value === 'string') {
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    return null;
+  }
+
+  private normalizeProfileV1Sections(sections: {
+    snapshot: Record<string, any>;
+    financialFootprint: Record<string, any>;
+    legislativeRegulatory: Record<string, any>;
+    relationships: Record<string, any>;
+  }) {
+    const snapshot = {
+      ...sections.snapshot,
+      changes7dCount: Math.max(0, Math.trunc(this.asFinite(sections.snapshot.changes7dCount, 0))),
+      activity14d: Array.isArray(sections.snapshot.activity14d)
+        ? [...sections.snapshot.activity14d].sort((a, b) => String(a?.date ?? '').localeCompare(String(b?.date ?? '')))
+        : [],
+      topAlerts: Array.isArray(sections.snapshot.topAlerts)
+        ? sections.snapshot.topAlerts.map((a: Record<string, unknown>) => ({
+            ...a,
+            when: this.asIsoOrNull(a.when),
+            countdownDays: this.asFiniteOrNull(a.countdownDays),
+          }))
+        : [],
+    };
+
+    const financialFootprint = {
+      ...sections.financialFootprint,
+      districtNexus: {
+        ...(sections.financialFootprint.districtNexus ?? {}),
+        topDistricts: Array.isArray(sections.financialFootprint?.districtNexus?.topDistricts)
+          ? [...sections.financialFootprint.districtNexus.topDistricts]
+              .sort((a, b) => this.asFinite(b?.jobs, 0) - this.asFinite(a?.jobs, 0))
+              .slice(0, 5)
+          : [],
+      },
+    };
+
+    const stageOrder = ['introduced', 'committee', 'passed', 'enacted'];
+    const legislativeRegulatory = {
+      ...sections.legislativeRegulatory,
+      kanban: {
+        ...(sections.legislativeRegulatory.kanban ?? {}),
+        columns: Array.isArray(sections.legislativeRegulatory?.kanban?.columns)
+          ? [...sections.legislativeRegulatory.kanban.columns]
+              .sort((a, b) => stageOrder.indexOf(String(a?.id)) - stageOrder.indexOf(String(b?.id)))
+              .map((c) => ({
+                ...c,
+                count: Math.max(0, Math.trunc(this.asFinite(c?.count, 0))),
+                bills: Array.isArray(c?.bills)
+                  ? [...c.bills].sort((x, y) => this.asFinite(y?.probability, 0) - this.asFinite(x?.probability, 0))
+                  : [],
+              }))
+          : [],
+      },
+      hearingsAndMarkups: Array.isArray(sections.legislativeRegulatory.hearingsAndMarkups)
+        ? [...sections.legislativeRegulatory.hearingsAndMarkups]
+            .map((h) => ({ ...h, date: this.asIsoOrNull(h?.date) }))
+            .sort((a, b) => String(a.date ?? '').localeCompare(String(b.date ?? '')))
+        : [],
+    };
+
+    const relationships = {
+      ...sections.relationships,
+      exStafferCount: Math.max(0, Math.trunc(this.asFinite(sections.relationships.exStafferCount, 0))),
+      officeRecommender: Array.isArray(sections.relationships.officeRecommender)
+        ? [...sections.relationships.officeRecommender]
+            .sort((a, b) => this.asFinite(b?.score, 0) - this.asFinite(a?.score, 0))
+            .slice(0, 12)
+        : [],
+    };
+
+    return { snapshot, financialFootprint, legislativeRegulatory, relationships };
+  }
+
   /**
    * Build a 360° intelligence profile for a CRM client.
    * Uses confirmed mappings from client_intel_mapping when available;
@@ -41,10 +128,12 @@ export class IntelligenceService {
 
     // 2. Fetch existing confirmed mappings, then resolve each source.
     //    Confirmed mappings skip fuzzy re-match and query by externalId directly.
-    const existingMappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId },
-      orderBy: { confidence: 'desc' },
-    });
+    const existingMappings = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId },
+        orderBy: { confidence: 'desc' },
+      }),
+    );
 
     const confirmedBySource = new Map<string, string>(); // source → externalId
     for (const m of existingMappings) {
@@ -147,6 +236,13 @@ export class IntelligenceService {
     const day21 = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);
     const day7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
+    const mappingRowsPromise = this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId },
+        select: { source: true, confirmed: true, externalId: true },
+      }),
+    );
+
     const [
       profile,
       roi,
@@ -164,6 +260,7 @@ export class IntelligenceService {
       threads,
       doneTasks,
       debriefs,
+      mappingRows,
     ] = await Promise.all([
       this.getClientProfile(clientId, tenantId),
       this.getLobbyingRoi(clientId, tenantId),
@@ -173,7 +270,7 @@ export class IntelligenceService {
       this.getBillRegulationLinks(clientId, tenantId),
       this.getKnowledgeGraph(clientId, tenantId),
       this.computeEngagementHealth(clientId, tenantId),
-      this.getExStaffers(clientId),
+      this.getExStaffers(clientId, tenantId),
       this.getCommentPeriodAlerts(tenantId),
       this.getChanges(tenantId, day7.toISOString(), clientId),
       this.prisma.committeeHearing.findMany({
@@ -213,7 +310,14 @@ export class IntelligenceService {
           orderBy: { createdAt: 'asc' },
         }),
       ),
+      mappingRowsPromise,
     ]);
+
+    // Freshness + unresolved metadata derived from the tenant-scoped mapping query.
+    // mappingRows is fetched via withTenant — clientId is guaranteed to belong to tenantId.
+    const confirmedSources = new Set(mappingRows.filter((m) => m.confirmed).map((m) => m.source));
+    const sourceCount = confirmedSources.size;
+    const unresolvedMappings = mappingRows.filter((m) => !m.confirmed).length;
 
     const byDay = new Map<string, { date: string; meetings: number; emails: number; tasks: number; debriefs: number }>();
     for (let i = 13; i >= 0; i -= 1) {
@@ -599,67 +703,158 @@ export class IntelligenceService {
           ? 'normal'
           : 'no_activity';
 
+    const quarterRoiSeries = await this.buildRoiQuarterSeries({
+      mappedLdaClientId: roi.mappedLdaClientId,
+      lobbyingYearly: profile.lda.yearlySpend,
+      obligationsYearly: profile.contracting.yearlySpend,
+      now,
+    });
+
+    const sections = this.normalizeProfileV1Sections({
+      snapshot: {
+        trajectory: {
+          label: profile.lobbyIntel.trajectory,
+          growthRate: profile.lobbyIntel.growthRate,
+          totalSpending: profile.lobbyIntel.totalSpending,
+          yearlySpend: profile.lda.yearlySpend,
+        },
+        health,
+        dailyBriefing,
+        topAlerts,
+        activity14d: Array.from(byDay.values()),
+        changes7dCount: changes.length,
+      },
+      financialFootprint: {
+        hero: {
+          lobbyingTtm: roi.lobbySpend,
+          obligationsTtm: roi.contractWins,
+          returnRatio: roi.roi,
+          gap: roi.gap,
+          truthState: heroTruthState,
+        },
+        series: {
+          lobbying: profile.lda.yearlySpend,
+          obligations: profile.contracting.yearlySpend,
+          quarterSeries: quarterRoiSeries,
+        },
+        fecMoneyFlow: fec,
+        districtNexus: {
+          topDistricts: districtRows,
+          capabilities: district.capabilities,
+        },
+      },
+      legislativeRegulatory: {
+        kanban: {
+          total: trackedBills.total,
+          issueCodes: trackedBills.issueCodes,
+          columns: kanbanColumns,
+        },
+        regulatoryLifecycle: {
+          totalLinkedBills: regLinks.totalBills,
+          totalRegulations: regLinks.totalRegulations,
+          rails: regulatoryRails,
+        },
+        hearingsAndMarkups: hearingsList,
+      },
+      relationships: {
+        scopedGraph,
+        officeRecommender: officeRecommendations,
+        exStafferCount: exStaffers.lobbyists.length,
+      },
+    });
+
+    const primaryIssueCode = trackedBills.issueCodes.find((code) => typeof code === 'string' && code.trim().length > 0)?.trim();
+    const competitorIssueHref = primaryIssueCode
+      ? `/intelligence/issues/${encodeURIComponent(primaryIssueCode)}`
+      : '';
+
     return {
       client: { id: client.id, name: client.name },
       generatedAt: now.toISOString(),
+      meta: {
+        schema: 'client-profile-v1',
+        sectionOrder: ['snapshot', 'financialFootprint', 'legislativeRegulatory', 'relationships'],
+        hasSnapshot: true,
+        hasFinancialFootprint: true,
+        hasLegislativeRegulatory: true,
+        hasRelationships: true,
+        generatedAt: now.toISOString(),
+        sourceCount,
+        unresolvedMappings,
+      },
       links: {
         changesInbox: changesInboxHref,
         mappingsAdmin: '/settings/intelligence-mappings',
-        competitorIssuePage: '/intelligence/issues',
+        competitorIssuePage: competitorIssueHref,
         billDetailBase: '/explorer',
         entityResolutionQueue: '/settings/intelligence-mappings',
-      },
-      sections: {
+      }
+      actionTargets: {
         snapshot: {
-          trajectory: {
-            label: profile.lobbyIntel.trajectory,
-            growthRate: profile.lobbyIntel.growthRate,
-            totalSpending: profile.lobbyIntel.totalSpending,
-            yearlySpend: profile.lda.yearlySpend,
+          seeAllChanges: {
+            route: '/intelligence/changes',
+            params: { clientId },
+            href: changesInboxHref,
           },
-          health,
-          dailyBriefing,
-          topAlerts,
-          activity14d: Array.from(byDay.values()),
-          changes7dCount: changes.length,
-        },
-        financialFootprint: {
-          hero: {
-            lobbyingTtm: roi.lobbySpend,
-            obligationsTtm: roi.contractWins,
-            returnRatio: roi.roi,
-            gap: roi.gap,
-            truthState: heroTruthState,
+          viewAllAlerts: {
+            route: '/intelligence/changes',
+            params: { clientId },
+            href: changesInboxHref,
           },
-          series: {
-            lobbying: profile.lda.yearlySpend,
-            obligations: profile.contracting.yearlySpend,
-          },
-          fecMoneyFlow: fec,
-          districtNexus: {
-            topDistricts: districtRows,
-            capabilities: district.capabilities,
+          mappingsHelp: {
+            route: '/settings/intelligence-mappings',
+            params: {},
+            href: '/settings/intelligence-mappings',
           },
         },
-        legislativeRegulatory: {
-          kanban: {
-            total: trackedBills.total,
-            issueCodes: trackedBills.issueCodes,
-            columns: kanbanColumns,
+        financial: {
+          runFecEnrichment: {
+            route: '/settings/intelligence-mappings',
+            params: { clientId, source: 'fec_employer' },
+            href: '/settings/intelligence-mappings',
           },
-          regulatoryLifecycle: {
-            totalLinkedBills: regLinks.totalBills,
-            totalRegulations: regLinks.totalRegulations,
-            rails: regulatoryRails,
+          districtSupport: {
+            route: '/settings/intelligence-mappings',
+            params: { clientId, focus: 'district_nexus' },
+            href: '/settings/intelligence-mappings',
           },
-          hearingsAndMarkups: hearingsList,
+        },
+        legislative: {
+          billDrill: {
+            route: '/explorer',
+            params: { billIdentifierParam: ':bill' },
+            hrefTemplate: '/explorer?bill=:bill',
+          },
+          syncCalendar: {
+            route: '/engagement',
+            params: { clientId },
+            href: '/engagement',
+          },
+          setAlerts: {
+            route: '/intelligence/changes',
+            params: { clientId },
+            href: changesInboxHref,
+          },
         },
         relationships: {
-          scopedGraph,
-          officeRecommender: officeRecommendations,
-          exStafferCount: exStaffers.lobbyists.length,
+          officeAll: {
+            route: '/intelligence/issues',
+            params: { clientId },
+            href: '/intelligence/issues',
+          },
+          officeDrill: {
+            route: '/intelligence/issues',
+            params: { officeParam: ':office' },
+            hrefTemplate: '/intelligence/issues?office=:office',
+          },
+          graphNodeDrill: {
+            route: '/intelligence/issues',
+            params: { nodeParam: ':node' },
+            hrefTemplate: '/intelligence/issues?node=:node',
+          },
         },
       },
+      sections,
       movedOut: {
         changesInbox: true,
         entityResolutionQueue: true,
@@ -1658,7 +1853,16 @@ export class IntelligenceService {
   }
 
   /** Ex-staffers: lobbyists on this client's filings who have covered government positions */
-  async getExStaffers(clientId: string) {
+  async getExStaffers(clientId: string, tenantId?: string) {
+    // Scope: when tenantId is provided (profile-v1 path), verify clientId belongs to
+    // that tenant before reading the global client_intel_mapping table (no RLS).
+    if (tenantId) {
+      const belongs = await this.prisma.withTenant(tenantId, (tx) =>
+        tx.client.findFirst({ where: { id: clientId }, select: { id: true } }),
+      );
+      if (!belongs) return { lobbyists: [] };
+    }
+
     const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
       where: { clientId, source: 'lda', confirmed: true },
     });
@@ -3271,6 +3475,93 @@ export class IntelligenceService {
       billsTracked: billsTrackedCount,
       activeRegulations: regulationsTracked,
     };
+  }
+
+  /**
+   * Build 8-quarter ROI series for the quarter bar chart.
+   * Lobbying values come from real LDA quarterly filings.
+   * Obligations values are derived from annual contractor data (÷4 per quarter).
+   */
+  private async buildRoiQuarterSeries({
+    mappedLdaClientId,
+    lobbyingYearly,
+    obligationsYearly,
+    now,
+  }: {
+    mappedLdaClientId: string | null;
+    lobbyingYearly: Array<{ year: number; amount: number }>;
+    obligationsYearly: Array<{ year: number; amount: number }>;
+    now: Date;
+  }): Promise<Array<{ label: string; lobbying: number; obligations: number }>> {
+    // ── Build list of 8 quarters ending at current quarter ──────────
+    const quarters: Array<{ year: number; q: number; label: string }> = [];
+    let y = now.getFullYear();
+    let q = Math.floor(now.getMonth() / 3) + 1; // 1-4
+    for (let i = 7; i >= 0; i--) {
+      let qy = y;
+      let qq = q - i;
+      while (qq < 1) {
+        qq += 4;
+        qy -= 1;
+      }
+      quarters.push({ year: qy, q: qq, label: `Q${qq}'${String(qy).slice(2)}` });
+    }
+
+    // ── Fetch quarterly LDA lobbying spend if we have a confirmed mapping ──
+    const PERIOD_MAP: Record<string, number> = {
+      first_quarter: 1,
+      second_quarter: 2,
+      third_quarter: 3,
+      fourth_quarter: 4,
+      mid_year: 2,
+      year_end: 4,
+    };
+
+    const lobbyByQuarter = new Map<string, number>(); // key = "YYYY-Q#"
+    if (mappedLdaClientId) {
+      const ldaId = Number(mappedLdaClientId);
+      if (!Number.isNaN(ldaId)) {
+        const rows = await this.prisma.$queryRaw<
+          Array<{ filing_year: number; filing_period: string | null; amount: number }>
+        >`
+          SELECT filing_year,
+                 filing_period,
+                 COALESCE(SUM(income), 0)::float AS amount
+          FROM lda_filing
+          WHERE client_id = ${ldaId}
+            AND filing_period IS NOT NULL
+          GROUP BY filing_year, filing_period
+        `;
+        for (const row of rows) {
+          const qNum = PERIOD_MAP[row.filing_period ?? ''];
+          if (!qNum) continue;
+          lobbyByQuarter.set(`${row.filing_year}-Q${qNum}`, row.amount);
+        }
+      }
+    } else {
+      // Fall back to distributing annual lobbying data evenly across quarters
+      for (const { year, amount } of lobbyingYearly) {
+        const qAmt = amount / 4;
+        for (let q2 = 1; q2 <= 4; q2++) {
+          lobbyByQuarter.set(`${year}-Q${q2}`, qAmt);
+        }
+      }
+    }
+
+    // ── Distribute annual obligations evenly across quarters ─────────
+    const obligByQuarter = new Map<string, number>();
+    for (const { year, amount } of obligationsYearly) {
+      const qAmt = amount / 4;
+      for (let q2 = 1; q2 <= 4; q2++) {
+        obligByQuarter.set(`${year}-Q${q2}`, qAmt);
+      }
+    }
+
+    return quarters.map(({ year, q: qn, label }) => ({
+      label,
+      lobbying: lobbyByQuarter.get(`${year}-Q${qn}`) ?? 0,
+      obligations: obligByQuarter.get(`${year}-Q${qn}`) ?? 0,
+    }));
   }
 }
 

@@ -42,7 +42,6 @@ import type {
   BriefingWhatsNewItem,
   ClientIntelProfile,
   CompetitorBoard,
-  CongressBill,
   EnhancedBriefing,
   ExStaffersResult,
   FederalRegisterDoc,
