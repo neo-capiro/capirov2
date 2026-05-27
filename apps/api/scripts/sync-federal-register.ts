@@ -15,8 +15,18 @@ import { PrismaClient } from '@prisma/client';
 dotenvConfig();
 
 const BASE_URL = 'https://www.federalregister.gov/api/v1/documents.json';
-const START_DATE = '2021-01-01';
+// Default historical window when no DB checkpoint exists.
+const DEFAULT_START_DATE = '2021-01-01';
 const PER_PAGE = 100;
+// Incremental: read max(publication_date) from DB and use it as the floor.
+// Saves the 4–6 hour full backfill on daily syncs.
+const INCREMENTAL =
+  process.argv.includes('--incremental') ||
+  process.env.FR_SYNC_INCREMENTAL === '1';
+const SINCE_OVERRIDE = (() => {
+  const i = process.argv.indexOf('--since');
+  return i >= 0 ? process.argv[i + 1] : process.env.FR_SYNC_SINCE;
+})();
 
 interface FRAgency {
   name: string;
@@ -73,9 +83,9 @@ function extractCfrRefs(raw: FRDocument['cfr_references']): string[] {
   }).filter(Boolean);
 }
 
-async function fetchPage(page: number): Promise<FRResponse | null> {
+async function fetchPage(page: number, startDate: string): Promise<FRResponse | null> {
   const url = new URL(BASE_URL);
-  url.searchParams.set('conditions[publication_date][gte]', START_DATE);
+  url.searchParams.set('conditions[publication_date][gte]', startDate);
   url.searchParams.set('per_page', String(PER_PAGE));
   url.searchParams.set('page', String(page));
   url.searchParams.set('order', 'newest');
@@ -120,11 +130,26 @@ async function fetchPage(page: number): Promise<FRResponse | null> {
 async function main() {
   const prisma = new PrismaClient();
   const t0 = Date.now();
-  console.log('[fr-sync] starting Federal Register sync from', START_DATE);
+
+  // Resolve the start date: --since flag > DB max(publication_date) if
+  // --incremental > DEFAULT_START_DATE. The format is YYYY-MM-DD.
+  let startDate: string = DEFAULT_START_DATE;
+  if (SINCE_OVERRIDE) {
+    startDate = SINCE_OVERRIDE.slice(0, 10);
+  } else if (INCREMENTAL) {
+    const latest = await prisma.federalRegisterDocument.findFirst({
+      orderBy: { publicationDate: 'desc' },
+      select: { publicationDate: true },
+    });
+    if (latest?.publicationDate) {
+      startDate = latest.publicationDate.toISOString().slice(0, 10);
+    }
+  }
+  console.log('[fr-sync] starting Federal Register sync from', startDate);
 
   try {
     // Fetch first page to get total count.
-    const firstPage = await fetchPage(1);
+    const firstPage = await fetchPage(1, startDate);
     if (!firstPage) throw new Error('Failed to fetch first page');
 
     const totalDocs = firstPage.count;
@@ -197,7 +222,7 @@ async function main() {
 
     // Process remaining pages.
     for (let page = 2; page <= totalPages; page++) {
-      const data = await fetchPage(page);
+      const data = await fetchPage(page, startDate);
       if (!data?.results?.length) {
         console.warn(`[fr-sync] empty results on page ${page}, stopping`);
         break;

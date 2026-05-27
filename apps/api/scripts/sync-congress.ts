@@ -16,8 +16,14 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { buildBillText, embedAndUpsert } from '../src/embeddings/embedder.js';
 
 dotenvConfig();
+
+// Toggle for the per-row embed call. Defaults to enabled in prod (the API
+// container has bedrock:InvokeModel via the task role) but you can flip it
+// off via env when smoke-testing the sync logic without burning Bedrock.
+const EMBED_ON_SYNC = process.env.EMBED_ON_SYNC !== '0';
 
 const CONGRESS_BASE = 'https://api.congress.gov/v3';
 const CONGRESS_API_KEY = process.env.CONGRESS_API_KEY ?? '';
@@ -25,6 +31,20 @@ const LIMIT = 100;
 // Fetch up to 50 pages per congress (5000 bills per congress)
 const MAX_PAGES_PER_CONGRESS = 50;
 const TARGET_CONGRESSES = [117, 118, 119];
+
+// Incremental mode: pass `--incremental` (or set CONGRESS_SYNC_INCREMENTAL=1)
+// to limit the upstream fetch to bills updated since the most recent
+// congress_bill.update_date in the DB. Congress.gov's /bill endpoint accepts
+// `fromDateTime` (ISO Z format). The hard MAX_PAGES_PER_CONGRESS cap stays
+// in place as a safety bound.
+const INCREMENTAL =
+  process.argv.includes('--incremental') ||
+  process.env.CONGRESS_SYNC_INCREMENTAL === '1';
+// Lookback when there's no DB row yet, or when --since is explicit.
+const SINCE_OVERRIDE = (() => {
+  const i = process.argv.indexOf('--since');
+  return i >= 0 ? process.argv[i + 1] : process.env.CONGRESS_SYNC_SINCE;
+})();
 
 // Policy areas relevant to lobbying. Used to filter bills for subject/committee detail fetching.
 const LOBBYING_POLICY_AREAS = new Set([
@@ -187,7 +207,27 @@ async function main() {
     let totalBills = 0;
 
     for (const congress of TARGET_CONGRESSES) {
-      console.log(`[congress-sync] fetching ${congress}th Congress bills`);
+      // Resolve fromDateTime for this congress. In incremental mode we read
+      // the max(updateDate) for this congress's bills out of Postgres. If
+      // nothing has ever been synced for this congress, fall back to a wide
+      // window (Jan 1 2021) — Congress.gov rejects requests with no scope.
+      let fromDateTime: string | undefined;
+      if (SINCE_OVERRIDE) {
+        fromDateTime = new Date(SINCE_OVERRIDE).toISOString();
+      } else if (INCREMENTAL) {
+        const latest = await prisma.congressBill.findFirst({
+          where: { congress },
+          orderBy: { updateDate: 'desc' },
+          select: { updateDate: true },
+        });
+        if (latest?.updateDate) {
+          fromDateTime = latest.updateDate.toISOString();
+        }
+      }
+      console.log(
+        `[congress-sync] fetching ${congress}th Congress bills` +
+          (fromDateTime ? ` since ${fromDateTime}` : ' (full window)'),
+      );
       let offset = 0;
       let congressBills = 0;
 
@@ -195,7 +235,11 @@ async function main() {
         let listResp: CongressBillListResponse | null;
         try {
           listResp = await fetchJson<CongressBillListResponse>(
-            congressUrl(`/bill/${congress}`, { limit: LIMIT, offset }),
+            congressUrl(`/bill/${congress}`, {
+              limit: LIMIT,
+              offset,
+              ...(fromDateTime ? { fromDateTime } : {}),
+            }),
           );
         } catch (err) {
           console.warn(`[congress-sync] failed to fetch bill list congress=${congress} offset=${offset}:`, err instanceof Error ? err.message : err);
@@ -365,6 +409,32 @@ async function main() {
                 await prisma.congressBillSubject.createMany({
                   data: subjects.map((name) => ({ billId: id, name })),
                 });
+              }
+            }
+
+            // Embed the bill inline. content_hash in embedAndUpsert means a
+            // re-sync of unchanged bills is free. Caught here so a Bedrock
+            // hiccup doesn't kill the whole sync run.
+            if (EMBED_ON_SYNC) {
+              try {
+                await embedAndUpsert(prisma, {
+                  tenantId: null,
+                  sourceType: 'bill',
+                  sourceId: id,
+                  text: buildBillText({
+                    billNumber: bill.number,
+                    billType: type,
+                    congress,
+                    title: billData.title ?? bill.title,
+                    policyArea: policyAreaName,
+                    subjects,
+                    latestActionText: latestAction?.text ?? null,
+                    sponsorName: sponsor?.fullName ?? null,
+                  }),
+                  bypassRls: true,
+                });
+              } catch (e) {
+                console.error(`[congress-sync] embed ${id} failed:`, (e as Error).message);
               }
             }
 

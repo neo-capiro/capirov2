@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { EmbeddingsService } from '../embeddings/embeddings.service.js';
 
 export interface CreateCapabilityInput {
   name: string;
@@ -60,7 +61,13 @@ function normalizeCapabilityTags(raw: unknown): string[] {
 
 @Injectable()
 export class ClientCapabilitiesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Embeddings are written asynchronously after create/update so Clio
+    // RAG sees the new capability without a wait for the next backfill.
+    // Fire-and-forget — embed failures must never bubble up to the user.
+    private readonly embeddings: EmbeddingsService,
+  ) {}
 
   private async assertClient(tenantId: string, clientId: string, tx: typeof this.prisma) {
     const client = await (tx as any).client.findFirst({
@@ -81,7 +88,7 @@ export class ClientCapabilitiesService {
   }
 
   async createCapability(ctx: TenantContext, clientId: string, input: CreateCapabilityInput) {
-    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+    const created = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       await this.assertClient(ctx.tenantId, clientId, tx as any);
       return tx.clientCapability.create({
         data: {
@@ -109,6 +116,10 @@ export class ClientCapabilitiesService {
         },
       });
     });
+    // Embed asynchronously — the capability is searchable via Clio within
+    // a second or two of the create response landing.
+    this.embeddings.embedCapabilityFireAndForget(created.id);
+    return created;
   }
 
   async updateCapability(
@@ -117,7 +128,7 @@ export class ClientCapabilitiesService {
     id: string,
     input: UpdateCapabilityInput,
   ) {
-    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+    const updated = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const existing = await tx.clientCapability.findFirst({
         where: { id, tenantId: ctx.tenantId, clientId },
         select: { id: true },
@@ -158,6 +169,10 @@ export class ClientCapabilitiesService {
         },
       });
     });
+    // Re-embed asynchronously. content_hash skips when the text-relevant
+    // fields didn't actually change (e.g. user only tweaked sortOrder).
+    this.embeddings.embedCapabilityFireAndForget(id);
+    return updated;
   }
 
   async deleteCapability(ctx: TenantContext, clientId: string, id: string) {
@@ -168,6 +183,16 @@ export class ClientCapabilitiesService {
       });
       if (!existing) throw new NotFoundException('Capability not found');
       await tx.clientCapability.delete({ where: { id } });
+      // Cleanup the orphan embedding row. ON DELETE CASCADE on client_id
+      // FK doesn't fire because the embedding's client_id may already be
+      // NULL'd; delete by source_type/source_id explicitly.
+      await tx.$executeRawUnsafe(
+        `DELETE FROM context_embeddings
+           WHERE source_type = 'capability' AND source_id = $1
+             AND tenant_id = $2::uuid`,
+        id,
+        ctx.tenantId,
+      );
       return { deleted: true };
     });
   }
