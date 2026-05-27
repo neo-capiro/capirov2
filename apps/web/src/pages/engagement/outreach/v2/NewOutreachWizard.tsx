@@ -237,13 +237,27 @@ export function NewOutreachWizard({
   // ---- Generate & Send (delegated to existing API endpoints) ----
   const generateMutation = useMutation({
     mutationFn: async () => {
+      // The API's GenerateBatchEmailDto whitelists only id/kind/title/body/
+      // scope/note on context items. With forbidNonWhitelisted enabled (see
+      // apps/api/src/main.ts), sending the pool-only fields tag/sub/matches
+      // makes Nest reject the request with a 400 — which is what was
+      // causing the "endpoint not wired yet" placeholder fallback to fire.
+      // Strip those fields here so the payload matches the DTO exactly.
+      const contextItems = state.contextItems.map((item) => ({
+        id: item.id,
+        kind: item.kind,
+        title: item.title,
+        body: item.body,
+        scope: item.scope,
+        note: item.note,
+      }));
       const payload = {
         clientId: state.clientId ?? undefined,
         recipients: state.recipients,
         templateId: state.templateId,
         tone: state.tone,
         direction: state.direction,
-        contextItems: state.contextItems,
+        contextItems,
       };
       // The backend endpoint returns { results: [...] }, NOT { drafts: [...] }.
       // The wizard previously read data.drafts and silently no-op'd because
