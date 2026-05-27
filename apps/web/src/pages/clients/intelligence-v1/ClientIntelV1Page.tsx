@@ -7,6 +7,7 @@ import { SectionNav } from './components/SectionNav.js';
 import {
   buildSectionNavMeta,
   SECTION_ORDER,
+  type ClientProfileV1,
   type SectionId,
 } from './mappers.js';
 import { SnapshotSection } from './sections/SnapshotSection.js';
@@ -31,6 +32,21 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
   });
 
   const sectionIds = useMemo(() => SECTION_ORDER.map((section) => section.id), []);
+
+  const profileV1Query = useQuery<ClientProfileV1 | null>({
+    queryKey: ['client-intel-v1-aggregate', clientId],
+    queryFn: async () => {
+      try {
+        return (
+          await api.get<ClientProfileV1>(`/api/intelligence/clients/${clientId}/profile-v1`)
+        ).data;
+      } catch {
+        return null;
+      }
+    },
+    enabled: !!clientId,
+    staleTime: 2 * 60 * 1000,
+  });
 
   useEffect(() => {
     const observers: IntersectionObserver[] = [];
@@ -104,17 +120,33 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
           )}
 
           <Space direction="vertical" size={18} style={{ width: '100%' }}>
-            <SnapshotSection clientId={clientId} clientName={clientName} />
-
-            <FinancialFootprintSection runFecEnabled={false} runFecHref="/explorer" />
-
-            <LegislativeRegulatorySection
-              billDrillHref="/explorer"
-              syncCalendarHref="/engagement"
-              setAlertsHref={`/intelligence/changes?clientId=${encodeURIComponent(clientId)}`}
+            <SnapshotSection
+              clientId={clientId}
+              clientName={clientName}
+              aggregate={profileV1Query.data ?? undefined}
             />
 
-            <RelationshipsSection issueHref="/intelligence/issues/DEF" expandEnabled={false} />
+            <FinancialFootprintSection
+              aggregate={profileV1Query.data ?? undefined}
+              runFecEnabled={false}
+              runFecHref="/explorer"
+            />
+
+            <LegislativeRegulatorySection
+              aggregate={profileV1Query.data ?? undefined}
+              billDrillHref={profileV1Query.data?.links.billDetailBase ?? '/explorer'}
+              syncCalendarHref="/engagement"
+              setAlertsHref={
+                profileV1Query.data?.links.changesInbox
+                  ?? `/intelligence/changes?clientId=${encodeURIComponent(clientId)}`
+              }
+            />
+
+            <RelationshipsSection
+              aggregate={profileV1Query.data ?? undefined}
+              issueHref={profileV1Query.data?.links.competitorIssuePage ?? '/intelligence/issues'}
+              expandEnabled={false}
+            />
           </Space>
         </main>
       </div>

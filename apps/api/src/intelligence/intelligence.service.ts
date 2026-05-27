@@ -128,6 +128,547 @@ export class IntelligenceService {
     };
   }
 
+  /**
+   * Client Profile / Intel Tab — redesigned v1 aggregate payload.
+   * Opinionated 4-section contract so the frontend can render a single
+   * anchored surface without stitching 10+ calls client-side.
+   */
+  async getClientProfileV1(clientId: string, tenantId: string) {
+    const client = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({
+        where: { id: clientId },
+        select: { id: true, name: true },
+      }),
+    );
+    if (!client) throw new NotFoundException('Client not found');
+
+    const now = new Date();
+    const day14 = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const day21 = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);
+    const day7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const [
+      profile,
+      roi,
+      fec,
+      district,
+      trackedBills,
+      regLinks,
+      graph,
+      health,
+      exStaffers,
+      commentAlerts,
+      changes,
+      hearings,
+      meetings,
+      threads,
+      doneTasks,
+      debriefs,
+    ] = await Promise.all([
+      this.getClientProfile(clientId, tenantId),
+      this.getLobbyingRoi(clientId, tenantId),
+      this.getFecMoneyFlow(clientId, tenantId),
+      this.getDistrictNexus(clientId, tenantId),
+      this.getTrackedBills(clientId, tenantId),
+      this.getBillRegulationLinks(clientId, tenantId),
+      this.getKnowledgeGraph(clientId, tenantId),
+      this.computeEngagementHealth(clientId, tenantId),
+      this.getExStaffers(clientId),
+      this.getCommentPeriodAlerts(tenantId),
+      this.getChanges(tenantId, day7.toISOString(), clientId),
+      this.prisma.committeeHearing.findMany({
+        where: { date: { gte: now, lte: day21 } },
+        orderBy: [{ date: 'asc' }, { time: 'asc' }],
+        take: 40,
+      }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.meeting.findMany({
+          where: { clientId, startsAt: { gte: day14 } },
+          select: { startsAt: true },
+          orderBy: { startsAt: 'asc' },
+        }),
+      ),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.mailThread.findMany({
+          where: { clientId, lastMessageAt: { gte: day14 } },
+          select: { lastMessageAt: true },
+          orderBy: { lastMessageAt: 'asc' },
+        }),
+      ),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.engagementTask.findMany({
+          where: {
+            clientId,
+            status: EngagementTaskStatus.done,
+            updatedAt: { gte: day14 },
+          },
+          select: { updatedAt: true },
+          orderBy: { updatedAt: 'asc' },
+        }),
+      ),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.meetingDebrief.findMany({
+          where: { clientId, createdAt: { gte: day14 } },
+          select: { createdAt: true },
+          orderBy: { createdAt: 'asc' },
+        }),
+      ),
+    ]);
+
+    const byDay = new Map<string, { date: string; meetings: number; emails: number; tasks: number; debriefs: number }>();
+    for (let i = 13; i >= 0; i -= 1) {
+      const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const key = d.toISOString().slice(0, 10);
+      byDay.set(key, { date: key, meetings: 0, emails: 0, tasks: 0, debriefs: 0 });
+    }
+    for (const row of meetings) {
+      const key = row.startsAt.toISOString().slice(0, 10);
+      const slot = byDay.get(key);
+      if (slot) slot.meetings += 1;
+    }
+    for (const row of threads) {
+      if (!row.lastMessageAt) continue;
+      const key = row.lastMessageAt.toISOString().slice(0, 10);
+      const slot = byDay.get(key);
+      if (slot) slot.emails += 1;
+    }
+    for (const row of doneTasks) {
+      const key = row.updatedAt.toISOString().slice(0, 10);
+      const slot = byDay.get(key);
+      if (slot) slot.tasks += 1;
+    }
+    for (const row of debriefs) {
+      const key = row.createdAt.toISOString().slice(0, 10);
+      const slot = byDay.get(key);
+      if (slot) slot.debriefs += 1;
+    }
+
+    const severityRank = (severity: string): number => {
+      if (severity === 'critical') return 3;
+      if (severity === 'notable') return 2;
+      return 1;
+    };
+
+    const countdownLabel = (days: number | null): string | null => {
+      if (days == null) return null;
+      if (days < 0) return `Overdue ${Math.abs(days)}d`;
+      if (days === 0) return 'Due today';
+      if (days === 1) return '1d left';
+      return `${days}d left`;
+    };
+
+    const recencyLabel = (whenIso: string): string => {
+      const when = new Date(whenIso);
+      const diffMs = now.getTime() - when.getTime();
+      const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+      if (diffDays === 0) return 'Today';
+      if (diffDays === 1) return '1d ago';
+      return `${diffDays}d ago`;
+    };
+
+    const commentAlertsForClient = commentAlerts.alerts.filter((a) => a.clientId === clientId);
+
+    const topAlerts = [
+      ...commentAlertsForClient.map((a) => {
+        const days = a.daysToDeadline ?? null;
+        return {
+          id: `comment:${a.documentId}`,
+          type: 'comment_deadline',
+          severity: a.severity,
+          title: a.title,
+          subtitle: a.agencies.slice(0, 2).join(' / '),
+          when: a.commentEndDate.toISOString(),
+          countdownDays: days,
+          countdownLabel: countdownLabel(days),
+          href: `/intelligence/changes?clientId=${encodeURIComponent(clientId)}&source=comment_deadline`,
+          _urgencyScore: days == null ? 0 : 100 - Math.max(-30, Math.min(days, 100)),
+          _typeRank: 2,
+        };
+      }),
+      ...changes.map((c) => {
+        const daysAgo = Math.max(0, Math.floor((now.getTime() - c.detectedAt.getTime()) / (1000 * 60 * 60 * 24)));
+        return {
+          id: `change:${c.id}`,
+          type: c.changeType,
+          severity: c.severity,
+          title: c.title,
+          subtitle: c.source,
+          when: c.detectedAt.toISOString(),
+          countdownDays: null as number | null,
+          countdownLabel: recencyLabel(c.detectedAt.toISOString()),
+          href: `/intelligence/changes?clientId=${encodeURIComponent(clientId)}&changeId=${encodeURIComponent(c.id)}`,
+          _urgencyScore: 40 - Math.min(daysAgo, 40),
+          _typeRank: 1,
+        };
+      }),
+    ]
+      .sort((a, b) => {
+        const sev = severityRank(b.severity) - severityRank(a.severity);
+        if (sev !== 0) return sev;
+        const type = b._typeRank - a._typeRank;
+        if (type !== 0) return type;
+        const urgency = b._urgencyScore - a._urgencyScore;
+        if (urgency !== 0) return urgency;
+        return b.when.localeCompare(a.when);
+      })
+      .slice(0, 5)
+      .map(({ _urgencyScore, _typeRank, ...alert }) => alert);
+
+    const criticalDeadlines = commentAlertsForClient.filter((a) => (a.daysToDeadline ?? 999) <= 7).length;
+    const briefingHighlights: Array<{
+      label: string;
+      value: string | number | null;
+      tone: 'critical' | 'notable' | 'info' | 'neutral';
+    }> = [];
+
+    if (criticalDeadlines > 0) {
+      briefingHighlights.push({
+        label: 'Deadlines',
+        value: `${criticalDeadlines} due ≤7d`,
+        tone: 'critical',
+      });
+    }
+    if (trackedBills.total > 0) {
+      briefingHighlights.push({
+        label: 'Bills tracked',
+        value: trackedBills.total,
+        tone: 'notable',
+      });
+    }
+    if ((roi.lobbySpend ?? 0) > 0) {
+      briefingHighlights.push({
+        label: 'Lobbying TTM',
+        value: Math.round(roi.lobbySpend),
+        tone: 'info',
+      });
+    }
+    if (changes.length > 0) {
+      briefingHighlights.push({
+        label: 'New events (7d)',
+        value: changes.length,
+        tone: 'info',
+      });
+    }
+
+    if (briefingHighlights.length === 0) {
+      briefingHighlights.push({
+        label: 'Status',
+        value: 'Monitoring for new intelligence signals',
+        tone: 'neutral',
+      });
+    }
+
+    const fallbackSummaryParts: string[] = [];
+    if (criticalDeadlines > 0) {
+      fallbackSummaryParts.push(`${criticalDeadlines} comment deadline${criticalDeadlines === 1 ? '' : 's'} due within 7 days.`);
+    }
+    if (trackedBills.total > 0) {
+      fallbackSummaryParts.push(`${trackedBills.total} bill${trackedBills.total === 1 ? '' : 's'} currently tracked.`);
+    }
+    fallbackSummaryParts.push(
+      changes.length > 0
+        ? `${changes.length} intelligence change${changes.length === 1 ? '' : 's'} detected this week.`
+        : 'No new intelligence changes detected this week.',
+    );
+
+    const aiSummaryRaw = (profile as { aiSummary?: string | null }).aiSummary;
+    const aiSummary = typeof aiSummaryRaw === 'string' ? aiSummaryRaw.trim() : '';
+
+    const briefingSummary =
+      aiSummary ||
+      fallbackSummaryParts.join(' ') ||
+      `No intelligence updates available for ${client.name}.`;
+
+    const changesInboxHref = `/intelligence/changes?clientId=${encodeURIComponent(clientId)}`;
+    const dailyBriefing = {
+      summary: briefingSummary,
+      highlights: briefingHighlights.slice(0, 4),
+      generatedAt: now.toISOString(),
+      eventCount: changes.length,
+      ctaHref: changesInboxHref,
+    };
+
+    const billStage = (latestActionText: string | null | undefined): 'introduced' | 'committee' | 'passed' | 'enacted' => {
+      const txt = (latestActionText ?? '').toLowerCase();
+      if (/signed|enacted|public law|pl\s+\d/.test(txt)) return 'enacted';
+      if (/passed|agreed to/.test(txt)) return 'passed';
+      if (/committee|referred|reported|markup/.test(txt)) return 'committee';
+      return 'introduced';
+    };
+    const passageProbability = (latestActionText: string | null | undefined): number => {
+      const stage = billStage(latestActionText);
+      if (stage === 'enacted') return 0.98;
+      if (stage === 'passed') return 0.72;
+      if (stage === 'committee') return 0.46;
+      return 0.24;
+    };
+
+    const kanbanColumns: Array<{
+      id: 'introduced' | 'committee' | 'passed' | 'enacted';
+      label: string;
+      count: number;
+      bills: Array<{
+        identifier: string;
+        title: string;
+        latestActionDate: Date | null;
+        latestActionText: string | null;
+        probability: number;
+      }>;
+    }> = [
+      { id: 'introduced', label: 'Introduced', count: 0, bills: [] },
+      { id: 'committee', label: 'In Committee', count: 0, bills: [] },
+      { id: 'passed', label: 'Passed Chamber', count: 0, bills: [] },
+      { id: 'enacted', label: 'Enacted', count: 0, bills: [] },
+    ];
+    const columnById = new Map(kanbanColumns.map((c) => [c.id, c]));
+    for (const bill of trackedBills.bills) {
+      const stage = billStage(bill.latestActionText);
+      const col = columnById.get(stage);
+      if (!col) continue;
+      col.count += 1;
+      col.bills.push({
+        identifier: bill.identifier,
+        title: bill.title,
+        latestActionDate: bill.latestActionDate ? new Date(bill.latestActionDate) : null,
+        latestActionText: bill.latestActionText,
+        probability: passageProbability(bill.latestActionText),
+      });
+    }
+    for (const col of kanbanColumns) {
+      col.bills.sort((a, b) => b.probability - a.probability);
+      col.bills = col.bills.slice(0, 12);
+    }
+
+    const regDocByNumber = new Map<
+      string,
+      {
+        documentNumber: string;
+        title: string;
+        agencyNames: string[];
+        publicationDate: Date;
+        commentEndDate: Date | null;
+        linkedBills: string[];
+      }
+    >();
+    for (const link of regLinks.links) {
+      for (const reg of link.regulations) {
+        const existing = regDocByNumber.get(reg.documentNumber);
+        if (existing) {
+          if (!existing.linkedBills.includes(link.bill.identifier)) {
+            existing.linkedBills.push(link.bill.identifier);
+          }
+          continue;
+        }
+        regDocByNumber.set(reg.documentNumber, {
+          documentNumber: reg.documentNumber,
+          title: reg.title,
+          agencyNames: reg.agencyNames,
+          publicationDate: new Date(reg.publicationDate),
+          commentEndDate: reg.commentEndDate ? new Date(reg.commentEndDate) : null,
+          linkedBills: [link.bill.identifier],
+        });
+      }
+    }
+    const regulatoryRails = Array.from(regDocByNumber.values())
+      .sort((a, b) => b.publicationDate.getTime() - a.publicationDate.getTime())
+      .slice(0, 8)
+      .map((reg) => ({
+        documentNumber: reg.documentNumber,
+        title: reg.title,
+        agencyNames: reg.agencyNames,
+        linkedBills: reg.linkedBills,
+        currentStage: 'NPRM',
+        deadline: reg.commentEndDate,
+        stages: [
+          { key: 'bill', label: 'Bill' },
+          { key: 'anprm', label: 'ANPRM' },
+          { key: 'nprm', label: 'NPRM' },
+          { key: 'final', label: 'Final' },
+          { key: 'effective', label: 'Effective' },
+        ],
+      }));
+
+    const trackedBillIds = new Set(trackedBills.bills.map((b) => b.identifier.toLowerCase()));
+    const hearingsList = hearings.map((h) => {
+      const titleLower = h.title.toLowerCase();
+      const linked = trackedBills.bills
+        .filter((b) => titleLower.includes(b.identifier.toLowerCase()))
+        .map((b) => b.identifier);
+      return {
+        id: h.id,
+        committeeName: h.committeeName,
+        chamber: h.chamber,
+        title: h.title,
+        date: h.date,
+        time: h.time,
+        type: h.type,
+        linkedBills: linked,
+        isTracked: linked.length > 0 || Array.from(trackedBillIds).some((id) => titleLower.includes(id)),
+      };
+    });
+
+    const districtRows = district.capabilities
+      .flatMap((cap) =>
+        cap.districts.map((d) => ({
+          district: `${d.state}-${d.district}`,
+          jobs: cap.totalSupportedJobs ?? 0,
+          capability: cap.capabilityName,
+          dataYear: d.dataYear,
+        })),
+      )
+      .sort((a, b) => b.jobs - a.jobs)
+      .slice(0, 5);
+
+    const sponsorMembers = new Map<string, { name: string; billCount: number; exStaffer: boolean }>();
+    for (const bill of trackedBills.bills) {
+      const member = (bill.sponsorName ?? '').trim();
+      if (!member) continue;
+      const key = member.toLowerCase();
+      if (!sponsorMembers.has(key)) {
+        sponsorMembers.set(key, { name: member, billCount: 0, exStaffer: false });
+      }
+      sponsorMembers.get(key)!.billCount += 1;
+    }
+    const exStafferNames = exStaffers.lobbyists.map((l) => l.name.toLowerCase());
+    for (const [key, value] of sponsorMembers.entries()) {
+      const sponsorLast = key.split(' ').pop() ?? key;
+      value.exStaffer = exStaffers.lobbyists.some((l) =>
+        l.coveredPositions.some((p) => {
+          const posTitle =
+            p && typeof p === 'object' && typeof (p as Record<string, unknown>).position_title === 'string'
+              ? ((p as Record<string, unknown>).position_title as string).toLowerCase()
+              : '';
+          return posTitle.includes(sponsorLast);
+        }),
+      );
+    }
+
+    const committeeNames = Array.from(new Set(hearingsList.map((h) => h.committeeName).filter(Boolean))).slice(0, 12);
+    const topDistrictWeight = districtRows.length ? districtRows[0]!.jobs : 0;
+    const hasFecSignal = (fec.summary?.totalAmount ?? 0) > 0;
+
+    const officeRecommendations = Array.from(sponsorMembers.values())
+      .map((member) => {
+        const committeeWeight = Math.min(1, member.billCount / 4);
+        const districtWeight = topDistrictWeight > 0 ? 0.2 : 0;
+        const exStafferWeight = member.exStaffer ? 0.3 : 0;
+        const fecWeight = hasFecSignal ? 0.15 : 0;
+        const score = Math.min(1, 0.35 + committeeWeight * 0.35 + districtWeight + exStafferWeight + fecWeight);
+
+        const tags = [
+          { key: 'committee', on: committeeWeight > 0 },
+          { key: 'district', on: districtWeight > 0 },
+          { key: 'ex-staffer', on: exStafferWeight > 0 },
+          { key: 'fec', on: fecWeight > 0 },
+        ]
+          .filter((t) => t.on)
+          .map((t) => t.key);
+
+        return {
+          office: member.name,
+          score,
+          tags,
+          billCount: member.billCount,
+        };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 6);
+
+    const scopedGraph = {
+      nodes: graph.nodes
+        .filter((n) => ['lobbyist', 'agency', 'registrant'].includes(n.type) || n.id.startsWith('member:'))
+        .slice(0, 40),
+      edges: graph.edges.slice(0, 80),
+      resolutionQuality: graph.resolutionQuality,
+      meta: {
+        lobbyistCount: exStaffers.lobbyists.length,
+        memberCount: sponsorMembers.size,
+        committeeCount: committeeNames.length,
+      },
+      hints: {
+        exStafferNames,
+      },
+    };
+
+    const hasLobbyingTtm = (roi.lobbySpend ?? 0) > 0;
+    const hasObligationsTtm = (roi.contractWins ?? 0) > 0;
+    const heroTruthState: 'normal' | 'zero_obligation' | 'no_activity' =
+      hasLobbyingTtm && !hasObligationsTtm
+        ? 'zero_obligation'
+        : hasLobbyingTtm || hasObligationsTtm
+          ? 'normal'
+          : 'no_activity';
+
+    return {
+      client: { id: client.id, name: client.name },
+      generatedAt: now.toISOString(),
+      links: {
+        changesInbox: changesInboxHref,
+        mappingsAdmin: '/settings/intelligence-mappings',
+        competitorIssuePage: '/intelligence/issues',
+        billDetailBase: '/explorer',
+        entityResolutionQueue: '/settings/intelligence-mappings',
+      },
+      sections: {
+        snapshot: {
+          trajectory: {
+            label: profile.lobbyIntel.trajectory,
+            growthRate: profile.lobbyIntel.growthRate,
+            totalSpending: profile.lobbyIntel.totalSpending,
+            yearlySpend: profile.lda.yearlySpend,
+          },
+          health,
+          dailyBriefing,
+          topAlerts,
+          activity14d: Array.from(byDay.values()),
+          changes7dCount: changes.length,
+        },
+        financialFootprint: {
+          hero: {
+            lobbyingTtm: roi.lobbySpend,
+            obligationsTtm: roi.contractWins,
+            returnRatio: roi.roi,
+            gap: roi.gap,
+            truthState: heroTruthState,
+          },
+          series: {
+            lobbying: profile.lda.yearlySpend,
+            obligations: profile.contracting.yearlySpend,
+          },
+          fecMoneyFlow: fec,
+          districtNexus: {
+            topDistricts: districtRows,
+            capabilities: district.capabilities,
+          },
+        },
+        legislativeRegulatory: {
+          kanban: {
+            total: trackedBills.total,
+            issueCodes: trackedBills.issueCodes,
+            columns: kanbanColumns,
+          },
+          regulatoryLifecycle: {
+            totalLinkedBills: regLinks.totalBills,
+            totalRegulations: regLinks.totalRegulations,
+            rails: regulatoryRails,
+          },
+          hearingsAndMarkups: hearingsList,
+        },
+        relationships: {
+          scopedGraph,
+          officeRecommender: officeRecommendations,
+          exStafferCount: exStaffers.lobbyists.length,
+        },
+      },
+      movedOut: {
+        changesInbox: true,
+        entityResolutionQueue: true,
+        competitorLeaderboard: true,
+        billEnrichment: true,
+      },
+    };
+  }
+
   /** Fetch LDA data by confirmed client ID (skips fuzzy match) */
   private async fetchLdaById(ldaClientId: number) {
     const row = await this.prisma.$queryRaw<

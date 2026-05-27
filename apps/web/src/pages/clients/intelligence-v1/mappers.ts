@@ -63,6 +63,131 @@ export function buildSectionNavMeta(profile: ClientIntelProfile | null | undefin
   };
 }
 
+export interface ClientProfileV1 {
+  client: { id: string; name: string };
+  generatedAt: string;
+  links: {
+    changesInbox: string;
+    mappingsAdmin: string;
+    competitorIssuePage: string;
+    billDetailBase: string;
+    entityResolutionQueue: string;
+  };
+  sections: {
+    snapshot: {
+      trajectory: {
+        label: string | null;
+        growthRate: number | null;
+        totalSpending: number | null;
+        yearlySpend: Array<{ year: number; amount: number }>;
+      };
+      health: {
+        score: number;
+        trend: 'improving' | 'stable' | 'declining';
+      };
+      topAlerts: Array<{
+        id?: string;
+        type: string;
+        severity: string;
+        title: string;
+        subtitle: string;
+        when: string;
+        countdownDays?: number | null;
+        countdownLabel?: string | null;
+        href?: string | null;
+      }>;
+      dailyBriefing?: {
+        summary: string | null;
+        highlights: Array<{
+          label: string;
+          value: string | number | null;
+          tone: 'critical' | 'notable' | 'info' | 'neutral';
+        }>;
+        generatedAt: string;
+        eventCount: number;
+        ctaHref?: string;
+      } | null;
+      activity14d: Array<{ date: string; meetings: number; emails: number; tasks: number; debriefs: number }>;
+      changes7dCount: number;
+    };
+    financialFootprint: {
+      hero: {
+        lobbyingTtm: number;
+        obligationsTtm: number;
+        returnRatio: number | null;
+        gap: number;
+        truthState?: 'normal' | 'zero_obligation' | 'no_activity';
+      };
+      series: {
+        lobbying: Array<{ year: number; amount: number }>;
+        obligations: Array<{ year: number; amount: number }>;
+      };
+      fecMoneyFlow: {
+        mappedEmployer: string | null;
+        summary: {
+          totalContributions: number;
+          totalAmount: number;
+          committeeCount: number;
+          candidateCount: number;
+          memberCount: number;
+          billCount: number;
+        };
+      };
+      districtNexus: {
+        topDistricts: Array<{ district: string; jobs: number; capability: string; dataYear: number }>;
+      };
+    };
+    legislativeRegulatory: {
+      kanban: {
+        total: number;
+        issueCodes: string[];
+        columns: Array<{
+          id: 'introduced' | 'committee' | 'passed' | 'enacted';
+          label: string;
+          count: number;
+          bills: Array<{
+            identifier: string;
+            title: string;
+            latestActionDate: string | Date | null;
+            latestActionText: string | null;
+            probability: number;
+          }>;
+        }>;
+      };
+      regulatoryLifecycle: {
+        rails: Array<{
+          documentNumber: string;
+          title: string;
+          agencyNames: string[];
+          linkedBills: string[];
+          currentStage: string;
+          deadline: string | Date | null;
+          stages: Array<{ key: string; label: string }>;
+        }>;
+      };
+      hearingsAndMarkups: Array<{
+        id: string;
+        committeeName: string;
+        chamber: string;
+        title: string;
+        date: string | Date;
+        time: string | null;
+        type: string | null;
+        linkedBills: string[];
+        isTracked: boolean;
+      }>;
+    };
+    relationships: {
+      scopedGraph: {
+        resolutionQuality: { avgConfidence: number; confirmedCount: number; unconfirmedCount: number };
+        meta: { lobbyistCount: number; memberCount: number; committeeCount: number };
+      };
+      officeRecommender: Array<{ office: string; score: number; tags: string[]; billCount: number }>;
+      exStafferCount: number;
+    };
+  };
+}
+
 export function minutesAgoLabel(isoDate: string | null | undefined): string {
   if (!isoDate) return 'Synced recently';
   const d = new Date(isoDate);

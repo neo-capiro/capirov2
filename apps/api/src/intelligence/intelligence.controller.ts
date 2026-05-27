@@ -100,6 +100,14 @@ export class IntelligenceController {
     return this.service.getClientProfile(clientId, ctx.tenantId);
   }
 
+  @Get('clients/:clientId/profile-v1')
+  getClientProfileV1(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getClientProfileV1(clientId, ctx.tenantId);
+  }
+
   @Post('resolve-all')
   resolveAll(@CurrentTenant() ctx: TenantContext) {
     return this.entityResolution.resolveAllForTenant(ctx.tenantId);

@@ -9,7 +9,10 @@
  * disabled intentionally when no code is available.
  */
 
+import type { ClientProfileV1 } from '../mappers.js';
+
 interface RelationshipsSectionProps {
+  aggregate?: ClientProfileV1;
   /**
    * href for the "Open issue leaderboard" link.
    * Pass an empty string to intentionally disable (no matching issue code).
@@ -130,7 +133,28 @@ function ResolutionGraph() {
   );
 }
 
-export function RelationshipsSection({ issueHref, expandEnabled }: RelationshipsSectionProps) {
+export function RelationshipsSection({ aggregate, issueHref, expandEnabled }: RelationshipsSectionProps) {
+  const offices =
+    aggregate?.sections.relationships.officeRecommender?.length
+      ? aggregate.sections.relationships.officeRecommender.map((o, idx) => ({
+          rank: idx + 1,
+          name: o.office,
+          sub: `${o.billCount} tracked bill${o.billCount === 1 ? '' : 's'}`,
+          tags: o.tags.map((tag) => ({
+            label: tag,
+            variant:
+              tag === 'ex-staffer'
+                ? ('purple' as const)
+                : tag === 'district'
+                  ? ('green' as const)
+                  : ('amber' as const),
+          })),
+          score: o.score,
+        }))
+      : OFFICES;
+
+  const summary = aggregate?.sections.relationships.scopedGraph;
+
   return (
     <section id="relationships" className="iv1-section">
       {/* ── Section heading ── */}
@@ -145,7 +169,11 @@ export function RelationshipsSection({ issueHref, expandEnabled }: Relationships
         <div className="iv1-surface" style={{ overflow: 'hidden' }}>
           <div className="iv1-surface-head">
             <h3>Resolution graph</h3>
-            <span className="iv1-surface-sub">16 entities · 15 edges · 64% avg confidence</span>
+            <span className="iv1-surface-sub">
+              {summary
+                ? `${summary.meta.memberCount + summary.meta.lobbyistCount + summary.meta.committeeCount} entities · ${summary.resolutionQuality.avgConfidence}% avg confidence`
+                : '16 entities · 15 edges · 64% avg confidence'}
+            </span>
             <span className="iv1-surface-right" style={{ display: 'flex', gap: 6 }}>
               <button type="button" className="iv1-btn iv1-btn-sm">Reset</button>
               <button
@@ -186,7 +214,7 @@ export function RelationshipsSection({ issueHref, expandEnabled }: Relationships
             Ranked: committee jurisdiction × district nexus × ex-staffer ties × MAVEN history.
           </div>
           <div>
-            {OFFICES.map((office) => (
+            {offices.map((office) => (
               <div key={office.rank} className="iv1-office-row">
                 <div className="iv1-office-rank">{office.rank}</div>
                 <div>

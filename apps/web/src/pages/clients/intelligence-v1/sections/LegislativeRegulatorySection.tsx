@@ -8,7 +8,10 @@
  * is routed to /explorer intentionally.
  */
 
+import type { ClientProfileV1 } from '../mappers.js';
+
 interface LegislativeRegulatorySectionProps {
+  aggregate?: ClientProfileV1;
   /** href for bill drill-out (fallback: /explorer) */
   billDrillHref: string;
   /** href for calendar sync action */
@@ -133,10 +136,71 @@ function ClockIcon() {
 }
 
 export function LegislativeRegulatorySection({
+  aggregate,
   billDrillHref,
   syncCalendarHref,
   setAlertsHref,
 }: LegislativeRegulatorySectionProps) {
+  const dynamicKanban = aggregate?.sections.legislativeRegulatory.kanban.columns;
+  const dynamicRegs = aggregate?.sections.legislativeRegulatory.regulatoryLifecycle.rails;
+  const dynamicHearings = aggregate?.sections.legislativeRegulatory.hearingsAndMarkups;
+
+  const kanbanData: KanbanCol[] = dynamicKanban?.length
+    ? dynamicKanban.map((col) => ({
+        stage: col.id,
+        label: col.label,
+        count: col.count,
+        cards: col.bills.slice(0, 5).map((b) => ({
+          num: b.identifier,
+          title: b.title,
+          pct: Math.round((b.probability ?? 0) * 100),
+          probColor:
+            (b.probability ?? 0) >= 0.7
+              ? 'var(--success)'
+              : (b.probability ?? 0) >= 0.4
+                ? 'var(--notable)'
+                : 'var(--info)',
+          clioTag: b.probability != null ? `fit · ${b.probability.toFixed(2)}` : undefined,
+        })),
+      }))
+    : KANBAN;
+
+  const regsData = dynamicRegs?.length
+    ? dynamicRegs.map((r) => ({
+        title: r.title,
+        source: r.agencyNames.join(' / ') || 'Federal Register',
+        docket: r.documentNumber,
+        steps: r.stages.map((s) => ({
+          label: s.label,
+          state:
+            s.label === r.currentStage
+              ? ('current' as const)
+              : ('pending' as const),
+        })),
+        deadline: r.deadline ? `Comment deadline · ${new Date(r.deadline).toLocaleDateString()}` : 'No open deadline',
+        deadlineSeverity: r.deadline ? ('warn' as const) : ('warn' as const),
+      }))
+    : REGS;
+
+  const hearingsData = dynamicHearings?.length
+    ? dynamicHearings.slice(0, 8).map((h) => {
+        const d = new Date(h.date);
+        const month = d.toLocaleDateString(undefined, { month: 'short' });
+        const day = d.toLocaleDateString(undefined, { day: '2-digit' });
+        return {
+          month,
+          day,
+          title: `${h.committeeName} — ${h.title}`,
+          sub:
+            h.linkedBills.length > 0
+              ? `Tracked bills: ${h.linkedBills.slice(0, 3).join(', ')}`
+              : `${h.chamber} ${h.type ?? 'hearing'}`,
+          time: h.time ?? 'TBD',
+          room: h.chamber,
+        };
+      })
+    : HEARINGS;
+
   return (
     <section id="legislative-regulatory" className="iv1-section">
       {/* ── Section heading ── */}
@@ -157,7 +221,7 @@ export function LegislativeRegulatorySection({
           </span>
         </div>
         <div className="iv1-kanban">
-          {KANBAN.map((col) => (
+          {kanbanData.map((col) => (
             <div key={col.stage} className="iv1-bill-col" data-st={col.stage}>
               <div className="iv1-bill-col-head">
                 <span className="iv1-bill-col-dot" />
@@ -202,7 +266,7 @@ export function LegislativeRegulatorySection({
             <h3>Regulatory lifecycle</h3>
             <span className="iv1-surface-sub">3 rules tracked · 2 deadline-critical</span>
           </div>
-          {REGS.map((reg) => (
+          {regsData.map((reg) => (
             <div key={reg.docket} className="iv1-reg-block">
               <h4 className="iv1-reg-title">{reg.title}</h4>
               <div className="iv1-reg-source mono">
@@ -211,10 +275,10 @@ export function LegislativeRegulatorySection({
               </div>
               <div className="iv1-lifecycle-rail">
                 {reg.steps.map((step, i) => (
-                  <>
-                    <div key={step.label} className={`iv1-lifecycle-step ${step.state}`}>{step.label}</div>
+                  <div key={`${reg.docket}-${step.label}`} style={{ display: 'contents' }}>
+                    <div className={`iv1-lifecycle-step ${step.state}`}>{step.label}</div>
                     {i < reg.steps.length - 1 && <span className="iv1-lifecycle-arrow">→</span>}
-                  </>
+                  </div>
                 ))}
               </div>
               <div className={`iv1-reg-deadline ${reg.deadlineSeverity}`}>
@@ -232,7 +296,7 @@ export function LegislativeRegulatorySection({
             <h3>Hearings &amp; markups</h3>
             <span className="iv1-surface-sub">next 21 days</span>
           </div>
-          {HEARINGS.map((h) => (
+          {hearingsData.map((h) => (
             <div key={`${h.month}-${h.day}`} className="iv1-hearing-row">
               <div className="iv1-hearing-date">
                 <div className="m">{h.month}</div>

@@ -7,18 +7,20 @@ import { useMemo, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from 'antd';
-import { WarningOutlined } from '@ant-design/icons';
 import { useApi } from '../../../../lib/use-api.js';
 import type { ClientIntelProfile, HealthScore, CommentAlert } from '../mappers.js';
-import { daysUntil, formatDate } from '../mappers.js';
+import { daysUntil, formatDate, type ClientProfileV1 } from '../mappers.js';
 import { TrajectoryChipSparkline } from '../components/TrajectoryChipSparkline.js';
+import { BriefingCard } from '../components/BriefingCard.js';
+import { TopAlertsList } from '../components/TopAlertsList.js';
 
 interface SnapshotSectionProps {
   clientId: string;
   clientName: string;
+  aggregate?: ClientProfileV1;
 }
 
-export function SnapshotSection({ clientId, clientName }: SnapshotSectionProps) {
+export function SnapshotSection({ clientId, clientName, aggregate }: SnapshotSectionProps) {
   const api = useApi();
   const navigate = useNavigate();
 
@@ -106,15 +108,37 @@ export function SnapshotSection({ clientId, clientName }: SnapshotSectionProps) 
 
   const profile = profileQuery.data ?? null;
   const health = healthQuery.data ?? null;
-  const clientAlerts = (alertsQuery.data?.alerts ?? []).filter((a) => a.clientId === clientId);
-  const criticalAlerts = clientAlerts.filter((a) => a.daysToDeadline <= 7);
+  const fallbackAlerts = (alertsQuery.data?.alerts ?? []).filter((a) => a.clientId === clientId);
+  const clientAlerts = aggregate?.sections.snapshot.topAlerts?.length
+    ? aggregate.sections.snapshot.topAlerts.map((a, idx) => ({
+        documentId: `${a.type}-${idx}`,
+        title: a.title,
+        type: a.type,
+        commentEndDate: a.when,
+        daysToDeadline: daysUntil(a.when) ?? 0,
+        severity: a.severity,
+        agencies: a.subtitle ? [a.subtitle] : [],
+        clientId,
+        clientName,
+        relevanceScore: 1,
+      }))
+    : fallbackAlerts;
+  const criticalAlerts = clientAlerts.filter((a) => (a.daysToDeadline ?? 99) <= 7);
   const changes = changesQuery.data ?? [];
   const meetings = meetingsQuery.data ?? [];
-  const trackedTotal = profile?.relevantBills?.total ?? 0;
-  const healthScore = health?.score ?? null;
-  const trajectory = profile?.lobbyIntel?.trajectory ?? null;
-  const activityMax = Math.max(meetings.length, trackedTotal, criticalAlerts.length, 1);
-
+  const trackedTotal = aggregate?.sections.legislativeRegulatory.kanban.total ?? profile?.relevantBills?.total ?? 0;
+  const healthScore = aggregate?.sections.snapshot.health?.score ?? health?.score ?? null;
+  const trajectory = aggregate?.sections.snapshot.trajectory?.label ?? profile?.lobbyIntel?.trajectory ?? null;
+  const activityRows = aggregate?.sections.snapshot.activity14d ?? null;
+  const activityMeetings = activityRows ? activityRows.reduce((sum, d) => sum + d.meetings, 0) : meetings.length;
+  const activityMax = Math.max(
+    activityRows
+      ? activityRows.reduce((sum, d) => sum + d.meetings + d.emails + d.tasks + d.debriefs, 0)
+      : meetings.length,
+    trackedTotal,
+    criticalAlerts.length,
+    1,
+  );
   return (
     <section id="snapshot" className="iv1-section">
       {/* ── Section heading ── */}
@@ -150,110 +174,26 @@ export function SnapshotSection({ clientId, clientName }: SnapshotSectionProps) 
           </div>
 
           {/* Clio briefing */}
-          <div className="iv1-briefing-wrap">
-            <span
-              className="iv1-clio-avatar"
-              style={{ width: 28, height: 28, flexShrink: 0, marginTop: 2 }}
-              title="Clio"
-              aria-label="Clio"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="#fff"
-                strokeWidth="2.2"
-                strokeLinecap="round"
-              >
-                <path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2.2 2.2M15.8 15.8 18 18M6 18l2.2-2.2M15.8 8.2 18 6" />
-              </svg>
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}
-              >
-                <span className="iv1-clio-badge">Clio briefing</span>
-                <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                  {formatDate(new Date().toISOString())}
-                </span>
-              </div>
-              <div className="iv1-briefing-text">
-                {clioText(profile, clientAlerts, changes.length, meetings.length, clientName)}
-              </div>
-              <div className="iv1-briefing-meta">
-                {changes.length > 0 && (
-                  <span>
-                    {changes.length} event{changes.length === 1 ? '' : 's'} this week
-                  </span>
-                )}
-                {changes.length > 0 && <span>·</span>}
-                <button
-                  type="button"
-                  className="iv1-link"
-                  onClick={() => navigate('/intelligence/changes')}
-                >
-                  See all changes →
-                </button>
-              </div>
-            </div>
-          </div>
+          <BriefingCard
+            briefing={aggregate?.sections.snapshot.dailyBriefing ?? null}
+            fallbackSummary={clioText(profile, clientAlerts, changes.length, meetings.length, clientName)}
+            ctaHref={aggregate?.links.changesInbox ?? '/intelligence/changes'}
+          />
         </div>
       )}
 
       {/* ── Bottom row: Alerts | Activity ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1.6fr 1fr', gap: 14, marginTop: 14 }}>
         {/* Top alerts */}
-        <div className="iv1-surface">
-          <div className="iv1-surface-head">
-            <WarningOutlined style={{ color: 'var(--critical)', fontSize: 13 }} />
-            <h3>Top alerts</h3>
-            {clientAlerts.length > 0 && (
-              <span className="iv1-surface-sub">
-                {Math.min(5, clientAlerts.length)} of {clientAlerts.length}
-              </span>
-            )}
-            <span className="iv1-surface-right">
-              <button
-                type="button"
-                className="iv1-link"
-                onClick={() => navigate('/intelligence/changes')}
-              >
-                View all →
-              </button>
-            </span>
-          </div>
-          {alertsQuery.isLoading ? (
-            <Skeleton active paragraph={{ rows: 3 }} style={{ padding: 16 }} />
-          ) : clientAlerts.length === 0 ? (
-            <div className="iv1-empty">
-              <div className="iv1-empty-icon">✓</div>
-              <b>No open alerts</b>
-              <span>No comment deadlines or critical changes right now.</span>
-            </div>
-          ) : (
-            clientAlerts.slice(0, 5).map((alert) => (
-              <AlertRow key={alert.documentId} alert={alert} />
-            ))
-          )}
-          <div
-            style={{
-              padding: '10px 16px',
-              borderTop: '1px solid var(--border-1)',
-              fontSize: 11,
-              color: 'var(--ink-3)',
-            }}
-          >
-            Add tracked issues via{' '}
-            <button
-              type="button"
-              className="iv1-link"
-              onClick={() => navigate('/settings/intelligence-mappings')}
-            >
-              source mappings →
-            </button>
-          </div>
-        </div>
+        <TopAlertsList
+          aggregate={aggregate}
+          fallbackAlerts={clientAlerts}
+          loading={alertsQuery.isLoading}
+          links={{
+            viewAllHref: aggregate?.links.changesInbox ?? '/intelligence/changes',
+            mappingsHref: aggregate?.links.mappingsAdmin ?? '/settings/intelligence-mappings',
+          }}
+        />
 
         {/* Activity 90-day summary */}
         <div className="iv1-surface">
@@ -264,9 +204,9 @@ export function SnapshotSection({ clientId, clientName }: SnapshotSectionProps) 
           <div className="iv1-surface-body">
             <ActivityBar
               label="Meetings"
-              value={meetings.length}
+              value={activityMeetings}
               max={activityMax}
-              color={meetings.length === 0 ? 'var(--ink-4)' : 'var(--accent)'}
+              color={activityMeetings === 0 ? 'var(--ink-4)' : 'var(--accent)'}
               criticalIfZero
             />
             <ActivityBar
@@ -375,40 +315,6 @@ function HealthGauge({ score }: { score: number | null }) {
                 ? 'at risk'
                 : '✓ healthy'}
         </div>
-      </div>
-    </div>
-  );
-}
-
-function AlertRow({ alert }: { alert: CommentAlert }) {
-  const sev = alert.severity ?? 'info';
-  const cls =
-    sev === 'critical' ? 'critical' : sev === 'notable' ? 'notable' : 'info';
-  const days = daysUntil(alert.commentEndDate);
-  const ctdColor =
-    days != null && days <= 2
-      ? 'var(--critical)'
-      : days != null && days <= 14
-        ? 'var(--notable)'
-        : 'var(--info)';
-
-  return (
-    <div className={`iv1-alert-row ${cls}`}>
-      <span className="iv1-alert-stripe" />
-      <div>
-        <div className="iv1-alert-title">{alert.title}</div>
-        <div className="iv1-alert-dek">
-          {alert.agencies.length > 0 ? alert.agencies[0] : 'Federal Register'}
-          {alert.agencies.length > 1 ? ` +${alert.agencies.length - 1}` : ''}
-        </div>
-      </div>
-      <div className="iv1-alert-when">
-        {alert.commentEndDate ? formatDate(alert.commentEndDate) : '—'}
-        {days != null && (
-          <span className="iv1-ctd" style={{ color: ctdColor }}>
-            {days <= 0 ? 'Closed' : `${days}d left`}
-          </span>
-        )}
       </div>
     </div>
   );
