@@ -38,7 +38,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 COPY packages/shared/src packages/shared/src
 COPY packages/shared/tsconfig.json packages/shared/tsconfig.json
 COPY apps/api/src apps/api/src
-COPY apps/api/tsconfig.json apps/api/nest-cli.json apps/api/
+COPY apps/api/tsconfig.json apps/api/tsconfig.build.json apps/api/nest-cli.json apps/api/
 COPY apps/api/prisma apps/api/prisma
 COPY apps/api/scripts apps/api/scripts
 
