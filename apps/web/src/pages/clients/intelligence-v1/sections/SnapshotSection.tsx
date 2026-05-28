@@ -199,13 +199,19 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
           }}
         />
 
-        {/* Activity 90-day summary */}
+        {/* Activity 14-day summary */}
         <div className="iv1-surface">
           <div className="iv1-surface-head">
-            <h3>Activity · 90 days</h3>
+            <h3>Activity · 14 days</h3>
             <span className="iv1-surface-sub">CRM signals</span>
           </div>
           <div className="iv1-surface-body">
+            {/* Tiny sparkline of total daily activity above the row list.
+                Title used to say "90 days" but we only fetch 14d on the
+                profile endpoint — keep the label honest. */}
+            {activityRows && activityRows.length > 0 && (
+              <ActivitySparkline rows={activityRows} />
+            )}
             <ActivityBar
               label="Meetings"
               value={activityMeetings}
@@ -359,6 +365,74 @@ function HealthGauge({ score }: { score: number | null }) {
                 : '✓ healthy'}
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Tiny inline-SVG sparkline above the Activity row list.
+ *
+ * Renders one stacked bar per day from `activity14d`. Total daily activity
+ * is meetings + outreach + tasks + debriefs (emails intentionally excluded
+ * — they're noisy and not in the 5-row breakdown below). Height is fixed
+ * at 28px; width fills the parent.
+ *
+ * Empty input → renders nothing (the caller already gates with a length
+ * check). Single-spike-day → that bar reaches the full height; quieter
+ * days sit proportionally low.
+ */
+function ActivitySparkline({
+  rows,
+}: {
+  rows: Array<{
+    date: string;
+    meetings: number;
+    tasks: number;
+    debriefs: number;
+    outreach?: number;
+  }>;
+}) {
+  const totals = rows.map(
+    (d) => d.meetings + d.tasks + d.debriefs + (d.outreach ?? 0),
+  );
+  const max = Math.max(...totals, 1);
+  const barW = 100 / rows.length;
+  const gap = 0.5;
+  return (
+    <div
+      style={{
+        marginBottom: 14,
+        paddingBottom: 12,
+        borderBottom: '1px solid var(--border-1)',
+      }}
+    >
+      <svg
+        viewBox="0 0 100 28"
+        preserveAspectRatio="none"
+        role="img"
+        aria-label="Daily activity over the last 14 days"
+        style={{ width: '100%', height: 28, display: 'block' }}
+      >
+        {totals.map((value, i) => {
+          const h = (value / max) * 26;
+          // Days with no activity still get a 1px nub so the user can
+          // scan the cadence without empty gaps reading as "no chart".
+          const minH = 1;
+          const finalH = value === 0 ? minH : Math.max(h, 2);
+          return (
+            <rect
+              key={i}
+              x={i * barW + gap / 2}
+              y={28 - finalH}
+              width={barW - gap}
+              height={finalH}
+              rx={0.6}
+              fill={value === 0 ? 'var(--ink-4)' : 'var(--accent)'}
+              opacity={value === 0 ? 0.4 : 0.85}
+            />
+          );
+        })}
+      </svg>
     </div>
   );
 }
