@@ -14899,13 +14899,75 @@ body {
 }
 [data-st="committee"] .iv1-bill-col-dot { background: var(--notable); }
 [data-st="passed"]    .iv1-bill-col-dot { background: var(--success); }
-[data-st="enacted"]   .iv1-bill-col-dot { background: var(--accent); }
+[data-st="enacted"]   .iv1-bill-col-dot { background: var(--success); }
 
 .iv1-bill-col-title {
   font-size: 11.5px;
   font-weight: 600;
   color: var(--ink-1);
   flex: 1;
+}
+
+[data-st="introduced"] .iv1-bill-col-title { color: var(--info); }
+[data-st="committee"]  .iv1-bill-col-title { color: var(--notable); }
+[data-st="passed"]     .iv1-bill-col-title { color: var(--success); }
+[data-st="enacted"]    .iv1-bill-col-title { color: var(--success); }
+
+/* Snapshot + activity cells */
+.iv1-snap-hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.4fr;
+  gap: 12px;
+}
+
+.iv1-snap-cell {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.iv1-activity-row {
+  display: grid;
+  grid-template-columns: 92px 1fr 28px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.iv1-bar-track {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.iv1-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.2s ease;
+}
+
+.iv1-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.iv1-btn-primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, #000 12%);
+  border-color: color-mix(in srgb, var(--accent) 88%, #000 12%);
+  color: #fff;
+}
+
+@media (max-width: 1120px) {
+  .iv1-snap-hero {
+    grid-template-columns: 1fr;
+  }
 }
 
 .iv1-bill-col-count {

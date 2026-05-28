@@ -168,7 +168,8 @@ export function LegislativeRegulatorySection({
   setAlertsHref,
 }: LegislativeRegulatorySectionProps) {
   const dynamicKanban = aggregate?.sections.legislativeRegulatory.kanban.columns;
-  const dynamicRegs = aggregate?.sections.legislativeRegulatory.regulatoryLifecycle.rails;
+  const regulatoryLifecycle = aggregate?.sections.legislativeRegulatory.regulatoryLifecycle;
+  const dynamicRegs = regulatoryLifecycle?.rails;
   const dynamicHearings = aggregate?.sections.legislativeRegulatory.hearingsAndMarkups;
 
   const [controls, setControls] = useState<KanbanControlsValue>(loadKanbanControls);
@@ -270,10 +271,12 @@ export function LegislativeRegulatorySection({
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14, marginTop: 14 }}>
         <div className="iv1-surface">
-          <div className="iv1-surface-head">
-            <h3>Regulatory lifecycle</h3>
-            <span className="iv1-surface-sub">3 rules tracked · 2 deadline-critical</span>
-          </div>
+        <div className="iv1-surface-head">
+          <h3>Regulatory lifecycle</h3>
+          <span className="iv1-surface-sub">
+            {(regulatoryLifecycle?.totalRegulations ?? regsData.length)} rules tracked · {(regulatoryLifecycle?.totalLinkedBills ?? 0)} linked bills
+          </span>
+        </div>
           <RegLifecycleRail rails={regsData} />
         </div>
 

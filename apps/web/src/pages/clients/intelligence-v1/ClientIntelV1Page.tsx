@@ -162,6 +162,7 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
             <SnapshotSection
               clientId={clientId}
               clientName={clientName}
+              profile={profileQuery.data ?? null}
               aggregate={profileV1Query.data ?? undefined}
             />
 

@@ -17,25 +17,15 @@ import { TopAlertsList } from '../components/TopAlertsList.js';
 interface SnapshotSectionProps {
   clientId: string;
   clientName: string;
+  profile?: ClientIntelProfile | null;
   aggregate?: ClientProfileV1;
 }
 
-export function SnapshotSection({ clientId, clientName, aggregate }: SnapshotSectionProps) {
+export function SnapshotSection({ clientId, clientName, profile: profileFromParent, aggregate }: SnapshotSectionProps) {
   const api = useApi();
   const navigate = useNavigate();
 
-  /* ── Profile (shared key with rest of app) ── */
-  const profileQuery = useQuery<ClientIntelProfile>({
-    queryKey: ['client-intel-profile', clientId],
-    queryFn: async () =>
-      (
-        await api.get<ClientIntelProfile>(
-          `/api/intelligence/client-profile/${clientId}`,
-        )
-      ).data,
-    enabled: !!clientId,
-    staleTime: 2 * 60 * 1000,
-  });
+  const profile = profileFromParent ?? null;
 
   /* ── Engagement health score ── */
   const healthQuery = useQuery<HealthScore | null>({
@@ -106,7 +96,6 @@ export function SnapshotSection({ clientId, clientName, aggregate }: SnapshotSec
     staleTime: 60_000,
   });
 
-  const profile = profileQuery.data ?? null;
   const health = healthQuery.data ?? null;
   const fallbackAlerts = (alertsQuery.data?.alerts ?? []).filter((a) => a.clientId === clientId);
   const clientAlerts = aggregate?.sections.snapshot.topAlerts?.length
@@ -150,7 +139,7 @@ export function SnapshotSection({ clientId, clientName, aggregate }: SnapshotSec
       </div>
 
       {/* ── Hero: trajectory · health · Clio briefing ── */}
-      {profileQuery.isLoading || healthQuery.isLoading ? (
+      {healthQuery.isLoading && !aggregate && !profile ? (
         <Skeleton active paragraph={{ rows: 3 }} style={{ marginBottom: 14 }} />
       ) : (
         <div className="iv1-snap-hero">

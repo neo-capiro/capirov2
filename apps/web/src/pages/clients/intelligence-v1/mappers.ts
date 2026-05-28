@@ -202,6 +202,8 @@ export interface ClientProfileV1 {
         }>;
       };
       regulatoryLifecycle: {
+        totalLinkedBills?: number;
+        totalRegulations?: number;
         rails: Array<{
           documentNumber: string;
           title: string;
