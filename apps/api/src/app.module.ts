@@ -28,6 +28,7 @@ import { RegulatoryDocketModule } from './regulatory-docket/regulatory-docket.mo
 import { IntelligenceModule } from './intelligence/intelligence.module.js';
 import { ExplorerModule } from './explorer/explorer.module.js';
 import { ChatModule } from './chat/chat.module.js';
+import { ProgramElementModule } from './program-element/program-element.module.js';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { ChatModule } from './chat/chat.module.js';
     IntelligenceModule,
     ExplorerModule,
     ChatModule,
+    ProgramElementModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

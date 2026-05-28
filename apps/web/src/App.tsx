@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { RedirectToSignIn, SignIn, SignedIn, SignedOut, SignUp } from '@clerk/clerk-react';
 import { AppShell } from './components/AppShell.js';
 import { PlaceholderPage } from './pages/PlaceholderPage.js';
@@ -28,6 +29,12 @@ import { ChangesInboxPage } from './pages/intelligence/ChangesInboxPage.js';
 import { IntelligenceMappingsPage } from './pages/settings/IntelligenceMappingsPage.js';
 import { IssueLeaderboardPage } from './pages/intelligence/IssueLeaderboardPage.js';
 import { DataExplorerPage } from './pages/explorer/DataExplorerPage.js';
+
+const ProgramElementWatchPage = lazy(async () =>
+  import('./pages/program-element/ProgramElementWatchPage.js').then((m) => ({
+    default: m.ProgramElementWatchPage,
+  })),
+);
 
 export function App() {
   return (
@@ -62,6 +69,14 @@ export function App() {
           <Route path="kanban" element={<Navigate to="/workspace/workflows" replace />} />
         </Route>
         <Route path="/explorer" element={<DataExplorerPage />} />
+        <Route
+          path="/program-elements/:peCode"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading program element" description="Please wait..." />}>
+              <ProgramElementWatchPage />
+            </Suspense>
+          }
+        />
         {/* Intelligence routes kept for legacy URLs — the page renames itself
             to "Data Explorer" in the sidebar, but ChangesInbox + IssueLeaderboard
             stay reachable for now. The main /intelligence path redirects. */}

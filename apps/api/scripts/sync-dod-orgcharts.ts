@@ -36,12 +36,11 @@ const S3_PREFIX = (process.env.DOD_ORGCHARTS_S3_PREFIX ?? 'pe-watch/orgcharts').
 const AWS_REGION = process.env.AWS_REGION ?? process.env.AWS_REGION_DEFAULT ?? 'us-east-1';
 
 const SOURCES = [
-  { key: 'asaalt_army', url: 'https://www.asaalt.army.mil/' },
-  { key: 'navair_navy', url: 'https://www.navair.navy.mil/' },
-  { key: 'navsea_navy', url: 'https://www.navsea.navy.mil/' },
-  { key: 'aflcmc_air_force', url: 'https://www.aflcmc.af.mil/' },
-  { key: 'ssc_space_force', url: 'https://www.ssc.spaceforce.mil/' },
-  { key: 'marcorsyscom_marines', url: 'https://www.marcorsyscom.marines.mil/' },
+  { key: 'army_senior_leaders', url: 'https://www.army.mil/leaders/' },
+  { key: 'peo_stri', url: 'https://www.peostri.army.mil/about/leadership' },
+  { key: 'peo_soldier', url: 'https://www.peosoldier.army.mil/leadership/' },
+  { key: 'marcorsyscom_marines', url: 'https://www.marcorsyscom.marines.mil/About-Us/Leaders/' },
+  { key: 'ssc_space_force', url: 'https://www.ssc.spaceforce.mil/About-Us/Leadership' },
   { key: 'darpa_people', url: 'https://www.darpa.mil/about-us/people' },
 ] as const;
 
@@ -182,66 +181,188 @@ function cleanTitle(line: string): string {
 
 function isLikelyTitleLine(line: string): boolean {
   if (!line) return false;
-  if (line.length > 140) return false;
+  if (line.length > 180) return false;
   if (line.includes('http://') || line.includes('https://')) return false;
   if (/\[[^\]]+\]\([^)]*\)/.test(line)) return false;
   const lower = line.toLowerCase();
   if (Array.from(UI_STOP_WORDS).some((word) => lower.includes(word))) return false;
-  return /program manager|deputy|director|officer|commander|chief|executive|innovation fellow|major|capt\.|col\.|lt\.|dr\./i.test(
+  return /program manager|deputy|director|officer|commander|chief|executive|innovation fellow|major|capt\.|col\.|lt\.|dr\.|peo|program executive/i.test(
     line,
   );
 }
 
+function findNearbyTitle(lines: string[], index: number): string | null {
+  for (let dist = 1; dist <= 4; dist += 1) {
+    const prev = lines[index - dist] ?? null;
+    if (prev && isLikelyTitleLine(prev) && !isLikelyName(prev)) return cleanTitle(prev);
+
+    const next = lines[index + dist] ?? null;
+    if (next && isLikelyTitleLine(next) && !isLikelyName(next)) return cleanTitle(next);
+  }
+
+  return null;
+}
+
 function extractPersonnel(source: SourceKey, sourceUrl: string, markdown: string): CandidatePersonnel[] {
-  const lines = markdown
-    .split(/\r?\n/)
-    .map((line) => normalizeWhitespace(line))
-    .filter(Boolean)
-    .slice(0, 4000);
+  if (source === 'darpa_people') return extractDarpaPeople(source, sourceUrl, markdown);
+  if (source === 'army_senior_leaders') return extractArmySeniorLeaders(source, sourceUrl, markdown);
+  if (source === 'marcorsyscom_marines') return extractMarcorLeadership(source, sourceUrl, markdown);
+  if (source === 'ssc_space_force') return extractSscLeadership(source, sourceUrl, markdown);
 
-  const images = parseMarkdownImageRefs(markdown, sourceUrl);
+  // peo_stri and peo_soldier are currently noisy with minimal structured leadership cards.
+  // Keep strict until we add dedicated page templates for those domains.
+  return [];
+}
+
+function extractDarpaPeople(source: SourceKey, sourceUrl: string, markdown: string): CandidatePersonnel[] {
   const out: CandidatePersonnel[] = [];
-  const seen = new Set<string>();
+  const pattern = /(?:^|\n)([A-Z][A-Za-z.'-]+(?:\s+[A-Z][A-Za-z.'-]+){1,3})\n\n(Program Manager|Innovation Fellow|Deputy Program Manager|Deputy Director|Director)\n\n[\s\S]{0,380}?\[Read Bio\]\((https:\/\/www\.darpa\.mil\/about\/people\/[^)]+)\)/g;
 
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i] ?? '';
-    if (!isLikelyName(line)) continue;
+  let match: RegExpExecArray | null = null;
+  while ((match = pattern.exec(markdown)) !== null) {
+    const fullName = normalizeWhitespace(match[1] ?? '');
+    const title = normalizeWhitespace(match[2] ?? '');
+    if (!isLikelyName(fullName)) continue;
+    out.push({
+      source,
+      sourceUrl,
+      fullName,
+      title,
+      confidence: 'high',
+      headshotUrl: null,
+      snippet: `DARPA card | ${title} | ${match[3] ?? ''}`.slice(0, 500),
+    });
+  }
 
-    const next = lines[i + 1] ?? null;
-    const prev = lines[i - 1] ?? null;
+  return dedupePersonnel(out);
+}
 
-    let title: string | null = null;
-    let confidence: CandidatePersonnel['confidence'] = 'low';
+function extractArmySeniorLeaders(source: SourceKey, sourceUrl: string, markdown: string): CandidatePersonnel[] {
+  const out: CandidatePersonnel[] = [];
+  const pattern = /-\s*\[!\[[^\]]*\]\((https?:\/\/[^)]+)\)\*\*([^*]+)\*\*[\s\\]*\n?([^\]\n]+)\]\((https?:\/\/www\.army\.mil\/leaders\/[^)]+)\)/g;
+  let match: RegExpExecArray | null = null;
 
-    if (next && /[A-Za-z]/.test(next) && !isLikelyName(next) && isLikelyTitleLine(next)) {
-      title = cleanTitle(next);
-      confidence = /PEO|Program Executive Officer|Program Manager|Deputy|Contracting Officer|Commander|Director/i.test(title)
-        ? 'high'
-        : 'medium';
-    } else if (prev && /[A-Za-z]/.test(prev) && !isLikelyName(prev) && isLikelyTitleLine(prev)) {
-      title = cleanTitle(prev);
-      confidence = 'medium';
-    }
-
-    if (!title) continue;
-
-    const fullName = line.replace(/^[\-•*\d.)\s]+/, '').trim();
-    const dedupeKey = `${fullName.toLowerCase()}|${(title ?? '').toLowerCase()}|${source}`;
-    if (seen.has(dedupeKey)) continue;
-    seen.add(dedupeKey);
+  while ((match = pattern.exec(markdown)) !== null) {
+    const headshotUrl = normalizeUrl(match[1] ?? null, sourceUrl);
+    const title = normalizeWhitespace((match[2] ?? '').replace(/official/gi, ''));
+    const fullNameRaw = normalizeWhitespace(match[3] ?? '');
+    const fullName = fullNameRaw.replace(/^Sergeant Major of the Army\s+/i, '').trim();
+    if (!isLikelyName(fullName)) continue;
+    if (!isLikelyTitleLine(title)) continue;
 
     out.push({
       source,
       sourceUrl,
       fullName,
       title,
-      confidence,
-      headshotUrl: pickHeadshotNearLine(images, i),
-      snippet: [prev, line, next].filter(Boolean).join(' | ').slice(0, 500),
+      confidence: 'high',
+      headshotUrl,
+      snippet: `Army leaders card | ${title} | ${match[4] ?? ''}`.slice(0, 500),
     });
   }
 
-  return out;
+  return dedupePersonnel(out);
+}
+
+function extractMarcorLeadership(source: SourceKey, sourceUrl: string, markdown: string): CandidatePersonnel[] {
+  if (!/Leadership-View\/Article\//i.test(sourceUrl)) return [];
+
+  const lines = markdown.split(/\r?\n/).map((line) => normalizeWhitespace(line));
+  let imageUrl: string | null = null;
+  let title: string | null = null;
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i] ?? '';
+    if (!imageUrl) {
+      const imgMatch = line.match(/!\[[^\]]*\]\((https?:\/\/[^)]+)\)/);
+      if (imgMatch) imageUrl = normalizeUrl(imgMatch[1], sourceUrl);
+    }
+
+    if (!title && isLikelyTitleLine(line) && !/download|print|share|engagement opportunities/i.test(line)) {
+      title = line;
+      continue;
+    }
+  }
+
+  if (!title) return [];
+
+  const slug = sourceUrl.split('/').filter(Boolean).pop() ?? '';
+  const fullName = nameFromSlug(slug);
+  if (!isLikelyName(fullName)) return [];
+
+  return [
+    {
+      source,
+      sourceUrl,
+      fullName,
+      title,
+      confidence: 'high',
+      headshotUrl: imageUrl,
+      snippet: `MARCORSYSCOM profile | ${title}`.slice(0, 500),
+    },
+  ];
+}
+
+function extractSscLeadership(source: SourceKey, sourceUrl: string, markdown: string): CandidatePersonnel[] {
+  if (!/\/Leadership\/Display\/Article\//i.test(sourceUrl)) return [];
+
+  const slug = sourceUrl.split('/').filter(Boolean).pop() ?? '';
+  const fullName = nameFromSlug(slug);
+  if (!isLikelyName(fullName)) return [];
+
+  const firstLine = markdown
+    .split(/\r?\n/)
+    .map((line) => normalizeWhitespace(line))
+    .find((line) => line && !/skip to main content/i.test(line) && !/^\[/.test(line));
+
+  let title: string | null = null;
+  if (firstLine) {
+    const m = firstLine.match(/leads the\s+([^.,]+?)\s+for\s+the\s+Space Systems Command/i);
+    if (m?.[1]) title = `Director, ${normalizeWhitespace(m[1])}`;
+  }
+
+  if (!title) title = 'Space Systems Command Leadership';
+
+  const imgMatch = markdown.match(/!\[[^\]]*\]\((https?:\/\/[^)]+)\)/);
+  const headshotUrl = imgMatch ? normalizeUrl(imgMatch[1], sourceUrl) : null;
+
+  return [
+    {
+      source,
+      sourceUrl,
+      fullName,
+      title,
+      confidence: 'medium',
+      headshotUrl,
+      snippet: `SSC profile | ${title}`.slice(0, 500),
+    },
+  ];
+}
+
+function nameFromSlug(slug: string): string {
+  const tokens = slug.split('-').filter(Boolean);
+  const out: string[] = [];
+
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i]!.toLowerCase();
+    if (token === 'dr') {
+      out.push('Dr.');
+      continue;
+    }
+    if (token === 'jr') {
+      out.push('Jr.');
+      continue;
+    }
+    if (/^[a-z]$/.test(token)) {
+      out.push(`${token.toUpperCase()}.`);
+      continue;
+    }
+
+    const cap = token.charAt(0).toUpperCase() + token.slice(1);
+    out.push(cap);
+  }
+
+  return out.join(' ').trim();
 }
 
 function dedupePersonnel(items: CandidatePersonnel[]): CandidatePersonnel[] {
@@ -324,32 +445,59 @@ async function main() {
     const source = SOURCES[i]!;
     try {
       await sleep(REQUEST_DELAY_MS);
-      console.log(`[orgcharts-sync] scrape ${source.key} -> ${source.url}`);
-      const doc = await client.scrape(source.url, {
-        formats: ['markdown'],
-        onlyMainContent: true,
-        timeoutMs: 45_000,
-      });
 
-      const markdown = doc.markdown?.trim() ?? '';
-      if (!markdown) {
-        console.warn(`[orgcharts-sync] empty markdown for ${source.key}`);
-        continue;
+      const targets: Array<{ url: string; label: string }> = [{ url: source.url, label: 'seed' }];
+      if (source.key !== 'darpa_people') {
+        try {
+          const mapped = await client.map(source.url, { search: 'leadership', limit: 8, timeoutMs: 30_000 });
+          for (let m = 0; m < mapped.length; m += 1) {
+            const mappedUrl = mapped[m]!;
+            if (!targets.some((t) => t.url === mappedUrl)) {
+              targets.push({ url: mappedUrl, label: 'mapped' });
+            }
+          }
+        } catch (mapError) {
+          console.warn(`[orgcharts-sync] map failed for ${source.key}: ${(mapError as Error).message}`);
+        }
       }
 
-      pageHashes[source.url] = sha256(markdown);
-      const extracted = extractPersonnel(source.key, source.url, markdown);
-      const withHeadshot = extracted.filter((row) => !!row.headshotUrl).length;
-      console.log(`[orgcharts-sync] ${source.key}: ${extracted.length} candidates (${withHeadshot} with headshot URLs)`);
-      results.push(...extracted);
+      let sourceCount = 0;
+      let sourceHeadshots = 0;
 
-      const localMdPath = path.join(OUTPUT_DIR, `${source.key}.md`);
-      await writeFile(localMdPath, markdown, 'utf8');
+      for (let t = 0; t < targets.length; t += 1) {
+        const target = targets[t]!;
+        console.log(`[orgcharts-sync] scrape ${source.key} (${target.label}) -> ${target.url}`);
+        try {
+          const doc = await client.scrape(target.url, {
+            formats: ['markdown'],
+            onlyMainContent: true,
+            timeoutMs: 45_000,
+          });
 
-      if (UPLOAD_S3) {
-        const mdKey = `${s3RunPrefix}/raw/${source.key}.md`;
-        await uploadMarkdownToS3(s3, S3_BUCKET, mdKey, markdown);
+          const markdown = doc.markdown?.trim() ?? '';
+          if (!markdown) continue;
+
+          pageHashes[target.url] = sha256(markdown);
+          const extracted = extractPersonnel(source.key, target.url, markdown);
+          const withHeadshot = extracted.filter((row) => !!row.headshotUrl).length;
+          sourceCount += extracted.length;
+          sourceHeadshots += withHeadshot;
+          results.push(...extracted);
+
+          const fileSafe = target.url.replace(/^https?:\/\//, '').replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+          const localMdPath = path.join(OUTPUT_DIR, `${source.key}__${fileSafe}.md`);
+          await writeFile(localMdPath, markdown, 'utf8');
+
+          if (UPLOAD_S3) {
+            const mdKey = `${s3RunPrefix}/raw/${source.key}__${fileSafe}.md`;
+            await uploadMarkdownToS3(s3, S3_BUCKET, mdKey, markdown);
+          }
+        } catch (scrapeError) {
+          console.warn(`[orgcharts-sync] ${source.key} target failed ${target.url}: ${(scrapeError as Error).message}`);
+        }
       }
+
+      console.log(`[orgcharts-sync] ${source.key}: ${sourceCount} candidates (${sourceHeadshots} with headshot URLs)`);
     } catch (error) {
       console.warn(`[orgcharts-sync] ${source.key} failed: ${(error as Error).message}`);
     }
@@ -377,7 +525,10 @@ async function main() {
   if (UPLOAD_S3) {
     const jsonKey = `${s3RunPrefix}/acquisition-personnel-candidates.json`;
     await uploadJsonToS3(s3, S3_BUCKET, jsonKey, payload);
+    const latestKey = `${S3_PREFIX}/latest/acquisition-personnel-candidates.json`;
+    await uploadJsonToS3(s3, S3_BUCKET, latestKey, payload);
     console.log(`[orgcharts-sync] uploaded JSON -> s3://${S3_BUCKET}/${jsonKey}`);
+    console.log(`[orgcharts-sync] updated latest -> s3://${S3_BUCKET}/${latestKey}`);
   }
 
   console.log(`[orgcharts-sync] wrote ${deduped.length} candidates (${withHeadshots} with headshot URLs) -> ${outPath}`);
