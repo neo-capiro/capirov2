@@ -84,6 +84,83 @@ ADD COLUMN IF NOT EXISTS "pe_codes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 ALTER TABLE "intelligence_change"
 ADD COLUMN IF NOT EXISTS "related_pe_codes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
+-- Backfill columns on program_element if it was partially created by an
+-- earlier `prisma db push` against an older schema. Each ADD COLUMN IF
+-- NOT EXISTS is a no-op when the column is already present, so it's
+-- safe to run on a clean DB (where CREATE TABLE just made all of them)
+-- as well as on a DB with the older table shape.
+ALTER TABLE "program_element"
+  ADD COLUMN IF NOT EXISTS "service" TEXT,
+  ADD COLUMN IF NOT EXISTS "service_code" TEXT,
+  ADD COLUMN IF NOT EXISTS "appropriation_type" TEXT,
+  ADD COLUMN IF NOT EXISTS "budget_activity" TEXT,
+  ADD COLUMN IF NOT EXISTS "budget_activity_name" TEXT,
+  ADD COLUMN IF NOT EXISTS "line_number" TEXT,
+  ADD COLUMN IF NOT EXISTS "description" TEXT,
+  ADD COLUMN IF NOT EXISTS "acat_level" TEXT,
+  ADD COLUMN IF NOT EXISTS "program_of_record" TEXT,
+  ADD COLUMN IF NOT EXISTS "status" TEXT,
+  ADD COLUMN IF NOT EXISTS "r_doc_url" TEXT,
+  ADD COLUMN IF NOT EXISTS "p_doc_url" TEXT,
+  ADD COLUMN IF NOT EXISTS "o_doc_url" TEXT,
+  ADD COLUMN IF NOT EXISTS "raw_jsonb" JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS "source" TEXT,
+  ADD COLUMN IF NOT EXISTS "source_confidence" DOUBLE PRECISION,
+  ADD COLUMN IF NOT EXISTS "first_seen_fy" INTEGER,
+  ADD COLUMN IF NOT EXISTS "last_synced_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- The CREATE TABLE above declares `source` as NOT NULL, but a fresh
+-- ADD COLUMN against an existing populated table can't enforce NOT NULL
+-- without a default. Tighten it in a separate step that's safe to skip
+-- when the column was just created with the constraint (idempotent).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'program_element' AND column_name = 'source' AND is_nullable = 'YES'
+  ) THEN
+    -- Set a placeholder for any pre-existing rows so we can enforce NOT NULL.
+    UPDATE "program_element" SET "source" = 'unknown' WHERE "source" IS NULL;
+    ALTER TABLE "program_element" ALTER COLUMN "source" SET NOT NULL;
+  END IF;
+END
+$$;
+
+ALTER TABLE "program_element_year"
+  ADD COLUMN IF NOT EXISTS "request" DECIMAL(14,2),
+  ADD COLUMN IF NOT EXISTS "hasc_mark" DECIMAL(14,2),
+  ADD COLUMN IF NOT EXISTS "sasc_mark" DECIMAL(14,2),
+  ADD COLUMN IF NOT EXISTS "hac_d_mark" DECIMAL(14,2),
+  ADD COLUMN IF NOT EXISTS "sac_d_mark" DECIMAL(14,2),
+  ADD COLUMN IF NOT EXISTS "conference" DECIMAL(14,2),
+  ADD COLUMN IF NOT EXISTS "enacted" DECIMAL(14,2),
+  ADD COLUMN IF NOT EXISTS "reprogrammed" DECIMAL(14,2),
+  ADD COLUMN IF NOT EXISTS "executed" DECIMAL(14,2),
+  ADD COLUMN IF NOT EXISTS "notes" TEXT,
+  ADD COLUMN IF NOT EXISTS "r_doc_section" TEXT,
+  ADD COLUMN IF NOT EXISTS "raw_jsonb" JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS "last_synced_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+ALTER TABLE "program_element_milestone"
+  ADD COLUMN IF NOT EXISTS "planned_date" DATE,
+  ADD COLUMN IF NOT EXISTS "actual_date" DATE,
+  ADD COLUMN IF NOT EXISTS "status" TEXT,
+  ADD COLUMN IF NOT EXISTS "source" TEXT,
+  ADD COLUMN IF NOT EXISTS "notes" TEXT,
+  ADD COLUMN IF NOT EXISTS "last_synced_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'program_element_milestone' AND column_name = 'source' AND is_nullable = 'YES'
+  ) THEN
+    UPDATE "program_element_milestone" SET "source" = 'unknown' WHERE "source" IS NULL;
+    ALTER TABLE "program_element_milestone" ALTER COLUMN "source" SET NOT NULL;
+  END IF;
+END
+$$;
+
 -- Indexes (all IF NOT EXISTS)
 CREATE INDEX IF NOT EXISTS "program_element_service_code_idx" ON "program_element"("service_code");
 CREATE INDEX IF NOT EXISTS "program_element_appropriation_type_idx" ON "program_element"("appropriation_type");
