@@ -1159,7 +1159,15 @@ model Strategy {
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  client     Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // Optional in Prisma even though the DB column is NOT NULL. The DB FK +
+  // ON DELETE CASCADE prevent true orphans, but RLS / archived-status
+  // filters in tenant-scoped queries can hide the client row from the
+  // join while still returning the strategy row. Marking the Prisma
+  // relation optional lets `include: { client: ... }` resolve to null
+  // instead of throwing
+  //   "Field client is required to return data, got null instead"
+  // every time someone lists strategies for an archived client.
+  client     Client?            @relation(fields: [clientId], references: [id], onDelete: Cascade)
   capability ClientCapability?  @relation(fields: [capabilityId], references: [id], onDelete: SetNull)
   createdBy  User?              @relation("StrategyCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   targets    StrategyTarget[]

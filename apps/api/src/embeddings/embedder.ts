@@ -124,30 +124,54 @@ export async function embedAndUpsert(
   if (!text || text.length < 10) return 'skipped';
   const hash = sha256(text);
 
+  // Step 1 (no transaction): peek at the stored hash for this row. A simple
+  // SELECT — quick, no lock, no transaction needed. RLS is enforced on
+  // SELECT too, but for global content (NULL tenant) the policy is
+  // permissive so this query runs the same way bypassRls would.
+  const existing = await prisma.$queryRawUnsafe<Array<{ content_hash: string }>>(
+    `SELECT content_hash FROM context_embeddings
+       WHERE source_type = $1 AND source_id = $2 AND model = $3
+         AND (tenant_id = $4::uuid OR ($4 IS NULL AND tenant_id IS NULL))
+       LIMIT 1`,
+    args.sourceType,
+    args.sourceId,
+    EMBEDDING_MODEL,
+    args.tenantId,
+  );
+  if (existing[0]?.content_hash === hash) {
+    return 'skipped';
+  }
+
+  // Step 2 (no transaction): call Bedrock. This is the slow part — typical
+  // p50 ~400ms, p95 ~2s, occasional cold-start spikes past 5s. Used to be
+  // inside the prisma.$transaction below, which caused
+  //   "Transaction already closed: ... however 6220 ms passed since the
+  //    start of the transaction. Consider ... doing less work in the
+  //    transaction."
+  // every time Bedrock took >5s. The default interactive-transaction
+  // timeout is 5000 ms and there's no upside to holding a transaction
+  // open across a network call to an external service.
+  const vector = await embedText(text);
+  const literal = vectorLiteral(vector);
+
+  // Step 3 (short transaction): the write itself. SET LOCAL app.bypass_rls
+  // must run in the same transaction as the write — that's the whole
+  // reason we wrap. Keep this block fast (< 100ms) and free of any
+  // external calls.
   return prisma.$transaction(async (tx) => {
     if (args.bypassRls) {
       await tx.$executeRawUnsafe(`SET LOCAL app.bypass_rls = 'on'`);
     }
-    const existing = await tx.$queryRawUnsafe<Array<{ content_hash: string }>>(
-      `SELECT content_hash FROM context_embeddings
-         WHERE source_type = $1 AND source_id = $2 AND model = $3
-           AND (tenant_id = $4::uuid OR ($4 IS NULL AND tenant_id IS NULL))
-         LIMIT 1`,
-      args.sourceType,
-      args.sourceId,
-      EMBEDDING_MODEL,
-      args.tenantId,
-    );
-    if (existing[0]?.content_hash === hash) {
-      return 'skipped' as const;
-    }
-    const vector = await embedText(text);
-    const literal = vectorLiteral(vector);
     if (existing.length === 0) {
       await tx.$executeRawUnsafe(
         `INSERT INTO context_embeddings
            (tenant_id, client_id, source_type, source_id, model, content_text, content_hash, embedding)
-         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, '${literal}'::vector)`,
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, '${literal}'::vector)
+         ON CONFLICT (tenant_id, source_type, source_id, model)
+           DO UPDATE SET content_text = EXCLUDED.content_text,
+                         content_hash = EXCLUDED.content_hash,
+                         embedding    = EXCLUDED.embedding,
+                         updated_at   = NOW()`,
         args.tenantId,
         args.clientId ?? null,
         args.sourceType,
