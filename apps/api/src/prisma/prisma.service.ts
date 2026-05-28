@@ -38,14 +38,26 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   async withTenant<T>(
     tenantId: string,
     fn: (tx: Prisma.TransactionClient) => Promise<T>,
+    opts?: { timeoutMs?: number },
   ): Promise<T> {
-    return this.$transaction(async (tx) => {
-      // SET LOCAL is bound to the transaction. set_config(..., true) returns
-      // the value, which we discard. Parameter binding via $executeRaw is
-      // safe against injection.
-      await tx.$executeRaw`SELECT set_config('app.current_tenant', ${tenantId}, true)`;
-      return fn(tx);
-    });
+    return this.$transaction(
+      async (tx) => {
+        // SET LOCAL is bound to the transaction. set_config(..., true) returns
+        // the value, which we discard. Parameter binding via $executeRaw is
+        // safe against injection.
+        await tx.$executeRaw`SELECT set_config('app.current_tenant', ${tenantId}, true)`;
+        return fn(tx);
+      },
+      // Prisma's interactive-transaction default is 5000 ms. Most tenant
+      // queries finish in <100 ms, but a few SQL graph helpers (e.g.
+      // kg_walk in intelligence.service.getKnowledgeGraph) can take
+      // several seconds on warm Aurora and were producing
+      //   "Transaction already closed: ... however 8061 ms passed since
+      //    the start of the transaction"
+      // every time the intel tab loaded. Callers can pass a higher
+      // timeoutMs for known-slow paths.
+      opts?.timeoutMs ? { timeout: opts.timeoutMs } : undefined,
+    );
   }
 
   /**

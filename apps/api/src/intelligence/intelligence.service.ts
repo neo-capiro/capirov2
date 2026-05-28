@@ -2561,25 +2561,34 @@ export class IntelligenceService {
         where: { clientId },
         orderBy: { confidence: 'desc' },
       }),
-      this.prisma.withTenant(tenantId, (tx) =>
-        tx.$queryRaw<
-          Array<{
-            depth: number;
-            src_kind: string;
-            src_id: string;
-            dst_kind: string;
-            dst_id: string;
-            edge_type: string;
-            confidence: number | null;
-            source: string | null;
-            observed_at: Date | null;
-            tenant_id: string | null;
-          }>
-        >`
+      // kg_walk is a server-side graph-traversal function that fans out to
+      // depth=2 with LIMIT 500. On warm Aurora it usually finishes in 1-2s
+      // but cold-cache or large graphs push it to 5-8s, which used to blow
+      // past the 5s default $transaction timeout and 500 the entire
+      // /api/intelligence/client-profile-v1/:clientId endpoint. Give this
+      // specific tenant transaction a 30s ceiling.
+      this.prisma.withTenant(
+        tenantId,
+        (tx) =>
+          tx.$queryRaw<
+            Array<{
+              depth: number;
+              src_kind: string;
+              src_id: string;
+              dst_kind: string;
+              dst_id: string;
+              edge_type: string;
+              confidence: number | null;
+              source: string | null;
+              observed_at: Date | null;
+              tenant_id: string | null;
+            }>
+          >`
           SELECT depth, src_kind, src_id, dst_kind, dst_id, edge_type, confidence, source, observed_at, tenant_id
           FROM kg_walk('client', ${clientId}, 2, NULL)
           LIMIT 500
         `,
+        { timeoutMs: 30_000 },
       ),
     ]);
 
