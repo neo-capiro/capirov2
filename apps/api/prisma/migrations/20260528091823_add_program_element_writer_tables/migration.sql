@@ -1,6 +1,9 @@
 -- Migration: add_program_element_writer_tables
 -- Adds writer support tables for quarantine and source-priority provenance.
--- Made idempotent — see sibling migration 20260528085651 for rationale.
+-- Same db-push cleanup rationale as 20260528085651 — drop stale shapes,
+-- recreate fresh.
+DROP TABLE IF EXISTS "program_element_year_source_value" CASCADE;
+DROP TABLE IF EXISTS "program_element_quarantine" CASCADE;
 
 CREATE TABLE IF NOT EXISTS "program_element_quarantine" (
   "id" UUID NOT NULL,

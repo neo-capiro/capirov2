@@ -1,5 +1,6 @@
 -- Migration: add_program_element_watch
--- Per-user PE watch list. Idempotent for safe re-runs.
+-- Per-user PE watch list. Same db-push cleanup as siblings.
+DROP TABLE IF EXISTS "program_element_watch" CASCADE;
 
 CREATE TABLE IF NOT EXISTS "program_element_watch" (
   "id" UUID NOT NULL DEFAULT gen_random_uuid(),

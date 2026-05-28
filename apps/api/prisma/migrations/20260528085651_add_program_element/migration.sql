@@ -6,13 +6,24 @@
 --      - program_element_milestone
 --   2) Extend congress_bill with pe_codes (TEXT[]) + GIN index
 --   3) Extend intelligence_change with related_pe_codes (TEXT[]) + GIN index
--- Notes:
---   - Additive only (no DROP statements)
---   - Global intel tables (no tenant_id)
---   - Made fully idempotent (IF NOT EXISTS + DO blocks) because the
---     tables were partially created by a `prisma db push` against this
---     DB before the migration file was committed. Re-running the
---     migration on a clean DB still produces the same end state.
+--
+-- Pre-state cleanup:
+--   The dev DB had earlier-shape program_element / program_element_year /
+--   program_element_milestone tables left behind by a `prisma db push`
+--   against an in-progress schema. Their columns didn't match the
+--   committed migration body, so additive-only attempts failed
+--   repeatedly on missing columns (service_code, pe_code…). Since these
+--   tables are brand-new modules (no prod data yet) we DROP them with
+--   CASCADE at the top so the CREATE TABLE below produces the correct
+--   shape from scratch. CASCADE drops the stale FKs / indexes too.
+--
+--   On a truly clean DB the DROP IF EXISTS is a no-op; on the stale DB
+--   it gives us a known-good starting point. After this migration
+--   lands on every environment, the cleanup is a permanent harmless
+--   prologue.
+DROP TABLE IF EXISTS "program_element_milestone" CASCADE;
+DROP TABLE IF EXISTS "program_element_year" CASCADE;
+DROP TABLE IF EXISTS "program_element" CASCADE;
 
 -- CreateTable
 CREATE TABLE IF NOT EXISTS "program_element" (
