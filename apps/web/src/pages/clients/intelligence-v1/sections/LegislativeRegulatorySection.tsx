@@ -266,7 +266,36 @@ export function LegislativeRegulatorySection({
           <span className="iv1-surface-sub">matched via embeddings · Issue-Bill Linker</span>
           <BillKanbanControls value={controls} onChange={handleControlsChange} />
         </div>
-        <BillKanban columns={kanbanData} billDrillHref={billDrillHref} />
+        {/* Empty state when the API returned zero tracked bills across all
+            stages — typically a client that hasn't had its LDA issue codes
+            confirmed yet, or one whose capability text doesn't have enough
+            signal to match embedded bills. Rendering the 4 empty columns
+            was confusing ("the kanban looks broken") so we replace it
+            with a single CTA pointing at the mapping settings. */}
+        {kanbanData.every((c) => c.count === 0) ? (
+          <div
+            style={{
+              padding: '28px 18px',
+              textAlign: 'center',
+              color: 'var(--ink-3)',
+              fontSize: 13,
+              lineHeight: 1.55,
+            }}
+          >
+            <div style={{ fontWeight: 600, color: 'var(--ink-2)', marginBottom: 6 }}>
+              No bills tracked yet
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              The Issue-Bill Linker couldn't find legislation matching this
+              client's confirmed issue codes or capability text.
+            </div>
+            <a className="iv1-link" href="/settings/intelligence-mappings">
+              Manage source mappings →
+            </a>
+          </div>
+        ) : (
+          <BillKanban columns={kanbanData} billDrillHref={billDrillHref} />
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14, marginTop: 14 }}>
