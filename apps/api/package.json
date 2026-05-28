@@ -40,8 +40,8 @@
     "sync:dod-orgcharts": "tsx scripts/sync-dod-orgcharts.ts",
     "sync:dod-press-personnel": "tsx scripts/sync-dod-press-personnel.ts",
     "seed:program-element": "tsx scripts/seed-program-element-fixtures.ts",
+    "recompute:conference-probability": "tsx scripts/recompute-conference-probability.ts",
     "sync:all": "tsx scripts/sync-congress.ts && tsx scripts/sync-sec-edgar.ts && tsx scripts/sync-fara.ts && tsx scripts/sync-bls.ts && tsx scripts/sync-census.ts && tsx scripts/sync-govinfo-reports.ts && tsx scripts/sync-committee-reports.ts && tsx scripts/sync-hearings.ts && tsx scripts/sync-rss-intel.ts",
-
     "embed:backfill": "tsx scripts/embed-backfill.ts"
   },
   "dependencies": {
@@ -67,6 +67,7 @@
     "pg": "^8.13.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "simple-statistics": "^7.8.8",
     "svix": "^1.36.0",
     "tsx": "^4.19.1",
     "zod": "^3.23.8"
