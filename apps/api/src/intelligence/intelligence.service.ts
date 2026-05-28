@@ -262,6 +262,7 @@ export class IntelligenceService {
       threads,
       doneTasks,
       debriefs,
+      outreachRows,
       mappingRows,
     ] = await Promise.all([
       this.getClientProfile(clientId, tenantId),
@@ -312,6 +313,17 @@ export class IntelligenceService {
           orderBy: { createdAt: 'asc' },
         }),
       ),
+      // Outreach sent per day — feeds the 5th Activity row in the snapshot
+      // panel (Meetings / Outreach sent / Tasks done / Bills tracked /
+      // Critical alerts). Mockup spec requires this row; previously only
+      // surfaced as an aggregate inside computeEngagementHealth.
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.outreachRecord.findMany({
+          where: { clientId, sentAt: { gte: day14 } },
+          select: { sentAt: true },
+          orderBy: { sentAt: 'asc' },
+        }),
+      ),
       mappingRowsPromise,
     ]);
 
@@ -321,11 +333,21 @@ export class IntelligenceService {
     const sourceCount = confirmedSources.size;
     const unresolvedMappings = mappingRows.filter((m) => !m.confirmed).length;
 
-    const byDay = new Map<string, { date: string; meetings: number; emails: number; tasks: number; debriefs: number }>();
+    const byDay = new Map<
+      string,
+      {
+        date: string;
+        meetings: number;
+        emails: number;
+        tasks: number;
+        debriefs: number;
+        outreach: number;
+      }
+    >();
     for (let i = 13; i >= 0; i -= 1) {
       const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
       const key = d.toISOString().slice(0, 10);
-      byDay.set(key, { date: key, meetings: 0, emails: 0, tasks: 0, debriefs: 0 });
+      byDay.set(key, { date: key, meetings: 0, emails: 0, tasks: 0, debriefs: 0, outreach: 0 });
     }
     for (const row of meetings) {
       const key = row.startsAt.toISOString().slice(0, 10);
@@ -347,6 +369,12 @@ export class IntelligenceService {
       const key = row.createdAt.toISOString().slice(0, 10);
       const slot = byDay.get(key);
       if (slot) slot.debriefs += 1;
+    }
+    for (const row of outreachRows) {
+      if (!row.sentAt) continue;
+      const key = row.sentAt.toISOString().slice(0, 10);
+      const slot = byDay.get(key);
+      if (slot) slot.outreach += 1;
     }
 
     const severityRank = (severity: string): number => {

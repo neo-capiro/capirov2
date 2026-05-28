@@ -130,7 +130,17 @@ export interface ClientProfileV1 {
         eventCount: number;
         ctaHref?: string;
       } | null;
-      activity14d: Array<{ date: string; meetings: number; emails: number; tasks: number; debriefs: number }>;
+      activity14d: Array<{
+        date: string;
+        meetings: number;
+        emails: number;
+        tasks: number;
+        debriefs: number;
+        // Optional for backward compatibility — older API responses did
+        // not include outreach in the daily breakdown. SnapshotSection
+        // treats `undefined` as 0 when summing.
+        outreach?: number;
+      }>;
       changes7dCount: number;
     };
     financialFootprint: {

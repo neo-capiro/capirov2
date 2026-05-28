@@ -121,10 +121,22 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
   const trajectory = trajectorySection?.label ?? profile?.lobbyIntel?.trajectory ?? null;
   const activityRows = aggregate?.sections.snapshot.activity14d ?? null;
   const activityMeetings = activityRows ? activityRows.reduce((sum, d) => sum + d.meetings, 0) : meetings.length;
+  // Aggregate the 14-day breakdown into 5 totals the mockup specifies:
+  // Meetings / Outreach sent / Tasks done / Bills tracked / Critical alerts.
+  // `outreach` is optional on the row type (older API responses didn't
+  // include it); treat undefined as 0.
+  const activityOutreach = activityRows
+    ? activityRows.reduce((sum, d) => sum + (d.outreach ?? 0), 0)
+    : 0;
+  const activityTasks = activityRows
+    ? activityRows.reduce((sum, d) => sum + d.tasks, 0)
+    : 0;
+  // Bars are scaled to the largest single category so the visual emphasis
+  // is "which kind of activity dominates", not the absolute totals.
   const activityMax = Math.max(
-    activityRows
-      ? activityRows.reduce((sum, d) => sum + d.meetings + d.emails + d.tasks + d.debriefs, 0)
-      : meetings.length,
+    activityMeetings,
+    activityOutreach,
+    activityTasks,
     trackedTotal,
     criticalAlerts.length,
     1,
@@ -202,9 +214,21 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
               criticalIfZero
             />
             <ActivityBar
+              label="Outreach sent"
+              value={activityOutreach}
+              max={activityMax}
+              color={activityOutreach === 0 ? 'var(--ink-4)' : 'var(--info)'}
+            />
+            <ActivityBar
+              label="Tasks done"
+              value={activityTasks}
+              max={activityMax}
+              color={activityTasks === 0 ? 'var(--ink-4)' : 'var(--success)'}
+            />
+            <ActivityBar
               label="Bills tracked"
               value={trackedTotal}
-              max={Math.max(trackedTotal, 1)}
+              max={Math.max(trackedTotal, activityMax, 1)}
               color="var(--info)"
             />
             <ActivityBar
