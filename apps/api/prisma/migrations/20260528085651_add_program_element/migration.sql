@@ -9,9 +9,13 @@
 -- Notes:
 --   - Additive only (no DROP statements)
 --   - Global intel tables (no tenant_id)
+--   - Made fully idempotent (IF NOT EXISTS + DO blocks) because the
+--     tables were partially created by a `prisma db push` against this
+--     DB before the migration file was committed. Re-running the
+--     migration on a clean DB still produces the same end state.
 
 -- CreateTable
-CREATE TABLE "program_element" (
+CREATE TABLE IF NOT EXISTS "program_element" (
     "pe_code" VARCHAR(8) NOT NULL,
     "service" TEXT,
     "service_code" TEXT,
@@ -37,7 +41,7 @@ CREATE TABLE "program_element" (
 );
 
 -- CreateTable
-CREATE TABLE "program_element_year" (
+CREATE TABLE IF NOT EXISTS "program_element_year" (
     "id" UUID NOT NULL,
     "pe_code" VARCHAR(8) NOT NULL,
     "fy" INTEGER NOT NULL,
@@ -59,7 +63,7 @@ CREATE TABLE "program_element_year" (
 );
 
 -- CreateTable
-CREATE TABLE "program_element_milestone" (
+CREATE TABLE IF NOT EXISTS "program_element_milestone" (
     "id" UUID NOT NULL,
     "pe_code" VARCHAR(8) NOT NULL,
     "milestone_type" TEXT NOT NULL,
@@ -73,49 +77,50 @@ CREATE TABLE "program_element_milestone" (
     CONSTRAINT "program_element_milestone_pkey" PRIMARY KEY ("id")
 );
 
--- AlterTable
+-- AlterTable (idempotent column adds)
 ALTER TABLE "congress_bill"
-ADD COLUMN "pe_codes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+ADD COLUMN IF NOT EXISTS "pe_codes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
--- AlterTable
 ALTER TABLE "intelligence_change"
-ADD COLUMN "related_pe_codes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+ADD COLUMN IF NOT EXISTS "related_pe_codes" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
 
--- CreateIndex
-CREATE INDEX "program_element_service_code_idx" ON "program_element"("service_code");
+-- Indexes (all IF NOT EXISTS)
+CREATE INDEX IF NOT EXISTS "program_element_service_code_idx" ON "program_element"("service_code");
+CREATE INDEX IF NOT EXISTS "program_element_appropriation_type_idx" ON "program_element"("appropriation_type");
+CREATE INDEX IF NOT EXISTS "program_element_status_idx" ON "program_element"("status");
+CREATE INDEX IF NOT EXISTS "program_element_year_fy_idx" ON "program_element_year"("fy");
+CREATE UNIQUE INDEX IF NOT EXISTS "program_element_year_pe_code_fy_key" ON "program_element_year"("pe_code", "fy");
+CREATE INDEX IF NOT EXISTS "program_element_milestone_status_idx" ON "program_element_milestone"("status");
+CREATE UNIQUE INDEX IF NOT EXISTS "program_element_milestone_pe_code_type_key" ON "program_element_milestone"("pe_code", "milestone_type");
+CREATE INDEX IF NOT EXISTS "congress_bill_pe_codes_gin_idx" ON "congress_bill" USING GIN ("pe_codes");
+CREATE INDEX IF NOT EXISTS "intelligence_change_pe_codes_gin_idx" ON "intelligence_change" USING GIN ("related_pe_codes");
 
--- CreateIndex
-CREATE INDEX "program_element_appropriation_type_idx" ON "program_element"("appropriation_type");
+-- Foreign keys (Postgres has no IF NOT EXISTS on ADD CONSTRAINT; wrap in
+-- DO blocks that check pg_constraint first and skip if already there).
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'program_element_year_pe_code_fkey'
+    ) THEN
+        ALTER TABLE "program_element_year"
+        ADD CONSTRAINT "program_element_year_pe_code_fkey"
+        FOREIGN KEY ("pe_code") REFERENCES "program_element"("pe_code")
+        ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END
+$$;
 
--- CreateIndex
-CREATE INDEX "program_element_status_idx" ON "program_element"("status");
-
--- CreateIndex
-CREATE INDEX "program_element_year_fy_idx" ON "program_element_year"("fy");
-
--- CreateIndex
-CREATE UNIQUE INDEX "program_element_year_pe_code_fy_key" ON "program_element_year"("pe_code", "fy");
-
--- CreateIndex
-CREATE INDEX "program_element_milestone_status_idx" ON "program_element_milestone"("status");
-
--- CreateIndex
-CREATE UNIQUE INDEX "program_element_milestone_pe_code_type_key" ON "program_element_milestone"("pe_code", "milestone_type");
-
--- CreateIndex
-CREATE INDEX "congress_bill_pe_codes_gin_idx" ON "congress_bill" USING GIN ("pe_codes");
-
--- CreateIndex
-CREATE INDEX "intelligence_change_pe_codes_gin_idx" ON "intelligence_change" USING GIN ("related_pe_codes");
-
--- AddForeignKey
-ALTER TABLE "program_element_year"
-ADD CONSTRAINT "program_element_year_pe_code_fkey"
-FOREIGN KEY ("pe_code") REFERENCES "program_element"("pe_code")
-ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "program_element_milestone"
-ADD CONSTRAINT "program_element_milestone_pe_code_fkey"
-FOREIGN KEY ("pe_code") REFERENCES "program_element"("pe_code")
-ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+        WHERE conname = 'program_element_milestone_pe_code_fkey'
+    ) THEN
+        ALTER TABLE "program_element_milestone"
+        ADD CONSTRAINT "program_element_milestone_pe_code_fkey"
+        FOREIGN KEY ("pe_code") REFERENCES "program_element"("pe_code")
+        ON DELETE CASCADE ON UPDATE CASCADE;
+    END IF;
+END
+$$;
