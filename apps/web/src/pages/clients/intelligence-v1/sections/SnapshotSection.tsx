@@ -257,12 +257,31 @@ function HealthGauge({ score }: { score: number | null }) {
   const pct = score ?? 0;
   const color =
     pct < 30 ? 'var(--critical)' : pct < 70 ? 'var(--notable)' : 'var(--success)';
-  // CSS-only semi-circle gauge (no canvas/chart dep)
+  // CSS-only semi-circle gauge (no canvas/chart dep).
+  //
+  // Geometry: two 70x70 circles stacked, each clipped to its top half by
+  // clipPath. The filled circle is rotated around its bottom-center so the
+  // colored half-ring sweeps from left (0%) to right (100%). The wrapper
+  // is 70x35 (just the visible semi-circle).
+  //
+  // Bug previously fixed here: at score=0 the filled circle rotates -180°,
+  // which moves the still-clipped visible half down BELOW the 35px wrapper.
+  // Without overflow:hidden the rotated arc bled out into whatever sat
+  // below (Top Alerts panel), rendering as a stray red half-circle. The
+  // overflow rule now clips the gauge to its own box.
   const deg = Math.round((pct / 100) * 180) - 180;
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-      <div style={{ position: 'relative', width: 70, height: 35, flexShrink: 0 }}>
+      <div
+        style={{
+          position: 'relative',
+          width: 70,
+          height: 35,
+          flexShrink: 0,
+          overflow: 'hidden',
+        }}
+      >
         {/* Background track */}
         <div
           style={{
@@ -274,20 +293,23 @@ function HealthGauge({ score }: { score: number | null }) {
             clipPath: 'inset(0 0 50% 0)',
           }}
         />
-        {/* Filled arc */}
-        <div
-          style={{
-            position: 'absolute',
-            width: 70, height: 70,
-            borderRadius: '50%',
-            border: `7px solid ${color}`,
-            top: 0, left: 0,
-            clipPath: 'inset(0 0 50% 0)',
-            transform: `rotate(${deg}deg)`,
-            transformOrigin: '50% 100%',
-            transition: 'transform 0.6s ease',
-          }}
-        />
+        {/* Filled arc — only render when score > 0 so a perfect 0 doesn't
+            even try to draw the rotated overflow that the wrapper now clips. */}
+        {pct > 0 && (
+          <div
+            style={{
+              position: 'absolute',
+              width: 70, height: 70,
+              borderRadius: '50%',
+              border: `7px solid ${color}`,
+              top: 0, left: 0,
+              clipPath: 'inset(0 0 50% 0)',
+              transform: `rotate(${deg}deg)`,
+              transformOrigin: '50% 100%',
+              transition: 'transform 0.6s ease',
+            }}
+          />
+        )}
       </div>
       <div>
         <div
