@@ -126,7 +126,13 @@ BEGIN
 END
 $$;
 
+-- Backfill the FK + indexed columns on program_element_year. pe_code +
+-- fy are NOT NULL in the schema but ADD COLUMN against a populated
+-- table can't enforce NOT NULL without a default — we set NOT NULL in
+-- a DO block below, gated on "currently nullable".
 ALTER TABLE "program_element_year"
+  ADD COLUMN IF NOT EXISTS "pe_code" VARCHAR(8),
+  ADD COLUMN IF NOT EXISTS "fy" INTEGER,
   ADD COLUMN IF NOT EXISTS "request" DECIMAL(14,2),
   ADD COLUMN IF NOT EXISTS "hasc_mark" DECIMAL(14,2),
   ADD COLUMN IF NOT EXISTS "sasc_mark" DECIMAL(14,2),
@@ -142,6 +148,8 @@ ALTER TABLE "program_element_year"
   ADD COLUMN IF NOT EXISTS "last_synced_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 
 ALTER TABLE "program_element_milestone"
+  ADD COLUMN IF NOT EXISTS "pe_code" VARCHAR(8),
+  ADD COLUMN IF NOT EXISTS "milestone_type" TEXT,
   ADD COLUMN IF NOT EXISTS "planned_date" DATE,
   ADD COLUMN IF NOT EXISTS "actual_date" DATE,
   ADD COLUMN IF NOT EXISTS "status" TEXT,
@@ -157,6 +165,43 @@ BEGIN
   ) THEN
     UPDATE "program_element_milestone" SET "source" = 'unknown' WHERE "source" IS NULL;
     ALTER TABLE "program_element_milestone" ALTER COLUMN "source" SET NOT NULL;
+  END IF;
+END
+$$;
+
+-- Tighten the FK + key columns to NOT NULL on previously-stale tables.
+-- These columns were added nullable (above) so existing rows are
+-- compatible; on a clean DB CREATE TABLE made them NOT NULL already
+-- and the DO blocks skip via the is_nullable check.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'program_element_year' AND column_name = 'pe_code' AND is_nullable = 'YES'
+  ) THEN
+    DELETE FROM "program_element_year" WHERE "pe_code" IS NULL;
+    ALTER TABLE "program_element_year" ALTER COLUMN "pe_code" SET NOT NULL;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'program_element_year' AND column_name = 'fy' AND is_nullable = 'YES'
+  ) THEN
+    DELETE FROM "program_element_year" WHERE "fy" IS NULL;
+    ALTER TABLE "program_element_year" ALTER COLUMN "fy" SET NOT NULL;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'program_element_milestone' AND column_name = 'pe_code' AND is_nullable = 'YES'
+  ) THEN
+    DELETE FROM "program_element_milestone" WHERE "pe_code" IS NULL;
+    ALTER TABLE "program_element_milestone" ALTER COLUMN "pe_code" SET NOT NULL;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'program_element_milestone' AND column_name = 'milestone_type' AND is_nullable = 'YES'
+  ) THEN
+    DELETE FROM "program_element_milestone" WHERE "milestone_type" IS NULL;
+    ALTER TABLE "program_element_milestone" ALTER COLUMN "milestone_type" SET NOT NULL;
   END IF;
 END
 $$;
