@@ -4,6 +4,7 @@ import {
   LinkOutlined,
   MoreOutlined,
   PlusOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import {
   hasAtLeast,
@@ -28,6 +29,7 @@ import {
 } from 'antd';
 import { useApi } from '../../lib/use-api.js';
 import { useMe } from '../../lib/me.js';
+import { BulkImportClientsModal } from './BulkImportClientsModal.js';
 import { ClientFormModal } from './ClientFormModal.js';
 import { ClientProfilePage } from './ClientProfilePage.js';
 import type { Client, ClientFormSubmit } from './clientTypes.js';
@@ -46,6 +48,7 @@ export function ClientWorkspacePage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [filters, setFilters] = useState<ClientFilterState>({ sectors: [], requestTypes: [] });
 
   const canCreateClients = Boolean(me.data && hasAtLeast(me.data.role, 'standard_user'));
@@ -361,6 +364,13 @@ export function ClientWorkspacePage() {
               </Button>
             </Popover>
             <Button
+              icon={<UploadOutlined />}
+              disabled={!canCreateClients}
+              onClick={() => setBulkImportOpen(true)}
+            >
+              Import CSV
+            </Button>
+            <Button
               type="primary"
               icon={<PlusOutlined />}
               disabled={!canCreateClients}
@@ -435,6 +445,11 @@ export function ClientWorkspacePage() {
           }
           createClient.mutate(submission);
         }}
+      />
+
+      <BulkImportClientsModal
+        open={bulkImportOpen}
+        onClose={() => setBulkImportOpen(false)}
       />
     </>
   );

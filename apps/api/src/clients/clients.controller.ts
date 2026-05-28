@@ -1,5 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsEmail,
   IsIn,
@@ -12,7 +14,9 @@ import {
   Max,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
@@ -69,6 +73,18 @@ class CreateClientDto {
   @IsOptional()
   @IsString()
   profileStatus?: string;
+}
+
+class BulkImportClientsDto {
+  // 500 cap is a sanity bound — most CSV imports we expect are <50 rows.
+  // class-validator's array limits guard against accidental gigabyte
+  // pastes that would otherwise OOM the per-tenant transaction.
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => CreateClientDto)
+  rows!: CreateClientDto[];
 }
 
 class UpdateClientDto {
@@ -183,6 +199,15 @@ export class ClientsController {
   @Post()
   create(@CurrentTenant() ctx: TenantContext, @Body() body: CreateClientDto) {
     return this.service.create(ctx, body);
+  }
+
+  // Bulk CSV import. The frontend parses the CSV client-side and POSTs the
+  // already-typed row array — keeping multipart out of this controller.
+  // Per-row errors are returned in the response (NOT thrown) so a single
+  // bad row doesn't abort the whole import; the UI surfaces them inline.
+  @Post('bulk-import')
+  bulkImport(@CurrentTenant() ctx: TenantContext, @Body() body: BulkImportClientsDto) {
+    return this.service.bulkImport(ctx, body.rows);
   }
 
   @Put(':id')
