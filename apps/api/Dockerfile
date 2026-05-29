@@ -81,9 +81,12 @@ COPY --chown=capiro:capiro --from=build /workspace/apps/api/dist /app/apps/api/d
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/node_modules /app/apps/api/node_modules
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/prisma /app/apps/api/prisma
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/package.json /app/apps/api/package.json
-# bootstrap-* commands run TS scripts via tsx at task launch, copy the
-# sources so `node tsx scripts/<name>.ts` resolves at runtime.
+# bootstrap-*, sync-* and emit-* commands run TS scripts via tsx at task
+# launch. Copy both the scripts AND the app `src/` they import from (e.g.
+# sync-congress imports ../src/embeddings/embedder.js) so `tsx scripts/<name>.ts`
+# resolves at runtime — the compiled dist/ alone does not satisfy those imports.
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/scripts /app/apps/api/scripts
+COPY --chown=capiro:capiro --from=build /workspace/apps/api/src /app/apps/api/src
 COPY --chown=capiro:capiro apps/api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
