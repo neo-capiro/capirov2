@@ -69,15 +69,22 @@ function asStringArray(v: unknown): string[] {
 }
 
 async function main() {
-  // latestActionDate is a DATE column; look back ~2 days to absorb weekend/lag.
-  const lookbackDays = 2;
-  const sinceDate = new Date();
+  // Anchor the recency window to the freshest action date actually present in
+  // the data, not the wall clock. In real-time prod the newest action date is
+  // ~today, so this behaves like a normal "last N days" window; if the system
+  // clock runs ahead of the latest available Congress.gov data, anchoring to
+  // the data still surfaces the genuinely most-recent bill movements.
+  const lookbackDays = 7;
+  const maxAgg = await prisma.congressBill.aggregate({ _max: { latestActionDate: true } });
+  const anchorDate = maxAgg._max.latestActionDate ?? new Date();
+  const sinceDate = new Date(anchorDate);
   sinceDate.setDate(sinceDate.getDate() - lookbackDays);
   sinceDate.setHours(0, 0, 0, 0);
   const dedupeSince = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
 
   console.log(
-    `[emit-bill-alerts] scanning bills with action since ${sinceDate.toISOString().slice(0, 10)}`,
+    `[emit-bill-alerts] anchor=${anchorDate.toISOString().slice(0, 10)} ` +
+      `scanning bills with action since ${sinceDate.toISOString().slice(0, 10)}`,
   );
 
   const bills = await prisma.congressBill.findMany({
