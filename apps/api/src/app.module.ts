@@ -29,11 +29,13 @@ import { IntelligenceModule } from './intelligence/intelligence.module.js';
 import { ExplorerModule } from './explorer/explorer.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { ProgramElementModule } from './program-element/program-element.module.js';
+import { AcquisitionPersonnelModule } from './acquisition-personnel/acquisition-personnel.module.js';
 import { ApiLatencyMiddleware } from './observability/api-latency.middleware.js';
 
 @Module({
   imports: [
     ProgramElementModule,
+    AcquisitionPersonnelModule,
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
