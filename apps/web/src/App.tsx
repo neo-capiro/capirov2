@@ -89,19 +89,20 @@ export function App() {
             </Suspense>
           }
         />
-        <Route
-          path="/program-elements/:peCode"
-          element={
-            <Suspense fallback={<PlaceholderPage title="Loading program element" description="Please wait..." />}>
-              <ProgramElementWatchPage />
-            </Suspense>
-          }
-        />
+        {/* Static segment must precede the dynamic :peCode route. */}
         <Route
           path="/program-elements/mark-up-monitor"
           element={
             <Suspense fallback={<PlaceholderPage title="Loading mark-up monitor" description="Please wait..." />}>
               <MarkupMonitorPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/program-elements/:peCode"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading program element" description="Please wait..." />}>
+              <ProgramElementWatchPage />
             </Suspense>
           }
         />
