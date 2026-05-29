@@ -12,6 +12,7 @@ import {
   Pagination,
   Popover,
   Row,
+  Segmented,
   Space,
   Spin,
   Tabs,
@@ -20,7 +21,6 @@ import {
   type MenuProps,
 } from 'antd';
 import {
-  BankOutlined,
   CopyOutlined,
   CheckOutlined,
   DownOutlined,
@@ -40,6 +40,8 @@ import {
   type DirectoryApiResponse,
   type DirectoryContactNote,
   type DirectoryEntry,
+  type DirectoryStaffer,
+  type DirectoryStaffersResponse,
   type Party,
 } from './directoryData.js';
 
@@ -164,6 +166,8 @@ export function DirectoryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [searchText, setSearchText] = useState('');
+  const [mode, setMode] = useState<'members' | 'staffers'>('members');
+  const [stafferPage, setStafferPage] = useState(1);
   const [query, setQuery] = useState('');
   const [freshman, setFreshman] = useState<FreshmanFilter>('All');
   const [chamber, setChamber] = useState<ChamberFilter[]>([]);
@@ -183,6 +187,7 @@ export function DirectoryPage() {
     const handle = window.setTimeout(() => {
       setQuery(searchText);
       setPage(1);
+      setStafferPage(1);
     }, SEARCH_DEBOUNCE_MS);
 
     return () => window.clearTimeout(handle);
@@ -231,6 +236,30 @@ export function DirectoryPage() {
     retry: 1,
   });
 
+  const staffersQuery = useQuery({
+    queryKey: ['directory-staffers', query, chamber, state, stafferPage],
+    queryFn: async () =>
+      (
+        await api.get<DirectoryStaffersResponse>('/api/directory/staffers', {
+          params: {
+            q: query || undefined,
+            chamber: chamber.length === 1 ? chamber[0] : undefined,
+            state: state.length ? state : undefined,
+            page: stafferPage,
+            pageSize: PAGE_SIZE,
+          },
+        })
+      ).data,
+    enabled: mode === 'staffers',
+    staleTime: 5 * 60_000,
+    placeholderData: (previous) => previous,
+    retry: 1,
+  });
+  const staffers = staffersQuery.data?.staffers ?? [];
+  const stafferTotal = staffersQuery.data?.total ?? 0;
+  const stafferPageCurrent = staffersQuery.data?.page ?? stafferPage;
+  const staffersLoading = staffersQuery.isLoading && !staffersQuery.data;
+
   const entries = directoryQuery.data?.contacts ?? [];
   const totalFiltered = directoryQuery.data?.total ?? 0;
   const currentPage = directoryQuery.data?.page ?? page;
@@ -241,6 +270,7 @@ export function DirectoryPage() {
       house: 0,
       senate: 0,
       governors: 0,
+      staff: 0,
     } as const);
   const availableFilters = directoryQuery.data?.availableFilters;
   const hasSearch = Boolean(searchText.trim() || query.trim());
@@ -529,6 +559,24 @@ export function DirectoryPage() {
         />
       </div>
 
+      <div style={{ marginBottom: 10 }}>
+        <Segmented
+          value={mode}
+          disabled={initialLoading}
+          onChange={(value) => setMode(value as 'members' | 'staffers')}
+          options={[
+            {
+              label: `Members${totals.all ? ` · ${totals.all.toLocaleString()}` : ''}`,
+              value: 'members',
+            },
+            {
+              label: `Staffers${totals.staff ? ` · ${totals.staff.toLocaleString()}` : ''}`,
+              value: 'staffers',
+            },
+          ]}
+        />
+      </div>
+
       <div className="directory-search-row">
         <Input
           allowClear
@@ -542,15 +590,35 @@ export function DirectoryPage() {
           onPressEnter={() => {
             setQuery(searchText);
             setPage(1);
+            setStafferPage(1);
           }}
-          placeholder="Search by name, office, committee, staff, phone, or email"
+          placeholder={
+            mode === 'staffers'
+              ? 'Search staffers by name, title, role, issue area, or member'
+              : 'Search by name, office, committee, staff, phone, or email'
+          }
         />
         <Typography.Text className="directory-result-count" type="secondary">
-          {resultCountText(totalFiltered, currentPage)}
+          {mode === 'staffers'
+            ? resultCountText(stafferTotal, stafferPageCurrent)
+            : resultCountText(totalFiltered, currentPage)}
         </Typography.Text>
       </div>
 
-      {initialLoading ? (
+      {mode === 'staffers' ? (
+        <StafferResults
+          staffers={staffers}
+          loading={staffersLoading}
+          fetching={staffersQuery.isFetching}
+          total={stafferTotal}
+          page={stafferPageCurrent}
+          isError={staffersQuery.isError}
+          onPage={setStafferPage}
+          onClear={clearSearch}
+          onCopy={copyContact}
+          onRetry={() => staffersQuery.refetch()}
+        />
+      ) : initialLoading ? (
         <DirectoryLoadingState />
       ) : directoryUnavailable ? (
         <DirectoryEmptyState
@@ -921,7 +989,7 @@ function DirectoryStatsRow({
   }> = [
     { label: 'All Members', value: totals.all, tone: 'accent', icon: <TeamOutlined /> },
     { label: 'House', value: totals.house, tone: 'info', icon: <HomeOutlined /> },
-    { label: 'Senate', value: totals.senate, tone: 'notable', icon: <BankOutlined /> },
+    { label: 'Staff', value: totals.staff, tone: 'notable', icon: <TeamOutlined /> },
     { label: 'Governors', value: totals.governors, tone: 'muted', icon: <UserOutlined /> },
   ];
 
@@ -1178,6 +1246,146 @@ function DirectoryMemberCard({
       <div className="dir-committee directory-card-meta">
         {(entry.leadershipPositions[0] || entry.committees[0] || entry.focusAreas[0]) ??
           'No Policy Coverage Listed'}
+      </div>
+    </article>
+  );
+}
+
+function StafferResults({
+  staffers,
+  loading,
+  fetching,
+  total,
+  page,
+  isError,
+  onPage,
+  onClear,
+  onCopy,
+  onRetry,
+}: {
+  staffers: DirectoryStaffer[];
+  loading: boolean;
+  fetching: boolean;
+  total: number;
+  page: number;
+  isError: boolean;
+  onPage: (next: number) => void;
+  onClear: () => void;
+  onCopy: (value: string, label: string) => Promise<void>;
+  onRetry: () => void;
+}) {
+  if (loading) return <DirectoryLoadingState />;
+  if (isError) {
+    return (
+      <DirectoryEmptyState
+        heading="Staffers Unavailable"
+        subtext="We couldn't load staffers. Please try again."
+        actionLabel="Retry"
+        onAction={onRetry}
+      />
+    );
+  }
+  if (staffers.length === 0) {
+    return (
+      <DirectoryEmptyState
+        heading="No Staffers Found"
+        subtext="Try a different name, title, role, or issue area."
+        actionLabel="Clear Search"
+        onAction={onClear}
+      />
+    );
+  }
+  return (
+    <>
+      {fetching ? (
+        <div className="directory-grid-loading" aria-hidden="true">
+          <Spin size="small" />
+        </div>
+      ) : null}
+      <div className="directory-card-grid">
+        {staffers.map((staffer) => (
+          <StafferCard key={`${staffer.id}-${staffer.member.id}`} staffer={staffer} onCopy={onCopy} />
+        ))}
+      </div>
+      {total > PAGE_SIZE ? (
+        <div className="directory-pagination">
+          <Pagination
+            current={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            onChange={onPage}
+            showSizeChanger={false}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function StafferCard({
+  staffer,
+  onCopy,
+}: {
+  staffer: DirectoryStaffer;
+  onCopy: (value: string, label: string) => Promise<void>;
+}) {
+  const member = staffer.member;
+  const partyShort = partyShortCode(member.party);
+  const stateCode = member.district || member.state;
+  const tags = [...staffer.roles.slice(0, 2), ...staffer.issueAreas.slice(0, 2)].filter(Boolean);
+  return (
+    <article className="dir-card directory-person-card">
+      <div className="dir-card-top">
+        <div className="dir-card-avatar">
+          <span>{initials(staffer.fullName)}</span>
+        </div>
+        <div className="dir-card-title">
+          <div className="dir-card-name">{staffer.fullName}</div>
+          <div className="dir-card-role">{staffer.title || 'Staff'}</div>
+        </div>
+      </div>
+
+      <div>
+        <div className="dir-card-office">Works for {member.fullName}</div>
+        <div className="dir-card-meta">
+          <span>{member.chamber}</span>
+          {partyShort ? (
+            <>
+              <span className="dir-sep">·</span>
+              <span className={`party-pill ${partyShort.toLowerCase()}`} title={partyLabel(member.party)}>
+                {partyShort}
+              </span>
+            </>
+          ) : null}
+          {stateCode ? (
+            <>
+              <span className="dir-sep">·</span>
+              <span className="state-pill num">{stateCode}</span>
+            </>
+          ) : null}
+        </div>
+        {tags.length ? <div className="dir-card-since">{tags.join(' · ')}</div> : null}
+      </div>
+
+      <div className="dir-contact">
+        <CopyContactLine
+          icon={<PhoneOutlined />}
+          value={staffer.phone}
+          emptyText="No Public Phone"
+          label="Phone"
+          onCopy={onCopy}
+        />
+        <CopyContactLine
+          icon={<MailOutlined />}
+          value={staffer.email}
+          emptyText="No Public Email"
+          label="Email"
+          onCopy={onCopy}
+        />
+      </div>
+
+      <div className="dir-committee directory-card-meta">
+        {staffer.issueAreas[0] || staffer.roles[0] || 'No Issue Coverage Listed'}
       </div>
     </article>
   );

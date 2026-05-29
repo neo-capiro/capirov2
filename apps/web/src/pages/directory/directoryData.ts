@@ -97,6 +97,7 @@ export interface DirectoryApiResponse {
     house: number;
     senate: number;
     governors: number;
+    staff: number;
   };
   availableStates: string[];
   availableFilters: {
@@ -110,6 +111,36 @@ export interface DirectoryApiResponse {
     districts: string[];
     educationInstitutions: string[];
   };
+}
+
+export interface DirectoryStaffer {
+  id: string;
+  fullName: string;
+  title: string;
+  roles: string[];
+  issueAreas: string[];
+  email: string;
+  phone: string;
+  officeLocation: string;
+  member: {
+    id: string;
+    fullName: string;
+    memberName: string;
+    chamber: Chamber;
+    state: string;
+    district: string;
+    party: Party;
+    partyName: string;
+    photoUrl: string;
+    title: string;
+  };
+}
+
+export interface DirectoryStaffersResponse {
+  staffers: DirectoryStaffer[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface DirectoryContactNote {

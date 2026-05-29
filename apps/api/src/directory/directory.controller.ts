@@ -60,6 +60,17 @@ export class DirectoryController {
     });
   }
 
+  @Get('staffers')
+  staffers(
+    @Query('q') q?: string,
+    @Query('chamber') chamber?: string,
+    @Query('state') state?: string | string[],
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.service.getStaffers({ q, chamber, state, page, pageSize });
+  }
+
   @Get('contacts/:contactId/notes')
   contactNotes(@CurrentTenant() ctx: TenantContext, @Param('contactId') contactId: string) {
     return this.service.listContactNotes(ctx, contactId);

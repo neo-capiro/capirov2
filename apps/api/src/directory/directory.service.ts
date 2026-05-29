@@ -122,6 +122,45 @@ export interface DirectoryTotals {
   house: number;
   senate: number;
   governors: number;
+  staff: number;
+}
+
+export interface DirectoryStaffer {
+  id: string;
+  fullName: string;
+  title: string;
+  roles: string[];
+  issueAreas: string[];
+  email: string;
+  phone: string;
+  officeLocation: string;
+  member: {
+    id: string;
+    fullName: string;
+    memberName: string;
+    chamber: Chamber;
+    state: string;
+    district: string;
+    party: Party;
+    partyName: string;
+    photoUrl: string;
+    title: string;
+  };
+}
+
+export interface DirectoryStaffersPayload {
+  staffers: DirectoryStaffer[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface StaffersQuery {
+  q?: string;
+  chamber?: string;
+  state?: string | string[];
+  page?: string | number;
+  pageSize?: string | number;
 }
 
 export interface DirectoryAvailableFilters {
@@ -193,6 +232,7 @@ interface CachedContacts {
   data: {
     sourceId: string;
     contacts: DirectoryContact[];
+    staffers: DirectoryStaffer[];
     totals: DirectoryTotals;
     availableStates: string[];
     availableFilters: DirectoryAvailableFilters;
@@ -357,6 +397,81 @@ export class DirectoryService {
     return this.toPagedPayload(base, query, page, pageSize);
   }
 
+  // Search across the flattened staffer index (built once at cache time).
+  // In-memory filter over the cached dataset — fast even at ~20k staffers.
+  async getStaffers(query: StaffersQuery = {}): Promise<DirectoryStaffersPayload> {
+    const page = this.toPositiveInt(query.page, 1);
+    const pageSize = this.toPositiveInt(
+      query.pageSize,
+      DirectoryService.DEFAULT_PAGE_SIZE,
+      DirectoryService.MAX_PAGE_SIZE,
+    );
+    const base = await this.getDirectoryData();
+    const q = String(query.q ?? '')
+      .trim()
+      .toLowerCase();
+    const chamber = this.normalizeFilter(query.chamber);
+    const states = this.normalizeMultiFilter(query.state);
+
+    const filtered = base.staffers.filter((staffer) => {
+      const blob = [
+        staffer.fullName,
+        staffer.title,
+        staffer.email,
+        staffer.phone,
+        staffer.roles.join(' '),
+        staffer.issueAreas.join(' '),
+        staffer.member.memberName,
+        staffer.member.fullName,
+        staffer.member.state,
+      ]
+        .join(' ')
+        .toLowerCase();
+      const matchesQuery = q.length === 0 || blob.includes(q);
+      const matchesChamber = chamber === null || staffer.member.chamber === chamber;
+      const matchesState = states.length === 0 || states.includes(staffer.member.state);
+      return matchesQuery && matchesChamber && matchesState;
+    });
+
+    const total = filtered.length;
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const safePage = Math.min(page, pageCount);
+    const start = (safePage - 1) * pageSize;
+    return { staffers: filtered.slice(start, start + pageSize), total, page: safePage, pageSize };
+  }
+
+  private buildStafferIndex(contacts: DirectoryContact[]): DirectoryStaffer[] {
+    const out: DirectoryStaffer[] = [];
+    for (const contact of contacts) {
+      const member = {
+        id: contact.id,
+        fullName: contact.fullName,
+        memberName: contact.memberName,
+        chamber: contact.chamber,
+        state: contact.state,
+        district: contact.district,
+        party: contact.party,
+        partyName: contact.partyName,
+        photoUrl: contact.photoUrl,
+        title: contact.title,
+      };
+      for (const staffer of contact.staff) {
+        out.push({
+          id: staffer.id,
+          fullName: staffer.fullName,
+          title: staffer.title,
+          roles: staffer.roles,
+          issueAreas: staffer.issueAreas,
+          email: staffer.email,
+          phone: staffer.phone,
+          officeLocation: staffer.officeLocation || contact.officeLocation,
+          member,
+        });
+      }
+    }
+    return out.sort((left, right) => left.fullName.localeCompare(right.fullName));
+  }
+
   async findContactsByEmails(emails: string[], limit = 10): Promise<DirectoryEmailMatch[]> {
     const normalizedEmails = uniqueSorted(
       emails
@@ -428,6 +543,7 @@ export class DirectoryService {
       ]);
 
       const contacts = this.buildContacts(members, staff);
+      const staffers = this.buildStafferIndex(contacts);
       const availableStates = uniqueSorted(contacts.map((contact) => contact.state));
       const availableFilters = this.buildAvailableFilters(contacts);
       const totals: DirectoryTotals = {
@@ -435,9 +551,10 @@ export class DirectoryService {
         house: contacts.filter((contact) => contact.chamber === 'House').length,
         senate: contacts.filter((contact) => contact.chamber === 'Senate').length,
         governors: contacts.filter((contact) => contact.chamber === 'Governor').length,
+        staff: new Set(staffers.map((staffer) => staffer.id)).size,
       };
       const sourceId = `${this.bucket}/${this.prefix}`;
-      const payload = { sourceId, contacts, totals, availableStates, availableFilters };
+      const payload = { sourceId, contacts, staffers, totals, availableStates, availableFilters };
 
       this.cache = {
         data: payload,
