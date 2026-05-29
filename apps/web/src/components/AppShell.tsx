@@ -129,7 +129,7 @@ const NAV: NavItem[] = [
   {
     key: 'program-elements',
     label: 'Program Elements',
-    path: '/program-elements/mark-up-monitor',
+    path: '/program-elements',
     icon: <FundOutlined />,
   },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },

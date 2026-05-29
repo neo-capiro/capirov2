@@ -1,6 +1,6 @@
 import { Suspense, lazy, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
   Alert,
   Button,
@@ -92,6 +92,7 @@ const { Title, Text } = Typography;
 export function ProgramElementWatchPage() {
   const { peCode = '' } = useParams<{ peCode: string }>();
   const normalizedPeCode = peCode.toUpperCase();
+  const navigate = useNavigate();
   const api = useApi();
   const queryClient = useQueryClient();
   const [selectedFy, setSelectedFy] = useState<number | null>(null);
@@ -212,6 +213,10 @@ export function ProgramElementWatchPage() {
               <Text type="secondary">{detail.appropriationType ?? 'Appropriation N/A'}</Text>
             </div>
             <Flex vertical align="flex-end" gap={8}>
+              <Space>
+                <Button onClick={() => navigate('/program-elements')}>Find Program</Button>
+                <Button onClick={() => navigate('/program-elements/mark-up-monitor')}>Mark-up Monitor</Button>
+              </Space>
               <Button
                 type={detail.currentUserIsWatching ? 'primary' : 'default'}
                 icon={detail.currentUserIsWatching ? <BellFilled /> : <BellOutlined />}

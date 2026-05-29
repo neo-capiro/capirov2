@@ -42,6 +42,12 @@ const MarkupMonitorPage = lazy(async () =>
   })),
 );
 
+const ProgramElementFinderPage = lazy(async () =>
+  import('./pages/program-element/ProgramElementFinderPage.js').then((m) => ({
+    default: m.ProgramElementFinderPage,
+  })),
+);
+
 export function App() {
   return (
     <Routes>
@@ -75,6 +81,14 @@ export function App() {
           <Route path="kanban" element={<Navigate to="/workspace/workflows" replace />} />
         </Route>
         <Route path="/explorer" element={<DataExplorerPage />} />
+        <Route
+          path="/program-elements"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading program elements" description="Please wait..." />}>
+              <ProgramElementFinderPage />
+            </Suspense>
+          }
+        />
         <Route
           path="/program-elements/:peCode"
           element={
