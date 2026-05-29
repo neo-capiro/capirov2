@@ -2093,6 +2093,20 @@ body {
   min-height: 0;
 }
 
+/* Brief-only variant: the scrolling daily clock spine was removed, so the
+   Clio brief / rail spans the full card width. */
+.home-today-body--brief {
+  grid-template-columns: 1fr;
+}
+.home-today-body--brief .home-rail {
+  border-left: none;
+}
+.home-today-body--brief .home-rail-note {
+  font-size: 15px;
+  line-height: 1.65;
+  max-width: 80ch;
+}
+
 .home-clock-scroll {
   min-height: 0;
   max-height: 640px;

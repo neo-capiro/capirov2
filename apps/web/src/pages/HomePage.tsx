@@ -12,7 +12,6 @@ import type {
   DailyBrief,
   IntelligenceChange,
   LiveTickerItem,
-  TimelineEvent,
   TimelineEventSeverity,
   TodayTimeline,
 } from './intelligence/types.js';
@@ -37,12 +36,6 @@ interface CommentAlertsResponse {
 }
 
 const COMMENTS_LINK = '/explorer?source=comment-deadlines';
-
-const HOUR_START = 6;
-const HOUR_END = 23;
-const HOUR_PX = 64;
-const CLOCK_TOP_PAD = 20;
-const CLOCK_BOTTOM_PAD = 28;
 
 export function HomePage() {
   const api = useApi();
@@ -159,8 +152,6 @@ export function HomePage() {
 
       <TodayCard
         data={timeline.data}
-        loading={timeline.isLoading}
-        isError={timeline.isError}
         brief={brief.data}
         briefLoading={brief.isLoading}
         briefError={brief.isError}
@@ -575,8 +566,6 @@ function NeedsAttention({
 
 function TodayCard({
   data,
-  loading,
-  isError,
   brief,
   briefLoading,
   briefError,
@@ -585,8 +574,6 @@ function TodayCard({
   hasClients,
 }: {
   data: TodayTimeline | undefined;
-  loading: boolean;
-  isError: boolean;
   brief: DailyBrief | undefined;
   briefLoading: boolean;
   briefError: boolean;
@@ -605,8 +592,6 @@ function TodayCard({
     year: 'numeric',
     timeZone: 'America/New_York',
   });
-  const events = data?.events ?? [];
-  const now = new Date();
 
   return (
     <div className="home-today">
@@ -620,10 +605,9 @@ function TodayCard({
           <SeverityPill severity="info" count={data?.counts.info ?? 0} />
         </span>
       </div>
-      <div className="home-today-body">
-        <div className="home-clock-scroll">
-          <ClockSpine events={events} now={now} loading={loading} isError={isError} />
-        </div>
+      {/* Clio brief spans the full card width (the scrolling daily clock
+          spine was removed). The Rail lays out horizontally at this width. */}
+      <div className="home-today-body home-today-body--brief">
         <Rail
           brief={brief}
           briefLoading={briefLoading}
@@ -633,98 +617,6 @@ function TodayCard({
           hasClients={hasClients}
         />
       </div>
-    </div>
-  );
-}
-
-/* ── Clock spine ────────────────────────────────────────────────────────── */
-
-function ClockSpine({
-  events,
-  now,
-  loading,
-  isError,
-}: {
-  events: TimelineEvent[];
-  now: Date;
-  loading: boolean;
-  isError: boolean;
-}) {
-  const hours: number[] = [];
-  for (let h = HOUR_START; h <= HOUR_END; h++) hours.push(h);
-
-  const clockHeight = CLOCK_TOP_PAD + (HOUR_END - HOUR_START + 1) * HOUR_PX + CLOCK_BOTTOM_PAD;
-
-  const nowHour = now.getHours();
-  const nowMin = now.getMinutes();
-  const insideRange = nowHour >= HOUR_START && nowHour <= HOUR_END;
-  const beforeRange = nowHour < HOUR_START;
-  const nowY = yFromTime(nowHour, nowMin);
-
-  if (loading) {
-    return (
-      <div style={{ padding: '24px 24px 24px 78px' }}>
-        <Skeleton active paragraph={{ rows: 8 }} />
-      </div>
-    );
-  }
-  if (isError) {
-    return (
-      <div style={{ padding: 24 }}>
-        <Alert type="error" message="Failed to load today's timeline." showIcon />
-      </div>
-    );
-  }
-  if (!events.length) {
-    return (
-      <div style={{ padding: 40, display: 'grid', placeItems: 'center' }}>
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing scheduled. The day is yours." />
-      </div>
-    );
-  }
-
-  return (
-    <div className="home-clock" style={{ height: clockHeight }}>
-      {hours.map((h) => (
-        <div key={h} className="home-clock-row" style={{ height: HOUR_PX }}>
-          <div className="home-clock-line" />
-          <span className="home-clock-hour">{String(h).padStart(2, '0')}:00</span>
-        </div>
-      ))}
-
-      {events.map((event) => {
-        const { h, m } = eventHourMinute(event);
-        const top = yFromTime(h, m);
-        const sev = severityFor(event.severity);
-        const Content = (
-          <article className={`home-evt sev-${sev}`} style={{ top }}>
-            <header className="home-evt-head">
-              <span className={`dot ${sev}`} aria-hidden />
-              <span className="home-evt-source">{event.label}</span>
-              {event.time ? <span className="home-evt-time num">{event.time}</span> : null}
-            </header>
-            <span className="home-evt-title">{event.title}</span>
-            {event.detail ? <p className="home-evt-dek">{event.detail}</p> : null}
-          </article>
-        );
-        return event.href ? (
-          <a key={event.id} href={event.href} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>
-            {Content}
-          </a>
-        ) : (
-          <div key={event.id}>{Content}</div>
-        );
-      })}
-
-      {insideRange ? (
-        <div className="home-now-line" style={{ top: nowY }}>
-          <span className="home-now-chip">NOW · {formatTime(now)}</span>
-        </div>
-      ) : (
-        <div className={`home-now-edge ${beforeRange ? 'top' : 'bottom'}`}>
-          <span>{beforeRange ? 'Day not started, NOW' : 'Day complete, NOW'} · {formatTime(now)}</span>
-        </div>
-      )}
     </div>
   );
 }
@@ -812,57 +704,6 @@ function SeverityPill({
 function severityFor(raw: string): TimelineEventSeverity {
   if (raw === 'critical' || raw === 'notable' || raw === 'info') return raw;
   return 'info';
-}
-
-function eventHourMinute(event: TimelineEvent): { h: number; m: number } {
-  // Deadlines are conceptually "end of day", the backend stores the
-  // comment-period close as UTC midnight of the next day, which parses to
-  // 8pm ET in a browser. Pin to HOUR_END so the card appears at the bottom
-  // of the spine, matching the spec's "23:59 ET" deadline placement.
-  if (event.kind === 'deadline' || event.time === 'before EOD') {
-    return { h: HOUR_END, m: 59 };
-  }
-  if (event.time) {
-    const match = event.time.match(/(\d{1,2}):(\d{2})\s*(AM|PM|ET)?/i);
-    if (match && match[1] && match[2]) {
-      let hour = Number.parseInt(match[1], 10);
-      const min = Number.parseInt(match[2], 10);
-      const meridiem = match[3]?.toUpperCase();
-      if (meridiem === 'PM' && hour < 12) hour += 12;
-      if (meridiem === 'AM' && hour === 12) hour = 0;
-      if (Number.isFinite(hour) && Number.isFinite(min)) {
-        return { h: clampHour(hour), m: min };
-      }
-    }
-  }
-  // Parse the timestamp in ET so the event lands on its ET wall-clock hour
-  // regardless of the browser's locale.
-  const d = new Date(event.timestamp);
-  if (Number.isNaN(d.getTime())) return { h: HOUR_START, m: 0 };
-  const etParts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-  }).formatToParts(d);
-  const hh = Number.parseInt(etParts.find((p) => p.type === 'hour')?.value ?? '0', 10);
-  const mm = Number.parseInt(etParts.find((p) => p.type === 'minute')?.value ?? '0', 10);
-  return {
-    h: clampHour(Number.isFinite(hh) ? hh : HOUR_START),
-    m: Number.isFinite(mm) ? mm : 0,
-  };
-}
-
-function clampHour(h: number): number {
-  return Math.min(Math.max(h, HOUR_START), HOUR_END);
-}
-
-function yFromTime(h: number, m: number): number {
-  return CLOCK_TOP_PAD + ((h - HOUR_START) * HOUR_PX) + (m / 60) * HOUR_PX;
-}
-
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
 }
 
 function formatTickerTime(iso: string): string {
