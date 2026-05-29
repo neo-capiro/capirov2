@@ -6,7 +6,12 @@ import { Link } from 'react-router-dom';
 import { useApi } from '../lib/use-api.js';
 import type { Client } from './clients/clientTypes.js';
 import type { WorkflowInstance } from './workspace/workflowTypes.js';
-import type { DailyBrief, IntelligenceChange } from './intelligence/types.js';
+import type {
+  ComingUpItem,
+  ComingUpResult,
+  DailyBrief,
+  IntelligenceChange,
+} from './intelligence/types.js';
 
 /* ── Local data shapes (lean projections of the API responses) ──────────── */
 
@@ -92,6 +97,13 @@ export function HomePage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Upcoming hearings/markups (next 7 days) for the Needs-Attention banner.
+  const comingUp = useQuery<ComingUpResult>({
+    queryKey: ['coming-up'],
+    queryFn: async () => (await api.get<ComingUpResult>('/api/intelligence/coming-up')).data,
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Active workflows across ALL clients (cross-client view).
   const workflows = useQuery<WorkflowInstance[]>({
     queryKey: ['workflow-instances'],
@@ -146,9 +158,12 @@ export function HomePage() {
         criticalToday={criticalTodayCount}
       />
 
-      <CommentPeriods
+      <NeedsAttention
         alerts={commentAlerts.data?.alerts ?? []}
-        loading={commentAlerts.isLoading}
+        comingUp={comingUp.data?.items ?? []}
+        changes={recentChanges.data ?? []}
+        clientNameById={clientNameById}
+        loading={commentAlerts.isLoading || comingUp.isLoading}
       />
 
       <ClioBrief brief={brief.data} loading={brief.isLoading} isError={brief.isError} />
@@ -218,27 +233,105 @@ function GreetingRow({
   );
 }
 
-/* ── Comment periods requiring attention (4-up card row) ────────────────── */
+/* ── Needs Attention banner (blended act-now feed, 4-up cards) ───────────── */
 
-function CommentPeriods({
+interface BannerItem {
+  id: string;
+  sev: 'critical' | 'notable' | 'info';
+  eyebrow: string;
+  title: string;
+  context: string;
+  href: string;
+  rank: number; // lower = more urgent within a severity tier
+}
+
+function NeedsAttention({
   alerts,
+  comingUp,
+  changes,
+  clientNameById,
   loading,
 }: {
   alerts: CommentAlertItem[];
+  comingUp: ComingUpItem[];
+  changes: IntelligenceChange[];
+  clientNameById: Map<string, string>;
   loading: boolean;
 }) {
-  const sorted = useMemo(
-    () => [...alerts].sort((a, b) => a.daysToDeadline - b.daysToDeadline).slice(0, 4),
-    [alerts],
-  );
+  const items = useMemo<BannerItem[]>(() => {
+    const out: BannerItem[] = [];
+
+    // 1. Comment-period deadlines
+    for (const a of alerts) {
+      out.push({
+        id: `c-${a.documentId}`,
+        sev: commentSeverity(a.daysToDeadline),
+        eyebrow: `${prettySource(a.type || a.agencies[0] || 'FedReg')} · ${deadlineLabel(a.daysToDeadline)}`,
+        title: a.title,
+        context: a.clientName || 'Unmapped',
+        href: COMMENTS_LINK,
+        rank: Math.max(0, a.daysToDeadline),
+      });
+    }
+
+    // 2. Hearings + markups in the next 7 days (skip deadlines/meetings —
+    //    comment deadlines already covered above)
+    for (const e of comingUp) {
+      if (e.kind !== 'hearing' && e.kind !== 'markup') continue;
+      const sev = e.severity === 'critical' || e.severity === 'notable' ? e.severity : 'info';
+      out.push({
+        id: `e-${e.id}`,
+        sev,
+        eyebrow: `${e.kind === 'markup' ? 'Markup' : 'Hearing'} · ${whenLabel(e.date, e.time)}`,
+        title: e.title,
+        context: e.label || e.detail || 'Capitol Hill',
+        href: e.href ?? '/intelligence',
+        rank: Math.max(0, dayDiff(e.date)),
+      });
+    }
+
+    // 3. Program-element budget moves + high-severity regulatory / FEC changes
+    for (const c of changes) {
+      const sev = c.severity === 'critical' || c.severity === 'notable' ? c.severity : 'info';
+      const names = c.relatedClientIds.map((id) => clientNameById.get(id)).filter(Boolean) as string[];
+      if (c.source === 'program_element') {
+        const pe = c.relatedPeCodes?.[0];
+        out.push({
+          id: `pe-${c.id}`,
+          sev,
+          eyebrow: `Budget · ${peChangeLabel(c.changeType)}`,
+          title: c.title,
+          context: pe ? `PE ${pe}` : names[0] ?? 'Tracked program',
+          href: pe ? `/program-elements/${encodeURIComponent(pe)}` : '/intelligence/changes',
+          rank: hoursSince(c.detectedAt),
+        });
+      } else if (
+        (c.source === 'federal_register_document' || c.source === 'fec_contribution') &&
+        sev !== 'info'
+      ) {
+        out.push({
+          id: `r-${c.id}`,
+          sev,
+          eyebrow: `${prettySource(c.source)} · ${relativeTime(c.detectedAt)}`,
+          title: c.title,
+          context: names[0] ?? 'Unmapped',
+          href: '/intelligence/changes',
+          rank: hoursSince(c.detectedAt),
+        });
+      }
+    }
+
+    const sevRank = { critical: 0, notable: 1, info: 2 } as const;
+    return out.sort((x, y) => sevRank[x.sev] - sevRank[y.sev] || x.rank - y.rank).slice(0, 8);
+  }, [alerts, comingUp, changes, clientNameById]);
 
   return (
     <div className="home-attention">
       <div className="home-attention-head">
-        <span className="home-attention-title">Comment Periods Requiring Attention</span>
+        <span className="home-attention-title">Needs Attention</span>
         <span className="meta">
-          {alerts.length} active ·{' '}
-          <Link to={COMMENTS_LINK} style={{ color: 'var(--ink-2)', textDecoration: 'underline' }}>
+          {items.length} item{items.length === 1 ? '' : 's'} ·{' '}
+          <Link to="/intelligence/changes" style={{ color: 'var(--ink-2)', textDecoration: 'underline' }}>
             see all →
           </Link>
         </span>
@@ -251,25 +344,22 @@ function CommentPeriods({
             </div>
           ))}
         </div>
-      ) : sorted.length === 0 ? (
+      ) : items.length === 0 ? (
         <div style={{ padding: 24 }}>
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No open comment periods right now." />
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing needs your attention right now." />
         </div>
       ) : (
         <div className="home-attention-body home-attention-body--four">
-          {sorted.map((a) => {
-            const sev = commentSeverity(a.daysToDeadline);
-            return (
-              <Link key={a.documentId} to={COMMENTS_LINK} className="home-attention-cell is-link">
-                <span className="home-attention-eyebrow">
-                  <span className={`dot ${sev}`} aria-hidden />
-                  {prettySource(a.type || a.agencies[0] || 'FedReg')} · {deadlineLabel(a.daysToDeadline)}
-                </span>
-                <span className="home-attention-title-row home-clamp-2">{a.title}</span>
-                <span className="home-attention-dek">{a.clientName || 'Unmapped'}</span>
-              </Link>
-            );
-          })}
+          {items.map((it) => (
+            <Link key={it.id} to={it.href} className="home-attention-cell is-link">
+              <span className="home-attention-eyebrow">
+                <span className={`dot ${it.sev}`} aria-hidden />
+                {it.eyebrow}
+              </span>
+              <span className="home-attention-title-row home-clamp-2">{it.title}</span>
+              <span className="home-attention-dek">{it.context}</span>
+            </Link>
+          ))}
         </div>
       )}
     </div>
@@ -651,6 +741,37 @@ function deadlineLabel(days: number): string {
   if (days <= 0) return 'closes today';
   if (days === 1) return 'closes tomorrow';
   return `${days} days`;
+}
+
+function peChangeLabel(changeType: string): string {
+  switch (changeType) {
+    case 'pe_mark_added': return 'New mark';
+    case 'pe_mark_changed': return 'Mark changed';
+    case 'pe_value_increased': return 'Value up';
+    case 'pe_value_decreased': return 'Value down';
+    case 'pe_milestone_slip': return 'Milestone slip';
+    default: return 'Budget update';
+  }
+}
+
+function dayDiff(dateIso: string): number {
+  const a = new Date(dateIso);
+  a.setHours(0, 0, 0, 0);
+  const b = new Date();
+  b.setHours(0, 0, 0, 0);
+  return Math.round((a.getTime() - b.getTime()) / 86_400_000);
+}
+
+function whenLabel(dateIso: string, time: string | null): string {
+  const t = time ? ` ${time}` : '';
+  const dd = dayDiff(dateIso);
+  if (dd <= 0) return `Today${t}`;
+  if (dd === 1) return `Tomorrow${t}`;
+  return `${new Date(dateIso).toLocaleDateString('en-US', { weekday: 'short' })}${t}`;
+}
+
+function hoursSince(iso: string): number {
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 3_600_000));
 }
 
 function weekBounds(now: Date): { from: string; to: string } {
