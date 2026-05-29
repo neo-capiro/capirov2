@@ -1578,6 +1578,238 @@ body {
   color: var(--critical);
 }
 
+/* ── Dashboard v2 (wireframe layout) ──────────────────────────────────── */
+
+/* Comment-periods 4-up row reuses .home-attention shell */
+.home-attention-body--four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.home-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* "Open X →" header link */
+.open,
+.open a {
+  font-size: 12px;
+  color: var(--ink-3);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.open a:hover { color: var(--accent); text-decoration: underline; }
+
+/* Clio brief full-width card */
+.home-brief {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+.home-brief-head,
+.home-panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 18px;
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-1);
+}
+.home-brief-title,
+.home-panel-title {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-1);
+}
+.home-brief-title-sub { color: var(--ink-3); font-weight: 600; }
+.home-brief-head .open,
+.home-panel-head .open { margin-left: auto; }
+.home-brief-body { padding: 16px 20px 20px; }
+.home-brief-date { font-size: 12px; color: var(--ink-3); margin: 0 0 8px; }
+.home-brief-text {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--ink-1);
+  margin: 0;
+  max-width: 92ch;
+}
+.home-brief-empty { font-size: 13px; color: var(--ink-3); margin: 0; }
+
+/* Two-column row */
+.home-grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  align-items: start;
+}
+
+/* Generic panel card */
+.home-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.home-panel-list { display: flex; flex-direction: column; }
+.home-panel-empty { padding: 24px; }
+.home-panel-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-1);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.12s ease;
+}
+.home-panel-row:last-child { border-bottom: none; }
+.home-panel-row:hover { background: var(--bg-sunken); }
+.home-panel-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.home-panel-row-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-1);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-panel-row-sub {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-panel-tag { margin-left: auto; flex-shrink: 0; }
+.home-meeting-when {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Week strip */
+.home-week-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  color: var(--ink-3);
+  padding: 12px 18px 6px;
+}
+.home-week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  padding: 0 18px 12px;
+  border-bottom: 1px solid var(--border-1);
+}
+.home-week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 0 9px;
+  border-radius: var(--r-sm);
+  position: relative;
+}
+.home-week-day.is-today { background: var(--accent); }
+.home-week-wd { font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
+.home-week-num { font-size: 13px; font-weight: 600; color: var(--ink-1); }
+.home-week-day.is-today .home-week-wd { color: rgba(255, 255, 255, 0.82); }
+.home-week-day.is-today .home-week-num { color: #fff; }
+.home-week-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  position: absolute;
+  bottom: 3px;
+}
+.home-week-day.is-today .home-week-dot { background: #fff; }
+
+/* Workflow rows + stage pills */
+.home-workflow-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-1);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.12s ease;
+}
+.home-workflow-row:last-child { border-bottom: none; }
+.home-workflow-row:hover { background: var(--bg-sunken); }
+.home-workflow-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.home-workflow-client {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+.home-workflow-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.home-stage-pills { display: flex; gap: 4px; flex-shrink: 0; }
+.home-stage-pill {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 3px;
+  border: 1px solid var(--border-1);
+  color: var(--ink-3);
+  background: var(--bg-surface);
+  white-space: nowrap;
+}
+.home-stage-pill.is-done { color: var(--success); border-color: var(--success-soft); background: var(--success-soft); }
+.home-stage-pill.is-active { color: #fff; background: var(--accent); border-color: var(--accent); }
+.home-stage-pill.is-upcoming { opacity: 0.55; }
+
+/* Alert rows */
+.home-alert-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-1);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.12s ease;
+}
+.home-alert-row:last-child { border-bottom: none; }
+.home-alert-row:hover { background: var(--bg-sunken); }
+.home-alert-row .dot { margin-top: 5px; }
+.home-alert-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.home-alert-main .home-panel-row-title { white-space: normal; }
+
+@media (max-width: 1100px) {
+  .home-grid-2 { grid-template-columns: 1fr; }
+  .home-attention-body--four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .home-attention-body--four { grid-template-columns: 1fr; }
+}
+
 /* ── Needs Attention zone (multi-type alerts at the top) ─────────────── */
 
 .home-attention {
