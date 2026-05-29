@@ -182,7 +182,7 @@ export function CapiroAdminPage() {
           }
         >
           <Form.Item name="reason" label="Reason" rules={[{ required: true, min: 10, max: 500 }]}>
-            <Input.TextArea rows={3} placeholder="Investigating ticket #1234 — invitation flow" />
+            <Input.TextArea rows={3} placeholder="Investigating ticket #1234, invitation flow" />
           </Form.Item>
         </Form>
       </Modal>

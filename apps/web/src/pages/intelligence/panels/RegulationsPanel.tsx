@@ -231,7 +231,7 @@ export function RegulationsPanel() {
               dataIndex: 'commentEndDate',
               width: 145,
               render: (v: string | null) => {
-                if (!v) return <Text type="secondary">—</Text>;
+                if (!v) return <Text type="secondary">-</Text>;
                 const days = daysTill(v);
                 const color = days <= 7 ? '#ef4444' : days <= 14 ? '#f59e0b' : undefined;
                 return (

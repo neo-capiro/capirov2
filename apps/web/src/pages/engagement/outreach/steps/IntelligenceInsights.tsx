@@ -1,6 +1,7 @@
-import { Badge, Button, Card, Col, Input, Row, Spin, Switch, Tag, Typography } from 'antd';
-import { BulbOutlined, DollarOutlined, FileTextOutlined, RiseOutlined } from '@ant-design/icons';
+import { Badge, Button, Card, Col, Collapse, Input, Row, Spin, Switch, Tag, Typography } from 'antd';
+import { BulbOutlined, DollarOutlined, FileTextOutlined, RiseOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
 import { useApi } from '../../../../lib/use-api.js';
 
 interface InsightCard {
@@ -36,10 +37,10 @@ interface IntelligenceInsightsProps {
 }
 
 const CATEGORY_META = {
-  lobbying: { label: 'Lobbying Trends', icon: <RiseOutlined />, color: '#1c2e4a' },
-  spending: { label: 'Federal Spending', icon: <DollarOutlined />, color: '#52c41a' },
-  legislative: { label: 'Legislative Activity', icon: <FileTextOutlined />, color: '#722ed1' },
-  lda: { label: 'Client LDA History', icon: <BulbOutlined />, color: '#fa8c16' },
+  lobbying: { label: 'Lobbying Trends', icon: <RiseOutlined />, color: 'var(--accent-ink)' },
+  spending: { label: 'Federal Spending', icon: <DollarOutlined />, color: 'var(--success)' },
+  legislative: { label: 'Legislative Activity', icon: <FileTextOutlined />, color: 'var(--info)' },
+  lda: { label: 'Client LDA History', icon: <BulbOutlined />, color: 'var(--notable)' },
 };
 
 function buildInsightCards(data: InsightsData): InsightCard[] {
@@ -58,7 +59,7 @@ function buildInsightCards(data: InsightsData): InsightCard[] {
   }
 
   for (const bill of data.recentBills.slice(0, 6)) {
-    const text = `Recent legislation: ${bill.billNumber} — ${bill.title}${bill.status ? ` (${bill.status})` : ''}`;
+    const text = `Recent legislation: ${bill.billNumber}, ${bill.title}${bill.status ? ` (${bill.status})` : ''}`;
     cards.push({
       id: `bill-${bill.id}`,
       category: 'legislative',
@@ -72,7 +73,7 @@ function buildInsightCards(data: InsightsData): InsightCard[] {
     const amount = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact' }).format(
       agency.totalAmount,
     );
-    const text = `Federal spending — ${agency.agencyName}: ${amount}`;
+    const text = `Federal spending, ${agency.agencyName}: ${amount}`;
     cards.push({
       id: `agency-${agency.agencyName}`,
       category: 'spending',
@@ -84,7 +85,7 @@ function buildInsightCards(data: InsightsData): InsightCard[] {
 
   for (const year of data.clientLdaHistory.slice(0, 3)) {
     const areas = year.issueAreas.slice(0, 3).join(', ');
-    const text = `Client LDA ${year.year}: ${year.filingCount} filings — ${areas}`;
+    const text = `Client LDA ${year.year}: ${year.filingCount} filings, ${areas}`;
     cards.push({
       id: `lda-${year.year}`,
       category: 'lda',
@@ -104,6 +105,8 @@ export function IntelligenceInsights({
   onChange,
 }: IntelligenceInsightsProps) {
   const api = useApi();
+  const [enrichContext, setEnrichContext] = useState<string | null>(null);
+  const [enrichOpen, setEnrichOpen] = useState(false);
 
   const insights = useQuery<InsightsData>({
     queryKey: ['outreach-wizard-insights', clientId],
@@ -113,6 +116,19 @@ export function IntelligenceInsights({
           params: clientId ? { clientId } : {},
         })
       ).data,
+  });
+
+  const enrichMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.get<{ context: string }>(
+        `/api/intelligence/clients/${clientId!}/outreach-context`,
+      );
+      return res.data.context;
+    },
+    onSuccess: (ctx) => {
+      setEnrichContext(ctx);
+      setEnrichOpen(true);
+    },
   });
 
   const talkingPoints = useMutation({
@@ -168,7 +184,7 @@ export function IntelligenceInsights({
           </Typography.Text>
         </div>
         {selectedInsights.length > 0 && (
-          <Badge count={selectedInsights.length} style={{ backgroundColor: '#1c2e4a' }} />
+          <Badge count={selectedInsights.length} style={{ backgroundColor: 'var(--accent-ink)' }} />
         )}
       </div>
 
@@ -205,7 +221,7 @@ export function IntelligenceInsights({
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                           <div style={{ flex: 1, marginRight: 8 }}>
                             <div style={{ fontWeight: 500, fontSize: 13 }}>{card.title}</div>
-                            <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{card.detail}</div>
+                            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>{card.detail}</div>
                           </div>
                           <Switch
                             size="small"
@@ -224,6 +240,55 @@ export function IntelligenceInsights({
             </div>
           );
         })
+      )}
+
+      {/* Enrich with Intelligence Context */}
+      {clientId && (
+        <div style={{ marginTop: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <Typography.Text strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <ThunderboltOutlined style={{ color: 'var(--notable)' }} />
+              Live Intelligence Context
+            </Typography.Text>
+            <Button
+              size="small"
+              icon={<ThunderboltOutlined />}
+              loading={enrichMutation.isPending}
+              onClick={() => void enrichMutation.mutateAsync()}
+            >
+              {enrichContext ? 'Refresh' : 'Enrich with Intelligence'}
+            </Button>
+          </div>
+          {enrichContext && (
+            <Collapse
+              activeKey={enrichOpen ? ['ctx'] : []}
+              onChange={(keys) => setEnrichOpen(Array.isArray(keys) ? keys.includes('ctx') : keys === 'ctx')}
+              items={[
+                {
+                  key: 'ctx',
+                  label: 'Current intelligence context (click to expand)',
+                  extra: (
+                    <Button
+                      size="small"
+                      type="link"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onChange({ insightsNotes: insightsNotes ? `${insightsNotes}\n\n${enrichContext}` : enrichContext });
+                      }}
+                    >
+                      Inject into notes →
+                    </Button>
+                  ),
+                  children: (
+                    <pre style={{ fontSize: 11, whiteSpace: 'pre-wrap', margin: 0, color: 'var(--ink-2)' }}>
+                      {enrichContext}
+                    </pre>
+                  ),
+                },
+              ]}
+            />
+          )}
+        </div>
       )}
 
       <div style={{ marginTop: 8 }}>

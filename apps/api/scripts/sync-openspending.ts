@@ -183,7 +183,7 @@ async function main() {
     // ── 1. Agencies ──────────────────────────────────────────────────────
     // Build lookup maps for joining.
     const spendingBySlug = new Map(agencySpending.map((r) => [r.slug, r]));
-    // agency-trends.json is keyed by abbreviation (HHS, DOD, etc.) not slug —
+    // agency-trends.json is keyed by abbreviation (HHS, DOD, etc.) not slug -
     // build a slug-based lookup by matching on the row's name field when present.
     const trendBySlug = new Map<string, AgencyTrendRow>();
     for (const [, row] of Object.entries(agencyTrends)) {
@@ -306,7 +306,7 @@ async function main() {
       noBidTotalByRecipient.set(normName(r.name), r.total);
     }
 
-    // Iterate the deduped list (parent companies — the source of truth) and
+    // Iterate the deduped list (parent companies, the source of truth) and
     // back-fill UEI/recipientId via the top-contractors map when names match.
     let contractorCount = 0;
     for (let i = 0; i < dedupedContractors.length; i++) {
@@ -378,7 +378,7 @@ async function main() {
     }
 
     // Also upsert any top-contractors that are NOT in the deduped list (smaller
-    // non-parent entities) — preserves UEIs and ranks for fuzzy matching later.
+    // non-parent entities), preserves UEIs and ranks for fuzzy matching later.
     for (let i = 0; i < topContractors.length; i++) {
       const c = topContractors[i];
       if (!c?.name) continue;

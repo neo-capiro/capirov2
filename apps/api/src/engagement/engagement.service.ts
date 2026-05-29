@@ -152,7 +152,21 @@ export type ReportStatus = 'auto' | 'not_started' | 'in_progress' | 'complete';
 export type OutreachType = 'campaign' | 'follow_up' | 'prep' | 'outbound_campaign';
 export type OutreachStatus = 'draft' | 'sent' | 'opened_in_email' | 'failed';
 
+export interface OutreachContextPoolItemInput {
+  id?: string;
+  sourceType?: string;
+  title?: string;
+  summary?: string;
+  note?: string;
+  scope?: string;
+  recipientIds?: string[];
+  matches?: string[];
+}
+
 export interface OutreachRecipientInput {
+  id?: string;
+  clientId?: string;
+  direction?: 'on-behalf' | 'to-clients';
   name?: string;
   email?: string;
   office?: string;
@@ -199,6 +213,17 @@ export interface UpdateAiTemplateInput {
   tone?: string;
 }
 
+/** v2 wizard's per-item scoped context object. */
+export interface OutreachSelectedContextItemInput {
+  id: string;
+  kind: 'bill' | 'intel' | 'email' | 'meeting' | 'note';
+  title: string;
+  body?: string;
+  /** 'all' = shared across every recipient; else recipient-key string. */
+  scope: 'all' | string;
+  note?: string;
+}
+
 export interface GenerateBatchEmailInput {
   campaignId?: string;
   clientId?: string;
@@ -207,6 +232,9 @@ export interface GenerateBatchEmailInput {
   insights?: string[];
   additionalContext?: string;
   tone?: string;
+  // v2 wizard additions, older callers that omit these are unaffected.
+  direction?: 'on-behalf' | 'to-clients';
+  contextItems?: OutreachSelectedContextItemInput[];
 }
 
 export interface GenerateTalkingPointsInput {
@@ -219,10 +247,12 @@ export interface CreateOutreachRecordInput {
   type: OutreachType;
   clientId?: string;
   meetingId?: string;
+  direction?: 'on-behalf' | 'to-clients';
   title: string;
   subject?: string;
   body?: string;
   recipients?: OutreachRecipientInput[];
+  contextPool?: OutreachContextPoolItemInput[];
   metadata?: Record<string, unknown>;
   lastStep?: number;
 }
@@ -230,11 +260,13 @@ export interface CreateOutreachRecordInput {
 export interface UpdateOutreachRecordInput {
   clientId?: string | null;
   meetingId?: string | null;
+  direction?: 'on-behalf' | 'to-clients' | null;
   status?: OutreachStatus;
   title?: string;
   subject?: string | null;
   body?: string | null;
   recipients?: OutreachRecipientInput[];
+  contextPool?: OutreachContextPoolItemInput[];
   metadata?: Record<string, unknown>;
   lastStep?: number;
 }
@@ -350,7 +382,7 @@ const SYSTEM_AI_TEMPLATES = [
     name: 'Introduction',
     category: 'general',
     prompt:
-      "Write an introductory outreach email on behalf of a client to a congressional office. Briefly introduce who the client is and why they matter to the recipient's portfolio. Connect the client's work to the recipient's committee jurisdiction or district interests. End with a low-friction first ask — a 15-minute introductory call or brief meeting. Under 200 words.",
+      "Write an introductory outreach email on behalf of a client to a congressional office. Briefly introduce who the client is and why they matter to the recipient's portfolio. Connect the client's work to the recipient's committee jurisdiction or district interests. End with a low-friction first ask, a 15-minute introductory call or brief meeting. Under 200 words.",
     description: 'Introductory outreach explaining the client and reason for engaging.',
     samplePreview: 'My name is [Name] and I represent...',
     tone: 'professional',
@@ -710,12 +742,22 @@ export class EngagementService {
     if (!type) {
       throw new BadRequestException('type must be campaign, follow_up, prep, or outbound_campaign');
     }
-    const recipients = normalizeOutreachRecipients(input.recipients);
+    const direction = normalizeOutreachDirection(input.direction);
+    const recipients = applyOutreachDirection(
+      normalizeOutreachRecipients(input.recipients),
+      direction,
+    );
+    const contextPool = normalizeOutreachContextPool(input.contextPool);
     const clientId = input.clientId?.trim() || null;
     const meetingId = input.meetingId?.trim() || null;
 
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       await this.validateOutreachParents(tx, ctx, clientId, meetingId);
+
+      const metadata = mergeJsonObjects(sanitizeOutreachMetadata(input.metadata), {
+        direction,
+        contextPool,
+      });
 
       return tx.outreachRecord.create({
         data: {
@@ -730,8 +772,8 @@ export class EngagementService {
           body: optionalText(input.body) ?? null,
           recipients: recipients as unknown as Prisma.InputJsonValue,
           recipientCount: recipients.length,
-          metadata: sanitizeOutreachMetadata(input.metadata) as Prisma.InputJsonValue,
-          lastStep: clampInt(input.lastStep, 1, 1, 5),
+          metadata: metadata as Prisma.InputJsonValue,
+          lastStep: clampInt(input.lastStep, 1, 1, 7),
         },
         include: outreachInclude(),
       });
@@ -751,11 +793,28 @@ export class EngagementService {
       const nextClientId = 'clientId' in input ? input.clientId?.trim() || null : existing.clientId;
       const nextMeetingId =
         'meetingId' in input ? input.meetingId?.trim() || null : existing.meetingId;
+      const direction =
+        'direction' in input
+          ? normalizeOutreachDirection(input.direction)
+          : normalizeOutreachDirection(readMetadataString(existing.metadata, 'direction'));
+      const contextPool =
+        'contextPool' in input
+          ? normalizeOutreachContextPool(input.contextPool)
+          : normalizeOutreachContextPool(readMetadataUnknown(existing.metadata, 'contextPool'));
       await this.validateOutreachParents(tx, ctx, nextClientId, nextMeetingId);
-      const recipients =
+      const recipients = applyOutreachDirection(
         'recipients' in input
           ? normalizeOutreachRecipients(input.recipients)
-          : normalizeOutreachRecipients(existing.recipients);
+          : normalizeOutreachRecipients(existing.recipients),
+        direction,
+      );
+      const mergedMetadata = mergeJsonObjects(
+        mergeJsonObjects(
+          existing.metadata,
+          'metadata' in input ? sanitizeOutreachMetadata(input.metadata) : {},
+        ),
+        { direction, contextPool },
+      );
 
       return tx.outreachRecord.update({
         where: { id },
@@ -766,21 +825,14 @@ export class EngagementService {
           ...('title' in input ? { title: requiredReportText(input.title, 'title', 240) } : {}),
           ...('subject' in input ? { subject: optionalReportText(input.subject, 300) } : {}),
           ...('body' in input ? { body: optionalText(input.body) ?? null } : {}),
-          ...('recipients' in input
+          ...('recipients' in input || 'direction' in input
             ? {
                 recipients: recipients as unknown as Prisma.InputJsonValue,
                 recipientCount: recipients.length,
               }
             : {}),
-          ...('metadata' in input
-            ? {
-                metadata: mergeJsonObjects(
-                  existing.metadata,
-                  sanitizeOutreachMetadata(input.metadata),
-                ) as Prisma.InputJsonValue,
-              }
-            : {}),
-          ...('lastStep' in input ? { lastStep: clampInt(input.lastStep, 1, 1, 5) } : {}),
+          metadata: mergedMetadata as Prisma.InputJsonValue,
+          ...('lastStep' in input ? { lastStep: clampInt(input.lastStep, 1, 1, 7) } : {}),
         },
         include: outreachInclude(),
       });
@@ -792,7 +844,9 @@ export class EngagementService {
     id: string,
     input: {
       objective?: string;
+      direction?: 'on-behalf' | 'to-clients';
       recipients?: OutreachRecipientInput[];
+      contextPool?: OutreachContextPoolItemInput[];
       promptTemplate?: string;
       metadata?: Record<string, unknown>;
     },
@@ -802,7 +856,16 @@ export class EngagementService {
       throw new BadRequestException('Only draft outreach can be regenerated');
     }
 
-    const recipients = normalizeOutreachRecipients(input.recipients ?? record.recipients);
+    const direction = normalizeOutreachDirection(
+      input.direction ?? readMetadataString(record.metadata, 'direction'),
+    );
+    const contextPool = normalizeOutreachContextPool(
+      input.contextPool ?? readMetadataUnknown(record.metadata, 'contextPool'),
+    );
+    const recipients = applyOutreachDirection(
+      normalizeOutreachRecipients(input.recipients ?? record.recipients),
+      direction,
+    );
     if ((record.type === 'campaign' || record.type === 'outbound_campaign') && !recipients.length) {
       throw new BadRequestException('At least one recipient is required before drafting');
     }
@@ -824,7 +887,12 @@ export class EngagementService {
               ),
             }
           : input.metadata;
-    const context = await this.outreachContext(ctx, record, recipients, requestMetadata);
+    const context = await this.outreachContext(
+      ctx,
+      record,
+      recipients,
+      mergeJsonObjects(requestMetadata ?? {}, { direction, contextPool }),
+    );
     const promptTemplate =
       input.promptTemplate ?? readMetadataString(record.metadata, 'promptTemplate') ?? null;
     const generated = await this.ai.generateOutreachDraft({
@@ -839,17 +907,20 @@ export class EngagementService {
       existingBody: outboundTemplateBody(record, requestMetadata) ?? record.body,
     });
 
-    const nextMetadata = mergeJsonObjects(record.metadata, {
-      ...(requestMetadata ?? {}),
-      objective: input.objective ?? readMetadataString(record.metadata, 'objective') ?? null,
-      promptTemplate,
-      clioContextNote: generated.contextNote,
-      ai: {
-        provider: generated.provider,
-        model: generated.model,
-        generatedAt: generatedAt.toISOString(),
-      },
-    });
+    const nextMetadata = mergeJsonObjects(
+      mergeJsonObjects(record.metadata, {
+        ...(requestMetadata ?? {}),
+        objective: input.objective ?? readMetadataString(record.metadata, 'objective') ?? null,
+        promptTemplate,
+        clioContextNote: generated.contextNote,
+        ai: {
+          provider: generated.provider,
+          model: generated.model,
+          generatedAt: generatedAt.toISOString(),
+        },
+      }),
+      { direction, contextPool },
+    );
     const draftSubject =
       record.type === 'campaign'
         ? resolveGeneratedCampaignDraft(generated.subject, recipients, nextMetadata)
@@ -860,11 +931,13 @@ export class EngagementService {
         : generated.body;
 
     return this.updateOutreachRecord(ctx, id, {
+      direction,
       subject: draftSubject,
       body: draftBody,
       recipients,
+      contextPool,
       metadata: nextMetadata,
-      lastStep: Math.max(record.lastStep, record.type === 'campaign' ? 3 : 3),
+      lastStep: Math.max(record.lastStep, 5),
     });
   }
 
@@ -1458,7 +1531,16 @@ export class EngagementService {
   }
 
   async generateBatchEmails(ctx: TenantContext, input: GenerateBatchEmailInput) {
-    const { templateId, recipients, insights, additionalContext, tone, clientId } = input;
+    const {
+      templateId,
+      recipients,
+      insights,
+      additionalContext,
+      tone,
+      clientId,
+      contextItems,
+      direction,
+    } = input;
 
     const systemTemplate = SYSTEM_AI_TEMPLATES.find((t) => t.id === templateId);
     let templatePrompt: string;
@@ -1497,6 +1579,28 @@ export class EngagementService {
       ? `Selected intelligence insights:\n${insights.join('\n')}`
       : null;
 
+    // Bucket the v2 wizard's scoped context items so we can hand the AI
+    // shared-context-vs-recipient-context distinctly per draft below.
+    const sharedItems = (contextItems ?? []).filter((c) => c.scope === 'all');
+    const recipientScopedItems = new Map<string, typeof sharedItems>();
+    for (const c of contextItems ?? []) {
+      if (c.scope === 'all') continue;
+      const bucket = recipientScopedItems.get(c.scope) ?? [];
+      bucket.push(c);
+      recipientScopedItems.set(c.scope, bucket);
+    }
+    const formatItems = (items: OutreachSelectedContextItemInput[]) =>
+      items
+        .map((c) => {
+          const note = c.note ? `\n  Instruction: ${c.note}` : '';
+          const body = c.body ? `\n  ${c.body}` : '';
+          return `- [${c.kind}] ${c.title}${body}${note}`;
+        })
+        .join('\n');
+    const sharedContextText = sharedItems.length
+      ? `Shared context (every recipient):\n${formatItems(sharedItems)}`
+      : null;
+
     const results: Array<{ recipientId: string; subject: string; body: string }> = [];
 
     for (const recipient of recipients) {
@@ -1505,11 +1609,33 @@ export class EngagementService {
         (recipient as Record<string, unknown>).email?.toString() ||
         String(results.length);
 
+      // Per-recipient scoped context, drawn from contextItems[].scope == this
+      // recipient's stable key. The wizard's recipient key is the same fallback
+      // chain used by recipientKey() on the frontend, so look up by every
+      // identifier we have rather than guessing.
+      const recipientKeyCandidates = [
+        (recipient as Record<string, unknown>).id?.toString(),
+        (recipient as Record<string, unknown>).directoryContactId?.toString(),
+        (recipient as Record<string, unknown>).email?.toString(),
+        (recipient as Record<string, unknown>).name?.toString(),
+      ].filter((s): s is string => Boolean(s));
+      const personalItems = recipientKeyCandidates.flatMap((k) =>
+        recipientScopedItems.get(k) ?? [],
+      );
+      const personalContextText = personalItems.length
+        ? `Personalized context for this recipient:\n${formatItems(personalItems)}`
+        : null;
+      const combinedContextNotes = [sharedContextText, personalContextText]
+        .filter((s): s is string => Boolean(s))
+        .join('\n\n');
+
       try {
         const context: Record<string, unknown> = {
           tone: tone ?? 'professional',
+          ...(direction ? { direction } : {}),
           ...(insightsContext ? { insights: insightsContext } : {}),
           ...(additionalContext ? { additionalContext } : {}),
+          ...(combinedContextNotes ? { contextItems: combinedContextNotes } : {}),
           ...(clientContextForCampaign ? { clientContext: clientContextForCampaign } : {}),
         };
 
@@ -2234,64 +2360,13 @@ export class EngagementService {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      // Fetch recent email threads from last 30 days for this client.
-      // Match by: client association + domain matching on attendee emails.
-      // IMPORTANT: Exclude the user's own domain and generic domains
-      // to avoid pulling in ALL threads from the user's mailbox.
-      const attendeeEmails = meeting.attendees
-        .map((a) => a.email)
-        .filter((e): e is string => Boolean(e));
-
-      // Get the user's own email domain to exclude it
-      const connection = await tx.integrationConnection.findFirst({
-        where: { tenantId: ctx.tenantId, createdByUserId: ctx.userId },
-        select: { accountEmail: true },
-      });
-      const ownDomain = connection?.accountEmail?.split('@')[1]?.toLowerCase();
-
-      const GENERIC_THREAD_DOMAINS = new Set([
-        'gmail.com',
-        'googlemail.com',
-        'outlook.com',
-        'hotmail.com',
-        'live.com',
-        'yahoo.com',
-        'aol.com',
-        'icloud.com',
-        'me.com',
-        'protonmail.com',
-        'proton.me',
-        'senate.gov',
-        'house.gov',
-        'mail.house.gov',
-        'mail.senate.gov',
-      ]);
-
-      const attendeeDomains = [
-        ...new Set(
-          attendeeEmails
-            .map((e) => e.split('@')[1]?.toLowerCase())
-            .filter(
-              (d): d is string =>
-                typeof d === 'string' &&
-                d.length > 0 &&
-                d !== ownDomain &&
-                !GENERIC_THREAD_DOMAINS.has(d),
-            ),
-        ),
-      ];
-
+      // Fetch recent email threads from last 30 days associated to this client only.
+      // Do NOT infer context from attendee/to/cc domains, which can pull unrelated people.
       const threadFilters: Prisma.MailThreadWhereInput[] = [];
       if (effectiveClientId) {
         threadFilters.push(
           await this.clientMailThreadAssociationWhere(tx, ctx.tenantId, effectiveClientId),
         );
-      }
-      // Match threads where any message is from an attendee's domain
-      if (attendeeDomains.length) {
-        for (const domain of attendeeDomains) {
-          threadFilters.push({ messages: { some: { fromEmail: { endsWith: `@${domain}` } } } });
-        }
       }
 
       const recentThreads = threadFilters.length
@@ -2502,21 +2577,13 @@ export class EngagementService {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const attendeeDomains = [
-        ...new Set(attendeeEmails.map((e) => e.split('@')[1]).filter(Boolean)),
-      ];
-
+      // Keep prep context scoped to client-linked email threads only.
+      // Do NOT pull by attendee/to/cc domains to avoid unrelated coworker context.
       const threadFilters: Prisma.MailThreadWhereInput[] = [];
       if (correctClientId) {
         threadFilters.push(
           await this.clientMailThreadAssociationWhere(tx, ctx.tenantId, correctClientId),
         );
-      }
-      // Match threads where any message is from an attendee's domain
-      if (attendeeDomains.length) {
-        for (const domain of attendeeDomains) {
-          threadFilters.push({ messages: { some: { fromEmail: { endsWith: `@${domain}` } } } });
-        }
       }
 
       const recentThreads = threadFilters.length
@@ -2779,7 +2846,7 @@ export class EngagementService {
         tx.engagementContact.findMany({
           where: { tenantId: ctx.tenantId, clientId },
           orderBy: { updatedAt: 'desc' },
-          take: 20,
+          take: 40,
         }),
         tx.engagementTask.findMany({
           where: {
@@ -2791,6 +2858,133 @@ export class EngagementService {
           take: 20,
         }),
       ]);
+
+      type StakeholderSource = 'contact' | 'meeting' | 'email_thread';
+      type Stakeholder = {
+        id: string;
+        email: string | null;
+        fullName: string | null;
+        title: string | null;
+        organization: string | null;
+        score: number;
+        recency: number;
+        sources: Set<StakeholderSource>;
+      };
+      const stakeholderMap = new Map<string, Stakeholder>();
+
+      const stakeholderSourceLabel = (sources: Set<StakeholderSource>): string => {
+        const labels: string[] = [];
+        if (sources.has('contact')) labels.push('Contact');
+        if (sources.has('meeting')) labels.push('Meeting');
+        if (sources.has('email_thread')) labels.push('Email');
+        return labels.join(' + ');
+      };
+
+      const upsertStakeholder = (
+        key: string,
+        value: Omit<Stakeholder, 'score' | 'recency' | 'sources'>,
+        scoreBoost: number,
+        recencyHint: Date,
+        source: StakeholderSource,
+      ) => {
+        const existing = stakeholderMap.get(key);
+        if (!existing) {
+          stakeholderMap.set(key, {
+            ...value,
+            score: scoreBoost,
+            recency: recencyHint.getTime(),
+            sources: new Set([source]),
+          });
+          return;
+        }
+        const mergedSources = new Set(existing.sources);
+        mergedSources.add(source);
+        stakeholderMap.set(key, {
+          ...existing,
+          id: existing.id || value.id,
+          email: existing.email || value.email,
+          fullName: existing.fullName || value.fullName,
+          title: existing.title || value.title,
+          organization: existing.organization || value.organization,
+          score: existing.score + scoreBoost,
+          recency: Math.max(existing.recency, recencyHint.getTime()),
+          sources: mergedSources,
+        });
+      };
+
+      for (const contact of contacts) {
+        const email = normalizeEmailAddress(contact.email);
+        const key = email || `contact:${contact.id}`;
+        upsertStakeholder(
+          key,
+          {
+            id: contact.id,
+            email: contact.email,
+            fullName: contact.fullName,
+            title: contact.title,
+            organization: contact.organization,
+          },
+          10,
+          contact.updatedAt,
+          'contact',
+        );
+      }
+
+      for (const meeting of meetings) {
+        for (const attendee of meeting.attendees) {
+          const email = normalizeEmailAddress(attendee.email);
+          const key = email || `meeting-attendee:${meeting.id}:${attendee.id}`;
+          upsertStakeholder(
+            key,
+            {
+              id: attendee.contactId ?? attendee.id,
+              email: attendee.email,
+              fullName: attendee.name,
+              title: attendee.role,
+              organization: null,
+            },
+            5,
+            meeting.startsAt,
+            'meeting',
+          );
+        }
+      }
+
+      for (const thread of threads) {
+        const threadDate = thread.lastMessageAt ?? thread.updatedAt;
+        for (const participant of parseMailThreadParticipants(thread.participants)) {
+          const email = normalizeEmailAddress(participant.email);
+          const key = email || `thread-participant:${thread.id}:${participant.name ?? 'unknown'}`;
+          upsertStakeholder(
+            key,
+            {
+              id: key,
+              email: participant.email,
+              fullName: participant.name,
+              title: participant.role,
+              organization: null,
+            },
+            4,
+            threadDate,
+            'email_thread',
+          );
+        }
+      }
+
+      const keyStakeholders = Array.from(stakeholderMap.values())
+        .sort((left, right) => {
+          if (right.score !== left.score) return right.score - left.score;
+          return right.recency - left.recency;
+        })
+        .slice(0, 40)
+        .map(({ id, email, fullName, title, organization, sources }) => ({
+          id,
+          email,
+          fullName,
+          title,
+          organization,
+          source: stakeholderSourceLabel(sources),
+        }));
 
       return {
         client,
@@ -2810,13 +3004,13 @@ export class EngagementService {
         ]
           .sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime())
           .slice(0, 12),
-        keyStakeholders: contacts,
+        keyStakeholders,
         openThreads: threads.filter((thread) => thread.status !== 'closed'),
         openTasks: tasks,
         summary: {
           meetings: meetings.length,
           mailThreads: threads.length,
-          contacts: contacts.length,
+          contacts: keyStakeholders.length,
           openTasks: tasks.length,
           rag: 'pgvector storage is provisioned; embeddings are written once an embedding provider is configured.',
         },
@@ -4000,27 +4194,52 @@ function mailMessageEmails(message: {
   bccRecipients: Prisma.JsonValue;
 }): string[] {
   return unique([
-    message.fromEmail ?? '',
+    normalizeEmailAddress(message.fromEmail),
     ...recipientEmails(message.toRecipients),
     ...recipientEmails(message.ccRecipients),
     ...recipientEmails(message.bccRecipients),
-  ]).filter(Boolean);
+  ].filter((email): email is string => Boolean(email)));
 }
 
-function recipientEmails(value: Prisma.JsonValue): string[] {
+type MailThreadParticipant = {
+  email: string | null;
+  name: string | null;
+  role: string | null;
+};
+
+function parseMailThreadParticipants(value: Prisma.JsonValue): MailThreadParticipant[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
-      const record = entry as Record<string, unknown>;
-      const email =
+
+  const rows: MailThreadParticipant[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const record = entry as Record<string, unknown>;
+
+    const email =
+      normalizeEmailAddress(
         typeof record.email === 'string'
           ? record.email
           : typeof record.address === 'string'
             ? record.address
-            : null;
-      return normalizeEmailAddress(email);
-    })
+            : null,
+      ) ?? null;
+
+    const name =
+      typeof record.name === 'string' && record.name.trim().length > 0 ? record.name.trim() : null;
+
+    const role =
+      typeof record.role === 'string' && record.role.trim().length > 0 ? record.role.trim() : null;
+
+    if (!email && !name) continue;
+    rows.push({ email, name, role });
+  }
+
+  return rows;
+}
+
+function recipientEmails(value: Prisma.JsonValue): string[] {
+  return parseMailThreadParticipants(value)
+    .map((participant) => participant.email)
     .filter((email): email is string => Boolean(email));
 }
 
@@ -4313,6 +4532,12 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
     .map((entry) => {
       if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
       const record = entry as Record<string, unknown>;
+      const id = readString(record.id);
+      const clientId = readString(record.clientId);
+      const direction =
+        record.direction === 'on-behalf' || record.direction === 'to-clients'
+          ? (record.direction as 'on-behalf' | 'to-clients')
+          : undefined;
       const email = normalizeEmailAddress(readString(record.email));
       const name = readString(record.name);
       const office = readString(record.office);
@@ -4335,8 +4560,11 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
       const prepSummary = readString(record.prepSummary);
       const debriefSummary = readString(record.debriefSummary);
       const meetingLocation = readString(record.meetingLocation);
-      if (!email && !name) return null;
+      if (!email && !name && !id && !directoryContactId) return null;
       return {
+        ...(id ? { id: id.slice(0, 240) } : {}),
+        ...(clientId ? { clientId: clientId.slice(0, 80) } : {}),
+        ...(direction ? { direction } : {}),
         ...(name ? { name: name.slice(0, 160) } : {}),
         ...(email ? { email } : {}),
         ...(office ? { office: office.slice(0, 240) } : {}),
@@ -4367,6 +4595,58 @@ function normalizeOutreachRecipients(value?: unknown): OutreachRecipientInput[] 
     .slice(0, 500);
 }
 
+function normalizeOutreachDirection(value?: unknown): 'on-behalf' | 'to-clients' {
+  if (value === 'to-clients') return 'to-clients';
+  return 'on-behalf';
+}
+
+function applyOutreachDirection(
+  recipients: OutreachRecipientInput[],
+  direction: 'on-behalf' | 'to-clients',
+): OutreachRecipientInput[] {
+  return recipients.map((recipient) => ({ ...recipient, direction }));
+}
+
+function normalizeOutreachContextPool(value?: unknown): OutreachContextPoolItemInput[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return null;
+      const record = entry as Record<string, unknown>;
+      const id = readString(record.id);
+      const sourceType = readString(record.sourceType);
+      const title = readString(record.title);
+      const summary = readString(record.summary);
+      const note = readString(record.note);
+      const scope = readString(record.scope);
+      const recipientIds = Array.isArray(record.recipientIds)
+        ? record.recipientIds
+            .map((item) => readString(item))
+            .filter((item): item is string => Boolean(item))
+            .slice(0, 200)
+        : [];
+      const matches = Array.isArray(record.matches)
+        ? record.matches
+            .map((item) => readString(item))
+            .filter((item): item is string => Boolean(item))
+            .slice(0, 200)
+        : [];
+      if (!id && !title && !summary && !note) return null;
+      return {
+        ...(id ? { id: id.slice(0, 240) } : {}),
+        ...(sourceType ? { sourceType: sourceType.slice(0, 80) } : {}),
+        ...(title ? { title: title.slice(0, 240) } : {}),
+        ...(summary ? { summary: summary.slice(0, 2000) } : {}),
+        ...(note ? { note: note.slice(0, 2000) } : {}),
+        ...(scope ? { scope: scope.slice(0, 240) } : {}),
+        ...(recipientIds.length ? { recipientIds } : {}),
+        ...(matches.length ? { matches } : {}),
+      };
+    })
+    .filter((entry): entry is OutreachContextPoolItemInput => Boolean(entry))
+    .slice(0, 500);
+}
+
 function sanitizeOutreachMetadata(value?: Record<string, unknown>): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return JSON.parse(JSON.stringify(value)) as Record<string, unknown>;
@@ -4386,6 +4666,11 @@ function mergeJsonObjects(
 function readMetadataString(metadata: unknown, key: string): string | null {
   if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
   return readString((metadata as Record<string, unknown>)[key]);
+}
+
+function readMetadataUnknown(metadata: unknown, key: string): unknown {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return undefined;
+  return (metadata as Record<string, unknown>)[key];
 }
 
 function readString(value: unknown): string | null {

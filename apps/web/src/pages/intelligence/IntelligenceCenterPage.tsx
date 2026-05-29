@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Select, Tabs } from 'antd';
+import { Card, Select, Statistic, Tabs, Typography } from 'antd';
 import {
   AuditOutlined,
   BankOutlined,
@@ -15,7 +15,10 @@ import {
   UserSwitchOutlined,
 } from '@ant-design/icons';
 import { useApi } from '../../lib/use-api.js';
-import type { LdaClient, PagedResult } from './types.js';
+import type { LdaClient, LdaDashboard, LobbyOverview, PagedResult } from './types.js';
+import { formatMoney, formatNum } from './utils.js';
+
+const { Text } = Typography;
 import { InsightsBanner } from './InsightsBanner.js';
 import { LdaOverviewPanel } from './panels/LdaOverviewPanel.js';
 import { FilingsPanel } from './panels/FilingsPanel.js';
@@ -42,6 +45,22 @@ export function IntelligenceCenterPage() {
     retry: 1,
   });
 
+  // Executive KPI row, populated from existing endpoints so no API change required.
+  const ldaDashboard = useQuery<LdaDashboard>({
+    queryKey: ['lda-dashboard-kpis'],
+    queryFn: async () => (await api.get<LdaDashboard>('/api/lda-intel/dashboard')).data,
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+  const lobbyOverview = useQuery<LobbyOverview>({
+    queryKey: ['lobby-intel-overview-kpis'],
+    queryFn: async () => (await api.get<LobbyOverview>('/api/lobby-intel/overview')).data,
+    staleTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+  const totalLobbySpend = (lobbyOverview.data?.topSpenders ?? [])
+    .reduce((sum, s) => sum + (s.totalSpending ?? 0), 0);
+
   function navigateTo(tab: string, client?: string) {
     if (client !== undefined) setClientFilter(client);
     setActiveTab(tab);
@@ -53,8 +72,74 @@ export function IntelligenceCenterPage() {
   ];
 
   return (
-    <div style={{ padding: '24px 32px', overflow: 'auto', height: '100%' }}>
+    <div
+      className="redesign"
+      style={{
+        padding: '24px 32px',
+        overflow: 'auto',
+        height: '100%',
+        background: 'var(--bg-canvas)',
+      }}
+    >
       <InsightsBanner />
+
+      {/* Executive KPI row, gives the user a one-glance read on the breadth of
+          intelligence Capiro is tracking, derived entirely from LDA + lobby-intel
+          endpoints that are already live. */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>
+        <Card size="small">
+          <Statistic
+            title="Total LDA Filings"
+            value={ldaDashboard.data?.totalFilings ?? 0}
+            loading={ldaDashboard.isLoading}
+            formatter={(v) => formatNum(v as number)}
+            valueStyle={{ fontSize: 20 }}
+            prefix={<FileTextOutlined />}
+          />
+        </Card>
+        <Card size="small">
+          <Statistic
+            title="Lobbying Clients"
+            value={ldaDashboard.data?.totalClients ?? 0}
+            loading={ldaDashboard.isLoading}
+            formatter={(v) => formatNum(v as number)}
+            valueStyle={{ fontSize: 20 }}
+            prefix={<UserSwitchOutlined />}
+          />
+        </Card>
+        <Card size="small">
+          <Statistic
+            title="Registered Lobbyists"
+            value={ldaDashboard.data?.totalLobbyists ?? 0}
+            loading={ldaDashboard.isLoading}
+            formatter={(v) => formatNum(v as number)}
+            valueStyle={{ fontSize: 20 }}
+            prefix={<UserOutlined />}
+          />
+        </Card>
+        <Card size="small">
+          <Statistic
+            title="Lobbying Firms"
+            value={ldaDashboard.data?.totalRegistrants ?? 0}
+            loading={ldaDashboard.isLoading}
+            formatter={(v) => formatNum(v as number)}
+            valueStyle={{ fontSize: 20 }}
+            prefix={<ShopOutlined />}
+          />
+        </Card>
+        <Card size="small">
+          <Statistic
+            title="$ Tracked (top 5K)"
+            value={totalLobbySpend}
+            loading={lobbyOverview.isLoading}
+            formatter={(v) => formatMoney(v as number)}
+            valueStyle={{ fontSize: 20, color: '#2563eb' }}
+            prefix={<DollarOutlined />}
+          />
+          <Text type="secondary" style={{ fontSize: 11 }}>federal lobbying disclosure</Text>
+        </Card>
+      </div>
+
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}

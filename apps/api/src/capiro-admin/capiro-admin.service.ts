@@ -131,7 +131,16 @@ export class CapiroAdminService {
       organizationId: orgId,
       emailAddress: email,
       role: 'org:admin',
-      redirectUrl: redirectUrl ?? this.config.get('APP_SIGN_IN_URL', { infer: true }),
+      // Invitation links must point at /sign-up, not /sign-in: new invitees
+      // don't have a Clerk account yet, so the SignUp component is what
+      // claims the __clerk_ticket. Existing users get auto-redirected to
+      // /sign-in by SignUp's `signInUrl` prop. Pointing at /sign-in
+      // directly causes the ticket to be dropped on the SignIn→SignUp
+      // bounce. Override with an explicit `redirectUrl` arg when needed.
+      redirectUrl:
+        redirectUrl ??
+        (this.config.get('APP_SIGN_IN_URL', { infer: true }) ?? 'https://app.capiro.ai/sign-in')
+          .replace(/\/sign-in\/?$/, '/sign-up'),
     });
     return { invitationId: inv.id };
   }

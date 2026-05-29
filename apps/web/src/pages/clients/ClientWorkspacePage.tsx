@@ -4,8 +4,16 @@ import {
   LinkOutlined,
   MoreOutlined,
   PlusOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
-import { hasAtLeast } from '@capiro/shared';
+import {
+  hasAtLeast,
+  SECTOR_LABELS,
+  SUBMISSION_TRACK_LABELS,
+  normalizeSector,
+  type SectorTag,
+  type SubmissionTrack,
+} from '@capiro/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   App as AntApp,
@@ -21,9 +29,11 @@ import {
 } from 'antd';
 import { useApi } from '../../lib/use-api.js';
 import { useMe } from '../../lib/me.js';
+import { BulkImportClientsModal } from './BulkImportClientsModal.js';
 import { ClientFormModal } from './ClientFormModal.js';
 import { ClientProfilePage } from './ClientProfilePage.js';
 import type { Client, ClientFormSubmit } from './clientTypes.js';
+import type { PortfolioSummary } from '../intelligence/types.js';
 
 interface ClientFilterState {
   sectors: string[];
@@ -38,6 +48,7 @@ export function ClientWorkspacePage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [bulkImportOpen, setBulkImportOpen] = useState(false);
   const [filters, setFilters] = useState<ClientFilterState>({ sectors: [], requestTypes: [] });
 
   const canCreateClients = Boolean(me.data && hasAtLeast(me.data.role, 'standard_user'));
@@ -47,6 +58,13 @@ export function ClientWorkspacePage() {
   const clients = useQuery<Client[]>({
     queryKey: ['clients'],
     queryFn: async () => (await api.get<Client[]>('/api/clients')).data,
+  });
+
+  const portfolioSummary = useQuery<PortfolioSummary>({
+    queryKey: ['portfolio-summary'],
+    queryFn: async () =>
+      (await api.get<PortfolioSummary>('/api/intelligence/portfolio-summary')).data,
+    staleTime: 2 * 60 * 1000,
   });
 
   const selectedClient = useQuery<Client>({
@@ -62,9 +80,7 @@ export function ClientWorkspacePage() {
 
   const filterOptions = useMemo(
     () => ({
-      sectors: uniqueOptions(
-        activeClients.map((client) => readText(intakeRecord(client), ['sector'])),
-      ),
+      sectors: uniqueSectorOptions(activeClients),
       requestTypes: uniqueOptions(
         activeClients.map((client) =>
           readText(intakeRecord(client), ['requestType', 'request_type']),
@@ -83,10 +99,10 @@ export function ClientWorkspacePage() {
     return activeClients
       .filter((client) => {
         const intake = intakeRecord(client);
-        const sector = readText(intake, ['sector']);
+        const sectorTag = resolveSectorTag(client);
         const requestType = readText(intake, ['requestType', 'request_type']);
         return (
-          (!filters.sectors.length || (sector ? filters.sectors.includes(sector) : false)) &&
+          (!filters.sectors.length || (sectorTag ? filters.sectors.includes(sectorTag) : false)) &&
           (!filters.requestTypes.length ||
             (requestType ? filters.requestTypes.includes(requestType) : false))
         );
@@ -308,28 +324,68 @@ export function ClientWorkspacePage() {
     );
   }
 
+  const activeCount = visibleClients.length;
+  const totalActive = activeClients.length;
+
   /* ── List view ── */
   return (
     <>
-      <section className="client-page">
-        <div className="client-action-bar">
-          <Popover arrow={false} content={filterContent} placement="bottomRight" trigger="click">
+      <section className="client-page redesign">
+        <header className="portfolio-page-head">
+          <div>
+            <h1>Portfolio</h1>
+            <div className="portfolio-meta">
+              <b className="num">{totalActive}</b> active client{totalActive === 1 ? '' : 's'}
+              {portfolioSummary.data ? (
+                <>
+                  {' · '}
+                  <b className="num">{portfolioSummary.data.openWorkflows}</b> open workflow
+                  {portfolioSummary.data.openWorkflows === 1 ? '' : 's'}
+                  {' · '}
+                  <b className="num">{formatCompactMoney(portfolioSummary.data.ldaSpendQtd)}</b>{' '}
+                  tracked LDA spend this quarter
+                </>
+              ) : null}
+              {activeFilterCount ? (
+                <>
+                  {' · '}
+                  <b className="num">{activeCount}</b> matching filters
+                </>
+              ) : null}
+            </div>
+          </div>
+          <div className="client-action-bar">
+            <Popover arrow={false} content={filterContent} placement="bottomRight" trigger="click">
+              <Button
+                icon={<FilterOutlined />}
+                disabled={clients.isLoading || !activeClients.length}
+              >
+                {activeFilterCount ? `Filter (${activeFilterCount})` : 'Filter'}
+              </Button>
+            </Popover>
             <Button
-              icon={<FilterOutlined />}
-              disabled={clients.isLoading || !activeClients.length}
+              icon={<UploadOutlined />}
+              disabled={!canCreateClients}
+              onClick={() => setBulkImportOpen(true)}
             >
-              {activeFilterCount ? `Filter (${activeFilterCount})` : 'Filter'}
+              Import CSV
             </Button>
-          </Popover>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            disabled={!canCreateClients}
-            onClick={openCreate}
-          >
-            New Client
-          </Button>
-        </div>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              disabled={!canCreateClients}
+              onClick={openCreate}
+            >
+              New Client
+            </Button>
+          </div>
+        </header>
+
+        <PortfolioStrip
+          summary={portfolioSummary.data}
+          loading={portfolioSummary.isLoading}
+          activeClientsFallback={totalActive}
+        />
 
         {clients.isLoading ? (
           <div className="client-card-grid">
@@ -390,6 +446,11 @@ export function ClientWorkspacePage() {
           createClient.mutate(submission);
         }}
       />
+
+      <BulkImportClientsModal
+        open={bulkImportOpen}
+        onClose={() => setBulkImportOpen(false)}
+      />
     </>
   );
 }
@@ -437,7 +498,7 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
 
       <div className="client-card-details">
         <DetailPair label="Primary POC" value={formatPoc(intake, client.primaryContactName)} />
-        <DetailPair label="Sector" value={readText(intake, ['sector'])} />
+        <DetailPair label="Sector" value={sectorLabelFor(client) ?? readText(intake, ['sector'])} />
         <DetailPair label="Engagement" value={formatEngagement(intake, client.createdAt)} />
       </div>
 
@@ -452,7 +513,7 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
   );
 }
 
-/** "Sarah Kim, VP Gov't Affairs" — falls back to whichever piece we have. */
+/** "Sarah Kim, VP Gov't Affairs", falls back to whichever piece we have. */
 function formatPoc(intake: Record<string, unknown>, fallbackName: string | null): string | undefined {
   const name = readText(intake, ['pocName']) ?? fallbackName ?? undefined;
   const title = readText(intake, ['pocTitle']);
@@ -460,7 +521,7 @@ function formatPoc(intake: Record<string, unknown>, fallbackName: string | null)
   return name ?? title;
 }
 
-/** "Active · Since Jan 2026" — status comes from intake, "since" from client.createdAt. */
+/** "Active · Since Jan 2026", status comes from intake, "since" from client.createdAt. */
 function formatEngagement(intake: Record<string, unknown>, createdAt: string): string | undefined {
   const statusRaw = readText(intake, ['engagement']);
   const status = statusRaw ? statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1) : undefined;
@@ -499,6 +560,61 @@ function AddClientCard({
   return <Tooltip title="Only signed-in tenant members can add clients.">{card}</Tooltip>;
 }
 
+function PortfolioStrip({
+  summary,
+  loading,
+  activeClientsFallback,
+}: {
+  summary: PortfolioSummary | undefined;
+  loading: boolean;
+  activeClientsFallback: number;
+}) {
+  const cells: Array<{ label: string; value: string; tone?: 'accent' | 'notable' | 'critical' }> = [
+    { label: 'Active clients', value: String(summary?.activeClients ?? activeClientsFallback) },
+    { label: 'Open workflows', value: String(summary?.openWorkflows ?? 0), tone: 'accent' },
+    {
+      label: 'Need attention',
+      value: String(summary?.needAttention ?? 0),
+      tone: (summary?.needAttention ?? 0) > 0 ? 'notable' : undefined,
+    },
+    { label: 'LDA spend (QTD)', value: formatCompactMoney(summary?.ldaSpendQtd ?? 0) },
+    { label: 'Active bills tracked', value: String(summary?.billsTracked ?? 0) },
+    { label: 'Active regulations', value: String(summary?.activeRegulations ?? 0) },
+  ];
+  return (
+    <div className="portfolio-strip">
+      {cells.map((c) => (
+        <div className="portfolio-strip-cell" key={c.label}>
+          <span
+            className="portfolio-strip-v num"
+            style={
+              c.tone === 'accent'
+                ? { color: 'var(--accent-ink)' }
+                : c.tone === 'notable'
+                  ? { color: 'var(--notable)' }
+                  : c.tone === 'critical'
+                    ? { color: 'var(--critical)' }
+                    : undefined
+            }
+          >
+            {loading ? '-' : c.value}
+          </span>
+          <span className="portfolio-strip-l">{c.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatCompactMoney(value: number): string {
+  if (!Number.isFinite(value) || value === 0) return '$0';
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
+  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `$${Math.round(value / 1_000)}K`;
+  return `$${Math.round(value)}`;
+}
+
 function DetailPair({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="client-detail-pair">
@@ -517,13 +633,49 @@ function intakeRecord(client: Client): Record<string, unknown> {
 
 function portfolioTags(client: Client): string[] {
   const intake = intakeRecord(client);
-  const explicitTags = readList(intake, ['portfolio', 'tags']);
-  if (explicitTags.length) return explicitTags;
-  return [
-    readText(intake, ['sector']),
-    readText(intake, ['requestType', 'request_type']),
-    readText(intake, ['fundingAsk', 'funding_ask']),
-  ].filter((item): item is string => Boolean(item));
+  const tags: string[] = [];
+  const sectorLabel = sectorLabelFor(client);
+  if (sectorLabel) tags.push(sectorLabel);
+  for (const track of client.submissionTracks ?? []) {
+    const label =
+      SUBMISSION_TRACK_LABELS[track as SubmissionTrack] ?? track;
+    if (label) tags.push(label);
+  }
+  const explicit = readList(intake, ['portfolio', 'tags']);
+  for (const t of explicit) if (!tags.includes(t)) tags.push(t);
+  if (!tags.length) {
+    const fallback = [
+      readText(intake, ['requestType', 'request_type']),
+      readText(intake, ['fundingAsk', 'funding_ask']),
+    ].filter((item): item is string => Boolean(item));
+    tags.push(...fallback);
+  }
+  return tags;
+}
+
+function resolveSectorTag(client: Client): string | undefined {
+  if (client.sectorTag) return client.sectorTag;
+  const intakeSector = readText(intakeRecord(client), ['sector']);
+  if (!intakeSector) return undefined;
+  return normalizeSector(intakeSector) ?? undefined;
+}
+
+function sectorLabelFor(client: Client): string | undefined {
+  const tag = resolveSectorTag(client);
+  if (!tag) return undefined;
+  return SECTOR_LABELS[tag as SectorTag] ?? tag;
+}
+
+function uniqueSectorOptions(clients: Client[]): Array<{ label: string; value: string }> {
+  const seen = new Map<string, string>();
+  for (const client of clients) {
+    const tag = resolveSectorTag(client);
+    if (!tag) continue;
+    if (!seen.has(tag)) seen.set(tag, SECTOR_LABELS[tag as SectorTag] ?? tag);
+  }
+  return Array.from(seen.entries())
+    .sort(([, leftLabel], [, rightLabel]) => leftLabel.localeCompare(rightLabel))
+    .map(([value, label]) => ({ label, value }));
 }
 
 function readList(record: Record<string, unknown>, keys: string[]): string[] {

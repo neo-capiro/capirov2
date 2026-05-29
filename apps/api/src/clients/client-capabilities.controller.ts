@@ -35,6 +35,10 @@ class CreateCapabilityDto {
   tags?: unknown[];
 
   @IsOptional()
+  @IsArray()
+  issueCodes?: unknown[];
+
+  @IsOptional()
   @IsInt()
   @Min(1)
   @Max(9)

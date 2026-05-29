@@ -938,34 +938,31 @@ export class EngagementAiService {
     const hasTasks = input.tasks.length > 0;
 
     return [
-      'Create a comprehensive meeting prep for this lobbying interaction.',
-      'Structure the output as follows across the summary and arrays:',
-      '1. MEETING OBJECTIVE — derive from meeting subject, client context, and attendee profiles. State what success looks like for this meeting.',
-      '2. EXECUTIVE SUMMARY — 2-3 sentences: who is meeting, why, and what the expected outcome is.',
-      '3. KEY DISCUSSION POINTS — the 3-5 most important substantive topics to address, drawn from client program, prior meetings, and email threads.',
-      '4. ATTENDEE PROFILES — for each congressional attendee, include their committee/subcommittee role, jurisdiction relevance, and any known positions or prior engagement history.',
-      '5. TALKING POINTS — specific, evidence-backed points the lobbyist should make. Reference client capabilities, funding requests, or program details when available.',
-      '6. RISK FACTORS — potential objections, competing priorities, or sensitivities to be aware of (based on committee dynamics, prior meeting outcomes, or email evidence).',
-      '7. ACTION ITEMS — concrete follow-up commitments likely to arise, based on prior meeting history and open tasks.',
-      '8. LOGISTICS — location, timing, attendee list confirmation.',
+      'Write a lobbyist-ready meeting prep. Keep it concise, specific, and decision-focused.',
+      'Use only provided data. If a fact is missing, omit it. Do not guess, infer people\'s positions, or invent commitments.',
       '',
-      'Use the client context, past meetings, email threads, and open tasks. Do not invent facts.',
+      'Output structure (JSON fields):',
+      'agenda: short section headers with one-line guidance for: Objective, Executive Summary, Discussion Priorities, Attendee Context, Risks, Logistics.',
+      'talkingPoints: 3-7 concrete points the lobbyist can say in the room.',
+      'risks: 2-5 likely objections/sensitivities grounded in supplied context only.',
+      'followUps: specific next steps with owner/timing when known; if unknown, leave timing blank rather than fabricating.',
+      'summary: 2-4 sentence plain-language brief (who, why now, what success looks like).',
+      'emailEvidence: concise bullets from provided threads only; empty array when none.',
+      '',
       hasDirectoryMatches
-        ? 'congressionalDirectoryMatches are present — use those matched member and staff profiles for attendee context: member bio, committee assignments, subcommittee roles, office/location details, and known policy positions.'
+        ? 'Use congressionalDirectoryMatches for attendee context (role, committee/jurisdiction, office details) when present.'
         : 'No congressional directory matches were provided.',
       hasPriorMeetings
-        ? 'recentMeetings are present — reference prior meeting debriefs to identify pending action items, ongoing relationships, and unresolved discussion points. Note any commitments made in previous meetings that should be followed up on.'
+        ? 'Use recentMeetings to carry forward unresolved items and prior commitments that are explicitly documented.'
         : 'No prior meetings with these attendees were found.',
       hasTasks
-        ? 'tasks are present — incorporate open tasks as action items context. Flag any overdue or high-priority tasks that relate to this meeting.'
+        ? 'Use tasks to surface open/overdue work relevant to this meeting.'
         : 'No open tasks were found.',
       hasEmailThreads
-        ? 'Use recentThreads as primary evidence for talkingPoints, risks, and followUps. Include concrete details such as sender, date, and short quoted phrases from email content when available.'
+        ? 'Use recentThreads as evidence for talkingPoints/risks/followUps; quote or paraphrase only what is present.'
         : 'No recentThreads were provided. Keep output grounded in available non-email context only.',
-      hasEmailThreads
-        ? 'Populate emailEvidence with 2-6 concise evidence bullets grounded in recentThreads. If an item in talkingPoints or risks is supported by email context, reflect that support in emailEvidence.'
-        : 'Set emailEvidence to an empty array when no usable email evidence exists.',
-      'Return JSON with agenda (structured as the 8 sections above, each as a string), talkingPoints, risks, followUps, summary (meeting objective + executive summary as a single narrative), and emailEvidence.',
+      'Tone: professional federal lobbying operator, direct, practical, no fluff.',
+      'Return JSON only with: agenda, talkingPoints, risks, followUps, summary, emailEvidence.',
       'Email thread highlights (for grounding):',
       emailHighlights,
       JSON.stringify(input, null, 2),
@@ -988,13 +985,59 @@ export class EngagementAiService {
         ? PROMPT_TEMPLATE_GUIDANCE[input.promptTemplate]
         : null;
 
+    // The v2 outreach wizard sends a curated `contextItems` block as part
+    // of `input.context`. Each item carries the user's intent: shared items
+    // form the spine of the message, personalized items must be reflected
+    // for that specific recipient, and per-item `Instruction:` lines are
+    // direct user directives (e.g. "lead with this", "omit the deadline
+    // language"). We hoist the block out of the raw JSON dump so the model
+    // sees it as a first-class section with explicit guidance, and we
+    // remove it from the JSON to avoid duplication that dilutes attention.
+    const direction =
+      typeof input.context?.direction === 'string' ? input.context.direction : null;
+    const contextItemsBlock =
+      typeof input.context?.contextItems === 'string' &&
+      (input.context.contextItems as string).trim().length > 0
+        ? (input.context.contextItems as string).trim()
+        : null;
+    const contextWithoutItems = contextItemsBlock
+      ? Object.fromEntries(
+          Object.entries(input.context ?? {}).filter(
+            ([k]) => k !== 'contextItems' && k !== 'direction',
+          ),
+        )
+      : (input.context ?? {});
+    const inputForJson: OutreachDraftInput = contextItemsBlock
+      ? { ...input, context: contextWithoutItems }
+      : input;
+
+    const directionGuidance = direction
+      ? direction === 'on-behalf'
+        ? "Direction: on-behalf-of-client. The sender is the lobbyist's user, writing as the representative of `client`. The recipient is a congressional or federal-agency contact. Use the client's voice and the client's asks; reference the client by name where natural. Sign as the user, not the client."
+        : 'Direction: from-lobbyist-to-clients. The sender is the lobbyist writing directly to their own portfolio client(s). The tone is internal briefing, informative, candid, action-oriented. Do not write as if pitching the client; you ARE the client\'s trusted operator.'
+      : null;
+
+    const contextItemsGuidance = contextItemsBlock
+      ? [
+          'CURATED CONTEXT, treat this as the source-of-truth for what to include and how. The list below is grouped into:',
+          '  • "Shared context", must inform every recipient\'s draft. These are the campaign\'s spine.',
+          '  • "Personalized context for this recipient", must be reflected explicitly in this draft only. If a per-item `Instruction:` line is present, follow it (e.g. "lead with this", "omit the deadline language", "soften the ask").',
+          'When a personalized item conflicts with a shared item, the personalized item wins for that recipient. If an item is a `[note]` kind, treat its body and Instruction as a direct user directive to obey, not as fact to cite.',
+          'Do not cite items the user did not curate, do not pull from the raw JSON dump if those facts are not in the curated block. Do not enumerate the items back to the recipient; weave them into a coherent message.',
+          '',
+          contextItemsBlock,
+        ].join('\n')
+      : null;
+
     return [
       workflowGuidance,
+      directionGuidance,
       templateGuidance ? `Prompt template: ${input.promptTemplate}. ${templateGuidance}` : null,
       'Use only the provided client, meeting, recipient, and engagement context. Do not invent facts.',
       'Never return unresolved template variables or bracket placeholders in subject or body. Use real provided values or omit the unsupported line/phrase.',
+      contextItemsGuidance,
       'Return JSON with subject, body, and contextNote. The body must be directly editable by the user.',
-      JSON.stringify(input, null, 2),
+      JSON.stringify(inputForJson, null, 2),
     ]
       .filter((line): line is string => Boolean(line))
       .join('\n\n');
@@ -1002,22 +1045,21 @@ export class EngagementAiService {
 
   private buildDebriefPrompt(input: MeetingDebriefDraftInput): string {
     return [
-      'Generate a comprehensive post-meeting debrief for a lobbying CRM.',
-      'Use only the supplied source text and tenant context. Do not invent commitments, attendees, dates, votes, or facts.',
+      'Write a concise, lobbyist-ready post-meeting debrief for CRM records.',
+      'Use only supplied source text/context. If a detail is missing, omit it. Do not invent facts, attendees, commitments, dates, or policy positions.',
       '',
-      'Structure the output as follows:',
+      'Output structure (JSON fields):',
+      'recap: short structured narrative with only these headings:',
+      '  - What happened: who attended (if known), core discussion, decisions/commitments explicitly supported by source text.',
+      '  - What matters: implications for committee/member/staffer engagement, only when evidenced.',
+      '  - Recommended next move: one practical next engagement step grounded in the meeting outcome.',
       '',
-      'recap: A structured narrative covering:',
-      '  - RECAP: Who attended, what was discussed, key decisions made, and commitments given by each party. Quote or closely paraphrase specific statements when the source supports it.',
-      '  - FOLLOW-UP REQUIRED: Specific next steps with suggested timeline (e.g., "Send white paper by Friday", "Schedule follow-up call within 2 weeks").',
-      '  - INTELLIGENCE GATHERED: Any new information about member positions, committee dynamics, upcoming hearings, budget priorities, or political landscape that emerged in the meeting.',
-      '  - CAMPAIGN SUGGESTION: Based on the meeting outcome, suggest a follow-up outreach campaign (e.g., "Post-meeting thank-you + position paper to [staffer name]" or "Schedule follow-up with [committee] after [hearing]").',
+      'actionItems: array of concrete, ownable follow-ups. Format: "[Owner], [Action] by [Timing if known]". If owner/timing is not in source, leave it generic instead of guessing.',
       '',
-      'actionItems: An array of specific, ownable next steps. Each item should be formatted as: "[Owner] — [Action] by [Timeline if known]". Extract these from commitments made, follow-ups requested, or materials promised.',
+      'notes: brief internal notes for next touch (tone, strategic signal, cautions) only if directly supported by source text.',
       '',
-      'notes: Internal notes preserving context not captured in the recap — tone of the meeting, body language observations, off-the-record comments, strategic observations about the member/staffer relationship, and anything the lobbyist should remember for the next engagement.',
-      '',
-      'Return JSON with recap, actionItems, and notes.',
+      'Style: direct, brief, and actionable. No fluff. No speculation.',
+      'Return JSON only with recap, actionItems, and notes.',
       JSON.stringify(input, null, 2),
     ].join('\n');
   }
@@ -1039,7 +1081,7 @@ export class EngagementAiService {
     return [
       `Campaign type: ${input.campaignType}. ${guidance}`,
       'Use only the provided client, meeting, debrief, prep, and recipient context. Do not invent facts, commitments, or positions.',
-      'The email should read as if written by a senior government affairs professional — not generic.',
+      'The email should read as if written by a senior government affairs professional, not generic.',
       'Reference specific discussion points, action items, and next steps from the supplied meeting/debrief context when available.',
       'Use template variables {recipient_name}, {recipient_title}, {meeting_date}, {action_items} where appropriate for per-recipient personalization at send time.',
       'Do not leave unresolved bracket placeholders or variables that have no corresponding context.',

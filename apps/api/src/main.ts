@@ -11,9 +11,9 @@ async function bootstrap() {
   // Mount everything under `/api/*` to match the ALB listener rule. The ALB
   // forwards `/api/*` to this service without stripping the prefix, so every
   // controller route lives under `/api/...`. Two carve-outs:
-  //   - `/health`   — the ALB target group hits this (and also routes /health
+  //   - `/health`  , the ALB target group hits this (and also routes /health
   //                   to the API), and we don't want it nested under /api.
-  //   - `/webhooks/*` — Clerk's webhook URL is `/webhooks/clerk` (no /api),
+  //   - `/webhooks/*`, Clerk's webhook URL is `/webhooks/clerk` (no /api),
   //                     so the route stays bare-mounted.
   app.setGlobalPrefix('api', {
     exclude: [
@@ -27,7 +27,7 @@ async function bootstrap() {
   app.use('/webhooks/clerk', raw({ type: '*/*', limit: '1mb' }));
   app.use(json({ limit: '1mb' }));
 
-  // Strict input validation at the edge — drop unknown fields, fail closed
+  // Strict input validation at the edge, drop unknown fields, fail closed
   // on malformed bodies. class-validator + class-transformer must be installed
   // (apps/api/package.json) for this to work.
   app.useGlobalPipes(

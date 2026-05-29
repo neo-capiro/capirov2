@@ -18,6 +18,60 @@ interface CreateConversationInput {
   title?: string;
 }
 
+interface UpdateConversationInput {
+  title?: string;
+  clientId?: string | null;
+}
+
+type ConfidenceLevel = 'high' | 'medium' | 'low';
+
+type RetrievalTier = 'fast' | 'deep';
+
+interface OrchestratorPolicy {
+  tier: RetrievalTier;
+  contextCharBudget: number;
+  researchLimit: number;
+  researchChars: number;
+  intelChars: number;
+  clientContextChars: number;
+}
+
+interface OrchestratorTraceStep {
+  tool: string;
+  action: 'selected' | 'skipped';
+  reason: string;
+}
+
+interface ClioSourceAttribution {
+  tool: string;
+  count?: number;
+  summary: string;
+  confidence: ConfidenceLevel;
+}
+
+interface OrchestratorConflict {
+  title: string;
+  detail: string;
+}
+
+interface OrchestratorResult {
+  context: string;
+  sources: ClioSourceAttribution[];
+  policy: OrchestratorPolicy;
+  trace: OrchestratorTraceStep[];
+  conflict: OrchestratorConflict | null;
+  template: {
+    heading: string;
+    sections: string[];
+  } | null;
+}
+
+interface StreamControl {
+  traceEnabled: boolean;
+  cleanContent: string;
+  pageWriteEnabled: boolean;
+}
+
 interface RuntimeMessage {
   id?: unknown;
   role?: unknown;
@@ -162,6 +216,82 @@ export class ClioService {
     return this.ensureConversation(ctx, conversationId);
   }
 
+  async updateConversation(ctx: TenantContext, conversationId: string, input: UpdateConversationInput) {
+    const conversation = await this.ensureConversation(ctx, conversationId);
+    const data: Prisma.ClioConversationUpdateInput = {};
+
+    if (typeof input.title === 'string') {
+      const title = input.title.trim();
+      if (!title) throw new BadRequestException('Conversation title cannot be empty');
+      data.title = title;
+    }
+
+    if (input.clientId !== undefined) {
+      if (input.clientId) await this.ensureClientVisible(ctx, input.clientId);
+      data.client = input.clientId
+        ? { connect: { id: input.clientId } }
+        : { disconnect: true };
+    }
+
+    if (!Object.keys(data).length) {
+      return conversation;
+    }
+
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const updated = await tx.clioConversation.update({
+        where: { id: conversationId },
+        data: { ...data, updatedAt: new Date() },
+        include: { client: { select: { id: true, name: true } } },
+      });
+
+      if (input.clientId !== undefined) {
+        await Promise.all([
+          tx.clioMessage.updateMany({
+            where: {
+              tenantId: ctx.tenantId,
+              userId: ctx.userId,
+              conversationId,
+            },
+            data: { clientId: input.clientId ?? null },
+          }),
+          tx.clioArtifact.updateMany({
+            where: {
+              tenantId: ctx.tenantId,
+              userId: ctx.userId,
+              conversationId,
+            },
+            data: { clientId: input.clientId ?? null },
+          }),
+        ]);
+      }
+
+      return updated;
+    });
+  }
+
+  async archiveConversation(ctx: TenantContext, conversationId: string) {
+    await this.ensureConversation(ctx, conversationId);
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioConversation.update({
+        where: { id: conversationId },
+        data: { archivedAt: new Date(), status: 'archived' },
+      }),
+    );
+    return { ok: true, id: conversationId };
+  }
+
+  async restoreConversation(ctx: TenantContext, conversationId: string) {
+    const conversation = await this.ensureConversationAnyStatus(ctx, conversationId);
+    if (!conversation.archivedAt) return conversation;
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioConversation.update({
+        where: { id: conversationId },
+        data: { archivedAt: null, status: 'active', updatedAt: new Date() },
+        include: { client: { select: { id: true, name: true } } },
+      }),
+    );
+  }
+
   async listMessages(ctx: TenantContext, conversationId: string) {
     await this.ensureConversation(ctx, conversationId);
     return this.prisma.withTenant(ctx.tenantId, (tx) =>
@@ -296,6 +426,21 @@ export class ClioService {
           tenantId: ctx.tenantId,
           userId: ctx.userId,
           archivedAt: null,
+        },
+        include: { client: { select: { id: true, name: true } } },
+      }),
+    );
+    if (!conversation) throw new NotFoundException('Clio conversation not found');
+    return conversation;
+  }
+
+  private async ensureConversationAnyStatus(ctx: TenantContext, conversationId: string) {
+    const conversation = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioConversation.findFirst({
+        where: {
+          id: conversationId,
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
         },
         include: { client: { select: { id: true, name: true } } },
       }),
@@ -525,7 +670,8 @@ export class ClioService {
 
   async streamMessage(ctx: TenantContext, conversationId: string, body: string, sse: { write: (data: string) => void }) {
     const conversation = await this.ensureConversation(ctx, conversationId);
-    const content = body.trim();
+    const streamControl = this.extractStreamControl(body);
+    const content = streamControl.cleanContent.trim();
     if (!content) throw new BadRequestException('Message body is empty');
 
     // Persist user message
@@ -557,36 +703,31 @@ export class ClioService {
     const intent = await this.classifyIntent(content);
     this.logger.debug(`Stream intent: ${intent}`);
 
-    // Gather context
-    const contextParts: string[] = [];
-    if (conversation.clientId) {
-      try {
-        const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-          tx.client.findFirst({
-            where: { id: conversation.clientId! },
-            select: { name: true, description: true, productDescription: true },
-          }),
-        );
-        if (client) {
-          contextParts.push(`Client: ${client.name}`);
-          if (client.description) contextParts.push(`Description: ${client.description}`);
-          if (client.productDescription) contextParts.push(`Product/service: ${client.productDescription}`);
-        }
-      } catch { /* skip */ }
+    const orchestration = await this.orchestrateContext(ctx, conversation.clientId, intent, content);
+    const unifiedSystemPrompt = this.buildUnifiedSystemPrompt(intent, orchestration.context, orchestration.template);
+
+    sse.write(`data: ${JSON.stringify({ type: 'start', intent, tier: orchestration.policy.tier })}\n\n`);
+    if (streamControl.pageWriteEnabled) {
+      sse.write(
+        `data: ${JSON.stringify({
+          type: 'page_write',
+          target: 'outreach_draft',
+          note: 'Write mode enabled: updates will be applied to this page when supported.',
+        })}\n\n`,
+      );
     }
-
-    // Gather memories
-    const memories = await this.loadRelevantMemories(ctx.tenantId, content);
-    if (memories.length) {
-      contextParts.push('\nRelevant firm knowledge (from Clio memory):');
-      for (const mem of memories) {
-        contextParts.push(`- ${mem.value}`);
-      }
+    if (streamControl.traceEnabled) {
+      sse.write(`data: ${JSON.stringify({ type: 'trace', trace: orchestration.trace, policy: orchestration.policy })}\n\n`);
     }
-
-    const unifiedSystemPrompt = this.buildUnifiedSystemPrompt(intent, contextParts.join('\n'));
-
-    sse.write(`data: ${JSON.stringify({ type: 'start', intent })}\n\n`);
+    if (orchestration.sources.length) {
+      sse.write(`data: ${JSON.stringify({ type: 'sources', sources: orchestration.sources })}\n\n`);
+    }
+    if (orchestration.conflict) {
+      sse.write(`data: ${JSON.stringify({ type: 'conflict', conflict: orchestration.conflict })}\n\n`);
+    }
+    if (orchestration.template) {
+      sse.write(`data: ${JSON.stringify({ type: 'template', template: orchestration.template })}\n\n`);
+    }
 
     let assistantContent = '';
     try {
@@ -667,20 +808,211 @@ export class ClioService {
           conversationId,
           role: 'assistant',
           body: assistantContent,
-          metadata: { intent },
+          metadata: {
+            intent,
+            tier: orchestration.policy.tier,
+            sources: orchestration.sources.map((source) => source.tool),
+            sourceConfidence: orchestration.sources.map((source) => ({ tool: source.tool, confidence: source.confidence })),
+            hasConflict: Boolean(orchestration.conflict),
+          },
         },
       }),
     );
 
     // Auto-summarize for memory (if substantial)
     if (assistantContent.length > 200) {
-      void this.maybeLearnFromConversation(ctx.tenantId, conversationId, content, assistantContent).catch(() => {});
+      void this.maybeLearnFromConversation(ctx.tenantId, ctx.userId, conversationId, content, assistantContent).catch(() => {});
     }
 
     // Generate proactive alerts in background
     void this.generateProactiveAlerts(ctx.tenantId).catch(() => {});
 
     sse.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+  }
+
+  private async orchestrateContext(
+    ctx: TenantContext,
+    clientId: string | null,
+    intent: string,
+    query: string,
+  ): Promise<OrchestratorResult> {
+    const policy = this.policyForIntent(intent, query);
+    const contextParts: string[] = [];
+    const sources: ClioSourceAttribution[] = [];
+    const trace: OrchestratorTraceStep[] = [];
+
+    if (clientId) {
+      trace.push({ tool: 'client_profile', action: 'selected', reason: 'Client-linked conversation has priority context.' });
+      try {
+        const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.client.findFirst({
+            where: { id: clientId },
+            select: { name: true, description: true, productDescription: true },
+          }),
+        );
+        if (client) {
+          contextParts.push(`Client: ${client.name}`);
+          if (client.description) contextParts.push(`Description: ${client.description}`);
+          if (client.productDescription) contextParts.push(`Product/service: ${client.productDescription}`);
+          sources.push({
+            tool: 'client_profile',
+            count: 1,
+            summary: `Client profile loaded for ${client.name}`,
+            confidence: 'high',
+          });
+        }
+      } catch {
+        trace.push({ tool: 'client_profile', action: 'skipped', reason: 'Client profile fetch failed.' });
+      }
+    } else {
+      trace.push({ tool: 'client_profile', action: 'skipped', reason: 'Conversation is not attached to a client.' });
+    }
+
+    try {
+      const memories = await this.loadRelevantMemories(ctx.tenantId, ctx.userId, query);
+      if (memories.length) {
+        contextParts.push('\nRelevant firm knowledge (from Clio memory):');
+        for (const mem of memories) contextParts.push(`- ${mem.value}`);
+        sources.push({
+          tool: 'clio_memory',
+          count: memories.length,
+          summary: `Loaded ${memories.length} memory items`,
+          confidence: memories.length >= 3 ? 'high' : 'medium',
+        });
+        trace.push({ tool: 'clio_memory', action: 'selected', reason: `Loaded ${memories.length} relevant memories.` });
+      } else {
+        trace.push({ tool: 'clio_memory', action: 'skipped', reason: 'No high-signal memories matched query.' });
+      }
+    } catch {
+      trace.push({ tool: 'clio_memory', action: 'skipped', reason: 'Memory retrieval failed.' });
+    }
+
+    const shouldLoadResearch = ['query_clients', 'query_engagement', 'query_workflow', 'generate_draft', 'general_question', 'generate_briefing'].includes(intent);
+    if (shouldLoadResearch) {
+      trace.push({ tool: 'search_research_sources', action: 'selected', reason: `Intent ${intent} benefits from workspace research context.` });
+      try {
+        const research = await this.tools.execute(ctx, 'search_research_sources' as never, {
+          query,
+          clientId: clientId ?? undefined,
+          limit: policy.researchLimit,
+        });
+        const results = Array.isArray((research as { results?: unknown[] }).results)
+          ? ((research as { results?: unknown[] }).results ?? [])
+          : [];
+        if (results.length) {
+          contextParts.push('\nCapiro research context:');
+          contextParts.push(summarizeJsonForPrompt(results, policy.researchChars));
+          sources.push({
+            tool: 'search_research_sources',
+            count: results.length,
+            summary: `Loaded ${results.length} research records`,
+            confidence: results.length >= 5 ? 'high' : 'medium',
+          });
+        } else {
+          trace.push({ tool: 'search_research_sources', action: 'skipped', reason: 'No research results returned.' });
+        }
+      } catch {
+        trace.push({ tool: 'search_research_sources', action: 'skipped', reason: 'Research tool request failed.' });
+      }
+    } else {
+      trace.push({ tool: 'search_research_sources', action: 'skipped', reason: `Intent ${intent} does not require research scan.` });
+    }
+
+    const shouldLoadIntel = ['query_intelligence', 'generate_briefing', 'general_question'].includes(intent);
+    if (shouldLoadIntel) {
+      trace.push({ tool: 'query_intelligence', action: 'selected', reason: `Intent ${intent} requests intelligence context.` });
+      try {
+        const clientName = clientId
+          ? await this.prisma.withTenant(ctx.tenantId, (tx) =>
+              tx.client.findFirst({ where: { id: clientId }, select: { name: true } }),
+            ).then((c) => c?.name ?? undefined)
+          : undefined;
+        const intelResult = await this.tools.execute(ctx, 'query_intelligence' as never, {
+          clientName: clientName ?? undefined,
+        });
+        const intelData = (intelResult as Record<string, unknown>)?.data;
+        if (typeof intelData === 'string' && intelData.length > 10) {
+          contextParts.push('\nFederal lobbying intelligence (from Capiro database):');
+          contextParts.push(truncateText(intelData, policy.intelChars));
+          sources.push({
+            tool: 'query_intelligence',
+            summary: 'Federal intelligence snapshot loaded',
+            confidence: 'high',
+          });
+        } else {
+          trace.push({ tool: 'query_intelligence', action: 'skipped', reason: 'No intelligence text payload returned.' });
+        }
+      } catch {
+        trace.push({ tool: 'query_intelligence', action: 'skipped', reason: 'Intelligence tool request failed.' });
+      }
+    } else {
+      trace.push({ tool: 'query_intelligence', action: 'skipped', reason: `Intent ${intent} does not need intelligence query.` });
+    }
+
+    const shouldLoadPublicWeb = ['query_intelligence', 'generate_briefing', 'general_question'].includes(intent);
+    if (shouldLoadPublicWeb) {
+      trace.push({ tool: 'search_public_web', action: 'selected', reason: `Intent ${intent} may need current public-web corroboration.` });
+      try {
+        const webResult = await this.tools.execute(ctx, 'search_public_web' as never, {
+          query,
+          limit: policy.tier === 'deep' ? 6 : 3,
+        });
+        const webRows = Array.isArray((webResult as { results?: unknown[] }).results)
+          ? ((webResult as { results?: unknown[] }).results ?? [])
+          : [];
+        if (webRows.length) {
+          contextParts.push('\nPublic web signals (supplemental to Capiro data):');
+          contextParts.push(summarizeJsonForPrompt(webRows, policy.tier === 'deep' ? 2800 : 1400));
+          sources.push({
+            tool: 'search_public_web',
+            count: webRows.length,
+            summary: `Loaded ${webRows.length} public web results`,
+            confidence: 'low',
+          });
+        } else {
+          trace.push({ tool: 'search_public_web', action: 'skipped', reason: 'No public web results returned.' });
+        }
+      } catch {
+        trace.push({ tool: 'search_public_web', action: 'skipped', reason: 'Public web search failed.' });
+      }
+    } else {
+      trace.push({ tool: 'search_public_web', action: 'skipped', reason: `Intent ${intent} does not require web supplementation.` });
+    }
+
+    if (clientId && ['query_clients', 'query_engagement', 'generate_briefing', 'generate_draft'].includes(intent)) {
+      trace.push({ tool: 'get_client_context', action: 'selected', reason: `Intent ${intent} needs detailed client context.` });
+      try {
+        const clientCtx = await this.tools.execute(ctx, 'get_client_context' as never, { clientId });
+        const rawCtx = (clientCtx as Record<string, unknown>)?.context;
+        if (rawCtx) {
+          contextParts.push('\nDetailed client context:');
+          contextParts.push(summarizeJsonForPrompt(rawCtx, policy.clientContextChars));
+          sources.push({
+            tool: 'get_client_context',
+            summary: 'Loaded structured client context',
+            confidence: 'high',
+          });
+        } else {
+          trace.push({ tool: 'get_client_context', action: 'skipped', reason: 'Client context returned empty payload.' });
+        }
+      } catch {
+        trace.push({ tool: 'get_client_context', action: 'skipped', reason: 'Detailed client context fetch failed.' });
+      }
+    } else {
+      trace.push({ tool: 'get_client_context', action: 'skipped', reason: 'No client-linked deep context required.' });
+    }
+
+    const template = this.templateForIntent(intent);
+    const conflict = this.detectOrchestratorConflict(query, sources);
+
+    return {
+      context: truncateText(contextParts.join('\n'), policy.contextCharBudget),
+      sources,
+      policy,
+      trace,
+      conflict,
+      template,
+    };
   }
 
   private async classifyIntent(message: string): Promise<string> {
@@ -713,64 +1045,234 @@ export class ClioService {
     return 'general_question';
   }
 
-  private buildUnifiedSystemPrompt(intent: string, context: string): string {
+  private buildUnifiedSystemPrompt(
+    intent: string,
+    context: string,
+    template: { heading: string; sections: string[] } | null,
+  ): string {
     const base = [
-      'You are Clio, the AI assistant for lobbying firms using the Capiro platform.',
-      'You are a shared firm-level intelligence that learns and grows over time.',
-      'You assist government affairs professionals with:',
-      '- Client relationship management and strategy',
-      '- Congressional outreach and stakeholder engagement',
-      '- Federal lobbying intelligence (bills, spending, LDA filings)',
-      '- Meeting preparation and follow-up',
-      '- Workflow management and regulatory submissions',
-      '- Email drafting and communication',
+      'You are Clio, an elite AI chief of staff designed exclusively for government affairs professionals.',
+      'Your purpose is to maximize a lobbyist\'s efficiency, preparation, and strategic leverage.',
       '',
-      'Be concise, professional, and precise. Cite data when available.',
-      'Do not fabricate facts. When uncertain, say so.',
-      'Remember: you are the firm\'s institutional knowledge — your insights improve over time.',
+      'Tone and style requirements:',
+      '- Ultra-concise, analytical, objective, authoritative.',
+      '- You may be witty only in direct user chat responses.',
+      '- Never use witty language in formal drafted content (briefings, memos, emails, reports).',
+      '- Never use emoji or emoticons in any response.',
+      '- Never use fluff, filler, or moral judgment.',
+      '- Strip away idealism and focus on political reality and execution risk.',
+      '',
+      'Reasoning/output requirements:',
+      '- Structure outputs for rapid scanning before high-stakes meetings.',
+      '- When analyzing legislation, immediately include:',
+      '  1) direct impact,',
+      '  2) key stakeholders,',
+      '  3) likely opposition,',
+      '  4) leverage points / recommended moves.',
+      '',
+      'Data-source hierarchy (critical):',
+      '- Treat Capiro internal sources as primary truth for client/engagement/intelligence questions.',
+      '- Public-web results are supplemental only and may be incomplete or noisy.',
+      '- If public web conflicts with Capiro internal data, state the discrepancy and prioritize Capiro data unless user asks otherwise.',
+      '',
+      'You have access to Capiro data including congressional bills, LDA filings, federal spending, engagement records, and firm memory.',
+      'Do not fabricate facts. If uncertain, state uncertainty and propose the fastest verification path.',
     ].join('\n');
 
     const intentGuidance: Record<string, string> = {
-      query_intelligence: 'The user is asking about federal lobbying intelligence. Synthesize data with clear takeaways.',
+      query_intelligence: 'The user is asking about federal lobbying intelligence. You have real data from the Capiro database, bills, LDA filings, spending, and trends. Synthesize this data with clear takeaways. List specific bill numbers, sponsors, and policy areas.',
       query_clients: 'The user is asking about their clients. Use available client data.',
       query_engagement: 'The user is asking about meetings or outreach. Reference engagement records.',
       query_workflow: 'The user is asking about workflows or submissions. Check workflow data.',
       generate_draft: 'Generate a professional government affairs email with proper tone and structure.',
-      generate_briefing: 'Create an actionable briefing with key points, risks, and recommendations.',
+      generate_briefing: 'Create an actionable briefing with key points, risks, and recommendations. Use intelligence data when relevant.',
       general_question: 'Answer helpfully about lobbying, government affairs, or the Capiro platform.',
     };
 
     const parts = [base];
     if (intentGuidance[intent]) parts.push(`\n${intentGuidance[intent]}`);
+    if (template) {
+      parts.push(`\nOutput template: ${template.heading}`);
+      parts.push(`Required sections: ${template.sections.join(' | ')}`);
+    }
     if (context) parts.push(`\nContext:\n${context}`);
     return parts.join('\n');
   }
 
+  private extractStreamControl(rawBody: string): StreamControl {
+    let cleanContent = rawBody;
+
+    const tracePattern = /\s*#trace\s*$/i;
+    const traceEnabled = tracePattern.test(cleanContent);
+    if (traceEnabled) cleanContent = cleanContent.replace(tracePattern, '').trimEnd();
+
+    const pageWritePattern = /^\s*write on this page:\s*/i;
+    const pageWriteEnabled = pageWritePattern.test(cleanContent);
+    if (pageWriteEnabled) cleanContent = cleanContent.replace(pageWritePattern, '').trimStart();
+
+    return { traceEnabled, cleanContent, pageWriteEnabled };
+  }
+
+  private policyForIntent(intent: string, query: string): OrchestratorPolicy {
+    const deepIntent = ['generate_briefing', 'query_intelligence', 'generate_draft'].includes(intent);
+    const longQuery = query.length > 220;
+    const tier: RetrievalTier = deepIntent || longQuery ? 'deep' : 'fast';
+    if (tier === 'deep') {
+      return {
+        tier,
+        contextCharBudget: 19_000,
+        researchLimit: 18,
+        researchChars: 8_500,
+        intelChars: 8_500,
+        clientContextChars: 7_500,
+      };
+    }
+    return {
+      tier,
+      contextCharBudget: 9_500,
+      researchLimit: 8,
+      researchChars: 3_800,
+      intelChars: 3_800,
+      clientContextChars: 3_500,
+    };
+  }
+
+  private detectOrchestratorConflict(query: string, sources: ClioSourceAttribution[]): OrchestratorConflict | null {
+    const queryKeywords = extractKeywords(query);
+    if (!queryKeywords.length || sources.length < 2) return null;
+
+    const highConfidence = sources.filter((source) => confidenceRank(source.confidence) >= 2);
+    if (highConfidence.length < 2) return null;
+
+    const coverage = highConfidence.map((source) => {
+      const combined = `${source.summary} ${source.tool}`.toLowerCase();
+      const matched = queryKeywords.filter((word) => combined.includes(word)).length;
+      return { source, matched };
+    });
+
+    const maxMatched = Math.max(...coverage.map((item) => item.matched));
+    const minMatched = Math.min(...coverage.map((item) => item.matched));
+    if (maxMatched - minMatched < 3) return null;
+
+    const weakest = coverage.find((item) => item.matched === minMatched)?.source;
+    if (!weakest) return null;
+
+    return {
+      title: 'Potential cross-source mismatch',
+      detail: `${weakest.tool} appears less aligned with the query than other retrieved sources.`,
+    };
+  }
+
+  private templateForIntent(intent: string): { heading: string; sections: string[] } | null {
+    if (intent === 'generate_briefing') {
+      return {
+        heading: 'Government Affairs Briefing',
+        sections: ['Executive Summary', 'Signal Scan', 'Opportunities', 'Risks', 'Recommended Actions'],
+      };
+    }
+    if (intent === 'generate_draft') {
+      return {
+        heading: 'Outreach Draft',
+        sections: ['Subject Line', 'Opening', 'Core Message', 'Ask / CTA', 'Close'],
+      };
+    }
+    return null;
+  }
+
+  private shouldAttemptMemoryLearning(userMessage: string, assistantResponse: string): boolean {
+    if (assistantResponse.length < 220) return false;
+    const combined = `${userMessage}\n${assistantResponse}`.toLowerCase();
+    const noiseMarkers = [
+      'error',
+      'traceback',
+      'http',
+      'status code',
+      'build failed',
+      'typecheck',
+      'temporary',
+      'for now',
+      'todo',
+      'next step',
+    ];
+    if (noiseMarkers.some((marker) => combined.includes(marker))) return false;
+    return true;
+  }
+
+  private normalizeMemoryCandidate(key: string, value: string): { key: string; value: string } | null {
+    const normalizedKey = key.trim().toLowerCase().replace(/\s+/g, '_').slice(0, 200);
+    const normalizedValue = value.trim().replace(/\s+/g, ' ').slice(0, 4000);
+    if (!normalizedKey || !normalizedValue) return null;
+
+    const volatilePatterns = [
+      /\b(today|tomorrow|yesterday|next week|this week)\b/i,
+      /\b\d{1,2}:\d{2}\b/,
+      /\b(issue|ticket|task)\s*#?\d+/i,
+      /\b(temp|temporary|draft only)\b/i,
+    ];
+    if (volatilePatterns.some((pattern) => pattern.test(normalizedValue))) return null;
+
+    return { key: normalizedKey, value: normalizedValue };
+  }
+
+  private classifyMemoryType(key: string, value: string): 'firm' | 'user_private' {
+    const combined = `${key} ${value}`.toLowerCase();
+    const styleSignals = [
+      'writing style',
+      'tone',
+      'voice',
+      'format preference',
+      'verbosity',
+      'concise',
+      'detailed',
+      'prefers',
+      'communication style',
+      'how they write',
+    ];
+    return styleSignals.some((signal) => combined.includes(signal)) ? 'user_private' : 'firm';
+  }
+
+  private userScopedMemoryKey(userId: string, key: string): string {
+    return `user:${userId}:${key}`;
+  }
+
   // ── Memory: learn from conversations ──
 
-  private async loadRelevantMemories(tenantId: string, query: string): Promise<Array<{ key: string; value: string }>> {
-    // Try semantic search first (pgvector cosine similarity)
+  private async loadRelevantMemories(
+    tenantId: string,
+    userId: string,
+    query: string,
+  ): Promise<Array<{ key: string; value: string }>> {
     try {
-      const semantic = await this.semanticMemorySearch(tenantId, query, 5);
-      if (semantic.length > 0) return semantic.map(({ key, value }) => ({ key, value }));
-    } catch { /* fall through to keyword */ }
+      const semantic = await this.semanticMemorySearch(tenantId, userId, query, 8);
+      if (semantic.length > 0) {
+        return semantic.map(({ key, value }) => ({ key, value }));
+      }
+    } catch {
+      // fall through to keyword strategy
+    }
 
-    // Fallback: keyword-based memory lookup
     try {
       const memories = await this.prisma.withTenant(tenantId, (tx) =>
         tx.clioMemory.findMany({
-          where: { tenantId },
+          where: {
+            tenantId,
+            OR: [
+              { scope: 'firm' },
+              { scope: 'user_private', ownerUserId: userId },
+            ],
+          },
           orderBy: { updatedAt: 'desc' },
-          take: 10,
+          take: 20,
           select: { key: true, value: true },
         }),
       );
-      const queryLower = query.toLowerCase();
-      const words = queryLower.split(/\s+/).filter((w) => w.length > 3);
-      return memories.filter((m) => {
-        const combined = `${m.key} ${m.value}`.toLowerCase();
-        return words.some((w) => combined.includes(w));
-      }).slice(0, 5);
+      const words = extractKeywords(query);
+      return memories
+        .filter((m) => {
+          const combined = `${m.key} ${m.value}`.toLowerCase();
+          return words.some((w) => combined.includes(w));
+        })
+        .slice(0, 8);
     } catch {
       return [];
     }
@@ -778,11 +1280,13 @@ export class ClioService {
 
   private async maybeLearnFromConversation(
     tenantId: string,
+    userId: string,
     conversationId: string,
     userMessage: string,
     assistantResponse: string,
   ): Promise<void> {
-    // Auto-extract and store key facts from conversations
+    if (!this.shouldAttemptMemoryLearning(userMessage, assistantResponse)) return;
+
     const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
     if (!anthropicKey) return;
 
@@ -797,34 +1301,60 @@ export class ClioService {
         body: JSON.stringify({
           model: 'claude-haiku-4-5-20251001',
           max_tokens: 500,
-          system: 'Extract 0-3 durable facts from this conversation exchange that a lobbying firm AI should remember for future sessions. Return JSON: {"memories":[{"key":"short_label","value":"fact to remember"}]}. Only extract facts that will be useful across multiple future conversations. Return {"memories":[]} if nothing worth remembering.',
+          system:
+            'Extract 0-3 durable facts from this conversation exchange. Split outputs into either firm-level institutional facts or user-specific writing/tone preferences. Ignore temporary statuses, one-off tasks, runtime errors, specific timestamps, and operational chatter. Return JSON: {"memories":[{"key":"short_label","value":"fact to remember"}]}. Return {"memories":[]} if nothing worth remembering.',
           messages: [{ role: 'user', content: `User: ${userMessage}\n\nAssistant: ${assistantResponse}` }],
         }),
       });
 
       if (!res.ok) return;
-      const json = await res.json() as Record<string, unknown>;
+      const json = (await res.json()) as Record<string, unknown>;
       const text = Array.isArray(json.content) ? (json.content[0] as Record<string, unknown>)?.text : '';
       if (typeof text !== 'string') return;
 
       const match = text.match(/\{[\s\S]*\}/);
       if (!match) return;
-      const parsed = JSON.parse(match[0]);
+      const parsed = JSON.parse(match[0]) as { memories?: Array<{ key?: unknown; value?: unknown }> };
       if (!Array.isArray(parsed.memories)) return;
 
       for (const mem of parsed.memories) {
         if (typeof mem.key !== 'string' || typeof mem.value !== 'string') continue;
-        // Upsert: update if key exists, create if not
+        const normalized = this.normalizeMemoryCandidate(mem.key, mem.value);
+        if (!normalized) continue;
+
+        const memoryType = this.classifyMemoryType(normalized.key, normalized.value);
+        const keyWithoutPrefix = memoryType === 'user_private' ? this.userScopedMemoryKey(userId, normalized.key) : normalized.key;
+        const scope = memoryType;
+        const ownerUserId = scope === 'user_private' ? userId : null;
+        const storedKey = keyWithoutPrefix;
+        const source = scope === 'user_private' ? 'user_style' : 'firm';
+        const memoryMetadata = {
+          conversationId,
+          updatedBy: 'auto',
+          userId,
+          visibility: scope,
+        };
+
         const existing = await this.prisma.withTenant(tenantId, (tx) =>
-          (tx as any).clioMemory.findFirst({
-            where: { tenantId, key: mem.key.slice(0, 200) },
+          tx.clioMemory.findFirst({
+            where: {
+              tenantId,
+              scope,
+              ownerUserId,
+              key: storedKey,
+            },
           }),
         );
+
         if (existing) {
           await this.prisma.withTenant(tenantId, (tx) =>
-            (tx as any).clioMemory.update({
-              where: { id: (existing as any).id },
-              data: { value: mem.value.slice(0, 4000), metadata: { conversationId, updatedBy: 'auto' } },
+            tx.clioMemory.update({
+              where: { id: existing.id },
+              data: {
+                value: normalized.value,
+                source,
+                metadata: memoryMetadata,
+              },
             }),
           );
         } else {
@@ -832,16 +1362,18 @@ export class ClioService {
             tx.clioMemory.create({
               data: {
                 tenantId,
-                key: mem.key.slice(0, 200),
-                value: mem.value.slice(0, 4000),
-                source: 'conversation',
-                metadata: { conversationId, createdBy: 'auto' },
+                scope,
+                ownerUserId,
+                key: storedKey,
+                value: normalized.value,
+                source,
+                metadata: { ...memoryMetadata, createdBy: 'auto' },
               },
             }),
           );
-          // Generate embedding for this new memory in background
-          void this.embedAndStoreMemory(tenantId, mem.key.slice(0, 200), mem.value.slice(0, 4000)).catch(() => {});
         }
+
+        void this.embedAndStoreMemory(tenantId, storedKey, normalized.value).catch(() => {});
       }
     } catch (err) {
       this.logger.debug(`Memory extraction failed: ${(err as Error).message}`);
@@ -1028,19 +1560,23 @@ export class ClioService {
     }
   }
 
-  async semanticMemorySearch(tenantId: string, query: string, limit = 5): Promise<Array<{ key: string; value: string; score: number }>> {
+  async semanticMemorySearch(
+    tenantId: string,
+    userId: string,
+    query: string,
+    limit = 5,
+  ): Promise<Array<{ key: string; value: string; score: number }>> {
     const openaiKey = this.config.get('OPENAI_API_KEY', { infer: true });
     if (!openaiKey) return [];
 
     try {
-      // Generate query embedding
       const res = await fetch('https://api.openai.com/v1/embeddings', {
         method: 'POST',
         headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ model: 'text-embedding-3-small', input: query }),
       });
       if (!res.ok) return [];
-      const json = await res.json() as { data?: Array<{ embedding?: number[] }> };
+      const json = (await res.json()) as { data?: Array<{ embedding?: number[] }> };
       const embedding = json.data?.[0]?.embedding;
       if (!embedding || embedding.length !== 1536) return [];
 
@@ -1048,10 +1584,18 @@ export class ClioService {
       const results = await this.prisma.$queryRawUnsafe<Array<{ key: string; value: string; score: number }>>(
         `SELECT key, value, 1 - (embedding <=> $1::vector) as score
          FROM clio_memory
-         WHERE tenant_id = $2 AND embedding IS NOT NULL
+         WHERE tenant_id = $2
+           AND embedding IS NOT NULL
+           AND (
+             scope = 'firm'
+             OR (scope = 'user_private' AND owner_user_id = $3::uuid)
+           )
          ORDER BY embedding <=> $1::vector
-         LIMIT $3`,
-        vecStr, tenantId, limit,
+         LIMIT $4`,
+        vecStr,
+        tenantId,
+        userId,
+        limit,
       );
       return results.filter((r) => r.score > 0.3);
     } catch (err) {
@@ -1174,6 +1718,45 @@ function titleFromMessage(body: string): string {
     .find(Boolean);
   if (!firstLine) return 'New Clio session';
   return firstLine.length > 72 ? `${firstLine.slice(0, 69)}...` : firstLine;
+}
+
+function summarizeJsonForPrompt(value: unknown, maxChars = 5000): string {
+  try {
+    const text = JSON.stringify(value, null, 2);
+    if (!text) return '';
+    if (text.length <= maxChars) return text;
+    return `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`;
+  } catch {
+    return '';
+  }
+}
+
+function truncateText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`;
+}
+
+function confidenceRank(confidence: ConfidenceLevel): number {
+  switch (confidence) {
+    case 'high':
+      return 3;
+    case 'medium':
+      return 2;
+    default:
+      return 1;
+  }
+}
+
+function extractKeywords(text: string): string[] {
+  return Array.from(
+    new Set(
+      text
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((word) => word.length >= 5),
+    ),
+  ).slice(0, 20);
 }
 
 function errorMessage(error: unknown): string {

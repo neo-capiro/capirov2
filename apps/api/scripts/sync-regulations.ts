@@ -1,5 +1,5 @@
 /**
- * sync-regulations.ts — Fetch dockets from Regulations.gov API
+ * sync-regulations.ts, Fetch dockets from Regulations.gov API
  *
  * API docs: https://open.gsa.gov/api/regulationsgov/
  * Auth: API key via `api_key` query param
@@ -80,7 +80,29 @@ async function main() {
   const start = Date.now();
   console.log('[reg-sync] Starting Regulations.gov sync...');
 
-  const postedAfter = '2021-01-01';
+  // Incremental: max(posted_at) in DB becomes the floor. The full-history
+  // pull from 2021 is the default for the first run; afterward, daily syncs
+  // only fetch newly posted dockets. --incremental flag or env override.
+  const incremental =
+    process.argv.includes('--incremental') ||
+    process.env.REG_SYNC_INCREMENTAL === '1';
+  const sinceOverride = (() => {
+    const i = process.argv.indexOf('--since');
+    return i >= 0 ? process.argv[i + 1] : process.env.REG_SYNC_SINCE;
+  })();
+  let postedAfter = '2021-01-01';
+  if (sinceOverride) {
+    postedAfter = sinceOverride.slice(0, 10);
+  } else if (incremental) {
+    const latest = await prisma.regulatoryDocket.findFirst({
+      orderBy: { postedDate: 'desc' },
+      select: { postedDate: true },
+    });
+    if (latest?.postedDate) {
+      postedAfter = latest.postedDate.toISOString().slice(0, 10);
+    }
+  }
+  console.log(`[reg-sync] postedAfter=${postedAfter} (incremental=${incremental})`);
   let page = 1;
   let total = 0;
   let hasMore = true;
@@ -132,7 +154,7 @@ async function main() {
   }
 
   const elapsed = ((Date.now() - start) / 60_000).toFixed(1);
-  console.log(`[reg-sync] DONE in ${elapsed}m — ${total} documents synced`);
+  console.log(`[reg-sync] DONE in ${elapsed}m, ${total} documents synced`);
 }
 
 main()

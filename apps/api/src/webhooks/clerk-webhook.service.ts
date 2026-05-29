@@ -67,7 +67,7 @@ export class ClerkWebhookService {
 
   async handle(svixId: string, event: ClerkEvent): Promise<void> {
     await this.prisma.withSystem(async (tx) => {
-      // Idempotency guard. ON CONFLICT DO NOTHING returns 0 rows — we detect
+      // Idempotency guard. ON CONFLICT DO NOTHING returns 0 rows, we detect
       // the dup by checking processed_at on the existing row.
       const existing = await tx.clerkEvent.findUnique({ where: { eventId: svixId } });
       if (existing?.processedAt) {
@@ -112,7 +112,7 @@ export class ClerkWebhookService {
         const u = event.data as ClerkUserPayload;
         const email = primaryEmail(u);
         if (!email) {
-          this.logger.warn(`Clerk ${event.type} for ${u.id} missing primary email — skipping`);
+          this.logger.warn(`Clerk ${event.type} for ${u.id} missing primary email, skipping`);
           return;
         }
         await this.syncUserIdentity(tx, {
@@ -157,7 +157,7 @@ export class ClerkWebhookService {
           return;
         }
         // The membership identifies a Clerk user by id (`public_user_data.user_id`).
-        // The user row must exist — Clerk emits user.created BEFORE
+        // The user row must exist, Clerk emits user.created BEFORE
         // organizationMembership.created when the user is new, but the events
         // can arrive out of order. Upsert defensively.
         const clerkUserId = m.public_user_data?.user_id;
@@ -196,7 +196,7 @@ export class ClerkWebhookService {
         if (!tenant || !clerkUserId) return;
         const user = await tx.user.findUnique({ where: { clerkUserId } });
         if (!user) return;
-        // Mark as removed rather than deleting — keeps audit_logs FKs intact
+        // Mark as removed rather than deleting, keeps audit_logs FKs intact
         // and lets Capiro Admins see the offboarding history.
         await tx.tenantMembership
           .update({

@@ -492,7 +492,64 @@ class UpsertReportTargetOfficeDto extends CreateReportTargetOfficeDto {
   source?: string;
 }
 
+class OutreachContextPoolItemDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  id?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  sourceType?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 2000)
+  summary?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 2000)
+  note?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  scope?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  recipientIds?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  matches?: string[];
+}
+
 class OutreachRecipientDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 240)
+  id?: string;
+
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsIn(['on-behalf', 'to-clients'])
+  direction?: 'on-behalf' | 'to-clients';
+
   @IsOptional()
   @IsString()
   @Length(1, 160)
@@ -681,6 +738,36 @@ class GenerateTalkingPointsDto {
   additionalContext?: string;
 }
 
+/**
+ * Optional per-item context object the v2 wizard sends. The shape mirrors
+ * the wizard's `SelectedContextItem`: every item carries an explicit scope
+ * (either 'all' for shared or a recipient key string for per-recipient
+ * targeting) and a free-form note. The service may use these to build
+ * recipient-specific prompts; older callers that send `insights[]` or
+ * `additionalContext` continue to work unchanged.
+ */
+class OutreachSelectedContextItemDto {
+  @IsString()
+  id!: string;
+
+  @IsIn(['bill', 'intel', 'email', 'meeting', 'note'])
+  kind!: 'bill' | 'intel' | 'email' | 'meeting' | 'note';
+
+  @IsString()
+  title!: string;
+
+  @IsOptional()
+  @IsString()
+  body?: string;
+
+  @IsString()
+  scope!: 'all' | string;
+
+  @IsOptional()
+  @IsString()
+  note?: string;
+}
+
 class GenerateBatchEmailDto {
   @IsOptional()
   @IsUUID()
@@ -711,6 +798,18 @@ class GenerateBatchEmailDto {
   @IsOptional()
   @IsString()
   tone?: string;
+
+  // ---- v2 wizard additions (additive, no breaking change for v1) ----
+  @IsOptional()
+  @IsIn(['on-behalf', 'to-clients'])
+  direction?: 'on-behalf' | 'to-clients';
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachSelectedContextItemDto)
+  contextItems?: OutreachSelectedContextItemDto[];
 }
 
 class CreateOutreachRecordDto {
@@ -724,6 +823,10 @@ class CreateOutreachRecordDto {
   @IsOptional()
   @IsUUID()
   meetingId?: string;
+
+  @IsOptional()
+  @IsIn(['on-behalf', 'to-clients'])
+  direction?: 'on-behalf' | 'to-clients';
 
   @IsString()
   @Length(1, 240)
@@ -746,13 +849,20 @@ class CreateOutreachRecordDto {
   recipients?: OutreachRecipientDto[];
 
   @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachContextPoolItemDto)
+  contextPool?: OutreachContextPoolItemDto[];
+
+  @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
 
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(5)
+  @Max(7)
   lastStep?: number;
 }
 
@@ -764,6 +874,10 @@ class UpdateOutreachRecordDto {
   @IsOptional()
   @IsUUID()
   meetingId?: string | null;
+
+  @IsOptional()
+  @IsIn(['on-behalf', 'to-clients'])
+  direction?: 'on-behalf' | 'to-clients' | null;
 
   @IsOptional()
   @IsIn(outreachStatuses)
@@ -791,13 +905,20 @@ class UpdateOutreachRecordDto {
   recipients?: OutreachRecipientDto[];
 
   @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachContextPoolItemDto)
+  contextPool?: OutreachContextPoolItemDto[];
+
+  @IsOptional()
   @IsObject()
   metadata?: Record<string, unknown>;
 
   @IsOptional()
   @IsInt()
   @Min(1)
-  @Max(5)
+  @Max(7)
   lastStep?: number;
 }
 
@@ -807,11 +928,22 @@ class GenerateOutreachDraftDto {
   objective?: string;
 
   @IsOptional()
+  @IsIn(['on-behalf', 'to-clients'])
+  direction?: 'on-behalf' | 'to-clients';
+
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(500)
   @ValidateNested({ each: true })
   @Type(() => OutreachRecipientDto)
   recipients?: OutreachRecipientDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachContextPoolItemDto)
+  contextPool?: OutreachContextPoolItemDto[];
 
   @IsOptional()
   @IsIn(outreachPromptTemplates)

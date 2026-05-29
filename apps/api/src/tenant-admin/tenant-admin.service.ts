@@ -319,8 +319,20 @@ export class TenantAdminService {
   }
 
   private defaultInvitationRedirectUrl() {
-    const origin = this.config.get('WEB_ORIGIN', { infer: true }) ?? 'https://app.capiro.ai';
-    return `${origin.replace(/\/$/, '')}/sign-in`;
+    // WEB_ORIGIN is a *comma-separated list* of allowed origins, used by the
+    // CORS check at the API edge, it must NOT be embedded whole into the
+    // Clerk invitation redirect URL, or the link in the email looks like
+    //   https://app-dev.capiro.ai,https://app.capiro.ai/sign-in
+    // (which is what was being sent before this fix, producing broken
+    // email links). Split, pick the first non-empty entry. Operators can
+    // override with INVITATION_REDIRECT_URL when they want the invitation
+    // link to go to a non-primary host.
+    const override = this.config.get('INVITATION_REDIRECT_URL', { infer: true }) as string | undefined;
+    if (override) return override;
+    const rawOrigin = this.config.get('WEB_ORIGIN', { infer: true }) as string | undefined;
+    const firstOrigin = rawOrigin?.split(',')[0]?.trim();
+    const origin = firstOrigin && /^https?:\/\//.test(firstOrigin) ? firstOrigin : 'https://app.capiro.ai';
+    return `${origin.replace(/\/$/, '')}/sign-up`;
   }
 }
 

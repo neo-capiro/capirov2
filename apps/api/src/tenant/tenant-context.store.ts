@@ -24,7 +24,7 @@ export class TenantContextStore {
   require(): TenantContext {
     const ctx = this.get();
     if (!ctx) {
-      throw new Error('Tenant context not set — route is missing TenantContextMiddleware');
+      throw new Error('Tenant context not set, route is missing TenantContextMiddleware');
     }
     return ctx;
   }

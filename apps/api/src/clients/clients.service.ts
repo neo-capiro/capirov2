@@ -16,9 +16,18 @@ export interface CreateClientInput {
   primaryContactEmail?: string;
   primaryContactPhone?: string;
   intakeData?: Record<string, unknown>;
+  profileType?: string;
+  sectorTag?: string;
+  submissionTracks?: string[];
+  profileStatus?: string;
 }
 
 export type UpdateClientInput = Partial<CreateClientInput> & { status?: string };
+
+export interface ListClientsFilter {
+  profileStatus?: string;
+  sectorTag?: string;
+}
 
 const ALLOWED_LOGO_MIME = new Set(['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp']);
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
@@ -41,9 +50,13 @@ export class ClientsService {
     this.s3 = new S3Client({ region: config.get('AWS_REGION_DEFAULT', { infer: true }) });
   }
 
-  async list(ctx: TenantContext) {
+  async list(ctx: TenantContext, filter: ListClientsFilter = {}) {
+    const where: Record<string, unknown> = {};
+    if (filter.profileStatus) where.profileStatus = filter.profileStatus;
+    if (filter.sectorTag) where.sectorTag = filter.sectorTag;
+
     const clients = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.client.findMany({ orderBy: { createdAt: 'desc' } }),
+      tx.client.findMany({ where, orderBy: { createdAt: 'desc' } }),
     );
     return this.withLogoUrls(clients);
   }
@@ -69,11 +82,103 @@ export class ClientsService {
           primaryContactEmail: input.primaryContactEmail ?? null,
           primaryContactPhone: input.primaryContactPhone ?? null,
           intakeData: (input.intakeData ?? {}) as object,
+          profileType: input.profileType ?? null,
+          sectorTag: input.sectorTag ?? null,
+          submissionTracks: input.submissionTracks ?? [],
+          profileStatus: input.profileStatus ?? 'ACTIVE',
           createdByUserId: ctx.userId,
         },
       }),
     );
     return this.withLogoUrl(client);
+  }
+
+  /**
+   * Bulk-create clients from a CSV import. Per-row error capture: a single
+   * bad row never aborts the whole batch, we collect failures, return the
+   * count of successful inserts alongside an `errors` array the UI uses to
+   * highlight problem rows in the preview.
+   *
+   * Duplicate-name guard: if a client with the same (case-insensitive)
+   * name already exists in this tenant, the row is rejected. Avoids the
+   * "import accidentally created 12 duplicate ACME, Inc. records" problem
+   * users hit when they re-upload a sheet that was already partly imported.
+   */
+  async bulkImport(ctx: TenantContext, rows: CreateClientInput[]) {
+    // Single tenant-scoped query that fetches all existing names up front,
+    // so we can dedupe in-process without N+1 lookups inside the loop.
+    const existing = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.client.findMany({
+        where: { tenantId: ctx.tenantId },
+        select: { name: true },
+      }),
+    );
+    const existingNames = new Set(existing.map((c) => c.name.trim().toLowerCase()));
+    // Also dedupe within the import payload itself: two rows with the same
+    // name → only the first survives, the second is reported as a dup.
+    const seenInPayload = new Set<string>();
+
+    const errors: Array<{ row: number; field?: string; message: string }> = [];
+    let createdCount = 0;
+    const created: Array<{ id: string; name: string }> = [];
+
+    for (let i = 0; i < rows.length; i++) {
+      const input = rows[i]!;
+      const trimmedName = input.name?.trim();
+      if (!trimmedName) {
+        errors.push({ row: i, field: 'name', message: 'Name is required' });
+        continue;
+      }
+      const key = trimmedName.toLowerCase();
+      if (existingNames.has(key)) {
+        errors.push({
+          row: i,
+          field: 'name',
+          message: `A client named "${trimmedName}" already exists in this tenant`,
+        });
+        continue;
+      }
+      if (seenInPayload.has(key)) {
+        errors.push({
+          row: i,
+          field: 'name',
+          message: `Duplicate name within this import: "${trimmedName}"`,
+        });
+        continue;
+      }
+
+      try {
+        const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.client.create({
+            data: {
+              tenantId: ctx.tenantId,
+              name: trimmedName,
+              website: input.website ?? null,
+              description: input.description ?? null,
+              productDescription: input.productDescription ?? null,
+              primaryContactName: input.primaryContactName ?? null,
+              primaryContactEmail: input.primaryContactEmail ?? null,
+              primaryContactPhone: input.primaryContactPhone ?? null,
+              intakeData: (input.intakeData ?? {}) as object,
+              profileType: input.profileType ?? null,
+              sectorTag: input.sectorTag ?? null,
+              submissionTracks: input.submissionTracks ?? [],
+              profileStatus: input.profileStatus ?? 'ACTIVE',
+              createdByUserId: ctx.userId,
+            },
+            select: { id: true, name: true },
+          }),
+        );
+        createdCount++;
+        created.push(client);
+        seenInPayload.add(key);
+      } catch (err) {
+        const message = (err as Error).message ?? 'Unknown error';
+        errors.push({ row: i, message });
+      }
+    }
+
+    return { created: createdCount, total: rows.length, errors, items: created };
   }
 
   async update(ctx: TenantContext, id: string, input: UpdateClientInput) {
@@ -98,6 +203,10 @@ export class ClientsService {
             : {}),
           ...('intakeData' in input ? { intakeData: (input.intakeData ?? {}) as object } : {}),
           ...('status' in input ? { status: input.status! } : {}),
+          ...('profileType' in input ? { profileType: input.profileType ?? null } : {}),
+          ...('sectorTag' in input ? { sectorTag: input.sectorTag ?? null } : {}),
+          ...('submissionTracks' in input ? { submissionTracks: input.submissionTracks ?? [] } : {}),
+          ...('profileStatus' in input ? { profileStatus: input.profileStatus! } : {}),
         },
       }),
     );

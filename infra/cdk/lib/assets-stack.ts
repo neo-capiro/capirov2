@@ -60,7 +60,7 @@ export class AssetsStack extends cdk.Stack {
               `https://${cfg.appHost}`,
               `https://${cfg.rootDomain}`,
             ]),
-            // Vanity tenant subdomain wildcard — S3 CORS supports the
+            // Vanity tenant subdomain wildcard, S3 CORS supports the
             // `*.app.capiro.ai` form natively.
             `https://*.${cfg.appHost}`,
           ],

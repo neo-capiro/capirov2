@@ -1,3 +1,5 @@
+import clioBubbleImage from '../../assets/chat/clio-bubble.png';
+
 interface ChatMessageProps {
   role: 'user' | 'assistant';
   content: string;
@@ -10,7 +12,7 @@ export function ChatMessage({ role, content, isStreaming }: ChatMessageProps) {
     <div className={`chat-msg chat-msg--${role}`}>
       {!isUser && (
         <div className="chat-msg-avatar" aria-hidden="true">
-          AI
+          <img src={clioBubbleImage} alt="" className="chat-msg-avatar-image" />
         </div>
       )}
       <div className="chat-msg-bubble">

@@ -1,5 +1,5 @@
 # Builds the API container image and pushes it to ECR.
-# Deploys are NOT automated — `cdk deploy` runs interactively via Claude+MCP
+# Deploys are NOT automated, `cdk deploy` runs interactively via Claude+MCP
 # per the architecture doc. This workflow only produces a build artifact.
 #
 # Auth uses OIDC -> assume role in the AWS account. Configure once:

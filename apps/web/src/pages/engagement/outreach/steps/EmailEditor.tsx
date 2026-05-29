@@ -183,9 +183,9 @@ export function EmailEditor({
           />
         ) : (
           <div
-            style={{ padding: '4px 8px', background: '#f8f9fa', borderRadius: 4, marginTop: 2, fontWeight: 500 }}
+            style={{ padding: '4px 8px', background: 'var(--bg-sunken)', borderRadius: 4, marginTop: 2, fontWeight: 500 }}
           >
-            {email.subject || <em style={{ color: '#aaa' }}>No subject</em>}
+            {email.subject || <em style={{ color: 'var(--ink-3)' }}>No subject</em>}
           </div>
         )}
       </div>
@@ -207,7 +207,7 @@ export function EmailEditor({
           <div
             style={{
               padding: 12,
-              background: '#f8f9fa',
+              background: 'var(--bg-sunken)',
               borderRadius: 4,
               marginTop: 2,
               minHeight: 300,

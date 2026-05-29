@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useLocation } from 'react-router-dom';
-import { CloseOutlined, FileTextOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons';
+import {
+  CloseOutlined,
+  DeleteOutlined,
+  HistoryOutlined,
+  PlusOutlined,
+  SaveOutlined,
+} from '@ant-design/icons';
 import { useAuth } from '@clerk/clerk-react';
 import { config } from '../../env.js';
 import { useClientFilter } from '../../state/client-filter.js';
@@ -8,44 +14,41 @@ import { useImpersonation } from '../../state/impersonation.js';
 import {
   appendChatMessage,
   clearChatSession,
-  dismissAlert,
+  ClioSourceAttribution,
   getActiveDraft,
+  removeConversation,
   setAlerts,
   setActiveConversation,
   setChatOpen,
   setChatSession,
   setStreaming,
   toggleChat,
-  toggleEmailPanel,
   toggleSessionRail,
   updateChatMessage,
+  upsertConversation,
   useChatStore,
 } from './chat-store.js';
 import { ChatInput } from './ChatInput.js';
 import { ChatMessage } from './ChatMessage.js';
-import { ArtifactPanel } from './ArtifactPanel.js';
 import { SessionRail } from './SessionRail.js';
+import clioBubbleImage from '../../assets/chat/clio-bubble.png';
 import './chat.css';
 
 type SseEvent =
+  | { type: 'start'; intent: string; tier?: 'fast' | 'deep' }
+  | { type: 'trace'; trace?: Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>; policy?: { tier?: 'fast' | 'deep' } }
+  | { type: 'template'; template?: { heading: string; sections: string[] } }
+  | { type: 'conflict'; conflict?: { title: string; detail: string } }
+  | { type: 'sources'; sources?: ClioSourceAttribution[] }
   | { type: 'text'; text: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
   | { type: 'draft_updated'; engagementId: string; recipientId?: string; subject: string; body: string }
-  | { type: 'workflow_updated'; instanceId: string; fieldKey: string; updatedValue: string };
+  | { type: 'workflow_updated'; instanceId: string; fieldKey: string; updatedValue: string }
+  | { type: 'page_write'; target: 'outreach_draft'; engagementId?: string; recipientId?: string; subject?: string; body?: string; note?: string };
 
 function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-}
-
-function pageKeyFor(pathname: string): string {
-  if (pathname.startsWith('/engagement')) return 'engagement';
-  if (pathname.startsWith('/intelligence')) return 'intelligence';
-  if (pathname.startsWith('/workspace')) return 'workspace';
-  if (pathname.startsWith('/directory')) return 'directory';
-  if (pathname.startsWith('/clients')) return 'clients';
-  if (pathname.startsWith('/settings')) return 'settings';
-  return 'other';
 }
 
 function contextLabelFor(pathname: string): string {
@@ -63,12 +66,24 @@ function contextLabelFor(pathname: string): string {
   return 'Capiro';
 }
 
+interface ClientOption {
+  id: string;
+  name: string;
+}
+
+function toolNameLabel(tool: string): string {
+  return tool
+    .split('_')
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 interface ChatDrawerProps {
   selectedClientName?: string | null;
 }
 
 export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
-  const { isOpen, messages, sessionId, isStreaming, alertsBadge, alerts } = useChatStore();
+  const { isOpen, messages, sessionId, isStreaming, alertsBadge, conversations, activeConversationId } = useChatStore();
   const { getToken } = useAuth();
   const { actAsTenantSlug } = useImpersonation();
   const { selectedClientId } = useClientFilter();
@@ -76,10 +91,31 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [sessionTitle, setSessionTitle] = useState('');
+  const [sessionClientId, setSessionClientId] = useState('');
+  const [sourceBadges, setSourceBadges] = useState<ClioSourceAttribution[]>([]);
+  const [orchestratorTrace, setOrchestratorTrace] = useState<Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>>([]);
+  const [orchestratorTier, setOrchestratorTier] = useState<'fast' | 'deep' | null>(null);
+  const [orchestratorConflict, setOrchestratorConflict] = useState<{ title: string; detail: string } | null>(null);
+  const [orchestratorTemplate, setOrchestratorTemplate] = useState<{ heading: string; sections: string[] } | null>(null);
+  const [isSavingMeta, setIsSavingMeta] = useState(false);
+  const [metaError, setMetaError] = useState<string | null>(null);
+  const [writeMode, setWriteMode] = useState(false);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
+  const resizingRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const [drawerWidth, setDrawerWidth] = useState(420);
+
   const contextLabel =
     selectedClientName && !location.pathname.startsWith('/clients')
       ? `${contextLabelFor(location.pathname)} · ${selectedClientName}`
       : contextLabelFor(location.pathname);
+
+  const selectedClientValue = useMemo(() => {
+    if (!sessionClientId) return '';
+    const found = clients.find((client) => client.id === sessionClientId);
+    return found ? found.id : '';
+  }, [clients, sessionClientId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -119,6 +155,103 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     })();
   }, [isOpen, authHeaders]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    void (async () => {
+      try {
+        const res = await fetch(`${config.apiBaseUrl}/api/clients`, { headers: await authHeaders() });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          const options = data
+            .map((client) => ({ id: String(client.id ?? ''), name: String(client.name ?? '') }))
+            .filter((client) => Boolean(client.id && client.name));
+          setClients(options);
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, [isOpen, authHeaders]);
+
+  useEffect(() => {
+    const active = conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
+    setSessionTitle(active?.title ?? '');
+    setSessionClientId(active?.clientId ?? selectedClientId ?? '');
+    setMetaError(null);
+  }, [conversations, activeConversationId, selectedClientId]);
+
+  useEffect(() => {
+    if (!messages.length) {
+      setSourceBadges([]);
+      setOrchestratorTrace([]);
+      setOrchestratorTier(null);
+      setOrchestratorConflict(null);
+      setOrchestratorTemplate(null);
+    }
+  }, [messages.length]);
+
+  const saveConversationMeta = useCallback(async () => {
+    if (!activeConversationId || isSavingMeta) return;
+    setIsSavingMeta(true);
+    setMetaError(null);
+    try {
+      const payload: Record<string, unknown> = {};
+      const trimmedTitle = sessionTitle.trim();
+      if (trimmedTitle) payload.title = trimmedTitle;
+      payload.clientId = selectedClientValue || null;
+
+      const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${activeConversationId}`, {
+        method: 'PATCH',
+        headers: await authHeaders(),
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+
+      const updated = await res.json();
+      if (updated && typeof updated.id === 'string') {
+        upsertConversation({
+          id: updated.id,
+          title: updated.title,
+          clientId: updated.clientId ?? null,
+          client: updated.client ?? null,
+          latestMessage:
+            updated.latestMessage && typeof updated.latestMessage.body === 'string'
+              ? { body: updated.latestMessage.body, createdAt: updated.latestMessage.createdAt }
+              : null,
+          updatedAt: updated.updatedAt,
+        });
+      }
+    } catch (err) {
+      setMetaError(err instanceof Error ? err.message : 'Failed to save conversation settings');
+    } finally {
+      setIsSavingMeta(false);
+    }
+  }, [activeConversationId, authHeaders, isSavingMeta, selectedClientValue, sessionTitle]);
+
+  const archiveConversation = useCallback(async () => {
+    if (!activeConversationId) return;
+    try {
+      const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${activeConversationId}/archive`, {
+        method: 'PATCH',
+        headers: await authHeaders(),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(text || `HTTP ${res.status}`);
+      }
+      removeConversation(activeConversationId);
+      clearChatSession();
+      setSourceBadges([]);
+    } catch (err) {
+      setMetaError(err instanceof Error ? err.message : 'Failed to archive conversation');
+    }
+  }, [activeConversationId, authHeaders]);
+
   const doCreateSession = useCallback(async (): Promise<string | null> => {
     try {
       const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations`, {
@@ -144,11 +277,19 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const handleNewSession = useCallback(async () => {
     abortRef.current?.abort();
     clearChatSession();
+    setSourceBadges([]);
+    setOrchestratorTrace([]);
+    setOrchestratorTier(null);
+    setOrchestratorConflict(null);
+    setOrchestratorTemplate(null);
     await doCreateSession();
   }, [doCreateSession]);
 
   const sendMessage = useCallback(async (content: string) => {
     if (isStreaming) return;
+
+    const writePrefix = 'write on this page:';
+    const outgoing = writeMode ? `${writePrefix} ${content}` : content;
 
     // Ensure we have a session ID (create one if missing)
     let sid = sessionId;
@@ -166,25 +307,10 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     abortRef.current = controller;
 
     try {
-      const draft = getActiveDraft();
-      const context: Record<string, unknown> = {
-        page: pageKeyFor(location.pathname),
-        ...(selectedClientId ? { clientId: selectedClientId } : {}),
-        ...(selectedClientName ? { clientName: selectedClientName } : {}),
-        ...(draft
-          ? {
-              engagementId: draft.engagementId,
-              recipientId: draft.recipientId,
-              draftSubject: draft.subject,
-              draftBody: draft.body,
-            }
-          : {}),
-      };
-
       const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${sid}/stream`, {
         method: 'POST',
         headers: await authHeaders(),
-        body: JSON.stringify({ body: content }),
+        body: JSON.stringify({ body: outgoing }),
         signal: controller.signal,
       });
 
@@ -223,9 +349,20 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             continue;
           }
 
-          if (event.type === 'text') {
+          if (event.type === 'start') {
+            setOrchestratorTier(event.tier ?? null);
+          } else if (event.type === 'trace') {
+            setOrchestratorTrace(Array.isArray(event.trace) ? event.trace : []);
+            if (event.policy?.tier) setOrchestratorTier(event.policy.tier);
+          } else if (event.type === 'template') {
+            setOrchestratorTemplate(event.template ?? null);
+          } else if (event.type === 'conflict') {
+            setOrchestratorConflict(event.conflict ?? null);
+          } else if (event.type === 'text') {
             accumulated += event.text;
             updateChatMessage(assistantId, accumulated);
+          } else if (event.type === 'sources') {
+            setSourceBadges(Array.isArray(event.sources) ? event.sources : []);
           } else if (event.type === 'done') {
             break outer;
           } else if (event.type === 'error') {
@@ -252,6 +389,19 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                 },
               }),
             );
+          } else if (event.type === 'page_write') {
+            window.dispatchEvent(
+              new CustomEvent('capiro:page-write', {
+                detail: {
+                  target: event.target,
+                  engagementId: event.engagementId,
+                  recipientId: event.recipientId,
+                  subject: event.subject,
+                  body: event.body,
+                  note: event.note,
+                },
+              }),
+            );
           }
         }
       }
@@ -265,6 +415,37 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
   const handleClose = () => setChatOpen(false);
 
+  const handleResizePointerMove = useCallback((event: PointerEvent) => {
+    const state = resizingRef.current;
+    if (!state) return;
+    const deltaX = state.startX - event.clientX;
+    const viewportWidth = window.innerWidth;
+    const min = 360;
+    const max = Math.max(min, Math.floor(viewportWidth * 0.9));
+    const next = Math.max(min, Math.min(max, state.startWidth + deltaX));
+    setDrawerWidth(next);
+  }, []);
+
+  const stopResize = useCallback(() => {
+    const handle = drawerRef.current?.querySelector('.chat-resize-handle') as HTMLElement | null;
+    if (handle) handle.classList.remove('is-dragging');
+    resizingRef.current = null;
+    window.removeEventListener('pointermove', handleResizePointerMove);
+    window.removeEventListener('pointerup', stopResize);
+    window.removeEventListener('pointercancel', stopResize);
+  }, [handleResizePointerMove]);
+
+  useEffect(() => () => stopResize(), [stopResize]);
+
+  const startResize = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    const currentWidth = drawerRef.current?.getBoundingClientRect().width ?? drawerWidth;
+    resizingRef.current = { startX: event.clientX, startWidth: currentWidth };
+    event.currentTarget.classList.add('is-dragging');
+    event.currentTarget.setPointerCapture(event.pointerId);
+    window.addEventListener('pointermove', handleResizePointerMove);
+    window.addEventListener('pointerup', stopResize);
+    window.addEventListener('pointercancel', stopResize);
+  }, [drawerWidth, handleResizePointerMove, stopResize]);
   const showTypingIndicator =
     isStreaming &&
     messages.length > 0 &&
@@ -282,11 +463,20 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
       )}
 
       <div
+        ref={drawerRef}
         className={`chat-drawer${isOpen ? ' chat-drawer--open' : ''}`}
         role="complementary"
         aria-label="Clio assistant"
         aria-hidden={!isOpen}
+        style={{ width: `${drawerWidth}px` }}
       >
+        <button
+          type="button"
+          className="chat-resize-handle"
+          onPointerDown={startResize}
+          aria-label="Resize chat panel"
+          title="Drag to resize"
+        />
         <div className="chat-header">
           <span className="chat-header-title">
             <span className="chat-header-dot" aria-hidden="true" />
@@ -301,15 +491,6 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
               aria-label="Toggle conversation history"
             >
               <HistoryOutlined />
-            </button>
-            <button
-              type="button"
-              className="chat-header-btn"
-              onClick={toggleEmailPanel}
-              title="Artifacts"
-              aria-label="Toggle artifacts panel"
-            >
-              <FileTextOutlined />
             </button>
             <button
               type="button"
@@ -336,26 +517,96 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           <span className="chat-context-value">{contextLabel}</span>
         </div>
 
-        <SessionRail />
-
-        <div className="chat-messages" role="log" aria-live="polite" aria-label="Conversation">
-          {alerts.length > 0 && alerts.some(a => a.status === 'pending') && (
-            <div className="clio-alerts">
-              {alerts.filter(a => a.status === 'pending').slice(0, 3).map((alert) => (
-                <div key={alert.id} className={`clio-alert clio-alert--${alert.priority}`}>
-                  <div className="clio-alert-title">{alert.title}</div>
-                  <div className="clio-alert-body">{alert.body}</div>
-                  <button
-                    type="button"
-                    className="clio-alert-dismiss"
-                    onClick={() => dismissAlert(alert.id)}
-                  >
-                    Dismiss
-                  </button>
-                </div>
+        <div className="chat-session-meta" aria-label="Conversation settings">
+          <div className="chat-session-meta-row">
+            <input
+              className="chat-session-input"
+              value={sessionTitle}
+              onChange={(event) => setSessionTitle(event.target.value)}
+              placeholder="Conversation title"
+              maxLength={160}
+            />
+            <select
+              className="chat-session-select"
+              value={selectedClientValue}
+              onChange={(event) => setSessionClientId(event.target.value)}
+            >
+              <option value="">General (no client)</option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>{client.name}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="chat-session-btn"
+              onClick={() => void saveConversationMeta()}
+              disabled={!activeConversationId || isSavingMeta}
+              title="Save title/client assignment"
+              aria-label="Save conversation settings"
+            >
+              <SaveOutlined />
+            </button>
+            <button
+              type="button"
+              className="chat-session-btn chat-session-btn--danger"
+              onClick={() => void archiveConversation()}
+              disabled={!activeConversationId}
+              title="Archive conversation"
+              aria-label="Archive conversation"
+            >
+              <DeleteOutlined />
+            </button>
+          </div>
+          {metaError && <div className="chat-session-error">{metaError}</div>}
+          {orchestratorTier && (
+            <div className="chat-tier-pill">Orchestrator: {orchestratorTier.toUpperCase()}</div>
+          )}
+          {sourceBadges.length > 0 && (
+            <div className="chat-sources" aria-label="Orchestrator sources">
+              {sourceBadges.map((source) => (
+                <span
+                  key={`${source.tool}:${source.summary}`}
+                  className={`chat-source-pill chat-source-pill--${source.confidence ?? 'medium'}`}
+                  title={source.summary}
+                >
+                  {toolNameLabel(source.tool)}
+                  {typeof source.count === 'number' ? ` (${source.count})` : ''}
+                  {source.confidence ? ` · ${source.confidence}` : ''}
+                </span>
               ))}
             </div>
           )}
+          {orchestratorConflict && (
+            <div className="chat-orchestrator-conflict" role="status">
+              <strong>{orchestratorConflict.title}</strong>: {orchestratorConflict.detail}
+            </div>
+          )}
+          {orchestratorTemplate && (
+            <div className="chat-orchestrator-template" role="note">
+              <div className="chat-orchestrator-template-title">{orchestratorTemplate.heading}</div>
+              <div className="chat-orchestrator-template-sections">
+                {orchestratorTemplate.sections.join(' · ')}
+              </div>
+            </div>
+          )}
+          {orchestratorTrace.length > 0 && (
+            <details className="chat-orchestrator-trace">
+              <summary>Orchestrator trace</summary>
+              <ul>
+                {orchestratorTrace.map((step, idx) => (
+                  <li key={`${step.tool}-${idx}`}>
+                    <span className={`chat-trace-badge chat-trace-badge--${step.action}`}>{step.action}</span>
+                    <strong>{toolNameLabel(step.tool)}</strong>: {step.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+
+        <SessionRail />
+
+        <div className="chat-messages" role="log" aria-live="polite" aria-label="Conversation">
           {messages.length === 0 && !isStreaming && (
             <div className="chat-empty">
               <div className="chat-empty-icon" aria-hidden="true">✦</div>
@@ -392,11 +643,16 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         </div>
 
         <div className="chat-input-area">
-          <ChatInput disabled={isStreaming} onSend={(c) => void sendMessage(c)} />
+          <ChatInput
+            disabled={isStreaming}
+            onSend={(c) => void sendMessage(c)}
+            writeMode={writeMode}
+            onToggleWriteMode={() => setWriteMode((current) => !current)}
+          />
         </div>
       </div>
 
-      {/* Toggle FAB — only visible when drawer is closed */}
+      {/* Toggle FAB, only visible when drawer is closed */}
       <button
         type="button"
         className={`chat-toggle-fab${isOpen ? ' chat-toggle-fab--hidden' : ''}`}
@@ -405,18 +661,11 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         title="Clio"
         aria-expanded={isOpen}
       >
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path
-            d="M20 2H4C2.9 2 2 2.9 2 4V22L6 18H20C21.1 18 22 17.1 22 16V4C22 2.9 21.1 2 20 2Z"
-            fill="currentColor"
-          />
-        </svg>
+        <img src={clioBubbleImage} alt="" className="chat-toggle-fab-logo" />
         {alertsBadge > 0 && (
           <span className="chat-fab-badge">{alertsBadge}</span>
         )}
       </button>
-
-      <ArtifactPanel />
     </>
   );
 }

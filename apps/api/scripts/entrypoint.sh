@@ -23,7 +23,7 @@ if [ -z "$DB_HOST" ] || [ -z "$DB_PORT" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS
   exit 1
 fi
 
-# URL-encode the password — Aurora passwords occasionally contain characters
+# URL-encode the password, Aurora passwords occasionally contain characters
 # that are not URL-safe. Pure-shell encoding because we want zero deps.
 encode() {
   awk -v str="$1" 'BEGIN {
@@ -95,12 +95,66 @@ case "${1:-serve}" in
     echo "Running bootstrap-roles (rotate capiro_app password)"
     exec ./node_modules/.bin/tsx scripts/bootstrap-roles.ts "$@"
     ;;
+  emit-changes)
+    echo "Running emit-changes (post-sync IntelligenceChange emitter)"
+    exec ./node_modules/.bin/tsx scripts/emit-changes.ts
+    ;;
+  backfill-sectors)
+    echo "Running backfill-sector-tags"
+    exec ./node_modules/.bin/tsx scripts/backfill-sector-tags.ts
+    ;;
+  generate-briefings)
+    echo "Running generate-briefings"
+    exec ./node_modules/.bin/tsx scripts/generate-briefings.ts
+    ;;
+  compute-health-scores)
+    echo "Running compute-health-scores"
+    exec ./node_modules/.bin/tsx scripts/compute-health-scores.ts
+    ;;
+  check-comment-periods)
+    echo "Running check-comment-periods"
+    exec ./node_modules/.bin/tsx scripts/check-comment-periods.ts
+    ;;
+  embed-backfill)
+    # Embedding backfill. Takes flags like `--source bills` /
+    # `--source lda --since 2024-01-01` / `--source capabilities --tenant <uuid>`.
+    # The CDK ApiEmbedBackfillTaskDef overrides container command to set them.
+    shift
+    echo "Running embed-backfill $*"
+    exec ./node_modules/.bin/tsx scripts/embed-backfill.ts "$@"
+    ;;
+  # ── Federal data sync jobs ─────────────────────────────────────────────
+  # These populate the Intelligence Center source tables (LDA, Congress, FedReg,
+  # Hearings, GAO, CRS, FEC, FARA, SEC, RSS intel, state bills, economic
+  # indicators, grants). Wired so EventBridge can dispatch each as a
+  # one-off ECS task, keep the case names in kebab-case matching the
+  # script file so cron rules stay trivially mappable.
+  sync-lda)               exec ./node_modules/.bin/tsx scripts/sync-lda.ts ;;
+  sync-congress)          exec ./node_modules/.bin/tsx scripts/sync-congress.ts ;;
+  sync-federal-register)  exec ./node_modules/.bin/tsx scripts/sync-federal-register.ts ;;
+  sync-regulations)       exec ./node_modules/.bin/tsx scripts/sync-regulations.ts ;;
+  sync-hearings)          exec ./node_modules/.bin/tsx scripts/sync-hearings.ts ;;
+  sync-gao)               exec ./node_modules/.bin/tsx scripts/sync-gao.ts ;;
+  sync-crs)               exec ./node_modules/.bin/tsx scripts/sync-crs.ts ;;
+  sync-fec)               exec ./node_modules/.bin/tsx scripts/sync-fec.ts ;;
+  sync-fara)              exec ./node_modules/.bin/tsx scripts/sync-fara.ts ;;
+  sync-sec-edgar)         exec ./node_modules/.bin/tsx scripts/sync-sec-edgar.ts ;;
+  sync-rss-intel)         exec ./node_modules/.bin/tsx scripts/sync-rss-intel.ts ;;
+  sync-openstates)        exec ./node_modules/.bin/tsx scripts/sync-openstates.ts ;;
+  sync-bls)               exec ./node_modules/.bin/tsx scripts/sync-bls.ts ;;
+  sync-bea)               exec ./node_modules/.bin/tsx scripts/sync-bea.ts ;;
+  sync-census)            exec ./node_modules/.bin/tsx scripts/sync-census.ts ;;
+  sync-grants)            exec ./node_modules/.bin/tsx scripts/sync-grants.ts ;;
+  sync-openlobby)         exec ./node_modules/.bin/tsx scripts/sync-openlobby.ts ;;
+  sync-openspending)      exec ./node_modules/.bin/tsx scripts/sync-openspending.ts ;;
+  sync-lobby-trending)    exec ./node_modules/.bin/tsx scripts/sync-lobby-trending.ts ;;
+  refresh-lobby-intel-mv) exec ./node_modules/.bin/tsx scripts/refresh-lobby-intel-mv.ts ;;
   serve)
     echo "Starting Capiro API"
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv)" >&2
     exit 1
     ;;
 esac

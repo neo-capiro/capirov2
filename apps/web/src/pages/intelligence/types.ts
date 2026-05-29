@@ -221,8 +221,21 @@ export interface CongressBillDetail extends CongressBill {
 
 /* ── Client Intelligence Profile ──────────────────────────────────────── */
 
+export interface ClientCapabilityRef {
+  name: string;
+  sector: string | null;
+  tags: string[];
+}
+
 export interface ClientIntelProfile {
-  client: { id: string; name: string; description: string | null; capabilities: string[] };
+  client: {
+    id: string;
+    name: string;
+    description: string | null;
+    sectorTag: string | null;
+    submissionTracks: string[];
+    capabilities: ClientCapabilityRef[];
+  };
   lda: {
     matched: boolean; ldaClientId: number | null; confidence: number;
     totalFilings: number; totalSpending: number | null; issueCodes: string[];
@@ -248,7 +261,9 @@ export interface ClientIntelProfile {
 export interface IntelligenceChange {
   id: string; source: string; changeType: string; severity: string;
   title: string; description: string; relatedClientIds: string[];
-  relatedIssues: string[]; data: Record<string, unknown>; detectedAt: string;
+  relatedIssues: string[]; relatedPeCodes?: string[];
+  data: Record<string, unknown>; detectedAt: string;
+  consumed?: boolean;
 }
 
 export interface CrmClient {
@@ -259,4 +274,239 @@ export interface GeneratedBriefing {
   briefing: string;
   generatedAt: string;
   dataPoints: { source: string; metric: string; value: string }[];
+}
+
+export interface BriefingWhatsNewItem {
+  title: string;
+  source: string;
+  detail: string;
+  citation: string;
+}
+
+export interface BriefingWhatsComingItem {
+  title: string;
+  date: string;
+  type: string;
+  action: string;
+}
+
+export interface BriefingSuggestedAction {
+  action: string;
+  rationale: string;
+  urgency: 'high' | 'medium' | 'low';
+}
+
+export interface EnhancedBriefing {
+  heroSummary: string;
+  whatsNew: BriefingWhatsNewItem[];
+  whatsComing: BriefingWhatsComingItem[];
+  suggestedActions: BriefingSuggestedAction[];
+  generatedAt: string;
+}
+
+export interface TrackedBill {
+  identifier: string;
+  title: string;
+  latestActionDate: string | null;
+  latestActionText: string | null;
+  sponsorName: string | null;
+  sponsorParty: string | null;
+  subjectNames: string[];
+}
+
+export interface TrackedBillsResult {
+  total: number;
+  issueCodes: string[];
+  bills: TrackedBill[];
+}
+
+export interface LeaderboardRegistrant {
+  name: string;
+  filingCount: number;
+  totalIncome: number;
+  isNewEntrant: boolean;
+  firstFilingDate: string | null;
+  sharedLobbyists: string[];
+}
+
+export interface IssueLeaderboard {
+  issueCode: string;
+  issueName: string;
+  totalFilings: number;
+  registrants: LeaderboardRegistrant[];
+}
+
+export interface CompetitorBoardEntry {
+  registrantName: string;
+  filingCount: number;
+  isNewEntrant: boolean;
+  issueOverlap: string[];
+}
+
+export interface CompetitorBoard {
+  competitors: CompetitorBoardEntry[];
+  leaderboards: IssueLeaderboard[];
+}
+
+export interface ExStafferCoveredPosition {
+  position_title?: string;
+  offices?: Array<{ name?: string }>;
+  dates_covered?: string;
+}
+
+export interface ExStafferEntry {
+  name: string;
+  coveredPositions: ExStafferCoveredPosition[];
+}
+
+export interface ExStaffersResult {
+  lobbyists: ExStafferEntry[];
+}
+
+export interface HealthScore {
+  score: number;
+  breakdown: {
+    meetings: number;
+    emails: number;
+    tasksCompleted: number;
+    debriefs: number;
+    outreachSent: number;
+  };
+  trend: 'improving' | 'stable' | 'declining';
+  period: string;
+}
+
+export interface CommentAlert {
+  documentId: string;
+  title: string;
+  type: string;
+  commentEndDate: string;
+  daysToDeadline: number;
+  severity: string;
+  agencies: string[];
+  clientId: string;
+  clientName: string;
+  relevanceScore: number;
+}
+
+/* ── Home dashboard, today timeline + ticker + Clio brief ─────────────── */
+
+export type TimelineEventSeverity = 'info' | 'notable' | 'critical';
+export type TimelineEventKind = 'hearing' | 'deadline' | 'change' | 'brief';
+
+export interface TimelineEvent {
+  id: string;
+  kind: TimelineEventKind;
+  label: string;
+  title: string;
+  detail: string | null;
+  severity: TimelineEventSeverity;
+  time: string | null;
+  timestamp: string;
+  href: string | null;
+}
+
+export interface TodayTimeline {
+  events: TimelineEvent[];
+  counts: { critical: number; notable: number; info: number };
+  today: string;
+}
+
+export interface LiveTickerItem {
+  id: string;
+  source: string;
+  title: string;
+  severity: string;
+  detectedAt: string;
+}
+
+export interface DailyBrief {
+  brief: string;
+  generatedAt: string;
+  provider: string | null;
+  model: string | null;
+  empty: boolean;
+}
+
+export type ComingUpItemKind = 'hearing' | 'markup' | 'deadline' | 'meeting';
+
+export interface ComingUpItem {
+  id: string;
+  kind: ComingUpItemKind;
+  label: string;
+  title: string;
+  detail: string | null;
+  severity: TimelineEventSeverity;
+  date: string;
+  time: string | null;
+  href: string | null;
+}
+
+export interface ComingUpResult {
+  items: ComingUpItem[];
+  totalThisWeek: number;
+}
+
+export interface PortfolioSummary {
+  activeClients: number;
+  openWorkflows: number;
+  needAttention: number;
+  ldaSpendQtd: number;
+  billsTracked: number;
+  activeRegulations: number;
+}
+
+/* ── Report Card (Feature 4.1) ─────────────────────────────────────────── */
+
+export interface ReportCardData {
+  client: { id: string; name: string; sectorTag: string | null };
+  tenant: { name: string; logoS3Key: string | null };
+  period: { start: string; end: string; label: string };
+  activity: {
+    meetings: number; uniqueOffices: string[]; outreachSent: number;
+    outreachOpenRate: number; tasksCompleted: number; debriefsFiled: number; mailThreads: number;
+  };
+  intelligence: {
+    billsTracked: number; billsByStatus: Record<string, number>;
+    competitorCount: number; lobbySpend: number; contractWins: number;
+  };
+  outcomes: Array<{
+    title: string; fiscalYear: string; outcomeType: string;
+    capability: string | null; notes: string | null;
+  }>;
+  healthTrend: Array<{ week: string; score: number }>;
+  aiForwardLook: string;
+  generatedAt: string;
+}
+
+/* ── Knowledge Graph (Feature 4.2) ─────────────────────────────────────── */
+
+export interface GraphNode {
+  id: string;
+  type: 'client' | 'registrant' | 'lobbyist' | 'contractor' | 'bill' | 'pac' | 'agency';
+  label: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface GraphEdge {
+  source: string;
+  target: string;
+  type: string;
+  label: string;
+}
+
+export interface KnowledgeGraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  resolutionQuality: {
+    avgConfidence: number;
+    confirmedCount: number;
+    unconfirmedCount: number;
+  };
+}
+
+/* ── Outreach Context (Feature 4.3) ────────────────────────────────────── */
+
+export interface OutreachContextResult {
+  context: string;
 }

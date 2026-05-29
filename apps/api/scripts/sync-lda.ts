@@ -14,8 +14,13 @@
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { buildLdaText, embedAndUpsert } from '../src/embeddings/embedder.js';
 
 dotenvConfig();
+
+// Per-row embed on sync. Set EMBED_ON_SYNC=0 to skip (e.g. during a heavy
+// full-history backfill where you'd rather batch-embed afterward).
+const EMBED_ON_SYNC = process.env.EMBED_ON_SYNC !== '0';
 
 const LDA_BASE = 'https://lda.senate.gov/api/v1';
 const LDA_API_KEY = process.env.LDA_API_KEY ?? '';
@@ -269,7 +274,7 @@ async function main() {
       });
       if (latest?.dtPosted) {
         incrementalAfter = latest.dtPosted.toISOString().slice(0, 10);
-        console.log(`[lda-sync] incremental mode — fetching filings after ${incrementalAfter}`);
+        console.log(`[lda-sync] incremental mode, fetching filings after ${incrementalAfter}`);
       }
     }
 
@@ -315,7 +320,7 @@ async function main() {
             const expenses = safeDecimal(f.expenses);
             const dtPosted = safeDate(f.dt_posted);
 
-            await prisma.ldaFiling.upsert({
+            const filing = await prisma.ldaFiling.upsert({
               where: { filingUuid: f.filing_uuid },
               update: {
                 filingType: f.filing_type,
@@ -361,6 +366,33 @@ async function main() {
                 filingDocumentUrl: f.filing_document_url ?? null,
               },
             });
+
+            // Per-row embed. content_hash skip in embedAndUpsert means a
+            // re-sync of unchanged filings is free. Bedrock errors are
+            // logged but don't abort the run.
+            if (EMBED_ON_SYNC) {
+              try {
+                await embedAndUpsert(prisma, {
+                  tenantId: null,
+                  sourceType: 'lda_filing',
+                  sourceId: filing.id,
+                  text: buildLdaText({
+                    clientName: f.client?.name ?? '',
+                    clientDescription: f.client?.general_description ?? null,
+                    filingYear: f.filing_year,
+                    filingType: f.filing_type,
+                    issueCodes,
+                    lobbyingActivities: activities,
+                  }),
+                  bypassRls: true,
+                });
+              } catch (e) {
+                console.error(
+                  `[lda-sync] embed ${filing.id} failed:`,
+                  (e as Error).message,
+                );
+              }
+            }
 
             // Accumulate client data.
             if (f.client?.id) {

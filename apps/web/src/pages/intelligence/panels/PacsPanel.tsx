@@ -75,13 +75,13 @@ export function PacsPanel() {
               dataIndex: 'party',
               width: 80,
               render: (v: string | null) =>
-                v ? <Tag color={v === 'REP' ? 'red' : v === 'DEM' ? 'blue' : 'default'}>{v}</Tag> : <Text type="secondary">—</Text>,
+                v ? <Tag color={v === 'REP' ? 'red' : v === 'DEM' ? 'blue' : 'default'}>{v}</Tag> : <Text type="secondary">-</Text>,
             },
             {
               title: 'State',
               dataIndex: 'state',
               width: 70,
-              render: (v: string | null) => v ?? '—',
+              render: (v: string | null) => v ?? '-',
             },
             {
               title: 'Total Receipts',

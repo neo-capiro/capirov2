@@ -10,7 +10,7 @@ import { ROLES_KEY } from './roles.decorator.js';
  * caller's role rank >= the lowest-ranked required role.
  *
  * The TenantContext is set by TenantContextMiddleware. If it's missing the
- * route was reached without auth — fail closed.
+ * route was reached without auth, fail closed.
  */
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -28,7 +28,7 @@ export class RolesGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<Request & { tenantContext?: TenantContext }>();
     const ctx = req.tenantContext;
     if (!ctx) {
-      throw new ForbiddenException('No tenant context — auth middleware did not run');
+      throw new ForbiddenException('No tenant context, auth middleware did not run');
     }
 
     const callerRank = ROLE_RANK[ctx.role];

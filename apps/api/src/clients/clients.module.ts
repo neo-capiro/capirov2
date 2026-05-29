@@ -5,8 +5,10 @@ import { ClientCapabilitiesController } from './client-capabilities.controller.j
 import { ClientCapabilitiesService } from './client-capabilities.service.js';
 import { ClientPeopleController } from './client-people.controller.js';
 import { ClientPeopleService } from './client-people.service.js';
+import { EmbeddingsModule } from '../embeddings/embeddings.module.js';
 
 @Module({
+  imports: [EmbeddingsModule],
   controllers: [ClientsController, ClientCapabilitiesController, ClientPeopleController],
   providers: [ClientsService, ClientCapabilitiesService, ClientPeopleService],
 })

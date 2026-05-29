@@ -18,6 +18,7 @@ const TABS: Tab[] = [
   { key: '/settings/clients', label: 'Clients', minRole: 'user_admin' },
   { key: '/settings/integrations', label: 'Integrations' },
   { key: '/settings/billing', label: 'Billing', minRole: 'user_admin' },
+  { key: '/settings/intelligence-mappings', label: 'Intelligence', minRole: 'user_admin' },
   { key: '/settings/tenants', label: 'Tenants', minRole: 'capiro_admin' },
 ];
 
@@ -46,15 +47,20 @@ export function SettingsLayout() {
     visibleTabs[0]?.key ??
     '/settings/personal';
   return (
-    <Card>
-      <Tabs
-        activeKey={active}
-        items={visibleTabs.map((t) => ({
-          key: t.key,
-          label: <Link to={t.key}>{t.label}</Link>,
-        }))}
-      />
-      <Outlet />
-    </Card>
+    <section className="settings-shell">
+      <Card className="settings-panel" bordered={false}>
+        <Tabs
+          className="settings-tabs"
+          activeKey={active}
+          items={visibleTabs.map((t) => ({
+            key: t.key,
+            label: <Link to={t.key}>{t.label}</Link>,
+          }))}
+        />
+        <div className="settings-content">
+          <Outlet />
+        </div>
+      </Card>
+    </section>
   );
 }

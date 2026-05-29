@@ -28,6 +28,7 @@ interface WizardState {
   recordId: string | null;
   campaignName: string;
   clientId: string | null;
+  direction: 'on-behalf' | 'to-clients';
   recipients: OutreachRecipient[];
   selectedInsights: string[];
   insightsNotes: string;
@@ -43,6 +44,7 @@ const INITIAL_STATE: WizardState = {
   recordId: null,
   campaignName: '',
   clientId: null,
+  direction: 'on-behalf',
   recipients: [],
   selectedInsights: [],
   insightsNotes: '',

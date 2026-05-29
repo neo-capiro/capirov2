@@ -1,8 +1,8 @@
-# Intelligence Center — Requirements & Deployment Plan
+# Intelligence Center, Requirements & Deployment Plan
 
 **Author:** Neo Martinez (CTO) + AI Analysis  
 **Date:** May 21, 2026  
-**Status:** Pre-deployment — ready for implementation  
+**Status:** Pre-deployment, ready for implementation  
 **Scope:** Bug fixes, frontend decomposition, synthesis layer, AI insight pipeline
 
 ---
@@ -10,10 +10,10 @@
 ## Table of Contents
 
 1. [Executive Summary](#1-executive-summary)
-2. [Phase 1 — Bug Fixes (Ship Blockers)](#2-phase-1--bug-fixes-ship-blockers)
-3. [Phase 2 — Frontend Decomposition](#3-phase-2--frontend-decomposition)
-4. [Phase 3 — Synthesis Layer (New Feature)](#4-phase-3--synthesis-layer-new-feature)
-5. [Phase 4 — AI Insight Pipeline (New Feature)](#5-phase-4--ai-insight-pipeline-new-feature)
+2. [Phase 1, Bug Fixes (Ship Blockers)](#2-phase-1--bug-fixes-ship-blockers)
+3. [Phase 2, Frontend Decomposition](#3-phase-2--frontend-decomposition)
+4. [Phase 3, Synthesis Layer (New Feature)](#4-phase-3--synthesis-layer-new-feature)
+5. [Phase 4, AI Insight Pipeline (New Feature)](#5-phase-4--ai-insight-pipeline-new-feature)
 6. [Database Changes](#6-database-changes)
 7. [API Contract](#7-api-contract)
 8. [Frontend UX Specifications](#8-frontend-ux-specifications)
@@ -38,7 +38,7 @@ A lobbyist using this today has to:
 
 ---
 
-## 2. Phase 1 — Bug Fixes (Ship Blockers)
+## 2. Phase 1, Bug Fixes (Ship Blockers)
 
 ### 2.1 CRITICAL: FEC Sync Creates Duplicates on Re-run
 
@@ -73,7 +73,7 @@ A lobbyist using this today has to:
 
 **Fix:** Either:
 - **(Preferred)** Create `regulatory-docket.controller.ts` + `regulatory-docket.service.ts` with endpoints for paginated listing, search, and upcoming comment deadlines. Then add a "Dockets" section to the Regulations tab.
-- **(Alternative)** Merge docket data into the Federal Register module's response — add a `dockets` array alongside `documents` in the Regulations panel.
+- **(Alternative)** Merge docket data into the Federal Register module's response, add a `dockets` array alongside `documents` in the Regulations panel.
 
 **Endpoints needed:**
 ```
@@ -107,7 +107,7 @@ GET /api/regulatory-dockets/:documentId
 ### 2.5 HIGH: SYNC_YEARS Hardcoded in sync-lda.ts
 
 **File:** `apps/api/scripts/sync-lda.ts` line 23  
-**Problem:** `const SYNC_YEARS = [2021, 2022, 2023, 2024, 2025, 2026]` — must be manually updated every year.
+**Problem:** `const SYNC_YEARS = [2021, 2022, 2023, 2024, 2025, 2026]`, must be manually updated every year.
 
 **Fix:**
 ```typescript
@@ -168,19 +168,19 @@ CREATE INDEX CONCURRENTLY idx_lda_filing_issue_codes_gin
 
 ---
 
-## 3. Phase 2 — Frontend Decomposition
+## 3. Phase 2, Frontend Decomposition
 
 ### 3.1 Current State
 
-`IntelligenceCenterPage.tsx` — 2,220 lines, 12 components in one file.
+`IntelligenceCenterPage.tsx`, 2,220 lines, 12 components in one file.
 
 ### 3.2 Target Structure
 
 ```
 apps/web/src/pages/intelligence/
-├── IntelligenceCenterPage.tsx     # ~100 lines — tabs, shared state, client filter
-├── types.ts                        # ~130 lines — all TypeScript interfaces
-├── utils.ts                        # ~80 lines — formatMoney, formatNum, issueTagColor,
+├── IntelligenceCenterPage.tsx     # ~100 lines, tabs, shared state, client filter
+├── types.ts                        # ~130 lines, all TypeScript interfaces
+├── utils.ts                        # ~80 lines, formatMoney, formatNum, issueTagColor,
 │                                   #             trajectoryTag, surgeBadge, formatPosition,
 │                                   #             ISSUE_PALETTE, CATEGORY_COLORS
 ├── InsightsBanner.tsx              # ~70 lines
@@ -215,18 +215,18 @@ apps/web/src/pages/intelligence/
 ### 3.4 Shared State Across Panels
 
 Only two pieces of state flow between panels:
-- `clientFilter: string` — passed as prop to LdaOverview, Filings, Congress
-- `navigateTo(tab, client?)` — used by LdaOverview (click client → Filings), Firms (click firm → Filings)
+- `clientFilter: string`, passed as prop to LdaOverview, Filings, Congress
+- `navigateTo(tab, client?)`, used by LdaOverview (click client → Filings), Firms (click firm → Filings)
 
 Both pass as props. No context or store needed.
 
 ### 3.5 Risk Assessment
 
-**Risk: LOW.** Every panel is already a self-contained function with its own state and API queries. This is a pure extract-and-import refactor — zero logic changes, zero API changes.
+**Risk: LOW.** Every panel is already a self-contained function with its own state and API queries. This is a pure extract-and-import refactor, zero logic changes, zero API changes.
 
 ---
 
-## 4. Phase 3 — Synthesis Layer (New Feature)
+## 4. Phase 3, Synthesis Layer (New Feature)
 
 This is the core product upgrade. The synthesis layer connects CRM client data to global intelligence data and produces cross-referenced, client-specific views.
 
@@ -306,10 +306,10 @@ interface ClientIntelligenceProfile {
 
 **Implementation notes:**
 - Fuzzy matching uses the existing `pg_trgm` extension (already enabled) with `similarity()` function and a threshold of 0.3.
-- The existing `matchCapiroClient` and `lookupByClientName` methods in lda-intel and federal-spending services are the starting point — extend them to return structured results.
+- The existing `matchCapiroClient` and `lookupByClientName` methods in lda-intel and federal-spending services are the starting point, extend them to return structured results.
 - Issue code matching for bills and regulations: extract `issueCodes` from the client's LDA filings, then query `congress_bill` by `policyArea` mapping and `federal_register_document` by `agencyNames` overlap.
 - Competitor detection: query `lda_filing` for other `client_id`s that share the same `issue_codes`, ranked by spending.
-- Cache with 15-minute TTL (React Query staleTime) — this is expensive to compute.
+- Cache with 15-minute TTL (React Query staleTime), this is expensive to compute.
 
 ### 4.2 Cross-Source Change Detection
 
@@ -377,18 +377,18 @@ CREATE TABLE client_intel_mapping (
 1. On client create/update in CRM, run fuzzy match against all intelligence sources.
 2. Auto-map if confidence >= 0.6, flag for review if 0.3 <= confidence < 0.6.
 3. User can manually confirm/reject/override mappings via UI.
-4. Once confirmed, mappings are stable — no re-resolution unless client name changes.
+4. Once confirmed, mappings are stable, no re-resolution unless client name changes.
 
 **Endpoints:**
 ```
-GET    /api/intelligence/mappings/:clientId           — current mappings
-POST   /api/intelligence/mappings/:clientId/resolve   — trigger re-resolution
-PATCH  /api/intelligence/mappings/:mappingId          — confirm/reject
+GET    /api/intelligence/mappings/:clientId          , current mappings
+POST   /api/intelligence/mappings/:clientId/resolve  , trigger re-resolution
+PATCH  /api/intelligence/mappings/:mappingId         , confirm/reject
 ```
 
 ---
 
-## 5. Phase 4 — AI Insight Pipeline (New Feature)
+## 5. Phase 4, AI Insight Pipeline (New Feature)
 
 ### 5.1 Overview
 
@@ -447,7 +447,7 @@ Generate actionable intelligence insights from the provided data. Each insight m
 4. Reference the specific data that supports the finding
 
 Do not invent facts. Do not speculate beyond what the data supports.
-If there is nothing notable, say so — do not manufacture urgency.
+If there is nothing notable, say so, do not manufacture urgency.
 ```
 
 **Output schema:**
@@ -610,7 +610,7 @@ GET    /api/regulatory-dockets/:documentId
 ### 7.2 Modified Endpoints
 
 ```
-# Congress bills — add activeSince param (Bug Fix 2.4)
+# Congress bills, add activeSince param (Bug Fix 2.4)
 GET /api/lda-intel/congress/bills?q&policyArea&congress&page&limit&activeSince
 ```
 
@@ -694,7 +694,7 @@ The existing 10 tabs remain. Three new additions:
 │ │ "Your client's lobbying spend increased 23% QoQ,       │ │
 │ │  driven by 3 new Healthcare filings. Competitor ABC    │ │
 │ │  Corp entered the HCR space for the first time.        │ │
-│ │  EPA-2026-0142 has a comment deadline in 5 days —      │ │
+│ │  EPA-2026-0142 has a comment deadline in 5 days,      │ │
 │ │  consider filing a comment on behalf of the client."   │ │
 │ └────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
@@ -758,15 +758,15 @@ Phase 4: AI Insight Pipeline (new service + AI calls)
 ### 9.2 Environment Variables (Phase 4)
 
 Already configured in ECS task definitions:
-- `OPENAI_API_KEY` — used by EngagementAiService
-- `ANTHROPIC_API_KEY` — used by EngagementAiService
-- `AI_PROVIDER` — preferred provider selection
-- `OPENAI_MODEL` / `ANTHROPIC_MODEL` — model selection
+- `OPENAI_API_KEY`, used by EngagementAiService
+- `ANTHROPIC_API_KEY`, used by EngagementAiService
+- `AI_PROVIDER`, preferred provider selection
+- `OPENAI_MODEL` / `ANTHROPIC_MODEL`, model selection
 
 New (optional):
-- `INSIGHT_GENERATION_ENABLED=true` — feature flag
-- `INSIGHT_MAX_PER_SYNC=50` — cost control
-- `INSIGHT_MODEL_OPENAI=gpt-4o-mini` — cheaper model for bulk generation
+- `INSIGHT_GENERATION_ENABLED=true`, feature flag
+- `INSIGHT_MAX_PER_SYNC=50`, cost control
+- `INSIGHT_MODEL_OPENAI=gpt-4o-mini`, cheaper model for bulk generation
 - `INSIGHT_MODEL_ANTHROPIC=claude-3-5-haiku-latest`
 
 ### 9.3 Rollback Plan

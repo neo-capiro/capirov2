@@ -1,4 +1,5 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { RedirectToSignIn, SignIn, SignedIn, SignedOut, SignUp } from '@clerk/clerk-react';
 import { AppShell } from './components/AppShell.js';
 import { PlaceholderPage } from './pages/PlaceholderPage.js';
@@ -12,15 +13,34 @@ import { BillingPage } from './pages/admin/BillingPage.js';
 import { CapiroAdminPage } from './pages/capiro-admin/CapiroAdminPage.js';
 import { ClientWorkspacePage } from './pages/clients/ClientWorkspacePage.js';
 import { DirectoryPage } from './pages/directory/DirectoryPage.js';
+import { HomePage } from './pages/HomePage.js';
 import { EngagementPage } from './pages/engagement/EngagementPage.js';
 import { IntegrationsPage } from './pages/settings/IntegrationsPage.js';
 import { WorkspaceLayout } from './pages/workspace/WorkspaceLayout.js';
 import { CatalogView } from './pages/workspace/CatalogView.js';
-import { KanbanBoard } from './pages/workspace/KanbanBoard.js';
+import { WorkflowsView } from './pages/workspace/WorkflowsView.js';
+import { WorkspaceOverview } from './pages/workspace/WorkspaceOverview.js';
 import { StrategiesList } from './pages/workspace/StrategiesList.js';
 import { StrategyWizard } from './pages/workspace/StrategyWizard.js';
 import { StrategyDashboard } from './pages/workspace/StrategyDashboard.js';
+import { WhitePaperEditorPage } from './pages/workspace/WhitePaperEditorPage.js';
 import { IntelligenceCenterPage } from './pages/intelligence/IntelligenceCenterPage.js';
+import { ChangesInboxPage } from './pages/intelligence/ChangesInboxPage.js';
+import { IntelligenceMappingsPage } from './pages/settings/IntelligenceMappingsPage.js';
+import { IssueLeaderboardPage } from './pages/intelligence/IssueLeaderboardPage.js';
+import { DataExplorerPage } from './pages/explorer/DataExplorerPage.js';
+
+const ProgramElementWatchPage = lazy(async () =>
+  import('./pages/program-element/ProgramElementWatchPage.js').then((m) => ({
+    default: m.ProgramElementWatchPage,
+  })),
+);
+
+const MarkupMonitorPage = lazy(async () =>
+  import('./pages/program-element/MarkupMonitorPage.js').then((m) => ({
+    default: m.MarkupMonitorPage,
+  })),
+);
 
 export function App() {
   return (
@@ -39,19 +59,49 @@ export function App() {
           </>
         }
       >
-        <Route path="/" element={<Navigate to="/clients" replace />} />
+        <Route path="/" element={<HomePage />} />
         <Route path="/clients" element={<ClientWorkspacePage />} />
-        <Route path="/engagement" element={<EngagementPage />} />
+        <Route path="/engagement/*" element={<EngagementPage />} />
         <Route path="/workspace" element={<WorkspaceLayout />}>
-          <Route index element={<Navigate to="/workspace/catalog" replace />} />
-          <Route path="catalog" element={<CatalogView />} />
-          <Route path="kanban" element={<KanbanBoard />} />
+          <Route index element={<Navigate to="/workspace/overview" replace />} />
+          <Route path="overview" element={<WorkspaceOverview />} />
+          <Route path="library" element={<CatalogView />} />
+          <Route path="workflows" element={<WorkflowsView />} />
           <Route path="strategies" element={<StrategiesList />} />
           <Route path="strategy/new" element={<StrategyWizard />} />
           <Route path="strategy/:id" element={<StrategyDashboard />} />
+          <Route path="strategy/:id/white-paper/:instanceId" element={<WhitePaperEditorPage />} />
+          <Route path="catalog" element={<Navigate to="/workspace/library" replace />} />
+          <Route path="kanban" element={<Navigate to="/workspace/workflows" replace />} />
         </Route>
-        <Route path="/intelligence" element={<IntelligenceCenterPage />} />
-        <Route path="/intelligence/*" element={<Navigate to="/intelligence" replace />} />
+        <Route path="/explorer" element={<DataExplorerPage />} />
+        <Route
+          path="/program-elements/:peCode"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading program element" description="Please wait..." />}>
+              <ProgramElementWatchPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/program-elements/mark-up-monitor"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading mark-up monitor" description="Please wait..." />}>
+              <MarkupMonitorPage />
+            </Suspense>
+          }
+        />
+        {/* Intelligence routes kept for legacy URLs, the page renames itself
+            to "Intelligence Center" in the sidebar, but ChangesInbox + IssueLeaderboard
+            stay reachable for now. The main /intelligence path redirects. */}
+        <Route path="/intelligence" element={<Navigate to="/explorer" replace />} />
+        <Route path="/intelligence/changes" element={<ChangesInboxPage />} />
+        <Route path="/intelligence/issues/:code" element={<IssueLeaderboardPage />} />
+        <Route path="/intelligence/bills/:bill" element={<BillDetailRedirectRoute />} />
+        <Route path="/intelligence/client/:clientId" element={<Navigate to="/clients" replace />} />
+        <Route path="/intelligence/client/:clientId/graph" element={<Navigate to="/clients" replace />} />
+        <Route path="/intelligence/*" element={<Navigate to="/explorer" replace />} />
+        <Route path="/intelligence-center" element={<IntelligenceCenterPage />} />
         <Route path="/directory" element={<DirectoryPage />} />
         <Route path="/portal/*" element={<Navigate to="/clients" replace />} />
 
@@ -67,6 +117,7 @@ export function App() {
           <Route path="clients" element={<ClientsPage />} />
           <Route path="integrations" element={<IntegrationsPage />} />
           <Route path="billing" element={<BillingPage />} />
+          <Route path="intelligence-mappings" element={<IntelligenceMappingsPage />} />
           <Route path="tenants" element={<CapiroAdminPage />} />
         </Route>
 
@@ -84,6 +135,13 @@ export function App() {
       </Route>
     </Routes>
   );
+}
+
+function BillDetailRedirectRoute() {
+  const { bill } = useParams<{ bill: string }>();
+  const encodedBill = bill ? encodeURIComponent(bill) : '';
+  const target = encodedBill ? `/explorer?bill=${encodedBill}` : '/explorer';
+  return <Navigate to={target} replace />;
 }
 
 function AuthPage({ mode }: { mode: 'sign-in' | 'sign-up' }) {

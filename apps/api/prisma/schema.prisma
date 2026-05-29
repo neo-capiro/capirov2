@@ -124,51 +124,55 @@ model Tenant {
   // bootstrap-tenant script and used by the middleware to cross-check the
   // Clerk JWT's `org_id` claim against the tenant resolved via slug/UUID.
   clerkOrgId      String?      @unique @map("clerk_org_id")
-  // Brand assets — logo lives in S3 under `tenants/{id}/branding/...`.
+  // Brand assets, logo lives in S3 under `tenants/{id}/branding/...`.
   // Upload is gated to user_admin (own tenant) and capiro_admin (any tenant).
   logoS3Key       String?      @map("logo_s3_key")
   logoContentType String?      @map("logo_content_type")
   logoUploadedAt  DateTime?    @map("logo_uploaded_at") @db.Timestamptz(6)
+  // Portfolio Tab v2 additions
+  accountType     String?      @map("account_type")
+  planTier        String       @default("FOUNDATION") @map("plan_tier")
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships                TenantMembership[]
-  auditLogs                  AuditLog[]
-  clients                    Client[]
-  impersonationSessions      ImpersonationSession[]
-  engagementConnections      IntegrationConnection[]
-  engagementConnectionTokens IntegrationConnectionToken[]
-  engagementContacts         EngagementContact[]
-  meetings                   Meeting[]
-  meetingAttendees           MeetingAttendee[]
-  mailThreads                MailThread[]
-  mailMessages               MailMessage[]
-  engagementAttachments      EngagementAttachment[]
-  meetingNotes               MeetingNote[]
-  meetingPreps               MeetingPrep[]
-  engagementTasks            EngagementTask[]
-  associationOverrides       ClientAssociationOverride[]
-  contextEmbeddings          ContextEmbedding[]
-  directoryContactNotes      DirectoryContactNote[]
-  engagementReportTargets    EngagementReportTargetOffice[]
-  outreachRecords            OutreachRecord[]
-  outreachTemplates          OutreachTemplate[]
-  MeetingDebrief             MeetingDebrief[]
-  clioConversations          ClioConversation[]
-  clioMessages               ClioMessage[]
-  clioArtifacts              ClioArtifact[]
-  clioNotes                  ClioNote[]
-  workflowInstances          WorkflowInstance[]
-  clientCapabilities         ClientCapability[]
-  clientSubmissionHistory    ClientSubmissionHistory[]
-  clientPeople               ClientPerson[]
-  strategies                 Strategy[]
-  strategyTargets            StrategyTarget[]
-  engagementCampaigns        EngagementCampaign[]
+  memberships                  TenantMembership[]
+  auditLogs                    AuditLog[]
+  clients                      Client[]
+  impersonationSessions        ImpersonationSession[]
+  engagementConnections        IntegrationConnection[]
+  engagementConnectionTokens   IntegrationConnectionToken[]
+  engagementContacts           EngagementContact[]
+  meetings                     Meeting[]
+  meetingAttendees             MeetingAttendee[]
+  mailThreads                  MailThread[]
+  mailMessages                 MailMessage[]
+  engagementAttachments        EngagementAttachment[]
+  meetingNotes                 MeetingNote[]
+  meetingPreps                 MeetingPrep[]
+  engagementTasks              EngagementTask[]
+  associationOverrides         ClientAssociationOverride[]
+  contextEmbeddings            ContextEmbedding[]
+  directoryContactNotes        DirectoryContactNote[]
+  engagementReportTargets      EngagementReportTargetOffice[]
+  outreachRecords              OutreachRecord[]
+  outreachTemplates            OutreachTemplate[]
+  MeetingDebrief               MeetingDebrief[]
+  clioConversations            ClioConversation[]
+  clioMessages                 ClioMessage[]
+  clioArtifacts                ClioArtifact[]
+  clioNotes                    ClioNote[]
+  workflowInstances            WorkflowInstance[]
+  clientCapabilities           ClientCapability[]
+  clientSubmissionHistory      ClientSubmissionHistory[]
+  clientPeople                 ClientPerson[]
+  strategies                   Strategy[]
+  strategyTargets              StrategyTarget[]
+  engagementCampaigns          EngagementCampaign[]
   engagementCampaignRecipients EngagementCampaignRecipient[]
-  outreachAiTemplates        OutreachAiTemplate[]
-  clioMemories               ClioMemory[]
-  clioProactiveAlerts        ClioProactiveAlert[]
+  outreachAiTemplates          OutreachAiTemplate[]
+  clioMemories                 ClioMemory[]
+  clioProactiveAlerts          ClioProactiveAlert[]
+  programElementWatches        ProgramElementWatch[]
 
   @@map("tenants")
 }
@@ -179,6 +183,9 @@ model User {
   email       String    @unique @db.Citext
   firstName   String?   @map("first_name")
   lastName    String?   @map("last_name")
+  // Free-form job title displayed under the user's name in the top-right
+  // profile widget. User-editable via /settings.
+  title       String?
   lastSeenAt  DateTime? @map("last_seen_at") @db.Timestamptz(6)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -200,6 +207,7 @@ model User {
   workflowInstances       WorkflowInstance[]             @relation("WorkflowInstanceCreator")
   strategies              Strategy[]                     @relation("StrategyCreator")
   createdCampaigns        EngagementCampaign[]           @relation("CampaignCreator")
+  programElementWatches   ProgramElementWatch[]
 
   @@map("users")
 }
@@ -252,6 +260,11 @@ model Client {
   logoUploadedAt      DateTime? @map("logo_uploaded_at") @db.Timestamptz(6)
   intakeData          Json      @default("{}") @map("intake_data_jsonb")
   status              String    @default("active")
+  // Portfolio Tab v2 additions
+  sectorTag           String?   @map("sector_tag")
+  profileType         String?   @default("CLIENT") @map("profile_type")
+  profileStatus       String    @default("ACTIVE") @map("profile_status")
+  submissionTracks    String[]  @default([]) @map("submission_tracks")
   createdByUserId     String?   @map("created_by_user_id") @db.Uuid
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -729,7 +742,7 @@ model OutreachAiTemplate {
   category      String   @default("general")
   prompt        String   @db.Text
   description   String?  @db.Text
-  samplePreview String?  @db.Text @map("sample_preview")
+  samplePreview String?  @map("sample_preview") @db.Text
   tone          String   @default("professional")
   metadata      Json?    @map("metadata_jsonb")
   usageCount    Int      @default(0) @map("usage_count")
@@ -764,19 +777,30 @@ model ClientAssociationOverride {
 }
 
 model ContextEmbedding {
-  id          String                 @id @default(uuid()) @db.Uuid
-  tenantId    String                 @map("tenant_id") @db.Uuid
-  clientId    String?                @map("client_id") @db.Uuid
-  sourceType  String                 @map("source_type")
-  sourceId    String                 @map("source_id")
-  contentText String                 @map("content_text")
-  embedding   Unsupported("vector")?
-  metadata    Json                   @default("{}") @map("metadata_jsonb")
-  createdAt   DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  id          String                @id @default(uuid()) @db.Uuid
+  // Nullable so global content (CongressBill, LdaFiling, no tenant) can
+  // share this table. The RLS policy lets every tenant read NULL rows.
+  tenantId    String?               @map("tenant_id") @db.Uuid
+  clientId    String?               @map("client_id") @db.Uuid
+  sourceType  String                @map("source_type")
+  sourceId    String                @map("source_id")
+  // Model that produced the embedding, e.g. 'amazon.titan-embed-text-v2:0'.
+  // Stored so we can run multiple models side-by-side and migrate gradually.
+  model       String
+  contentText String                @map("content_text")
+  // sha256 of the normalized source text. Worker skips re-embed when the
+  // current hash matches the stored hash.
+  contentHash String                @map("content_hash")
+  embedding   Unsupported("vector")
+  metadata    Json                  @default("{}") @map("metadata_jsonb")
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, sourceType, sourceId, model], map: "context_embeddings_unique")
   @@index([tenantId, clientId], map: "context_embeddings_tenant_client_idx")
+  @@index([sourceType, sourceId], map: "context_embeddings_source_idx")
   @@map("context_embeddings")
 }
 
@@ -855,10 +879,10 @@ model ClioMessage {
   metadata       Json     @default("{}") @map("metadata_jsonb")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  tenant       Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user         User               @relation("ClioMessageUser", fields: [userId], references: [id], onDelete: Cascade)
-  client       Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  conversation ClioConversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User             @relation("ClioMessageUser", fields: [userId], references: [id], onDelete: Cascade)
+  client       Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  conversation ClioConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   artifacts    ClioArtifact[]
 
   @@index([tenantId, userId, createdAt], map: "clio_messages_tenant_user_created_idx")
@@ -867,29 +891,29 @@ model ClioMessage {
 }
 
 model ClioArtifact {
-  id             String   @id @default(uuid()) @db.Uuid
-  tenantId       String   @map("tenant_id") @db.Uuid
-  userId         String   @map("user_id") @db.Uuid
-  clientId       String?  @map("client_id") @db.Uuid
-  conversationId String   @map("conversation_id") @db.Uuid
-  messageId      String?  @map("message_id") @db.Uuid
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  clientId         String?  @map("client_id") @db.Uuid
+  conversationId   String   @map("conversation_id") @db.Uuid
+  messageId        String?  @map("message_id") @db.Uuid
   parentArtifactId String?  @map("parent_artifact_id") @db.Uuid
-  title          String
-  kind           String
-  contentType    String?  @map("content_type")
-  bodyText       String?  @map("body_text") @db.Text
-  s3Key          String?  @map("s3_key")
-  metadata       Json     @default("{}") @map("metadata_jsonb")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  title            String
+  kind             String
+  contentType      String?  @map("content_type")
+  bodyText         String?  @map("body_text") @db.Text
+  s3Key            String?  @map("s3_key")
+  metadata         Json     @default("{}") @map("metadata_jsonb")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  user         User             @relation("ClioArtifactUser", fields: [userId], references: [id], onDelete: Cascade)
-  client       Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
-  conversation ClioConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  message      ClioMessage?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
-  parentArtifact ClioArtifact?  @relation("ArtifactVersions", fields: [parentArtifactId], references: [id], onDelete: SetNull)
-  childVersions  ClioArtifact[] @relation("ArtifactVersions")
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user           User             @relation("ClioArtifactUser", fields: [userId], references: [id], onDelete: Cascade)
+  client         Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  conversation   ClioConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message        ClioMessage?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  parentArtifact ClioArtifact?    @relation("ArtifactVersions", fields: [parentArtifactId], references: [id], onDelete: SetNull)
+  childVersions  ClioArtifact[]   @relation("ArtifactVersions")
 
   @@index([tenantId, userId, createdAt(sort: Desc)], map: "clio_artifacts_tenant_user_created_idx")
   @@index([conversationId, createdAt(sort: Desc)], map: "clio_artifacts_conversation_created_idx")
@@ -922,37 +946,45 @@ model ClioNote {
   @@map("clio_notes")
 }
 
+enum ClioMemoryScope {
+  firm
+  user_private
+}
+
 model ClioMemory {
-  id        String   @id @default(uuid()) @db.Uuid
-  tenantId  String   @map("tenant_id") @db.Uuid
-  key       String   @db.VarChar(200)
-  value     String   @db.Text
-  source    String   @default("conversation")
-  embedding Unsupported("vector")?
-  metadata  Json     @default("{}") @map("metadata_jsonb")
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id          String                 @id @default(uuid()) @db.Uuid
+  tenantId    String                 @map("tenant_id") @db.Uuid
+  scope       ClioMemoryScope        @default(firm)
+  ownerUserId String?                @map("owner_user_id") @db.Uuid
+  key         String                 @db.VarChar(200)
+  value       String                 @db.Text
+  source      String                 @default("conversation")
+  embedding   Unsupported("vector")?
+  metadata    Json                   @default("{}") @map("metadata_jsonb")
+  createdAt   DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
-  @@unique([tenantId, key])
-  @@index([tenantId, updatedAt(sort: Desc)])
+  @@unique([tenantId, scope, ownerUserId, key], map: "clio_memory_tenant_scope_owner_key_uniq")
+  @@index([tenantId, scope, ownerUserId, updatedAt(sort: Desc)], map: "clio_memory_scope_owner_updated_idx")
+  @@index([tenantId, scope, updatedAt(sort: Desc)], map: "clio_memory_scope_updated_idx")
   @@map("clio_memory")
 }
 
 model ClioProactiveAlert {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  clientId   String?  @map("client_id") @db.Uuid
-  alertType  String   @map("alert_type")
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  clientId   String?   @map("client_id") @db.Uuid
+  alertType  String    @map("alert_type")
   title      String
-  body       String   @db.Text
-  priority   String   @default("normal")
-  status     String   @default("pending")
-  sourceType String?  @map("source_type")
-  sourceId   String?  @map("source_id")
-  metadata   Json     @default("{}") @map("metadata_jsonb")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  body       String    @db.Text
+  priority   String    @default("normal")
+  status     String    @default("pending")
+  sourceType String?   @map("source_type")
+  sourceId   String?   @map("source_id")
+  metadata   Json      @default("{}") @map("metadata_jsonb")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   readAt     DateTime? @map("read_at") @db.Timestamptz(6)
 
   tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
@@ -1044,6 +1076,7 @@ model ClientCapability {
   description          String?  @db.Text
   sector               String?
   tags                 Json     @default("[]") @map("tags_jsonb")
+  issueCodes           Json     @default("[]") @map("issue_codes_jsonb")
   trl                  Int?
   mrl                  Int?
   peNumber             String?  @map("pe_number")
@@ -1128,7 +1161,15 @@ model Strategy {
   updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  client     Client             @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  // Optional in Prisma even though the DB column is NOT NULL. The DB FK +
+  // ON DELETE CASCADE prevent true orphans, but RLS / archived-status
+  // filters in tenant-scoped queries can hide the client row from the
+  // join while still returning the strategy row. Marking the Prisma
+  // relation optional lets `include: { client: ... }` resolve to null
+  // instead of throwing
+  //   "Field client is required to return data, got null instead"
+  // every time someone lists strategies for an archived client.
+  client     Client?            @relation(fields: [clientId], references: [id], onDelete: Cascade)
   capability ClientCapability?  @relation(fields: [capabilityId], references: [id], onDelete: SetNull)
   createdBy  User?              @relation("StrategyCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
   targets    StrategyTarget[]
@@ -1212,28 +1253,28 @@ model EngagementCampaignRecipient {
 // ─────────────────────────────────────────────────────────────────────────
 // Federal Lobbying Intelligence (OpenLobby / Senate LDA-derived reference data)
 //
-// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
 // Populated by the OpenLobby sync job (apps/api/scripts/sync-openlobby.ts).
-// Source: https://www.openlobby.us/data/*.json — itself derived from
+// Source: https://www.openlobby.us/data/*.json, itself derived from
 // public-domain Senate LDA filings at lda.senate.gov.
 // ─────────────────────────────────────────────────────────────────────────
 
 model LobbyIntel {
   // 5K-record federal lobbying client master list (top spenders 2018-2025).
-  id               String   @id @default(uuid()) @db.Uuid
-  slug             String   @unique
-  name             String
-  state            String?
-  totalSpending    Decimal? @map("total_spending") @db.Decimal(18, 2)
-  filings          Int?
-  issues           String[] @default([])
-  years            Int[]    @default([])
-  trajectory       String?  // exploding | declining | new | steady | null
-  growthRate       Float?   @map("growth_rate")
-  yearlySpend      Json     @default("[]") @map("yearly_spend_jsonb") // [{year, amount}]
-  source           String   @default("openlobby")
-  lastSyncedAt     DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
-  raw              Json     @default("{}") @map("raw_jsonb")
+  id            String   @id @default(uuid()) @db.Uuid
+  slug          String   @unique
+  name          String
+  state         String?
+  totalSpending Decimal? @map("total_spending") @db.Decimal(18, 2)
+  filings       Int?
+  issues        String[] @default([])
+  years         Int[]    @default([])
+  trajectory    String? // exploding | declining | new | steady | null
+  growthRate    Float?   @map("growth_rate")
+  yearlySpend   Json     @default("[]") @map("yearly_spend_jsonb") // [{year, amount}]
+  source        String   @default("openlobby")
+  lastSyncedAt  DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  raw           Json     @default("{}") @map("raw_jsonb")
 
   @@index([name], map: "lobby_intel_name_idx")
   @@index([slug], map: "lobby_intel_slug_idx")
@@ -1242,21 +1283,21 @@ model LobbyIntel {
 
 model LobbyIssueRef {
   // 79 LDA issue codes with rolling spending totals + surge trends.
-  code           String   @id // e.g. BUD, HCR, TAX
-  name           String
-  totalSpending  Decimal? @map("total_spending") @db.Decimal(18, 2)
-  totalFilings   Int?     @map("total_filings")
-  surgeTrend     String?  @map("surge_trend") // surging | growing | stable | declining
-  surgePct       Float?   @map("surge_pct")
-  latestQuarter  String?  @map("latest_quarter")
-  latestIncome   Decimal? @map("latest_income") @db.Decimal(18, 2)
-  lastSyncedAt   DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  code          String   @id // e.g. BUD, HCR, TAX
+  name          String
+  totalSpending Decimal? @map("total_spending") @db.Decimal(18, 2)
+  totalFilings  Int?     @map("total_filings")
+  surgeTrend    String?  @map("surge_trend") // surging | growing | stable | declining
+  surgePct      Float?   @map("surge_pct")
+  latestQuarter String?  @map("latest_quarter")
+  latestIncome  Decimal? @map("latest_income") @db.Decimal(18, 2)
+  lastSyncedAt  DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
 
   @@map("lobby_issue_ref")
 }
 
 model LobbyTrendingTopic {
-  // Top words and trending words mined from filing descriptions —
+  // Top words and trending words mined from filing descriptions -
   // injected into AI doc-gen prompts as "current Washington context".
   id           String   @id @default(uuid()) @db.Uuid
   word         String   @unique
@@ -1273,9 +1314,9 @@ model LobbyTrendingTopic {
 // ─────────────────────────────────────────────────────────────────────────
 // Federal Spending Intelligence (OpenSpending / USASpending.gov)
 //
-// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
 // Populated by the OpenSpending sync job (apps/api/scripts/sync-openspending.ts).
-// Source: https://www.openspending.us/data/*.json — derived from
+// Source: https://www.openspending.us/data/*.json, derived from
 // public USASpending.gov contract and grant award data.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1289,11 +1330,11 @@ model FederalContractor {
   totalContracts    Decimal? @map("total_contracts") @db.Decimal(18, 2)
   pctOfAllContracts Float?   @map("pct_of_all_contracts")
   costPerTaxpayer   Float?   @map("cost_per_taxpayer")
-  category          String?  // Defense | Health | Tech | etc
+  category          String? // Defense | Health | Tech | etc
   subsidiaries      Int?
   yearlySpend       Json     @default("[]") @map("yearly_spend_jsonb") // [{year, amount}]
   topAgencies       Json     @default("[]") @map("top_agencies_jsonb") // [{slug, name, amount}]
-  topAwards         Json     @default("[]") @map("top_awards_jsonb")   // [{awardId, description, amount, agency, startDate}]
+  topAwards         Json     @default("[]") @map("top_awards_jsonb") // [{awardId, description, amount, agency, startDate}]
   noBidAwards       Json     @default("[]") @map("no_bid_awards_jsonb")
   noBidTotal        Decimal? @map("no_bid_total") @db.Decimal(18, 2)
   rankByContracts   Int?     @map("rank_by_contracts")
@@ -1307,24 +1348,24 @@ model FederalContractor {
 
 model FederalAgency {
   // 97 federal agencies with budget authority + top contractors.
-  slug             String   @id
-  name             String
-  abbreviation     String?
-  code             String?
-  displayName      String?  @map("display_name")
-  budgetAuthority  Decimal? @map("budget_authority") @db.Decimal(18, 2)
-  obligated        Decimal? @db.Decimal(18, 2)
-  outlays          Decimal? @db.Decimal(18, 2)
-  pctOfTotal       Float?   @map("pct_of_total")
-  pctOfBudget      Float?   @map("pct_of_budget")
-  pctContracts     Float?   @map("pct_contracts")
-  costPerAmerican  Float?   @map("cost_per_american")
-  rankBySpending   Int?     @map("rank_by_spending")
-  contractsTotal   Decimal? @map("contracts_total") @db.Decimal(18, 2)
-  grantsTotal      Decimal? @map("grants_total") @db.Decimal(18, 2)
-  yearlyBudget     Json     @default("[]") @map("yearly_budget_jsonb")
-  topContractors   Json     @default("[]") @map("top_contractors_jsonb")
-  lastSyncedAt     DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  slug            String   @id
+  name            String
+  abbreviation    String?
+  code            String?
+  displayName     String?  @map("display_name")
+  budgetAuthority Decimal? @map("budget_authority") @db.Decimal(18, 2)
+  obligated       Decimal? @db.Decimal(18, 2)
+  outlays         Decimal? @db.Decimal(18, 2)
+  pctOfTotal      Float?   @map("pct_of_total")
+  pctOfBudget     Float?   @map("pct_of_budget")
+  pctContracts    Float?   @map("pct_contracts")
+  costPerAmerican Float?   @map("cost_per_american")
+  rankBySpending  Int?     @map("rank_by_spending")
+  contractsTotal  Decimal? @map("contracts_total") @db.Decimal(18, 2)
+  grantsTotal     Decimal? @map("grants_total") @db.Decimal(18, 2)
+  yearlyBudget    Json     @default("[]") @map("yearly_budget_jsonb")
+  topContractors  Json     @default("[]") @map("top_contractors_jsonb")
+  lastSyncedAt    DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
 
   @@index([name], map: "federal_agency_name_idx")
   @@map("federal_agency")
@@ -1346,34 +1387,34 @@ model FederalIndustry {
 // ─────────────────────────────────────────────────────────────────────────
 // Senate LDA Federal Lobbying Intelligence (raw filings dataset)
 //
-// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
 // Populated by apps/api/scripts/sync-lda.ts.
-// Source: https://lda.senate.gov/api/v1/ — public Senate LD-1/LD-2 filings.
+// Source: https://lda.senate.gov/api/v1/, public Senate LD-1/LD-2 filings.
 // ─────────────────────────────────────────────────────────────────────────
 
 model LdaFiling {
   // Core filing record (~512K over 5 years).
-  id                  String   @id @default(uuid()) @db.Uuid
-  filingUuid          String   @unique @map("filing_uuid")
-  filingType          String   @map("filing_type")
-  filingYear          Int      @map("filing_year")
-  filingPeriod        String?  @map("filing_period")
-  income              Decimal? @map("income") @db.Decimal(18, 2)
-  expenses            Decimal? @map("expenses") @db.Decimal(18, 2)
-  dtPosted            DateTime? @map("dt_posted") @db.Timestamptz(6)
-  registrantId        Int?     @map("registrant_id")
-  registrantName      String   @default("") @map("registrant_name")
-  clientId            Int?     @map("client_id")
-  clientName          String   @default("") @map("client_name")
-  clientState         String?  @map("client_state")
-  clientCountry       String   @default("US") @map("client_country")
-  clientDescription   String?  @map("client_description")
-  issueCodes          String[] @default([]) @map("issue_codes")
-  governmentEntities  Json     @default("[]") @map("government_entities")
-  lobbyists           Json     @default("[]") @map("lobbyists")
-  lobbyingActivities  Json     @default("[]") @map("lobbying_activities")
-  filingDocumentUrl   String?  @map("filing_document_url")
-  lastSyncedAt        DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  id                 String    @id @default(uuid()) @db.Uuid
+  filingUuid         String    @unique @map("filing_uuid")
+  filingType         String    @map("filing_type")
+  filingYear         Int       @map("filing_year")
+  filingPeriod       String?   @map("filing_period")
+  income             Decimal?  @map("income") @db.Decimal(18, 2)
+  expenses           Decimal?  @map("expenses") @db.Decimal(18, 2)
+  dtPosted           DateTime? @map("dt_posted") @db.Timestamptz(6)
+  registrantId       Int?      @map("registrant_id")
+  registrantName     String    @default("") @map("registrant_name")
+  clientId           Int?      @map("client_id")
+  clientName         String    @default("") @map("client_name")
+  clientState        String?   @map("client_state")
+  clientCountry      String    @default("US") @map("client_country")
+  clientDescription  String?   @map("client_description")
+  issueCodes         String[]  @default([]) @map("issue_codes")
+  governmentEntities Json      @default("[]") @map("government_entities")
+  lobbyists          Json      @default("[]") @map("lobbyists")
+  lobbyingActivities Json      @default("[]") @map("lobbying_activities")
+  filingDocumentUrl  String?   @map("filing_document_url")
+  lastSyncedAt       DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
 
   @@index([filingYear], map: "lda_filing_year_idx")
   @@index([dtPosted], map: "lda_filing_dt_posted_idx")
@@ -1386,17 +1427,17 @@ model LdaFiling {
 
 model LdaClient {
   // 134K lobbying clients extracted from LDA filings.
-  id                 Int      @id
+  id                 Int       @id
   name               String
-  generalDescription String?  @map("general_description")
+  generalDescription String?   @map("general_description")
   state              String?
-  country            String   @default("US")
+  country            String    @default("US")
   effectiveDate      DateTime? @map("effective_date") @db.Date
-  totalFilings       Int      @default(0) @map("total_filings")
-  totalSpending      Decimal? @map("total_spending") @db.Decimal(18, 2)
-  latestFilingYear   Int?     @map("latest_filing_year")
-  issueCodes         String[] @default([]) @map("issue_codes")
-  lastSyncedAt       DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  totalFilings       Int       @default(0) @map("total_filings")
+  totalSpending      Decimal?  @map("total_spending") @db.Decimal(18, 2)
+  latestFilingYear   Int?      @map("latest_filing_year")
+  issueCodes         String[]  @default([]) @map("issue_codes")
+  lastSyncedAt       DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
 
   @@index([name], map: "lda_client_name_idx")
   @@index([state], map: "lda_client_state_idx")
@@ -1425,15 +1466,15 @@ model LdaRegistrant {
 
 model LdaLobbyist {
   // 88K registered lobbyists extracted from LDA filings.
-  id                Int      @id
-  firstName         String   @default("") @map("first_name")
-  lastName          String   @default("") @map("last_name")
-  prefix            String?
-  suffix            String?
-  coveredPositions  Json     @default("[]") @map("covered_positions")
-  registrantIds     Int[]    @default([]) @map("registrant_ids")
-  activeYears       Int[]    @default([]) @map("active_years")
-  lastSyncedAt      DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  id               Int      @id
+  firstName        String   @default("") @map("first_name")
+  lastName         String   @default("") @map("last_name")
+  prefix           String?
+  suffix           String?
+  coveredPositions Json     @default("[]") @map("covered_positions")
+  registrantIds    Int[]    @default([]) @map("registrant_ids")
+  activeYears      Int[]    @default([]) @map("active_years")
+  lastSyncedAt     DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
 
   @@index([lastName, firstName], map: "lda_lobbyist_name_idx")
   @@map("lda_lobbyist")
@@ -1441,21 +1482,21 @@ model LdaLobbyist {
 
 model LdaContribution {
   // 192K contribution reports (LD-203 filings).
-  id                String   @id @default(uuid()) @db.Uuid
-  filingUuid        String   @unique @map("filing_uuid")
-  filingType        String   @map("filing_type")
-  filingYear        Int      @map("filing_year")
-  filingPeriod      String?  @map("filing_period")
-  filerType         String   @default("registrant") @map("filer_type")
+  id                String    @id @default(uuid()) @db.Uuid
+  filingUuid        String    @unique @map("filing_uuid")
+  filingType        String    @map("filing_type")
+  filingYear        Int       @map("filing_year")
+  filingPeriod      String?   @map("filing_period")
+  filerType         String    @default("registrant") @map("filer_type")
   dtPosted          DateTime? @map("dt_posted") @db.Timestamptz(6)
-  registrantId      Int?     @map("registrant_id")
-  registrantName    String?  @map("registrant_name")
-  lobbyistId        Int?     @map("lobbyist_id")
-  lobbyistName      String?  @map("lobbyist_name")
-  noContributions   Boolean  @default(false) @map("no_contributions")
-  pacs              Json     @default("[]") @map("pacs")
-  contributionItems Json     @default("[]") @map("contribution_items")
-  lastSyncedAt      DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  registrantId      Int?      @map("registrant_id")
+  registrantName    String?   @map("registrant_name")
+  lobbyistId        Int?      @map("lobbyist_id")
+  lobbyistName      String?   @map("lobbyist_name")
+  noContributions   Boolean   @default(false) @map("no_contributions")
+  pacs              Json      @default("[]") @map("pacs")
+  contributionItems Json      @default("[]") @map("contribution_items")
+  lastSyncedAt      DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
 
   @@index([filingYear], map: "lda_contribution_year_idx")
   @@index([registrantId], map: "lda_contribution_registrant_id_idx")
@@ -1487,9 +1528,9 @@ model LdaGovernmentEntity {
 // ─────────────────────────────────────────────────────────────────────────
 // FEC Campaign Finance Data
 //
-// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
 // Populated by apps/api/scripts/sync-fec.ts.
-// Source: https://api.open.fec.gov/v1/ — FEC campaign finance data.
+// Source: https://api.open.fec.gov/v1/, FEC campaign finance data.
 // ─────────────────────────────────────────────────────────────────────────
 
 model FecCommittee {
@@ -1529,20 +1570,20 @@ model FecContribution {
   cycle                 Int
   lastSyncedAt          DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
 
+  @@unique([committeeId, candidateName, contributorEmployer, amount, cycle], map: "fec_contribution_dedup_key")
   @@index([committeeId], map: "fec_contribution_committee_id_idx")
   @@index([candidateName], map: "fec_contribution_candidate_name_idx")
   @@index([contributorEmployer], map: "fec_contribution_employer_idx")
   @@index([cycle], map: "fec_contribution_cycle_idx")
-  @@unique([committeeId, candidateName, contributorEmployer, amount, cycle], map: "fec_contribution_dedup_key")
   @@map("fec_contribution")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // Congress.gov Legislative Data
 //
-// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
 // Populated by apps/api/scripts/sync-congress.ts.
-// Source: https://api.congress.gov/v3/ — Congress.gov API.
+// Source: https://api.congress.gov/v3/, Congress.gov API.
 // ─────────────────────────────────────────────────────────────────────────
 
 model CongressBill {
@@ -1560,6 +1601,7 @@ model CongressBill {
   latestActionDate DateTime? @map("latest_action_date") @db.Date
   policyArea       String?   @map("policy_area")
   subjects         String[]  @default([])
+  peCodes          String[]  @default([]) @map("pe_codes")
   committees       Json      @default("[]")
   cosponsorsCount  Int       @default(0) @map("cosponsors_count")
   originChamber    String?   @map("origin_chamber")
@@ -1573,19 +1615,20 @@ model CongressBill {
 
   @@index([congress], map: "congress_bill_congress_idx")
   @@index([policyArea], map: "congress_bill_policy_area_idx")
+  @@index([peCodes], map: "congress_bill_pe_codes_gin_idx", type: Gin)
   @@map("congress_bill")
 }
 
 // ─────────────────────────────────────────────────────────────────────────
 // Expanded Congress bill data (normalized)
-// GLOBAL tables — no tenant_id, no RLS.
+// GLOBAL tables, no tenant_id, no RLS.
 // ─────────────────────────────────────────────────────────────────────────
 
 model CongressBillAction {
-  id      String   @id @default(uuid())
-  billId  String   @map("bill_id")
+  id      String       @id @default(uuid())
+  billId  String       @map("bill_id")
   date    DateTime
-  text    String   @db.Text
+  text    String       @db.Text
   type    String?
   chamber String?
   bill    CongressBill @relation(fields: [billId], references: [id], onDelete: Cascade)
@@ -1595,10 +1638,10 @@ model CongressBillAction {
 }
 
 model CongressBillCommittee {
-  id            String @id @default(uuid())
-  billId        String @map("bill_id")
-  committeeName String @map("committee_name")
-  committeeCode String? @map("committee_code")
+  id            String       @id @default(uuid())
+  billId        String       @map("bill_id")
+  committeeName String       @map("committee_name")
+  committeeCode String?      @map("committee_code")
   chamber       String?
   bill          CongressBill @relation(fields: [billId], references: [id], onDelete: Cascade)
 
@@ -1608,8 +1651,8 @@ model CongressBillCommittee {
 }
 
 model CongressBillSubject {
-  id     String @id @default(uuid())
-  billId String @map("bill_id")
+  id     String       @id @default(uuid())
+  billId String       @map("bill_id")
   name   String
   bill   CongressBill @relation(fields: [billId], references: [id], onDelete: Cascade)
 
@@ -1619,28 +1662,173 @@ model CongressBillSubject {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Program Element Intelligence (DoD PE watch)
+//
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
+// Populated by PE Watch sync jobs.
+// ─────────────────────────────────────────────────────────────────────────
+
+model ProgramElement {
+  peCode             String   @id @map("pe_code") @db.VarChar(8)
+  service            String?
+  serviceCode        String?  @map("service_code")
+  appropriationType  String?  @map("appropriation_type")
+  budgetActivity     String?  @map("budget_activity")
+  budgetActivityName String?  @map("budget_activity_name")
+  lineNumber         String?  @map("line_number")
+  title              String
+  description        String?  @db.Text
+  acatLevel          String?  @map("acat_level")
+  programOfRecord    String?  @map("program_of_record")
+  status             String?
+  rDocUrl            String?  @map("r_doc_url")
+  pDocUrl            String?  @map("p_doc_url")
+  oDocUrl            String?  @map("o_doc_url")
+  raw                Json     @default("{}") @map("raw_jsonb")
+  source             String
+  sourceConfidence   Float?   @map("source_confidence")
+  firstSeenFy        Int?     @map("first_seen_fy")
+  lastSyncedAt       DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  years                    ProgramElementYear[]
+  milestones               ProgramElementMilestone[]
+  yearSourceValues         ProgramElementYearSourceValue[]
+  watches                  ProgramElementWatch[]
+  conferenceProbabilities  ConferenceProbability[]
+
+  @@index([serviceCode], map: "program_element_service_code_idx")
+  @@index([appropriationType], map: "program_element_appropriation_type_idx")
+  @@index([status], map: "program_element_status_idx")
+  @@map("program_element")
+}
+
+model ProgramElementYear {
+  id           String   @id @default(uuid()) @db.Uuid
+  peCode       String   @map("pe_code") @db.VarChar(8)
+  fy           Int
+  request      Decimal? @db.Decimal(14, 2)
+  hascMark     Decimal? @map("hasc_mark") @db.Decimal(14, 2)
+  sascMark     Decimal? @map("sasc_mark") @db.Decimal(14, 2)
+  hacDMark     Decimal? @map("hac_d_mark") @db.Decimal(14, 2)
+  sacDMark     Decimal? @map("sac_d_mark") @db.Decimal(14, 2)
+  conference   Decimal? @db.Decimal(14, 2)
+  enacted      Decimal? @db.Decimal(14, 2)
+  reprogrammed Decimal? @db.Decimal(14, 2)
+  executed     Decimal? @db.Decimal(14, 2)
+  notes        String?  @db.Text
+  rDocSection  String?  @map("r_doc_section")
+  raw          Json     @default("{}") @map("raw_jsonb")
+  lastSyncedAt DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  @@unique([peCode, fy], map: "program_element_year_pe_code_fy_key")
+  @@index([fy], map: "program_element_year_fy_idx")
+  @@map("program_element_year")
+}
+
+model ProgramElementMilestone {
+  id            String    @id @default(uuid()) @db.Uuid
+  peCode        String    @map("pe_code") @db.VarChar(8)
+  milestoneType String    @map("milestone_type")
+  plannedDate   DateTime? @map("planned_date") @db.Date
+  actualDate    DateTime? @map("actual_date") @db.Date
+  status        String?
+  source        String
+  notes         String?   @db.Text
+  lastSyncedAt  DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  @@unique([peCode, milestoneType], map: "program_element_milestone_pe_code_type_key")
+  @@index([status], map: "program_element_milestone_status_idx")
+  @@map("program_element_milestone")
+}
+
+model ProgramElementQuarantine {
+  id            String   @id @default(uuid()) @db.Uuid
+  rawRecord     Json     @map("raw_record")
+  reason        String
+  source        String
+  quarantinedAt DateTime @default(now()) @map("quarantined_at") @db.Timestamptz(6)
+
+  @@map("program_element_quarantine")
+}
+
+model ProgramElementYearSourceValue {
+  id         String   @id @default(uuid()) @db.Uuid
+  peCode     String   @map("pe_code") @db.VarChar(8)
+  fy         Int
+  fieldName  String   @map("field_name")
+  source     String
+  valueJsonb Json     @default("null") @map("value_jsonb")
+  isWinner   Boolean  @default(false) @map("is_winner")
+  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  @@index([peCode, fy, fieldName], map: "program_element_year_source_value_lookup_idx")
+  @@index([peCode, fy, fieldName, isWinner], map: "program_element_year_source_value_winner_idx")
+  @@map("program_element_year_source_value")
+}
+
+model ProgramElementWatch {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  peCode    String   @map("pe_code") @db.VarChar(8)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  @@unique([userId, peCode], map: "program_element_watch_user_pe_code_key")
+  @@index([tenantId, peCode], map: "program_element_watch_tenant_pe_code_idx")
+  @@map("program_element_watch")
+}
+
+model ConferenceProbability {
+  peCode       String   @map("pe_code") @db.VarChar(8)
+  fy           Int
+  predicted    Decimal  @db.Decimal(14, 4)
+  ciLow        Decimal  @map("ci_low") @db.Decimal(14, 4)
+  ciHigh       Decimal  @map("ci_high") @db.Decimal(14, 4)
+  confidence   Decimal  @db.Decimal(6, 4)
+  modelVersion String   @map("model_version")
+  computedAt   DateTime @default(now()) @map("computed_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  @@id([peCode, fy])
+  @@index([fy], map: "conference_probability_fy_idx")
+  @@index([modelVersion], map: "conference_probability_model_version_idx")
+  @@map("conference_probability")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Federal Register documents
-// GLOBAL table — no tenant_id, no RLS.
+// GLOBAL table, no tenant_id, no RLS.
 // Populated by apps/api/scripts/sync-federal-register.ts.
 // ─────────────────────────────────────────────────────────────────────────
 
 model FederalRegisterDocument {
-  id              String   @id @default(uuid())
-  documentNumber  String   @unique @map("document_number")
-  type            String   // RULE, PROPOSED_RULE, NOTICE, PRESIDENTIAL_DOCUMENT
-  title           String   @db.Text
-  abstract        String?  @db.Text
-  agencyNames     String[] @map("agency_names")
-  publicationDate DateTime @map("publication_date")
+  id              String    @id @default(uuid())
+  documentNumber  String    @unique @map("document_number")
+  type            String // RULE, PROPOSED_RULE, NOTICE, PRESIDENTIAL_DOCUMENT
+  title           String    @db.Text
+  abstract        String?   @db.Text
+  agencyNames     String[]  @map("agency_names")
+  publicationDate DateTime  @map("publication_date")
   commentEndDate  DateTime? @map("comment_end_date")
   effectiveDate   DateTime? @map("effective_date")
-  docketIds       String[] @map("docket_ids")
-  cfrReferences   String[] @map("cfr_references")
-  htmlUrl         String?  @map("html_url")
-  pdfUrl          String?  @map("pdf_url")
+  docketIds       String[]  @map("docket_ids")
+  cfrReferences   String[]  @map("cfr_references")
+  htmlUrl         String?   @map("html_url")
+  pdfUrl          String?   @map("pdf_url")
   topics          String[]
-  significantRule Boolean  @default(false) @map("significant_rule")
-  syncedAt        DateTime @default(now()) @map("synced_at")
+  significantRule Boolean   @default(false) @map("significant_rule")
+  syncedAt        DateTime  @default(now()) @map("synced_at")
 
   @@index([type, publicationDate])
   @@index([commentEndDate])
@@ -1649,18 +1837,18 @@ model FederalRegisterDocument {
 
 // ─────────────────────────────────────────────────────────────────────────
 // AI-generated intelligence insights
-// GLOBAL table — no tenant_id, no RLS.
+// GLOBAL table, no tenant_id, no RLS.
 // ─────────────────────────────────────────────────────────────────────────
 
 model IntelligenceInsight {
-  id          String   @id @default(uuid())
-  category    String   // lda, spending, congress, regulatory, anomaly
+  id          String    @id @default(uuid())
+  category    String // lda, spending, congress, regulatory, anomaly
   title       String
-  body        String   @db.Text
-  severity    String   @default("info") // info, notable, critical
-  dataPoints  Json?    @map("data_points")
-  generatedAt DateTime @default(now()) @map("generated_at")
-expiresAt   DateTime? @map("expires_at")
+  body        String    @db.Text
+  severity    String    @default("info") // info, notable, critical
+  dataPoints  Json?     @map("data_points")
+  generatedAt DateTime  @default(now()) @map("generated_at")
+  expiresAt   DateTime? @map("expires_at")
 
   @@index([category, generatedAt])
   @@map("intelligence_insight")
@@ -1668,13 +1856,13 @@ expiresAt   DateTime? @map("expires_at")
 
 // ─────────────────────────────────────────────────────────────────────────
 // Client-to-intelligence-source mapping (synthesis layer)
-// GLOBAL table — links CRM clients to external intelligence identities.
+// GLOBAL table, links CRM clients to external intelligence identities.
 // ─────────────────────────────────────────────────────────────────────────
 
 model ClientIntelMapping {
   id           String   @id @default(uuid()) @db.Uuid
   clientId     String   @map("client_id") @db.Uuid
-  source       String   // 'lda', 'contracting', 'lobby_intel', 'fec'
+  source       String // 'lda', 'contracting', 'lobby_intel', 'fec'
   externalId   String   @map("external_id")
   externalName String   @map("external_name")
   confidence   Float
@@ -1690,7 +1878,7 @@ model ClientIntelMapping {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Cross-source change events (synthesis layer)
-// GLOBAL table — detected changes from sync scripts.
+// GLOBAL table, detected changes from sync scripts.
 // ─────────────────────────────────────────────────────────────────────────
 
 model IntelligenceChange {
@@ -1702,30 +1890,32 @@ model IntelligenceChange {
   description      String   @db.Text
   relatedClientIds String[] @map("related_client_ids") @db.Uuid
   relatedIssues    String[] @map("related_issues")
+  relatedPeCodes   String[] @default([]) @map("related_pe_codes")
   data             Json     @default("{}")
   detectedAt       DateTime @default(now()) @map("detected_at") @db.Timestamptz(6)
   consumed         Boolean  @default(false)
 
   @@index([detectedAt(sort: Desc)])
   @@index([source, changeType])
+  @@index([relatedPeCodes], map: "intelligence_change_pe_codes_gin_idx", type: Gin)
   @@map("intelligence_change")
 }
 
 model RegulatoryDocket {
-  id               String   @id @default(uuid())
-  documentId       String   @unique @map("document_id")
-  agencyId         String   @map("agency_id")
-  docketId         String?  @map("docket_id")
-  documentType     String   @map("document_type")
-  title            String   @db.Text
+  id               String    @id @default(uuid())
+  documentId       String    @unique @map("document_id")
+  agencyId         String    @map("agency_id")
+  docketId         String?   @map("docket_id")
+  documentType     String    @map("document_type")
+  title            String    @db.Text
   postedDate       DateTime? @map("posted_date")
   commentStartDate DateTime? @map("comment_start_date")
   commentEndDate   DateTime? @map("comment_end_date")
-  frDocNum         String?  @map("fr_doc_num")
+  frDocNum         String?   @map("fr_doc_num")
   subtype          String?
-  withdrawn        Boolean  @default(false)
+  withdrawn        Boolean   @default(false)
   lastModified     DateTime? @map("last_modified")
-  syncedAt         DateTime @default(now()) @map("synced_at")
+  syncedAt         DateTime  @default(now()) @map("synced_at")
 
   @@index([agencyId, postedDate])
   @@index([commentEndDate])
@@ -1742,13 +1932,352 @@ model ChatMessage {
   id        String   @id @default(uuid()) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
   userId    String   @map("user_id")
-  role      String   // 'user' | 'assistant' | 'system'
+  role      String // 'user' | 'assistant' | 'system'
   content   String   @db.Text
-  metadata  Json?    // tool calls, context snapshot, intent, etc.
+  metadata  Json? // tool calls, context snapshot, intent, etc.
   sessionId String   @map("session_id")
   createdAt DateTime @default(now()) @map("created_at")
 
-  @@map("chat_message")
   @@index([tenantId, userId, sessionId])
   @@index([createdAt])
+  @@map("chat_message")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SEC EDGAR filings
+// GLOBAL table, no tenant_id, no RLS.
+// Source: data.sec.gov/submissions/ and data.sec.gov/api/xbrl/
+// ─────────────────────────────────────────────────────────────────────────
+
+model SecFiling {
+  id              String    @id @default(uuid())
+  cik             String // Central Index Key (zero-padded 10 digits)
+  companyName     String    @map("company_name")
+  formType        String    @map("form_type") // 10-K, 10-Q, 8-K, DEF14A, S-1, etc.
+  accessionNumber String    @unique @map("accession_number")
+  filingDate      DateTime  @map("filing_date") @db.Date
+  reportDate      DateTime? @map("report_date") @db.Date
+  primaryDoc      String?   @map("primary_doc") // filename of the primary document
+  description     String?   @db.Text
+  sic             String? // Standard Industrial Classification code
+  stateOfIncorp   String?   @map("state_of_incorp")
+  fiscalYearEnd   String?   @map("fiscal_year_end") // MMDD format
+  url             String?
+  syncedAt        DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([cik])
+  @@index([formType, filingDate])
+  @@index([companyName])
+  @@map("sec_filing")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// FARA, Foreign Agents Registration Act filings
+// GLOBAL table, no tenant_id, no RLS.
+// Source: efile.fara.gov/api/v1/
+// ─────────────────────────────────────────────────────────────────────────
+
+model FaraRegistration {
+  id                 String    @id @default(uuid())
+  registrationNumber String    @unique @map("registration_number")
+  registrantName     String    @map("registrant_name")
+  foreignPrincipal   String    @map("foreign_principal")
+  country            String?
+  status             String? // Active, Terminated
+  registrationDate   DateTime? @map("registration_date") @db.Date
+  terminationDate    DateTime? @map("termination_date") @db.Date
+  address            String?
+  state              String?
+  description        String?   @db.Text
+  syncedAt           DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([registrantName])
+  @@index([foreignPrincipal])
+  @@index([country])
+  @@map("fara_registration")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// BLS, Bureau of Labor Statistics time series data
+// GLOBAL table, no tenant_id, no RLS.
+// Source: api.bls.gov/publicAPI/v2/
+// ─────────────────────────────────────────────────────────────────────────
+
+model BlsSeries {
+  id         String   @id // series_id e.g. "CES0000000001"
+  title      String
+  surveyName String?  @map("survey_name")
+  area       String? // area code
+  industry   String? // industry code
+  periodType String   @map("period_type") // Monthly, Annual, Quarterly
+  syncedAt   DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  dataPoints BlsDataPoint[]
+
+  @@map("bls_series")
+}
+
+model BlsDataPoint {
+  id        String   @id @default(uuid())
+  seriesId  String   @map("series_id")
+  year      Int
+  period    String // M01-M12, Q01-Q05, A01
+  value     Float
+  footnotes String[] @default([])
+
+  series BlsSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  @@unique([seriesId, year, period])
+  @@index([seriesId, year])
+  @@map("bls_data_point")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Census, ACS 5-Year data by congressional district
+// GLOBAL table, no tenant_id, no RLS.
+// Source: api.census.gov/data/2022/acs/acs5
+// ─────────────────────────────────────────────────────────────────────────
+
+model CensusDistrict {
+  id                    String   @id // e.g. "119-CA-52" (congress-state-district)
+  congress              Int // 118, 119
+  state                 String // 2-letter state code
+  stateFips             String   @map("state_fips")
+  district              String // district number or "AL" for at-large
+  totalPopulation       Int?     @map("total_population")
+  medianHouseholdIncome Int?     @map("median_household_income")
+  medianAge             Float?   @map("median_age")
+  percentBachelorPlus   Float?   @map("percent_bachelor_plus") // % with bachelor's degree+
+  percentPoverty        Float?   @map("percent_poverty")
+  percentVeteran        Float?   @map("percent_veteran")
+  percentUninsured      Float?   @map("percent_uninsured")
+  laborForceSize        Int?     @map("labor_force_size")
+  unemploymentRate      Float?   @map("unemployment_rate")
+  topIndustries         Json     @default("[]") @map("top_industries") // [{name, employment, percent}]
+  dataYear              Int      @map("data_year") // ACS vintage year
+  syncedAt              DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([congress, state])
+  @@index([state, district])
+  @@map("census_district")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// BEA, Bureau of Economic Analysis GDP/industry data
+// GLOBAL table, no tenant_id, no RLS.
+// Source: apps.bea.gov/api/data/
+// ─────────────────────────────────────────────────────────────────────────
+
+model BeaData {
+  id          String   @id @default(uuid())
+  datasetName String   @map("dataset_name") // NIPA, Regional, Industry
+  tableName   String   @map("table_name")
+  lineNumber  Int?     @map("line_number")
+  seriesCode  String?  @map("series_code")
+  description String   @db.Text
+  year        Int
+  period      String // Q1-Q4, Annual
+  value       Float?
+  units       String? // Billions of dollars, Index, Percent
+  geoFips     String?  @map("geo_fips") // state/county FIPS for regional
+  syncedAt    DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@unique([datasetName, tableName, seriesCode, year, period, geoFips])
+  @@index([datasetName, year])
+  @@index([geoFips])
+  @@map("bea_data")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Grants.gov, Federal grant opportunities (NOFOs)
+// GLOBAL table, no tenant_id, no RLS.
+// Source: api.grants.gov/v1/api/search2
+// ─────────────────────────────────────────────────────────────────────────
+
+model FederalGrant {
+  id                String    @id // opportunity ID from Grants.gov
+  title             String    @db.Text
+  agency            String // awarding agency
+  subAgency         String?   @map("sub_agency")
+  opportunityNumber String?   @map("opportunity_number")
+  category          String? // Discretionary, Mandatory, etc.
+  fundingInstrument String?   @map("funding_instrument") // Grant, Cooperative Agreement
+  eligibility       String[]  @default([]) // eligible applicant types
+  cfdaNumbers       String[]  @default([]) @map("cfda_numbers")
+  awardCeiling      Float?    @map("award_ceiling")
+  awardFloor        Float?    @map("award_floor")
+  estimatedFunding  Float?    @map("estimated_funding")
+  expectedAwards    Int?      @map("expected_awards")
+  openDate          DateTime? @map("open_date") @db.Date
+  closeDate         DateTime? @map("close_date") @db.Date
+  status            String? // posted, closed, archived, forecasted
+  description       String?   @db.Text
+  url               String?
+  syncedAt          DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([agency])
+  @@index([closeDate])
+  @@index([status])
+  @@map("federal_grant")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// GAO, Government Accountability Office reports
+// GLOBAL table, no tenant_id, no RLS.
+// Source: gao.gov/api/products + RSS
+// ─────────────────────────────────────────────────────────────────────────
+
+model GaoReport {
+  id              String    @id // GAO report number e.g. "GAO-24-106155"
+  title           String    @db.Text
+  url             String?
+  publishDate     DateTime? @map("publish_date") @db.Date
+  reportType      String?   @map("report_type") // Report, Testimony, Correspondence
+  topics          String[]  @default([])
+  agencies        String[]  @default([]) // agencies covered
+  summary         String?   @db.Text
+  recommendations Int? // number of recommendations
+  syncedAt        DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([publishDate])
+  @@index([reportType])
+  @@map("gao_report")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Open States, state legislature bills and legislators
+// GLOBAL table, no tenant_id, no RLS.
+// Source: v3.openstates.org/
+// ─────────────────────────────────────────────────────────────────────────
+
+model StateBill {
+  id               String    @id // openstates bill ID
+  state            String // 2-letter state code
+  session          String // legislative session
+  identifier       String // e.g. "HB 1234"
+  title            String    @db.Text
+  chamber          String? // upper, lower
+  classification   String[]  @default([]) // bill, resolution, etc.
+  subjects         String[]  @default([])
+  sponsorName      String?   @map("sponsor_name")
+  sponsorParty     String?   @map("sponsor_party")
+  latestActionDate DateTime? @map("latest_action_date") @db.Date
+  latestActionText String?   @map("latest_action_text")
+  url              String?
+  syncedAt         DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([state, session])
+  @@index([state, latestActionDate])
+  @@map("state_bill")
+}
+
+model StateLegislator {
+  id         String   @id // openstates person ID
+  name       String
+  state      String
+  chamber    String? // upper, lower
+  district   String?
+  party      String?
+  email      String?
+  image      String?
+  url        String?
+  committees Json     @default("[]") // [{name, role}]
+  active     Boolean  @default(true)
+  syncedAt   DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([state, chamber])
+  @@index([party, state])
+  @@map("state_legislator")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// CRS Reports, Congressional Research Service
+// GLOBAL table, no tenant_id, no RLS.
+// Source: crsreports.congress.gov (scrape index)
+// ─────────────────────────────────────────────────────────────────────────
+
+model CrsReport {
+  id       String    @id // CRS report number e.g. "R47650"
+  title    String    @db.Text
+  date     DateTime? @db.Date
+  authors  String[]  @default([])
+  topics   String[]  @default([])
+  summary  String?   @db.Text
+  pdfUrl   String?   @map("pdf_url")
+  htmlUrl  String?   @map("html_url")
+  active   Boolean   @default(true) // false if report is archived/withdrawn
+  syncedAt DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([date])
+  @@map("crs_report")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// RSS News & Intelligence articles (aggregated from multiple sources)
+// GLOBAL table, no tenant_id, no RLS.
+// Sources: Roll Call, The Hill, Axios, Politico, agency press, think tanks
+// ─────────────────────────────────────────────────────────────────────────
+
+model IntelArticle {
+  id          String   @id @default(uuid())
+  source      String // "roll_call", "the_hill", "brookings", "whitehouse", etc.
+  feedUrl     String?  @map("feed_url")
+  title       String   @db.Text
+  url         String   @unique
+  author      String?
+  publishedAt DateTime @map("published_at") @db.Timestamptz(6)
+  summary     String?  @db.Text
+  categories  String[] @default([])
+  agencies    String[] @default([]) // extracted agency names
+  topics      String[] @default([]) // extracted topic keywords
+  syncedAt    DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([source, publishedAt])
+  @@index([publishedAt])
+  @@map("intel_article")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Congressional Committee Activity (hearings, markups)
+// GLOBAL table, no tenant_id, no RLS.
+// Source: congress.gov API + committee RSS feeds
+// ─────────────────────────────────────────────────────────────────────────
+
+model CommitteeHearing {
+  id            String   @id @default(uuid())
+  chamber       String // House, Senate, Joint
+  committeeName String   @map("committee_name")
+  committeeCode String?  @map("committee_code")
+  title         String   @db.Text
+  date          DateTime @db.Date
+  time          String? // "10:00 AM"
+  location      String?
+  type          String? // hearing, markup, meeting
+  witnesses     String[] @default([])
+  url           String?
+  syncedAt      DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([date])
+  @@index([committeeName, date])
+  @@map("committee_hearing")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SyncRun, observability for sync scripts
+// GLOBAL table, no tenant_id, no RLS. One row per sync execution.
+// ─────────────────────────────────────────────────────────────────────────
+
+model SyncRun {
+  id           String    @id @default(uuid()) @db.Uuid
+  source       String
+  startedAt    DateTime  @map("started_at") @db.Timestamptz(6)
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz(6)
+  rowsInserted Int       @default(0) @map("rows_inserted")
+  rowsUpdated  Int       @default(0) @map("rows_updated")
+  errorCount   Int       @default(0) @map("error_count")
+  status       String    @default("running")
+  errorMessage String?   @map("error_message")
+
+  @@index([source, startedAt(sort: Desc)], map: "sync_run_source_started_at_idx")
+  @@map("sync_run")
 }

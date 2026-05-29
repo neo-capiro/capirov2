@@ -55,7 +55,7 @@ export function BrandingPage() {
       fd.append('file', file);
       const res = await fetch(presigned.url, { method: 'POST', body: fd });
       if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-      // Confirm — server reads the object metadata and updates the row.
+      // Confirm, server reads the object metadata and updates the row.
       return (
         await api.post('/api/tenant-admin/branding/logo/confirm', {
           s3Key: presigned.s3Key,

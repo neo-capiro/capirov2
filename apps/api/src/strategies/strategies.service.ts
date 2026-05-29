@@ -265,7 +265,7 @@ export class StrategiesService {
             createdByUserId: userId,
             clientId: strategy.clientId,
             strategyId,
-            title: `${strategy.name} — ${template.name}`,
+            title: `${strategy.name}, ${template.name}`,
             status: WorkflowStatus.triage,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             formData: prefillData as any,

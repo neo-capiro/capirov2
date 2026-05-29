@@ -24,7 +24,7 @@ type ChatIntent =
   | 'general_question'
   | 'navigate';
 
-// Duck-typed interface for SSE response writing — satisfied by express.Response
+// Duck-typed interface for SSE response writing, satisfied by express.Response
 interface SseWriter {
   write(chunk: string): void;
 }
@@ -440,16 +440,16 @@ export class ChatService {
       'Classify the user message for a federal lobbying AI assistant. Return JSON: {"intent": "<intent>"}',
       '',
       'Valid intents:',
-      'query_intelligence — questions about bills, lobbying data, federal spending, regulatory changes',
-      'query_clients — questions about the user\'s CRM clients',
-      'query_engagement — questions about meetings, emails, outreach records',
-      'query_workflow — questions about workflow instances or submission status',
-      'edit_draft — editing an existing outreach email draft',
-      'edit_workflow_field — editing a specific workflow form field',
-      'generate_draft — generating a new outreach email or communication',
-      'generate_briefing — requesting a briefing or summary about a client or topic',
-      'navigate — asking to navigate to a different page or section',
-      'general_question — anything else about lobbying, government affairs, or the platform',
+      'query_intelligence, questions about bills, lobbying data, federal spending, regulatory changes',
+      'query_clients, questions about the user\'s CRM clients',
+      'query_engagement, questions about meetings, emails, outreach records',
+      'query_workflow, questions about workflow instances or submission status',
+      'edit_draft, editing an existing outreach email draft',
+      'edit_workflow_field, editing a specific workflow form field',
+      'generate_draft, generating a new outreach email or communication',
+      'generate_briefing, requesting a briefing or summary about a client or topic',
+      'navigate, asking to navigate to a different page or section',
+      'general_question, anything else about lobbying, government affairs, or the platform',
       '',
       page ? `Current page: ${page}` : '',
       `User message: "${message}"`,
@@ -675,7 +675,7 @@ export class ChatService {
               }
             }
           } catch {
-            // incomplete SSE chunk — skip
+            // incomplete SSE chunk, skip
           }
         }
       }

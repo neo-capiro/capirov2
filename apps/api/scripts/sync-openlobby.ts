@@ -207,7 +207,7 @@ async function main() {
           // to an empty list (the source top-clients.json only has year tags,
           // not amounts).
           const yearlySpend = traj?.years ?? [];
-          // Source data occasionally contains null entries in arrays — strip them.
+          // Source data occasionally contains null entries in arrays, strip them.
           const cleanIssues = (c.issues ?? []).filter(
             (s): s is string => typeof s === 'string' && s.length > 0,
           );

@@ -22,7 +22,7 @@ import { ClerkWebhookService } from './clerk-webhook.service.js';
  * dashboard (Webhooks -> your endpoint) and lives in the `clerk-webhook-secret`
  * Secrets Manager entry in deployed envs (CLERK_WEBHOOK_SIGNING_SECRET locally).
  *
- * The raw body is required for signature verification — main.ts mounts the
+ * The raw body is required for signature verification, main.ts mounts the
  * `raw()` body parser only on this path.
  */
 @Controller('webhooks/clerk')

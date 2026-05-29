@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
-import { OutreachWizard } from './outreach/OutreachWizard.js';
+import { setActiveDraft } from '../../components/chat/chat-store.js';
+import { useLocation, useNavigate } from 'react-router-dom';
+// v2 wizard, replaces the older OutreachWizard. The old file at
+// ./outreach/OutreachWizard.tsx is preserved for reference / quick rollback;
+// import { OutreachWizard } from './outreach/OutreachWizard.js';
+import { NewOutreachWizard as OutreachWizard } from './outreach/v2/index.js';
 import {
   CheckOutlined,
   DeleteOutlined,
-  FileTextOutlined,
-  MailOutlined,
   PlusOutlined,
   RobotOutlined,
   SearchOutlined,
@@ -90,6 +93,9 @@ const PROMPT_TEMPLATES: Array<{ value: PromptTemplate; label: string; hint: stri
 ];
 
 export interface OutreachRecipient {
+  id?: string;
+  clientId?: string;
+  direction?: 'on-behalf' | 'to-clients';
   name?: string;
   email?: string;
   office?: string;
@@ -103,6 +109,7 @@ export interface OutreachRecipient {
   committee?: string;
   address?: string;
   relevanceReason?: string;
+  sourceLabel?: string;
   personalNote?: string;
   meetingId?: string;
   meetingSubject?: string;
@@ -114,7 +121,7 @@ export interface OutreachRecipient {
   meetingLocation?: string;
 }
 
-interface OutreachRecord {
+export interface OutreachRecord {
   id: string;
   clientId: string | null;
   meetingId: string | null;
@@ -176,6 +183,7 @@ interface ClientContext {
     fullName: string | null;
     title: string | null;
     organization: string | null;
+    source?: string | null;
   }>;
   openThreads: Array<{
     id: string;
@@ -191,7 +199,7 @@ interface ClientContext {
   };
 }
 
-interface OutreachWorkflowState {
+export interface OutreachWorkflowState {
   record: OutreachRecord | null;
   step: number;
   campaignName: string;
@@ -398,18 +406,136 @@ export function OutreachView({
   const api = useApi();
   const qc = useQueryClient();
   const { message, modal } = App.useApp();
+  const navigate = useNavigate();
+  const location = useLocation();
   const today = todayInputValue();
   const [from, setFrom] = useState(inputValueFromDate(addLocalDays(new Date(), -30)));
   const [to, setTo] = useState(today);
   const [typeFilter, setTypeFilter] = useState<OutreachType>('all');
   const [outreachLimit, setOutreachLimit] = useState(50);
-  const [mode, setMode] = useState<'landing' | 'selector' | WorkflowType | 'readonly'>('landing');
+  // 'selector' (the meeting-follow-up / prep / campaign type picker) was
+  // removed: clicking "New Outreach" now jumps straight to the campaign
+  // wizard. The 'follow_up' and 'prep' modes still exist for callers that
+  // open them directly (e.g. from a meeting's debrief), they just aren't
+  // entry-pointed from the outreach landing page anymore.
+  const [mode, setMode] = useState<'landing' | WorkflowType | 'readonly'>('landing');
   const [workflow, setWorkflow] = useState<OutreachWorkflowState>(() => ({
     ...EMPTY_WORKFLOW,
     clientId: selectedClientId,
   }));
   const [readonlyRecord, setReadonlyRecord] = useState<OutreachRecord | null>(null);
   const [directoryQuery, setDirectoryQuery] = useState('');
+  const syncingFromUrlRef = useRef(false);
+  const lastProcessedUrlRef = useRef<string>('');
+  const draftRecordIdFromPath = useMemo(() => {
+    if (!location.pathname.startsWith('/engagement/outreach/draft/')) return null;
+    const value = location.pathname.replace('/engagement/outreach/draft/', '').split('/')[0];
+    return value ? decodeURIComponent(value) : null;
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (mode !== 'campaign') {
+      setActiveDraft(null);
+      return;
+    }
+
+    const engagementId = workflow.record?.id ?? draftRecordIdFromPath ?? '';
+    setActiveDraft({
+      engagementId,
+      recipientId: workflow.recipients[workflow.selectedPreviewIndex]?.id,
+      subject: workflow.subject,
+      body: workflow.body,
+    });
+  }, [
+    mode,
+    workflow.record?.id,
+    workflow.recipients,
+    workflow.selectedPreviewIndex,
+    workflow.subject,
+    workflow.body,
+    draftRecordIdFromPath,
+  ]);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        target?: string;
+        engagementId?: string;
+        recipientId?: string;
+        subject?: string;
+        body?: string;
+      }>).detail;
+      if (!detail) return;
+      if (detail.target !== 'outreach_draft') return;
+      if (mode !== 'campaign') return;
+
+      const currentEngagementId = workflow.record?.id ?? draftRecordIdFromPath ?? '';
+      if (detail.engagementId && currentEngagementId && detail.engagementId !== currentEngagementId) return;
+
+      setWorkflow((current) => {
+        const nextSubject = typeof detail.subject === 'string' ? detail.subject : current.subject;
+        const nextBody = typeof detail.body === 'string' ? detail.body : current.body;
+        if (nextSubject === current.subject && nextBody === current.body) return current;
+        return {
+          ...current,
+          subject: nextSubject,
+          body: nextBody,
+        };
+      });
+    };
+
+    window.addEventListener('capiro:page-write', handler as EventListener);
+    return () => window.removeEventListener('capiro:page-write', handler as EventListener);
+  }, [mode, workflow.record?.id, draftRecordIdFromPath]);
+
+  useEffect(() => {
+    // URL → mode sync. Only run when the URL itself actually changed
+    // since we last saw it. Without this guard, this effect re-runs
+    // whenever `mode` changes from a user click (because mode is in
+    // the deps via the comparison below), and because the URL hasn't
+    // caught up yet, the effect would compute nextMode from the stale
+    // path and clobber the new mode back to 'landing'. Net result:
+    // clicking "New Outreach" silently does nothing.
+    const path = location.pathname;
+    if (!path.startsWith('/engagement/outreach')) return;
+    if (lastProcessedUrlRef.current === path) return;
+    lastProcessedUrlRef.current = path;
+
+    const rest = path.replace('/engagement/outreach', '');
+    let nextMode: 'landing' | WorkflowType | 'readonly' = 'landing';
+    // Legacy URL /engagement/outreach/new used to render the type-selector;
+    // it now redirects straight into the campaign wizard via the mode→URL
+    // effect below so the user never lands on an empty intermediate page.
+    if (rest === '/new' || rest === '/new/wizard') nextMode = 'campaign';
+    else if (rest.startsWith('/draft/')) nextMode = 'campaign';
+
+    if (mode !== nextMode) {
+      syncingFromUrlRef.current = true;
+      setMode(nextMode);
+    }
+  }, [location.pathname, mode]);
+
+  useEffect(() => {
+    if (!location.pathname.startsWith('/engagement/outreach')) return;
+    if (syncingFromUrlRef.current) {
+      syncingFromUrlRef.current = false;
+      return;
+    }
+
+    let nextPath = '/engagement/outreach';
+    if (mode === 'campaign') {
+      nextPath = workflow.record?.id
+        ? `/engagement/outreach/draft/${encodeURIComponent(workflow.record.id)}`
+        : '/engagement/outreach/new/wizard';
+    }
+
+    if (location.pathname !== nextPath) {
+      // Pre-record the URL we're about to write so the URL→mode effect
+      // skips it when location updates (mode already reflects the change).
+      lastProcessedUrlRef.current = nextPath;
+      navigate({ pathname: nextPath }, { replace: true });
+    }
+  }, [location.pathname, mode, navigate, workflow.record?.id]);
 
   useEffect(() => {
     const locked = mode !== 'landing';
@@ -447,6 +573,22 @@ export function OutreachView({
         })
       ).data,
   });
+
+  const draftRecord = useQuery<OutreachRecord>({
+    queryKey: ['engagement-outreach-record', draftRecordIdFromPath],
+    queryFn: async () =>
+      (await api.get<OutreachRecord>(`/api/engagement/outreach/${draftRecordIdFromPath}`)).data,
+    enabled: Boolean(draftRecordIdFromPath),
+  });
+
+  useEffect(() => {
+    if (!draftRecordIdFromPath || mode !== 'campaign') return;
+    if (workflow.record?.id === draftRecordIdFromPath) return;
+    if (draftRecord.isLoading || !draftRecord.data) return;
+
+    syncingFromUrlRef.current = true;
+    setWorkflow(hydrateWorkflowFromRecord(draftRecord.data, EMPTY_WORKFLOW));
+  }, [draftRecord.data, draftRecord.isLoading, draftRecordIdFromPath, mode, workflow.record?.id]);
 
   const integrations = useQuery<IntegrationConnection[]>({
     queryKey: ['engagement-integrations'],
@@ -716,10 +858,6 @@ export function OutreachView({
     });
   };
 
-  if (mode === 'selector') {
-    return <OutreachTypeSelector onCancel={() => setMode('landing')} onSelect={startWorkflow} />;
-  }
-
   if (mode === 'readonly' && readonlyRecord) {
     return (
       <OutreachReadonly
@@ -927,7 +1065,7 @@ export function OutreachView({
             </button>
           ))}
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setMode('selector')}>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => startWorkflow('campaign')}>
           New Outreach
         </Button>
       </div>
@@ -989,11 +1127,11 @@ export function OutreachView({
               <span>
                 <strong>No outreach yet</strong>
                 <br />
-                Start by creating a campaign, follow-up, or prep distribution
+                Start by creating a campaign, Clio drafts from your context
               </span>
             }
           >
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setMode('selector')}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => startWorkflow('campaign')}>
               New Outreach
             </Button>
           </Empty>
@@ -1003,78 +1141,10 @@ export function OutreachView({
   );
 }
 
-function OutreachTypeSelector({
-  onCancel,
-  onSelect,
-}: {
-  onCancel: () => void;
-  onSelect: (type: WorkflowType) => void;
-}) {
-  return (
-    <div className="outreach-workflow">
-      <WorkflowHeader title="New Outreach" onCancel={onCancel} />
-      <div className="outreach-type-selector">
-        <Typography.Title level={4}>What type of outreach do you want to send?</Typography.Title>
-        <Typography.Paragraph type="secondary">
-          Clio drafts the content from Capiro context. You review and edit before anything is sent.
-        </Typography.Paragraph>
-        <div className="outreach-type-grid">
-          <OutreachTypeCard
-            icon={<MailOutlined />}
-            title="Campaign"
-            description="Personalized mass outreach to multiple congressional offices or contacts on behalf of a client."
-            detail="Sends from Capiro using your connected email. Replies go to your inbox."
-            onClick={() => onSelect('campaign')}
-          />
-          <OutreachTypeCard
-            icon={<FileTextOutlined />}
-            title="Meeting follow-up"
-            description="Post-meeting email to participants, client, or congressional office. Clio drafts from your debrief."
-            detail="Opens in your connected email. You send from your own inbox."
-            onClick={() => onSelect('follow_up')}
-          />
-          <OutreachTypeCard
-            icon={<RobotOutlined />}
-            title="Prep distribution"
-            description="Share meeting prep notes with a colleague or client ahead of an upcoming meeting."
-            detail="Opens in your connected email. You send from your own inbox."
-            onClick={() => onSelect('prep')}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function OutreachTypeCard({
-  icon,
-  title,
-  description,
-  detail,
-  disabled,
-  onClick,
-}: {
-  icon: ReactNode;
-  title: string;
-  description: string;
-  detail: string;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className={`outreach-type-card${disabled ? ' is-disabled' : ''}`}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      <span className="outreach-type-icon">{icon}</span>
-      <strong>{title}</strong>
-      <span>{description}</span>
-      <em>{detail}</em>
-    </button>
-  );
-}
+// OutreachTypeSelector + OutreachTypeCard removed: the New Outreach button
+// now jumps straight into the campaign wizard. Meeting-follow-up and
+// prep-distribution workflows still exist but are reached from a meeting's
+// debrief / prep flow, not from a top-level type picker.
 
 function CampaignWorkflow({
   clients,
@@ -3766,7 +3836,10 @@ function ContextSuggestionRow({
         <strong>{recipient.name || recipient.email}</strong>
         <small>{[recipient.office, recipient.title].filter(Boolean).join(' | ')}</small>
       </div>
-      <em>{recipient.relevanceReason}</em>
+      <em>
+        {recipient.relevanceReason}
+        {recipient.sourceLabel ? ` · Source: ${recipient.sourceLabel}` : ''}
+      </em>
       <b className={`outreach-row-action${selected ? ' is-selected' : ''}`}>
         {selected ? 'Added' : 'Add'}
       </b>
@@ -4591,6 +4664,7 @@ function campaignContextSuggestions(context?: ClientContext): OutreachRecipient[
       office: textOrUndefined(stakeholder.organization),
       title: textOrUndefined(stakeholder.title),
       relevanceReason: contextSuggestionReason(context),
+      sourceLabel: textOrUndefined(stakeholder.source ?? undefined),
     }))
     .filter((recipient) => Boolean(recipient.name || recipient.email));
   return normalizeRecipients(rows).slice(0, 20);

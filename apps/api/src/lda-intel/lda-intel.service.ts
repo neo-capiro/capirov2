@@ -680,7 +680,7 @@ export class LdaIntelService {
     });
     if (exact) return { ...exact, totalSpending: this.toNum(exact.totalSpending), similarity: 1.0 };
 
-    // Trigram similarity fallback (requires pg_trgm — already enabled).
+    // Trigram similarity fallback (requires pg_trgm, already enabled).
     const rows = await this.prisma.$queryRaw<
       Array<{ id: number; name: string; state: string | null; total_filings: number; total_spending: string | null; issue_codes: string[]; sim: number }>
     >`

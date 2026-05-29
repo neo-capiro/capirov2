@@ -978,6 +978,15 @@ export class MicrosoftGraphSyncService {
     result: AuthenticationResult,
   ) {
     const encrypted = this.tokenCrypto.encrypt(result.accessToken);
+    const grantedScopes = (result.scopes ?? []).map((s) => s.toLowerCase());
+    const requiredLower = MICROSOFT_SCOPES.map((s) => s.toLowerCase());
+    const missingScopes = requiredLower.filter((s) => !grantedScopes.includes(s));
+    if (missingScopes.length) {
+      this.logger.warn(
+        `Refreshed Microsoft token is missing required scopes for connection ${connectionId} (tenant ${tenantId}): ${missingScopes.join(', ')}`,
+      );
+    }
+    const persistedScopes = grantedScopes.length ? result.scopes ?? MICROSOFT_SCOPES : MICROSOFT_SCOPES;
     await this.prisma.withTenant(tenantId, async (tx) => {
       await tx.integrationConnectionToken.update({
         where: { connectionId },
@@ -986,7 +995,7 @@ export class MicrosoftGraphSyncService {
           accessTokenIv: encrypted.iv,
           accessTokenAuthTag: encrypted.authTag,
           keyVersion: this.tokenCrypto.getKeyVersion(),
-          scopes: MICROSOFT_SCOPES,
+          scopes: persistedScopes,
           expiresAt: result.expiresOn ?? new Date(Date.now() + 60 * 60 * 1000),
         },
       });
@@ -994,7 +1003,7 @@ export class MicrosoftGraphSyncService {
         where: { id: connectionId },
         data: {
           status: EngagementConnectionStatus.connected,
-          scopes: MICROSOFT_SCOPES,
+          scopes: persistedScopes,
           lastError: null,
         },
       });

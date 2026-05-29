@@ -160,19 +160,19 @@ export function TemplateSelect({ selectedTemplateId, additionalContext, onChange
                   hoverable
                   style={{
                     cursor: 'pointer',
-                    borderColor: isSelected ? '#1c2e4a' : undefined,
-                    background: isSelected ? '#1c2e4a0a' : undefined,
+                    borderColor: isSelected ? 'var(--accent-ink)' : undefined,
+                    background: isSelected ? 'var(--bg-surface-2)' : undefined,
                   }}
                   onClick={() => onChange({ selectedTemplateId: tmpl.id })}
                   extra={
                     tmpl.source === 'system' ? (
-                      <LockOutlined style={{ color: '#aaa', fontSize: 12 }} />
+                      <LockOutlined style={{ color: 'var(--ink-3)', fontSize: 12 }} />
                     ) : null
                   }
                 >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                     <div style={{ fontWeight: 600, fontSize: 14 }}>{tmpl.name}</div>
-                    <Badge count={tmpl.usageCount} overflowCount={999} style={{ backgroundColor: '#6b7280' }} />
+                    <Badge count={tmpl.usageCount} overflowCount={999} style={{ backgroundColor: 'var(--ink-3)' }} />
                   </div>
 
                   <div style={{ marginBottom: 6 }}>
@@ -228,7 +228,7 @@ export function TemplateSelect({ selectedTemplateId, additionalContext, onChange
                   height: '100%',
                   minHeight: 100,
                   gap: 8,
-                  color: '#888',
+                  color: 'var(--ink-3)',
                 }}
               >
                 <PlusOutlined style={{ fontSize: 24 }} />
@@ -277,7 +277,7 @@ export function TemplateSelect({ selectedTemplateId, additionalContext, onChange
                 whiteSpace: 'pre-wrap',
                 fontFamily: 'inherit',
                 fontSize: 13,
-                background: '#f8f9fa',
+                background: 'var(--bg-sunken)',
                 padding: 12,
                 borderRadius: 4,
                 maxHeight: 400,

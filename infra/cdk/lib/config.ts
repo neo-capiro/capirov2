@@ -11,7 +11,7 @@ export interface EnvConfig {
   rootDomain: string; // capiro.ai (prod) | app-dev.capiro.ai (dev)
   appHost: string; // app.capiro.ai (prod) | app-dev.capiro.ai (dev)
   wildcardHost: string; // *.app.capiro.ai (prod) | *.app-dev.capiro.ai (dev)
-  // Clerk JWT issuer URL — injected into the ECS task as CLERK_JWT_ISSUER.
+  // Clerk JWT issuer URL, injected into the ECS task as CLERK_JWT_ISSUER.
   // Set after creating the Clerk instance for each env. If absent, the API
   // skips issuer validation (acceptable during initial bootstrap only).
   clerkJwtIssuer?: string;
@@ -141,7 +141,7 @@ export function loadConfig(app: cdk.App): EnvConfig {
             appHost: 'app-dev.capiro.ai',
             wildcardHost: '*.app-dev.capiro.ai',
             rootDomain: 'app-dev.capiro.ai',
-            // Single replicas for dev — no HA needed.
+            // Single replicas for dev, no HA needed.
             apiDesiredCount: 1,
             apiMaxCount: 2,
             clioDesiredCount: 1,

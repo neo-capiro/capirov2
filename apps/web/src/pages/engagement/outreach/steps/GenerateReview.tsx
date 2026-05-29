@@ -34,11 +34,11 @@ function recipientId(r: OutreachRecipient): string {
 }
 
 function StatusIcon({ status }: { status: GeneratedEmail['status'] }) {
-  if (status === 'pending') return <ClockCircleOutlined style={{ color: '#aaa' }} />;
-  if (status === 'generating') return <SyncOutlined spin style={{ color: '#1890ff' }} />;
-  if (status === 'ready') return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
-  if (status === 'edited') return <EditOutlined style={{ color: '#1c2e4a' }} />;
-  if (status === 'error') return <ExclamationCircleOutlined style={{ color: '#f5222d' }} />;
+  if (status === 'pending') return <ClockCircleOutlined style={{ color: 'var(--ink-3)' }} />;
+  if (status === 'generating') return <SyncOutlined spin style={{ color: 'var(--info)' }} />;
+  if (status === 'ready') return <CheckCircleOutlined style={{ color: 'var(--success)' }} />;
+  if (status === 'edited') return <EditOutlined style={{ color: 'var(--accent-ink)' }} />;
+  if (status === 'error') return <ExclamationCircleOutlined style={{ color: 'var(--critical)' }} />;
   return null;
 }
 
@@ -187,13 +187,13 @@ export function GenerateReview({
       <div
         style={{
           width: 220,
-          borderRight: '1px solid #e8e8e8',
+          borderRight: '1px solid var(--border-1)',
           display: 'flex',
           flexDirection: 'column',
           flexShrink: 0,
         }}
       >
-        <div style={{ padding: '12px 12px 8px', borderBottom: '1px solid #e8e8e8' }}>
+        <div style={{ padding: '12px 12px 8px', borderBottom: '1px solid var(--border-1)' }}>
           <Button
             type="primary"
             icon={generatingAll ? <SyncOutlined spin /> : <PlayCircleOutlined />}
@@ -228,9 +228,9 @@ export function GenerateReview({
                 padding: '8px 12px',
                 width: '100%',
                 textAlign: 'left',
-                background: idx === selectedIdx ? '#1c2e4a0a' : 'transparent',
+                background: idx === selectedIdx ? 'var(--bg-surface-2)' : 'transparent',
                 border: 'none',
-                borderBottom: '1px solid #f0f0f0',
+                borderBottom: '1px solid var(--border-1)',
                 cursor: 'pointer',
               }}
               onClick={() => onSelectRecipient(idx)}
@@ -249,7 +249,7 @@ export function GenerateReview({
                   {email.recipient.name || email.recipient.email || 'Recipient'}
                 </div>
                 {email.recipient.state && (
-                  <div style={{ fontSize: 11, color: '#888' }}>{email.recipient.state}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{email.recipient.state}</div>
                 )}
               </div>
             </button>
@@ -290,7 +290,7 @@ export function GenerateReview({
             </div>
 
             {selectedEmail.status === 'pending' ? (
-              <div style={{ textAlign: 'center', padding: 40, color: '#aaa' }}>
+              <div style={{ textAlign: 'center', padding: 40, color: 'var(--ink-3)' }}>
                 <PlayCircleOutlined style={{ fontSize: 32 }} />
                 <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
                   Click <strong>Generate all</strong> to create this email, or{' '}
@@ -299,13 +299,13 @@ export function GenerateReview({
               </div>
             ) : selectedEmail.status === 'generating' ? (
               <div style={{ textAlign: 'center', padding: 40 }}>
-                <SyncOutlined spin style={{ fontSize: 32, color: '#1890ff' }} />
+                <SyncOutlined spin style={{ fontSize: 32, color: 'var(--info)' }} />
                 <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
                   Clio is writing this email…
                 </Typography.Paragraph>
               </div>
             ) : selectedEmail.status === 'error' ? (
-              <div style={{ textAlign: 'center', padding: 40, color: '#f5222d' }}>
+              <div style={{ textAlign: 'center', padding: 40, color: 'var(--critical)' }}>
                 <ExclamationCircleOutlined style={{ fontSize: 32 }} />
                 <Typography.Paragraph style={{ marginTop: 8 }}>
                   Generation failed. Click <strong>Regenerate</strong> to retry.
@@ -342,7 +342,7 @@ export function GenerateReview({
                 {selectedEmail.recipient.committee && (
                   <Badge
                     count={selectedEmail.recipient.committee}
-                    style={{ backgroundColor: '#6b7280', fontSize: 11 }}
+                    style={{ backgroundColor: 'var(--ink-3)', fontSize: 11 }}
                     overflowCount={Infinity}
                   />
                 )}

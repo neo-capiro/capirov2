@@ -12,7 +12,7 @@ export const CurrentTenant = createParamDecorator(
     const req = ctx.switchToHttp().getRequest<Request & { tenantContext?: TenantContext }>();
     if (!req.tenantContext) {
       throw new Error(
-        'TenantContext missing — route is not covered by TenantContextMiddleware',
+        'TenantContext missing, route is not covered by TenantContextMiddleware',
       );
     }
     return req.tenantContext;

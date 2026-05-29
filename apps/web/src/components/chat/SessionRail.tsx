@@ -10,6 +10,7 @@ import {
   setChatSession,
   clearChatSession,
   appendChatMessage,
+  removeConversation,
   useChatStore,
 } from './chat-store.js';
 
@@ -92,6 +93,20 @@ export function SessionRail() {
     } catch { /* ignore */ }
   }, [authHeaders]);
 
+  const archiveConversation = useCallback(async (conversationId: string) => {
+    try {
+      const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${conversationId}/archive`, {
+        method: 'PATCH',
+        headers: await authHeaders(),
+      });
+      if (res.ok) {
+        removeConversation(conversationId);
+      }
+    } catch {
+      // ignore
+    }
+  }, [authHeaders]);
+
   if (!sessionRailOpen) return null;
 
   // Group conversations by client
@@ -148,26 +163,42 @@ export function SessionRail() {
             {isExpanded && (
               <div className="clio-rail-group-items">
                 {group.conversations.map((conv) => (
-                  <button
+                  <div
                     key={conv.id}
-                    type="button"
                     className={`clio-rail-item${conv.id === activeConversationId ? ' clio-rail-item--active' : ''}`}
-                    onClick={() => void loadConversation(conv)}
                   >
-                    <MessageOutlined className="clio-rail-item-icon" />
-                    <div className="clio-rail-item-content">
-                      <div className="clio-rail-item-title">{conv.title}</div>
-                      {conv.latestMessage && (
-                        <div className="clio-rail-item-snippet">
-                          {conv.latestMessage.body.slice(0, 60)}
-                          {conv.latestMessage.body.length > 60 ? '...' : ''}
-                        </div>
-                      )}
-                    </div>
-                    <span className="clio-rail-item-time">
-                      {relativeTime(conv.updatedAt)}
-                    </span>
-                  </button>
+                    <button
+                      type="button"
+                      className="clio-rail-item-main"
+                      onClick={() => void loadConversation(conv)}
+                    >
+                      <MessageOutlined className="clio-rail-item-icon" />
+                      <div className="clio-rail-item-content">
+                        <div className="clio-rail-item-title">{conv.title}</div>
+                        {conv.latestMessage && (
+                          <div className="clio-rail-item-snippet">
+                            {conv.latestMessage.body.slice(0, 60)}
+                            {conv.latestMessage.body.length > 60 ? '...' : ''}
+                          </div>
+                        )}
+                      </div>
+                      <span className="clio-rail-item-time">
+                        {relativeTime(conv.updatedAt)}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      className="clio-rail-item-archive"
+                      title="Archive conversation"
+                      aria-label={`Archive ${conv.title}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void archiveConversation(conv.id);
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
                 ))}
               </div>
             )}

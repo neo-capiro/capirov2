@@ -10,7 +10,7 @@ import { commonTags, type EnvConfig } from './config';
 
 export interface AlarmsStackProps extends cdk.StackProps {
   cfg: EnvConfig;
-  // CDK-native "full name" tokens (e.g. `app/Capiro-Alb16-XYZ/abc`) — these
+  // CDK-native "full name" tokens (e.g. `app/Capiro-Alb16-XYZ/abc`), these
   // are the exact form CloudWatch expects in the metric dimension.
   albFullName: string;
   apiTargetGroupFullName: string;
@@ -37,7 +37,7 @@ export interface AlarmsStackProps extends cdk.StackProps {
  *   - ECS service running task count below desired
  *   - Aurora CPU > 80% sustained
  *   - Aurora connection count near limit
- *   - KMS access denied events (via metric filter from CloudTrail — added later)
+ *   - KMS access denied events (via metric filter from CloudTrail, added later)
  *
  * The alarms are intentionally conservative (1 datapoint, short evaluation
  * windows) for dev so we see noise; tighten thresholds + evaluation periods
@@ -66,7 +66,7 @@ export class AlarmsStack extends cdk.Stack {
       masterKey: topicKey,
     });
 
-    // CloudWatch alarms are an AWS service principal — they need to publish
+    // CloudWatch alarms are an AWS service principal, they need to publish
     // to the topic and decrypt with the topic's CMK.
     const cwPrincipal = new iam.ServicePrincipal('cloudwatch.amazonaws.com');
     this.alertsTopic.grantPublish(cwPrincipal);
@@ -131,7 +131,7 @@ export class AlarmsStack extends cdk.Stack {
     ] as const) {
       const a = new cloudwatch.Alarm(this, id + 'Alarm', {
         alarmName: `capiro-${cfg.envName}-${id.toLowerCase()}`,
-        alarmDescription: `${id} — target group has unhealthy hosts`,
+        alarmDescription: `${id}, target group has unhealthy hosts`,
         metric: new cloudwatch.Metric({
           namespace: 'AWS/ApplicationELB',
           metricName: 'UnHealthyHostCount',
@@ -156,7 +156,7 @@ export class AlarmsStack extends cdk.Stack {
     ] as const) {
       const a = new cloudwatch.Alarm(this, id + 'Alarm', {
         alarmName: `capiro-${cfg.envName}-${id.toLowerCase()}`,
-        alarmDescription: `${id} — ECS RunningTaskCount dropped to zero`,
+        alarmDescription: `${id}, ECS RunningTaskCount dropped to zero`,
         metric: new cloudwatch.Metric({
           namespace: 'ECS/ContainerInsights',
           metricName: 'RunningTaskCount',
@@ -194,7 +194,7 @@ export class AlarmsStack extends cdk.Stack {
 
     const auroraConnections = new cloudwatch.Alarm(this, 'AuroraConnectionsAlarm', {
       alarmName: `capiro-${cfg.envName}-aurora-connections`,
-      alarmDescription: 'Aurora writer connection count climbing — possible leak',
+      alarmDescription: 'Aurora writer connection count climbing, possible leak',
       metric: new cloudwatch.Metric({
         namespace: 'AWS/RDS',
         metricName: 'DatabaseConnections',
@@ -210,7 +210,143 @@ export class AlarmsStack extends cdk.Stack {
     });
     auroraConnections.addAlarmAction(action);
 
+    const peErrorAlarm = new cloudwatch.Alarm(this, 'PeSyncErrorAlarm', {
+      alarmName: `capiro-${cfg.envName}-pe-sync-error`,
+      alarmDescription: 'PE sync errors detected for 2 consecutive runs',
+      metric: new cloudwatch.Metric({
+        namespace: 'Capiro/ProgramElementSync',
+        metricName: 'pe_sync.error_count',
+        statistic: 'Sum',
+        period: cdk.Duration.minutes(15),
+      }),
+      threshold: 0,
+      evaluationPeriods: 2,
+      datapointsToAlarm: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    peErrorAlarm.addAlarmAction(action);
+
+    const peStaleBySourceAlarm = new cloudwatch.Alarm(this, 'PeSyncStaleBySourceAlarm', {
+      alarmName: `capiro-${cfg.envName}-pe-sync-stale-by-source`,
+      alarmDescription: 'PE sync had zero inserted+updated rows for 3 consecutive runs (source-level)',
+      metric: new cloudwatch.MathExpression({
+        expression: 'm1 + m2',
+        usingMetrics: {
+          m1: new cloudwatch.Metric({
+            namespace: 'Capiro/ProgramElementSync',
+            metricName: 'pe_sync.rows_inserted',
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(15),
+          }),
+          m2: new cloudwatch.Metric({
+            namespace: 'Capiro/ProgramElementSync',
+            metricName: 'pe_sync.rows_updated',
+            statistic: 'Sum',
+            period: cdk.Duration.minutes(15),
+          }),
+        },
+      }),
+      threshold: 0,
+      evaluationPeriods: 3,
+      datapointsToAlarm: 3,
+      comparisonOperator: cloudwatch.ComparisonOperator.LESS_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    peStaleBySourceAlarm.addAlarmAction(action);
+
+    const peDurationAlarm = new cloudwatch.Alarm(this, 'PeSyncDurationAlarm', {
+      alarmName: `capiro-${cfg.envName}-pe-sync-duration`,
+      alarmDescription: 'PE sync duration exceeded 1800 seconds',
+      metric: new cloudwatch.Metric({
+        namespace: 'Capiro/ProgramElementSync',
+        metricName: 'pe_sync.duration_seconds',
+        statistic: 'Maximum',
+        period: cdk.Duration.minutes(15),
+      }),
+      threshold: 1800,
+      evaluationPeriods: 1,
+      datapointsToAlarm: 1,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    peDurationAlarm.addAlarmAction(action);
+
+    const peSyncDashboard = new cloudwatch.Dashboard(this, 'PeSyncDashboard', {
+      dashboardName: `capiro-${cfg.envName}-pe-sync`,
+    });
+
+    peSyncDashboard.addWidgets(
+      new cloudwatch.GraphWidget({
+        title: 'PE rows synced by source (inserted + updated)',
+        left: [
+          new cloudwatch.MathExpression({
+            expression: 'm1 + m2',
+            usingMetrics: {
+              m1: new cloudwatch.Metric({
+                namespace: 'Capiro/ProgramElementSync',
+                metricName: 'pe_sync.rows_inserted',
+                statistic: 'Sum',
+                period: cdk.Duration.hours(1),
+              }),
+              m2: new cloudwatch.Metric({
+                namespace: 'Capiro/ProgramElementSync',
+                metricName: 'pe_sync.rows_updated',
+                statistic: 'Sum',
+                period: cdk.Duration.hours(1),
+              }),
+            },
+          }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'PE sync duration by source',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'Capiro/ProgramElementSync',
+            metricName: 'pe_sync.duration_seconds',
+            statistic: 'Maximum',
+            period: cdk.Duration.hours(1),
+          }),
+        ],
+      }),
+      new cloudwatch.SingleValueWidget({
+        title: 'Total PEs in DB',
+        metrics: [
+          new cloudwatch.Metric({
+            namespace: 'Capiro/ProgramElementSync',
+            metricName: 'pe_sync.rows_in_db',
+            statistic: 'Maximum',
+            period: cdk.Duration.hours(1),
+          }),
+        ],
+      }),
+      new cloudwatch.SingleValueWidget({
+        title: 'Total quarantined',
+        metrics: [
+          new cloudwatch.Metric({
+            namespace: 'Capiro/ProgramElementSync',
+            metricName: 'pe_sync.quarantine_count',
+            statistic: 'Maximum',
+            period: cdk.Duration.hours(1),
+          }),
+        ],
+      }),
+      new cloudwatch.GraphWidget({
+        title: 'PE updates by Service (30d, surrogate heatmap)',
+        left: [
+          new cloudwatch.Metric({
+            namespace: 'Capiro/ProgramElementSync',
+            metricName: 'pe_sync.rows_updated',
+            statistic: 'Sum',
+            period: cdk.Duration.days(1),
+          }),
+        ],
+      }),
+    );
+
     new cdk.CfnOutput(this, 'AlertsTopicArn', { value: this.alertsTopic.topicArn });
+    new cdk.CfnOutput(this, 'PeSyncDashboardName', { value: peSyncDashboard.dashboardName });
   }
 }
 

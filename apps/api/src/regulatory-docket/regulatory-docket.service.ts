@@ -18,7 +18,7 @@ export interface PagedResult<T> {
 /**
  * Service exposing Regulations.gov docket data.
  *
- * GLOBAL table — no tenant_id, no RLS.
+ * GLOBAL table, no tenant_id, no RLS.
  * Populated by `pnpm sync:regulatory-dockets`.
  */
 @Injectable()

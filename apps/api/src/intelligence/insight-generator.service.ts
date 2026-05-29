@@ -1,10 +1,15 @@
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
+import {
+  SUBMISSION_TRACK_LABELS,
+  type SubmissionTrack,
+} from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
 import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
+import { addDateInZone, dateBoundsInZone } from './time-bounds.js';
 
 const AI_TIMEOUT_MS = 90_000;
 
@@ -110,27 +115,253 @@ const INSIGHTS_SCHEMA = {
   },
 };
 
-const BRIEFING_SCHEMA = {
+const DAILY_BRIEFING_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['briefing', 'keyFindings'],
+  required: ['heroSummary', 'whatsNew', 'whatsComing', 'suggestedActions', 'programElementStatus'],
   properties: {
-    briefing: { type: 'string' },
-    keyFindings: {
+    heroSummary: { type: 'string' },
+    whatsNew: {
       type: 'array',
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['source', 'metric', 'value'],
+        required: ['title', 'source', 'detail', 'citation'],
         properties: {
+          title: { type: 'string' },
           source: { type: 'string' },
-          metric: { type: 'string' },
-          value: { type: 'string' },
+          detail: { type: 'string' },
+          citation: { type: 'string' },
+        },
+      },
+    },
+    whatsComing: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'date', 'type', 'action'],
+        properties: {
+          title: { type: 'string' },
+          date: { type: 'string' },
+          type: { type: 'string' },
+          action: { type: 'string' },
+        },
+      },
+    },
+    suggestedActions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['action', 'rationale', 'urgency'],
+        properties: {
+          action: { type: 'string' },
+          rationale: { type: 'string' },
+          urgency: { type: 'string', enum: ['high', 'medium', 'low'] },
+        },
+      },
+    },
+    programElementStatus: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['peCode', 'title', 'severity', 'narrative'],
+        properties: {
+          peCode: { type: 'string' },
+          title: { type: 'string' },
+          severity: { type: 'string', enum: ['critical', 'notable', 'info'] },
+          narrative: { type: 'string' },
         },
       },
     },
   },
 };
+
+const SEVERITY_WEIGHT: Record<string, number> = {
+  critical: 3,
+  notable: 2,
+  info: 1,
+};
+
+interface PeNarrativeContext {
+  peCode: string;
+  title: string;
+  service: string | null;
+  fy: number | null;
+  request: string | null;
+  hascMark: string | null;
+  sascMark: string | null;
+  hacDMark: string | null;
+  sacDMark: string | null;
+  conferenceProbability: string | null;
+  changes: Array<{
+    id: string;
+    severity: string;
+    source: string;
+    changeType: string;
+    title: string;
+    detectedAt: string;
+    citation: string;
+  }>;
+  billsInMarkup: Array<{
+    billId: string;
+    title: string;
+    latestActionText: string | null;
+    latestActionDate: string | null;
+    citation: string;
+  }>;
+  suggestedActions: string[];
+  topSeverity: 'critical' | 'notable' | 'info';
+}
+
+function formatDecimalValue(value: Prisma.Decimal | number | null | undefined): string | null {
+  if (value == null) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value.toFixed(2) : null;
+  return value.toFixed(2);
+}
+
+function normalizePeCode(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toUpperCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function collectPeCodesFromIntakeData(intakeData: unknown): string[] {
+  if (!intakeData || typeof intakeData !== 'object' || Array.isArray(intakeData)) return [];
+  const asRecord = intakeData as Record<string, unknown>;
+  const raw = asRecord.peNumber;
+  if (typeof raw === 'string') {
+    const single = normalizePeCode(raw);
+    return single ? [single] : [];
+  }
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry) => normalizePeCode(entry))
+      .filter((entry): entry is string => Boolean(entry));
+  }
+  return [];
+}
+
+function isDefenseProfile(client: { profileType: string | null; sectorTag: string | null }): boolean {
+  const profileType = (client.profileType ?? '').toLowerCase();
+  const sectorTag = (client.sectorTag ?? '').toLowerCase();
+  return profileType.includes('defense') || sectorTag.includes('defense');
+}
+
+function toPeTopSeverity(changes: Array<{ severity: string }>): 'critical' | 'notable' | 'info' {
+  let best: 'critical' | 'notable' | 'info' = 'info';
+  for (const change of changes) {
+    if (change.severity === 'critical') return 'critical';
+    if (change.severity === 'notable') best = 'notable';
+  }
+  return best;
+}
+
+function sortBySeverityDesc<T extends { topSeverity: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => (SEVERITY_WEIGHT[b.topSeverity] ?? 0) - (SEVERITY_WEIGHT[a.topSeverity] ?? 0));
+}
+
+function toSafeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
+function isCheapModel(model: string | null | undefined): boolean {
+  if (!model) return false;
+  const normalized = model.toLowerCase();
+  return normalized.includes('gpt-4o-mini') || normalized.includes('haiku');
+}
+
+function toCheapModel(currentModel: string, provider: 'openai' | 'anthropic'): string {
+  if (isCheapModel(currentModel)) return currentModel;
+  return provider === 'openai' ? 'gpt-4o-mini' : 'claude-3-5-haiku-20241022';
+}
+
+function toIsoOrNull(value: Date | null): string | null {
+  return value ? value.toISOString() : null;
+}
+
+function pickStructuredPeStatus(
+  parsed: Record<string, unknown>,
+  peContextsByCode: Map<string, PeNarrativeContext>,
+): Array<{ peCode: string; title: string; severity: 'critical' | 'notable' | 'info'; narrative: string }> {
+  const rows = Array.isArray(parsed.programElementStatus) ? parsed.programElementStatus : [];
+  const out: Array<{ peCode: string; title: string; severity: 'critical' | 'notable' | 'info'; narrative: string }> = [];
+
+  for (const item of rows) {
+    const record = toRecord(item);
+    const peCode = normalizePeCode(record.peCode);
+    let narrative = typeof record.narrative === 'string' ? record.narrative.trim() : '';
+    if (!peCode || !narrative) continue;
+    const ctx = peContextsByCode.get(peCode);
+    if (!ctx) continue;
+
+    const severity =
+      record.severity === 'critical' || record.severity === 'notable' || record.severity === 'info'
+        ? (record.severity as 'critical' | 'notable' | 'info')
+        : ctx.topSeverity;
+
+    if (!/\[[^\]]+\]/.test(narrative)) {
+      const fallbackCitation = ctx.changes[0]?.citation ?? `[${peCode}]`;
+      narrative = `${narrative} ${fallbackCitation}`.trim();
+    }
+
+    out.push({
+      peCode,
+      title: ctx.title,
+      severity,
+      narrative,
+    });
+  }
+
+  return out.sort((a, b) => (SEVERITY_WEIGHT[b.severity] ?? 0) - (SEVERITY_WEIGHT[a.severity] ?? 0));
+}
+
+function getStringFromData(data: Prisma.JsonValue, keys: string[]): string | null {
+  const record = toRecord(data);
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function buildPeCitation(peCode: string, data: Prisma.JsonValue): string {
+  const markers = [`[${peCode}]`];
+  const billId = getStringFromData(data, ['billId', 'bill_id']);
+  const docketId = getStringFromData(data, ['docketId', 'docket_id']);
+  if (billId) markers.push(`[${billId}]`);
+  if (docketId) markers.push(`[${docketId}]`);
+  return markers.join(' ');
+}
+
+function sanitizePeChangeSeverity(value: string): 'critical' | 'notable' | 'info' {
+  if (value === 'critical' || value === 'notable' || value === 'info') return value;
+  return 'info';
+}
+
+function buildPeSuggestedActions(context: {
+  title: string;
+  topSeverity: 'critical' | 'notable' | 'info';
+  billsInMarkupCount: number;
+}): string[] {
+  const actions: string[] = [];
+  if (context.topSeverity === 'critical') {
+    actions.push(`Escalate ${context.title} funding delta with same-day principal outreach.`);
+  } else if (context.topSeverity === 'notable') {
+    actions.push(`Prepare a 48-hour engagement brief for ${context.title} focused on current committee signals.`);
+  } else {
+    actions.push(`Track ${context.title} change signals daily and refresh talking points before next touchpoint.`);
+  }
+
+  if (context.billsInMarkupCount > 0) {
+    actions.push('Prioritize markup-cycle offices tied to active bills and align asks to current bill text.');
+  }
+
+  return actions;
+}
 
 @Injectable()
 export class InsightGeneratorService {
@@ -210,7 +441,7 @@ export class InsightGeneratorService {
     return { insights: saved, provider: result.provider, model: result.model };
   }
 
-  /** Generate a detailed executive briefing for a specific CRM client */
+  /** Generate a structured daily intelligence briefing for a specific CRM client */
   async generateClientBriefing(clientId: string, tenantId: string) {
     const client = await this.prisma.withTenant(tenantId, (tx) =>
       tx.client.findFirst({
@@ -220,21 +451,130 @@ export class InsightGeneratorService {
     );
     if (!client) throw new NotFoundException('Client not found');
 
-    // Gather context
-    const [lobbyCtx, spendCtx] = await Promise.all([
+    const now = new Date();
+    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const fourteenDaysOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+
+    const clientPeCodes = new Set<string>();
+    for (const code of collectPeCodesFromIntakeData(client.intakeData)) {
+      clientPeCodes.add(code);
+    }
+    for (const capability of client.capabilities ?? []) {
+      const code = normalizePeCode(capability.peNumber);
+      if (code) clientPeCodes.add(code);
+    }
+
+    // Resolve LDA issue codes via confirmed mapping
+    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
+      where: { clientId, source: 'lda', confirmed: true },
+    });
+    let issueCodes: string[] = [];
+    if (ldaMapping) {
+      const codeRows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`
+        SELECT COALESCE(issue_codes, '{}') AS issue_codes
+        FROM lda_client WHERE id = ${Number(ldaMapping.externalId)}
+      `;
+      issueCodes = codeRows[0]?.issue_codes ?? [];
+    }
+
+    // Build OR conditions avoiding conditional spreads inside Prisma calls.
+    // Comment-period emitters populate `relatedIssues` via SECTOR_TO_LDA_CODES, so
+    // sector-mapped events now reach this OR branch even without explicit client linkage.
+    const changeOrConditions: Record<string, unknown>[] = [{ relatedClientIds: { has: clientId } }];
+    if (issueCodes.length) changeOrConditions.push({ relatedIssues: { hasSome: issueCodes } });
+    const changeWhere: Record<string, unknown> = { detectedAt: { gte: yesterday }, OR: changeOrConditions };
+
+    // Gather all context in parallel
+    const peCodes = Array.from(clientPeCodes);
+    const [lobbyCtx, spendCtx, ldaMatch, recentChanges, upcomingHearings, commentDeadlines, peDetails, peRecentChanges, peMarkupBills] = await Promise.all([
       this.lobbyIntel.getAiContext().catch(() => null),
       this.federalSpending.getAiContext(client.name).catch(() => null),
+      this.prisma.$queryRaw<Array<{ name: string; total_filings: number; total_spending: number | null; issue_codes: string[]; similarity: number }>>`
+        SELECT name, total_filings, total_spending, COALESCE(issue_codes, '{}') as issue_codes,
+               similarity(name, ${client.name}) as similarity
+        FROM lda_client WHERE similarity(name, ${client.name}) > 0.3
+        ORDER BY similarity DESC LIMIT 1
+      `.catch(() => []),
+      this.prisma.intelligenceChange.findMany({
+        where: changeWhere,
+        orderBy: { detectedAt: 'desc' },
+        take: 20,
+      }),
+      this.prisma.committeeHearing.findMany({
+        where: { date: { gte: now, lte: fourteenDaysOut } },
+        orderBy: { date: 'asc' },
+        take: 10,
+      }),
+      this.prisma.federalRegisterDocument.findMany({
+        where: {
+          type: { in: ['PROPOSED_RULE', 'RULE'] },
+          commentEndDate: { gt: now, lte: fourteenDaysOut },
+        },
+        orderBy: { commentEndDate: 'asc' },
+        take: 10,
+        select: { title: true, type: true, commentEndDate: true, agencyNames: true, topics: true },
+      }),
+      peCodes.length
+        ? this.prisma.programElement.findMany({
+            where: { peCode: { in: peCodes } },
+            select: {
+              peCode: true,
+              title: true,
+              service: true,
+              years: {
+                orderBy: { fy: 'desc' },
+                take: 1,
+                select: {
+                  fy: true,
+                  request: true,
+                  hascMark: true,
+                  sascMark: true,
+                  hacDMark: true,
+                  sacDMark: true,
+                },
+              },
+              conferenceProbabilities: {
+                orderBy: { fy: 'desc' },
+                take: 1,
+                select: {
+                  fy: true,
+                  predicted: true,
+                },
+              },
+            },
+          })
+        : Promise.resolve([]),
+      peCodes.length
+        ? this.prisma.intelligenceChange.findMany({
+            where: {
+              detectedAt: { gte: yesterday },
+              relatedPeCodes: { hasSome: peCodes },
+            },
+            orderBy: [{ severity: 'desc' }, { detectedAt: 'desc' }],
+            take: 100,
+          })
+        : Promise.resolve([]),
+      peCodes.length
+        ? this.prisma.congressBill.findMany({
+            where: {
+              peCodes: { hasSome: peCodes },
+              latestActionText: {
+                contains: 'markup',
+                mode: 'insensitive',
+              },
+            },
+            orderBy: { latestActionDate: 'desc' },
+            take: 50,
+            select: {
+              id: true,
+              title: true,
+              latestActionText: true,
+              latestActionDate: true,
+              peCodes: true,
+            },
+          })
+        : Promise.resolve([]),
     ]);
-
-    // Fuzzy match against LDA
-    const ldaMatch = await this.prisma.$queryRaw<
-      Array<{ name: string; total_filings: number; total_spending: number | null; issue_codes: string[]; similarity: number }>
-    >`
-      SELECT name, total_filings, total_spending, COALESCE(issue_codes, '{}') as issue_codes,
-             similarity(name, ${client.name}) as similarity
-      FROM lda_client WHERE similarity(name, ${client.name}) > 0.3
-      ORDER BY similarity DESC LIMIT 1
-    `.catch(() => []);
 
     const contextParts: string[] = [];
     contextParts.push(`CLIENT: ${client.name}`);
@@ -243,56 +583,357 @@ export class InsightGeneratorService {
     const capabilities = (client.capabilities ?? []).map((c) => c.name).filter(Boolean);
     if (capabilities.length) contextParts.push(`CAPABILITIES: ${capabilities.join(', ')}`);
 
+    const tracks = (client.submissionTracks ?? []) as SubmissionTrack[];
+    if (tracks.length) {
+      const trackLabels = tracks.map((t) => SUBMISSION_TRACK_LABELS[t] ?? t).join(', ');
+      contextParts.push(
+        `SUBMISSION TRACKS: ${trackLabels} (weight upcoming events on these legislative vehicles)`,
+      );
+    }
+
     if (ldaMatch.length) {
       const m = ldaMatch[0]!;
       contextParts.push(`LDA MATCH: ${m.name} (${Math.round(m.similarity * 100)}% confidence)`);
-      contextParts.push(`  Total filings: ${m.total_filings}, Total spending: ${m.total_spending ? `$${(m.total_spending / 1e6).toFixed(1)}M` : 'unknown'}`);
+      contextParts.push(`  Total filings: ${m.total_filings}, Spending: ${m.total_spending ? `$${(m.total_spending / 1e6).toFixed(1)}M` : 'unknown'}`);
       if (m.issue_codes.length) contextParts.push(`  Active issue areas: ${m.issue_codes.join(', ')}`);
     }
 
     if (spendCtx?.matchedContractor) {
       const mc = spendCtx.matchedContractor;
-      contextParts.push(`FEDERAL CONTRACTOR MATCH: ${mc.name}`);
-      contextParts.push(`  Total contracts: ${mc.totalContracts ? `$${(mc.totalContracts / 1e9).toFixed(1)}B` : 'unknown'}, Rank: #${mc.rankByContracts ?? 'unknown'}`);
+      contextParts.push(`CONTRACTOR: ${mc.name}, Contracts: ${mc.totalContracts ? `$${(mc.totalContracts / 1e9).toFixed(1)}B` : 'unknown'}, Rank: #${mc.rankByContracts ?? 'unknown'}`);
       if (mc.topAgencies?.length) {
-        contextParts.push(`  Top agencies: ${mc.topAgencies.slice(0, 5).map((a) => a.name).join(', ')}`);
+        contextParts.push(`  Top agencies: ${mc.topAgencies.slice(0, 5).map((a: { name: string }) => a.name).join(', ')}`);
       }
     }
 
-    if (lobbyCtx) {
-      const relevantSurges = lobbyCtx.surgingIssues.slice(0, 5)
+    if (lobbyCtx?.surgingIssues.length) {
+      const surges = lobbyCtx.surgingIssues.slice(0, 5)
         .map((s) => `${s.code} (${s.name}): +${Math.round(s.surgePct ?? 0)}%`)
         .join('; ');
-      if (relevantSurges) contextParts.push(`MARKET CONTEXT — SURGING ISSUES: ${relevantSurges}`);
+      contextParts.push(`MARKET SURGES: ${surges}`);
     }
 
-    // Get recent regulations with open comment periods
-    const openRegs = await this.prisma.federalRegisterDocument.findMany({
-      where: { commentEndDate: { gt: new Date() } },
-      orderBy: { commentEndDate: 'asc' },
-      take: 5,
-      select: { title: true, type: true, commentEndDate: true, agencyNames: true },
-    });
-    if (openRegs.length) {
-      const regList = openRegs.map((r) => {
-        const daysLeft = Math.ceil((r.commentEndDate!.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-        return `${r.title} (${r.type}, ${daysLeft}d left, ${(r.agencyNames as string[]).join('/')})`;
+    // Section: What's New (24h)
+    if (recentChanges.length) {
+      const changeList = recentChanges
+        .map((c) => `[${c.source}/${c.changeType}] ${c.title}: ${c.description}`)
+        .join('\n  ');
+      contextParts.push(`WHAT'S NEW (last 24h):\n  ${changeList}`);
+    } else {
+      contextParts.push(`WHAT'S NEW (last 24h): No significant changes detected`);
+    }
+
+    // Section: What's Coming (14 days)
+    if (upcomingHearings.length) {
+      const hearingList = upcomingHearings.map((h) => {
+        const daysOut = Math.ceil((new Date(h.date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        return `${h.committeeName}, "${h.title.slice(0, 80)}" (in ${daysOut}d, ${h.chamber})`;
       }).join('\n  ');
-      contextParts.push(`OPEN COMMENT PERIODS:\n  ${regList}`);
+      contextParts.push(`UPCOMING HEARINGS (14d):\n  ${hearingList}`);
     }
 
-    const prompt = `Write a 3-5 paragraph executive intelligence briefing for the following government affairs client. Cover: (1) their lobbying landscape and spending trends, (2) regulatory exposure and upcoming deadlines, (3) competitive dynamics in their issue areas, and (4) recommended next steps. Be specific and actionable — this is for a senior lobbyist, not a general audience.\n\n${contextParts.join('\n')}`;
+    if (commentDeadlines.length) {
+      const deadlineList = commentDeadlines.map((r) => {
+        const daysLeft = Math.ceil((r.commentEndDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        return `"${r.title.slice(0, 70)}" (${r.type}, ${daysLeft}d left, ${(r.agencyNames as string[]).join('/')})`;
+      }).join('\n  ');
+      contextParts.push(`COMMENT DEADLINES (14d):\n  ${deadlineList}`);
+    }
 
-    const result = await this.callAi(prompt, BRIEFING_SCHEMA, 'briefing');
+    const peContextByCode = new Map<string, PeNarrativeContext>();
+
+    if (isDefenseProfile({ profileType: client.profileType, sectorTag: client.sectorTag }) && peCodes.length) {
+      const peChangeByCode = new Map<string, Array<typeof peRecentChanges[number]>>();
+      for (const change of peRecentChanges) {
+        for (const code of change.relatedPeCodes) {
+          if (!clientPeCodes.has(code)) continue;
+          const existing = peChangeByCode.get(code);
+          if (existing) {
+            existing.push(change);
+          } else {
+            peChangeByCode.set(code, [change]);
+          }
+        }
+      }
+
+      const billByCode = new Map<string, Array<typeof peMarkupBills[number]>>();
+      for (const bill of peMarkupBills) {
+        for (const code of bill.peCodes) {
+          if (!clientPeCodes.has(code)) continue;
+          const existing = billByCode.get(code);
+          if (existing) {
+            existing.push(bill);
+          } else {
+            billByCode.set(code, [bill]);
+          }
+        }
+      }
+
+      for (const pe of peDetails) {
+        const peChanges = (peChangeByCode.get(pe.peCode) ?? []).map((change) => ({
+          id: change.id,
+          severity: sanitizePeChangeSeverity(change.severity),
+          source: change.source,
+          changeType: change.changeType,
+          title: change.title,
+          detectedAt: change.detectedAt.toISOString(),
+          citation: buildPeCitation(pe.peCode, change.data),
+        }));
+        if (!peChanges.length) continue;
+
+        const topSeverity = toPeTopSeverity(peChanges);
+        const bills = (billByCode.get(pe.peCode) ?? []).slice(0, 5).map((bill) => ({
+          billId: bill.id,
+          title: bill.title,
+          latestActionText: bill.latestActionText,
+          latestActionDate: toIsoOrNull(bill.latestActionDate),
+          citation: `[${bill.id}]`,
+        }));
+
+        const latestYear = pe.years[0] ?? null;
+        const latestProbability = pe.conferenceProbabilities[0] ?? null;
+        peContextByCode.set(pe.peCode, {
+          peCode: pe.peCode,
+          title: pe.title,
+          service: pe.service ?? null,
+          fy: latestYear?.fy ?? latestProbability?.fy ?? null,
+          request: formatDecimalValue(latestYear?.request),
+          hascMark: formatDecimalValue(latestYear?.hascMark),
+          sascMark: formatDecimalValue(latestYear?.sascMark),
+          hacDMark: formatDecimalValue(latestYear?.hacDMark),
+          sacDMark: formatDecimalValue(latestYear?.sacDMark),
+          conferenceProbability: formatDecimalValue(latestProbability?.predicted),
+          changes: peChanges,
+          billsInMarkup: bills,
+          suggestedActions: buildPeSuggestedActions({
+            title: pe.title,
+            topSeverity,
+            billsInMarkupCount: bills.length,
+          }),
+          topSeverity,
+        });
+      }
+
+      const peContexts = sortBySeverityDesc(Array.from(peContextByCode.values()));
+      if (peContexts.length) {
+        const peBlocks = peContexts.map((pe) => {
+          const changeLines = pe.changes
+            .slice(0, 8)
+            .map((change) =>
+              `- [${change.severity.toUpperCase()}] ${change.source}/${change.changeType}: ${change.title} ${change.citation}`,
+            )
+            .join('\n');
+          const billLines = pe.billsInMarkup.length
+            ? pe.billsInMarkup
+                .map((bill) => `- ${bill.billId}: ${bill.title} (${bill.latestActionText ?? 'markup activity'}) ${bill.citation}`)
+                .join('\n')
+            : '- none';
+          const actionLines = pe.suggestedActions.map((action) => `- ${action}`).join('\n');
+          return `PE ${pe.peCode}, ${pe.title}\nservice=${pe.service ?? 'unknown'} fy=${pe.fy ?? 'unknown'} request=${pe.request ?? 'n/a'} hasc=${pe.hascMark ?? 'n/a'} sasc=${pe.sascMark ?? 'n/a'} hac-d=${pe.hacDMark ?? 'n/a'} sac-d=${pe.sacDMark ?? 'n/a'} conference_probability=${pe.conferenceProbability ?? 'n/a'}\n24H_CHANGES:\n${changeLines}\nBILLS_IN_MARKUP:\n${billLines}\nSUGGESTED_ACTIONS:\n${actionLines}`;
+        });
+        contextParts.push(`PROGRAM ELEMENT STATUS (include only these PEs):\n${peBlocks.join('\n\n')}`);
+      }
+    }
+
+    const prompt = `You are a senior federal government affairs analyst. Generate a structured daily intelligence briefing for the client below.
+
+${contextParts.join('\n')}
+
+Structure your response as:
+- heroSummary: 2-3 sentence executive summary of the most critical developments
+- whatsNew: Items from WHAT'S NEW section above (leave empty array if no changes)
+- whatsComing: Upcoming hearings and comment deadlines from the UPCOMING sections above
+- suggestedActions: 2-4 concrete recommended actions with urgency ratings (high/medium/low)
+- programElementStatus: Array of PE narrative objects only for PEs that have 24h changes in PROGRAM ELEMENT STATUS block. For each PE provide:
+  - peCode
+  - title
+  - severity (critical/notable/info)
+  - narrative: Generate a 2-3 sentence state-of-the-PE narrative grounded in the data above. Cite sources inline using [pe_code] [bill_id] [docket_id] markers. Do not invent facts.
+If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] only.`;
+
+    const preferredProvider = this.resolveProvider();
+    const peContexts = sortBySeverityDesc(Array.from(peContextByCode.values()));
+    const aiProvider: 'openai' | 'anthropic' = preferredProvider === 'anthropic' ? 'anthropic' : 'openai';
+    const aiModel = toCheapModel(
+      aiProvider === 'openai' ? this.openaiModel : this.anthropicModel,
+      aiProvider,
+    );
+
+    const result = await this.callAi(prompt, DAILY_BRIEFING_SCHEMA, 'daily_briefing', aiProvider, aiModel);
     const parsed = parseJsonObject(result.text);
 
-    return {
-      briefing: typeof parsed.briefing === 'string' ? parsed.briefing : '',
+    const programElementStatus = peContexts.length ? pickStructuredPeStatus(parsed, peContextByCode) : [];
+
+    const base = {
+      heroSummary: typeof parsed.heroSummary === 'string' ? parsed.heroSummary : '',
+      whatsNew: Array.isArray(parsed.whatsNew) ? parsed.whatsNew : [],
+      whatsComing: Array.isArray(parsed.whatsComing) ? parsed.whatsComing : [],
+      suggestedActions: Array.isArray(parsed.suggestedActions) ? parsed.suggestedActions : [],
       generatedAt: new Date().toISOString(),
-      dataPoints: Array.isArray(parsed.keyFindings) ? parsed.keyFindings : [],
       provider: result.provider,
       model: result.model,
     };
+
+    if (!programElementStatus.length) return base;
+
+    return {
+      ...base,
+      heroSummary: `${base.heroSummary}\n\nProgram Element status:\n${programElementStatus
+        .map((item) => `${item.peCode} (${item.severity}), ${item.narrative}`)
+        .join('\n')}`.trim(),
+      dataPoints: {
+        programElementStatus,
+      },
+    };
+  }
+
+  /**
+   * Tenant-wide Clio Brief for the home dashboard. Pulls today's calendar
+   * (hearings, comment deadlines) + recent high-severity intel changes
+   * touching this tenant's clients and asks the LLM for a 3-4 sentence
+   * narrative pointing to today's highest-leverage moves.
+   */
+  async generateDailyBrief(tenantId: string) {
+    const now = new Date();
+    // Use UTC-midnight bounds for @db.Date columns (committee_hearing.date,
+    // federal_register_document.comment_end_date, both come back at UTC
+    // midnight regardless of intended timezone). setHours(0,0,0,0) resolves
+    // in server-local time, which works on UTC prod but skews 4-5h on ET dev
+    // and excludes today's rows from the calendar query.
+    const { start: startOfDay } = dateBoundsInZone(now, 'America/New_York');
+    const sevenDaysOut = addDateInZone(now, 7, 'America/New_York');
+    const fourteenDaysOut = addDateInZone(now, 14, 'America/New_York');
+    const last48h = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+
+    const clients = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findMany({
+        where: { status: { not: 'archived' } },
+        select: { id: true, name: true, sectorTag: true, submissionTracks: true },
+      }),
+    );
+    const tenantClientIds = new Set(clients.map((c) => c.id));
+    const clientNameById = new Map(clients.map((c) => [c.id, c.name]));
+    // Roll up submission tracks across the active portfolio with client counts
+    // so the brief can lean on track-specific timing ("HASC markup is Thursday").
+    const trackCounts = new Map<SubmissionTrack, number>();
+    for (const c of clients) {
+      for (const track of (c.submissionTracks ?? []) as SubmissionTrack[]) {
+        trackCounts.set(track, (trackCounts.get(track) ?? 0) + 1);
+      }
+    }
+    const tracksBlock = trackCounts.size
+      ? [...trackCounts.entries()]
+          .sort(([, a], [, b]) => b - a)
+          .map(([t, n]) => `${SUBMISSION_TRACK_LABELS[t] ?? t} (${n})`)
+          .join(', ')
+      : '(none on file)';
+
+    const [hearings, deadlines, changes] = await Promise.all([
+      this.prisma.committeeHearing.findMany({
+        where: { date: { gte: startOfDay, lte: sevenDaysOut } },
+        orderBy: { date: 'asc' },
+        take: 12,
+      }),
+      this.prisma.federalRegisterDocument.findMany({
+        where: {
+          type: { in: ['PROPOSED_RULE', 'RULE'] },
+          commentEndDate: { gte: startOfDay, lte: fourteenDaysOut },
+        },
+        orderBy: { commentEndDate: 'asc' },
+        take: 10,
+      }),
+      this.prisma.intelligenceChange.findMany({
+        where: {
+          detectedAt: { gte: last48h },
+          severity: { in: ['critical', 'notable'] },
+        },
+        orderBy: { detectedAt: 'desc' },
+        take: 20,
+      }),
+    ]);
+
+    const tenantChanges = changes.filter(
+      (c) => c.relatedClientIds.length === 0 || c.relatedClientIds.some((id) => tenantClientIds.has(id)),
+    );
+
+    const todayLabel = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+    const tenantClientList = clients.slice(0, 30).map((c) => c.name).join(', ');
+
+    const hearingsBlock = hearings
+      .slice(0, 8)
+      .map((h) => {
+        const dayLabel = h.date.toDateString() === now.toDateString() ? 'TODAY' : h.date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        return `- ${dayLabel} ${h.time ?? ''} ${h.chamber} ${h.committeeName}: ${h.title}`;
+      })
+      .join('\n') || '(none on schedule)';
+
+    const deadlinesBlock = deadlines
+      .slice(0, 6)
+      .map((d) => {
+        const days = d.commentEndDate
+          ? Math.max(0, Math.ceil((d.commentEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+          : 0;
+        return `- ${days}d: ${d.agencyNames.slice(0, 2).join('/')}, ${d.title.slice(0, 110)}`;
+      })
+      .join('\n') || '(no comment-period deadlines in next 14 days)';
+
+    const changesBlock = tenantChanges
+      .slice(0, 10)
+      .map((c) => {
+        const tenantTouched = c.relatedClientIds.filter((id) => tenantClientIds.has(id));
+        const clientHint = tenantTouched.length
+          ? ` [touches: ${tenantTouched.map((id) => clientNameById.get(id) ?? id).slice(0, 3).join(', ')}]`
+          : '';
+        return `- [${c.severity.toUpperCase()}] ${c.source}: ${c.title}${clientHint}`;
+      })
+      .join('\n') || '(no high-severity changes detected in last 48h)';
+
+    if (!hearings.length && !deadlines.length && !tenantChanges.length) {
+      return {
+        brief: `${todayLabel}, quiet day on the federal calendar. No hearings, no comment deadlines closing, no high-severity changes in the last 48 hours. Use the window to advance long-running outreach.`,
+        generatedAt: now.toISOString(),
+        provider: null as string | null,
+        model: null as string | null,
+        empty: true as const,
+      };
+    }
+
+    const prompt = `You are writing today's leverage brief for a federal lobbying firm. Write 3-5 sentences in a punchy, voice-of-Capiro-Clio tone, concrete, specific, name names, and point to the single highest-leverage action for today. Do not list everything; pick the 1-2 things that actually matter. Reference the firm's active clients by name when the data supports it. Avoid hedging.
+
+TODAY: ${todayLabel}
+ACTIVE CLIENTS: ${tenantClientList || '(no active clients)'}
+ACTIVE SUBMISSION TRACKS: ${tracksBlock}
+
+UPCOMING HEARINGS / MARKUPS (next 7 days):
+${hearingsBlock}
+
+COMMENT-PERIOD DEADLINES (next 14 days):
+${deadlinesBlock}
+
+HIGH-SEVERITY CHANGES (last 48h, tenant-relevant):
+${changesBlock}
+
+Write the brief now. Start with "Today's leverage is" or similar. Do not include headers, bullets, or markdown. Plain prose only.`;
+
+    try {
+      const text = await this.generateFreeText(prompt);
+      return {
+        brief: text.trim(),
+        generatedAt: now.toISOString(),
+        provider: this.resolveProvider(),
+        model: this.preferredProvider === 'anthropic' ? this.anthropicModel : this.openaiModel,
+        empty: false as const,
+      };
+    } catch (err) {
+      this.logger.warn(`Daily brief generation failed: ${(err as Error).message}`);
+      return {
+        brief: `${todayLabel}, ${hearings.length} hearing(s), ${deadlines.length} comment deadline(s), ${tenantChanges.length} high-severity change(s) in the last 48 hours. AI brief unavailable; review the timeline.`,
+        generatedAt: now.toISOString(),
+        provider: null as string | null,
+        model: null as string | null,
+        empty: true as const,
+      };
+    }
   }
 
   /** Generate insights from change events */
@@ -342,23 +983,74 @@ export class InsightGeneratorService {
     });
   }
 
+  // ── Public free-text generation (no JSON schema) ──────────────────────
+
+  async generateFreeText(prompt: string): Promise<string> {
+    const result = await this.withProviderFallback('Free text generation', async (provider) => {
+      if (provider === 'openai') {
+        return this.callOpenAiFreeText(prompt);
+      } else {
+        return this.callAnthropicFreeText(prompt);
+      }
+    });
+    return result.text;
+  }
+
+  private async callOpenAiFreeText(prompt: string) {
+    if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY not configured');
+    const res = await fetchWithTimeout('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.openaiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: this.openaiModel, instructions: SYSTEM_PROMPT, input: prompt }),
+    });
+    const json = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) throw new ServiceUnavailableException(`OpenAI failed: ${JSON.stringify(json).slice(0, 200)}`);
+    return { text: extractOpenAiText(json), provider: 'openai' as const, model: this.openaiModel };
+  }
+
+  private async callAnthropicFreeText(prompt: string) {
+    if (!this.anthropicKey) throw new ServiceUnavailableException('ANTHROPIC_API_KEY not configured');
+    const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': this.anthropicKey, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: this.anthropicModel,
+        max_tokens: 2000,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    const json = (await res.json()) as Record<string, unknown>;
+    if (!res.ok) throw new ServiceUnavailableException(`Anthropic failed: ${JSON.stringify(json).slice(0, 200)}`);
+    return { text: extractAnthropicText(json), provider: 'anthropic' as const, model: this.anthropicModel };
+  }
+
   // ── AI provider abstraction ────────────────────────────────────────────
 
   private async callAi(
     prompt: string,
     schema: Record<string, unknown>,
     schemaName = 'insights',
+    forcedProvider?: 'openai' | 'anthropic',
+    forcedModel?: string,
   ): Promise<{ text: string; provider: string; model: string }> {
+    if (forcedProvider) {
+      if (forcedProvider === 'openai') {
+        return this.callOpenAi(prompt, schema, schemaName, forcedModel);
+      }
+      return this.callAnthropic(prompt, schema, forcedModel);
+    }
+
     return this.withProviderFallback('Insight generation', async (provider) => {
       if (provider === 'openai') {
-        return this.callOpenAi(prompt, schema, schemaName);
+        return this.callOpenAi(prompt, schema, schemaName, forcedModel);
       } else {
-        return this.callAnthropic(prompt, schema);
+        return this.callAnthropic(prompt, schema, forcedModel);
       }
     });
   }
 
-  private async callOpenAi(prompt: string, schema: Record<string, unknown>, schemaName: string) {
+  private async callOpenAi(prompt: string, schema: Record<string, unknown>, schemaName: string, modelOverride?: string) {
     if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY not configured');
     const res = await fetchWithTimeout('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -367,7 +1059,7 @@ export class InsightGeneratorService {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.openaiModel,
+        model: modelOverride ?? this.openaiModel,
         instructions: SYSTEM_PROMPT,
         input: prompt,
         text: { format: { type: 'json_schema', name: schemaName, strict: true, schema } },
@@ -375,10 +1067,10 @@ export class InsightGeneratorService {
     });
     const json = (await res.json()) as Record<string, unknown>;
     if (!res.ok) throw new ServiceUnavailableException(`OpenAI failed: ${JSON.stringify(json).slice(0, 200)}`);
-    return { text: extractOpenAiText(json), provider: 'openai' as const, model: this.openaiModel };
+    return { text: extractOpenAiText(json), provider: 'openai' as const, model: modelOverride ?? this.openaiModel };
   }
 
-  private async callAnthropic(prompt: string, schema: Record<string, unknown>) {
+  private async callAnthropic(prompt: string, schema: Record<string, unknown>, modelOverride?: string) {
     if (!this.anthropicKey) throw new ServiceUnavailableException('ANTHROPIC_API_KEY not configured');
     const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -388,7 +1080,7 @@ export class InsightGeneratorService {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.anthropicModel,
+        model: modelOverride ?? this.anthropicModel,
         max_tokens: 2000,
         system: SYSTEM_PROMPT,
         messages: [
@@ -398,7 +1090,11 @@ export class InsightGeneratorService {
     });
     const json = (await res.json()) as Record<string, unknown>;
     if (!res.ok) throw new ServiceUnavailableException(`Anthropic failed: ${JSON.stringify(json).slice(0, 200)}`);
-    return { text: extractAnthropicText(json), provider: 'anthropic' as const, model: this.anthropicModel };
+    return {
+      text: extractAnthropicText(json),
+      provider: 'anthropic' as const,
+      model: modelOverride ?? this.anthropicModel,
+    };
   }
 
   private resolveProvider(): 'openai' | 'anthropic' | null {

@@ -166,14 +166,14 @@ export function CongressPanel({ defaultSearch = '' }: { defaultSearch?: string }
                     )}
                     {r.sponsorState && <Text type="secondary" style={{ fontSize: 11 }}>{r.sponsorState}</Text>}
                   </Space>
-                ) : <Text type="secondary">—</Text>,
+                ) : <Text type="secondary">-</Text>,
             },
             {
               title: 'Policy Area',
               dataIndex: 'policyArea',
               width: 140,
               render: (v: string | null) =>
-                v ? <Tag style={{ fontSize: 11 }}>{v}</Tag> : <Text type="secondary">—</Text>,
+                v ? <Tag style={{ fontSize: 11 }}>{v}</Tag> : <Text type="secondary">-</Text>,
             },
             {
               title: 'Congress',
@@ -187,7 +187,7 @@ export function CongressPanel({ defaultSearch = '' }: { defaultSearch?: string }
               dataIndex: 'introducedDate',
               width: 100,
               render: (v: string | null) =>
-                v ? new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '—',
+                v ? new Date(v).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' }) : '-',
             },
           ]}
         />

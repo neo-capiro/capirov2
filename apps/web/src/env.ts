@@ -2,11 +2,11 @@
  * Resolves the web app's runtime config.
  *
  * Two sources, in order:
- *   1. window.__CAPIRO_CONFIG__   — set by /runtime-config.js, generated at
+ *   1. window.__CAPIRO_CONFIG__  , set by /runtime-config.js, generated at
  *      container start by apps/web/nginx/entrypoint.sh. Used in deployed
  *      environments. The same Vite-built image promotes through dev → prod
  *      because the keys are NOT baked into the bundle.
- *   2. Vite import.meta.env.VITE_*  — used for local `pnpm dev` against a
+ *   2. Vite import.meta.env.VITE_* , used for local `pnpm dev` against a
  *      .env file. Vite substitutes these at build time.
  *
  * The Clerk publishable key is technically public, but routing it through
@@ -30,7 +30,7 @@ function loadConfig(): RuntimeConfig {
     const c = window.__CAPIRO_CONFIG__;
     if (!c.clerkPublishableKey || c.clerkPublishableKey === 'runtime') {
       throw new Error(
-        'runtime-config.js was loaded but clerkPublishableKey is missing — check ECS env vars',
+        'runtime-config.js was loaded but clerkPublishableKey is missing, check ECS env vars',
       );
     }
     return c;
@@ -40,7 +40,7 @@ function loadConfig(): RuntimeConfig {
   const clerkKey = env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined;
   if (!clerkKey || clerkKey === 'runtime') {
     throw new Error(
-      'No runtime config found and VITE_CLERK_PUBLISHABLE_KEY is not set — see .env.example',
+      'No runtime config found and VITE_CLERK_PUBLISHABLE_KEY is not set, see .env.example',
     );
   }
   return {

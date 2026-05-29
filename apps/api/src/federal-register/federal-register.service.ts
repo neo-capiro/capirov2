@@ -21,7 +21,7 @@ export interface PagedResult<T> {
 /**
  * Service exposing Federal Register document data.
  *
- * GLOBAL table — no tenant_id, no RLS.
+ * GLOBAL table, no tenant_id, no RLS.
  * Populated by `pnpm sync:federal-register`.
  */
 @Injectable()

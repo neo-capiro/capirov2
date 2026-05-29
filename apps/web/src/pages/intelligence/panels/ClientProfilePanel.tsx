@@ -61,7 +61,7 @@ function daysUntil(dateStr: string | null | undefined): number | null {
 
 function deadlineTag(dateStr: string | null | undefined): React.ReactNode {
   const days = daysUntil(dateStr);
-  if (days == null) return <Text type="secondary">—</Text>;
+  if (days == null) return <Text type="secondary">-</Text>;
   if (days < 0) return <Tag>Closed</Tag>;
   if (days < 7) return <Tag color="red">{days}d left</Tag>;
   if (days < 14) return <Tag color="orange">{days}d left</Tag>;
@@ -243,7 +243,7 @@ export function ClientProfilePanel() {
             <Card size="small">
               <Statistic
                 title="Trajectory"
-                valueRender={() => trajectoryTag(profile.lobbyIntel.trajectory) ?? <Text type="secondary">—</Text>}
+                valueRender={() => trajectoryTag(profile.lobbyIntel.trajectory) ?? <Text type="secondary">-</Text>}
               />
             </Card>
             <Card size="small">
@@ -403,14 +403,14 @@ export function ClientProfilePanel() {
                       dataIndex: 'sponsorName',
                       width: 120,
                       render: (n: string | null, r: CongressBill) =>
-                        n ? <Text style={{ fontSize: 11 }}>{n} ({r.sponsorParty ?? '?'}-{r.sponsorState ?? ''})</Text> : <Text type="secondary">—</Text>,
+                        n ? <Text style={{ fontSize: 11 }}>{n} ({r.sponsorParty ?? '?'}-{r.sponsorState ?? ''})</Text> : <Text type="secondary">-</Text>,
                     },
                     {
                       title: 'Latest Action',
                       dataIndex: 'latestActionText',
                       width: 160,
                       ellipsis: true,
-                      render: (t: string | null) => <Text type="secondary" style={{ fontSize: 11 }}>{t ?? '—'}</Text>,
+                      render: (t: string | null) => <Text type="secondary" style={{ fontSize: 11 }}>{t ?? '-'}</Text>,
                     },
                   ]}
                 />
@@ -570,7 +570,7 @@ export function ClientProfilePanel() {
               <Paragraph style={{ fontSize: 13, margin: 0, whiteSpace: 'pre-wrap' }}>{profile.aiSummary}</Paragraph>
             ) : (
               <Empty
-                description="No AI briefing yet — click 'Generate Briefing' to create one"
+                description="No AI briefing yet, click 'Generate Briefing' to create one"
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
               />
             )}

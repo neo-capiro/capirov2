@@ -17,12 +17,12 @@ import { TenantContextStore } from './tenant-context.store.js';
  * Order of operations:
  *   1. Verify the Clerk session JWT (Authorization: Bearer ...).
  *   2. Resolve the requested tenant. Preference order:
- *        a. `capiro_tenant_id` from the Clerk JWT template (fast path — no
+ *        a. `capiro_tenant_id` from the Clerk JWT template (fast path, no
  *            membership scan needed; the org_id claim is cross-checked
  *            against tenants.clerk_org_id).
  *        b. X-Capiro-Tenant header.
- *        c. Subdomain match — `{slug}.app.capiro.ai`.
- *        d. Sole-membership fallback — if the user has exactly one active
+ *        c. Subdomain match, `{slug}.app.capiro.ai`.
+ *        d. Sole-membership fallback, if the user has exactly one active
  *            membership and none of the above produced a hint, use it.
  *   3. Look up the membership using RLS bypass (the lookup itself is not
  *      tenant-scoped because we are still resolving which tenant to use).
@@ -68,7 +68,7 @@ export class TenantContextMiddleware implements NestMiddleware {
       return;
     }
 
-    // Step 1 — verify Clerk JWT.
+    // Step 1, verify Clerk JWT.
     const auth = req.headers.authorization;
     if (!auth || !auth.toLowerCase().startsWith('bearer ')) {
       throw new UnauthorizedException('Missing bearer token');
@@ -82,7 +82,7 @@ export class TenantContextMiddleware implements NestMiddleware {
       throw new UnauthorizedException('Invalid session token');
     }
 
-    // Step 2 — gather every hint we have about which tenant is being requested.
+    // Step 2, gather every hint we have about which tenant is being requested.
     // Empty strings from the JWT template (when the user has no active org)
     // are normalized to undefined so the downstream logic only sees real
     // signals.
@@ -91,7 +91,7 @@ export class TenantContextMiddleware implements NestMiddleware {
     const claimedTenantSlug = nonEmpty(claims.capiro_tenant_slug);
     const claimedOrgId = nonEmpty(claims.org_id);
 
-    // Step 3 — resolve membership using RLS bypass. The lookup is not
+    // Step 3, resolve membership using RLS bypass. The lookup is not
     // tenant-scoped (we are still resolving the tenant), so it MUST run
     // through the system path.
     const ctx = await this.prisma.withSystem(async (tx) => {
@@ -99,7 +99,7 @@ export class TenantContextMiddleware implements NestMiddleware {
       if (!user) {
         // First-time authenticated request from this Clerk user. The webhook
         // is the canonical source of users, but a slow webhook should not
-        // block sign-in — best-effort upsert keeps things flowing.
+        // block sign-in, best-effort upsert keeps things flowing.
         await tx.user.create({
           data: {
             clerkUserId: claims.sub,
@@ -139,30 +139,30 @@ export class TenantContextMiddleware implements NestMiddleware {
 
       if (!chosen) {
         throw new ForbiddenException(
-          'No matching tenant for the supplied identifier — re-auth required',
+          'No matching tenant for the supplied identifier, re-auth required',
         );
       }
 
-      // Step 4 — integrity cross-checks. If the JWT and the resolved tenant
+      // Step 4, integrity cross-checks. If the JWT and the resolved tenant
       // disagree on any identifier, force re-auth. Each branch covers a
       // different way an attacker could try to pivot tenants.
       if (claimedTenantId && chosen.tenantId !== claimedTenantId) {
-        throw new ForbiddenException('Tenant claim mismatch — re-auth required');
+        throw new ForbiddenException('Tenant claim mismatch, re-auth required');
       }
       if (claimedOrgId && chosen.tenant.clerkOrgId !== claimedOrgId) {
-        throw new ForbiddenException('Org claim mismatch — re-auth required');
+        throw new ForbiddenException('Org claim mismatch, re-auth required');
       }
       if (
         claimedTenantSlug &&
         chosen.tenant.slug.toLowerCase() !== claimedTenantSlug.toLowerCase()
       ) {
-        throw new ForbiddenException('Tenant slug claim mismatch — re-auth required');
+        throw new ForbiddenException('Tenant slug claim mismatch, re-auth required');
       }
       if (requestedSlug && chosen.tenant.slug !== requestedSlug) {
-        throw new ForbiddenException('Subdomain/header tenant mismatch — re-auth required');
+        throw new ForbiddenException('Subdomain/header tenant mismatch, re-auth required');
       }
 
-      // Best-effort last_seen_at update — do not fail the request on error.
+      // Best-effort last_seen_at update, do not fail the request on error.
       await tx.user
         .update({ where: { id: user.id }, data: { lastSeenAt: new Date() } })
         .catch(() => undefined);
@@ -181,7 +181,7 @@ export class TenantContextMiddleware implements NestMiddleware {
         });
         if (!session) {
           throw new ForbiddenException(
-            'No active impersonation session — start one via /capiro-admin/impersonate',
+            'No active impersonation session, start one via /capiro-admin/impersonate',
           );
         }
         if (session.tenant.slug.toLowerCase() !== wantsImpersonate) {
@@ -194,7 +194,7 @@ export class TenantContextMiddleware implements NestMiddleware {
           tenantSlug: session.tenant.slug,
           userId: user.id,
           clerkUserId: user.clerkUserId,
-          role: 'capiro_admin', // role stays — capiro_admin acting as
+          role: 'capiro_admin', // role stays, capiro_admin acting as
         };
         return context;
       }
@@ -209,7 +209,7 @@ export class TenantContextMiddleware implements NestMiddleware {
       return context;
     });
 
-    // Step 4 — propagate via AsyncLocalStorage AND req object. ALS lets
+    // Step 4, propagate via AsyncLocalStorage AND req object. ALS lets
     // services pull the context without prop drilling; req.tenantContext is
     // for the @CurrentTenant() decorator and direct controller access.
     (req as Request & { tenantContext?: TenantContext }).tenantContext = ctx;
@@ -222,7 +222,7 @@ export class TenantContextMiddleware implements NestMiddleware {
 
     const host = req.hostname; // e.g. acmelobby.app.capiro.ai
     const parts = host.split('.');
-    // {slug}.app.capiro.ai — only treat as a tenant slug when the shape AND
+    // {slug}.app.capiro.ai, only treat as a tenant slug when the shape AND
     // TLD match. Strict matching prevents a malicious host header from
     // injecting an arbitrary slug via a lookalike domain.
     if (parts.length === 4 && parts[1] === 'app' && parts[2] === 'capiro' && parts[3] === 'ai') {

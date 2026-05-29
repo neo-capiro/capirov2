@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ChatDrawer } from './chat/ChatDrawer.js';
+import { ChangesInboxBell } from './ChangesInboxBell.js';
 import {
   ApartmentOutlined,
   BulbOutlined,
@@ -96,7 +97,6 @@ const NAV: NavItem[] = [
     label: 'Dashboard',
     path: '/',
     icon: <DashboardOutlined />,
-    disabled: true,
   },
   {
     key: 'engagement',
@@ -120,8 +120,8 @@ const NAV: NavItem[] = [
   },
   {
     key: 'intelligence',
-    label: 'Intelligence',
-    path: '/intelligence',
+    label: 'Intelligence Center',
+    path: '/explorer',
     icon: <BulbOutlined />,
   },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
@@ -173,6 +173,7 @@ export function AppShell() {
     me.data?.user.email ||
     user?.primaryEmailAddress?.emailAddress ||
     'Account';
+  const displayTitle = me.data?.user.title ?? null;
 
   const page = useMemo(() => pageConfigFor(location.pathname), [location.pathname]);
 
@@ -190,6 +191,18 @@ export function AppShell() {
     enabled: Boolean(me.data),
     staleTime: 240_000,
     refetchInterval: 240_000,
+  });
+
+  const changesUnread = useQuery<number>({
+    queryKey: ['intel-changes-unread'],
+    queryFn: async () => {
+      const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const res = await api.get<Array<{ id: string; consumed?: boolean }>>('/api/intelligence/changes', { params: { since } });
+      return res.data.filter((c) => !c.consumed).length;
+    },
+    enabled: Boolean(me.data),
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
   });
 
   const visibleClients = useMemo(
@@ -288,12 +301,33 @@ export function AppShell() {
     return () => window.removeEventListener('capiro:sync-inbox', handler);
   }, [connectedInboxConnections.length, navigate, syncInbox]);
 
+  // Counts pulled from caches already populated above. We don't fire new
+  // queries just to show a chip, if the page hasn't loaded them yet,
+  // the chip is hidden until the data arrives.
+  const navCounts = useMemo<Partial<Record<AppSection, number>>>(() => {
+    return {
+      clients: visibleClients.length || undefined,
+      intelligence: changesUnread.data || undefined,
+    };
+  }, [visibleClients.length, changesUnread.data]);
+
   const items = useMemo(() => {
     const result: NonNullable<MenuProps['items']> = [];
     for (const n of NAV) {
       if (n.key === 'clients') {
         result.push({ type: 'divider' });
       }
+      const count = navCounts[n.key];
+      const labelInner = (
+        <span className="app-nav-label-row">
+          <span className="app-nav-label-text">{n.label}</span>
+          {count != null && count > 0 ? (
+            <span className="app-nav-count num" aria-label={`${count} items`}>
+              {count > 99 ? '99+' : count}
+            </span>
+          ) : null}
+        </span>
+      );
       result.push({
         key: n.key,
         icon: n.icon,
@@ -304,7 +338,7 @@ export function AppShell() {
             .filter(Boolean)
             .join(' ') || undefined,
         label: n.disabled ? (
-          <span>{n.label}</span>
+          labelInner
         ) : (
           <Link
             to={n.path}
@@ -315,13 +349,13 @@ export function AppShell() {
               message.info('Cancel or complete the outreach workflow before navigating away.');
             }}
           >
-            {n.label}
+            {labelInner}
           </Link>
         ),
       });
     }
     return result;
-  }, [message, workflowLocked]);
+  }, [message, navCounts, workflowLocked]);
 
   const selectedKey = page.key === 'not-found' ? 'home' : page.key;
 
@@ -428,7 +462,25 @@ export function AppShell() {
             logoUrl={branding.data?.logoUrl ?? null}
             name={branding.data?.name ?? me.data?.tenant.name ?? 'Capiro'}
           />
+          <TopbarSearch />
           <span className="app-topbar-spacer" />
+          {/*
+            Bell opens an inline Changes Inbox dropdown instead of navigating
+            to /explorer. The full inbox at /intelligence/changes is still
+            reachable via the dropdown's "View all" footer and via deep-links.
+            The workflow-lock guard is hoisted into the bell so navigation
+            from inside the dropdown still respects the in-progress outreach
+            wizard.
+          */}
+          <ChangesInboxBell
+            guardNavigation={() => {
+              if (workflowLocked) {
+                message.info('Cancel or complete the outreach workflow before navigating away.');
+                return false;
+              }
+              return true;
+            }}
+          />
           <button
             className="app-topbar-icon-button"
             type="button"
@@ -449,34 +501,18 @@ export function AppShell() {
               type="button"
               aria-label={`Open account menu for ${displayName}`}
             >
-              <Avatar size={30} src={user?.imageUrl || undefined} icon={<UserOutlined />}>
+              <Avatar size={36} src={user?.imageUrl || undefined} icon={<UserOutlined />}>
                 {initials(displayName)}
               </Avatar>
-              <span className="app-topbar-account-name">{displayName}</span>
+              <span className="app-topbar-account-stack">
+                <span className="app-topbar-account-name">{displayName}</span>
+                {displayTitle ? (
+                  <span className="app-topbar-account-title">{displayTitle}</span>
+                ) : null}
+              </span>
             </button>
           </Dropdown>
         </Header>
-
-        <div className="app-page-header">
-          <Typography.Text className="app-page-title" role="heading" aria-level={1}>
-            {page.title}
-          </Typography.Text>
-          {page.showClientDropdown ? (
-            <>
-              <span className="app-page-header-divider" aria-hidden="true" />
-              <ClientDropdown
-                clients={visibleClients}
-                selectedClient={selectedClient}
-                selectedClientId={selectedClientId}
-                loading={clients.isLoading}
-                onSelect={setSelectedClientId}
-                onNavigateToClients={() => navigate('/clients')}
-              />
-            </>
-          ) : null}
-          <span className="app-page-header-spacer" />
-          <PageActions page={page.key} />
-        </div>
 
         {page.showClientDropdown && selectedClient ? (
           <ClientContextBanner client={selectedClient} onClear={clearClientFilter} />
@@ -519,6 +555,32 @@ function TopbarTenantBrand({ logoUrl, name }: { logoUrl: string | null; name: st
       </span>
       <span className="app-topbar-tenant-name">{name}</span>
     </div>
+  );
+}
+
+/**
+ * Global search input in the top bar. Visual-only for now, wiring it up to a
+ * real cross-tenant index is a separate piece of work (see /docs/global-search.md
+ * for the proposed scope). The ⌘K hint is for future keyboard-trigger UX.
+ */
+function TopbarSearch() {
+  return (
+    <form
+      className="app-topbar-search"
+      role="search"
+      onSubmit={(e) => e.preventDefault()}
+      aria-label="Global search (coming soon)"
+    >
+      <SearchOutlined className="app-topbar-search-icon" aria-hidden />
+      <input
+        type="search"
+        className="app-topbar-search-input"
+        placeholder="Search bills, agencies, stakeholders…"
+        disabled
+        aria-disabled="true"
+      />
+      <span className="app-topbar-search-hint" aria-hidden>⌘K</span>
+    </form>
   );
 }
 
@@ -735,7 +797,7 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname.startsWith('/clients')) return 'clients';
   if (pathname.startsWith('/engagement')) return 'engagement';
   if (pathname.startsWith('/workspace')) return 'workspace';
-  if (pathname.startsWith('/intelligence')) return 'intelligence';
+  if (pathname.startsWith('/explorer') || pathname.startsWith('/intelligence')) return 'intelligence';
   if (pathname.startsWith('/directory')) return 'directory';
   if (pathname.startsWith('/portal')) return 'portal';
   if (pathname.startsWith('/settings')) return 'settings';
@@ -750,7 +812,7 @@ function pageConfigFor(pathname: string): PageConfig {
     engagement: 'Engagement',
     workspace: 'Workspace',
     planner: 'Planner',
-    intelligence: 'Intelligence',
+    intelligence: 'Intelligence Center',
     directory: 'Directory',
     stakeholders: 'Stakeholders',
     collaborators: 'Collaborators',
@@ -759,10 +821,9 @@ function pageConfigFor(pathname: string): PageConfig {
     'not-found': 'Not found',
   };
   const showClientDropdown =
-    key === 'home' ||
     key === 'engagement' ||
-    pathname.startsWith('/workspace/catalog') ||
-    pathname.startsWith('/workspace/kanban');
+    pathname.startsWith('/workspace/library') ||
+    pathname.startsWith('/workspace/workflows');
   return { key, title: titleByKey[key], showClientDropdown };
 }
 

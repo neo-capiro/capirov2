@@ -1,174 +1,203 @@
-Read the plan at .hermes/lda-intel-plan.md thoroughly. Then implement Phase 1 (Backend).
+# Phase 1: First Intelligence Features — Backend
 
-API KEYS (use these in sync scripts via process.env):
-- LDA_API_KEY=b114aa166dd465fea5789480156f5efeada7d2d3  (Senate LDA: header `x-api-key`)
-- FEC_API_KEY=aLzThT7IPWNSgilqipIttLkmscgMJeRgDaJhJ2zN  (FEC: query param `api_key`)
-- CONGRESS_API_KEY=sGteTfXJsjlp4LutiqH5GG4t3OjGBbdbbKIhp4OQ  (Congress.gov: query param `api_key`)
+## YOUR TASK
+Implement 5 intelligence features from the Capiro Master Strategy Report. These are the "be told" features per §10.2 and §5.1 that make lobbyists say "this saves me 2 hours/day." Read existing code FIRST.
 
-## What to build
+---
 
-### 1. Prisma Migration SQL
-Create: `apps/api/prisma/migrations/20260520010000_lda_intel_pipeline/migration.sql`
+## CRITICAL CONTEXT — READ THESE FILES FIRST
 
-Create these GLOBAL tables (NO tenant_id, NO RLS):
+1. `apps/api/src/intelligence/insight-generator.service.ts` — 449 LOC, ALREADY has `generateClientBriefing(clientId, tenantId)` and `generateMarketInsights()` and `generateFromChanges()`. Has dual-provider AI (OpenAI + Anthropic with fallback). READ THIS ENTIRE FILE before writing anything.
+2. `apps/api/src/intelligence/intelligence.service.ts` — has `getClientProfile()`, `getChanges()`, `getLobbyingRoi()`, `getCompetitorBoard()`, `getClientBills()`, `getExStaffers()`, entity resolution methods
+3. `apps/api/src/intelligence/entity-resolution.service.ts` — resolves clients to external sources
+4. `apps/api/src/intelligence/intelligence.controller.ts` — existing endpoints
+5. `apps/api/prisma/schema.prisma` — 80+ models, check exact field names
 
-**lda_filing** — 512K records from Senate LDA filings API (last 5 years)
-- id UUID PK, filing_uuid TEXT UNIQUE, filing_type TEXT, filing_year INT, filing_period TEXT
-- income DECIMAL(18,2) NULL, expenses DECIMAL(18,2) NULL, dt_posted TIMESTAMPTZ
-- registrant_id INT, registrant_name TEXT, client_id INT, client_name TEXT
-- client_state TEXT NULL, client_country TEXT NULL, client_description TEXT NULL
-- issue_codes TEXT[] DEFAULT '{}', government_entities JSONB DEFAULT '[]'
-- lobbyists JSONB DEFAULT '[]', lobbying_activities JSONB DEFAULT '[]'
-- filing_document_url TEXT NULL, last_synced_at TIMESTAMPTZ DEFAULT now()
-- Indexes: filing_uuid UNIQUE, filing_year, client_name, registrant_name, issue_codes GIN, dt_posted, client_name trigram
+Key tables from schema.prisma:
+- `FederalRegisterDocument`: has `commentEndDate`, `agencyNames[]`, `type` (RULE/PROPOSED_RULE/NOTICE), `topics[]`, `significantRule`
+- `ClientCapability`: has `sector`, `tags` (JSON), `name`, `peNumber`, `targetSubcommittee`
+- `CongressBillSubject`: has `billId`, `name` — joins to `CongressBill`
+- `LdaIssueCode`: has `code`, `name`, `totalFilings5y`, `totalSpending5y`
+- `Meeting`, `MailThread`, `EngagementTask`, `MeetingDebrief`: CRM tables, tenant-scoped
+- `IntelligenceChange`: has `source`, `changeType`, `severity`, `title`, `description`, `relatedClientIds[]`, `relatedIssues[]`, `consumed`, `detectedAt`
+- `ClientIntelMapping`: links CRM clients to external sources with `confirmed` flag
 
-**lda_client** — 134K lobbying clients
-- id INT PK, name TEXT, general_description TEXT NULL, state TEXT NULL, country TEXT NULL DEFAULT 'US'
-- effective_date DATE NULL, total_filings INT DEFAULT 0, total_spending DECIMAL(18,2) NULL
-- latest_filing_year INT NULL, issue_codes TEXT[] DEFAULT '{}', last_synced_at TIMESTAMPTZ
-- Indexes: name, name trigram, state
+---
 
-**lda_registrant** — 17K lobbying firms
-- id INT PK, house_registrant_id INT NULL, name TEXT, description TEXT NULL
-- address TEXT NULL, city TEXT NULL, state TEXT NULL, country TEXT NULL
-- contact_name TEXT NULL, contact_phone TEXT NULL
-- total_filings INT DEFAULT 0, total_clients INT DEFAULT 0, last_synced_at TIMESTAMPTZ
+## FEATURE 1.1: Daily Client Briefing Generator
 
-**lda_lobbyist** — 88K lobbyists
-- id INT PK, first_name TEXT, last_name TEXT, prefix TEXT NULL, suffix TEXT NULL
-- covered_positions JSONB DEFAULT '[]', registrant_ids INT[] DEFAULT '{}'
-- active_years INT[] DEFAULT '{}', last_synced_at TIMESTAMPTZ
-- Indexes: (last_name, first_name), last_name trigram
+Per Strategy §3 JTBD #1: "What's happening to my client this week? → Daily AI briefing per client/program, generated from IntelligenceChange events filtered through the entity mapping. Quantified deltas. Suggested actions."
+Per §5.4: "Daily Briefing Generator (449 LOC scaffolded; extend with per-client templating + IntelligenceChange filter)."
+Per §4.4: "Briefing engine — daily cron, per active profile, per active user, sourced from IntelligenceChange + model scores + RAG-grounded language."
+Per §15.2: "Daily Client Briefing — Email + in-app card. Hero summary + three sections (What's new 24h, What's coming 14d, Suggested actions). Per-line citations."
 
-**lda_contribution** — 192K contribution reports
-- id UUID PK, filing_uuid TEXT UNIQUE, filing_type TEXT, filing_year INT, filing_period TEXT
-- filer_type TEXT, dt_posted TIMESTAMPTZ
-- registrant_id INT NULL, registrant_name TEXT NULL, lobbyist_id INT NULL, lobbyist_name TEXT NULL
-- no_contributions BOOLEAN DEFAULT false, pacs JSONB DEFAULT '[]'
-- contribution_items JSONB DEFAULT '[]', last_synced_at TIMESTAMPTZ
+### What to build:
 
-**lda_issue_code** — 79 LDA issue categories (reference)
-- code TEXT PK, name TEXT, total_filings_5y INT DEFAULT 0
-- total_spending_5y DECIMAL(18,2) NULL, quarterly_trend JSONB DEFAULT '[]', last_synced_at TIMESTAMPTZ
+**A. Enhance `generateClientBriefing` in insight-generator.service.ts:**
+The existing method (line 214) already gathers LDA context, contractor context, and open regulations. EXTEND it to:
+1. Query `IntelligenceChange` from the last 24h where `relatedClientIds` contains this clientId OR `relatedIssues` overlaps with the client's LDA issue codes
+2. Query upcoming `CommitteeHearing` in the next 14 days that touch the client's issue areas
+3. Query upcoming `FederalRegisterDocument` comment deadlines in the next 14 days
+4. Structure the AI prompt into THREE sections per §15.2:
+   - "What's New (24h)" — IntelligenceChange events, quantified
+   - "What's Coming (14 days)" — upcoming hearings, comment deadlines, bill actions
+   - "Suggested Actions" — AI-generated based on urgency and opportunity
+5. Return structured JSON: `{ heroSummary: string, whatsNew: Array<{title, source, detail, citation}>, whatsComing: Array<{title, date, type, action}>, suggestedActions: Array<{action, rationale, urgency}>, generatedAt: string }`
 
-**lda_government_entity** — 257 government entities (reference)
-- id INT PK, name TEXT, total_filings_5y INT DEFAULT 0, last_synced_at TIMESTAMPTZ
+**B. Create briefing cron script: `apps/api/scripts/generate-briefings.ts`**
+Standalone script: `npx tsx scripts/generate-briefings.ts`
+1. Get all tenants
+2. For each tenant, get all clients with status='ACTIVE' and at least one confirmed ClientIntelMapping
+3. For each client, call the enhanced `generateClientBriefing`
+4. Store result as `IntelligenceInsight` with category='briefing', severity='info'
+5. Log timing and counts per tenant
+6. Use gpt-4o-mini for cost efficiency ($15/mo at pilot per Strategy §11.3 AI/LLM sheet)
 
-**fec_committee** — PACs and campaign committees from FEC API
-- id TEXT PK (committee_id like C00835926), name TEXT, committee_type TEXT NULL
-- designation TEXT NULL, party TEXT NULL, state TEXT NULL
-- treasurer_name TEXT NULL, total_receipts DECIMAL(18,2) NULL
-- total_disbursements DECIMAL(18,2) NULL, cash_on_hand DECIMAL(18,2) NULL
-- cycles INT[] DEFAULT '{}', last_synced_at TIMESTAMPTZ
+**C. Add briefing endpoint if not already present:**
+`GET /intelligence/briefing/:clientId` — should already exist (line 147 in controller). Verify it calls the enhanced method. If not, wire it up.
 
-**fec_contribution** — Individual/PAC contributions to candidates
-- id UUID PK, committee_id TEXT, committee_name TEXT NULL
-- candidate_id TEXT NULL, candidate_name TEXT NULL
-- contributor_name TEXT NULL, contributor_employer TEXT NULL
-- contributor_occupation TEXT NULL, amount DECIMAL(18,2)
-- contribution_date DATE NULL, receipt_type TEXT NULL
-- memo_text TEXT NULL, state TEXT NULL, cycle INT
-- last_synced_at TIMESTAMPTZ
-- Indexes: committee_id, candidate_name, contributor_employer, cycle
+---
 
-**congress_bill** — Bills from Congress.gov API
-- id TEXT PK (e.g. "119-hr-1234"), congress INT, bill_type TEXT, bill_number TEXT
-- title TEXT, introduced_date DATE NULL, sponsor_name TEXT NULL
-- sponsor_state TEXT NULL, sponsor_party TEXT NULL
-- latest_action_text TEXT NULL, latest_action_date DATE NULL
-- policy_area TEXT NULL, subjects TEXT[] DEFAULT '{}'
-- committees JSONB DEFAULT '[]', cosponsors_count INT DEFAULT 0
-- origin_chamber TEXT NULL, update_date TIMESTAMPTZ NULL
-- url TEXT NULL, last_synced_at TIMESTAMPTZ
-- Indexes: congress, policy_area, subjects GIN, title trigram
+## FEATURE 1.2: Bill Tracker per Client (Auto-Matched)
 
-Use CREATE TABLE only. Do NOT touch existing tables. Do NOT add/drop FKs.
+Per Strategy §3 JTBD #3: "Which bills should I be tracking? → Auto-tracked bills per profile based on capability tags ↔ bill subjects / policy areas. Passage-probability score on each. Action-velocity heatmap."
+Per §7: "Issue ↔ Bill ↔ NAICS ↔ CFDA — Taxonomy bridge. Every capability auto-feeds bills + regs + grants."
 
-### 2. Prisma Schema
-Add corresponding Prisma models to end of `apps/api/prisma/schema.prisma`. Keep all existing models.
+### What to build:
 
-### 3. Sync Scripts
+**D. New method in intelligence.service.ts: `getTrackedBills(clientId: string)`**
+1. Get the client's confirmed LDA mappings (source='lda')
+2. From those LDA clients, get their issue codes (from `lda_filing.issue_codes` JSON array)
+3. Also get the client's `ClientCapability` records — extract `sector`, `tags` JSON, `name`
+4. Build a bridge: map LDA issue code names → `CongressBillSubject.name` using text similarity or keyword overlap. Use this SQL pattern:
+   ```sql
+   SELECT DISTINCT cb.* FROM congress_bill cb
+   JOIN congress_bill_subject cbs ON cbs.bill_id = cb.id
+   WHERE cbs.name ILIKE ANY(ARRAY[...issue_name_patterns...])
+   ORDER BY cb.latest_action_date DESC NULLS LAST
+   LIMIT 50
+   ```
+5. Return bills with: identifier, title, latestActionDate, latestActionText, status, sponsorName, sponsorParty, subjectNames[]
+6. Add endpoint: `GET /intelligence/clients/:clientId/tracked-bills`
 
-**apps/api/scripts/sync-lda.ts** — Senate LDA pipeline
-- Fetch from `https://lda.senate.gov/api/v1/` with header `x-api-key: ${process.env.LDA_API_KEY}`
-- Pull last 5 years (2021-2026)
-- Step 1: Fetch issue codes + government entities (reference)
-- Step 2: Paginate filings by year (page_size=100, use filing_year param)
-- Step 3: Extract + upsert clients, registrants, lobbyists from filings
-- Step 4: Paginate contributions by year
-- Step 5: Compute aggregates (total_filings, total_spending per client)
-- Support --incremental flag (only fetch since last sync)
-- Handle nulls defensively, skip bad records with logging
-- Log progress per 1000 records
+---
 
-**apps/api/scripts/sync-fec.ts** — FEC pipeline
-- Fetch from `https://api.open.fec.gov/v1/` with query param `api_key=${process.env.FEC_API_KEY}`
-- Step 1: Fetch top committees (search for major lobbying-related PACs)
-- Step 2: For each committee, fetch recent contributions (schedule_a)
-- Focus on: tech, defense, energy, healthcare PACs
-- Page with `page=N&per_page=100`
+## FEATURE 1.3: Competitor Leaderboard per Issue
 
-**apps/api/scripts/sync-congress.ts** — Congress.gov pipeline
-- Fetch from `https://api.congress.gov/v3/` with query param `api_key=${process.env.CONGRESS_API_KEY}`
-- Fetch recent bills (last 2 congresses: 118th, 119th)
-- For each bill, get subjects and committees
-- Focus on bills with lobbying-relevant policy areas
-- Page with `offset=N&limit=100`
+Per Strategy §3 JTBD #2: "Who else is lobbying on my issue? → Live competitor leaderboard per issue code, with new-entrant alerts (90-day window) and shared-lobbyist warnings."
+Per §5.1: "Competitor Surge Detector — Boolean + magnitude per (client, 90-day window) — LdaFiling × ClientIntelMapping issue overlap"
 
-Also FIX existing sync-openlobby.ts and sync-openspending.ts:
-- Add try/catch per record with skip-on-error logging
-- Filter nulls from arrays before Prisma upsert
-- Add proper error handling for fetch failures
+### What to build:
 
-### 4. NestJS Module: `apps/api/src/lda-intel/`
-Create lda-intel.module.ts, lda-intel.service.ts, lda-intel.controller.ts
+**E. New method in intelligence.service.ts: `getIssueLeaderboard(issueCode: string)`**
+1. Query all LDA filings in the last 2 years that include this issue code
+2. GROUP BY registrant name, COUNT filings, SUM income
+3. Flag new entrants: registrants whose first filing with this issue code is within the last 90 days
+4. Flag shared lobbyists: lobbyists who appear on filings for MULTIPLE registrants on this issue (potential conflicts)
+5. Return: `{ issueCode, issueName, totalFilings, registrants: Array<{ name, filingCount, totalIncome, isNewEntrant, firstFilingDate, sharedLobbyists: string[] }> }`
+6. Add endpoint: `GET /intelligence/issues/:code/leaderboard`
 
-Service methods:
-- getDashboard() — aggregate stats (total filings, spending, clients, lobbyists, issues)
-- getFilings(filters) — paginated, filterable by year, issue_code, client, registrant
-- getClients(search, issueCode, state, page, limit) — paginated search
-- getClientDetail(id) — client with filing summary, top issues, firms, spending timeline
-- getRegistrants(search, page, limit) — lobbying firms
-- getRegistrantDetail(id) — firm with clients, filings
-- getLobbyists(search, page, limit) — lobbyist search
-- getIssues() — all 79 issue codes ranked by spending
-- getIssueDetail(code) — issue with top clients, trend
-- getEntities() — gov entities ranked by filings
-- getContributions(filters) — contribution search
-- getTrends() — quarterly spending trends
-- matchCapiroClient(clientName) — trigram match to LDA clients
-- getCongressBills(search, policyArea, congress, page, limit)
-- getFecCommittees(search)
+Also enhance the existing `getCompetitorBoard(clientId)` to include the leaderboard data for each of the client's issue codes.
 
-Controller REST endpoints:
+---
+
+## FEATURE 1.4: Engagement Health Score v0
+
+Per Strategy §5.1: "Engagement Health Score — 0-100 per (client, week) — Meeting, mail, outreach stats, debrief count, task completion — JTBD 6"
+Per Strategy §3 JTBD #6: "How do I prove what I did this quarter? → Auto-generated client/program report card: meetings, offices touched, comments filed, bills monitored, outcomes captured."
+
+### What to build:
+
+**F. New method in intelligence.service.ts: `computeEngagementHealth(clientId: string, tenantId: string)`**
+1. Query last 7 days of activity for this client (ALL tenant-scoped via prisma.withTenant):
+   - Count of `Meeting` records (client meetings in last 7 days)
+   - Count of `MailThread` messages (mail activity)
+   - Count of `EngagementTask` completed (status='completed' in last 7 days)
+   - Count of `MeetingDebrief` records (debriefs filed)
+   - Count of `OutreachRecord` sent
+2. Compute score: `score = Math.min(100, Math.round((meetings * 15 + emails * 2 + tasks_completed * 10 + debriefs * 20 + outreach * 5) / expectedWeeklyPace * 100))`
+   where `expectedWeeklyPace = 100` (baseline — a "healthy" client week = ~3 meetings, 10 emails, 2 tasks, 1 debrief, 2 outreach sends)
+3. Return: `{ score, breakdown: { meetings, emails, tasksCompleted, debriefs, outreachSent }, trend: 'improving'|'stable'|'declining' (compare vs prior 7 days), period: '7d' }`
+4. Add endpoint: `GET /intelligence/clients/:clientId/health-score`
+
+**G. Create nightly health score compute script: `apps/api/scripts/compute-health-scores.ts`**
+1. For each tenant, for each active client, compute and store the health score
+2. Store as `IntelligenceInsight` with category='health_score' and data containing the breakdown
+3. Emit `IntelligenceChange` when score drops below 30 (severity='notable', changeType='low_engagement')
+
+---
+
+## FEATURE 1.5: Comment-Period Urgency Alerts
+
+Per Strategy §5.1: "Comment-Period Urgency — Days-to-deadline × client relevance — regulatory_docket, fed_register, ClientCapability sector — JTBD 4"
+Per Strategy §3 JTBD #4: "Should I file a comment on this rule? → Regulatory docket countdown with relevance score against client_capabilities."
+
+### What to build:
+
+**H. New method in intelligence.service.ts: `getCommentPeriodAlerts(tenantId: string)`**
+1. Query `FederalRegisterDocument` where:
+   - `type` IN ('PROPOSED_RULE', 'RULE') 
+   - `commentEndDate` IS NOT NULL and > NOW() and < NOW() + 14 days
+2. For each document, compute relevance to each tenant client:
+   - Match `agencyNames` against client `sectorTag` using a mapping (e.g., EPA → ENVIRONMENT_WATER, DOD → DEFENSE, HHS → HEALTH, etc.)
+   - Match document `topics` against client `ClientCapability.tags` and `ClientCapability.sector`
+   - Score: base relevance (0-1) × urgency multiplier (1.0 for >7d, 1.5 for 3-7d, 2.0 for <3d)
+3. For each relevant (score > 0.3) document-client pair, emit `IntelligenceChange`:
+   - source='federal_register', changeType='comment_deadline_approaching'
+   - severity: 'info' if >7 days, 'notable' if 3-7 days, 'critical' if <3 days
+   - relatedClientIds: [clientId]
+   - title: "Comment period closing in N days: [document title truncated to 80 chars]"
+4. Return alerts sorted by urgency
+5. Add endpoint: `GET /intelligence/comment-alerts`
+
+**I. Create comment-period check script: `apps/api/scripts/check-comment-periods.ts`**
+Standalone cron-able script that runs the alert check for all tenants.
+
+---
+
+## AGENCY-TO-SECTOR MAPPING (needed by 1.5)
+
+Create a static mapping used by the comment-period alerts. Put in a shared constants file or at the top of the service:
+
+```typescript
+const AGENCY_SECTOR_MAP: Record<string, string[]> = {
+  'Department of Defense': ['DEFENSE'],
+  'DOD': ['DEFENSE'],
+  'Environmental Protection Agency': ['ENVIRONMENT_WATER'],
+  'EPA': ['ENVIRONMENT_WATER'],
+  'Department of Health and Human Services': ['HEALTH'],
+  'HHS': ['HEALTH'],
+  'Food and Drug Administration': ['HEALTH'],
+  'FDA': ['HEALTH'],
+  'Department of Energy': ['ENERGY'],
+  'DOE': ['ENERGY'],
+  'Department of Transportation': ['TRANSPORTATION'],
+  'DOT': ['TRANSPORTATION'],
+  'Department of Agriculture': ['AGRICULTURE'],
+  'USDA': ['AGRICULTURE'],
+  'Department of Homeland Security': ['HOMELAND_SECURITY'],
+  'DHS': ['HOMELAND_SECURITY'],
+  'Department of Commerce': ['COMMERCE_TECH'],
+  'Federal Communications Commission': ['COMMERCE_TECH'],
+  'FCC': ['COMMERCE_TECH'],
+  'Department of Education': ['EDUCATION'],
+  'Securities and Exchange Commission': ['FINANCIAL_SERVICES'],
+  'SEC': ['FINANCIAL_SERVICES'],
+  'Department of the Treasury': ['FINANCIAL_SERVICES'],
+  'Consumer Financial Protection Bureau': ['FINANCIAL_SERVICES'],
+  'Department of the Interior': ['ENVIRONMENT_WATER'],
+  'Army Corps of Engineers': ['ENVIRONMENT_WATER', 'DEFENSE'],
+};
 ```
-GET /lda-intel/dashboard
-GET /lda-intel/filings
-GET /lda-intel/clients
-GET /lda-intel/clients/:id
-GET /lda-intel/registrants
-GET /lda-intel/registrants/:id
-GET /lda-intel/lobbyists
-GET /lda-intel/issues
-GET /lda-intel/issues/:code
-GET /lda-intel/entities
-GET /lda-intel/contributions
-GET /lda-intel/trends
-GET /lda-intel/match/:clientName
-GET /lda-intel/congress/bills
-GET /lda-intel/fec/committees
-```
 
-READ existing controllers first (lobby-intel.controller.ts, federal-spending.controller.ts) to match auth/decorator patterns.
+---
 
-### 5. Register module in app.module.ts
+## IMPLEMENTATION RULES
 
-### 6. Add package.json scripts
-```json
-"sync:lda": "tsx scripts/sync-lda.ts",
-"sync:lda:incremental": "tsx scripts/sync-lda.ts --incremental",
-"sync:fec": "tsx scripts/sync-fec.ts",
-"sync:congress": "tsx scripts/sync-congress.ts"
-```
-
-Do NOT modify files not mentioned. Do NOT delete existing code. READ existing files first to match patterns.
+1. **READ existing files FIRST** — especially insight-generator.service.ts (the AI provider pattern, prompt style, error handling)
+2. **RLS**: `prisma.withTenant(tenantId, tx => ...)` for ALL CRM tables (Client, Meeting, MailThread, EngagementTask, MeetingDebrief, OutreachRecord, ClientCapability). Direct prisma for global tables.
+3. **DO NOT** use `Parameters<typeof this.prisma.X.findMany>[0]['where']` — use `Record<string, unknown>`
+4. **DO NOT** use conditional spreads `...(cond ? {x} : {})` in Prisma calls
+5. **Register new services** in intelligence.module.ts
+6. **Match AI model usage**: Use the existing `callAi()` method in insight-generator.service.ts for any AI generation. It already handles OpenAI/Anthropic fallback.
+7. **Scripts should be standalone** — connectable via `npx tsx scripts/name.ts`, following the pattern of existing scripts like emit-changes.ts

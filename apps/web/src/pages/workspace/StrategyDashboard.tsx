@@ -26,7 +26,7 @@ import { WorkflowDrawer } from './WorkflowDrawer.js';
 import type { DirectoryApiResponse, DirectoryEntry } from '../directory/directoryData.js';
 
 function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
@@ -413,7 +413,7 @@ export function StrategyDashboard() {
         const cat = inst.template?.category ?? '';
         return (
           <Tag color={CATEGORY_TAG_COLORS[cat] ?? 'default'}>
-            {CATEGORY_SHORT[cat] ?? (cat.toUpperCase() || '—')}
+            {CATEGORY_SHORT[cat] ?? (cat.toUpperCase() || '-')}
           </Tag>
         );
       },
@@ -444,7 +444,7 @@ export function StrategyDashboard() {
       render: (_: unknown, inst: WorkflowInstance & { template: WorkflowTemplate }) =>
         (inst as any).submissionDeadline
           ? fmtDate((inst as any).submissionDeadline)
-          : '—',
+          : '-',
     },
     {
       title: 'Actions',
@@ -452,12 +452,25 @@ export function StrategyDashboard() {
       width: 180,
       render: (_: unknown, inst: WorkflowInstance & { template: WorkflowTemplate }) => {
         const isSupporting = inst.template?.category === 'supporting';
+        const slug = String(inst.templateSlug ?? (inst.template as any)?.slug ?? '').toLowerCase();
+        const isProgramWhitePaper =
+          slug === 'program-white-paper' ||
+          slug === 'program_white_paper' ||
+          (slug.includes('white') && slug.includes('paper'));
         const hasGeneratedDoc = Boolean((inst.formData ?? {}).generated_document);
         const isGenerating = generatingIds.has(String(inst.id));
 
         return (
           <Space size="small">
-            {isSupporting && !hasGeneratedDoc ? (
+            {isProgramWhitePaper ? (
+              <Button
+                size="small"
+                type="primary"
+                onClick={() => navigate(`/workspace/strategy/${id}/white-paper/${inst.id}`)}
+              >
+                View & Edit
+              </Button>
+            ) : isSupporting && !hasGeneratedDoc ? (
               <Button
                 size="small"
                 type="primary"
@@ -518,7 +531,7 @@ export function StrategyDashboard() {
       title: 'Committee',
       key: 'committee',
       render: (_: unknown, target: any) => (
-        <Text type="secondary">{target.committee ?? '—'}</Text>
+        <Text type="secondary">{target.committee ?? '-'}</Text>
       ),
     },
     {
@@ -655,7 +668,7 @@ export function StrategyDashboard() {
             style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}
           >
             <Text type="secondary" style={{ fontSize: 13 }}>
-              Submissions — {completedSubmissions}/{instances.length} complete
+              Submissions, {completedSubmissions}/{instances.length} complete
             </Text>
             <Text type="secondary" style={{ fontSize: 13 }}>
               {subProgressPct}%
@@ -667,7 +680,7 @@ export function StrategyDashboard() {
             style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}
           >
             <Text type="secondary" style={{ fontSize: 13 }}>
-              Targets reached — {completedTargets}/{targets.length}
+              Targets reached, {completedTargets}/{targets.length}
             </Text>
             <Text type="secondary" style={{ fontSize: 13 }}>
               {targetProgressPct}%

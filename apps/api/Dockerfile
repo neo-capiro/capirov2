@@ -38,7 +38,7 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 COPY packages/shared/src packages/shared/src
 COPY packages/shared/tsconfig.json packages/shared/tsconfig.json
 COPY apps/api/src apps/api/src
-COPY apps/api/tsconfig.json apps/api/nest-cli.json apps/api/
+COPY apps/api/tsconfig.json apps/api/tsconfig.build.json apps/api/nest-cli.json apps/api/
 COPY apps/api/prisma apps/api/prisma
 COPY apps/api/scripts apps/api/scripts
 
@@ -60,9 +60,19 @@ RUN groupadd --system --gid 1001 capiro \
  && apt-get update \
  && apt-get install -y --no-install-recommends wget ca-certificates dumb-init openssl \
  && rm -rf /var/lib/apt/lists/*
+# tsx (used by entrypoint.sh to run scripts/sync-*.ts as ECS one-off tasks)
+# needs a writable scratch dir for its IPC server. Default os.tmpdir() = /tmp;
+# on Fargate the capiro user (uid 1001) hits ENOENT trying to create
+# /tmp/tsx-1001. Create an explicit /app/tmp owned by capiro and point TMPDIR
+# at it AFTER the apt install (TMPDIR set earlier would break ca-certificates'
+# post-install script, which uses mktemp against $TMPDIR).
+RUN mkdir -p /app/tmp /tmp \
+ && chmod 1777 /tmp \
+ && chown capiro:capiro /app/tmp
+ENV TMPDIR=/app/tmp
 WORKDIR /app
 
-# Copy the entire workspace — pnpm's symlinked node_modules + the generated
+# Copy the entire workspace, pnpm's symlinked node_modules + the generated
 # Prisma client + the compiled API. Larger image (~250MB) but reliable.
 COPY --chown=capiro:capiro --from=build /workspace/node_modules /app/node_modules
 COPY --chown=capiro:capiro --from=build /workspace/packages/shared/dist /app/packages/shared/dist
@@ -71,7 +81,7 @@ COPY --chown=capiro:capiro --from=build /workspace/apps/api/dist /app/apps/api/d
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/node_modules /app/apps/api/node_modules
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/prisma /app/apps/api/prisma
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/package.json /app/apps/api/package.json
-# bootstrap-* commands run TS scripts via tsx at task launch — copy the
+# bootstrap-* commands run TS scripts via tsx at task launch, copy the
 # sources so `node tsx scripts/<name>.ts` resolves at runtime.
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/scripts /app/apps/api/scripts
 COPY --chown=capiro:capiro apps/api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh

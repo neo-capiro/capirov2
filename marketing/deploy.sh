@@ -46,4 +46,4 @@ INV_ID="$(aws cloudfront create-invalidation \
   --query 'Invalidation.Id' --output text)"
 echo "  invalidation id: $INV_ID"
 
-echo "✓ done — https://capiro.ai (cache propagation typically 30-60s)"
+echo "✓ done, https://capiro.ai (cache propagation typically 30-60s)"

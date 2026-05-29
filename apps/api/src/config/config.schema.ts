@@ -66,6 +66,12 @@ export const configSchema = z.object({
   // APP_SIGN_IN_URL is injected by CDK per env (compute-stack apiSharedEnv).
   // The prod default here keeps prod working if ever run without CDK injection.
   APP_SIGN_IN_URL: z.string().url().default('https://app.capiro.ai/sign-in'),
+  // Optional override for Clerk invitation redirect URLs. When unset, the
+  // tenant-admin invitation flow derives the URL from the first entry of
+  // WEB_ORIGIN (which is a comma-separated CORS allowlist). Set this
+  // explicitly when the primary host differs from the first allowed
+  // origin or when invitation links should land on a non-standard route.
+  INVITATION_REDIRECT_URL: z.string().url().optional(),
   MICROSOFT_REDIRECT_URI: z
     .string()
     .url()
