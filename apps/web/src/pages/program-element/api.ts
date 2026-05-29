@@ -5,6 +5,7 @@ import type {
   ProgramElementDetail,
   ProgramElementListResponse,
   ProgramElementMarkupMonitorResponse,
+  ProgramTeamPerson,
 } from './types.js';
 
 export async function getProgramElementDetail(
@@ -29,6 +30,25 @@ export async function getProgramElementContractors(
     await api.get<ProgramElementContractorsResponse>(
       `/api/program-elements/${encodeURIComponent(peCode)}/contractors`,
     )
+  ).data;
+}
+
+export async function getProgramElementPersonnel(
+  api: AxiosInstance,
+  peCode: string,
+): Promise<ProgramTeamPerson[]> {
+  return (await api.get<ProgramTeamPerson[]>(`/api/program-elements/${encodeURIComponent(peCode)}/personnel`)).data;
+}
+
+export async function linkProgramElementPersonToCrm(
+  api: AxiosInstance,
+  personId: string,
+  engagementContactId: string,
+): Promise<{ linked: true }> {
+  return (
+    await api.post<{ linked: true }>(`/api/acquisition-personnel/${encodeURIComponent(personId)}/link-crm-contact`, {
+      engagementContactId,
+    })
   ).data;
 }
 

@@ -103,6 +103,11 @@ case "${1:-serve}" in
     echo "Running emit-bill-alerts (semantic per-bill stage alerts)"
     exec ./node_modules/.bin/tsx scripts/emit-bill-alerts.ts
     ;;
+  delete-tenant)
+    shift
+    echo "Running delete-tenant $*"
+    exec ./node_modules/.bin/tsx scripts/delete-tenant.ts "$@"
+    ;;
   backfill-sectors)
     echo "Running backfill-sector-tags"
     exec ./node_modules/.bin/tsx scripts/backfill-sector-tags.ts

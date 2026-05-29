@@ -89,6 +89,24 @@ export interface ProgramElementContractorsResponse {
   todo: string | null;
 }
 
+export interface ProgramTeamPerson {
+  id: string;
+  fullName: string;
+  service: string | null;
+  organization: string | null;
+  title: string | null;
+  role: string | null;
+  pePrimary: string | null;
+  peSecondary: string[];
+  emailDomain: string | null;
+  publicProfileUrl: string | null;
+  confidence: number;
+  status: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  sourceCount: number;
+}
+
 export type ProgramElementSourceField =
   | 'request'
   | 'hascMark'

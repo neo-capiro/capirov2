@@ -105,7 +105,6 @@ const NAV: NavItem[] = [
     label: 'Engagement',
     path: '/engagement',
     icon: <CalendarOutlined />,
-    nested: true,
   },
   {
     key: 'workspace',

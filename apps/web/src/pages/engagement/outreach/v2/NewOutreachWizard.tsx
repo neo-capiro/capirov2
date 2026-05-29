@@ -57,6 +57,12 @@ interface InsightsResponse {
     latestAction: string | null;
   }>;
   clientLdaHistory?: Array<{ year: number; filingCount: number; issueAreas: string[] }>;
+  // Client-profile intelligence the endpoint already returns; surfaced in the
+  // Intel tab so it isn't empty when the client has no LDA filings.
+  surgingIssues?: Array<{ code: string; name: string; surgePct: number | null }>;
+  trendingTopics?: Array<{ word: string; growthPct: number | null }>;
+  clientSpending?: { name?: string | null; total?: number | null } | null;
+  topAgencies?: Array<{ name?: string | null; total?: number | null }>;
 }
 
 interface MeetingsResponse {
@@ -133,7 +139,8 @@ export function NewOutreachWizard({
     queryFn: async () => {
       const params = new URLSearchParams();
       if (state.clientId) params.set('clientId', state.clientId);
-      params.set('from', new Date(Date.now() - 90 * 86400_000).toISOString());
+      // Last 30 days of the client's meetings.
+      params.set('from', new Date(Date.now() - 30 * 86400_000).toISOString());
       const res = await api.get<MeetingsResponse | { items?: never[] }>(
         `/api/engagement/meetings?${params}`,
       );
@@ -148,6 +155,8 @@ export function NewOutreachWizard({
     queryFn: async () => {
       const params = new URLSearchParams();
       if (state.clientId) params.set('clientId', state.clientId);
+      // Last 30 days of the client's email threads.
+      params.set('from', new Date(Date.now() - 30 * 86400_000).toISOString());
       const res = await api.get<MailThreadsResponse>(`/api/engagement/mail-threads?${params}`);
       return res.data;
     },
@@ -184,6 +193,52 @@ export function NewOutreachWizard({
         title: `${row.year} LDA filings (${row.filingCount})`,
         body: row.issueAreas.length ? `Issue areas: ${row.issueAreas.join(', ')}` : undefined,
         tag: 'LDA',
+      });
+    }
+
+    // Client-profile intelligence the insights endpoint already returns:
+    // surging issues, trending topics, and the client's federal-spending
+    // footprint. Surfaced here so the Intel tab has content beyond LDA history.
+    for (const issue of insightsQuery.data?.surgingIssues ?? []) {
+      out.intel.push({
+        id: `intel-issue-${issue.code}`,
+        kind: 'intel',
+        title: issue.name,
+        body: issue.surgePct != null ? `Lobbying activity up ${issue.surgePct}%` : undefined,
+        tag: 'Surging issue',
+      });
+    }
+    for (const topic of insightsQuery.data?.trendingTopics ?? []) {
+      out.intel.push({
+        id: `intel-topic-${topic.word}`,
+        kind: 'intel',
+        title: topic.word,
+        body:
+          topic.growthPct != null
+            ? `Trending ${topic.growthPct > 0 ? '+' : ''}${topic.growthPct}%`
+            : undefined,
+        tag: 'Trending',
+      });
+    }
+    const spending = insightsQuery.data?.clientSpending;
+    if (spending?.name) {
+      out.intel.push({
+        id: 'intel-spending',
+        kind: 'intel',
+        title: `Federal contracts: ${spending.name}`,
+        body:
+          spending.total != null ? `~$${(spending.total / 1_000_000).toFixed(1)}M awarded` : undefined,
+        tag: 'Spending',
+      });
+    }
+    for (const agency of insightsQuery.data?.topAgencies ?? []) {
+      if (!agency.name) continue;
+      out.intel.push({
+        id: `intel-agency-${agency.name}`,
+        kind: 'intel',
+        title: `Top agency: ${agency.name}`,
+        body: agency.total != null ? `~$${(agency.total / 1_000_000).toFixed(1)}M` : undefined,
+        tag: 'Agency',
       });
     }
 

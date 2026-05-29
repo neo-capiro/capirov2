@@ -28,19 +28,24 @@ import {
   getProgramElementBills,
   getProgramElementContractors,
   getProgramElementDetail,
+  getProgramElementPersonnel,
   getProgramElementsList,
+  linkProgramElementPersonToCrm,
   setProgramElementWatching,
 } from './api.js';
 import { FyHistoryChart } from './FyHistoryChart.js';
 import { BillsTouchingPePanel } from './BillsTouchingPePanel.js';
 import { ContractorsPanel } from './ContractorsPanel.js';
 import { FyDetailDrawer } from './FyDetailDrawer.js';
+import { ProgramTeamPanel } from './ProgramTeamPanel.js';
 import type {
   ProgramElementBill,
   ProgramElementContractorsResponse,
   ProgramElementHistoryRow,
   ProgramElementYearPoint,
+  ProgramTeamPerson,
 } from './types.js';
+
 function numberOrNull(value: string | number | null | undefined): number | null {
   if (value == null) return null;
   const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
@@ -86,6 +91,7 @@ function latestYear(years: ProgramElementYearPoint[]): ProgramElementYearPoint |
 const LazyFyHistoryChart = lazy(async () => ({ default: FyHistoryChart }));
 const LazyBillsTouchingPePanel = lazy(async () => ({ default: BillsTouchingPePanel }));
 const LazyContractorsPanel = lazy(async () => ({ default: ContractorsPanel }));
+const LazyProgramTeamPanel = lazy(async () => ({ default: ProgramTeamPanel }));
 
 const { Title, Text } = Typography;
 
@@ -159,6 +165,24 @@ export function ProgramElementWatchPage() {
     enabled: normalizedPeCode.length > 0,
   });
 
+  const programTeamQuery = useQuery({
+    queryKey: ['program-element-personnel', normalizedPeCode],
+    queryFn: () => getProgramElementPersonnel(api, normalizedPeCode),
+    staleTime: 60 * 1000,
+    enabled: normalizedPeCode.length > 0,
+  });
+
+  const linkPersonMutation = useMutation({
+    mutationFn: ({ personId, engagementContactId }: { personId: string; engagementContactId: string }) =>
+      linkProgramElementPersonToCrm(api, personId, engagementContactId),
+    onSuccess: () => {
+      message.success('Linked to CRM contact');
+    },
+    onError: () => {
+      message.error('Unable to link CRM contact');
+    },
+  });
+
   if (!normalizedPeCode) {
     return <Alert type="warning" message="Missing PE code" showIcon />;
   }
@@ -199,6 +223,7 @@ export function ProgramElementWatchPage() {
     data: [],
     todo: null,
   };
+  const programTeam: ProgramTeamPerson[] = programTeamQuery.data ?? [];
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -269,7 +294,11 @@ export function ProgramElementWatchPage() {
             <Statistic
               title="Watching"
               value={detail.currentUserIsWatching ? 1 : 0}
-              valueRender={() => <Tag color={detail.currentUserIsWatching ? 'green' : 'default'}>{detail.currentUserIsWatching ? 'Watching' : 'Not Watching'}</Tag>}
+              valueRender={() => (
+                <Tag color={detail.currentUserIsWatching ? 'green' : 'default'}>
+                  {detail.currentUserIsWatching ? 'Watching' : 'Not Watching'}
+                </Tag>
+              )}
               prefix={<EyeOutlined />}
             />
           </Card>
@@ -303,6 +332,24 @@ export function ProgramElementWatchPage() {
         </Col>
       </Row>
 
+      <Suspense fallback={<Card title="Program team"><Skeleton active paragraph={{ rows: 5 }} /></Card>}>
+        <LazyProgramTeamPanel
+          personnel={programTeam}
+          loading={programTeamQuery.isLoading}
+          estimatedTotal={Math.max(programTeam.length, 6)}
+          onViewAllSources={() => {
+            message.info('Program team source viewer is not yet wired');
+          }}
+          onLinkCrmContact={(personId) => {
+            if (linkPersonMutation.isPending) return;
+            linkPersonMutation.mutate({
+              personId,
+              engagementContactId: '00000000-0000-0000-0000-000000000001',
+            });
+          }}
+        />
+      </Suspense>
+
       <FyDetailDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
@@ -313,4 +360,3 @@ export function ProgramElementWatchPage() {
     </Space>
   );
 }
-

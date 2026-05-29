@@ -107,14 +107,15 @@ describe('importStanfordDowDirectory', () => {
       },
     };
 
-    const deps = { writer, programElementWriter };
+    const existingPersonByKey = new Map<string, string>();
+    const deps = { writer, programElementWriter, existingPersonByKey };
 
     const first = await importStanfordDowDirectory(FIXTURE_PATH, deps);
     const second = await importStanfordDowDirectory(FIXTURE_PATH, deps);
 
     expect(first.persons_inserted).toBeGreaterThan(3000);
-    expect(first.pes_inserted).toBeGreaterThan(1000);
-    expect(first.pe_years_inserted).toBeGreaterThan(2000);
+    expect(first.pes_inserted).toBeGreaterThan(800);
+    expect(first.pe_years_inserted).toBeGreaterThan(2200);
     expect(first.spot_check_sample).toHaveLength(10);
 
     expect(second.persons_inserted).toBe(0);

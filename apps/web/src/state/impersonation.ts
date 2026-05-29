@@ -32,6 +32,18 @@ function write(slug: string | null) {
   notify();
 }
 
+/**
+ * Clear any active impersonation slug. Exported so the API client can recover
+ * from a stale slug (e.g. the server-side session expired after 1h but the
+ * slug lingered in sessionStorage, which otherwise 403s every request).
+ */
+export function clearImpersonationSlug() {
+  if (typeof window === 'undefined') return;
+  if (!window.sessionStorage.getItem(KEY)) return;
+  window.sessionStorage.removeItem(KEY);
+  notify();
+}
+
 export function useImpersonation(): ImpersonationState {
   const [actAs, setActAs] = useState<string | null>(read());
   useEffect(() => {

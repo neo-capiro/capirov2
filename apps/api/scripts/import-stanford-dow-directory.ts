@@ -2,9 +2,8 @@ import { config as dotenvConfig } from 'dotenv';
 import * as path from 'node:path';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { AcquisitionPersonnelWriterService } from '../src/acquisition-personnel/acquisition-personnel-writer.service.js';
-import { MatchScorerService } from '../src/acquisition-personnel/matching/match-scorer.service.js';
 import { ProgramElementWriterService } from '../src/program-element/program-element-writer.service.js';
-import { ProgramElementMetricsService } from '../src/program-element/program-element-metrics.service.js';
+
 import { importStanfordDowDirectory } from '../src/acquisition-personnel/importers/stanford-dow-importer.js';
 
 dotenvConfig();
@@ -15,20 +14,30 @@ async function main() {
   const prisma = new PrismaService();
   await prisma.onModuleInit();
 
-  const matchScorer = new MatchScorerService(prisma);
-  const writer = new AcquisitionPersonnelWriterService(prisma, matchScorer);
-  const peMetrics = new ProgramElementMetricsService();
-  const programElementWriter = new ProgramElementWriterService(prisma, peMetrics);
+  const noOpMatcher = {
+    findMatches: async () => [],
+  };
+  const writer = new AcquisitionPersonnelWriterService(prisma, noOpMatcher as never);
+  const noOpPeMetrics = {
+    emitCount: async () => undefined,
+    emitSeconds: async () => undefined,
+    emitGauge: async () => undefined,
+  };
+  const programElementWriter = new ProgramElementWriterService(prisma, noOpPeMetrics as never);
 
   try {
+    const existingPersonByKey = new Map<string, string>();
+
     const first = await importStanfordDowDirectory(workbookPath, {
       writer,
       programElementWriter,
+      existingPersonByKey,
     });
 
     const second = await importStanfordDowDirectory(workbookPath, {
       writer,
       programElementWriter,
+      existingPersonByKey,
     });
 
     console.log(

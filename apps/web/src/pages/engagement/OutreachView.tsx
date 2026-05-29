@@ -277,11 +277,14 @@ interface TemplateOption {
   isCustom?: boolean;
 }
 
-const TYPE_FILTERS: Array<{ value: OutreachType; label: string }> = [
+type DirectionFilter = 'all' | 'to-clients' | 'on-behalf';
+
+// Filter outreach by who it's going to: "Client" = direct to your own clients,
+// "External" = sent to congressional offices on behalf of a client.
+const DIRECTION_FILTERS: Array<{ value: DirectionFilter; label: string }> = [
   { value: 'all', label: 'All' },
-  { value: 'campaign', label: 'Campaigns' },
-  { value: 'follow_up', label: 'Follow-ups' },
-  { value: 'prep', label: 'Prep' },
+  { value: 'to-clients', label: 'Client' },
+  { value: 'on-behalf', label: 'External' },
 ];
 
 const WORKFLOW_LABELS: Record<WorkflowType, string> = {
@@ -411,7 +414,7 @@ export function OutreachView({
   const today = todayInputValue();
   const [from, setFrom] = useState(inputValueFromDate(addLocalDays(new Date(), -30)));
   const [to, setTo] = useState(today);
-  const [typeFilter, setTypeFilter] = useState<OutreachType>('all');
+  const [directionFilter, setDirectionFilter] = useState<DirectionFilter>('all');
   const [outreachLimit, setOutreachLimit] = useState(50);
   // 'selector' (the meeting-follow-up / prep / campaign type picker) was
   // removed: clicking "New Outreach" now jumps straight to the campaign
@@ -547,7 +550,7 @@ export function OutreachView({
 
   useEffect(() => {
     setOutreachLimit(50);
-  }, [selectedClientId, from, to, typeFilter]);
+  }, [selectedClientId, from, to]);
 
   const activeClients = useMemo(
     () =>
@@ -559,7 +562,7 @@ export function OutreachView({
   const selectedClient = activeClients.find((client) => client.id === selectedClientId) ?? null;
 
   const outreach = useQuery<OutreachRecord[]>({
-    queryKey: ['engagement-outreach', selectedClientId, from, to, typeFilter, outreachLimit],
+    queryKey: ['engagement-outreach', selectedClientId, from, to, outreachLimit],
     queryFn: async () =>
       (
         await api.get<OutreachRecord[]>('/api/engagement/outreach', {
@@ -567,7 +570,6 @@ export function OutreachView({
             clientId: selectedClientId ?? undefined,
             from: localDateStartIso(from),
             to: localDateEndIso(to),
-            type: typeFilter === 'all' ? undefined : typeFilter,
             limit: outreachLimit,
           },
         })
@@ -661,11 +663,16 @@ export function OutreachView({
     queryFn: async () =>
       (
         await api.get<DirectoryApiResponse>('/api/directory/contacts', {
-          params: { q: directoryQuery, pageSize: 20 },
+          params: {
+            q: directoryQuery,
+            pageSize: 20,
+            // With no query, show the directory A–Z by default so the panel
+            // isn't empty and it's obvious you can search/add from here.
+            sort: directoryQuery.trim().length >= 2 ? undefined : 'name-asc',
+          },
         })
       ).data,
-    enabled:
-      (mode === 'campaign' || mode === 'outbound_campaign') && directoryQuery.trim().length >= 2,
+    enabled: mode === 'campaign' || mode === 'outbound_campaign',
   });
 
   const clientContext = useQuery<ClientContext>({
@@ -1042,6 +1049,7 @@ export function OutreachView({
 
   const rows = (outreach.data ?? [])
     .filter((record) => record.type !== 'outbound_campaign')
+    .filter((record) => directionFilter === 'all' || recordDirection(record) === directionFilter)
     .sort((left, right) => outreachRecordTimestamp(right) - outreachRecordTimestamp(left));
   const drafts = rows.filter((record) => record.status === 'draft');
   const sent = rows.filter((record) => record.status !== 'draft');
@@ -1054,12 +1062,12 @@ export function OutreachView({
         <span>-</span>
         <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
         <div className="outreach-type-pills">
-          {TYPE_FILTERS.map((filter) => (
+          {DIRECTION_FILTERS.map((filter) => (
             <button
               key={filter.value}
               type="button"
-              className={typeFilter === filter.value ? 'active' : ''}
-              onClick={() => setTypeFilter(filter.value)}
+              className={directionFilter === filter.value ? 'active' : ''}
+              onClick={() => setDirectionFilter(filter.value)}
             >
               {filter.label}
             </button>
@@ -1127,14 +1135,10 @@ export function OutreachView({
               <span>
                 <strong>No outreach yet</strong>
                 <br />
-                Start by creating a campaign, Clio drafts from your context
+                Use New Outreach above, Clio drafts from your context
               </span>
             }
-          >
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => startWorkflow('campaign')}>
-              New Outreach
-            </Button>
-          </Empty>
+          />
         </div>
       )}
     </div>
@@ -1193,6 +1197,13 @@ function CampaignWorkflow({
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [officeFilter, setOfficeFilter] = useState<string>('all');
   const [fallbackField, setFallbackField] = useState<CampaignDynamicField | null>(null);
+  const [manualFirst, setManualFirst] = useState('');
+  const [manualLast, setManualLast] = useState('');
+  const [manualEmail, setManualEmail] = useState('');
+  const manualRecipientValid =
+    manualFirst.trim().length > 0 &&
+    manualLast.trim().length > 0 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim());
   const selectedClient = clients.find((client) => client.id === workflow.clientId) ?? null;
   const selectedRecipient = workflow.recipients[workflow.selectedPreviewIndex] ?? null;
   const contextSuggestions = useMemo(
@@ -1242,16 +1253,18 @@ function CampaignWorkflow({
   };
 
   const addManualRecipient = () => {
-    const parsed = parseRecipient(workflow.recipientInput);
-    if (!parsed) return;
+    if (!manualRecipientValid) return;
     onWorkflowChange({
       ...workflow,
       recipients: addUniqueRecipient(workflow.recipients, {
-        ...parsed,
-        relevanceReason: 'Manual address, no directory data',
+        name: `${manualFirst.trim()} ${manualLast.trim()}`,
+        email: manualEmail.trim(),
+        relevanceReason: 'Manually added',
       }),
-      recipientInput: '',
     });
+    setManualFirst('');
+    setManualLast('');
+    setManualEmail('');
   };
 
   const updateRecipient = (index: number, patch: Partial<OutreachRecipient>) => {
@@ -1446,17 +1459,34 @@ function CampaignWorkflow({
               </section>
 
               <section>
-                <Typography.Title level={5}>Add manual email address</Typography.Title>
-                <div className="outreach-manual-email">
+                <Typography.Title level={5}>Add a recipient manually</Typography.Title>
+                <Typography.Text type="secondary">
+                  First name, last name, and email are all required.
+                </Typography.Text>
+                <div className="outreach-manual-email" style={{ flexWrap: 'wrap', marginTop: 8 }}>
                   <Input
-                    value={workflow.recipientInput}
-                    placeholder="Enter email address..."
-                    onChange={(event) =>
-                      onWorkflowChange({ ...workflow, recipientInput: event.target.value })
-                    }
+                    style={{ flex: '1 1 130px' }}
+                    value={manualFirst}
+                    placeholder="First name"
+                    onChange={(event) => setManualFirst(event.target.value)}
                     onPressEnter={addManualRecipient}
                   />
-                  <Button type="primary" onClick={addManualRecipient}>
+                  <Input
+                    style={{ flex: '1 1 130px' }}
+                    value={manualLast}
+                    placeholder="Last name"
+                    onChange={(event) => setManualLast(event.target.value)}
+                    onPressEnter={addManualRecipient}
+                  />
+                  <Input
+                    style={{ flex: '2 1 200px' }}
+                    type="email"
+                    value={manualEmail}
+                    placeholder="Email address"
+                    onChange={(event) => setManualEmail(event.target.value)}
+                    onPressEnter={addManualRecipient}
+                  />
+                  <Button type="primary" disabled={!manualRecipientValid} onClick={addManualRecipient}>
                     Add
                   </Button>
                 </div>
@@ -1767,26 +1797,25 @@ function CampaignWorkflow({
             />
           </div>
           <div className="outreach-recipient-results">
-            {directoryQuery.trim().length < 2 ? (
-              <Typography.Text type="secondary">
-                Search by name, office, or committee.
-              </Typography.Text>
-            ) : directoryLoading ? (
-              <Typography.Text type="secondary">Searching Directory...</Typography.Text>
+            {directoryLoading ? (
+              <Typography.Text type="secondary">Loading Directory...</Typography.Text>
             ) : filteredDirectoryRows.length ? (
-              filteredDirectoryRows.map((entry) => (
-                <DirectoryRecipientRow
-                  key={entry.id}
-                  entry={entry}
-                  selected={workflow.recipients.some(
-                    (recipient) => recipient.directoryContactId === entry.id,
-                  )}
-                  onAdd={(recipient) => {
-                    addRecipient(recipient);
-                    setDirectoryOpen(false);
-                  }}
-                />
-              ))
+              <>
+                {directoryQuery.trim().length < 2 ? (
+                  <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                    Showing the directory A–Z. Search by name, office, or committee to narrow,
+                    then add a member or any of their staffers.
+                  </Typography.Text>
+                ) : null}
+                {filteredDirectoryRows.map((entry) => (
+                  <DirectoryRecipientRow
+                    key={entry.id}
+                    entry={entry}
+                    recipients={workflow.recipients}
+                    onAdd={(recipient) => addRecipient(recipient)}
+                  />
+                ))}
+              </>
             ) : directoryTotal === 0 ? (
               <Empty description="No contacts in your Directory yet. Add members and staffers in the Directory section.">
                 <Button href="/directory">Go to Directory</Button>
@@ -2051,9 +2080,7 @@ function PortfolioCampaignWorkflow({
                           <DirectoryRecipientRow
                             key={entry.id}
                             entry={entry}
-                            selected={workflow.recipients.some(
-                              (recipient) => recipient.directoryContactId === entry.id,
-                            )}
+                            recipients={workflow.recipients}
                             onAdd={(recipient) =>
                               onWorkflowChange({
                                 ...workflow,
@@ -2456,9 +2483,7 @@ function LegacyCampaignWorkflow({
                         <DirectoryRecipientRow
                           key={entry.id}
                           entry={entry}
-                          selected={workflow.recipients.some(
-                            (recipient) => recipient.directoryContactId === entry.id,
-                          )}
+                          recipients={workflow.recipients}
                           onAdd={(recipient) =>
                             onWorkflowChange({
                               ...workflow,
@@ -2861,9 +2886,7 @@ function OutboundCampaignWorkflow({
                         <DirectoryRecipientRow
                           key={entry.id}
                           entry={entry}
-                          selected={workflow.recipients.some(
-                            (recipient) => recipient.directoryContactId === entry.id,
-                          )}
+                          recipients={workflow.recipients}
                           onAdd={(recipient) =>
                             onWorkflowChange({
                               ...workflow,
@@ -4128,27 +4151,61 @@ function clientRecipientKey(client: Client): string {
 
 function DirectoryRecipientRow({
   entry,
-  selected,
+  recipients,
   onAdd,
 }: {
   entry: DirectoryEntry;
-  selected: boolean;
+  recipients: OutreachRecipient[];
   onAdd: (recipient: OutreachRecipient) => void;
 }) {
-  const recipient = directoryRecipientFromEntry(entry);
+  const memberRecipient = directoryRecipientFromEntry(entry);
+  const isSelected = (candidate: OutreachRecipient) =>
+    recipients.some(
+      (recipient) =>
+        (Boolean(candidate.directoryContactId) &&
+          recipient.directoryContactId === candidate.directoryContactId) ||
+        (Boolean(candidate.email) &&
+          recipient.email?.toLowerCase() === candidate.email?.toLowerCase()),
+    );
 
   return (
-    <button type="button" className="outreach-directory-row" onClick={() => onAdd(recipient)}>
-      <span>{initials(entry.memberName)}</span>
-      <div>
-        <strong>{entry.fullName}</strong>
-        <small>{[entry.office, entry.committees[0]].filter(Boolean).join(' | ')}</small>
-        <em>{recipient.relevanceReason}</em>
-      </div>
-      <b className={`outreach-row-action${selected ? ' is-selected' : ''}`}>
-        {selected ? 'Selected' : 'Add'}
-      </b>
-    </button>
+    <div className="outreach-directory-row-group">
+      <button type="button" className="outreach-directory-row" onClick={() => onAdd(memberRecipient)}>
+        <span>{initials(entry.memberName)}</span>
+        <div>
+          <strong>{entry.fullName}</strong>
+          <small>{[entry.office, entry.committees[0]].filter(Boolean).join(' | ')}</small>
+          <em>{memberRecipient.relevanceReason}</em>
+        </div>
+        <b className={`outreach-row-action${isSelected(memberRecipient) ? ' is-selected' : ''}`}>
+          {isSelected(memberRecipient) ? 'Selected' : 'Add'}
+        </b>
+      </button>
+      {entry.staff.length ? (
+        <div className="outreach-directory-staff">
+          {entry.staff.map((staffer) => {
+            const stafferRecipient = directoryStafferRecipient(entry, staffer);
+            return (
+              <button
+                type="button"
+                key={staffer.id}
+                className="outreach-directory-row outreach-directory-staff-row"
+                onClick={() => onAdd(stafferRecipient)}
+              >
+                <span>{initials(staffer.fullName)}</span>
+                <div>
+                  <strong>{staffer.fullName}</strong>
+                  <small>{[staffer.title, staffer.issueAreas[0]].filter(Boolean).join(' | ')}</small>
+                </div>
+                <b className={`outreach-row-action${isSelected(stafferRecipient) ? ' is-selected' : ''}`}>
+                  {isSelected(stafferRecipient) ? 'Selected' : 'Add'}
+                </b>
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -4495,6 +4552,26 @@ function directoryRecipientFromEntry(
   };
 }
 
+function directoryStafferRecipient(
+  entry: DirectoryEntry,
+  staffer: DirectoryEntry['staff'][number],
+): OutreachRecipient {
+  return {
+    name: staffer.fullName,
+    email: textOrUndefined(staffer.email),
+    office: textOrUndefined(entry.office),
+    title: textOrUndefined(staffer.title),
+    chamber: textOrUndefined(entry.chamber),
+    state: textOrUndefined(entry.state),
+    district: textOrUndefined(entry.district),
+    party: textOrUndefined(entry.partyName),
+    directoryContactId: `${entry.id}:${staffer.id}`,
+    directoryContactName: `${staffer.fullName} (${entry.memberName})`,
+    committee: textOrUndefined(entry.committees[0]),
+    relevanceReason: `Staffer to ${entry.fullName}${staffer.title ? `, ${staffer.title}` : ''}`,
+  };
+}
+
 function addUniqueRecipient(recipients: OutreachRecipient[], recipient: OutreachRecipient) {
   const key = recipientKey(recipient);
   if (recipients.some((row) => recipientKey(row) === key)) return recipients;
@@ -4535,6 +4612,18 @@ function parseRecipient(value: string): OutreachRecipient | null {
   if (angle) return { name: angle[1]?.trim(), email: angle[2]?.trim() };
   if (text.includes('@')) return { email: text };
   return { name: text };
+}
+
+// Direction of an outreach record for the Client/External filter. OutreachRecord
+// has no explicit direction column, so prefer a persisted metadata.direction and
+// otherwise infer from type (campaigns go to congressional offices on behalf of
+// the client; follow-ups / prep go to the client).
+function recordDirection(record: OutreachRecord): 'on-behalf' | 'to-clients' {
+  const meta = (record.metadata ?? {}) as { direction?: string };
+  if (meta.direction === 'on-behalf' || meta.direction === 'to-clients') return meta.direction;
+  return record.type === 'campaign' || record.type === 'outbound_campaign'
+    ? 'on-behalf'
+    : 'to-clients';
 }
 
 function recipientKey(recipient: OutreachRecipient): string {

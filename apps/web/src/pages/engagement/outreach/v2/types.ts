@@ -60,8 +60,8 @@ export const WIZARD_STEPS = [
   { id: 'direction', label: 'Direction' },
   { id: 'setup', label: 'Campaign Setup' },
   { id: 'recipients', label: 'Recipients' },
-  { id: 'context', label: 'Build Context' },
   { id: 'template', label: 'Template' },
+  { id: 'context', label: 'Build Context' },
   { id: 'generate', label: 'Generate & Review' },
   { id: 'send', label: 'Send' },
 ] as const;

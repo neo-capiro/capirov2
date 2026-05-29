@@ -151,18 +151,14 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
 
   const totals = {
     items: selected.length,
-    // Rough token estimate: 4 chars per token. Good enough for a UI hint.
-    tokens: Math.round(
-      selected.reduce((s, c) => s + (c.body?.length || 0) + (c.note?.length || 0), 0) / 4,
-    ),
   };
 
   return (
     <div>
       <h2>Build the context Clio uses</h2>
       <div className="ov2-pane-sub">
-        Items are routed per-recipient. Past emails and meetings auto-attach to whoever they involved -
-        Clio uses only the matching context for each recipient's draft. Shared items apply to everyone.
+        Shared items will be used as context for all recipients. You can also add personalized
+        context and notes for individual recipients.
       </div>
 
       <div className="ov2-ctx-builder">
@@ -341,9 +337,6 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
             <div className="stats">
               <span>
                 <b>{totals.items}</b> items
-              </span>
-              <span>
-                <b>{totals.tokens.toLocaleString()}</b> est. tokens
               </span>
               <span>·</span>
               <span>

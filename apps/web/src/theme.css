@@ -6257,6 +6257,27 @@ body {
   gap: 14px;
 }
 
+/* Member + their staffers grouped in the recipient picker */
+.outreach-directory-row-group {
+  border-bottom: 1px solid var(--border-1);
+}
+.outreach-directory-row-group:last-child {
+  border-bottom: none;
+}
+.outreach-directory-staff {
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 6px 30px;
+  border-left: 2px solid var(--border-1);
+}
+.outreach-directory-staff-row {
+  padding-top: 9px;
+  padding-bottom: 9px;
+}
+.outreach-directory-staff-row strong {
+  font-weight: 500;
+}
+
 .outreach-template-buttons {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

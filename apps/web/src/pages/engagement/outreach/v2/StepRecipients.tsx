@@ -77,6 +77,26 @@ function fromDirectoryEntry(entry: DirectoryEntry): OutreachRecipient {
   };
 }
 
+function stafferRecipient(
+  entry: DirectoryEntry,
+  staffer: DirectoryEntry['staff'][number],
+): OutreachRecipient {
+  return {
+    name: staffer.fullName,
+    email: staffer.email || undefined,
+    office: entry.office || undefined,
+    title: staffer.title || undefined,
+    chamber: entry.chamber || undefined,
+    state: entry.state || undefined,
+    district: entry.district || undefined,
+    party: entry.partyName || undefined,
+    directoryContactId: `${entry.id}:${staffer.id}`,
+    directoryContactName: `${staffer.fullName} (${entry.memberName})`,
+    committee: entry.committees[0] || undefined,
+    relevanceReason: `Staffer to ${entry.fullName}${staffer.title ? `, ${staffer.title}` : ''}`,
+  };
+}
+
 export function StepRecipients({
   direction,
   clients,
@@ -160,7 +180,9 @@ function DirectoryAndManualPicker({
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [stateFilter, setStateFilter] = useState<string>('');
   const [chamberFilter, setChamberFilter] = useState<string>('');
-  const [manualInput, setManualInput] = useState('');
+  const [manualFirst, setManualFirst] = useState('');
+  const [manualLast, setManualLast] = useState('');
+  const [manualEmail, setManualEmail] = useState('');
   const [queryTimer, setQueryTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
 
   const directory = useQuery<DirectoryApiResponse>({
@@ -168,10 +190,15 @@ function DirectoryAndManualPicker({
     queryFn: async () =>
       (
         await api.get<DirectoryApiResponse>('/api/directory/contacts', {
-          params: { q: debouncedQuery, pageSize: 50 },
+          params: {
+            q: debouncedQuery,
+            pageSize: 50,
+            // No query → show the directory A–Z by default so the table isn't
+            // empty and it's obvious you can search and add from here.
+            sort: debouncedQuery.trim().length >= 2 ? undefined : 'name-asc',
+          },
         })
       ).data,
-    enabled: debouncedQuery.trim().length >= 2,
   });
 
   const handleQueryChange = (value: string) => {
@@ -196,7 +223,7 @@ function DirectoryAndManualPicker({
   );
 
   const selectedKeys = recipients
-    .filter((r) => r.directoryContactId)
+    .filter((r) => r.directoryContactId && !r.directoryContactId.includes(':'))
     .map((r) => r.directoryContactId as string);
 
   const columns: ColumnsType<DirectoryEntry> = [
@@ -239,26 +266,45 @@ function DirectoryAndManualPicker({
     selectedRowKeys: selectedKeys,
     onChange: (_: React.Key[], rows: DirectoryEntry[]) => {
       const directoryRecipients = rows.map(fromDirectoryEntry);
-      const nonDirectoryRecipients = recipients.filter((r) => !r.directoryContactId);
-      onChange([...nonDirectoryRecipients, ...directoryRecipients]);
+      // Keep manual + staffer recipients (staffer ids contain ':'); this
+      // checkbox set only manages the member-row selection.
+      const keep = recipients.filter(
+        (r) => !r.directoryContactId || r.directoryContactId.includes(':'),
+      );
+      onChange([...keep, ...directoryRecipients]);
     },
     getCheckboxProps: (record: DirectoryEntry) => ({ name: record.id }),
   };
 
+  const toggleStaffer = (entry: DirectoryEntry, staffer: DirectoryEntry['staff'][number]) => {
+    const recipient = stafferRecipient(entry, staffer);
+    const key = recipientKey(recipient);
+    if (recipients.some((r) => recipientKey(r) === key)) {
+      onChange(recipients.filter((r) => recipientKey(r) !== key));
+    } else {
+      onChange([...recipients, recipient]);
+    }
+  };
+
+  const manualValid =
+    manualFirst.trim().length > 0 &&
+    manualLast.trim().length > 0 &&
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(manualEmail.trim());
+
   const addManual = () => {
-    const text = manualInput.trim();
-    if (!text) return;
-    const angle = text.match(/^(.*)<([^>]+)>$/);
-    const recipient: OutreachRecipient = angle
-      ? { name: angle[1]?.trim(), email: angle[2]?.trim() }
-      : text.includes('@')
-        ? { email: text }
-        : { name: text };
+    if (!manualValid) return;
+    const recipient: OutreachRecipient = {
+      name: `${manualFirst.trim()} ${manualLast.trim()}`,
+      email: manualEmail.trim(),
+      relevanceReason: 'Manually added',
+    };
     const key = recipientKey(recipient);
     if (!recipients.some((r) => recipientKey(r) === key)) {
-      onChange([...recipients, { ...recipient, relevanceReason: 'Manually added' }]);
+      onChange([...recipients, recipient]);
     }
-    setManualInput('');
+    setManualFirst('');
+    setManualLast('');
+    setManualEmail('');
   };
 
   return (
@@ -301,27 +347,60 @@ function DirectoryAndManualPicker({
                 />
               </Space>
 
-              {debouncedQuery.trim().length < 2 ? (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description="Type at least 2 characters to search the congressional directory"
-                />
-              ) : (
-                <Table<DirectoryEntry>
-                  rowKey="id"
-                  size="small"
-                  loading={directory.isLoading}
-                  dataSource={filteredRows}
-                  columns={columns}
-                  rowSelection={rowSelection}
-                  pagination={{
-                    pageSize: 20,
-                    showSizeChanger: false,
-                    showTotal: (t) => `${t} results`,
-                  }}
-                  scroll={{ x: 600 }}
-                />
+              {debouncedQuery.trim().length < 2 && (
+                <Typography.Text
+                  type="secondary"
+                  style={{ display: 'block', marginBottom: 8, fontSize: 12 }}
+                >
+                  Showing the directory A–Z. Search to narrow, and expand a row to add that
+                  member's staffers.
+                </Typography.Text>
               )}
+              <Table<DirectoryEntry>
+                rowKey="id"
+                size="small"
+                loading={directory.isLoading}
+                dataSource={filteredRows}
+                columns={columns}
+                rowSelection={rowSelection}
+                expandable={{
+                  rowExpandable: (record) => record.staff.length > 0,
+                  expandedRowRender: (record) => (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {record.staff.map((s) => {
+                        const on = recipients.some(
+                          (r) => r.directoryContactId === `${record.id}:${s.id}`,
+                        );
+                        return (
+                          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <span style={{ fontWeight: 500 }}>{s.fullName}</span>
+                              {s.title ? (
+                                <span style={{ fontSize: 12, color: 'var(--ov2-ink-3)', marginLeft: 8 }}>
+                                  {s.title}
+                                </span>
+                              ) : null}
+                            </div>
+                            <Button
+                              size="small"
+                              type={on ? 'default' : 'primary'}
+                              onClick={() => toggleStaffer(record, s)}
+                            >
+                              {on ? 'Remove' : 'Add'}
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ),
+                }}
+                pagination={{
+                  pageSize: 20,
+                  showSizeChanger: false,
+                  showTotal: (t) => `${t} results`,
+                }}
+                scroll={{ x: 600 }}
+              />
             </div>
           ),
         },
@@ -331,21 +410,37 @@ function DirectoryAndManualPicker({
           children: (
             <div>
               <Typography.Paragraph type="secondary">
-                Add a recipient by name or email address. Format:{' '}
-                <code>Name &lt;email@example.com&gt;</code> or just an email.
+                Add a recipient who isn't in the directory. First name, last name, and email are all
+                required.
               </Typography.Paragraph>
-              <Space.Compact style={{ width: '100%', maxWidth: 480 }}>
+              <Space style={{ width: '100%', maxWidth: 680, flexWrap: 'wrap' }}>
                 <Input
-                  prefix={<UserAddOutlined />}
-                  value={manualInput}
-                  placeholder="Name <email@example.com> or email@example.com"
-                  onChange={(e) => setManualInput(e.target.value)}
+                  style={{ width: 150 }}
+                  value={manualFirst}
+                  placeholder="First name"
+                  onChange={(e) => setManualFirst(e.target.value)}
                   onPressEnter={addManual}
                 />
-                <Button type="primary" onClick={addManual}>
+                <Input
+                  style={{ width: 150 }}
+                  value={manualLast}
+                  placeholder="Last name"
+                  onChange={(e) => setManualLast(e.target.value)}
+                  onPressEnter={addManual}
+                />
+                <Input
+                  prefix={<UserAddOutlined />}
+                  style={{ width: 240 }}
+                  type="email"
+                  value={manualEmail}
+                  placeholder="Email address"
+                  onChange={(e) => setManualEmail(e.target.value)}
+                  onPressEnter={addManual}
+                />
+                <Button type="primary" disabled={!manualValid} onClick={addManual}>
                   Add
                 </Button>
-              </Space.Compact>
+              </Space>
             </div>
           ),
         },

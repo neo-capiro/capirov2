@@ -4,6 +4,12 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ProgramElementWatchPage } from './ProgramElementWatchPage.js';
 
+vi.mock('./ProgramTeamPanel.js', () => ({
+  ProgramTeamPanel: ({ personnel }: { personnel: Array<{ id: string }> }) => (
+    <div data-testid="program-team-panel">program-team:{personnel.length}</div>
+  ),
+}));
+
 vi.mock('./FyHistoryChart.js', () => ({
   FyHistoryChart: ({ rows, onFyClick }: { rows: Array<{ fy: number }>; onFyClick?: (fy: number) => void }) => (
     <div>
@@ -146,6 +152,29 @@ function setupBrowserMocks() {
 
 function setupApi(currentUserIsWatching: boolean, postImpl?: (url: string, body: { watching: boolean }) => Promise<unknown>) {
   apiGetMock.mockImplementation(async (url: string) => {
+    if (url.includes('/api/program-elements/0603270A/personnel')) {
+      return {
+        data: [
+          {
+            id: 'person-1',
+            fullName: 'COL Jane Doe',
+            service: 'ARMY',
+            organization: 'PEO Aviation',
+            title: 'PEO Aviation',
+            role: 'PEO',
+            pePrimary: '0603270A',
+            peSecondary: [],
+            emailDomain: null,
+            publicProfileUrl: null,
+            confidence: 0.96,
+            status: 'active',
+            firstSeenAt: '2026-01-01T00:00:00.000Z',
+            lastSeenAt: '2026-01-15T00:00:00.000Z',
+            sourceCount: 3,
+          },
+        ],
+      };
+    }
     if (url.includes('/api/program-elements/0603270A/contractors')) {
       return {
         data: {
@@ -233,6 +262,7 @@ describe('ProgramElementWatchPage', () => {
     expect(await screen.findByTestId('fy-chart')).toHaveTextContent('rows:5');
     expect(await screen.findByTestId('bills-panel')).toHaveTextContent('bills:1');
     expect(await screen.findByTestId('contractors-panel')).toHaveTextContent('contractors:1');
+    expect(await screen.findByTestId('program-team-panel')).toHaveTextContent('program-team:1');
     expect(screen.getByTestId('fy-detail-drawer')).toHaveTextContent('open:false fy:null');
     expect(screen.getByRole('button', { name: /Watching/i })).toBeInTheDocument();
 

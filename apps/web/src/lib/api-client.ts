@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance } from 'axios';
 import { config } from '../env.js';
+import { clearImpersonationSlug } from '../state/impersonation.js';
 
 /**
  * Build an axios instance bound to the Clerk getToken() callback. The token
@@ -21,11 +22,32 @@ export function buildApiClient(
       req.headers = req.headers ?? {};
       req.headers.Authorization = `Bearer ${token}`;
     }
-    if (actAsTenantSlug) {
+    // Never attach the impersonation header to the Capiro Admin console itself
+    // (tenant list, start/end impersonation). Those must always run as the
+    // admin's real context; otherwise a stale slug 403s the very requests
+    // needed to start or end impersonation, locking the admin out.
+    const url = req.url ?? '';
+    const isAdminConsole = url.includes('/capiro-admin/');
+    if (actAsTenantSlug && !isAdminConsole) {
       req.headers = req.headers ?? {};
       req.headers['x-capiro-impersonate-tenant'] = actAsTenantSlug;
     }
     return req;
   });
+  // If the server reports the impersonation session is gone (expired/ended),
+  // drop the stale slug and reload so the app falls back to the real context
+  // instead of 403-looping every request.
+  instance.interceptors.response.use(
+    (res) => res,
+    (error) => {
+      const status = error?.response?.status;
+      const msg = String(error?.response?.data?.message ?? '');
+      if (status === 403 && /impersonation session/i.test(msg)) {
+        clearImpersonationSlug();
+        if (typeof window !== 'undefined') window.location.reload();
+      }
+      return Promise.reject(error);
+    },
+  );
   return instance;
 }
