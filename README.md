@@ -15,7 +15,7 @@ capirov2/
 ├── packages/
 │   └── shared/      Shared types (TenantRole, TenantContext)
 ├── infra/
-│   └── cdk/         AWS CDK app — Network, Dns, Data, Secrets, Compute stacks
+│   └── cdk/         AWS CDK app, Network, Dns, Data, Secrets, Compute stacks
 ├── .github/
 │   └── workflows/   ECR image builds for api + web
 ├── docker/
@@ -30,7 +30,7 @@ capirov2/
 
 ---
 
-## Deploy to AWS — quick reference
+## Deploy to AWS, quick reference
 
 Detailed walkthrough lives in [infra/cdk/README.md](infra/cdk/README.md). The
 short version:
@@ -77,9 +77,9 @@ Visit `https://app.capiro.ai`. Health checks: `/health` (api), `/healthz` (web).
 
 ## Architectural decisions baked into this build
 
-- **Multi-tenancy via Postgres RLS, not application code.** Every tenant-scoped query runs inside a transaction with `SET LOCAL app.current_tenant = $tenantId`. Forgetting to set the GUC returns zero rows — fail closed.
+- **Multi-tenancy via Postgres RLS, not application code.** Every tenant-scoped query runs inside a transaction with `SET LOCAL app.current_tenant = $tenantId`. Forgetting to set the GUC returns zero rows, fail closed.
 - **Clerk Organizations = Capiro tenants (1:1).** `tenants.clerk_org_id` links the two. The `capiro` Clerk JWT template injects `capiro_tenant_id` and `capiro_tenant_slug` so the API has a fast-path tenant resolution.
-- **Both api and web in ECR**, behind a single ALB with path-based routing. Same image promotes through environments — runtime config via `/runtime-config.js` written by the web container's nginx entrypoint.
+- **Both api and web in ECR**, behind a single ALB with path-based routing. Same image promotes through environments, runtime config via `/runtime-config.js` written by the web container's nginx entrypoint.
 - **Secrets never in source control.** Clerk + DB credentials live in Secrets Manager; the API task definition mounts them via the `secrets:` block.
 - **Production-grade defaults**: WAF on the ALB, KMS CMKs per data domain, ECR image scanning + immutable tags, VPC flow logs, Aurora PITR + 35-day retention, `rds.force_ssl=1`, deletion protection on prod, Container Insights, structured JSON logs.
 
@@ -106,6 +106,6 @@ Local Clerk needs `localhost:5173` added to your Clerk dashboard's allowed origi
 
 ## What's next
 
-- **Session C** — AppShell with the eight top-level menu items (three greyed).
-- **Session E+** — Active pages: Command Center, Clients, Engagement Manager, Directory, Settings, one per session.
-- **Multi-account split** before prod traffic — separate AWS accounts for dev/staging/prod/security/shared-services per arch §9.
+- **Session C**, AppShell with the eight top-level menu items (three greyed).
+- **Session E+**, Active pages: Command Center, Clients, Engagement Manager, Directory, Settings, one per session.
+- **Multi-account split** before prod traffic, separate AWS accounts for dev/staging/prod/security/shared-services per arch §9.

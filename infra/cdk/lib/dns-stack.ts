@@ -12,7 +12,7 @@ export interface DnsStackProps extends cdk.StackProps {
  * DNS + TLS for Capiro.
  *
  * The capiro.ai hosted zone already exists in this AWS account. We do NOT
- * mutate the apex — only add records under app.capiro.ai. The cert covers
+ * mutate the apex, only add records under app.capiro.ai. The cert covers
  * `app.capiro.ai` and `*.app.capiro.ai`, where the wildcard handles tenant
  * vanity URLs (`acmelobby.app.capiro.ai`).
  *

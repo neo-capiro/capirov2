@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<title>Lobby Intelligence — LDA-derived (mockup)</title>
+<title>Lobby Intelligence, LDA-derived (mockup)</title>
 <style>
   :root {
     --bg: #0b0d10;
@@ -84,19 +84,19 @@
 <body>
 
 <h1>Lobby Intelligence <span class="source-pill">source: lda_filing</span></h1>
-<div class="sub">Top federal lobbying clients — drilled from raw Senate LDA filings. No external dependency.</div>
+<div class="sub">Top federal lobbying clients, drilled from raw Senate LDA filings. No external dependency.</div>
 
 <div class="compare">
   <div class="col before">
-    <h3>Before — OpenLobby snapshot</h3>
+    <h3>Before, OpenLobby snapshot</h3>
     <p><strong>5,000</strong> top clients (hard cap)</p>
     <p><strong>0</strong> registered lobbyists</p>
     <p><strong>0</strong> registrant firms</p>
-    <p>Snapshot only — no time-series drill</p>
+    <p>Snapshot only, no time-series drill</p>
     <p>Refreshed via <code style="font-size:11px">sync-openlobby.ts</code> cron</p>
   </div>
   <div class="col after">
-    <h3>After — LDA-derived view</h3>
+    <h3>After, LDA-derived view</h3>
     <p><strong>134,212</strong> clients (full universe)</p>
     <p><strong>88,403</strong> registered lobbyists</p>
     <p><strong>17,094</strong> registrant firms</p>
@@ -227,7 +227,7 @@
 </div>
 
 <div class="card" style="margin-bottom: 16px;">
-  <h2 style="margin-bottom: 12px;">Trending Terms <span style="font-size:11px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">— mined from <code style="font-size:11px">lda_filing.lobbying_activities</code></span></h2>
+  <h2 style="margin-bottom: 12px;">Trending Terms <span style="font-size:11px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">- mined from <code style="font-size:11px">lda_filing.lobbying_activities</code></span></h2>
   <div>
     <span class="topic-pill">artificial intelligence <span class="delta">+218%</span></span>
     <span class="topic-pill">stablecoin <span class="delta">+184%</span></span>
@@ -247,7 +247,7 @@
 </div>
 
 <div class="footer-note">
-  <strong>What changed.</strong> Same visual surface — but every number on this page now comes from <code>lda_filing</code> /
+  <strong>What changed.</strong> Same visual surface, but every number on this page now comes from <code>lda_filing</code> /
   <code>lda_client</code> / <code>lda_issue_code</code> via a materialized view, instead of being fetched from
   openlobby.us as a pre-aggregated snapshot. The <em>5,000 clients</em> stat is now a display cap, not a data cap:
   drill-down can hit all 134k clients, 88k lobbyists, and 192k LD-203 contribution records without an external round-trip.

@@ -320,7 +320,7 @@ export class TenantAdminService {
 
   private defaultInvitationRedirectUrl() {
     // WEB_ORIGIN is a *comma-separated list* of allowed origins, used by the
-    // CORS check at the API edge — it must NOT be embedded whole into the
+    // CORS check at the API edge, it must NOT be embedded whole into the
     // Clerk invitation redirect URL, or the link in the email looks like
     //   https://app-dev.capiro.ai,https://app.capiro.ai/sign-in
     // (which is what was being sent before this fix, producing broken

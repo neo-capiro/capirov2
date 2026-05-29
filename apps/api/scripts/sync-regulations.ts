@@ -1,5 +1,5 @@
 /**
- * sync-regulations.ts — Fetch dockets from Regulations.gov API
+ * sync-regulations.ts, Fetch dockets from Regulations.gov API
  *
  * API docs: https://open.gsa.gov/api/regulationsgov/
  * Auth: API key via `api_key` query param
@@ -154,7 +154,7 @@ async function main() {
   }
 
   const elapsed = ((Date.now() - start) / 60_000).toFixed(1);
-  console.log(`[reg-sync] DONE in ${elapsed}m — ${total} documents synced`);
+  console.log(`[reg-sync] DONE in ${elapsed}m, ${total} documents synced`);
 }
 
 main()

@@ -10,7 +10,7 @@
  * Identifier and password are quoted via pg-format-style escaping. The
  * password contains only generated characters from the secret's
  * `excludePunctuation` set so the only required escape is single-quote
- * doubling — defensive in case CDK config changes.
+ * doubling, defensive in case CDK config changes.
  */
 import { config as dotenvConfig } from 'dotenv';
 import { Client } from 'pg';

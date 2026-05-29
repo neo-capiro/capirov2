@@ -3,7 +3,7 @@
  *
  *   pnpm --filter @capiro/api sync:federal-register
  *
- * Source: https://www.federalregister.gov/api/v1/ — no auth required.
+ * Source: https://www.federalregister.gov/api/v1/, no auth required.
  * Fetches all documents since 2021-01-01 (RULE, PROPOSED_RULE, NOTICE, PRESIDENTIAL_DOCUMENT).
  * Estimated: ~250K documents, ~4-6 hours.
  *
@@ -218,7 +218,7 @@ async function main() {
 
     // Process first page.
     await processPage(firstPage.results ?? []);
-    console.log(`[fr-sync] page 1/${totalPages} — ${processed.toLocaleString()} processed`);
+    console.log(`[fr-sync] page 1/${totalPages}, ${processed.toLocaleString()} processed`);
 
     // Process remaining pages.
     for (let page = 2; page <= totalPages; page++) {
@@ -231,7 +231,7 @@ async function main() {
 
       if (page % 50 === 0) {
         const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
-        console.log(`[fr-sync] page ${page}/${totalPages} — ${processed.toLocaleString()} processed, ${elapsed}m elapsed`);
+        console.log(`[fr-sync] page ${page}/${totalPages}, ${processed.toLocaleString()} processed, ${elapsed}m elapsed`);
       }
 
       // Polite delay: 500ms between pages (~200 req/min, well under limits)
@@ -239,7 +239,7 @@ async function main() {
     }
 
     const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
-    console.log(`[fr-sync] DONE — ${upserted.toLocaleString()} upserted, ${errored} errors, ${elapsed}m`);
+    console.log(`[fr-sync] DONE, ${upserted.toLocaleString()} upserted, ${errored} errors, ${elapsed}m`);
   } finally {
     await prisma.$disconnect();
   }

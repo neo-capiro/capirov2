@@ -34,15 +34,20 @@ describe('ProgramElementController', () => {
       limit: 50,
     });
 
-    const result = await controller.list({});
+    const result = await controller.list(ctx, {} as never);
 
-    expect(service.listProgramElements).toHaveBeenCalledWith({
-      service: undefined,
-      budgetActivity: undefined,
-      q: undefined,
-      page: undefined,
-      limit: undefined,
-    });
+    expect(service.listProgramElements).toHaveBeenCalledWith(
+      {
+        service: undefined,
+        budgetActivity: undefined,
+        q: undefined,
+        page: undefined,
+        limit: undefined,
+        mode: undefined,
+        divergenceThreshold: undefined,
+      },
+      ctx,
+    );
     expect(result.limit).toBe(50);
     expect(result.total).toBe(1);
   });
@@ -51,16 +56,66 @@ describe('ProgramElementController', () => {
     const { controller, service } = makeController();
     service.listProgramElements.mockResolvedValue({ data: [], total: 0, page: 1, limit: 100 });
 
-    const result = await controller.list({ limit: 500, page: 1, q: 'gps' } as never);
+    const result = await controller.list(ctx, { limit: 500, page: 1, q: 'gps' } as never);
 
-    expect(service.listProgramElements).toHaveBeenCalledWith({
-      service: undefined,
-      budgetActivity: undefined,
-      q: 'gps',
-      page: 1,
-      limit: 500,
-    });
+    expect(service.listProgramElements).toHaveBeenCalledWith(
+      {
+        service: undefined,
+        budgetActivity: undefined,
+        q: 'gps',
+        page: 1,
+        limit: 500,
+        mode: undefined,
+        divergenceThreshold: undefined,
+      },
+      ctx,
+    );
     expect(result.limit).toBe(100);
+  });
+
+  test('GET /api/program-elements markup monitor mode passes tenant context + monitor params', async () => {
+    const { controller, service } = makeController();
+    service.listProgramElements.mockResolvedValue({
+      data: [
+        {
+          peCode: '0603270A',
+          title: 'Electronic Warfare Advanced Payloads',
+          service: 'Army',
+          request: 100,
+          hascMark: 120,
+          sascMark: 90,
+          hacDMark: null,
+          sacDMark: 130,
+          divergencePct: 40,
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 1,
+    });
+
+    const result = await controller.list(
+      ctx,
+      {
+        mode: 'markup-monitor',
+        service: 'Army',
+        divergence_threshold: 15,
+      } as never,
+    );
+
+    expect(service.listProgramElements).toHaveBeenCalledWith(
+      {
+        service: 'Army',
+        budgetActivity: undefined,
+        q: undefined,
+        page: undefined,
+        limit: undefined,
+        mode: 'markup-monitor',
+        divergenceThreshold: 15,
+      },
+      ctx,
+    );
+    expect((result.data[0] as { divergencePct?: number } | undefined)?.divergencePct).toBe(40);
   });
 
   test('GET /api/program-elements/:peCode includes currentUserIsWatching', async () => {

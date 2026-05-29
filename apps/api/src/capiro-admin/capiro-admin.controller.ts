@@ -44,7 +44,7 @@ class ImpersonateDto {
 
 /**
  * Capiro Admin console API. Every route is gated by the capiro_admin role.
- * Routes here run cross-tenant — the caller's TenantContext is the
+ * Routes here run cross-tenant, the caller's TenantContext is the
  * `capiro-internal` synthetic tenant; data access is via prisma.withSystem.
  */
 @Controller('capiro-admin')

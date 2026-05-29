@@ -513,7 +513,7 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
   );
 }
 
-/** "Sarah Kim, VP Gov't Affairs" — falls back to whichever piece we have. */
+/** "Sarah Kim, VP Gov't Affairs", falls back to whichever piece we have. */
 function formatPoc(intake: Record<string, unknown>, fallbackName: string | null): string | undefined {
   const name = readText(intake, ['pocName']) ?? fallbackName ?? undefined;
   const title = readText(intake, ['pocTitle']);
@@ -521,7 +521,7 @@ function formatPoc(intake: Record<string, unknown>, fallbackName: string | null)
   return name ?? title;
 }
 
-/** "Active · Since Jan 2026" — status comes from intake, "since" from client.createdAt. */
+/** "Active · Since Jan 2026", status comes from intake, "since" from client.createdAt. */
 function formatEngagement(intake: Record<string, unknown>, createdAt: string): string | undefined {
   const statusRaw = readText(intake, ['engagement']);
   const status = statusRaw ? statusRaw.charAt(0).toUpperCase() + statusRaw.slice(1) : undefined;
@@ -597,7 +597,7 @@ function PortfolioStrip({
                     : undefined
             }
           >
-            {loading ? '—' : c.value}
+            {loading ? '-' : c.value}
           </span>
           <span className="portfolio-strip-l">{c.label}</span>
         </div>

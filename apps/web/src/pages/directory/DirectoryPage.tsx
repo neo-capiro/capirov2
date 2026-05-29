@@ -321,7 +321,7 @@ export function DirectoryPage() {
         <div>
           <h1>Directory</h1>
           <p className="directory-page-dek">
-            All federal members of Congress and governors — updated daily from official sources.
+            All federal members of Congress and governors, updated daily from official sources.
           </p>
         </div>
       </header>
@@ -935,7 +935,7 @@ function DirectoryStatsRow({
         >
           <div>
             <div className="l">{s.label}</div>
-            <div className="v num">{loading ? '—' : s.value.toLocaleString()}</div>
+            <div className="v num">{loading ? '-' : s.value.toLocaleString()}</div>
           </div>
           <div className="ico" aria-hidden>
             {s.icon}

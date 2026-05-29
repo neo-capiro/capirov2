@@ -1,8 +1,9 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import {
   Alert,
+  Button,
   Card,
   Col,
   Flex,
@@ -12,17 +13,79 @@ import {
   Statistic,
   Tag,
   Typography,
+  message,
 } from 'antd';
-import { EyeOutlined, FileSearchOutlined, NumberOutlined, ScheduleOutlined } from '@ant-design/icons';
+import {
+  BellFilled,
+  BellOutlined,
+  EyeOutlined,
+  FileSearchOutlined,
+  NumberOutlined,
+  ScheduleOutlined,
+} from '@ant-design/icons';
 import { useApi } from '../../lib/use-api.js';
 import {
   getProgramElementBills,
   getProgramElementContractors,
   getProgramElementDetail,
   getProgramElementsList,
+  setProgramElementWatching,
 } from './api.js';
+import { FyHistoryChart } from './FyHistoryChart.js';
+import { BillsTouchingPePanel } from './BillsTouchingPePanel.js';
+import { ContractorsPanel } from './ContractorsPanel.js';
+import { FyDetailDrawer } from './FyDetailDrawer.js';
+import type {
+  ProgramElementBill,
+  ProgramElementContractorsResponse,
+  ProgramElementHistoryRow,
+  ProgramElementYearPoint,
+} from './types.js';
+function numberOrNull(value: string | number | null | undefined): number | null {
+  if (value == null) return null;
+  const parsed = typeof value === 'number' ? value : Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
 
-const LazyWatchSections = lazy(async () => ({ default: WatchSectionsPlaceholder }));
+function sourceFromRaw(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object') return {};
+  const candidate = raw as { sourceAttribution?: unknown };
+  if (!candidate.sourceAttribution || typeof candidate.sourceAttribution !== 'object') return {};
+  const src = candidate.sourceAttribution as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(src)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return out;
+}
+
+function toHistoryRow(year: ProgramElementYearPoint): ProgramElementHistoryRow {
+  return {
+    id: year.id,
+    fy: year.fy,
+    request: numberOrNull(year.request),
+    hascMark: numberOrNull(year.hascMark),
+    sascMark: numberOrNull(year.sascMark),
+    hacDMark: numberOrNull(year.hacDMark),
+    sacDMark: numberOrNull(year.sacDMark),
+    conference: numberOrNull(year.conference),
+    enacted: numberOrNull(year.enacted),
+    projectedEnacted: year.enacted == null,
+    sourceAttribution: sourceFromRaw(year.raw),
+  };
+}
+
+function toHistoryRows(years: ProgramElementYearPoint[]): ProgramElementHistoryRow[] {
+  return [...years].sort((a, b) => a.fy - b.fy).map(toHistoryRow);
+}
+
+function latestYear(years: ProgramElementYearPoint[]): ProgramElementYearPoint | undefined {
+  return [...years].sort((a, b) => b.fy - a.fy)[0];
+}
+
+const LazyFyHistoryChart = lazy(async () => ({ default: FyHistoryChart }));
+const LazyBillsTouchingPePanel = lazy(async () => ({ default: BillsTouchingPePanel }));
+const LazyContractorsPanel = lazy(async () => ({ default: ContractorsPanel }));
 
 const { Title, Text } = Typography;
 
@@ -30,6 +93,42 @@ export function ProgramElementWatchPage() {
   const { peCode = '' } = useParams<{ peCode: string }>();
   const normalizedPeCode = peCode.toUpperCase();
   const api = useApi();
+  const queryClient = useQueryClient();
+  const [selectedFy, setSelectedFy] = useState<number | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const watchMutation = useMutation({
+    mutationFn: (watching: boolean) => setProgramElementWatching(api, normalizedPeCode, watching),
+    onMutate: async (watching) => {
+      const detailKey = ['program-element-detail', normalizedPeCode] as const;
+      await queryClient.cancelQueries({ queryKey: detailKey });
+      const previous = queryClient.getQueryData(detailKey);
+      queryClient.setQueryData(detailKey, (oldData: unknown) => {
+        if (!oldData || typeof oldData !== 'object') return oldData;
+        return {
+          ...(oldData as Record<string, unknown>),
+          currentUserIsWatching: watching,
+        };
+      });
+      return { previous, detailKey };
+    },
+    onError: (_error, _watching, context) => {
+      if (context?.detailKey) {
+        queryClient.setQueryData(context.detailKey, context.previous);
+      }
+      message.error('Unable to update watch status. Please try again.');
+    },
+    onSuccess: (_result, watching) => {
+      if (watching) {
+        message.success("You'll be notified when this PE has updates");
+      }
+    },
+    onSettled: (_result, _error, _watching, context) => {
+      if (context?.detailKey) {
+        queryClient.invalidateQueries({ queryKey: context.detailKey }).catch(() => undefined);
+      }
+    },
+  });
 
   const detailQuery = useQuery({
     queryKey: ['program-element-detail', normalizedPeCode],
@@ -45,14 +144,14 @@ export function ProgramElementWatchPage() {
     enabled: normalizedPeCode.length > 0,
   });
 
-  useQuery({
+  const billsQuery = useQuery({
     queryKey: ['program-element-bills', normalizedPeCode],
     queryFn: () => getProgramElementBills(api, normalizedPeCode),
     staleTime: 60 * 1000,
     enabled: normalizedPeCode.length > 0,
   });
 
-  useQuery({
+  const contractorsQuery = useQuery({
     queryKey: ['program-element-contractors', normalizedPeCode],
     queryFn: () => getProgramElementContractors(api, normalizedPeCode),
     staleTime: 60 * 1000,
@@ -92,7 +191,13 @@ export function ProgramElementWatchPage() {
   }
 
   const detail = detailQuery.data;
-  const latestYear = detail.years[0];
+  const latest = latestYear(detail.years);
+  const historyRows = toHistoryRows(detail.years);
+  const bills: ProgramElementBill[] = billsQuery.data ?? [];
+  const contractors: ProgramElementContractorsResponse = contractorsQuery.data ?? {
+    data: [],
+    todo: null,
+  };
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -106,9 +211,19 @@ export function ProgramElementWatchPage() {
               </Title>
               <Text type="secondary">{detail.appropriationType ?? 'Appropriation N/A'}</Text>
             </div>
-            <Tag color="blue" data-testid="pe-sector-tag">
-              {detail.service ?? 'Service N/A'}
-            </Tag>
+            <Flex vertical align="flex-end" gap={8}>
+              <Button
+                type={detail.currentUserIsWatching ? 'primary' : 'default'}
+                icon={detail.currentUserIsWatching ? <BellFilled /> : <BellOutlined />}
+                loading={watchMutation.isPending}
+                onClick={() => watchMutation.mutate(!detail.currentUserIsWatching)}
+              >
+                {detail.currentUserIsWatching ? 'Watching' : 'Watch this PE'}
+              </Button>
+              <Tag color="blue" data-testid="pe-sector-tag">
+                {detail.service ?? 'Service N/A'}
+              </Tag>
+            </Flex>
           </Flex>
         </Flex>
       </Card>
@@ -118,7 +233,7 @@ export function ProgramElementWatchPage() {
           <Card>
             <Statistic
               title="Latest Request"
-              value={latestYear?.request != null ? Number(latestYear.request) : 0}
+              value={latest?.request != null ? Number(latest.request) : 0}
               precision={2}
               prefix={<NumberOutlined />}
             />
@@ -128,7 +243,7 @@ export function ProgramElementWatchPage() {
           <Card>
             <Statistic
               title="Latest Conference"
-              value={latestYear?.conference != null ? Number(latestYear.conference) : 0}
+              value={latest?.conference != null ? Number(latest.conference) : 0}
               precision={2}
               prefix={<FileSearchOutlined />}
             />
@@ -138,7 +253,7 @@ export function ProgramElementWatchPage() {
           <Card>
             <Statistic
               title="Latest Enacted"
-              value={latestYear?.enacted != null ? Number(latestYear.enacted) : 0}
+              value={latest?.enacted != null ? Number(latest.enacted) : 0}
               precision={2}
               prefix={<ScheduleOutlined />}
             />
@@ -156,25 +271,41 @@ export function ProgramElementWatchPage() {
         </Col>
       </Row>
 
-      <Suspense fallback={<Skeleton active paragraph={{ rows: 6 }} />}>
-        <LazyWatchSections />
+      <Suspense fallback={<Card title="Timeline"><Skeleton active paragraph={{ rows: 6 }} /></Card>}>
+        <LazyFyHistoryChart
+          rows={historyRows}
+          loading={detailQuery.isLoading}
+          onFyClick={(fy) => {
+            setSelectedFy(fy);
+            setDrawerOpen(true);
+            message.info(`Selected FY ${fy}`);
+          }}
+        />
       </Suspense>
+
+      <Row gutter={[16, 16]}>
+        <Col xs={24} span={12}>
+          <Suspense fallback={<Card title="Bills touching this PE"><Skeleton active paragraph={{ rows: 4 }} /></Card>}>
+            <LazyBillsTouchingPePanel bills={bills} loading={billsQuery.isLoading} />
+          </Suspense>
+        </Col>
+        <Col xs={24} span={12}>
+          <Suspense
+            fallback={<Card title="Top contractors touching this PE"><Skeleton active paragraph={{ rows: 4 }} /></Card>}
+          >
+            <LazyContractorsPanel contractors={contractors} loading={contractorsQuery.isLoading} />
+          </Suspense>
+        </Col>
+      </Row>
+
+      <FyDetailDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        peCode={detail.peCode}
+        selectedFy={selectedFy}
+        timeline={detail.years}
+      />
     </Space>
   );
 }
 
-function WatchSectionsPlaceholder() {
-  return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Card title="Timeline (coming soon)">
-        <Skeleton active paragraph={{ rows: 4 }} />
-      </Card>
-      <Card title="Bills (coming soon)">
-        <Skeleton active paragraph={{ rows: 4 }} />
-      </Card>
-      <Card title="Contractors (coming soon)">
-        <Skeleton active paragraph={{ rows: 4 }} />
-      </Card>
-    </Space>
-  );
-}

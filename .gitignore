@@ -38,6 +38,9 @@ infra/cdk/cdk.context.json
 apps/api/prisma/*.db
 apps/api/prisma/*.db-journal
 
+# API scratch/working data (scraped dumps, not source)
+apps/api/tmp/
+
 # Docker
 docker-compose.override.yml
 

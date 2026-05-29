@@ -23,7 +23,7 @@ async function main() {
     );
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(
-      `[refresh-lobby-intel] DONE in ${elapsed}s — ${rows[0]?.count ?? 0} rows in lobby_intel_mv`,
+      `[refresh-lobby-intel] DONE in ${elapsed}s, ${rows[0]?.count ?? 0} rows in lobby_intel_mv`,
     );
   } finally {
     await prisma.$disconnect();

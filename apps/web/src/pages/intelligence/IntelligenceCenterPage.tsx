@@ -45,7 +45,7 @@ export function IntelligenceCenterPage() {
     retry: 1,
   });
 
-  // Executive KPI row — populated from existing endpoints so no API change required.
+  // Executive KPI row, populated from existing endpoints so no API change required.
   const ldaDashboard = useQuery<LdaDashboard>({
     queryKey: ['lda-dashboard-kpis'],
     queryFn: async () => (await api.get<LdaDashboard>('/api/lda-intel/dashboard')).data,
@@ -83,7 +83,7 @@ export function IntelligenceCenterPage() {
     >
       <InsightsBanner />
 
-      {/* Executive KPI row — gives the user a one-glance read on the breadth of
+      {/* Executive KPI row, gives the user a one-glance read on the breadth of
           intelligence Capiro is tracking, derived entirely from LDA + lobby-intel
           endpoints that are already live. */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 12, marginBottom: 16 }}>

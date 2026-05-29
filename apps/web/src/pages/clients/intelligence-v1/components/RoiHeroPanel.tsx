@@ -36,11 +36,11 @@ export function RoiHeroPanel({ hero }: RoiHeroPanelProps) {
       ? `${ratio.toFixed(1)}×`
       : state === 'zero_obligation'
         ? '0.0×'
-        : '—';
+        : '-';
 
   const ratioSubcopy =
     state === 'zero_obligation'
-      ? 'Zero-obligation truth state — no federal contract obligations mapped in TTM.'
+      ? 'Zero-obligation truth state, no federal contract obligations mapped in TTM.'
       : state === 'no_activity'
         ? 'No lobbying or obligations activity mapped in TTM.'
         : `Gap: ${formatCompact(gap)}`;

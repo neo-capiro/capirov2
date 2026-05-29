@@ -46,7 +46,7 @@ export function SendSchedule({
         style={{ marginBottom: 16 }}
         items={[
           { label: 'Campaign name', children: campaignName || 'Campaign' },
-          { label: 'Client', children: client?.name ?? '—' },
+          { label: 'Client', children: client?.name ?? '-' },
           { label: 'Total recipients', children: recipients.length },
           {
             label: 'Emails ready',

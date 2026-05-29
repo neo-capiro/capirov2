@@ -280,13 +280,13 @@ export function CampaignsView({ clients, selectedClientId, aiConfigured }: Props
       title: 'Title',
       dataIndex: 'title',
       key: 'title',
-      render: (v: string | null) => v ?? <Text type="secondary">—</Text>,
+      render: (v: string | null) => v ?? <Text type="secondary">-</Text>,
     },
     {
       title: 'Office',
       dataIndex: 'office',
       key: 'office',
-      render: (v: string | null) => v ?? <Text type="secondary">—</Text>,
+      render: (v: string | null) => v ?? <Text type="secondary">-</Text>,
     },
     {
       title: 'Status',
@@ -635,7 +635,7 @@ export function CampaignsView({ clients, selectedClientId, aiConfigured }: Props
                   {previewRecipient && campaign.body && (
                     <div className="campaign-preview">
                       <Text strong style={{ display: 'block', marginBottom: 4 }}>
-                        Preview — {previewRecipient.name ?? previewRecipient.email}
+                        Preview, {previewRecipient.name ?? previewRecipient.email}
                       </Text>
                       <pre className="campaign-preview-body">
                         {campaign.body
@@ -704,7 +704,7 @@ export function CampaignsView({ clients, selectedClientId, aiConfigured }: Props
           onFinish={(values) => createCampaign.mutate(values)}
         >
           <Form.Item name="name" label="Campaign Name" rules={[{ required: true, message: 'Name required' }]}>
-            <Input placeholder="e.g. Post-meeting follow-up — Smith office" />
+            <Input placeholder="e.g. Post-meeting follow-up, Smith office" />
           </Form.Item>
           <Form.Item name="clientId" label="Client">
             <Select

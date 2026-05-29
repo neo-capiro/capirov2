@@ -124,7 +124,7 @@ export function RecipientSelect({ recipients, clientId, onChange }: RecipientSel
     {
       title: 'Committee',
       key: 'committee',
-      render: (_: unknown, entry: DirectoryEntry) => entry.committees[0] ?? '—',
+      render: (_: unknown, entry: DirectoryEntry) => entry.committees[0] ?? '-',
       ellipsis: true,
     },
     {
@@ -144,7 +144,7 @@ export function RecipientSelect({ recipients, clientId, onChange }: RecipientSel
             {party}
           </Tag>
         ) : (
-          '—'
+          '-'
         ),
     },
   ];

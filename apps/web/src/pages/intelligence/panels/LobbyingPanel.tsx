@@ -79,7 +79,7 @@ export function LobbyingPanel() {
               <Table size="small" rowKey="id" dataSource={searchResults.data} pagination={false}
                 columns={[
                   { title: 'Client', dataIndex: 'name', render: (n: string, r: LobbyIntelSummary) => <Space><Text strong>{n}</Text>{trajectoryTag(r.trajectory)}</Space> },
-                  { title: 'State', dataIndex: 'state', width: 70, render: (s: string | null) => s ?? '—' },
+                  { title: 'State', dataIndex: 'state', width: 70, render: (s: string | null) => s ?? '-' },
                   { title: 'Total Spend', dataIndex: 'totalSpending', width: 130, align: 'right', render: (v: number | null) => formatMoney(v) },
                   { title: 'Trajectory', dataIndex: 'yearlySpend', width: 180, render: (ys: { year: number; amount: number }[]) => <Sparkline data={ys ?? []} width={150} height={28} /> },
                   { title: 'Top LDA Issues', dataIndex: 'issues', render: (i: string[]) => <Space size={[2, 4]} wrap>{(i ?? []).slice(0, 6).map((c) => <Tag key={c} style={{ marginRight: 0, fontSize: 11 }}>{c}</Tag>)}{i && i.length > 6 ? <Text type="secondary" style={{ fontSize: 11 }}>+{i.length - 6}</Text> : null}</Space> },

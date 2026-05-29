@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { Drawer, Empty, Input, Pagination, Select, Skeleton, Table, Tag, Typography } from 'antd';
 import {
   AuditOutlined,
@@ -81,7 +82,7 @@ interface SourceMeta {
 }
 
 const SOURCES: SourceMeta[] = [
-  { key: 'lda', label: 'LDA Filings', description: 'Lobbying Disclosure Act — 500K+ filings, 5 years.', icon: <BookOutlined /> },
+  { key: 'lda', label: 'LDA Filings', description: 'Lobbying Disclosure Act, 500K+ filings, 5 years.', icon: <BookOutlined /> },
   { key: 'contractors', label: 'Federal Contractors', description: 'Top contractors with no-bid totals + agency mix.', icon: <BankOutlined /> },
   { key: 'bills', label: 'Congress Bills', description: 'Bills with sponsor, latest action, subject tags.', icon: <FileTextOutlined /> },
   { key: 'fedreg', label: 'Federal Register', description: 'Proposed/final rules, comment-period deadlines.', icon: <GlobalOutlined /> },
@@ -99,14 +100,35 @@ const SOURCES: SourceMeta[] = [
 type DrillIn = { source: SourceKey; id: string; rowSummary: ReactNode } | null;
 
 export function DataExplorerPage() {
-  const [source, setSource] = useState<SourceKey>('lda');
+  // ?source=<key> deep-links to a specific tab. Dashboard's "Needs Attention"
+  // Comments tile uses this to land users directly on comment-deadlines.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialSource = (() => {
+    const fromUrl = searchParams.get('source') as SourceKey | null;
+    return fromUrl && SOURCES.some((s) => s.key === fromUrl) ? fromUrl : 'lda';
+  })();
+  const [source, setSource] = useState<SourceKey>(initialSource);
   const [drillIn, setDrillIn] = useState<DrillIn>(null);
+
+  // Keep ?source= in sync if the user changes tab manually. Replace (not push)
+  // so the back button still leaves the page as a whole, not tab-by-tab.
+  useEffect(() => {
+    const current = searchParams.get('source');
+    if (current !== source) {
+      const next = new URLSearchParams(searchParams);
+      next.set('source', source);
+      setSearchParams(next, { replace: true });
+    }
+    // We intentionally do not depend on searchParams here, only react to a
+    // user-driven `source` change. Including searchParams loops with itself.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
 
   return (
     <section className="explorer-page redesign">
       <header className="explorer-page-head">
         <div>
-          <h1>Data Explorer</h1>
+          <h1>Intelligence Center</h1>
           <p className="explorer-page-dek">
             Search and filter every federal data source Capiro tracks. Click a row to inspect the full record.
           </p>
@@ -214,7 +236,7 @@ function LdaFilingsExplorer({
               placeholder="Any issue"
               options={(facets.data?.issueCodes ?? []).map((c) => ({
                 value: c.code,
-                label: `${c.code} — ${c.name}`,
+                label: `${c.code}, ${c.name}`,
               }))}
               values={issueCodes}
               onChange={setIssueCodes}
@@ -287,7 +309,7 @@ function LdaFilingsExplorer({
             dataIndex: 'clientState',
             width: 70,
             render: (s: string | null) =>
-              s ? <span className="state-pill num">{s}</span> : '—',
+              s ? <span className="state-pill num">{s}</span> : '-',
           },
           {
             title: 'Income',
@@ -412,9 +434,9 @@ function ContractorsExplorer({
         rowKey="id"
         onRowClick={onRowClick}
         columns={[
-          { title: 'Rank', dataIndex: 'rankByContracts', width: 80, render: (v: number | null) => v ? `#${v}` : '—' },
+          { title: 'Rank', dataIndex: 'rankByContracts', width: 80, render: (v: number | null) => v ? `#${v}` : '-' },
           { title: 'Contractor', dataIndex: 'name', ellipsis: true },
-          { title: 'Category', dataIndex: 'category', width: 130, render: (c: string | null) => c ?? '—' },
+          { title: 'Category', dataIndex: 'category', width: 130, render: (c: string | null) => c ?? '-' },
           {
             title: 'Total Contracts',
             dataIndex: 'totalContracts',
@@ -433,7 +455,7 @@ function ContractorsExplorer({
               </span>
             ),
           },
-          { title: 'UEI', dataIndex: 'uei', width: 130, render: (u: string | null) => u ? <span className="num" style={{ fontSize: 11 }}>{u}</span> : '—' },
+          { title: 'UEI', dataIndex: 'uei', width: 130, render: (u: string | null) => u ? <span className="num" style={{ fontSize: 11 }}>{u}</span> : '-' },
         ]}
       />
     </>
@@ -583,7 +605,7 @@ function BillsExplorer({
                   ) : null}
                 </span>
               ) : (
-                '—'
+                '-'
               ),
           },
           {
@@ -599,7 +621,7 @@ function BillsExplorer({
             ellipsis: true,
             render: (text: string | null, r: ExplorerBillRow) => (
               <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                <span style={{ fontSize: 12.5 }}>{text ?? '—'}</span>
+                <span style={{ fontSize: 12.5 }}>{text ?? '-'}</span>
                 {r.latestActionDate ? (
                   <span className="num" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
                     {formatDate(r.latestActionDate)}
@@ -751,7 +773,7 @@ function FedRegExplorer({
             dataIndex: 'commentEndDate',
             width: 150,
             render: (d: string | null) => {
-              if (!d) return <span style={{ color: 'var(--ink-3)' }}>—</span>;
+              if (!d) return <span style={{ color: 'var(--ink-3)' }}>-</span>;
               const days = Math.ceil((new Date(d).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
               const sev: 'critical' | 'notable' | 'info' =
                 days <= 3 ? 'critical' : days <= 14 ? 'notable' : 'info';
@@ -852,7 +874,7 @@ function CommentDeadlinesExplorer({
             dataIndex: 'commentEndDate',
             width: 170,
             render: (d: string | null) => {
-              if (!d) return <span style={{ color: 'var(--ink-3)' }}>—</span>;
+              if (!d) return <span style={{ color: 'var(--ink-3)' }}>-</span>;
               const days = Math.ceil((new Date(d).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
               const sev: 'critical' | 'notable' | 'info' =
                 days <= 3 ? 'critical' : days <= 14 ? 'notable' : 'info';
@@ -973,7 +995,7 @@ function HearingsExplorer({ onRowClick }: { onRowClick: (id: string, row: Explor
           { title: 'Chamber', dataIndex: 'chamber', width: 90 },
           { title: 'Committee', dataIndex: 'committeeName', ellipsis: true },
           { title: 'Title', dataIndex: 'title', ellipsis: true },
-          { title: 'Type', dataIndex: 'type', width: 100, render: (t: string | null) => t ? <Tag className="redesign-mono-tag">{t}</Tag> : '—' },
+          { title: 'Type', dataIndex: 'type', width: 100, render: (t: string | null) => t ? <Tag className="redesign-mono-tag">{t}</Tag> : '-' },
           { title: 'Witnesses', dataIndex: 'witnesses', width: 100, align: 'right' as const, render: (w: string[]) => <span className="num">{w.length}</span> },
         ]}
       />
@@ -1035,11 +1057,11 @@ function GaoExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerGao
         onRowClick={onRowClick}
         columns={[
           { title: 'Report #', dataIndex: 'id', width: 150, render: (id: string) => <span className="num" style={{ fontFamily: 'var(--font-mono-rd)', fontSize: 11 }}>{id}</span> },
-          { title: 'Type', dataIndex: 'reportType', width: 130, render: (t: string | null) => t ? <Tag className="redesign-mono-tag">{t}</Tag> : '—' },
+          { title: 'Type', dataIndex: 'reportType', width: 130, render: (t: string | null) => t ? <Tag className="redesign-mono-tag">{t}</Tag> : '-' },
           { title: 'Title', dataIndex: 'title', ellipsis: true, render: (title: string, r: ExplorerGaoRow) => r.url ? <a href={r.url} target="_blank" rel="noreferrer">{title}</a> : title },
           { title: 'Topics', dataIndex: 'topics', width: 220, render: (topics: string[]) => <ChipList items={topics} max={3} /> },
-          { title: 'Recs', dataIndex: 'recommendations', width: 70, align: 'right' as const, render: (n: number | null) => <span className="num">{n ?? '—'}</span> },
-          { title: 'Date', dataIndex: 'publishDate', width: 110, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '—' },
+          { title: 'Recs', dataIndex: 'recommendations', width: 70, align: 'right' as const, render: (n: number | null) => <span className="num">{n ?? '-'}</span> },
+          { title: 'Date', dataIndex: 'publishDate', width: 110, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '-' },
         ]}
       />
     </>
@@ -1097,8 +1119,8 @@ function CrsExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerCrs
           { title: 'Report #', dataIndex: 'id', width: 100, render: (id: string) => <span className="num" style={{ fontFamily: 'var(--font-mono-rd)', fontSize: 11 }}>{id}</span> },
           { title: 'Title', dataIndex: 'title', ellipsis: true, render: (title: string, r: ExplorerCrsRow) => r.htmlUrl ? <a href={r.htmlUrl} target="_blank" rel="noreferrer">{title}</a> : title },
           { title: 'Topics', dataIndex: 'topics', width: 220, render: (t: string[]) => <ChipList items={t} max={3} /> },
-          { title: 'Authors', dataIndex: 'authors', width: 140, render: (a: string[]) => a.length ? a.slice(0, 1).join(', ') + (a.length > 1 ? ` +${a.length - 1}` : '') : '—' },
-          { title: 'Date', dataIndex: 'date', width: 110, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '—' },
+          { title: 'Authors', dataIndex: 'authors', width: 140, render: (a: string[]) => a.length ? a.slice(0, 1).join(', ') + (a.length > 1 ? ` +${a.length - 1}` : '') : '-' },
+          { title: 'Date', dataIndex: 'date', width: 110, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '-' },
         ]}
       />
     </>
@@ -1176,21 +1198,21 @@ function FecExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerFec
         rowKey="id"
         onRowClick={onRowClick}
         columns={[
-          { title: 'Date', dataIndex: 'contributionDate', width: 100, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '—' },
+          { title: 'Date', dataIndex: 'contributionDate', width: 100, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '-' },
           { title: 'Contributor', dataIndex: 'contributorName', ellipsis: true, render: (n: string | null, r: ExplorerFecRow) => (
             <span>
-              <span>{n ?? '—'}</span>
+              <span>{n ?? '-'}</span>
               {r.contributorEmployer ? <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-3)' }}>{r.contributorEmployer}</span> : null}
             </span>
           ) },
           { title: 'Recipient', dataIndex: 'committeeName', ellipsis: true, render: (n: string | null, r: ExplorerFecRow) => (
             <span>
-              <span>{n ?? '—'}</span>
+              <span>{n ?? '-'}</span>
               {r.candidateName ? <span style={{ display: 'block', fontSize: 11, color: 'var(--ink-3)' }}>for {r.candidateName}</span> : null}
             </span>
           ) },
           { title: 'Amount', dataIndex: 'amount', width: 110, align: 'right' as const, render: (v: number) => <span className="num" style={{ fontWeight: 500 }}>{formatMoney(v)}</span> },
-          { title: 'State', dataIndex: 'state', width: 70, render: (s: string | null) => s ? <span className="state-pill num">{s}</span> : '—' },
+          { title: 'State', dataIndex: 'state', width: 70, render: (s: string | null) => s ? <span className="state-pill num">{s}</span> : '-' },
           { title: 'Cycle', dataIndex: 'cycle', width: 80, render: (c: number) => <span className="num">{c}</span> },
         ]}
       />
@@ -1254,9 +1276,9 @@ function FaraExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerFa
           { title: 'Reg #', dataIndex: 'registrationNumber', width: 110, render: (r: string) => <span className="num" style={{ fontFamily: 'var(--font-mono-rd)', fontSize: 11 }}>{r}</span> },
           { title: 'Registrant', dataIndex: 'registrantName', ellipsis: true },
           { title: 'Foreign Principal', dataIndex: 'foreignPrincipal', ellipsis: true },
-          { title: 'Country', dataIndex: 'country', width: 130, render: (c: string | null) => c ?? '—' },
-          { title: 'Status', dataIndex: 'status', width: 110, render: (s: string | null) => s ? <Tag color={s.toLowerCase() === 'active' ? 'green' : 'default'}>{s}</Tag> : '—' },
-          { title: 'Registered', dataIndex: 'registrationDate', width: 110, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '—' },
+          { title: 'Country', dataIndex: 'country', width: 130, render: (c: string | null) => c ?? '-' },
+          { title: 'Status', dataIndex: 'status', width: 110, render: (s: string | null) => s ? <Tag color={s.toLowerCase() === 'active' ? 'green' : 'default'}>{s}</Tag> : '-' },
+          { title: 'Registered', dataIndex: 'registrationDate', width: 110, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '-' },
         ]}
       />
     </>
@@ -1438,10 +1460,10 @@ function StateBillsExplorer({ onRowClick }: { onRowClick: (id: string, row: Expl
               {n}
               {r.sponsorParty ? <span style={{ marginLeft: 6, fontSize: 10.5, fontFamily: 'var(--font-mono-rd)', color: 'var(--ink-3)' }}>({r.sponsorParty})</span> : null}
             </span>
-          ) : '—' },
+          ) : '-' },
           { title: 'Latest action', dataIndex: 'latestActionText', ellipsis: true, render: (text: string | null, r: ExplorerStateBillRow) => (
             <span style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: 12.5 }}>{text ?? '—'}</span>
+              <span style={{ fontSize: 12.5 }}>{text ?? '-'}</span>
               {r.latestActionDate ? <span className="num" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{formatDate(r.latestActionDate)}</span> : null}
             </span>
           ) },
@@ -1520,7 +1542,7 @@ function LdaFilingDetailView({ id }: { id: string }) {
         <DrillKV label="Filing UUID" value={<span className="num">{filing.filingUuid}</span>} />
         <DrillKV label="Type" value={filing.filingType} />
         <DrillKV label="Year / period" value={`${filing.filingYear}${filing.filingPeriod ? ` · ${filing.filingPeriod}` : ''}`} />
-        <DrillKV label="Posted" value={filing.dtPosted ? formatDate(filing.dtPosted) : '—'} />
+        <DrillKV label="Posted" value={filing.dtPosted ? formatDate(filing.dtPosted) : '-'} />
         <DrillKV label="Income" value={<span className="num">{formatMoney(filing.income)}</span>} />
         <DrillKV label="Expenses" value={<span className="num">{formatMoney(filing.expenses ?? null)}</span>} />
         <DrillKV label="Registrant" value={filing.registrantName} />
@@ -1586,14 +1608,14 @@ function BillDetailView({ id }: { id: string }) {
         <DrillKV label="Number" value={<span className="num" style={{ fontWeight: 600 }}>{bill.billType} {bill.billNumber}</span>} />
         <DrillKV label="Congress" value={`${bill.congress}th`} />
         <DrillKV label="Title" value={bill.title} />
-        <DrillKV label="Sponsor" value={`${bill.sponsorName ?? '—'}${bill.sponsorParty ? ` (${bill.sponsorParty}-${bill.sponsorState ?? ''})` : ''}`} />
-        <DrillKV label="Introduced" value={bill.introducedDate ? formatDate(bill.introducedDate) : '—'} />
-        <DrillKV label="Origin chamber" value={bill.originChamber ?? '—'} />
-        <DrillKV label="Policy area" value={bill.policyArea ?? '—'} />
+        <DrillKV label="Sponsor" value={`${bill.sponsorName ?? '-'}${bill.sponsorParty ? ` (${bill.sponsorParty}-${bill.sponsorState ?? ''})` : ''}`} />
+        <DrillKV label="Introduced" value={bill.introducedDate ? formatDate(bill.introducedDate) : '-'} />
+        <DrillKV label="Origin chamber" value={bill.originChamber ?? '-'} />
+        <DrillKV label="Policy area" value={bill.policyArea ?? '-'} />
         <DrillKV label="Cosponsors" value={<span className="num">{bill.cosponsorsCount}</span>} />
         <DrillKV label="Latest action" value={
           <span>
-            {bill.latestActionText ?? '—'}
+            {bill.latestActionText ?? '-'}
             {bill.latestActionDate ? <span className="num" style={{ display: 'block', fontSize: 11, color: 'var(--ink-3)' }}>{formatDate(bill.latestActionDate)}</span> : null}
           </span>
         } />
@@ -1636,9 +1658,9 @@ function ContractorDetailView({ id }: { id: string }) {
     <div className="drill-content">
       <DrillSection title="Contractor">
         <DrillKV label="Name" value={contractor.name} />
-        <DrillKV label="UEI" value={contractor.uei ? <span className="num" style={{ fontFamily: 'var(--font-mono-rd)' }}>{contractor.uei}</span> : '—'} />
-        <DrillKV label="Category" value={contractor.category ?? '—'} />
-        <DrillKV label="Rank" value={contractor.rankByContracts ? `#${contractor.rankByContracts}` : '—'} />
+        <DrillKV label="UEI" value={contractor.uei ? <span className="num" style={{ fontFamily: 'var(--font-mono-rd)' }}>{contractor.uei}</span> : '-'} />
+        <DrillKV label="Category" value={contractor.category ?? '-'} />
+        <DrillKV label="Rank" value={contractor.rankByContracts ? `#${contractor.rankByContracts}` : '-'} />
         <DrillKV label="Total contracts" value={<span className="num">{formatMoney(contractor.totalContracts)}</span>} />
         <DrillKV label="No-bid total" value={<span className="num" style={{ color: contractor.noBidTotal && contractor.noBidTotal > 0 ? 'var(--critical)' : 'var(--ink-3)' }}>{formatMoney(contractor.noBidTotal)}</span>} />
       </DrillSection>
@@ -1689,8 +1711,8 @@ function FedRegDetailView({ id }: { id: string }) {
         <DrillKV label="Doc #" value={<span className="num">{document.documentNumber}</span>} />
         <DrillKV label="Agency" value={document.agencyNames.join(' / ')} />
         <DrillKV label="Published" value={formatDate(document.publicationDate)} />
-        <DrillKV label="Comment closes" value={document.commentEndDate ? formatDate(document.commentEndDate) : '—'} />
-        <DrillKV label="Effective" value={document.effectiveDate ? formatDate(document.effectiveDate) : '—'} />
+        <DrillKV label="Comment closes" value={document.commentEndDate ? formatDate(document.commentEndDate) : '-'} />
+        <DrillKV label="Effective" value={document.effectiveDate ? formatDate(document.effectiveDate) : '-'} />
         <DrillKV label="Significant rule" value={document.significantRule ? 'Yes' : 'No'} />
         {document.htmlUrl ? <DrillKV label="Federal Register" value={<a href={document.htmlUrl} target="_blank" rel="noreferrer">View on FederalRegister.gov →</a>} /> : null}
       </DrillSection>
@@ -1939,7 +1961,7 @@ function StateBillDetailView({ id }: { id: string }) {
         <DrillKV label="Session" value={<span className="num">{b.session}</span>} />
         {b.chamber ? <DrillKV label="Chamber" value={b.chamber} /> : null}
         {b.sponsorName ? <DrillKV label="Sponsor" value={`${b.sponsorName}${b.sponsorParty ? ` (${b.sponsorParty})` : ''}`} /> : null}
-        {b.latestActionDate ? <DrillKV label="Latest action" value={`${formatDate(b.latestActionDate)}${b.latestActionText ? ` — ${b.latestActionText}` : ''}`} /> : null}
+        {b.latestActionDate ? <DrillKV label="Latest action" value={`${formatDate(b.latestActionDate)}${b.latestActionText ? `, ${b.latestActionText}` : ''}`} /> : null}
         {b.url ? <DrillKV label="Source" value={<a href={b.url} target="_blank" rel="noreferrer">Open on OpenStates →</a>} /> : null}
       </DrillSection>
       {b.abstract ? <DrillSection title="Abstract"><p style={{ fontSize: 13, lineHeight: 1.55 }}>{b.abstract}</p></DrillSection> : null}
@@ -2170,7 +2192,7 @@ function ExplorerTable<T extends { id: string }>({
 /* ── Formatters ──────────────────────────────────────────────────────────── */
 
 function formatMoney(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return '—';
+  if (value == null || !Number.isFinite(value)) return '-';
   const abs = Math.abs(value);
   if (abs >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(2)}B`;
   if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
@@ -2180,7 +2202,7 @@ function formatMoney(value: number | null): string {
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
+  if (Number.isNaN(d.getTime())) return '-';
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' });
 }
 

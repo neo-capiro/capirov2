@@ -30,7 +30,7 @@ ENV_NAME=$(escape "${APP_ENV:-unknown}")
 
 cat > "$OUT" <<EOF
 // Generated at container start by apps/web/nginx/entrypoint.sh.
-// Do not edit — replaced on every deploy.
+// Do not edit, replaced on every deploy.
 window.__CAPIRO_CONFIG__ = Object.freeze({
   clerkPublishableKey: '${CLERK_KEY}',
   apiBaseUrl: '${API_URL}',

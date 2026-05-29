@@ -12,7 +12,7 @@ interface AuthTrack {
 }
 
 const AUTH_TIMELINES: AuthTrack[] = [
-  { code: 'NDAA',   name: 'National Defense Authorization Act',  cycle: 'Annual',   reauthFY: null, note: 'Sets DoD policy + authorization levels — the workhorse for defense policy.' },
+  { code: 'NDAA',   name: 'National Defense Authorization Act',  cycle: 'Annual',   reauthFY: null, note: 'Sets DoD policy + authorization levels, the workhorse for defense policy.' },
   { code: 'FAA',    name: 'FAA Reauthorization',                  cycle: '5-year',   reauthFY: 28,   note: 'Aviation safety, NextGen, drones.' },
   { code: 'Farm',   name: 'Farm Bill',                             cycle: '5-year',   reauthFY: 29,   note: 'Ag commodities, conservation, nutrition.' },
   { code: 'WRDA',   name: 'Water Resources Development Act',      cycle: '2-year',   reauthFY: 28,   note: 'Corps of Engineers civil works.' },
@@ -180,7 +180,7 @@ export function WorkspaceOverview() {
           <h2 className="wso-hero-title">Where every <em>strategy</em> becomes a written ask.</h2>
           <p className="wso-hero-sub">
             The Workspace is where you turn a client's program into the documents that travel up the Hill.
-            One spot for templates, active workflows, and full fiscal-year strategies — with Clio drafting
+            One spot for templates, active workflows, and full fiscal-year strategies, with Clio drafting
             the long-form pieces (white papers, talking points, one-pagers) you'd normally spend a week on.
           </p>
           <div className="wso-hero-cta">
@@ -210,7 +210,7 @@ export function WorkspaceOverview() {
               </svg>
             </div>
             <h4>Library</h4>
-            <p>The catalog of submission types — every authorization track and all 12 appropriations subcommittees in each chamber, plus supporting docs. Pick a template, drop it into a workflow.</p>
+            <p>The catalog of submission types, every authorization track and all 12 appropriations subcommittees in each chamber, plus supporting docs. Pick a template, drop it into a workflow.</p>
             <span className="link">Open the catalog <ArrowRightOutlined style={{ fontSize: 11 }} /></span>
           </button>
           <button type="button" className="wso-pillar" data-tone="workflows" onClick={() => navigate('/workspace/workflows')}>
@@ -220,7 +220,7 @@ export function WorkspaceOverview() {
               </svg>
             </div>
             <h4>Workflows</h4>
-            <p>The kanban of every active deliverable across your firm — Triage, In Progress, Done. Drag cards across columns. Each card is a discrete ask owed to one office on one bill.</p>
+            <p>The kanban of every active deliverable across your firm, Triage, In Progress, Done. Drag cards across columns. Each card is a discrete ask owed to one office on one bill.</p>
             <span className="link">See active work <ArrowRightOutlined style={{ fontSize: 11 }} /></span>
           </button>
           <button type="button" className="wso-pillar" data-tone="strategies" onClick={() => navigate('/workspace/strategies')}>
@@ -230,7 +230,7 @@ export function WorkspaceOverview() {
               </svg>
             </div>
             <h4>Strategies</h4>
-            <p>An FY-scoped plan for one client capability. Bundles every submission, every target office, every supporting doc — and tracks progress against deadlines. This is where you live during a cycle.</p>
+            <p>An FY-scoped plan for one client capability. Bundles every submission, every target office, every supporting doc, and tracks progress against deadlines. This is where you live during a cycle.</p>
             <span className="link">Open strategies <ArrowRightOutlined style={{ fontSize: 11 }} /></span>
           </button>
         </div>
@@ -338,7 +338,7 @@ function TracksInfographic() {
     <div className="ig-tracks">
       <div className="ig-tracks-head">
         <h2>How the tracks are organized</h2>
-        <span className="sub">Capiro mirrors the Hill's own structure — auth, appropriations, and supporting docs.</span>
+        <span className="sub">Capiro mirrors the Hill's own structure, auth, appropriations, and supporting docs.</span>
       </div>
 
       {/* AUTHORIZATION */}
@@ -349,7 +349,7 @@ function TracksInfographic() {
             <h3>Sets the policy.</h3>
           </div>
           <p className="lede">
-            Authorizing bills set policy ceilings — they <b>don't fund anything directly</b>; appropriations does.
+            Authorizing bills set policy ceilings, they <b>don't fund anything directly</b>; appropriations does.
             Most reauthorize on a fixed cycle, so timing is everything. <b>FY{CURRENT_FY}</b> is the active cycle.
           </p>
         </div>
@@ -381,7 +381,7 @@ function TracksInfographic() {
         </div>
       </div>
 
-      {/* APPROPRIATIONS — dual pinwheels */}
+      {/* APPROPRIATIONS, dual pinwheels */}
       <div className="ig-track">
         <div className="ig-track-head">
           <div className="left">
@@ -400,7 +400,7 @@ function TracksInfographic() {
         </div>
       </div>
 
-      {/* SUPPORTING DOCS — pyramid */}
+      {/* SUPPORTING DOCS, pyramid */}
       <div className="ig-track">
         <div className="ig-track-head">
           <div className="left">
@@ -556,7 +556,7 @@ function EcosystemMindmap() {
         <div className="ttl">
           <h2>The submission ecosystem</h2>
           <p>
-            Who submits, what they submit, and who receives it — at a glance. Trace any sector through to its
+            Who submits, what they submit, and who receives it, at a glance. Trace any sector through to its
             authorization committee and appropriations subcommittee in a single read.
           </p>
         </div>

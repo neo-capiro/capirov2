@@ -26,8 +26,8 @@ describe('intelligence-v1 mappers fallbacks', () => {
   });
 
   test('formatDate falls back safely for missing or malformed date strings', () => {
-    expect(formatDate(undefined)).toBe('—');
-    expect(formatDate(null)).toBe('—');
+    expect(formatDate(undefined)).toBe('-');
+    expect(formatDate(null)).toBe('-');
     expect(formatDate('not-a-date')).toBe('not-a-date');
   });
 

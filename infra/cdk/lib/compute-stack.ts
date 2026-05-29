@@ -94,7 +94,7 @@ export class ComputeStack extends cdk.Stack {
     // Re-import secrets + KMS keys by ARN so CDK treats them as external to
     // this stack. Without this, helpers like `ecs.Secret.fromSecretsManager`
     // and `secret.grantRead` try to mutate the resource policy in the owning
-    // stack — which would force a Data/Secrets → Compute dependency and create
+    // stack, which would force a Data/Secrets → Compute dependency and create
     // a cycle.
     const dbSecretImported = secretsmanager.Secret.fromSecretCompleteArn(
       this,
@@ -211,7 +211,7 @@ export class ComputeStack extends cdk.Stack {
       useForServiceConnect: false,
     });
 
-    // Log groups are RETAIN even in dev — when an ECS service fails its first
+    // Log groups are RETAIN even in dev, when an ECS service fails its first
     // deploy, CFN rolls back and would otherwise destroy the logs that explain
     // why. Keeping them lets us iterate without losing the failure trail.
     const apiLogGroup = new logs.LogGroup(this, 'ApiLogs', {
@@ -300,7 +300,7 @@ export class ComputeStack extends cdk.Stack {
         ],
       }),
     );
-    // Bedrock — embeddings pipeline (apps/api/scripts/embed-backfill.ts and
+    // Bedrock, embeddings pipeline (apps/api/scripts/embed-backfill.ts and
     // future on-write hooks) invokes Titan Text Embeddings v2. Scoped to that
     // specific foundation-model ARN so the role can't reach Claude or
     // other models even if a code path tried.
@@ -430,7 +430,7 @@ export class ComputeStack extends cdk.Stack {
       DB_NAME: databaseName,
       // CLERK_JWT_ISSUER is set per-env from config; absent during dev
       // bootstrap (before Clerk instance is created) so the API skips issuer
-      // validation — acceptable until clerkJwtIssuer is filled in config.ts.
+      // validation, acceptable until clerkJwtIssuer is filled in config.ts.
       ...(cfg.clerkJwtIssuer ? { CLERK_JWT_ISSUER: cfg.clerkJwtIssuer } : {}),
       WEB_ORIGIN: `https://${cfg.appHost},https://${cfg.wildcardHost.replace('*', 'acmelobby')}`,
       ASSETS_BUCKET: assetsStack.bucket.bucketName,
@@ -847,7 +847,7 @@ export class ComputeStack extends cdk.Stack {
       environment: apiSharedEnv,
       // The script connects via DATABASE_URL composed from DB_* secrets
       // (entrypoint.sh handles the URL-encoding). Bedrock auth is from the
-      // task role — no API key needed.
+      // task role, no API key needed.
       secrets: apiMigrateSecrets,
       readonlyRootFilesystem: false,
     });
@@ -857,7 +857,7 @@ export class ComputeStack extends cdk.Stack {
     // ALTER ROLEs `capiro_app` to whatever password is currently in the
     // app secret. Run after every change to the app secret (rotation,
     // initial bootstrap). Identity grants are the same as the migrate
-    // task — both need to talk to the DB.
+    // task, both need to talk to the DB.
     this.apiBootstrapRolesTaskDefinition = new ecs.FargateTaskDefinition(
       this,
       'ApiBootstrapRolesTaskDef',
@@ -997,7 +997,7 @@ export class ComputeStack extends cdk.Stack {
       deregistrationDelay: cdk.Duration.seconds(15),
     });
 
-    // Listener rules — ORDER MATTERS, lower priority wins.
+    // Listener rules, ORDER MATTERS, lower priority wins.
     //   3  /api/*, /webhooks/*, /health (any host) → api  [must beat marketing host rule]
     //   5  apex (capiro.ai) → marketing
     //   20 app.capiro.ai + *.app.capiro.ai → web
@@ -1166,7 +1166,7 @@ function grantSecretsAndKmsToExecutionRole(
   secretArns: string[],
   kmsKeyArns: string[],
 ): void {
-  // The execution role is created lazily by the L2 — accessing it here forces
+  // The execution role is created lazily by the L2, accessing it here forces
   // creation. Adding policies before any container is added is fine because
   // the role exists once the task definition is constructed.
   taskDef.addToExecutionRolePolicy(

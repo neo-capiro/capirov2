@@ -652,7 +652,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         </div>
       </div>
 
-      {/* Toggle FAB — only visible when drawer is closed */}
+      {/* Toggle FAB, only visible when drawer is closed */}
       <button
         type="button"
         className={`chat-toggle-fab${isOpen ? ' chat-toggle-fab--hidden' : ''}`}

@@ -36,6 +36,12 @@ const ProgramElementWatchPage = lazy(async () =>
   })),
 );
 
+const MarkupMonitorPage = lazy(async () =>
+  import('./pages/program-element/MarkupMonitorPage.js').then((m) => ({
+    default: m.MarkupMonitorPage,
+  })),
+);
+
 export function App() {
   return (
     <Routes>
@@ -77,8 +83,16 @@ export function App() {
             </Suspense>
           }
         />
-        {/* Intelligence routes kept for legacy URLs — the page renames itself
-            to "Data Explorer" in the sidebar, but ChangesInbox + IssueLeaderboard
+        <Route
+          path="/program-elements/mark-up-monitor"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading mark-up monitor" description="Please wait..." />}>
+              <MarkupMonitorPage />
+            </Suspense>
+          }
+        />
+        {/* Intelligence routes kept for legacy URLs, the page renames itself
+            to "Intelligence Center" in the sidebar, but ChangesInbox + IssueLeaderboard
             stay reachable for now. The main /intelligence path redirects. */}
         <Route path="/intelligence" element={<Navigate to="/explorer" replace />} />
         <Route path="/intelligence/changes" element={<ChangesInboxPage />} />

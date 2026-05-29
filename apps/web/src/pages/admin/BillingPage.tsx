@@ -24,7 +24,7 @@ export function BillingPage() {
         style={{ marginBottom: 16 }}
       />
       <Descriptions column={1} size="small">
-        <Descriptions.Item label="Plan">{billing.data?.plan ?? '—'}</Descriptions.Item>
+        <Descriptions.Item label="Plan">{billing.data?.plan ?? '-'}</Descriptions.Item>
       </Descriptions>
     </Card>
   );

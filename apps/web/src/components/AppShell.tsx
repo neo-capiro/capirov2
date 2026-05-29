@@ -120,7 +120,7 @@ const NAV: NavItem[] = [
   },
   {
     key: 'intelligence',
-    label: 'Data Explorer',
+    label: 'Intelligence Center',
     path: '/explorer',
     icon: <BulbOutlined />,
   },
@@ -302,7 +302,7 @@ export function AppShell() {
   }, [connectedInboxConnections.length, navigate, syncInbox]);
 
   // Counts pulled from caches already populated above. We don't fire new
-  // queries just to show a chip — if the page hasn't loaded them yet,
+  // queries just to show a chip, if the page hasn't loaded them yet,
   // the chip is hidden until the data arrives.
   const navCounts = useMemo<Partial<Record<AppSection, number>>>(() => {
     return {
@@ -559,7 +559,7 @@ function TopbarTenantBrand({ logoUrl, name }: { logoUrl: string | null; name: st
 }
 
 /**
- * Global search input in the top bar. Visual-only for now — wiring it up to a
+ * Global search input in the top bar. Visual-only for now, wiring it up to a
  * real cross-tenant index is a separate piece of work (see /docs/global-search.md
  * for the proposed scope). The ⌘K hint is for future keyboard-trigger UX.
  */
@@ -812,7 +812,7 @@ function pageConfigFor(pathname: string): PageConfig {
     engagement: 'Engagement',
     workspace: 'Workspace',
     planner: 'Planner',
-    intelligence: 'Data Explorer',
+    intelligence: 'Intelligence Center',
     directory: 'Directory',
     stakeholders: 'Stakeholders',
     collaborators: 'Collaborators',

@@ -1080,7 +1080,7 @@ export class ClioService {
     ].join('\n');
 
     const intentGuidance: Record<string, string> = {
-      query_intelligence: 'The user is asking about federal lobbying intelligence. You have real data from the Capiro database — bills, LDA filings, spending, and trends. Synthesize this data with clear takeaways. List specific bill numbers, sponsors, and policy areas.',
+      query_intelligence: 'The user is asking about federal lobbying intelligence. You have real data from the Capiro database, bills, LDA filings, spending, and trends. Synthesize this data with clear takeaways. List specific bill numbers, sponsors, and policy areas.',
       query_clients: 'The user is asking about their clients. Use available client data.',
       query_engagement: 'The user is asking about meetings or outreach. Reference engagement records.',
       query_workflow: 'The user is asking about workflows or submissions. Check workflow data.',

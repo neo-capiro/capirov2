@@ -48,14 +48,14 @@ const GENERIC_DOMAINS = new Set([
   'verizon.net',
   'att.net',
   'sbcglobal.net',
-  // US Government — Congress (these are targets, not clients)
+  // US Government, Congress (these are targets, not clients)
   'senate.gov',
   'house.gov',
   'mail.house.gov',
   'mail.senate.gov',
   'who.eop.gov',
   'omb.eop.gov',
-  // US Government — Agencies (recipients, not clients)
+  // US Government, Agencies (recipients, not clients)
   'dod.mil',
   'navy.mil',
   'army.mil',

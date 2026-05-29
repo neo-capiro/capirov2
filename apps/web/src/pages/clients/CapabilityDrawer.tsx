@@ -265,7 +265,7 @@ function ProfileTab({
 
   const issueCodeOptions = (issuesQuery.data ?? []).map((issue) => ({
     value: issue.code,
-    label: `${issue.code} — ${issue.name}`,
+    label: `${issue.code}, ${issue.name}`,
   }));
 
   return (
@@ -598,7 +598,7 @@ function ReadinessItem({
           style={{ cursor: 'pointer' }}
           title="Click to edit"
         >
-          {value != null ? value : '—'}
+          {value != null ? value : '-'}
         </div>
       )}
       <div className="rm-bar">
@@ -654,7 +654,7 @@ function InlineFieldRow({
           title="Click to edit"
         >
           {value || (
-            <span style={{ color: '#bfbfbf', fontStyle: 'italic' }}>{placeholder ?? '—'}</span>
+            <span style={{ color: '#bfbfbf', fontStyle: 'italic' }}>{placeholder ?? '-'}</span>
           )}
         </span>
       )}
@@ -708,7 +708,7 @@ function InlineNumberRow({
           style={{ cursor: 'pointer', minHeight: 18 }}
           title="Click to edit"
         >
-          {display ?? <span style={{ color: '#bfbfbf', fontStyle: 'italic' }}>—</span>}
+          {display ?? <span style={{ color: '#bfbfbf', fontStyle: 'italic' }}>-</span>}
         </span>
       )}
     </div>
@@ -763,7 +763,7 @@ function InlineTextArea({
           }}
           title="Click to edit"
         >
-          {value || placeholder || '—'}
+          {value || placeholder || '-'}
         </div>
       )}
     </div>

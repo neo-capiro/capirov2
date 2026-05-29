@@ -75,7 +75,7 @@ const decToNumber = (v: unknown): number | null => (v == null ? null : Number(v)
 /**
  * Service exposing federal spending intelligence (OpenSpending / USASpending).
  *
- * Tables are GLOBAL (no tenant_id, no RLS) — same dataset for every tenant.
+ * Tables are GLOBAL (no tenant_id, no RLS), same dataset for every tenant.
  * Read-only from the API; populated by `pnpm sync:openspending`.
  */
 @Injectable()

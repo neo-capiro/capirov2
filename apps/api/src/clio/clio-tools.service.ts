@@ -231,7 +231,7 @@ export class ClioToolsService {
     };
   }
 
-  // ── Intelligence tools (global data — no tenant scoping) ────────────
+  // ── Intelligence tools (global data, no tenant scoping) ────────────
 
   private async queryIntelligence(input: Record<string, unknown>) {
     const clientName = optionalString(input, 'clientName', 200);
@@ -263,7 +263,7 @@ export class ClioToolsService {
       this.logger.warn(`Lobby intel fetch failed: ${(err as Error).message}`);
     }
 
-    // Congress bills — recent activity
+    // Congress bills, recent activity
     try {
       const bills = await this.ldaIntel.getCongressBills(
         undefined, // search

@@ -185,7 +185,7 @@ export function TopAlertsList({ aggregate, fallbackAlerts, loading, links }: Top
                 <div className="iv1-alert-dek">{row.subtitle || 'Federal Register'}</div>
               </div>
               <div className="iv1-alert-when">
-                {row.when ? formatDate(row.when) : '—'}
+                {row.when ? formatDate(row.when) : '-'}
                 {ctd && (
                   <span className="iv1-ctd" style={{ color: countdownColor(row.countdownDays, row.severity) }}>
                     {ctd}

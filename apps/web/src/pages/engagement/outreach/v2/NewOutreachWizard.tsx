@@ -168,7 +168,7 @@ export function NewOutreachWizard({
       out.bill.push({
         id: `bill-${b.id}`,
         kind: 'bill',
-        title: `${b.billNumber} — ${b.title}`,
+        title: `${b.billNumber}, ${b.title}`,
         body: b.latestAction ?? undefined,
         tag: b.policyArea ?? undefined,
         sub: b.status ?? undefined,
@@ -247,7 +247,7 @@ export function NewOutreachWizard({
       // The API's GenerateBatchEmailDto whitelists only id/kind/title/body/
       // scope/note on context items. With forbidNonWhitelisted enabled (see
       // apps/api/src/main.ts), sending the pool-only fields tag/sub/matches
-      // makes Nest reject the request with a 400 — which is what was
+      // makes Nest reject the request with a 400, which is what was
       // causing the "endpoint not wired yet" placeholder fallback to fire.
       // Strip those fields here so the payload matches the DTO exactly.
       const contextItems = state.contextItems.map((item) => ({
@@ -268,7 +268,7 @@ export function NewOutreachWizard({
       };
       // The backend endpoint returns { results: [...] }, NOT { drafts: [...] }.
       // The wizard previously read data.drafts and silently no-op'd because
-      // that key didn't exist on the response — the request actually
+      // that key didn't exist on the response, the request actually
       // succeeded but no drafts ever landed in state.
       const res = await api.post<{
         results: Array<{ recipientId: string; subject: string; body: string }>;
@@ -290,20 +290,20 @@ export function NewOutreachWizard({
       message.success(`Generated ${data.results.length} drafts`);
     },
     onError: () => {
-      // Endpoint may not exist yet — fall back to a placeholder draft so the
+      // Endpoint may not exist yet, fall back to a placeholder draft so the
       // reviewer can still see the layout. The server-side implementation is
       // tracked separately (see task #5).
       const generatedEmails: WizardV2State['generatedEmails'] = {};
       for (const r of state.recipients) {
         const key = recipientKey(r);
         generatedEmails[key] = {
-          subject: `[Placeholder] ${state.campaignName || 'Outreach'} — ${r.name ?? r.email ?? key}`,
+          subject: `[Placeholder] ${state.campaignName || 'Outreach'}, ${r.name ?? r.email ?? key}`,
           body: `Hi ${r.name ?? 'there'},\n\nThis is a placeholder draft. Wire the /api/engagement/outreach/generate-batch endpoint to produce real per-recipient copy using the ${state.contextItems.length} context items selected.\n\nBest,\nNeo`,
           status: 'ready',
         };
       }
       setState((prev) => ({ ...prev, generatedEmails }));
-      message.warning('Generation endpoint not wired yet — showing placeholder drafts');
+      message.warning('Generation endpoint not wired yet, showing placeholder drafts');
     },
   });
 
@@ -478,7 +478,7 @@ export function NewOutreachWizard({
 // =====================================================================
 // Lightweight in-file step components for the steps that don't have new
 // design innovations. They borrow antd for inputs and stay deliberately
-// simple — anything more complex should live in its own file.
+// simple, anything more complex should live in its own file.
 // =====================================================================
 
 function StepSetup({
@@ -520,7 +520,7 @@ function StepSetup({
             <Input
               value={campaignName}
               onChange={(e) => onName(e.target.value)}
-              placeholder="e.g. FY27 NDAA — Section 218 push"
+              placeholder="e.g. FY27 NDAA, Section 218 push"
             />
           </div>
         </Space>
@@ -542,7 +542,7 @@ function StepSetup({
           <Input
             value={campaignName}
             onChange={(e) => onName(e.target.value)}
-            placeholder="e.g. Week of May 24 — Critical Minerals briefing"
+            placeholder="e.g. Week of May 24, Critical Minerals briefing"
           />
         </div>
       </Space>
@@ -684,7 +684,7 @@ function StepTemplate({
               type="text"
               icon={<EyeOutlined />}
               // stopPropagation so clicking Preview doesn't also select the
-              // template — the user might want to compare a few before
+              // template, the user might want to compare a few before
               // committing to one.
               onClick={(e) => {
                 e.stopPropagation();
@@ -697,7 +697,7 @@ function StepTemplate({
           </div>
         ))}
 
-        {/* "Create custom" tile — same grid slot as a template card so the
+        {/* "Create custom" tile, same grid slot as a template card so the
             shape stays predictable as the catalog grows. */}
         <button
           type="button"

@@ -176,7 +176,7 @@ function isLikelyName(line: string): boolean {
 }
 
 function cleanTitle(line: string): string {
-  return normalizeWhitespace(line.replace(/^[\-•*\d.)\s]+/, '').replace(/^[-:–—]+\s*/, ''));
+  return normalizeWhitespace(line.replace(/^[\-•*\d.)\s]+/, '').replace(/^[-:–-]+\s*/, ''));
 }
 
 function isLikelyTitleLine(line: string): boolean {

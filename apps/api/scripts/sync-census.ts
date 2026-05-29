@@ -18,7 +18,7 @@ const CENSUS_API_KEY = process.env.CENSUS_API_KEY ?? '';
 const ACS_YEAR = 2022; // Latest ACS 5-year vintage
 const DELAY_MS = 200;
 
-// FIPS to state code mapping (abbreviated — full 50 states + DC)
+// FIPS to state code mapping (abbreviated, full 50 states + DC)
 const FIPS_TO_STATE: Record<string, string> = {
   '01': 'AL', '02': 'AK', '04': 'AZ', '05': 'AR', '06': 'CA', '08': 'CO', '09': 'CT',
   '10': 'DE', '11': 'DC', '12': 'FL', '13': 'GA', '15': 'HI', '16': 'ID', '17': 'IL',

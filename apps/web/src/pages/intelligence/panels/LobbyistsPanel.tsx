@@ -90,7 +90,7 @@ export function LobbyistsPanel() {
               width: 180,
               render: (years: number[]) => (
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  {(years ?? []).sort().join(', ') || '—'}
+                  {(years ?? []).sort().join(', ') || '-'}
                 </Text>
               ),
             },
@@ -99,7 +99,7 @@ export function LobbyistsPanel() {
               dataIndex: 'coveredPositions',
               render: (positions: unknown[]) => {
                 const arr = Array.isArray(positions) ? positions : [];
-                if (arr.length === 0) return <Text type="secondary" style={{ fontSize: 12 }}>—</Text>;
+                if (arr.length === 0) return <Text type="secondary" style={{ fontSize: 12 }}>-</Text>;
                 const first = formatPosition(arr[0]);
                 return (
                   <Tooltip

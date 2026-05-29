@@ -144,7 +144,7 @@ export class IntelligenceService {
       }
     }
 
-    // 3. Resolve each source — use confirmed mapping if present, else fuzzy match
+    // 3. Resolve each source, use confirmed mapping if present, else fuzzy match
     const [ldaMatch, contractorMatch, lobbyMatch] = await Promise.all([
       confirmedBySource.has('lda')
         ? this.fetchLdaById(Number(confirmedBySource.get('lda')))
@@ -220,7 +220,7 @@ export class IntelligenceService {
   }
 
   /**
-   * Client Profile / Intel Tab — redesigned v1 aggregate payload.
+   * Client Profile / Intel Tab, redesigned v1 aggregate payload.
    * Opinionated 4-section contract so the frontend can render a single
    * anchored surface without stitching 10+ calls client-side.
    */
@@ -313,7 +313,7 @@ export class IntelligenceService {
           orderBy: { createdAt: 'asc' },
         }),
       ),
-      // Outreach sent per day — feeds the 5th Activity row in the snapshot
+      // Outreach sent per day, feeds the 5th Activity row in the snapshot
       // panel (Meetings / Outreach sent / Tasks done / Bills tracked /
       // Critical alerts). Mockup spec requires this row; previously only
       // surfaced as an aggregate inside computeEngagementHealth.
@@ -328,7 +328,7 @@ export class IntelligenceService {
     ]);
 
     // Freshness + unresolved metadata derived from the tenant-scoped mapping query.
-    // mappingRows is fetched via withTenant — clientId is guaranteed to belong to tenantId.
+    // mappingRows is fetched via withTenant, clientId is guaranteed to belong to tenantId.
     const confirmedSources = new Set(mappingRows.filter((m) => m.confirmed).map((m) => m.source));
     const sourceCount = confirmedSources.size;
     const unresolvedMappings = mappingRows.filter((m) => !m.confirmed).length;
@@ -1362,7 +1362,7 @@ export class IntelligenceService {
    * Find active regulations with open comment periods that match this client's
    * LDA issue codes. Two-pass match: (1) topic array contains an LDA issue name
    * as a whole word, OR (2) the document title mentions one of the issue names.
-   * The pure exact-equality variant we tried first was too strict — LDA issue
+   * The pure exact-equality variant we tried first was too strict, LDA issue
    * names like "Defense" rarely equal FR topic strings like "Defense department"
    * verbatim, so it returned zero rows even for clients with obvious matches.
    */
@@ -1504,7 +1504,7 @@ export class IntelligenceService {
    *   - Tenant-neutral rows (empty `relatedClientIds`) which are general
    *     market signals like "5 new GAO reports detected in last 24h".
    *
-   * Pass `tenantClientIds` from the caller — typically resolved once with
+   * Pass `tenantClientIds` from the caller, typically resolved once with
    * `withTenant(...).client.findMany({ select: { id: true } })`.
    */
   async getChanges(
@@ -1734,7 +1734,7 @@ export class IntelligenceService {
   }
 
   /**
-   * Phase 2.2 — FEC money flow trace.
+   * Phase 2.2, FEC money flow trace.
    * contributor_employer (mapped client) → committee → candidate → sponsoring member → committee → bill
    */
   async getFecMoneyFlow(clientId: string, tenantId: string) {
@@ -2483,7 +2483,7 @@ export class IntelligenceService {
           docSectors.add(sector);
         }
       }
-      // LDA codes derived from doc sectors — feeds IntelligenceChange.relatedIssues
+      // LDA codes derived from doc sectors, feeds IntelligenceChange.relatedIssues
       // so the hasSome branch in getCommentPeriodAlerts / generateClientBriefing
       // can surface this change for clients lobbying on the same codes.
       const docLdaCodes = ldaCodesForSectors([...docSectors]);
@@ -2623,12 +2623,12 @@ export class IntelligenceService {
     const clientLabel = client?.name ?? clientId;
     const centerNodeId = `client:${clientId}`;
 
-    // Step 1 — drop unconfirmed auto-match noise.
+    // Step 1, drop unconfirmed auto-match noise.
     //
     // The entity resolver writes a row to client_intel_mapping for EVERY
     // candidate LDA/FEC/contracting match it finds, then waits for a human
     // to confirm one. Until then those mappings have `confirmed = false`
-    // and our view emits one client→lda_client edge per candidate — which
+    // and our view emits one client→lda_client edge per candidate, which
     // is what produced the 68-node "all AGENCY" mess in the screenshot.
     //
     // The graph should reflect the *resolved* state, not the candidate
@@ -2637,7 +2637,7 @@ export class IntelligenceService {
     // confirmed bridges + canonical edges remain.
     const filteredWalkRows = walkRows.filter((r) => r.source !== 'auto_matched');
 
-    // Step 2 — batch-resolve human labels for ID-keyed kinds.
+    // Step 2, batch-resolve human labels for ID-keyed kinds.
     //
     // Many node kinds use opaque numeric IDs (LDA client = int, LDA
     // registrant = int, LDA lobbyist = int, FEC committee = string code)
@@ -2755,7 +2755,7 @@ export class IntelligenceService {
 
     await Promise.all(lookups);
 
-    // Step 3 — expand kindToUiType so distinct kinds get distinct visual
+    // Step 3, expand kindToUiType so distinct kinds get distinct visual
     // treatment instead of all collapsing onto "AGENCY".
     const kindToUiType = (kind: string): 'client' | 'registrant' | 'lobbyist' | 'contractor' | 'bill' | 'pac' | 'agency' => {
       switch (kind) {
@@ -2771,7 +2771,7 @@ export class IntelligenceService {
         case 'lobbyist':
         case 'member':
         case 'candidate':
-          // People — legislators, candidates, registered lobbyists.
+          // People, legislators, candidates, registered lobbyists.
           return 'lobbyist';
         case 'federal_contractor':
         case 'contractor':
@@ -2808,7 +2808,7 @@ export class IntelligenceService {
         return resolved.length > 96 ? `${resolved.slice(0, 96)}…` : resolved;
       }
       // Some kinds carry meaningful values as their id (bill numbers,
-      // committee codes, issue code names) — let those pass through
+      // committee codes, issue code names), let those pass through
       // verbatim.
       if (
         kind === 'bill' ||
@@ -2825,7 +2825,7 @@ export class IntelligenceService {
       ) {
         return id.length > 96 ? `${id.slice(0, 96)}…` : id;
       }
-      // Last resort — opaque ID. Prefix with kind so it's at least
+      // Last resort, opaque ID. Prefix with kind so it's at least
       // legible as "(lda_client) 189497" rather than a naked number.
       return `(${kind.replace(/_/g, ' ')}) ${id.length > 24 ? id.slice(0, 24) + '…' : id}`;
     };
@@ -2891,7 +2891,7 @@ export class IntelligenceService {
     };
   }
 
-  /** Outreach intelligence context — formatted text block for AI prompt injection */
+  /** Outreach intelligence context, formatted text block for AI prompt injection */
   async getOutreachContext(
     clientId: string,
     tenantId: string,
@@ -2979,7 +2979,7 @@ export class IntelligenceService {
       const deadlineList = commentPeriods
         .map((d) => {
           const days = Math.ceil((d.commentEndDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-          return `- "${d.title.slice(0, 60)}" — ${days}d left (${(d.agencyNames as string[]).slice(0, 2).join('/')})`;
+          return `- "${d.title.slice(0, 60)}", ${days}d left (${(d.agencyNames as string[]).slice(0, 2).join('/')})`;
         })
         .join('\n');
       parts.push(`COMMENT PERIOD DEADLINES:\n${deadlineList}`);
@@ -3050,7 +3050,7 @@ export class IntelligenceService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * Phase 2.3 — Capability → District Nexus.
+   * Phase 2.3, Capability → District Nexus.
    * Parses each client capability's districtNexus free-text field for state-district
    * codes (e.g. "CA-52", "TX 3", "FL-AL"), then joins the latest CensusDistrict row
    * for each. Produces "jobs in your district" talking-point data.
@@ -3191,7 +3191,7 @@ export class IntelligenceService {
   }
 
   /**
-   * Phase 2.5 — Bill → Regulation lifecycle.
+   * Phase 2.5, Bill → Regulation lifecycle.
    * For each of the client's tracked bills, find FederalRegisterDocuments whose
    * `topics` array overlaps the bill's subjects, OR whose title/abstract references
    * the bill's identifier (e.g. "H.R. 1234"). Surfaces "the agency just published
@@ -3288,10 +3288,10 @@ export class IntelligenceService {
   }
 
   /**
-   * Phase 2.6 — GAO/CRS → Bill attachment.
+   * Phase 2.6, GAO/CRS → Bill attachment.
    * For each tracked bill, find GAO and CRS reports whose `topics` array overlaps
    * the bill's subjects. Provides authoritative analysis to attach to in-flight
-   * bills — feeds RAG grounding and meeting prep.
+   * bills, feeds RAG grounding and meeting prep.
    */
   async getBillResearchAttachments(clientId: string, tenantId: string) {
     const tracked = await this.getTrackedBills(clientId, tenantId);
@@ -3449,7 +3449,7 @@ export class IntelligenceService {
         id: `hearing-${h.id}`,
         kind: 'hearing',
         label: isMarkup ? 'MARKUP' : 'HEARING',
-        title: `${h.committeeName} — ${h.title}`,
+        title: `${h.committeeName}, ${h.title}`,
         detail: h.location ?? h.witnesses.slice(0, 3).join(', ') ?? null,
         severity: isMarkup ? 'notable' : 'info',
         time: h.time ?? null,
@@ -3505,9 +3505,9 @@ export class IntelligenceService {
 
   /**
    * Live ticker: most recent intel changes for the right-rail feed.
-   * Tenant-aware — prefers changes touching this tenant's clients, falls back
+   * Tenant-aware, prefers changes touching this tenant's clients, falls back
    * to TENANT-NEUTRAL recent changes (empty relatedClientIds) to keep the feed
-   * populated. Never returns changes that touch other tenants' clients —
+   * populated. Never returns changes that touch other tenants' clients -
    * those rows include client names in their description and would leak across
    * tenants if returned.
    */
@@ -3624,7 +3624,7 @@ export class IntelligenceService {
         id: `hearing-${h.id}`,
         kind: isMarkup ? 'markup' : 'hearing',
         label: isMarkup ? 'MARKUP' : 'HEARING',
-        title: `${h.committeeName} — ${h.title}`,
+        title: `${h.committeeName}, ${h.title}`,
         detail: h.location ?? null,
         severity: isMarkup ? 'critical' : 'notable',
         date: h.date.toISOString(),
@@ -3680,7 +3680,7 @@ export class IntelligenceService {
 
     items.sort((a, b) => a.date.localeCompare(b.date));
 
-    // Meetings are always the user's own calendar — they should be visible
+    // Meetings are always the user's own calendar, they should be visible
     // on the home dashboard even if there are higher-severity hearings or
     // deadlines competing for slots. Strategy:
     //   1. Include up to 4 meetings, soonest first.
@@ -3714,7 +3714,7 @@ export class IntelligenceService {
   }
 
   /**
-   * Portfolio summary — six numbers for the Portfolio list stat strip.
+   * Portfolio summary, six numbers for the Portfolio list stat strip.
    * All cheap counts; LDA spend is summed across clients with confirmed
    * mappings using current-quarter filings.
    */

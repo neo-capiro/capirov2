@@ -3,7 +3,7 @@
  *
  *   pnpm --filter @capiro/api sync:congress
  *
- * Source: https://api.congress.gov/v3/ — Congress.gov API.
+ * Source: https://api.congress.gov/v3/, Congress.gov API.
  * Fetches bills, filters to lobbying-relevant policy areas.
  *
  * Steps:
@@ -210,7 +210,7 @@ async function main() {
       // Resolve fromDateTime for this congress. In incremental mode we read
       // the max(updateDate) for this congress's bills out of Postgres. If
       // nothing has ever been synced for this congress, fall back to a wide
-      // window (Jan 1 2021) — Congress.gov rejects requests with no scope.
+      // window (Jan 1 2021), Congress.gov rejects requests with no scope.
       let fromDateTime: string | undefined;
       if (SINCE_OVERRIDE) {
         fromDateTime = new Date(SINCE_OVERRIDE).toISOString();
@@ -260,7 +260,7 @@ async function main() {
                 congressUrl(`/bill/${congress}/${type}/${bill.number}`),
               );
             } catch (err) {
-              // Proceed without detail — will use list data
+              // Proceed without detail, will use list data
             }
 
             const billData = detail?.bill ?? bill as unknown as CongressBillDetail['bill'];

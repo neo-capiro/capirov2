@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 
 export interface HearingMarkupItem {
-  /** Optional stable ID — derived from month+day+title when absent. */
+  /** Optional stable ID, derived from month+day+title when absent. */
   id?: string;
   month: string;
   day: string;
@@ -50,7 +50,7 @@ export function HearingsMarkupList({
   const safeSyncHref = syncCalendarHref?.trim() || '/engagement';
   const safeAlertsHref = setAlertsHref?.trim() || '/intelligence/changes';
 
-  // '' means "no explicit user selection yet — use deterministic default"
+  // '' means "no explicit user selection yet, use deterministic default"
   const [selectedKey, setSelectedKey] = useState<string>('');
 
   // Effective selection: user pick (if still valid) → first item → ''

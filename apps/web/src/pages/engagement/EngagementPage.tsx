@@ -344,7 +344,7 @@ export function EngagementPage() {
   useEffect(() => {
     // Only sync URL → state when the URL itself has changed since we last saw it.
     // Without this guard, this effect re-runs whenever activeEngagementTab (or any
-    // other dep) updates from a user click — and because the URL hasn't caught up
+    // other dep) updates from a user click, and because the URL hasn't caught up
     // yet, it would clobber the new state back to the URL's stale value before
     // the navigate effect below ever runs. Net result: tab clicks would revert.
     const urlKey = `${location.pathname}?${searchParams.toString()}`;
@@ -3701,7 +3701,7 @@ function safeFileName(value: string): string {
 
 /**
  * Engagement page client filter. Drives the global useClientFilter() state
- * — same store that other pages and the chat drawer subscribe to. When a
+ *, same store that other pages and the chat drawer subscribe to. When a
  * client is picked, the meetings/outreach/reports views filter to that
  * client's records (the per-tab queries already read selectedClientId from
  * the shared store).
@@ -3741,7 +3741,7 @@ function EngClientPicker({
 }
 
 /**
- * Mock meeting data — only injected for the Capiro tenant when the API
+ * Mock meeting data, only injected for the Capiro tenant when the API
  * returns zero meetings. Other tenants never see these records.
  */
 const MOCK_MEETINGS_FOR_CAPIRO: Meeting[] = (() => {
@@ -3769,7 +3769,7 @@ const MOCK_MEETINGS_FOR_CAPIRO: Meeting[] = (() => {
       client: { id: 'c1', name: 'Brightdefense', website: null, primaryContactName: null, primaryContactEmail: null }, attendees: [], attachments: [], preps: [], notes: [], debriefs: [],
     },
     {
-      id: 'mock-m3', subject: 'HASC Seapower PSM coffee — Rachel Kim', source: 'google', description: 'Discuss Jaia authorization language.', location: 'Rayburn HOB, Room 2118',
+      id: 'mock-m3', subject: 'HASC Seapower PSM coffee, Rachel Kim', source: 'google', description: 'Discuss Jaia authorization language.', location: 'Rayburn HOB, Room 2118',
       startsAt: from(-3, 9), endsAt: from(-3, 9, 30), organizerEmail: 'neo@capiro.ai', organizerName: 'Neo Martinez', status: 'confirmed', metadata: null, associationScore: null, associationReason: null,
       client: { id: 'c2', name: 'SAGINT INC.', website: null, primaryContactName: null, primaryContactEmail: null }, attendees: [], attachments: [], preps: [], notes: [], debriefs: [],
     },

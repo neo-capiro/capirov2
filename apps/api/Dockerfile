@@ -72,7 +72,7 @@ RUN mkdir -p /app/tmp /tmp \
 ENV TMPDIR=/app/tmp
 WORKDIR /app
 
-# Copy the entire workspace — pnpm's symlinked node_modules + the generated
+# Copy the entire workspace, pnpm's symlinked node_modules + the generated
 # Prisma client + the compiled API. Larger image (~250MB) but reliable.
 COPY --chown=capiro:capiro --from=build /workspace/node_modules /app/node_modules
 COPY --chown=capiro:capiro --from=build /workspace/packages/shared/dist /app/packages/shared/dist
@@ -81,7 +81,7 @@ COPY --chown=capiro:capiro --from=build /workspace/apps/api/dist /app/apps/api/d
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/node_modules /app/apps/api/node_modules
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/prisma /app/apps/api/prisma
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/package.json /app/apps/api/package.json
-# bootstrap-* commands run TS scripts via tsx at task launch — copy the
+# bootstrap-* commands run TS scripts via tsx at task launch, copy the
 # sources so `node tsx scripts/<name>.ts` resolves at runtime.
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/scripts /app/apps/api/scripts
 COPY --chown=capiro:capiro apps/api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh

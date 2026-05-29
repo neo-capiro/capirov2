@@ -482,7 +482,7 @@ function OverviewTab({
     (t) => SUBMISSION_TRACK_LABELS[t as SubmissionTrack] ?? t,
   );
 
-  // Engagement snapshot — uses existing endpoints; falls back to 0/— if any
+  // Engagement snapshot, uses existing endpoints; falls back to 0/- if any
   // single endpoint is unavailable so the card always renders.
   const trackedBills = useQuery<{ total: number } | null>({
     queryKey: ['tracked-bills', client.id, 'overview'],
@@ -510,7 +510,7 @@ function OverviewTab({
     },
     staleTime: 5 * 60 * 1000,
   });
-  // Engagement snapshot card advertises "last 90 days" — pass `from` so the
+  // Engagement snapshot card advertises "last 90 days", pass `from` so the
   // count actually reflects that window instead of all-time.
   const meetingsFromIso = useMemo(
     () => new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
@@ -587,7 +587,7 @@ function OverviewTab({
   return (
     <div className="overview-grid">
       <div>
-        {/* Engagement snapshot — last 90 days */}
+        {/* Engagement snapshot, last 90 days */}
         <section className="surface" style={{ marginBottom: 14 }}>
           <header className="surface-head">
             <h3>Engagement snapshot</h3>
@@ -690,7 +690,7 @@ function OverviewTab({
           </div>
         </section>
 
-        {/* Government Registration — only show if any field is populated */}
+        {/* Government Registration, only show if any field is populated */}
         {cageCode || uei || primaryNaics || samStatus || existingContracts ? (
           <section className="surface" style={{ marginTop: 14 }}>
             <header className="surface-head">
@@ -740,7 +740,7 @@ function OverviewTab({
                     {cap.sector ? <span className="cap-sector">{cap.sector}</span> : null}
                   </span>
                   <span className="overview-cap-trl num">
-                    {cap.trl != null ? `TRL ${cap.trl}` : '—'}
+                    {cap.trl != null ? `TRL ${cap.trl}` : '-'}
                     {cap.mrl != null ? ` · MRL ${cap.mrl}` : ''}
                   </span>
                 </button>
@@ -796,7 +796,7 @@ function InfoRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="info-row">
       <span className="k">{label}</span>
-      <span className={`v${empty ? ' muted' : ''}`}>{empty ? '—' : value}</span>
+      <span className={`v${empty ? ' muted' : ''}`}>{empty ? '-' : value}</span>
     </div>
   );
 }
@@ -876,7 +876,7 @@ function CapabilitiesTab({
         <div>
           <h3 className="cp-tab-h3">Capabilities</h3>
           <p className="cp-tab-dek">
-            Products, services, technologies, and programs — with full submission history per
+            Products, services, technologies, and programs, with full submission history per
             capability.
           </p>
         </div>
@@ -944,7 +944,7 @@ function PeopleTab({
         <div>
           <h3 className="cp-tab-h3">People</h3>
           <p className="cp-tab-dek">
-            Key contacts at this client — executives, government affairs, compliance, and
+            Key contacts at this client, executives, government affairs, compliance, and
             operational POCs.
           </p>
         </div>
@@ -1005,7 +1005,7 @@ function WorkflowsTab({
         <div>
           <h3 className="cp-tab-h3">Workflows</h3>
           <p className="cp-tab-dek">
-            Active engagement work — drafts, requests, outreach, intel runs. Status moves the card.
+            Active engagement work, drafts, requests, outreach, intel runs. Status moves the card.
           </p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} size="small" disabled>
@@ -1392,14 +1392,14 @@ function CapabilityCard({
             <div className="cap-trl-bar">
               <span style={{ width: `${((cap.trl ?? 0) / 9) * 100}%`, background: 'var(--accent)' }} />
             </div>
-            <span className="cap-trl-val num">{cap.trl ?? '—'}/9</span>
+            <span className="cap-trl-val num">{cap.trl ?? '-'}/9</span>
           </div>
           <div className="cap-trl-row">
             <span className="cap-trl-key">MRL</span>
             <div className="cap-trl-bar">
               <span style={{ width: `${((cap.mrl ?? 0) / 10) * 100}%`, background: 'var(--notable)' }} />
             </div>
-            <span className="cap-trl-val num">{cap.mrl ?? '—'}/10</span>
+            <span className="cap-trl-val num">{cap.mrl ?? '-'}/10</span>
           </div>
           {cap.fundingAsk != null ? (
             <div className="cap-trl-foot">
@@ -1625,7 +1625,7 @@ function CapabilityIssueCodesField({ form }: { form: ReturnType<typeof Form.useF
         loading={issuesQuery.isLoading}
         options={(issuesQuery.data ?? []).map((issue) => ({
           value: issue.code,
-          label: `${issue.code} — ${issue.name}`,
+          label: `${issue.code}, ${issue.name}`,
         }))}
         onChange={(values) => form.setFieldValue('issueCodes', values)}
       />

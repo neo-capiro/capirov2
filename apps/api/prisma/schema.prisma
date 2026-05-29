@@ -124,7 +124,7 @@ model Tenant {
   // bootstrap-tenant script and used by the middleware to cross-check the
   // Clerk JWT's `org_id` claim against the tenant resolved via slug/UUID.
   clerkOrgId      String?      @unique @map("clerk_org_id")
-  // Brand assets — logo lives in S3 under `tenants/{id}/branding/...`.
+  // Brand assets, logo lives in S3 under `tenants/{id}/branding/...`.
   // Upload is gated to user_admin (own tenant) and capiro_admin (any tenant).
   logoS3Key       String?      @map("logo_s3_key")
   logoContentType String?      @map("logo_content_type")
@@ -778,7 +778,7 @@ model ClientAssociationOverride {
 
 model ContextEmbedding {
   id          String                @id @default(uuid()) @db.Uuid
-  // Nullable so global content (CongressBill, LdaFiling — no tenant) can
+  // Nullable so global content (CongressBill, LdaFiling, no tenant) can
   // share this table. The RLS policy lets every tenant read NULL rows.
   tenantId    String?               @map("tenant_id") @db.Uuid
   clientId    String?               @map("client_id") @db.Uuid
@@ -1253,9 +1253,9 @@ model EngagementCampaignRecipient {
 // ─────────────────────────────────────────────────────────────────────────
 // Federal Lobbying Intelligence (OpenLobby / Senate LDA-derived reference data)
 //
-// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
 // Populated by the OpenLobby sync job (apps/api/scripts/sync-openlobby.ts).
-// Source: https://www.openlobby.us/data/*.json — itself derived from
+// Source: https://www.openlobby.us/data/*.json, itself derived from
 // public-domain Senate LDA filings at lda.senate.gov.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1297,7 +1297,7 @@ model LobbyIssueRef {
 }
 
 model LobbyTrendingTopic {
-  // Top words and trending words mined from filing descriptions —
+  // Top words and trending words mined from filing descriptions -
   // injected into AI doc-gen prompts as "current Washington context".
   id           String   @id @default(uuid()) @db.Uuid
   word         String   @unique
@@ -1314,9 +1314,9 @@ model LobbyTrendingTopic {
 // ─────────────────────────────────────────────────────────────────────────
 // Federal Spending Intelligence (OpenSpending / USASpending.gov)
 //
-// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
 // Populated by the OpenSpending sync job (apps/api/scripts/sync-openspending.ts).
-// Source: https://www.openspending.us/data/*.json — derived from
+// Source: https://www.openspending.us/data/*.json, derived from
 // public USASpending.gov contract and grant award data.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1387,9 +1387,9 @@ model FederalIndustry {
 // ─────────────────────────────────────────────────────────────────────────
 // Senate LDA Federal Lobbying Intelligence (raw filings dataset)
 //
-// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
 // Populated by apps/api/scripts/sync-lda.ts.
-// Source: https://lda.senate.gov/api/v1/ — public Senate LD-1/LD-2 filings.
+// Source: https://lda.senate.gov/api/v1/, public Senate LD-1/LD-2 filings.
 // ─────────────────────────────────────────────────────────────────────────
 
 model LdaFiling {
@@ -1528,9 +1528,9 @@ model LdaGovernmentEntity {
 // ─────────────────────────────────────────────────────────────────────────
 // FEC Campaign Finance Data
 //
-// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
 // Populated by apps/api/scripts/sync-fec.ts.
-// Source: https://api.open.fec.gov/v1/ — FEC campaign finance data.
+// Source: https://api.open.fec.gov/v1/, FEC campaign finance data.
 // ─────────────────────────────────────────────────────────────────────────
 
 model FecCommittee {
@@ -1581,9 +1581,9 @@ model FecContribution {
 // ─────────────────────────────────────────────────────────────────────────
 // Congress.gov Legislative Data
 //
-// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
 // Populated by apps/api/scripts/sync-congress.ts.
-// Source: https://api.congress.gov/v3/ — Congress.gov API.
+// Source: https://api.congress.gov/v3/, Congress.gov API.
 // ─────────────────────────────────────────────────────────────────────────
 
 model CongressBill {
@@ -1621,7 +1621,7 @@ model CongressBill {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Expanded Congress bill data (normalized)
-// GLOBAL tables — no tenant_id, no RLS.
+// GLOBAL tables, no tenant_id, no RLS.
 // ─────────────────────────────────────────────────────────────────────────
 
 model CongressBillAction {
@@ -1664,7 +1664,7 @@ model CongressBillSubject {
 // ─────────────────────────────────────────────────────────────────────────
 // Program Element Intelligence (DoD PE watch)
 //
-// GLOBAL tables — shared across all tenants. No tenant_id, no RLS.
+// GLOBAL tables, shared across all tenants. No tenant_id, no RLS.
 // Populated by PE Watch sync jobs.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1690,10 +1690,11 @@ model ProgramElement {
   firstSeenFy        Int?     @map("first_seen_fy")
   lastSyncedAt       DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
 
-  years            ProgramElementYear[]
-  milestones       ProgramElementMilestone[]
-  yearSourceValues ProgramElementYearSourceValue[]
-  watches          ProgramElementWatch[]
+  years                    ProgramElementYear[]
+  milestones               ProgramElementMilestone[]
+  yearSourceValues         ProgramElementYearSourceValue[]
+  watches                  ProgramElementWatch[]
+  conferenceProbabilities  ConferenceProbability[]
 
   @@index([serviceCode], map: "program_element_service_code_idx")
   @@index([appropriationType], map: "program_element_appropriation_type_idx")
@@ -1787,9 +1788,27 @@ model ProgramElementWatch {
   @@map("program_element_watch")
 }
 
+model ConferenceProbability {
+  peCode       String   @map("pe_code") @db.VarChar(8)
+  fy           Int
+  predicted    Decimal  @db.Decimal(14, 4)
+  ciLow        Decimal  @map("ci_low") @db.Decimal(14, 4)
+  ciHigh       Decimal  @map("ci_high") @db.Decimal(14, 4)
+  confidence   Decimal  @db.Decimal(6, 4)
+  modelVersion String   @map("model_version")
+  computedAt   DateTime @default(now()) @map("computed_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  @@id([peCode, fy])
+  @@index([fy], map: "conference_probability_fy_idx")
+  @@index([modelVersion], map: "conference_probability_model_version_idx")
+  @@map("conference_probability")
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Federal Register documents
-// GLOBAL table — no tenant_id, no RLS.
+// GLOBAL table, no tenant_id, no RLS.
 // Populated by apps/api/scripts/sync-federal-register.ts.
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1818,7 +1837,7 @@ model FederalRegisterDocument {
 
 // ─────────────────────────────────────────────────────────────────────────
 // AI-generated intelligence insights
-// GLOBAL table — no tenant_id, no RLS.
+// GLOBAL table, no tenant_id, no RLS.
 // ─────────────────────────────────────────────────────────────────────────
 
 model IntelligenceInsight {
@@ -1837,7 +1856,7 @@ model IntelligenceInsight {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Client-to-intelligence-source mapping (synthesis layer)
-// GLOBAL table — links CRM clients to external intelligence identities.
+// GLOBAL table, links CRM clients to external intelligence identities.
 // ─────────────────────────────────────────────────────────────────────────
 
 model ClientIntelMapping {
@@ -1859,7 +1878,7 @@ model ClientIntelMapping {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Cross-source change events (synthesis layer)
-// GLOBAL table — detected changes from sync scripts.
+// GLOBAL table, detected changes from sync scripts.
 // ─────────────────────────────────────────────────────────────────────────
 
 model IntelligenceChange {
@@ -1926,7 +1945,7 @@ model ChatMessage {
 
 // ─────────────────────────────────────────────────────────────────────────
 // SEC EDGAR filings
-// GLOBAL table — no tenant_id, no RLS.
+// GLOBAL table, no tenant_id, no RLS.
 // Source: data.sec.gov/submissions/ and data.sec.gov/api/xbrl/
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1953,8 +1972,8 @@ model SecFiling {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// FARA — Foreign Agents Registration Act filings
-// GLOBAL table — no tenant_id, no RLS.
+// FARA, Foreign Agents Registration Act filings
+// GLOBAL table, no tenant_id, no RLS.
 // Source: efile.fara.gov/api/v1/
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -1979,8 +1998,8 @@ model FaraRegistration {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// BLS — Bureau of Labor Statistics time series data
-// GLOBAL table — no tenant_id, no RLS.
+// BLS, Bureau of Labor Statistics time series data
+// GLOBAL table, no tenant_id, no RLS.
 // Source: api.bls.gov/publicAPI/v2/
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -2014,8 +2033,8 @@ model BlsDataPoint {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Census — ACS 5-Year data by congressional district
-// GLOBAL table — no tenant_id, no RLS.
+// Census, ACS 5-Year data by congressional district
+// GLOBAL table, no tenant_id, no RLS.
 // Source: api.census.gov/data/2022/acs/acs5
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -2044,8 +2063,8 @@ model CensusDistrict {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// BEA — Bureau of Economic Analysis GDP/industry data
-// GLOBAL table — no tenant_id, no RLS.
+// BEA, Bureau of Economic Analysis GDP/industry data
+// GLOBAL table, no tenant_id, no RLS.
 // Source: apps.bea.gov/api/data/
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -2070,8 +2089,8 @@ model BeaData {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Grants.gov — Federal grant opportunities (NOFOs)
-// GLOBAL table — no tenant_id, no RLS.
+// Grants.gov, Federal grant opportunities (NOFOs)
+// GLOBAL table, no tenant_id, no RLS.
 // Source: api.grants.gov/v1/api/search2
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -2103,8 +2122,8 @@ model FederalGrant {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// GAO — Government Accountability Office reports
-// GLOBAL table — no tenant_id, no RLS.
+// GAO, Government Accountability Office reports
+// GLOBAL table, no tenant_id, no RLS.
 // Source: gao.gov/api/products + RSS
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -2126,8 +2145,8 @@ model GaoReport {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Open States — state legislature bills and legislators
-// GLOBAL table — no tenant_id, no RLS.
+// Open States, state legislature bills and legislators
+// GLOBAL table, no tenant_id, no RLS.
 // Source: v3.openstates.org/
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -2172,8 +2191,8 @@ model StateLegislator {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// CRS Reports — Congressional Research Service
-// GLOBAL table — no tenant_id, no RLS.
+// CRS Reports, Congressional Research Service
+// GLOBAL table, no tenant_id, no RLS.
 // Source: crsreports.congress.gov (scrape index)
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -2195,7 +2214,7 @@ model CrsReport {
 
 // ─────────────────────────────────────────────────────────────────────────
 // RSS News & Intelligence articles (aggregated from multiple sources)
-// GLOBAL table — no tenant_id, no RLS.
+// GLOBAL table, no tenant_id, no RLS.
 // Sources: Roll Call, The Hill, Axios, Politico, agency press, think tanks
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -2220,7 +2239,7 @@ model IntelArticle {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Congressional Committee Activity (hearings, markups)
-// GLOBAL table — no tenant_id, no RLS.
+// GLOBAL table, no tenant_id, no RLS.
 // Source: congress.gov API + committee RSS feeds
 // ─────────────────────────────────────────────────────────────────────────
 
@@ -2244,8 +2263,8 @@ model CommitteeHearing {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// SyncRun — observability for sync scripts
-// GLOBAL table — no tenant_id, no RLS. One row per sync execution.
+// SyncRun, observability for sync scripts
+// GLOBAL table, no tenant_id, no RLS. One row per sync execution.
 // ─────────────────────────────────────────────────────────────────────────
 
 model SyncRun {

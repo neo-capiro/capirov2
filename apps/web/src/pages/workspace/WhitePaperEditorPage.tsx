@@ -403,7 +403,7 @@ export function WhitePaperEditorPage() {
 
     const emptySections = sections.filter((section) => section.body.trim().length === 0).length;
     if (emptySections > 0) {
-      list.push(`${emptySections} section${emptySections === 1 ? '' : 's'} still blank — run Draft with Clio on each before final pass.`);
+      list.push(`${emptySections} section${emptySections === 1 ? '' : 's'} still blank, run Draft with Clio on each before final pass.`);
     }
 
     return list.slice(0, 4);

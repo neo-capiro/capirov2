@@ -75,7 +75,7 @@ async function main() {
     const records = await tryFetchJson();
 
     if (records.length === 0) {
-      console.warn('[fara-sync] all FARA API sources are offline — skipping. FARA eFiling API has been down since early 2026.');
+      console.warn('[fara-sync] all FARA API sources are offline, skipping. FARA eFiling API has been down since early 2026.');
       console.log('[fara-sync] DONE (no data sources available) in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
       return;
     }

@@ -19,7 +19,7 @@ class UpdateMeDto {
  *
  * The membership query runs through `withTenant`, so RLS enforces the scope.
  * If you swap tenant_id in `withTenant` to a different tenant, the same query
- * returns zero rows — that's the fail-closed behavior we want.
+ * returns zero rows, that's the fail-closed behavior we want.
  */
 @Controller()
 export class UsersController {

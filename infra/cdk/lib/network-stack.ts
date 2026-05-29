@@ -18,7 +18,7 @@ export interface NetworkStackProps extends cdk.StackProps {
  *
  * VPC endpoints keep tenant payloads off the public internet for AWS service
  * traffic (S3, ECR, Secrets Manager, KMS, CloudWatch Logs). LLM provider
- * traffic (Anthropic, OpenAI) still goes through NAT — the network firewall
+ * traffic (Anthropic, OpenAI) still goes through NAT, the network firewall
  * allowlist for those endpoints lands in a SecurityStack later.
  */
 export class NetworkStack extends cdk.Stack {
@@ -42,7 +42,7 @@ export class NetworkStack extends cdk.Stack {
         { name: 'private', subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS, cidrMask: 22 },
         { name: 'isolated', subnetType: ec2.SubnetType.PRIVATE_ISOLATED, cidrMask: 24 },
       ],
-      // VPC flow logs to CloudWatch — required for SOC 2 network visibility.
+      // VPC flow logs to CloudWatch, required for SOC 2 network visibility.
       flowLogs: {
         all: {
           destination: ec2.FlowLogDestination.toCloudWatchLogs(
@@ -58,7 +58,7 @@ export class NetworkStack extends cdk.Stack {
       },
     });
 
-    // ALB SG — open to the world on 443/80; 80 redirects to 443 in ComputeStack.
+    // ALB SG, open to the world on 443/80; 80 redirects to 443 in ComputeStack.
     this.albSecurityGroup = new ec2.SecurityGroup(this, 'AlbSg', {
       vpc: this.vpc,
       description: 'Capiro ALB ingress',
@@ -75,7 +75,7 @@ export class NetworkStack extends cdk.Stack {
       'HTTP redirect to HTTPS',
     );
 
-    // ECS service SG — only the ALB can reach the task ports.
+    // ECS service SG, only the ALB can reach the task ports.
     this.serviceSecurityGroup = new ec2.SecurityGroup(this, 'ServiceSg', {
       vpc: this.vpc,
       description: 'Capiro ECS Fargate tasks',
@@ -87,7 +87,7 @@ export class NetworkStack extends cdk.Stack {
       'ALB to ECS tasks',
     );
 
-    // Aurora SG — only ECS tasks can reach 5432.
+    // Aurora SG, only ECS tasks can reach 5432.
     this.dbSecurityGroup = new ec2.SecurityGroup(this, 'DbSg', {
       vpc: this.vpc,
       description: 'Capiro Aurora ingress',
@@ -99,12 +99,12 @@ export class NetworkStack extends cdk.Stack {
       'ECS tasks to Aurora Postgres',
     );
 
-    // Gateway endpoint for S3 — free, route-table based.
+    // Gateway endpoint for S3, free, route-table based.
     this.vpc.addGatewayEndpoint('S3Gateway', {
       service: ec2.GatewayVpcEndpointAwsService.S3,
     });
 
-    // Interface endpoints — billed per-AZ-hour, but keep tenant payloads
+    // Interface endpoints, billed per-AZ-hour, but keep tenant payloads
     // off the public internet for AWS service traffic.
     const interfaceEndpoints: Array<[string, ec2.InterfaceVpcEndpointAwsService]> = [
       ['EcrApi', ec2.InterfaceVpcEndpointAwsService.ECR],

@@ -62,7 +62,7 @@ const DAILY_BRIEFING_SCHEMA = {
   },
 };
 
-const SYSTEM_PROMPT = `You are a senior federal government affairs analyst. Generate structured daily intelligence briefings from the provided data. Be specific and actionable — this is for senior lobbyists.`;
+const SYSTEM_PROMPT = `You are a senior federal government affairs analyst. Generate structured daily intelligence briefings from the provided data. Be specific and actionable, this is for senior lobbyists.`;
 
 async function callOpenAi(prompt: string): Promise<string> {
   if (!OPENAI_KEY) throw new Error('OPENAI_API_KEY not set');
@@ -170,7 +170,7 @@ async function generateBriefingForClient(
   if (upcomingHearings.length) {
     contextParts.push(`UPCOMING HEARINGS (14d):\n  ${upcomingHearings.map((h) => {
       const daysOut = Math.ceil((new Date(h.date).getTime() - now.getTime()) / 86400000);
-      return `${h.committee_name} — "${String(h.title).slice(0, 70)}" (${daysOut}d, ${h.chamber})`;
+      return `${h.committee_name}, "${String(h.title).slice(0, 70)}" (${daysOut}d, ${h.chamber})`;
     }).join('\n  ')}`);
   }
 
@@ -193,7 +193,7 @@ Return structured JSON with heroSummary, whatsNew, whatsComing, and suggestedAct
 
 async function main() {
   if (!OPENAI_KEY) {
-    console.error('[generate-briefings] OPENAI_API_KEY not set — aborting');
+    console.error('[generate-briefings] OPENAI_API_KEY not set, aborting');
     process.exit(1);
   }
 
@@ -218,7 +218,7 @@ async function main() {
         AND c.profile_status = 'ACTIVE'
     `;
 
-    console.log(`[generate-briefings] tenant=${tenant.slug} — ${clients.length} clients to brief`);
+    console.log(`[generate-briefings] tenant=${tenant.slug}, ${clients.length} clients to brief`);
 
     for (const client of clients) {
       const t0 = Date.now();
@@ -248,10 +248,10 @@ async function main() {
         });
 
         generated++;
-        console.log(`[generate-briefings] ${client.name} — done in ${Date.now() - t0}ms`);
+        console.log(`[generate-briefings] ${client.name}, done in ${Date.now() - t0}ms`);
       } catch (err) {
         errors++;
-        console.error(`[generate-briefings] ${client.name} — error:`, err);
+        console.error(`[generate-briefings] ${client.name}, error:`, err);
       }
     }
   }

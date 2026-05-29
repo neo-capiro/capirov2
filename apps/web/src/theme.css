@@ -5,7 +5,7 @@
   --ink-700: #344054;
   --line-soft: #d7dfea;
 
-  /* ── Redesign tokens (capiro redesign v2 — Hanken Grotesk system) ──
+  /* ── Redesign tokens (capiro redesign v2, Hanken Grotesk system) ──
      Co-exist with the older blue-gradient tokens above. Pages on the
      new design (Home, Portfolio, Intel) opt in via the .redesign scope
      or by referencing these tokens directly. */
@@ -394,7 +394,7 @@ body {
   background: rgba(42, 87, 206, 0.32);
   color: #c7d4f4;
 }
-/* Hide counts when the sidebar is collapsed — only the icon is visible. */
+/* Hide counts when the sidebar is collapsed, only the icon is visible. */
 .app-shell-sider.ant-layout-sider-collapsed .app-nav-count {
   display: none;
 }
@@ -854,7 +854,7 @@ body {
   outline: none;
 }
 
-/* Bell/notification dot — small accent pip in the top-right corner
+/* Bell/notification dot, small accent pip in the top-right corner
    that matches the mockup .tb-iconbtn .dot-badge. */
 .app-topbar-icon-button {
   position: relative;
@@ -930,7 +930,7 @@ body {
   color: var(--ink-700);
 }
 
-/* Global search input in top bar — visual only for now (input is disabled).
+/* Global search input in top bar, visual only for now (input is disabled).
    Centered between brand and account widget, expands within available space. */
 .app-topbar-search {
   flex: 0 1 520px;
@@ -990,7 +990,7 @@ body {
   background: var(--bg-canvas);
 }
 
-/* Redesign pages bring their own padding — let them go edge-to-edge. */
+/* Redesign pages bring their own padding, let them go edge-to-edge. */
 .app-content:has(> .redesign) {
   padding: 0;
 }
@@ -1531,7 +1531,7 @@ body {
 }
 
 /* ============================================================
-   HomePage — Capiro redesign "Day" view
+   HomePage, Capiro redesign "Day" view
    Anchored on the redesign tokens (--bg-canvas, --ink-1, etc.) from
    :root above. Pages wrap their root in <section class="redesign command-page">.
    ============================================================ */
@@ -1576,6 +1576,232 @@ body {
 .home-greet-meta .critical {
   font-weight: 600;
   color: var(--critical);
+}
+
+/* ── Needs Attention zone (multi-type alerts at the top) ─────────────── */
+
+.home-attention {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+.home-attention-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 18px;
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-1);
+}
+.home-attention-title {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-1);
+}
+.home-attention-head .meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.home-attention-body {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border-1);
+}
+.home-attention-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 18px;
+  background: var(--bg-surface);
+  min-height: 88px;
+  text-decoration: none;
+  color: inherit;
+}
+.home-attention-cell.is-link {
+  transition: background 0.12s ease;
+}
+.home-attention-cell.is-link:hover {
+  background: var(--bg-sunken);
+}
+.home-attention-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.home-attention-title-row {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ink-1);
+  line-height: 1.3;
+}
+.home-attention-dek {
+  font-size: 12px;
+  color: var(--ink-2);
+  line-height: 1.4;
+}
+
+/* ── Bottom row: Workflows + Calendar side by side ───────────────────── */
+
+.home-bottom-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+  margin-top: 18px;
+}
+@media (max-width: 980px) {
+  .home-bottom-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.home-workflows,
+.home-calendar {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.home-workflows-head,
+.home-calendar-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 18px;
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border-1);
+}
+.home-workflows-title,
+.home-calendar-title {
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-1);
+}
+.home-workflows-sub,
+.home-calendar-sub {
+  font-size: 12px;
+  color: var(--ink-3);
+}
+.home-workflows-head .open,
+.home-calendar-head .open {
+  margin-left: auto;
+  font-size: 12px;
+}
+.home-workflows-head .open a,
+.home-calendar-head .open a {
+  color: var(--ink-2);
+  text-decoration: none;
+}
+.home-workflows-head .open a:hover,
+.home-calendar-head .open a:hover {
+  text-decoration: underline;
+}
+.home-workflows-list,
+.home-calendar-list {
+  display: flex;
+  flex-direction: column;
+}
+.home-workflows-row,
+.home-calendar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border-1);
+  text-decoration: none;
+  color: inherit;
+  transition: background 0.12s ease;
+}
+.home-workflows-row:last-child,
+.home-calendar-row:last-child {
+  border-bottom: none;
+}
+.home-workflows-row:hover,
+.home-calendar-row:hover {
+  background: var(--bg-sunken);
+}
+.home-workflows-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.home-workflows-row-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-workflows-row-sub {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-workflows-empty,
+.home-calendar-empty {
+  padding: 28px 18px;
+}
+.home-calendar-date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 44px;
+}
+.home-calendar-date-big {
+  font-family: var(--font-serif-rd, Georgia, serif);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink-1);
+}
+.home-calendar-date-wd {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+.home-calendar-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.home-calendar-row-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-calendar-row-sub {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* ── Coming up strip (3-col, big serif numerals) ─────────────────────── */
@@ -1920,7 +2146,7 @@ body {
   pointer-events: none;
 }
 
-/* Edge-clamped NOW indicator — shown when current time is before HOUR_START
+/* Edge-clamped NOW indicator, shown when current time is before HOUR_START
    or after HOUR_END. Pinned to the top/bottom of the clock with a subtle pill. */
 .home-now-edge {
   position: absolute;
@@ -3043,7 +3269,7 @@ body {
 }
 
 /* ============================================================
-   Portfolio (clients) — Capiro redesign overrides
+   Portfolio (clients), Capiro redesign overrides
    Apply only when the ClientWorkspacePage root has .redesign.
    Mirrors src/portfolio/styles.css from the redesign sample.
    ============================================================ */
@@ -3086,7 +3312,7 @@ body {
   font-weight: 600;
 }
 
-/* Stat strip — rolled-up portfolio numbers.
+/* Stat strip, rolled-up portfolio numbers.
    Auto-fit so the strip wraps to 2 rows at narrow widths instead of
    clipping the rightmost cell. Each cell needs ~150px to avoid
    truncating labels like "ACTIVE BILLS TRACKED" / "ACTIVE REGULATIONS". */
@@ -3660,7 +3886,7 @@ body {
   margin-bottom: 16px;
 }
 
-/* Redesign — engagement page shell matching sample .eng-page */
+/* Redesign, engagement page shell matching sample .eng-page */
 .engagement-page.redesign {
   padding: 26px 32px 60px;
   display: flex;
@@ -6555,7 +6781,7 @@ body {
     min-height: 118px;
   }
 
-  /* Dashboard redesign responsive — collapse multi-col grids */
+  /* Dashboard redesign responsive, collapse multi-col grids */
   .home-overnight-body {
     grid-template-columns: 1fr;
   }
@@ -7250,7 +7476,7 @@ body {
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
-   Workspace Overview — redesign sample port
+   Workspace Overview, redesign sample port
    (hero, pillars, tracks infographic, ecosystem mindmap, flow)
    Scoped under .workspace-overview so it doesn't bleed into other layouts.
    ────────────────────────────────────────────────────────────────────────── */
@@ -8136,7 +8362,7 @@ body {
   }
 }
 
-/* ─── Workflow Drawer — Phase A ───────────────────────────────────────────── */
+/* ─── Workflow Drawer, Phase A ───────────────────────────────────────────── */
 
 .workflow-drawer-type-toggle {
   display: flex;
@@ -8203,7 +8429,7 @@ body {
   gap: 3px;
 }
 
-/* ─── Workflow Drawer — Phase D (AI fill) ─────────────────────────────────── */
+/* ─── Workflow Drawer, Phase D (AI fill) ─────────────────────────────────── */
 
 .workflow-drawer-ai-fill {
   display: flex;
@@ -8586,7 +8812,7 @@ body {
 }
 
 /* ============================================================
-   Client Profile Page v2 — cp-* cap-* overview-*
+   Client Profile Page v2, cp-* cap-* overview-*
    ============================================================ */
 
 :root {
@@ -10123,7 +10349,7 @@ body {
 }
 
 /* ============================================================
-   Data Explorer — generic reporting page
+   Intelligence Center, generic reporting page
    ============================================================ */
 
 .explorer-page.redesign {
@@ -10366,7 +10592,7 @@ body {
   margin: 0;
 }
 
-/* Knowledge Graph — React Flow custom nodes */
+/* Knowledge Graph, React Flow custom nodes */
 .kg-flow-container {
   height: 640px;
   background: var(--bg-canvas);
@@ -10568,7 +10794,7 @@ body {
 }
 
 /* ============================================================
-   Directory — Capiro redesign
+   Directory, Capiro redesign
    Mirrors src/directory/styles.css verbatim, plus a few overrides
    that retarget the existing AntD-driven .directory-* class names.
    ============================================================ */
@@ -10604,7 +10830,7 @@ body {
   color: var(--ink-3);
 }
 
-/* Stat cards — 4 individual surfaces */
+/* Stat cards, 4 individual surfaces */
 .redesign .dir-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -10666,7 +10892,7 @@ body {
   opacity: 0.55;
 }
 
-/* Member card — structured layout matching the spec */
+/* Member card, structured layout matching the spec */
 .redesign .dir-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-1);
@@ -10856,7 +11082,7 @@ body {
   flex-shrink: 0;
 }
 
-/* Pagination overrides — make AntD <Pagination> look like .dir-page */
+/* Pagination overrides, make AntD <Pagination> look like .dir-page */
 .redesign .ant-pagination .ant-pagination-item,
 .redesign .ant-pagination .ant-pagination-prev .ant-pagination-item-link,
 .redesign .ant-pagination .ant-pagination-next .ant-pagination-item-link {
@@ -10885,7 +11111,7 @@ body {
 }
 
 /* ============================================================
-   Member profile modal — Capiro redesign
+   Member profile modal, Capiro redesign
    Targets the existing AntD Modal + .directory-profile-* JSX.
    ============================================================ */
 
@@ -10996,7 +11222,7 @@ body {
   margin: 0;
 }
 
-/* Party / state pills on the dark banner — light-surface inversions */
+/* Party / state pills on the dark banner, light-surface inversions */
 .directory-profile-modal .directory-profile-hero .party-pill {
   background: var(--bg-surface);
 }
@@ -11063,7 +11289,7 @@ body {
   min-height: 320px;
 }
 
-/* Contact tab — two-column layout */
+/* Contact tab, two-column layout */
 .directory-profile-modal .directory-contact-panel {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -11288,7 +11514,7 @@ body {
   padding: 14px 16px;
 }
 
-/* Responsive — collapse the dark banner on narrow screens */
+/* Responsive, collapse the dark banner on narrow screens */
 @media (max-width: 900px) {
   .directory-profile-modal .directory-profile-hero {
     grid-template-columns: 1fr;
@@ -11316,7 +11542,7 @@ body {
 }
 
 /* ============================================================
-   Directory — legacy class targets (kept for the existing JSX)
+   Directory, legacy class targets (kept for the existing JSX)
    ============================================================ */
 
 .redesign .directory-stats-row,
@@ -11348,7 +11574,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Filter pills — flat, redesign style */
+/* Filter pills, flat, redesign style */
 .redesign .directory-filter-pill,
 .redesign .directory-sort-pill,
 .redesign .directory-clear-filter-button {
@@ -11402,7 +11628,7 @@ body {
 }
 
 /* ============================================================
-   Client Profile — Capiro redesign overrides
+   Client Profile, Capiro redesign overrides
    Wrap profile root in <div class="redesign">…</div> to opt in.
    ============================================================ */
 
@@ -11513,7 +11739,7 @@ body {
   background: rgba(255, 255, 255, 0.14) !important;
 }
 
-/* Tabs — accent underline */
+/* Tabs, accent underline */
 .redesign .cp-tabs {
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-1);
@@ -11574,7 +11800,7 @@ body {
   margin-bottom: 10px;
 }
 
-/* Surface card primitive — used on Overview tab */
+/* Surface card primitive, used on Overview tab */
 .redesign .surface {
   background: var(--bg-surface);
   border: 1px solid var(--border-1);
@@ -11642,7 +11868,7 @@ body {
   margin-top: 2px;
 }
 
-/* Info table (k/v rows) — Company information surface */
+/* Info table (k/v rows), Company information surface */
 .redesign .info-table { padding: 4px 18px; }
 .redesign .info-row {
   display: grid;
@@ -11783,7 +12009,7 @@ body {
   color: var(--ink-3);
 }
 
-/* Overview grid — adjust to spec's 1.6fr / 1fr ratio */
+/* Overview grid, adjust to spec's 1.6fr / 1fr ratio */
 .redesign .overview-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
@@ -11796,7 +12022,7 @@ body {
   }
 }
 
-/* ── Capabilities tab — card with maturity sidebar ─────────────────────── */
+/* ── Capabilities tab, card with maturity sidebar ─────────────────────── */
 
 .redesign .cap-card {
   background: var(--bg-surface);
@@ -11990,7 +12216,7 @@ body {
   max-width: 60ch;
 }
 
-/* ── Intelligence tab — metric grid, pivot strip, what's-new rows ─────── */
+/* ── Intelligence tab, metric grid, pivot strip, what's-new rows ─────── */
 
 .redesign .intel-metric-grid {
   display: grid;
@@ -12037,7 +12263,7 @@ body {
 .redesign .intel-metric.critical .value { color: var(--critical); }
 .redesign .intel-metric.success .value { color: var(--success); }
 
-/* Pivot strip — flat row of toggles below the metric grid */
+/* Pivot strip, flat row of toggles below the metric grid */
 .redesign .intel-pivots {
   display: flex;
   border-bottom: 1px solid var(--border-1);
@@ -12129,7 +12355,7 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Clio signal banner — orange-tinted hint card */
+/* Clio signal banner, orange-tinted hint card */
 .redesign .clio-signal {
   background: linear-gradient(90deg, var(--notable-soft) 0%, var(--bg-surface) 30%);
   border: 1px solid var(--notable-soft);
@@ -12168,7 +12394,7 @@ body {
   margin-top: 2px;
 }
 
-/* LDA filings table — used inside the LDA pivot panel */
+/* LDA filings table, used inside the LDA pivot panel */
 .redesign .lda-summary {
   display: grid;
   grid-template-columns: 140px 140px 1fr;
@@ -12201,7 +12427,7 @@ body {
   font-weight: 600;
 }
 
-/* ── Workflows tab — Kanban board ──────────────────────────────────────── */
+/* ── Workflows tab, Kanban board ──────────────────────────────────────── */
 
 .redesign .kanban {
   display: grid;
@@ -12321,7 +12547,7 @@ body {
   font-weight: 600;
 }
 
-/* ── People tab — person card ──────────────────────────────────────────── */
+/* ── People tab, person card ──────────────────────────────────────────── */
 
 .redesign .cp-people-grid {
   display: grid;
@@ -12359,7 +12585,7 @@ body {
   background: var(--bg-sunken);
   color: var(--ink-2);
 }
-/* Heuristic role coloring (PrimaryPOC / Exec / GovAffairs) — done in JSX via class? Use [data-role] hook */
+/* Heuristic role coloring (PrimaryPOC / Exec / GovAffairs), done in JSX via class? Use [data-role] hook */
 .redesign .cp-person-card a {
   color: var(--ink-2);
   text-decoration: none;
@@ -12370,7 +12596,7 @@ body {
 }
 .redesign .cp-person-card a:hover { color: var(--ink-1); }
 
-/* ── Documents tab — drop zone + list rows ─────────────────────────────
+/* ── Documents tab, drop zone + list rows ─────────────────────────────
    Targets the actual JSX class names: .doc-drop-zone, .doc-list, .doc-item.
    ─────────────────────────────────────────────────────────────────── */
 
@@ -12521,7 +12747,7 @@ body {
   color: var(--ink-1);
 }
 
-/* Tables in redesign — quieter borders, warm surface */
+/* Tables in redesign, quieter borders, warm surface */
 .redesign .ant-table {
   font-family: var(--font-sans-rd);
 }
@@ -12539,7 +12765,7 @@ body {
   color: var(--ink-1);
 }
 
-/* AntD Tag inside redesign — match tag-chip aesthetic by default */
+/* AntD Tag inside redesign, match tag-chip aesthetic by default */
 .redesign .ant-tag {
   font-family: var(--font-sans-rd);
   border-radius: 4px;
@@ -14561,7 +14787,7 @@ body {
   color: var(--ink-3);
 }
 
-/* Empty state — extends iv1-empty */
+/* Empty state, extends iv1-empty */
 .iv1-fec-empty {
   display: flex;
   flex-direction: column;
@@ -14936,7 +15162,7 @@ body {
 /* ── RegLifecycleRail ──────────────────────────────────────────────────
  * Each docket is a small stack: title → source line → horizontal pill
  * lifecycle (ANPRM → NPRM → Final → Effective) → deadline strip. The
- * lifecycle pills are key — without these CSS rules they rendered as
+ * lifecycle pills are key, without these CSS rules they rendered as
  * stacked text with literal "→" characters between rows (visible in
  * the Legislative & Regulatory screenshot). */
 .iv1-reg-block {

@@ -10,7 +10,7 @@
  *   left alone (they still work via the on-read normalization in
  *   getCommentPeriodAlerts).
  *
- * Idempotent — safe to run multiple times. Outputs a summary of changes.
+ * Idempotent, safe to run multiple times. Outputs a summary of changes.
  *
  *   pnpm --filter @capiro/api backfill:sectors
  */

@@ -1,5 +1,5 @@
 /**
- * Section 2 — Financial Footprint
+ * Section 2, Financial Footprint
  * Lobbying spend vs. federal obligations, FEC contribution flow, and district nexus.
  */
 import type { ClientProfileV1 } from '../mappers.js';

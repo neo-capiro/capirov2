@@ -31,7 +31,7 @@ const REGION = process.env.AWS_REGION_DEFAULT ?? 'us-east-1';
 
 // Soft cap on input characters per Bedrock call. Titan v2 hard limit is 50K
 // characters; we cap lower so a single absurdly long source row doesn't blow
-// the token budget. Truncation is fine for retrieval — the most important
+// the token budget. Truncation is fine for retrieval, the most important
 // signal is the lead paragraphs.
 export const MAX_INPUT_CHARS = 8000;
 
@@ -55,7 +55,7 @@ export function normalize(text: string): string {
   return text.replace(/\s+/g, ' ').trim().slice(0, MAX_INPUT_CHARS);
 }
 
-/** pgvector literal — Prisma doesn't model the vector type, so we go via
+/** pgvector literal, Prisma doesn't model the vector type, so we go via
  *  $executeRawUnsafe. The vector values are floats we generated ourselves
  *  (no injection surface); the rest of the SQL params are still bound. */
 export function vectorLiteral(v: readonly number[]): string {
@@ -111,7 +111,7 @@ export type EmbedOutcome = 'inserted' | 'updated' | 'skipped';
 
 /**
  * Embed + upsert one row. Returns 'skipped' when the stored content_hash
- * already matches — no Bedrock call burned, no DB write performed.
+ * already matches, no Bedrock call burned, no DB write performed.
  *
  * Caller passes either a PrismaClient or a tx; both have $transaction +
  * $executeRawUnsafe + $queryRawUnsafe.
@@ -125,7 +125,7 @@ export async function embedAndUpsert(
   const hash = sha256(text);
 
   // Step 1 (no transaction): peek at the stored hash for this row. A simple
-  // SELECT — quick, no lock, no transaction needed. RLS is enforced on
+  // SELECT, quick, no lock, no transaction needed. RLS is enforced on
   // SELECT too, but for global content (NULL tenant) the policy is
   // permissive so this query runs the same way bypassRls would.
   const existing = await prisma.$queryRawUnsafe<Array<{ content_hash: string }>>(
@@ -142,7 +142,7 @@ export async function embedAndUpsert(
     return 'skipped';
   }
 
-  // Step 2 (no transaction): call Bedrock. This is the slow part — typical
+  // Step 2 (no transaction): call Bedrock. This is the slow part, typical
   // p50 ~400ms, p95 ~2s, occasional cold-start spikes past 5s. Used to be
   // inside the prisma.$transaction below, which caused
   //   "Transaction already closed: ... however 6220 ms passed since the
@@ -155,7 +155,7 @@ export async function embedAndUpsert(
   const literal = vectorLiteral(vector);
 
   // Step 3 (short transaction): the write itself. SET LOCAL app.bypass_rls
-  // must run in the same transaction as the write — that's the whole
+  // must run in the same transaction as the write, that's the whole
   // reason we wrap. Keep this block fast (< 100ms) and free of any
   // external calls.
   return prisma.$transaction(async (tx) => {
@@ -202,7 +202,7 @@ export async function embedAndUpsert(
 
 // ─── Per-source text builders ──────────────────────────────────────────────
 // These produce the string we embed. Search quality is almost entirely a
-// function of what these return — tweak with care, and remember that
+// function of what these return, tweak with care, and remember that
 // changing them invalidates all existing content_hash values for that
 // source_type (next run will re-embed everything).
 

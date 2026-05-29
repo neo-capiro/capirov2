@@ -33,7 +33,7 @@ export function dayBoundsInZone(now: Date, timeZone: string): { start: Date; end
 /**
  * Returns UTC-midnight Date bounds for the calendar day as it appears in the
  * given IANA timezone. Use for filtering `@db.Date` columns whose values come
- * back at UTC midnight regardless of intended timezone — without this, the
+ * back at UTC midnight regardless of intended timezone, without this, the
  * row is excluded by ET-midnight-UTC bounds (which sit 4-5h after UTC midnight).
  */
 export function dateBoundsInZone(now: Date, timeZone: string): { start: Date; end: Date } {

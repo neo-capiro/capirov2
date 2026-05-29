@@ -86,7 +86,7 @@ async function main() {
       WHERE tenant_id = ${tenant.id}::uuid AND profile_status = 'ACTIVE'
     `;
 
-    console.log(`[compute-health-scores] tenant=${tenant.slug} — ${clients.length} clients`);
+    console.log(`[compute-health-scores] tenant=${tenant.slug}, ${clients.length} clients`);
 
     for (const client of clients) {
       try {
@@ -132,7 +132,7 @@ async function main() {
         computed++;
       } catch (err) {
         errors++;
-        console.error(`[compute-health-scores] ${client.name} — error:`, err);
+        console.error(`[compute-health-scores] ${client.name}, error:`, err);
       }
     }
   }

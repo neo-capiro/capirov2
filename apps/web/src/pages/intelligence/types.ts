@@ -261,7 +261,8 @@ export interface ClientIntelProfile {
 export interface IntelligenceChange {
   id: string; source: string; changeType: string; severity: string;
   title: string; description: string; relatedClientIds: string[];
-  relatedIssues: string[]; data: Record<string, unknown>; detectedAt: string;
+  relatedIssues: string[]; relatedPeCodes?: string[];
+  data: Record<string, unknown>; detectedAt: string;
   consumed?: boolean;
 }
 
@@ -388,7 +389,7 @@ export interface CommentAlert {
   relevanceScore: number;
 }
 
-/* ── Home dashboard — today timeline + ticker + Clio brief ─────────────── */
+/* ── Home dashboard, today timeline + ticker + Clio brief ─────────────── */
 
 export type TimelineEventSeverity = 'info' | 'notable' | 'critical';
 export type TimelineEventKind = 'hearing' | 'deadline' | 'change' | 'brief';

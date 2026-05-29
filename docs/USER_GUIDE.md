@@ -45,12 +45,12 @@ Main left nav:
 - Dashboard (`/`)
 - Engagement (`/engagement`)
 - Workspace (`/workspace`)
-- Planner (`/planner`) — currently disabled
-- Data Explorer (`/explorer`)
+- Planner (`/planner`), currently disabled
+- Intelligence Center (`/explorer`)
 - Portfolio (`/clients`)
 - Directory (`/directory`)
-- Stakeholders — disabled
-- Collaborators — disabled
+- Stakeholders, disabled
+- Collaborators, disabled
 
 Top shell behaviors:
 - Client filter/menu (global context switch)
@@ -155,7 +155,7 @@ Also supported routes:
 
 ---
 
-## 7) Data Explorer (`/explorer`)
+## 7) Intelligence Center (`/explorer`)
 
 Purpose: deep search/filter/drill-down across intelligence datasets.
 
@@ -353,7 +353,7 @@ Integration connect flows currently disabled in UI:
 
 1) Start on Dashboard for overnight intelligence and urgent items.
 2) Move to Engagement for meeting prep/debrief and outreach execution.
-3) Use Data Explorer when you need deep-source evidence.
+3) Use Intelligence Center when you need deep-source evidence.
 4) Run strategy/workflow execution in Workspace.
 5) Keep Portfolio and Directory data clean.
 6) Use Clio for drafting, synthesis, and sessioned operational memory.
@@ -366,7 +366,7 @@ Integration connect flows currently disabled in UI:
 - `/` Dashboard
 - `/engagement/*` Engagement
 - `/workspace/*` Workspace
-- `/explorer` Data Explorer
+- `/explorer` Intelligence Center
 - `/clients` Portfolio
 - `/directory` Directory
 - `/settings/*` Settings

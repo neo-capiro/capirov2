@@ -78,7 +78,7 @@ export function ChangesInboxBell({ guardNavigation }: Props) {
       void qc.invalidateQueries({ queryKey: ['intel-changes-inbox'] });
     },
     onError: () => {
-      // Backend endpoint may not be wired yet — fail silently so the bell
+      // Backend endpoint may not be wired yet, fail silently so the bell
       // stays usable. The full inbox page does the same.
     },
   });

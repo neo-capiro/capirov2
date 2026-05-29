@@ -7,6 +7,141 @@ const basePe = {
 };
 
 describe('ProgramElementWriterService', () => {
+  test('Sync delta on watched PE emits IntelligenceChange with related client ids', async () => {
+    const service = createService();
+    await service.upsertProgramElement(basePe, 'fixture', 0.9);
+
+    service.__mock.watches.push({ tenantId: 'tenant-a', peCode: '0603270A' });
+    service.__mock.capabilities.push({ tenantId: 'tenant-a', clientId: 'client-1', peNumber: '0603270A' });
+    service.__mock.capabilities.push({ tenantId: 'tenant-a', clientId: 'client-2', peNumber: '0603270A' });
+
+    await service.upsertProgramElementYear(
+      {
+        peCode: '0603270A',
+        fy: 2026,
+        request: '100000000',
+      },
+      'r_doc',
+    );
+
+    await service.upsertProgramElementYear(
+      {
+        peCode: '0603270A',
+        fy: 2026,
+        request: '100000000',
+        hascMark: '110000000',
+      },
+      'conference_report',
+    );
+
+    expect(service.__mock.intelligenceChanges).toHaveLength(1);
+    const change = service.__mock.intelligenceChanges[0] as {
+      source: string;
+      relatedPeCodes: string[];
+      relatedClientIds: string[];
+      changeType: string;
+    };
+    expect(change.source).toBe('program_element');
+    expect(change.changeType).toBe('pe_mark_added');
+    expect(change.relatedPeCodes).toEqual(['0603270A']);
+    expect(change.relatedClientIds.sort()).toEqual(['client-1', 'client-2']);
+  });
+
+  test('Severity thresholds classify critical/notable/info correctly', async () => {
+    const service = createService();
+    await service.upsertProgramElement(basePe, 'fixture', 0.9);
+
+    service.__mock.watches.push({ tenantId: 'tenant-a', peCode: '0603270A' });
+    service.__mock.capabilities.push({ tenantId: 'tenant-a', clientId: 'client-1', peNumber: '0603270A' });
+
+    await service.upsertProgramElementYear(
+      {
+        peCode: '0603270A',
+        fy: 2026,
+        request: '100',
+      },
+      'r_doc',
+    );
+
+    await service.upsertProgramElementYear(
+      {
+        peCode: '0603270A',
+        fy: 2026,
+        request: '130',
+      },
+      'r_doc',
+    );
+    await service.upsertProgramElementYear(
+      {
+        peCode: '0603270A',
+        fy: 2026,
+        request: '144.3',
+      },
+      'r_doc',
+    );
+    await service.upsertProgramElementYear(
+      {
+        peCode: '0603270A',
+        fy: 2026,
+        request: '152.958',
+      },
+      'r_doc',
+    );
+
+    const severities = service.__mock.intelligenceChanges.map(
+      (change) => (change as { severity: string }).severity,
+    );
+    expect(severities).toEqual(['critical', 'notable', 'info']);
+  });
+
+  test('Initial sync (no prior value) does not emit IntelligenceChange', async () => {
+    const service = createService();
+    await service.upsertProgramElement(basePe, 'fixture', 0.9);
+
+    service.__mock.watches.push({ tenantId: 'tenant-a', peCode: '0603270A' });
+    service.__mock.capabilities.push({ tenantId: 'tenant-a', clientId: 'client-1', peNumber: '0603270A' });
+
+    await service.upsertProgramElementYear(
+      {
+        peCode: '0603270A',
+        fy: 2026,
+        request: '100',
+      },
+      'r_doc',
+    );
+
+    expect(service.__mock.intelligenceChanges).toHaveLength(0);
+  });
+
+  test('Multiple watchers in same tenant emits one IntelligenceChange row', async () => {
+    const service = createService();
+    await service.upsertProgramElement(basePe, 'fixture', 0.9);
+
+    service.__mock.watches.push({ tenantId: 'tenant-a', peCode: '0603270A' });
+    service.__mock.watches.push({ tenantId: 'tenant-a', peCode: '0603270A' });
+    service.__mock.capabilities.push({ tenantId: 'tenant-a', clientId: 'client-1', peNumber: '0603270A' });
+
+    await service.upsertProgramElementYear(
+      {
+        peCode: '0603270A',
+        fy: 2026,
+        request: '100',
+      },
+      'r_doc',
+    );
+
+    await service.upsertProgramElementYear(
+      {
+        peCode: '0603270A',
+        fy: 2026,
+        request: '112',
+      },
+      'r_doc',
+    );
+
+    expect(service.__mock.intelligenceChanges).toHaveLength(1);
+  });
+
   test('Fresh PE upsert → inserted:true', async () => {
     const service = createService();
 
@@ -116,11 +251,49 @@ describe('ProgramElementWriterService', () => {
     expect(result).toEqual({ inserted: false, changed: false });
     expect(String(service.__mock.years.get('0603270A::2026')?.request)).toBe('500');
   });
+
+  test('refreshProgramElementDetailMaterializedView runs concurrent refresh', async () => {
+    const service = createService();
+
+    await service.refreshProgramElementDetailMaterializedView();
+
+    expect(service.__mock.materializedViewRefreshCount).toBe(1);
+  });
+
+  test('getHealthSummary returns degraded when source sync older than 48h', async () => {
+    const service = createService();
+    service.__mock.programElementYearSourceRows.push(
+      { source: 'r_doc_army', recordedAt: new Date(Date.now() - 72 * 60 * 60 * 1000) },
+      { source: 'hasc_report', recordedAt: new Date() },
+    );
+
+    const result = await service.getHealthSummary();
+
+    expect(result.status).toBe('degraded');
+    expect(result.last_sync_at_by_source.r_doc_army).toBeDefined();
+  });
+
+  test('getHealthSummary returns error when quarantine count > 100', async () => {
+    const service = createService();
+    for (let i = 0; i < 101; i += 1) {
+      service.__mock.quarantineRows.push({ id: `q-${i}` } as Record<string, unknown>);
+    }
+
+    const result = await service.getHealthSummary();
+
+    expect(result.status).toBe('error');
+    expect(result.quarantine_count).toBe(101);
+  });
 });
 
 function createService(): ProgramElementWriterService & { __mock: ReturnType<typeof createPrismaMock> } {
   const mock = createPrismaMock();
-  const service = new ProgramElementWriterService(mock as never) as ProgramElementWriterService & {
+  const metrics = {
+    emitCount: jest.fn(async () => undefined),
+    emitSeconds: jest.fn(async () => undefined),
+    emitGauge: jest.fn(async () => undefined),
+  };
+  const service = new ProgramElementWriterService(mock as never, metrics as never) as ProgramElementWriterService & {
     __mock: ReturnType<typeof createPrismaMock>;
   };
   service.__mock = mock;
@@ -133,6 +306,11 @@ function createPrismaMock() {
   const milestoneRows = new Map<string, Record<string, unknown>>();
   const sourceRows: Array<Record<string, unknown>> = [];
   const quarantineRows: Array<Record<string, unknown>> = [];
+  const intelligenceChanges: Array<Record<string, unknown>> = [];
+  const programElementYearSourceRows: Array<{ source: string; recordedAt: Date }> = [];
+  let materializedViewRefreshCount = 0;
+  const watches: Array<{ tenantId: string; peCode: string }> = [];
+  const capabilities: Array<{ tenantId: string; clientId: string; peNumber: string }> = [];
 
   type PeWhere = { peCode: string };
   type PeData = Record<string, unknown> & { peCode: string };
@@ -148,15 +326,31 @@ function createPrismaMock() {
   const mkey = (peCode: string, milestoneType: string) => `${peCode}::${milestoneType}`;
 
   return {
-    __store: { peRows, yearRows, milestoneRows, sourceRows, quarantineRows },
+    __store: { peRows, yearRows, milestoneRows, sourceRows, quarantineRows, intelligenceChanges, watches, capabilities },
     get quarantineRows() {
       return quarantineRows;
+    },
+    get programElementYearSourceRows() {
+      return programElementYearSourceRows;
     },
     get years() {
       return yearRows;
     },
+    get intelligenceChanges() {
+      return intelligenceChanges;
+    },
+    get materializedViewRefreshCount() {
+      return materializedViewRefreshCount;
+    },
+    get watches() {
+      return watches;
+    },
+    get capabilities() {
+      return capabilities;
+    },
     programElement: {
       findUnique: jest.fn(async ({ where }: { where: PeWhere }) => peRows.get(where.peCode) ?? null),
+      count: jest.fn(async () => peRows.size),
       create: jest.fn(async ({ data }: { data: PeData }) => {
         peRows.set(data.peCode, { ...data });
         return { ...data };
@@ -215,6 +409,7 @@ function createPrismaMock() {
           .sort((a, b) => String(b.recordedAt).localeCompare(String(a.recordedAt)));
         return filtered[0] ?? null;
       }),
+      findMany: jest.fn(async () => [...programElementYearSourceRows]),
       updateMany: jest.fn(async ({ where, data }: { where: SourceWhere; data: Record<string, unknown> }) => {
         let count = 0;
         for (const row of sourceRows) {
@@ -233,6 +428,9 @@ function createPrismaMock() {
       create: jest.fn(async ({ data }: { data: SourceData }) => {
         const row = { ...data, recordedAt: data.recordedAt ?? new Date().toISOString() };
         sourceRows.push(row);
+        const sourceValue = typeof data.source === 'string' ? data.source : 'unknown';
+        const recordedAtIso = typeof row.recordedAt === 'string' ? row.recordedAt : new Date().toISOString();
+        programElementYearSourceRows.push({ source: sourceValue, recordedAt: new Date(recordedAtIso) });
         return row;
       }),
     },
@@ -241,6 +439,29 @@ function createPrismaMock() {
         quarantineRows.push(data);
         return data;
       }),
+      count: jest.fn(async () => quarantineRows.length),
     },
+    programElementWatch: {
+      findMany: jest.fn(async ({ where }: { where: { peCode: string } }) =>
+        watches.filter((w) => w.peCode === where.peCode),
+      ),
+    },
+    clientCapability: {
+      findMany: jest.fn(async ({ where }: { where: { peNumber: string } }) =>
+        capabilities.filter((c) => c.peNumber === where.peNumber),
+      ),
+    },
+    intelligenceChange: {
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        intelligenceChanges.push({ ...data });
+        return data;
+      }),
+    },
+    $executeRawUnsafe: jest.fn(async (sql: string) => {
+      if (sql === 'REFRESH MATERIALIZED VIEW CONCURRENTLY program_element_detail_mv') {
+        materializedViewRefreshCount += 1;
+      }
+      return 0;
+    }),
   };
 }

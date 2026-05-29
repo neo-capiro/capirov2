@@ -5,7 +5,7 @@ import { useMe, type MeResponse } from '../../lib/me.js';
 import { useApi } from '../../lib/use-api.js';
 
 /**
- * Personal settings — the only Settings tab everyone sees. Identity surfaces
+ * Personal settings, the only Settings tab everyone sees. Identity surfaces
  * (email, password, MFA) live in Clerk's hosted UserButton modal; Capiro
  * surfaces the link here. Capiro-owned profile fields (currently just the
  * free-form job title shown under the user's name in the top-right widget)

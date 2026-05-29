@@ -6,17 +6,17 @@
  *   pnpm --filter @capiro/api embed:backfill -- --source capabilities --tenant <uuid>
  *
  * Runtime: standalone tsx (matches the existing sync-* scripts in apps/api/scripts/).
- * Designed to also run as a one-shot ECS Fargate task in prod — see the
+ * Designed to also run as a one-shot ECS Fargate task in prod, see the
  * capiro-{env}-api-embed-backfill task definition in infra/cdk.
  *
  * Idempotent: each (tenant_id, source_type, source_id, model) row is upserted by
  * content_hash. If the source text hasn't changed, the worker writes nothing and
- * the embedding call is skipped — re-running the script after a partial run is
+ * the embedding call is skipped, re-running the script after a partial run is
  * safe and cheap.
  *
  * RLS: bills and LDA are global content. The script flips
  * `SET LOCAL app.bypass_rls = 'on'` per transaction so the worker can write
- * NULL-tenant rows. Capabilities are tenant-scoped — the worker sets
+ * NULL-tenant rows. Capabilities are tenant-scoped, the worker sets
  * `current_tenant_id` per tenant instead.
  *
  * Model: amazon.titan-embed-text-v2:0 @ 1024 dimensions (see EMBEDDINGS_MODEL).
@@ -42,14 +42,14 @@ const MODEL = process.env.EMBEDDINGS_MODEL ?? 'amazon.titan-embed-text-v2:0';
 const DIMENSIONS = 1024;
 const REGION = process.env.AWS_REGION_DEFAULT ?? 'us-east-1';
 
-// Concurrent Bedrock calls. Titan v2 has no batch API — each call is one row.
+// Concurrent Bedrock calls. Titan v2 has no batch API, each call is one row.
 // 8 keeps us comfortably under the default account TPS limit for this model
 // (~50/s) while making 500K filings finish in ~3h instead of 24h. Bump to 16+
 // only if you've raised the Bedrock quota for this account.
 const CONCURRENCY = Number(process.env.EMBED_CONCURRENCY ?? 8);
 
 // How many source rows to pull from Postgres per page. Tuned for memory, not
-// throughput — embedding latency dwarfs DB latency.
+// throughput, embedding latency dwarfs DB latency.
 const PAGE_SIZE = 500;
 
 // Soft cap on input characters per Bedrock call. Titan v2 hard limit is 50K
@@ -142,7 +142,7 @@ async function embed(text: string): Promise<number[]> {
  * pgvector wants the literal text form `'[0.1, 0.2, ...]'::vector`. Prisma
  * doesn't model the vector type, so we go via $executeRawUnsafe with the vector
  * embedded as a string literal. The vector values are floats we generated
- * ourselves — no injection surface — and we still bind the other columns as
+ * ourselves, no injection surface, and we still bind the other columns as
  * parameters.
  */
 function vectorLiteral(v: number[]): string {
@@ -251,7 +251,7 @@ function ldaText(f: {
 }): string {
   // lobbying_activities is a JSON array; pull the human-readable description
   // for each activity if present. We deliberately drop the structured
-  // government_entities (codes only) — they hurt embedding quality more than
+  // government_entities (codes only), they hurt embedding quality more than
   // they help retrieval.
   const activities = Array.isArray(f.lobbyingActivities)
     ? (f.lobbyingActivities as Array<{ description?: string | null }>)
@@ -473,7 +473,7 @@ async function backfillCapabilities(
             contentHash: hash,
             embedding: v,
           },
-          // Capabilities are tenant-scoped — bypass RLS so the worker can
+          // Capabilities are tenant-scoped, bypass RLS so the worker can
           // write across tenants in a single backfill run.
           true,
         );

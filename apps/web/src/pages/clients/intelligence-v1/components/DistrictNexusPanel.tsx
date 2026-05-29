@@ -1,5 +1,5 @@
 /**
- * C-004 — District Nexus Panel
+ * C-004, District Nexus Panel
  *
  * Top congressional districts inferred from capability / district nexus
  * free-text.  Renders up to 5 horizontal job-count bars sorted descending
@@ -27,7 +27,7 @@ const FALLBACK_ROWS = [
 ] as const;
 
 function formatJobs(jobs: number): string {
-  if (!Number.isFinite(jobs) || jobs <= 0) return '—';
+  if (!Number.isFinite(jobs) || jobs <= 0) return '-';
   if (jobs >= 1_000_000) return `${(jobs / 1_000_000).toFixed(1)}M`;
   if (jobs >= 1_000) return `${Math.round(jobs / 1_000)}k`;
   return `${Math.round(jobs)}`;

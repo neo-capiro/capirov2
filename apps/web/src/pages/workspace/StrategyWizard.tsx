@@ -497,7 +497,7 @@ function StepClientCapability({
           style={{ width: '100%' }}
         />
         <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
-          Auto-generated from capability — edit freely.
+          Auto-generated from capability, edit freely.
         </Text>
       </div>
     </div>
@@ -676,7 +676,7 @@ function StepTargets({
                     )}
                   </td>
                   <td style={{ padding: '8px 12px' }}>
-                    <Text type="secondary">{target.committee ?? '—'}</Text>
+                    <Text type="secondary">{target.committee ?? '-'}</Text>
                   </td>
                   <td style={{ padding: '8px 12px' }}>
                     <Input
@@ -757,7 +757,7 @@ function StepReview({
           <Text type="secondary">Client</Text>
           <Text>{clientName}</Text>
           <Text type="secondary">Capability</Text>
-          <Text>{capabilityName || '—'}</Text>
+          <Text>{capabilityName || '-'}</Text>
           <Text type="secondary">Fiscal Year</Text>
           <Tag color="geekblue" style={{ width: 'fit-content' }}>{fiscalYear}</Tag>
         </div>
@@ -779,7 +779,7 @@ function StepReview({
                   item.cat === 'language' ? 'purple' : 'cyan'
                 }
               >
-                {item.shortLabel} — {item.label}
+                {item.shortLabel}, {item.label}
               </Tag>
             ) : null;
           })}

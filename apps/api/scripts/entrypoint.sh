@@ -23,7 +23,7 @@ if [ -z "$DB_HOST" ] || [ -z "$DB_PORT" ] || [ -z "$DB_USER" ] || [ -z "$DB_PASS
   exit 1
 fi
 
-# URL-encode the password — Aurora passwords occasionally contain characters
+# URL-encode the password, Aurora passwords occasionally contain characters
 # that are not URL-safe. Pure-shell encoding because we want zero deps.
 encode() {
   awk -v str="$1" 'BEGIN {
@@ -124,10 +124,10 @@ case "${1:-serve}" in
     exec ./node_modules/.bin/tsx scripts/embed-backfill.ts "$@"
     ;;
   # ── Federal data sync jobs ─────────────────────────────────────────────
-  # These populate the Data Explorer source tables (LDA, Congress, FedReg,
+  # These populate the Intelligence Center source tables (LDA, Congress, FedReg,
   # Hearings, GAO, CRS, FEC, FARA, SEC, RSS intel, state bills, economic
   # indicators, grants). Wired so EventBridge can dispatch each as a
-  # one-off ECS task — keep the case names in kebab-case matching the
+  # one-off ECS task, keep the case names in kebab-case matching the
   # script file so cron rules stay trivially mappable.
   sync-lda)               exec ./node_modules/.bin/tsx scripts/sync-lda.ts ;;
   sync-congress)          exec ./node_modules/.bin/tsx scripts/sync-congress.ts ;;

@@ -35,17 +35,17 @@ deploy, walking through each stack is safer:
 ```bash
 CTX="--context env=dev --context account=<ACCOUNT_ID>"
 
-# 1. Network — ~5 min
+# 1. Network, ~5 min
 pnpm --filter @capiro/infra-cdk exec cdk deploy Capiro-dev-Network $CTX
 
-# 2. DNS — ACM cert; DNS validation is automatic since the hosted zone is in
+# 2. DNS, ACM cert; DNS validation is automatic since the hosted zone is in
 #    this account. ~3 min for the cert to issue.
 pnpm --filter @capiro/infra-cdk exec cdk deploy Capiro-dev-Dns $CTX
 
-# 3. Data — Aurora cluster comes up. ~10–15 min.
+# 3. Data, Aurora cluster comes up. ~10–15 min.
 pnpm --filter @capiro/infra-cdk exec cdk deploy Capiro-dev-Data $CTX
 
-# 4. Secrets — Clerk placeholder secrets.
+# 4. Secrets, Clerk placeholder secrets.
 pnpm --filter @capiro/infra-cdk exec cdk deploy Capiro-dev-Secrets $CTX
 
 # 5. Fill the Clerk secrets BEFORE deploying Compute (the API task fails to
@@ -74,7 +74,7 @@ docker buildx build --platform linux/arm64 \
   -t <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/capiro/dev/web:latest \
   --push .
 
-# 7. Compute — ECS, ALB, target groups, listener rules, WAF, DNS records.
+# 7. Compute, ECS, ALB, target groups, listener rules, WAF, DNS records.
 #    ~10 min for the services to reach steady state.
 pnpm --filter @capiro/infra-cdk exec cdk deploy Capiro-dev-Compute $CTX
 
@@ -109,7 +109,7 @@ curl -s https://app.capiro.ai/healthz          # web health (nginx)
 ## Rolling out a new image
 
 The CDK stack pins `:latest` for both services. After pushing a new image, the
-service does NOT auto-redeploy — that matches the architecture's "interactive
+service does NOT auto-redeploy, that matches the architecture's "interactive
 deploys via Claude+MCP" stance. Force a new deployment with:
 
 ```bash
@@ -129,10 +129,10 @@ pnpm --filter @capiro/infra-cdk exec cdk destroy --all $CTX
 
 ## What's intentionally absent
 
-- **GuardDuty / Security Hub / CloudTrail org-wide** — these live in the
+- **GuardDuty / Security Hub / CloudTrail org-wide**, these live in the
   security account in the multi-account split. Single-account dev gets them
   when we split.
-- **Multi-region** — us-east-1 only per arch §3.
-- **Custom domain for the API** — path-based routing under `app.capiro.ai`
+- **Multi-region**, us-east-1 only per arch §3.
+- **Custom domain for the API**, path-based routing under `app.capiro.ai`
   means there's no separate `api.*` hostname. Splitting in the future requires
   adding a listener rule + DNS record.

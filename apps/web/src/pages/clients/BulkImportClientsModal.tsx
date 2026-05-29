@@ -13,7 +13,7 @@
  *   5. Results page shows the success count and lists problem rows
  *      (with the field + reason) so the user can fix the CSV and retry.
  *
- * No external CSV library — the parser handles the common case (double-
+ * No external CSV library, the parser handles the common case (double-
  * quoted fields, escaped quotes, embedded commas/newlines) in ~30 lines
  * and keeps the bundle lean.
  */
@@ -49,7 +49,7 @@ const FIELD_MAP: Record<string, string> = {
 };
 
 const TARGET_FIELDS = [
-  { value: '__skip__', label: '— Skip column —' },
+  { value: '__skip__', label: '- Skip column -' },
   { value: 'name', label: 'Name (required)' },
   { value: 'website', label: 'Website' },
   { value: 'description', label: 'Description' },
@@ -155,7 +155,7 @@ export function BulkImportClientsModal({
     onError: (err) => {
       const e = err as { response?: { data?: { message?: string } }; message?: string };
       message.error(
-        e.response?.data?.message ?? e.message ?? 'Import failed — check the network tab',
+        e.response?.data?.message ?? e.message ?? 'Import failed, check the network tab',
       );
     },
   });
@@ -350,7 +350,7 @@ export function BulkImportClientsModal({
 
 /**
  * Build the API payload for one CSV row. Returns null if the row has no
- * mapped name value — we drop those rather than error so the user can
+ * mapped name value, we drop those rather than error so the user can
  * leave trailing blank rows in their CSV without it counting.
  */
 function buildRowPayload(
@@ -364,15 +364,15 @@ function buildRowPayload(
     if (!cell) continue;
     if (field === 'submissionTracks') {
       // CSV cells holding lists can't use commas (they'd be re-parsed as
-      // column boundaries) — accept | or ; as a separator. Filter empty
+      // column boundaries), accept | or ; as a separator. Filter empty
       // entries so trailing separators don't produce blank tracks.
       const tracks = cell
         .split(/[|;]/)
         .map((t) => t.trim())
         .filter(Boolean);
-      // class-validator expects an array of strings — encode as JSON so the
+      // class-validator expects an array of strings, encode as JSON so the
       // axios JSON body keeps it array-shaped. (axios serializes objects
-      // automatically — this is just to make sure submissionTracks is
+      // automatically, this is just to make sure submissionTracks is
       // typed as an array, not a string.)
       (out as Record<string, unknown>)[field] = tracks;
       continue;

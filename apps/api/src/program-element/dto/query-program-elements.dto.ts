@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class QueryProgramElementsDto {
   @IsOptional()
@@ -26,4 +26,14 @@ export class QueryProgramElementsDto {
   @Min(1)
   @Max(100)
   limit?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['markup-monitor'])
+  mode?: 'markup-monitor';
+
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  divergence_threshold?: number;
 }

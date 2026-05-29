@@ -10,7 +10,7 @@
  *
  * The list endpoint does NOT include title/date/committee. The original
  * version of this script tried to read h.date and h.title off list items
- * — every row was null and the safeDate guard `if (!date) continue;`
+ *, every row was null and the safeDate guard `if (!date) continue;`
  * silently skipped them all, so the table stayed empty. Now we fan out
  * to the detail endpoint for each list entry.
  *
@@ -135,7 +135,7 @@ async function main() {
               .map((d) => safeDate(d.date))
               .filter((d): d is Date => d != null) ?? [];
           if (!dates.length) {
-            // No actual hearing date attached — skip rather than insert
+            // No actual hearing date attached, skip rather than insert
             // with a synthetic date.
             totalSkippedNoDate++;
             continue;
@@ -184,7 +184,7 @@ async function main() {
     }
 
     console.log(
-      `[hearings-sync] DONE — inserted ${totalInserted}, skipped(no-date) ${totalSkippedNoDate}, detail-fails ${totalDetailFails} in ${((Date.now() - t0) / 1000).toFixed(1)}s`,
+      `[hearings-sync] DONE, inserted ${totalInserted}, skipped(no-date) ${totalSkippedNoDate}, detail-fails ${totalDetailFails} in ${((Date.now() - t0) / 1000).toFixed(1)}s`,
     );
   } finally {
     await prisma.$disconnect();

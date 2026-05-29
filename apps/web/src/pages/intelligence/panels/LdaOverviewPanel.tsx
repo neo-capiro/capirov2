@@ -154,7 +154,7 @@ export function LdaOverviewPanel({
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 24 }}>
           <Card size="small" style={{ borderTop: '3px solid #10b981' }}>
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
-              Filings QoQ — {latestTrend?.year} {latestTrend?.period}
+              Filings QoQ, {latestTrend?.year} {latestTrend?.period}
             </Text>
             {qoqFilingChange != null ? (
               <Space align="center">
@@ -168,7 +168,7 @@ export function LdaOverviewPanel({
                 )}
               </Space>
             ) : (
-              <Text type="secondary">—</Text>
+              <Text type="secondary">-</Text>
             )}
             <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
               {formatNum(latestTrend?.filingCount)} vs {formatNum(priorTrend?.filingCount)} prior
@@ -176,7 +176,7 @@ export function LdaOverviewPanel({
           </Card>
           <Card size="small" style={{ borderTop: '3px solid #8b5cf6' }}>
             <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
-              Income QoQ — {latestTrend?.year} {latestTrend?.period}
+              Income QoQ, {latestTrend?.year} {latestTrend?.period}
             </Text>
             {qoqIncomeChange != null ? (
               <Space align="center">
@@ -190,7 +190,7 @@ export function LdaOverviewPanel({
                 )}
               </Space>
             ) : (
-              <Text type="secondary">—</Text>
+              <Text type="secondary">-</Text>
             )}
             <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>
               {formatMoney(latestTrend?.totalIncome)} vs {formatMoney(priorTrend?.totalIncome)}
@@ -211,7 +211,7 @@ export function LdaOverviewPanel({
                 </Text>
               </>
             ) : (
-              <Text type="secondary">—</Text>
+              <Text type="secondary">-</Text>
             )}
           </Card>
         </div>
@@ -287,7 +287,7 @@ export function LdaOverviewPanel({
           {selectedIssue && (
             <>
               <Divider style={{ margin: '10px 0' }} />
-              <Text strong style={{ fontSize: 12 }}>Top clients — {selectedIssue}</Text>
+              <Text strong style={{ fontSize: 12 }}>Top clients, {selectedIssue}</Text>
               {issueDetail.isLoading ? (
                 <Spin size="small" style={{ marginTop: 6, display: 'block' }} />
               ) : issueDetail.data ? (

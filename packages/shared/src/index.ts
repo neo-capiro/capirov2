@@ -50,7 +50,7 @@ export interface TenantContext {
 }
 
 // ---------------------------------------------------------------------------
-// Controlled vocabularies — Portfolio v2
+// Controlled vocabularies, Portfolio v2
 // Centralized to avoid drift between API validation, UI pickers, and rendering.
 // ---------------------------------------------------------------------------
 
@@ -173,7 +173,7 @@ export const AGENCY_SECTOR_MAP: Record<string, SectorTag[]> = {
 // market-wide intel changes can be tagged with `relatedIssues` (LDA codes)
 // when the emitter only has sector context. Codes are the 3-letter LDA
 // issue-code identifiers (see lda_issue_code table). Multiple codes per
-// sector is intentional — a "DEFENSE" sector touches DEF + HOM + AER.
+// sector is intentional, a "DEFENSE" sector touches DEF + HOM + AER.
 // ---------------------------------------------------------------------------
 
 export const SECTOR_TO_LDA_CODES: Record<SectorTag, string[]> = {

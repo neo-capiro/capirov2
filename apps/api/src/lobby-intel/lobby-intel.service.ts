@@ -78,7 +78,7 @@ interface IssueRow {
 /**
  * Service exposing federal lobbying intelligence.
  *
- * Tables/views are GLOBAL (no tenant_id, no RLS) — same dataset for every tenant.
+ * Tables/views are GLOBAL (no tenant_id, no RLS), same dataset for every tenant.
  *
  * Reads from one of two sources depending on LOBBY_INTEL_SOURCE env var:
  *   - 'lda'        (default): the lobby_intel_mv materialized view + lobby_issue_ref_v
@@ -89,7 +89,7 @@ interface IssueRow {
  *                  populated by sync-openlobby.ts. Kept for emergency rollback;
  *                  scheduled for removal once the LDA source is verified.
  *
- * The public API surface is identical across both sources — Clio + chat tools
+ * The public API surface is identical across both sources, Clio + chat tools
  * call getAiContext() and lookupByClientName() and must not notice the switch.
  */
 @Injectable()

@@ -72,7 +72,7 @@ export function IssueLeaderboardPage() {
       title: 'First Filing',
       dataIndex: 'firstFilingDate',
       width: 120,
-      render: (d: string | null) => d ? new Date(d).toLocaleDateString() : '—',
+      render: (d: string | null) => d ? new Date(d).toLocaleDateString() : '-',
     },
     {
       title: 'Shared Lobbyists',

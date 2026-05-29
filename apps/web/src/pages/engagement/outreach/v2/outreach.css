@@ -1,5 +1,5 @@
 /* ============================================================
- * Outreach v2 — styles for the new wizard frame, Direction step,
+ * Outreach v2, styles for the new wizard frame, Direction step,
  * and Context Builder. Ported from the design mockup.
  *
  * Class names are namespaced with `ov2-` so they don't clash with
@@ -242,7 +242,7 @@
   vertical-align: middle;
 }
 
-/* Right pane — context plan */
+/* Right pane, context plan */
 .ov2-ctx-right {
   border: 1px solid var(--ov2-border-1);
   border-radius: var(--ov2-r-lg);

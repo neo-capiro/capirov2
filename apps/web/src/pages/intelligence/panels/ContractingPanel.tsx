@@ -79,10 +79,10 @@ export function ContractingPanel() {
               <Table size="small" rowKey="id" dataSource={searchResults.data} pagination={false}
                 columns={[
                   { title: 'Contractor', dataIndex: 'name', render: (n: string, r: FederalContractor) => <Space><Text strong>{n}</Text>{r.category ? <Tag color={CATEGORY_COLORS[r.category] ?? 'default'}>{r.category}</Tag> : null}</Space> },
-                  { title: 'Rank', dataIndex: 'rankByContracts', width: 70, render: (v: number | null) => v ? `#${v}` : '—' },
+                  { title: 'Rank', dataIndex: 'rankByContracts', width: 70, render: (v: number | null) => v ? `#${v}` : '-' },
                   { title: 'FY25 Contracts', dataIndex: 'totalContracts', width: 130, align: 'right', render: (v: number | null) => formatMoney(v) },
                   { title: 'Trend', dataIndex: 'yearlySpend', width: 170, render: (ys: { year: number; amount: number }[]) => <Sparkline data={ys ?? []} width={150} height={28} /> },
-                  { title: 'No-Bid Total', dataIndex: 'noBidTotal', width: 130, align: 'right', render: (v: number | null) => v ? <Text type="warning">{formatMoney(v)}</Text> : '—' },
+                  { title: 'No-Bid Total', dataIndex: 'noBidTotal', width: 130, align: 'right', render: (v: number | null) => v ? <Text type="warning">{formatMoney(v)}</Text> : '-' },
                 ]}
               />
             ) : <Empty description="No matches" image={Empty.PRESENTED_IMAGE_SIMPLE} />}

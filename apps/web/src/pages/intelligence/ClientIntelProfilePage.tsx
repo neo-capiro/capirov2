@@ -88,7 +88,7 @@ function daysUntil(dateStr: string | null | undefined): number | null {
 
 function deadlineTag(dateStr: string | null | undefined) {
   const days = daysUntil(dateStr);
-  if (days == null) return <Text type="secondary">—</Text>;
+  if (days == null) return <Text type="secondary">-</Text>;
   if (days < 0) return <Tag>Closed</Tag>;
   if (days < 7) return <Tag color="red">{days}d left</Tag>;
   if (days < 14) return <Tag color="orange">{days}d left</Tag>;
@@ -108,10 +108,10 @@ function minutesAgoLabel(isoDate: string | null | undefined): string {
 }
 
 function clioSignalText(score: number | null | undefined): string {
-  if (score == null) return 'Engagement signal unavailable — complete intake and sync activity data.';
-  if (score < 30) return 'Engagement is critically low — prioritize immediate outreach and meeting cadence recovery.';
-  if (score < 70) return 'Engagement is at risk — increase meeting frequency and close-loop debriefs this cycle.';
-  return 'Engagement is healthy — maintain momentum and push policy priorities into execution.';
+  if (score == null) return 'Engagement signal unavailable, complete intake and sync activity data.';
+  if (score < 30) return 'Engagement is critically low, prioritize immediate outreach and meeting cadence recovery.';
+  if (score < 70) return 'Engagement is at risk, increase meeting frequency and close-loop debriefs this cycle.';
+  return 'Engagement is healthy, maintain momentum and push policy priorities into execution.';
 }
 
 function clioSignalTone(score: number | null | undefined): 'error' | 'warning' | 'success' {
@@ -323,7 +323,7 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
     },
     onError: (err) => {
       const detail = err instanceof Error ? err.message : 'Request failed';
-      void message.error(`Briefing generation failed — ${detail}`);
+      void message.error(`Briefing generation failed, ${detail}`);
     },
   });
   const briefing = briefingMutation.data ?? null;
@@ -381,7 +381,7 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
                 title="Trajectory"
                 valueRender={() =>
                   trajectoryTag(profile.lobbyIntel.trajectory) ?? (
-                    <Text type="secondary">—</Text>
+                    <Text type="secondary">-</Text>
                   )
                 }
               />
@@ -433,7 +433,7 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
                     strokeColor={avgConfidence >= 85 ? '#52c41a' : avgConfidence >= 50 ? '#faad14' : '#ff4d4f'}
                   />
                 ) : (
-                  <Text type="secondary">—</Text>
+                  <Text type="secondary">-</Text>
                 )}
               </div>
             </Card>
@@ -475,7 +475,7 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
                     </div>
                   </Tooltip>
                 ) : (
-                  <Text type="secondary">—</Text>
+                  <Text type="secondary">-</Text>
                 )}
               </div>
             </Card>
@@ -501,7 +501,7 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
                     Gap: {formatMoney(roiQuery.data.gap)}
                   </Text>
                   <Text type="secondary" style={{ fontSize: 11 }}>
-                    Mapping: LDA {roiQuery.data.mappedLdaClientId ?? '—'} · Contractor {roiQuery.data.mappedContractorId ?? '—'}
+                    Mapping: LDA {roiQuery.data.mappedLdaClientId ?? '-'} · Contractor {roiQuery.data.mappedContractorId ?? '-'}
                   </Text>
                 </div>
               </Card>
@@ -589,7 +589,7 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
               },
               {
                 // Consolidated bills tab. The older "Related Bills" tab was
-                // dropped — after the intel fixes (capability fallback +
+                // dropped, after the intel fixes (capability fallback +
                 // policy_area matching), both code paths produced essentially
                 // the same result and the tracked-bills surface had the more
                 // useful UI (matched-issue-code chips at the top, per-bill
@@ -740,7 +740,7 @@ function ContractingTab({ profile }: { profile: ClientIntelProfile }) {
     <div>
       <div style={{ display: 'flex', gap: 24, marginBottom: 16 }}>
         <Statistic title="Total Contracts" value={formatNum(contracting.totalContracts)} />
-        <Statistic title="Rank" value={contracting.rankByContracts ?? '—'} suffix={contracting.rankByContracts ? ' of contractors' : ''} />
+        <Statistic title="Rank" value={contracting.rankByContracts ?? '-'} suffix={contracting.rankByContracts ? ' of contractors' : ''} />
         <Statistic title="No-Bid Total" value={formatMoney(contracting.noBidTotal)} />
       </div>
       <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
@@ -787,7 +787,7 @@ function TrackedBillsTab({ clientId }: { clientId: string }) {
       dataIndex: 'latestActionText',
       ellipsis: true,
       render: (t: string | null) => (
-        <Text type="secondary" style={{ fontSize: 11 }}>{t ?? '—'}</Text>
+        <Text type="secondary" style={{ fontSize: 11 }}>{t ?? '-'}</Text>
       ),
     },
     {
@@ -800,7 +800,7 @@ function TrackedBillsTab({ clientId }: { clientId: string }) {
         if (!b.latestActionDate) return -1;
         return new Date(a.latestActionDate).getTime() - new Date(b.latestActionDate).getTime();
       },
-      render: (d: string | null) => d ? new Date(d).toLocaleDateString() : '—',
+      render: (d: string | null) => d ? new Date(d).toLocaleDateString() : '-',
     },
     {
       title: 'Sponsor',
@@ -810,7 +810,7 @@ function TrackedBillsTab({ clientId }: { clientId: string }) {
         n ? (
           <Text style={{ fontSize: 11 }}>{n}{r.sponsorParty ? ` (${r.sponsorParty})` : ''}</Text>
         ) : (
-          <Text type="secondary">—</Text>
+          <Text type="secondary">-</Text>
         ),
     },
     {
@@ -1299,7 +1299,7 @@ export function RevolvingDoorTab({ clientId }: { clientId: string }) {
                   dataIndex: 'coveredPositions',
                   render: (positions: ExStaffersResult['lobbyists'][number]['coveredPositions']) =>
                     positions.length === 0 ? (
-                      <Text type="secondary">—</Text>
+                      <Text type="secondary">-</Text>
                     ) : (
                       <Space direction="vertical" size={2}>
                         {positions.slice(0, 4).map((p, idx) => {
@@ -1464,7 +1464,7 @@ function AiBriefingTab({
         </Paragraph>
       ) : (
         <Empty
-          description="No AI briefing yet — click 'Generate Briefing' to create one"
+          description="No AI briefing yet, click 'Generate Briefing' to create one"
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       )}
@@ -1584,31 +1584,31 @@ export function DistrictNexusTab({ clientId }: { clientId: string }) {
                 title: 'Population',
                 dataIndex: 'totalPopulation',
                 width: 110,
-                render: (v: number | null) => v ? formatNum(v) : '—',
+                render: (v: number | null) => v ? formatNum(v) : '-',
               },
               {
                 title: 'Median Income',
                 dataIndex: 'medianHouseholdIncome',
                 width: 130,
-                render: (v: number | null) => v ? formatMoney(v) : '—',
+                render: (v: number | null) => v ? formatMoney(v) : '-',
               },
               {
                 title: 'Labor Force',
                 dataIndex: 'laborForceSize',
                 width: 110,
-                render: (v: number | null) => v ? formatNum(v) : '—',
+                render: (v: number | null) => v ? formatNum(v) : '-',
               },
               {
                 title: 'Unemp.',
                 dataIndex: 'unemploymentRate',
                 width: 80,
-                render: (v: number | null) => v != null ? `${v.toFixed(1)}%` : '—',
+                render: (v: number | null) => v != null ? `${v.toFixed(1)}%` : '-',
               },
               {
                 title: 'Veteran %',
                 dataIndex: 'percentVeteran',
                 width: 90,
-                render: (v: number | null) => v != null ? `${v.toFixed(1)}%` : '—',
+                render: (v: number | null) => v != null ? `${v.toFixed(1)}%` : '-',
               },
               {
                 title: 'Top Industries',
@@ -1730,7 +1730,7 @@ export function FecMoneyFlowTab({ clientId }: { clientId: string }) {
                       ))}
                     </Space>
                   ) : (
-                    <Text type="secondary">—</Text>
+                    <Text type="secondary">-</Text>
                   ),
               },
             ]}
@@ -1741,7 +1741,7 @@ export function FecMoneyFlowTab({ clientId }: { clientId: string }) {
               <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
                 {c.bills.slice(0, 8).map((b) => (
                   <li key={b.billId}>
-                    <Text style={{ fontSize: 12 }}>{b.billId.toUpperCase()} — {b.billTitle}</Text>
+                    <Text style={{ fontSize: 12 }}>{b.billId.toUpperCase()}, {b.billTitle}</Text>
                   </li>
                 ))}
               </ul>
@@ -1976,7 +1976,7 @@ function ResearchTab({ clientId }: { clientId: string }) {
                           <Text style={{ fontSize: 12 }}>{r.id}</Text>
                         )}
                         <Text type="secondary" style={{ fontSize: 11 }}>
-                          {r.publishDate ? new Date(r.publishDate).toLocaleDateString() : '—'}
+                          {r.publishDate ? new Date(r.publishDate).toLocaleDateString() : '-'}
                         </Text>
                       </div>
                       <Text style={{ fontSize: 12 }}>{r.title}</Text>
@@ -2017,7 +2017,7 @@ function ResearchTab({ clientId }: { clientId: string }) {
                           <Text style={{ fontSize: 12 }}>{r.id}</Text>
                         )}
                         <Text type="secondary" style={{ fontSize: 11 }}>
-                          {r.date ? new Date(r.date).toLocaleDateString() : '—'}
+                          {r.date ? new Date(r.date).toLocaleDateString() : '-'}
                         </Text>
                       </div>
                       <Text style={{ fontSize: 12 }}>{r.title}</Text>

@@ -319,7 +319,7 @@ export function WorkflowDrawer({
       );
       const suggestions = resp.data.suggestions ?? {};
       if (Object.keys(suggestions).length === 0) {
-        message.info('No suggestions — all fillable fields may already have values, or the AI found insufficient context.');
+        message.info('No suggestions, all fillable fields may already have values, or the AI found insufficient context.');
         return;
       }
       setAiSuggestions(suggestions);
@@ -603,7 +603,7 @@ export function WorkflowDrawer({
             />
           ) : null}
 
-          {/* Request Type Toggle — hidden for authorization/defense and viewing generated docs */}
+          {/* Request Type Toggle, hidden for authorization/defense and viewing generated docs */}
           {!hideRequestTypeToggle && (
             <div className="workflow-drawer-type-toggle">
               <Typography.Text strong className="workflow-field-section-label">

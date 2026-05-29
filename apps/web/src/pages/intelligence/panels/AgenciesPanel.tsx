@@ -41,7 +41,7 @@ export function AgenciesPanel() {
               {data.map((a, i) => (
                 <div key={a.slug} onClick={() => setSelectedSlug(a.slug)} style={{ display: 'grid', gridTemplateColumns: '24px 60px 1fr 130px 110px', alignItems: 'center', gap: 10, padding: '8px 6px', borderBottom: '1px solid rgba(0,0,0,0.04)', cursor: 'pointer', background: selectedSlug === a.slug ? 'rgba(37, 99, 235, 0.08)' : 'transparent', borderRadius: 4 }}>
                   <Text type="secondary" style={{ fontSize: 11 }}>{i + 1}</Text>
-                  <Tag style={{ margin: 0, fontSize: 11 }}>{a.abbreviation ?? '—'}</Tag>
+                  <Tag style={{ margin: 0, fontSize: 11 }}>{a.abbreviation ?? '-'}</Tag>
                   <Tooltip title={a.name}><Text ellipsis style={{ fontSize: 13 }}>{a.displayName ?? a.name}</Text></Tooltip>
                   <HBar value={a.budgetAuthority ?? 0} max={maxBudget} width={130} />
                   <Text type="secondary" style={{ fontSize: 12, textAlign: 'right' }}>{formatMoney(a.budgetAuthority)}</Text>
@@ -56,7 +56,7 @@ export function AgenciesPanel() {
             <Card size="small" title={<Space><BankOutlined /><span>{selected.displayName ?? selected.name}</span></Space>} extra={selected.abbreviation ? <Tag>{selected.abbreviation}</Tag> : null}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
                 <Statistic title="Budget Authority" value={formatMoney(selected.budgetAuthority)} valueStyle={{ fontSize: 18 }} />
-                <Statistic title="Cost / American" value={selected.costPerAmerican != null ? `$${Math.round(selected.costPerAmerican).toLocaleString()}` : '—'} valueStyle={{ fontSize: 18 }} />
+                <Statistic title="Cost / American" value={selected.costPerAmerican != null ? `$${Math.round(selected.costPerAmerican).toLocaleString()}` : '-'} valueStyle={{ fontSize: 18 }} />
                 <Statistic title="Contracts" value={formatMoney(selected.contractsTotal)} valueStyle={{ fontSize: 16 }} />
                 <Statistic title="Grants" value={formatMoney(selected.grantsTotal)} valueStyle={{ fontSize: 16 }} />
               </div>

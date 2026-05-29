@@ -1,4 +1,4 @@
-// Outreach v2 wizard — shared types.
+// Outreach v2 wizard, shared types.
 //
 // These mirror the data model in the design mockup. The context-item shape
 // is the centerpiece of the v2 flow: every selected item carries a `scope`
@@ -68,7 +68,7 @@ export const WIZARD_STEPS = [
 
 export type WizardStepId = (typeof WIZARD_STEPS)[number]['id'];
 
-/** Stable id for a recipient — same logic used by the older wizard. */
+/** Stable id for a recipient, same logic used by the older wizard. */
 export function recipientKey(r: OutreachRecipient): string {
   return r.id || r.directoryContactId || r.email || r.name || JSON.stringify(r);
 }

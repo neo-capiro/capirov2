@@ -29,9 +29,11 @@ import { IntelligenceModule } from './intelligence/intelligence.module.js';
 import { ExplorerModule } from './explorer/explorer.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { ProgramElementModule } from './program-element/program-element.module.js';
+import { ApiLatencyMiddleware } from './observability/api-latency.middleware.js';
 
 @Module({
   imports: [
+    ProgramElementModule,
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
@@ -69,7 +71,6 @@ import { ProgramElementModule } from './program-element/program-element.module.j
     IntelligenceModule,
     ExplorerModule,
     ChatModule,
-    ProgramElementModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
@@ -77,7 +78,7 @@ import { ProgramElementModule } from './program-element/program-element.module.j
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     // Tenant context resolution runs on every authenticated route.
-    // Webhooks and /health are explicitly excluded — they have no Clerk session.
+    // Webhooks and /health are explicitly excluded, they have no Clerk session.
     // The Microsoft OAuth callback is also excluded: Microsoft redirects the
     // user's browser to it as a top-level navigation, which doesn't carry the
     // Clerk bearer token. The callback authenticates via the HMAC-signed
@@ -113,6 +114,14 @@ export class AppModule implements NestModule {
           path: 'api/clio/runtime/(.*)',
           method: RequestMethod.ALL,
         },
+      )
+      .forRoutes('*');
+
+    consumer
+      .apply(ApiLatencyMiddleware)
+      .exclude(
+        { path: 'health', method: RequestMethod.ALL },
+        { path: 'webhooks/(.*)', method: RequestMethod.ALL },
       )
       .forRoutes('*');
   }

@@ -63,7 +63,7 @@ export function RoiQuarterChart({ series }: RoiQuarterChartProps) {
       </div>
 
       <div className="iv1-qchart-footnote">
-        Latest quarter — Lobbying {formatCompact(points[points.length - 1]?.lobbying ?? 0)} · Obligations {formatCompact(points[points.length - 1]?.obligations ?? 0)}
+        Latest quarter, Lobbying {formatCompact(points[points.length - 1]?.lobbying ?? 0)} · Obligations {formatCompact(points[points.length - 1]?.obligations ?? 0)}
       </div>
     </div>
   );

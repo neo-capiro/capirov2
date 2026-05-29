@@ -180,10 +180,10 @@ const templates = [
       overview:
         "An NDAA Authorization Request is a formal written request submitted to a Member of Congress asking them to sponsor a program authorization increase in the National Defense Authorization Act. The request asks the member to include a specific dollar amount above the President's Budget Request (PBR) for a given defense program in their markup of the NDAA, either through the House Armed Services Committee (HASC) or Senate Armed Services Committee (SASC).",
       timing:
-        "The submission window typically opens in January after the release of the President's Budget Request (first Monday in February). House deadlines are typically late February to mid-March; Senate deadlines are typically in March. Some offices accept requests as early as the third week of January. Timing varies significantly by office — always confirm with the specific member's staff.",
+        "The submission window typically opens in January after the release of the President's Budget Request (first Monday in February). House deadlines are typically late February to mid-March; Senate deadlines are typically in March. Some offices accept requests as early as the third week of January. Timing varies significantly by office, always confirm with the specific member's staff.",
       submission:
-        "Requests are submitted to the member's personal office — specifically to the defense Legislative Assistant (LA) or military LA. Do NOT submit directly to HASC or SASC staff. Common submission methods include office portals, email PDF, and in-person delivery. Most offices require a 1-2 page white paper format, though specific format requirements vary by office.",
-      why: "The NDAA is the primary legislative vehicle for establishing new defense program authority and increasing authorized funding ceilings above the President's Budget Request. Authorization alone does not provide funding — it sets the ceiling. A successful NDAA authorization request is often a prerequisite for a subsequent appropriations request.",
+        "Requests are submitted to the member's personal office, specifically to the defense Legislative Assistant (LA) or military LA. Do NOT submit directly to HASC or SASC staff. Common submission methods include office portals, email PDF, and in-person delivery. Most offices require a 1-2 page white paper format, though specific format requirements vary by office.",
+      why: "The NDAA is the primary legislative vehicle for establishing new defense program authority and increasing authorized funding ceilings above the President's Budget Request. Authorization alone does not provide funding, it sets the ceiling. A successful NDAA authorization request is often a prerequisite for a subsequent appropriations request.",
       companion: 'Almost always submitted alongside Template 2.1 (Appropriations Request)',
     },
   },
@@ -210,7 +210,7 @@ const templates = [
     },
     contextInfo: {
       overview:
-        'A programmatic appropriations request to the House Appropriations Defense Subcommittee asks the Member to advocate for increased funding for a DoD program in the annual defense appropriations bill. Defense does NOT accept CPF/earmark requests — all requests must be programmatic.',
+        'A programmatic appropriations request to the House Appropriations Defense Subcommittee asks the Member to advocate for increased funding for a DoD program in the annual defense appropriations bill. Defense does NOT accept CPF/earmark requests, all requests must be programmatic.',
       timing: 'Programmatic deadline: approximately March 20. Confirm exact date with the Member\'s appropriations LA.',
       submission: "Submit to the member's personal office (appropriations LA or defense LA), not directly to the Defense Subcommittee. Typically submitted via member portal or email PDF.",
       contact_email: 'DE.MemberRequests@mail.house.gov',
@@ -462,7 +462,7 @@ const templates = [
     },
     contextInfo: {
       overview:
-        "Requests to the Legislative Branch Subcommittee cover Congress, CBO, GAO, GPO, Library of Congress, Capitol Police, and the Architect of the Capitol. This subcommittee handles internal congressional operations. Lobbyist clients rarely have requests here — typically only relevant for library/archive programs or congressional research services. No CPF requests accepted.",
+        "Requests to the Legislative Branch Subcommittee cover Congress, CBO, GAO, GPO, Library of Congress, Capitol Police, and the Architect of the Capitol. This subcommittee handles internal congressional operations. Lobbyist clients rarely have requests here, typically only relevant for library/archive programs or congressional research services. No CPF requests accepted.",
       timing: 'Programmatic deadline: approximately March 13.',
       submission: "Submit to the member's personal office (appropriations LA). No CPF requests accepted for this subcommittee.",
       contact_email: 'LB.MemberRequests@mail.house.gov',
@@ -615,7 +615,7 @@ const templates = [
     },
     contextInfo: {
       overview:
-        "A language request asks a Member of Congress to include specific bill or report language in an appropriations measure. Unlike earmarks, language requests do not direct funding to a named recipient — they instruct, encourage, or urge an agency to take a specific action, prioritize a program, or provide reporting on a topic.",
+        "A language request asks a Member of Congress to include specific bill or report language in an appropriations measure. Unlike earmarks, language requests do not direct funding to a named recipient, they instruct, encourage, or urge an agency to take a specific action, prioritize a program, or provide reporting on a topic.",
       timing: 'Deadlines vary by subcommittee, generally mid-March through late March. Confirm with the Member\'s appropriations LA.',
       submission: "Submit to the member's personal office (appropriations LA). Language requests are less formal than programmatic requests but require clear proposed text.",
       contact_email: 'Submit to the relevant subcommittee office via member portal or email.',
@@ -657,9 +657,9 @@ const templates = [
     contextInfo: {
       overview:
         "A program white paper (or one-pager) is a 1-2 page document submitted alongside authorization and appropriations requests. Most congressional offices require this format and will not act on a request without supporting documentation.",
-      timing: 'Submit with the primary request. No separate deadline — must accompany the main submission.',
+      timing: 'Submit with the primary request. No separate deadline, must accompany the main submission.',
       submission: 'Delivered as a PDF attachment alongside the primary appropriations or authorization request.',
-      contact_email: 'N/A — submitted with primary request to member office.',
+      contact_email: 'N/A, submitted with primary request to member office.',
     },
   },
   {
@@ -676,8 +676,8 @@ const templates = [
           section1: {
             title: 'Meeting Request Details',
             fields: [
-              { key: 'recipient_member_name', label: 'Recipient — Member Name', type: 'text', maxLength: 100, required: true, helpText: 'e.g. The Honorable Jane Smith' },
-              { key: 'recipient_title', label: 'Recipient — Title', type: 'text', maxLength: 100, required: true, helpText: 'e.g. United States Senator, U.S. Representative' },
+              { key: 'recipient_member_name', label: 'Recipient, Member Name', type: 'text', maxLength: 100, required: true, helpText: 'e.g. The Honorable Jane Smith' },
+              { key: 'recipient_title', label: 'Recipient, Title', type: 'text', maxLength: 100, required: true, helpText: 'e.g. United States Senator, U.S. Representative' },
               { key: 'purpose_of_meeting', label: 'Purpose of Meeting', type: 'textarea', required: true, helpText: '1-2 sentences describing what you would like to discuss.' },
               { key: 'specific_request_reference', label: 'Request Reference', type: 'text', maxLength: 200, required: false, helpText: 'Reference the specific submission this meeting relates to (e.g., "FY27 Defense Appropriations request for Program X").' },
               { key: 'preferred_dates', label: 'Preferred Dates / Availability', type: 'text', maxLength: 200, required: false, helpText: 'e.g., "Week of March 10" or specific dates.' },
@@ -693,7 +693,7 @@ const templates = [
         "A meeting request letter is a formal letter to a Member of Congress or their staff requesting an in-person or virtual meeting. Meetings are essential for building relationships and advocating for client programs. Most offices prefer meetings during congressional recesses when Members are in-district.",
       timing: 'Submit 2-4 weeks before desired meeting window. Request meetings before submission deadlines when possible.',
       submission: "Send via email to the Member's scheduler (for Member meetings) or directly to the relevant LA (for staff meetings).",
-      contact_email: 'N/A — sent directly to Member scheduler or LA.',
+      contact_email: 'N/A, sent directly to Member scheduler or LA.',
     },
   },
   {
@@ -717,7 +717,7 @@ const templates = [
               { key: 'key_point_4', label: 'Key Supporting Point 4', type: 'textarea', required: false },
               { key: 'key_point_5', label: 'Key Supporting Point 5', type: 'textarea', required: false },
               { key: 'district_impact', label: 'District / State Impact', type: 'textarea', required: false, helpText: 'Jobs, economic activity, facilities, or other district-relevant impact.' },
-              { key: 'funding_comparison_note', label: 'Funding Context Note', type: 'textarea', required: false, helpText: 'e.g., "This request is $5M above PBR — prior year saw a similar increase enacted."' },
+              { key: 'funding_comparison_note', label: 'Funding Context Note', type: 'textarea', required: false, helpText: 'e.g., "This request is $5M above PBR, prior year saw a similar increase enacted."' },
             ],
           },
         },
@@ -729,7 +729,7 @@ const templates = [
         "A leave-behind is a single-page document handed to congressional staff at the conclusion of an in-person meeting. It reinforces the ask and gives staff something tangible to reference when briefing their boss or advocating internally.",
       timing: 'Prepare before each scheduled meeting. Leave with staff at the end of the meeting.',
       submission: 'Delivered physically (printed) or via email immediately after the meeting.',
-      contact_email: 'N/A — delivered in-person or by email after meeting.',
+      contact_email: 'N/A, delivered in-person or by email after meeting.',
     },
   },
   {
@@ -763,7 +763,7 @@ const templates = [
         "A follow-up letter is sent within 24-48 hours of an in-person or virtual meeting with congressional staff. It thanks the staff for their time, summarizes the conversation, reiterates the ask, and delivers any promised materials. Follow-up letters create a paper trail and keep the client's request top-of-mind.",
       timing: 'Send within 24-48 hours of the meeting.',
       submission: 'Sent via email to the staff member(s) who attended the meeting.',
-      contact_email: 'N/A — sent directly to meeting attendees.',
+      contact_email: 'N/A, sent directly to meeting attendees.',
     },
   },
 ];

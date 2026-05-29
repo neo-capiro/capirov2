@@ -1,8 +1,8 @@
 /**
- * Section 4 — Relationships
+ * Section 4, Relationships
  * Resolution graph (inline SVG) + office recommender ranked list.
  *
- * The knowledge graph is rendered inline within this section — not as a
+ * The knowledge graph is rendered inline within this section, not as a
  * standalone tab. Ex-staffer data surfaces in the office recommender tags.
  *
  * Issue leaderboard link: /intelligence/issues/:code when a code is present;
@@ -12,9 +12,11 @@
 import type { ClientProfileV1 } from '../mappers.js';
 import { OfficeRecommenderList, type OfficeRecommenderRow } from '../components/OfficeRecommenderList.js';
 import { ResolutionGraphCard } from '../components/ResolutionGraphCard.js';
+import { KnowledgeGraphView } from '../../../intelligence/KnowledgeGraphPage.js';
 
 interface RelationshipsSectionProps {
   aggregate?: ClientProfileV1;
+  clientId: string;
   /**
    * href for the "Open issue leaderboard" link.
    * Pass an empty string to intentionally disable (no matching issue code).
@@ -33,7 +35,7 @@ const OFFICES: OfficeRecommenderRow[] = [
   { rank: 6, name: 'Sen. Cynthia Lummis (R-WY)', sub: 'Banking · digital asset lead', tags: [{ label: 'district', variant: 'green' }], score: 0.68 },
 ];
 
-export function RelationshipsSection({ aggregate, issueHref, expandEnabled }: RelationshipsSectionProps) {
+export function RelationshipsSection({ aggregate, clientId, issueHref, expandEnabled }: RelationshipsSectionProps) {
   const offices =
     aggregate?.sections.relationships.officeRecommender?.length
       ? aggregate.sections.relationships.officeRecommender.map((o, idx) => ({
@@ -103,6 +105,11 @@ export function RelationshipsSection({ aggregate, issueHref, expandEnabled }: Re
             }
           />
         </div>
+      </div>
+
+      {/* Full knowledge graph (ReactFlow) */}
+      <div className="iv1-surface" style={{ marginTop: 16, padding: 16 }}>
+        <KnowledgeGraphView clientId={clientId} />
       </div>
     </section>
   );

@@ -11,7 +11,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
  * Per-request tenant-scoped queries go through `withTenant(tenantId, fn)`.
  * That opens a transaction, sets the GUC with `SET LOCAL`, and hands the
  * caller a transactional client. When the transaction commits, the GUC is
- * automatically discarded — no leakage between requests.
+ * automatically discarded, no leakage between requests.
  *
  * `withSystem(fn)` is the same pattern but with the bypass flag set, used
  * for cross-tenant admin work and webhook ingestion. Use sparingly and

@@ -1,4 +1,4 @@
-// Step 1 — Direction picker.
+// Step 1, Direction picker.
 //
 // New in v2: the user chooses BEFORE doing anything else whether this
 // campaign is "on behalf of a client → Hill/agency" or "from me → my

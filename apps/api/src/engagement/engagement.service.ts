@@ -232,7 +232,7 @@ export interface GenerateBatchEmailInput {
   insights?: string[];
   additionalContext?: string;
   tone?: string;
-  // v2 wizard additions — older callers that omit these are unaffected.
+  // v2 wizard additions, older callers that omit these are unaffected.
   direction?: 'on-behalf' | 'to-clients';
   contextItems?: OutreachSelectedContextItemInput[];
 }
@@ -382,7 +382,7 @@ const SYSTEM_AI_TEMPLATES = [
     name: 'Introduction',
     category: 'general',
     prompt:
-      "Write an introductory outreach email on behalf of a client to a congressional office. Briefly introduce who the client is and why they matter to the recipient's portfolio. Connect the client's work to the recipient's committee jurisdiction or district interests. End with a low-friction first ask — a 15-minute introductory call or brief meeting. Under 200 words.",
+      "Write an introductory outreach email on behalf of a client to a congressional office. Briefly introduce who the client is and why they matter to the recipient's portfolio. Connect the client's work to the recipient's committee jurisdiction or district interests. End with a low-friction first ask, a 15-minute introductory call or brief meeting. Under 200 words.",
     description: 'Introductory outreach explaining the client and reason for engaging.',
     samplePreview: 'My name is [Name] and I represent...',
     tone: 'professional',
@@ -1609,7 +1609,7 @@ export class EngagementService {
         (recipient as Record<string, unknown>).email?.toString() ||
         String(results.length);
 
-      // Per-recipient scoped context — drawn from contextItems[].scope == this
+      // Per-recipient scoped context, drawn from contextItems[].scope == this
       // recipient's stable key. The wizard's recipient key is the same fallback
       // chain used by recipientKey() on the frontend, so look up by every
       // identifier we have rather than guessing.

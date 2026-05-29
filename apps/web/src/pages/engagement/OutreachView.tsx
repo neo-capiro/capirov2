@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type SyntheticEvent } from 'react';
 import { setActiveDraft } from '../../components/chat/chat-store.js';
 import { useLocation, useNavigate } from 'react-router-dom';
-// v2 wizard — replaces the older OutreachWizard. The old file at
+// v2 wizard, replaces the older OutreachWizard. The old file at
 // ./outreach/OutreachWizard.tsx is preserved for reference / quick rollback;
 // import { OutreachWizard } from './outreach/OutreachWizard.js';
 import { NewOutreachWizard as OutreachWizard } from './outreach/v2/index.js';
@@ -492,7 +492,7 @@ export function OutreachView({
     // URL → mode sync. Only run when the URL itself actually changed
     // since we last saw it. Without this guard, this effect re-runs
     // whenever `mode` changes from a user click (because mode is in
-    // the deps via the comparison below) — and because the URL hasn't
+    // the deps via the comparison below), and because the URL hasn't
     // caught up yet, the effect would compute nextMode from the stale
     // path and clobber the new mode back to 'landing'. Net result:
     // clicking "New Outreach" silently does nothing.
@@ -1127,7 +1127,7 @@ export function OutreachView({
               <span>
                 <strong>No outreach yet</strong>
                 <br />
-                Start by creating a campaign — Clio drafts from your context
+                Start by creating a campaign, Clio drafts from your context
               </span>
             }
           >

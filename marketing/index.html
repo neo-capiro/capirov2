@@ -1598,14 +1598,14 @@
 
 
   /* ==========================================================================
-     RESPONSIVE — mobile + tablet
+     RESPONSIVE, mobile + tablet
      The base layout above targets desktop (1024px+). These breakpoints
      progressively collapse multi-column grids, stack hero + footer, replace
      the desktop nav with a hamburger drawer, and trim padding so the site
      reads cleanly down to ~360px wide.
      ========================================================================== */
 
-  /* Hamburger button — hidden on desktop, revealed at ≤900px. */
+  /* Hamburger button, hidden on desktop, revealed at ≤900px. */
   .nav-toggle {
     display: none;
     background: transparent;
@@ -1629,7 +1629,7 @@
   .nav-toggle[aria-expanded="true"] span:nth-child(2) { opacity: 0; }
   .nav-toggle[aria-expanded="true"] span:nth-child(3) { transform: translateY(-10px) rotate(-45deg); }
 
-  /* ─── Tablet (≤1024px) — soften padding, compress grids a touch ─── */
+  /* ─── Tablet (≤1024px), soften padding, compress grids a touch ─── */
   @media (max-width: 1024px) {
     nav { padding: 0 24px; }
     .nav-links { gap: 20px; }
@@ -1649,7 +1649,7 @@
     .hero-left { padding: 0 40px; }
   }
 
-  /* ─── Mobile (≤900px) — drawer nav, single-column hero & grids ─── */
+  /* ─── Mobile (≤900px), drawer nav, single-column hero & grids ─── */
   @media (max-width: 900px) {
     nav { padding: 0 20px; flex-wrap: wrap; }
     .nav-toggle { display: flex; }
@@ -1681,7 +1681,7 @@
       padding: 12px 16px !important;
     }
 
-    /* HERO — stack image below content, drop min-heights, shrink type. */
+    /* HERO, stack image below content, drop min-heights, shrink type. */
     .hero-top {
       grid-template-columns: 1fr;
       min-height: 0;
@@ -1704,7 +1704,7 @@
     .hero-stat-label { max-width: none; }
     .hero-grid-line { display: none; }
 
-    /* SECTION SHARED — tighter padding, larger min font. */
+    /* SECTION SHARED, tighter padding, larger min font. */
     section { padding: 64px 20px; }
     .process-section,
     .distinction-section,
@@ -1718,7 +1718,7 @@
     .section-headline { font-size: clamp(28px, 6vw, 40px); }
     .section-body { font-size: 16px; }
 
-    /* PROCESS — 5-up grid wraps to 2 cols on tablet/mobile. */
+    /* PROCESS, 5-up grid wraps to 2 cols on tablet/mobile. */
     .process-track {
       grid-template-columns: repeat(2, 1fr);
       gap: 28px 16px;
@@ -1727,7 +1727,7 @@
     .process-track::before { display: none; }
     .process-step { padding: 0; }
 
-    /* GRIDS — all multi-col layouts collapse to one column. */
+    /* GRIDS, all multi-col layouts collapse to one column. */
     .distinction-grid,
     .validation-grid,
     .rhythm-grid,
@@ -1750,7 +1750,7 @@
     .pi-grid { gap: 12px; }
     .validation-quote { font-size: 16px; }
 
-    /* FEATURES — sidebar nav becomes horizontal scroll pills above panel. */
+    /* FEATURES, sidebar nav becomes horizontal scroll pills above panel. */
     .features-layout { grid-template-columns: 1fr; gap: 20px; }
     .features-nav {
       flex-direction: row;
@@ -1775,7 +1775,7 @@
     .feature-panel-list { padding: 20px 24px 24px; }
     .feature-panel-title { font-size: 24px; }
 
-    /* PRICING TRANSPARENCY — collapse 4-col strip. */
+    /* PRICING TRANSPARENCY, collapse 4-col strip. */
     .pricing-transparency {
       grid-template-columns: 1fr;
       padding: 32px 24px;
@@ -1784,7 +1784,7 @@
     .pt-divider { display: none; }
     .pt-cta { border-left: none; padding-left: 0; padding-top: 24px; border-top: 1px solid rgba(255,255,255,0.08); }
 
-    /* CTA — let headline wrap. */
+    /* CTA, let headline wrap. */
     .cta-section { padding: 72px 20px; }
     .cta-headline { white-space: normal; font-size: clamp(32px, 7vw, 48px); letter-spacing: -0.6px; }
     .cta-sub { font-size: 16px; margin-bottom: 32px; }
@@ -1792,7 +1792,7 @@
     .cta-actions .btn-white,
     .cta-actions .btn-primary { width: 100%; text-align: center; }
 
-    /* TRUSTED BY — wrap logos so they don't overflow. */
+    /* TRUSTED BY, wrap logos so they don't overflow. */
     .trusted-section { padding: 36px 20px; }
     .trusted-firms {
       flex-wrap: wrap;
@@ -1803,12 +1803,12 @@
     .trusted-logo { height: 40px; }
     .trusted-divider { display: none; }
 
-    /* CLIO — stack badge above description. */
+    /* CLIO, stack badge above description. */
     .clio-inner { flex-direction: column; align-items: flex-start; gap: 20px; }
     .clio-divider { display: none; }
     .clio-desc { font-size: 16px; }
 
-    /* FOOTER — stack columns. */
+    /* FOOTER, stack columns. */
     footer { padding: 48px 20px 32px; }
     .footer-top {
       flex-direction: column;
@@ -1827,14 +1827,14 @@
     }
     .footer-legal { flex-wrap: wrap; gap: 16px; }
 
-    /* MODAL — full-width form fields, tighter padding. */
+    /* MODAL, full-width form fields, tighter padding. */
     .modal-overlay { padding: 16px; }
     .modal-box { padding: 32px 24px; }
     .modal-title { font-size: 24px; }
     .form-row { grid-template-columns: 1fr; gap: 0; }
   }
 
-  /* ─── Small phone (≤480px) — final compression pass ─── */
+  /* ─── Small phone (≤480px), final compression pass ─── */
   @media (max-width: 480px) {
     .hero-left { padding-top: 88px; padding-bottom: 24px; }
     .hero-headline { font-size: clamp(30px, 8.5vw, 40px); }
@@ -2560,7 +2560,7 @@ function submitDemo() {
     return;
   }
 
-  // HubSpot configuration — replace these two values with your own
+  // HubSpot configuration, replace these two values with your own
   const PORTAL_ID = '245730593';
   const FORM_GUID = 'e00a7515-d4f6-4d23-8316-db797671d872';
 
@@ -2598,7 +2598,7 @@ function submitDemo() {
     document.getElementById('formSuccess').style.display = 'block';
   })
   .catch(function(err) {
-    // Still show success to user — log error internally
+    // Still show success to user, log error internally
     console.error('HubSpot submission error:', err);
     document.getElementById('modalForm').style.display = 'none';
     document.getElementById('formSuccess').style.display = 'block';

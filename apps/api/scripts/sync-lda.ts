@@ -274,7 +274,7 @@ async function main() {
       });
       if (latest?.dtPosted) {
         incrementalAfter = latest.dtPosted.toISOString().slice(0, 10);
-        console.log(`[lda-sync] incremental mode — fetching filings after ${incrementalAfter}`);
+        console.log(`[lda-sync] incremental mode, fetching filings after ${incrementalAfter}`);
       }
     }
 

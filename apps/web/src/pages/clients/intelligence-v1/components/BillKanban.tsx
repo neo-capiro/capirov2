@@ -29,7 +29,7 @@ export interface BillKanbanCard {
 export interface BillKanbanColumn {
   stage: 'introduced' | 'committee' | 'passed' | 'enacted';
   label: string;
-  /** Total count — may exceed the number of cards passed (drives +N overflow). */
+  /** Total count, may exceed the number of cards passed (drives +N overflow). */
   count: number;
   cards: BillKanbanCard[];
 }

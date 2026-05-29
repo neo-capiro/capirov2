@@ -1,5 +1,5 @@
 /**
- * Sync Open States — state legislature bills and legislators.
+ * Sync Open States, state legislature bills and legislators.
  *   pnpm --filter @capiro/api sync:openstates
  * Source: v3.openstates.org/
  * Auth: Free API key. Key in env: OPENSTATES_API_KEY

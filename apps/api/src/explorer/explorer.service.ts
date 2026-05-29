@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /**
- * Data Explorer service.
+ * Intelligence Center service.
  *
  * Each method below is a typed query against ONE federal intelligence source
  * (LDA filings, federal contractors, etc.). They share a common pattern:
@@ -19,7 +19,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class ExplorerService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /* ── LDA filings — the largest data set ─────────────────────────────── */
+  /* ── LDA filings, the largest data set ─────────────────────────────── */
 
   async ldaFilings(opts: {
     q?: string;

@@ -10,15 +10,15 @@ import {
  * Nest-side embeddings facade for on-write code paths in the API container.
  *
  * Two operating modes:
- *   1. **embedCapabilityImmediate** — awaitable, surfaces errors. Use only
+ *   1. **embedCapabilityImmediate**, awaitable, surfaces errors. Use only
  *      when a caller actually needs the embedding to be live before the
  *      response returns (rare; nothing in the current app needs this).
- *   2. **embedCapabilityFireAndForget** — schedules the embed on the next
+ *   2. **embedCapabilityFireAndForget**, schedules the embed on the next
  *      microtask and swallows errors with a log line. This is the default
  *      for user-facing create/update mutations: a Bedrock blip should
  *      never cause the user's capability save to 4xx/5xx.
  *
- * On-write hooks live in the sync scripts (bill, LDA) rather than here —
+ * On-write hooks live in the sync scripts (bill, LDA) rather than here -
  * those scripts run outside the Nest container and import `embedder.ts`
  * directly. Same code, different process.
  */
@@ -60,7 +60,7 @@ export class EmbeddingsService {
       // may have set a different current_tenant_id. The WITH CHECK still
       // requires tenant_id to match the row we're inserting.
       //
-      // Actually we want strict RLS here — set bypassRls=false so the
+      // Actually we want strict RLS here, set bypassRls=false so the
       // policy enforces that we can only write embeddings for the same
       // tenant whose capability we're embedding. If the request tenant
       // doesn't match, this is a bug we'd rather fail loud.
@@ -68,7 +68,7 @@ export class EmbeddingsService {
     });
   }
 
-  /** Fire-and-forget — schedules on the event loop, never throws to caller.
+  /** Fire-and-forget, schedules on the event loop, never throws to caller.
    *  Use from create/update mutations so a Bedrock outage doesn't fail the
    *  user's write. */
   embedCapabilityFireAndForget(capabilityId: string): void {

@@ -88,7 +88,7 @@ async function main() {
       console.log(`[emit-changes] ${tbl.source}: ${count} new rows → ${severity(count)}`);
     } catch (err) {
       errorCount++;
-      console.error(`[emit-changes] ${tbl.source}: error —`, err);
+      console.error(`[emit-changes] ${tbl.source}: error -`, err);
     }
   }
 

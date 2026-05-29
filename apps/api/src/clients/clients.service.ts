@@ -95,7 +95,7 @@ export class ClientsService {
 
   /**
    * Bulk-create clients from a CSV import. Per-row error capture: a single
-   * bad row never aborts the whole batch — we collect failures, return the
+   * bad row never aborts the whole batch, we collect failures, return the
    * count of successful inserts alongside an `errors` array the UI uses to
    * highlight problem rows in the preview.
    *

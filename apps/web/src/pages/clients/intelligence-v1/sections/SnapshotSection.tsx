@@ -1,5 +1,5 @@
 /**
- * Section 1 — Snapshot
+ * Section 1, Snapshot
  * Fetches comment alerts, recent changes, meetings, and client profile.
  * Renders: hero metrics, Clio briefing, top alerts, 90-day activity strip.
  */
@@ -208,7 +208,7 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
           <div className="iv1-surface-body">
             {/* Tiny sparkline of total daily activity above the row list.
                 Title used to say "90 days" but we only fetch 14d on the
-                profile endpoint — keep the label honest. */}
+                profile endpoint, keep the label honest. */}
             {activityRows && activityRows.length > 0 && (
               <ActivitySparkline rows={activityRows} />
             )}
@@ -323,7 +323,7 @@ function HealthGauge({ score }: { score: number | null }) {
             clipPath: 'inset(0 0 50% 0)',
           }}
         />
-        {/* Filled arc — only render when score > 0 so a perfect 0 doesn't
+        {/* Filled arc, only render when score > 0 so a perfect 0 doesn't
             even try to draw the rotated overflow that the wrapper now clips. */}
         {pct > 0 && (
           <div
@@ -346,7 +346,7 @@ function HealthGauge({ score }: { score: number | null }) {
           className="num"
           style={{ fontSize: 24, fontWeight: 600, color, lineHeight: 1 }}
         >
-          {score ?? '—'}
+          {score ?? '-'}
           <span style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 400 }}>/100</span>
         </div>
         <div
@@ -374,7 +374,7 @@ function HealthGauge({ score }: { score: number | null }) {
  *
  * Renders one stacked bar per day from `activity14d`. Total daily activity
  * is meetings + outreach + tasks + debriefs (emails intentionally excluded
- * — they're noisy and not in the 5-row breakdown below). Height is fixed
+ *, they're noisy and not in the 5-row breakdown below). Height is fixed
  * at 28px; width fills the parent.
  *
  * Empty input → renders nothing (the caller already gates with a length
@@ -506,7 +506,7 @@ function clioText(
             {critAlerts.length} comment deadline{critAlerts.length > 1 ? 's' : ''} in the
             next 7 days
           </mark>
-          {' — '}
+          {', '}
         </>
       )}
       {totalBills > 0 && (

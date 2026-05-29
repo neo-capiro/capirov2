@@ -10,7 +10,7 @@ export interface SecretsStackProps extends cdk.StackProps {
 }
 
 /**
- * Application secrets — Clerk credentials, future LLM provider keys, etc.
+ * Application secrets, Clerk credentials, future LLM provider keys, etc.
  *
  * Created with PLACEHOLDER values. The operator fills real values via:
  *   aws secretsmanager put-secret-value --secret-id <id> --secret-string <value>
@@ -69,7 +69,7 @@ export class SecretsStack extends cdk.Stack {
     // same put-secret-value flow if Clerk ever rotates instances.
     this.clerkPublishableKey = new secretsmanager.Secret(this, 'ClerkPublishableKey', {
       secretName: `/capiro/${cfg.envName}/clerk/publishable-key`,
-      description: 'Clerk publishable key (pk_live_...) — exposed to the browser via runtime-config.js',
+      description: 'Clerk publishable key (pk_live_...), exposed to the browser via runtime-config.js',
       encryptionKey: this.secretsKey,
       secretStringValue: cdk.SecretValue.unsafePlainText('REPLACE_ME'),
       removalPolicy: removal,

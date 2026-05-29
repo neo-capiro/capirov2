@@ -273,7 +273,7 @@ export function IntelligenceMappingsPage() {
           locale={{
             emptyText: (
               <Empty
-                description="No mappings found — click 'Resolve All Clients' to run entity resolution"
+                description="No mappings found, click 'Resolve All Clients' to run entity resolution"
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
               />
             ),

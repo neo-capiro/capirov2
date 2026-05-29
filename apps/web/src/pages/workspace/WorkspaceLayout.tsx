@@ -60,7 +60,7 @@ export function WorkspaceLayout() {
               to={`/workspace/strategy/${deadline.strategyId}`}
               className="deadline-item"
             >
-              {deadline.templateName} — {deadline.deadline} ({deadline.daysUntil}d)
+              {deadline.templateName}, {deadline.deadline} ({deadline.daysUntil}d)
             </Link>
           ))}
           {upcoming.length > 3 && (

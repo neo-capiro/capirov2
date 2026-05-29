@@ -280,7 +280,7 @@ export interface FedRegDetail {
 }
 
 /* Detail shapes for the 8 newer sources. Backend returns the full row from
-   each table — these types pick up extra (non-list-column) fields from the
+   each table, these types pick up extra (non-list-column) fields from the
    schema (e.g. SEC `description`, `sic`, `primaryDoc`; FEC `transactionId`,
    `memoText`; FARA `services`, `address`; intel article `content`) where
    they exist. Unknown fields read as undefined and the views just skip them. */

@@ -1,10 +1,10 @@
-// Step 4 — Context Builder.
+// Step 4, Context Builder.
 //
 // Two-pane interface:
-//   • Left  — browse a pool of bills, intel, past emails, past meetings,
+//   • Left , browse a pool of bills, intel, past emails, past meetings,
 //             plus a "Custom note" tab. Each item has a `matches` array
 //             of recipient/client ids it naturally belongs to.
-//   • Right — the "context plan": selected items grouped into Shared
+//   • Right, the "context plan": selected items grouped into Shared
 //             (every recipient sees it) and per-recipient sections.
 //             Each card has a free-form `note` textarea that the AI uses
 //             as an extra instruction for that one item, and a scope
@@ -161,7 +161,7 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
     <div>
       <h2>Build the context Clio uses</h2>
       <div className="ov2-pane-sub">
-        Items are routed per-recipient. Past emails and meetings auto-attach to whoever they involved —
+        Items are routed per-recipient. Past emails and meetings auto-attach to whoever they involved -
         Clio uses only the matching context for each recipient's draft. Shared items apply to everyone.
       </div>
 
@@ -240,7 +240,7 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
             <div style={{ padding: 24, textAlign: 'center' }}>
               <p style={{ fontSize: 13, color: 'var(--ov2-ink-2)', lineHeight: 1.6, margin: '8px 0 18px' }}>
                 Add a free-form note Clio should treat as context. Notes can be shared across all recipients,
-                or scoped to a single recipient — you choose after adding.
+                or scoped to a single recipient, you choose after adding.
               </p>
               <button
                 className="ov2-ctx-add-note-btn"
@@ -318,7 +318,7 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
                   <span className="sec-count">{items.length}</span>
                 </div>
                 {items.length === 0 && (
-                  <div className="ov2-ctx-empty-row">No recipient-specific context — uses shared only.</div>
+                  <div className="ov2-ctx-empty-row">No recipient-specific context, uses shared only.</div>
                 )}
                 {items.map((c) => (
                   <ContextCard
@@ -395,7 +395,7 @@ function ContextCard({ c, recipients, onNote, onScope, onRemove }: CardProps) {
         placeholder={
           c.kind === 'note'
             ? 'Write your note here…'
-            : "+ Add a personalized instruction (optional) — e.g. 'lead with this', 'omit the deadline language'…"
+            : "+ Add a personalized instruction (optional), e.g. 'lead with this', 'omit the deadline language'…"
         }
       />
       <div className="ov2-ctx-scope-row">

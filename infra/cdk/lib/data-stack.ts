@@ -32,7 +32,7 @@ export class DataStack extends cdk.Stack {
    * Runtime application credential. The API connects as `capiro_app`, a
    * non-DDL role created by migration 0005. The actual password is set by
    * the `bootstrap-roles` ECS task (which connects as master and runs
-   * ALTER ROLE) — this Secret holds the source-of-truth value.
+   * ALTER ROLE), this Secret holds the source-of-truth value.
    */
   public readonly appSecret: secretsmanager.ISecret;
   public readonly key: kms.Key;
@@ -53,7 +53,7 @@ export class DataStack extends cdk.Stack {
         : cdk.RemovalPolicy.DESTROY,
     });
 
-    // Cluster parameter group — preload pgvector + pg_trgm. The application
+    // Cluster parameter group, preload pgvector + pg_trgm. The application
     // migration still runs CREATE EXTENSION to register them in the database.
     const parameterGroup = new rds.ParameterGroup(this, 'DbParameterGroup', {
       engine: rds.DatabaseClusterEngine.auroraPostgres({
@@ -63,7 +63,7 @@ export class DataStack extends cdk.Stack {
       parameters: {
         // Aurora Postgres only allows a fixed list of extensions in
         // shared_preload_libraries (pg_stat_statements, pg_cron, pgaudit, ...).
-        // pgvector and pg_trgm don't need preloading — they are created via
+        // pgvector and pg_trgm don't need preloading, they are created via
         // CREATE EXTENSION in the application migrations.
         shared_preload_libraries: 'pg_stat_statements',
         'rds.force_ssl': '1',
@@ -131,7 +131,7 @@ export class DataStack extends cdk.Stack {
     });
 
     // `Credentials.fromSecret(masterSecret)` attaches the secret to the cluster
-    // automatically — calling masterSecret.attach() again throws.
+    // automatically, calling masterSecret.attach() again throws.
     masterSecret.addRotationSchedule('Rotation', {
       hostedRotation: secretsmanager.HostedRotation.postgreSqlSingleUser({
         functionName: `capiro-${cfg.envName}-aurora-rotation`,

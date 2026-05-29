@@ -118,7 +118,7 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
     return code ? `/intelligence/issues/${encodeURIComponent(code)}` : '';
   }, [profileV1Query.data]);
 
-  // Scoped engagement href — always carries clientId so the Engagement Manager
+  // Scoped engagement href, always carries clientId so the Engagement Manager
   // opens pre-filtered to this client. `withClientContext` is idempotent: it
   // is a no-op if clientId is already present in the href.
   const engagementHref = useMemo(
@@ -184,6 +184,7 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
 
             <RelationshipsSection
               aggregate={profileV1Query.data ?? undefined}
+              clientId={clientId}
               issueHref={issueHref}
               expandEnabled={Boolean(issueHref)}
             />

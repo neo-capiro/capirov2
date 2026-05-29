@@ -65,7 +65,7 @@ export class ClientCapabilitiesService {
     private readonly prisma: PrismaService,
     // Embeddings are written asynchronously after create/update so Clio
     // RAG sees the new capability without a wait for the next backfill.
-    // Fire-and-forget — embed failures must never bubble up to the user.
+    // Fire-and-forget, embed failures must never bubble up to the user.
     private readonly embeddings: EmbeddingsService,
   ) {}
 
@@ -116,7 +116,7 @@ export class ClientCapabilitiesService {
         },
       });
     });
-    // Embed asynchronously — the capability is searchable via Clio within
+    // Embed asynchronously, the capability is searchable via Clio within
     // a second or two of the create response landing.
     this.embeddings.embedCapabilityFireAndForget(created.id);
     return created;

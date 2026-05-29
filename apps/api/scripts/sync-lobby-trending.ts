@@ -7,12 +7,12 @@
  * of the descriptions we already have in lda_filing.lobbying_activities (JSONB).
  *
  * For each word that appears in the most-recent quarter's filings, computes:
- *   - latestCount      — frequency in the latest quarter
- *   - avgPrior         — average frequency across the 4 prior quarters
- *   - growthPct        — (latestCount - avgPrior) / max(avgPrior, 1) * 100
+ *   - latestCount     , frequency in the latest quarter
+ *   - avgPrior        , average frequency across the 4 prior quarters
+ *   - growthPct       , (latestCount - avgPrior) / max(avgPrior, 1) * 100
  *
  * Writes the top-200 trending words + top-100 absolute frequency words to
- * lobby_trending_topics (delete-then-create — small dataset).
+ * lobby_trending_topics (delete-then-create, small dataset).
  *
  * Idempotent. Safe to run on cron. Takes ~10s with 50K filings.
  */
@@ -23,7 +23,7 @@ import { randomUUID } from 'crypto';
 dotenvConfig();
 
 // Common English stopwords + LDA boilerplate that dominates filings without
-// being informative. Kept short on purpose — pgvector/embeddings would handle
+// being informative. Kept short on purpose, pgvector/embeddings would handle
 // this better long-term; for now keyword extraction is fine.
 const STOPWORDS = new Set([
   'the', 'and', 'for', 'with', 'that', 'this', 'are', 'was', 'were', 'has',
@@ -100,7 +100,7 @@ async function main() {
 
   try {
     // Fetch the last 5 quarters of filings. We rank by quarter_ord descending
-    // and bucket into the 5 latest quarters — the latest plus 4 prior.
+    // and bucket into the 5 latest quarters, the latest plus 4 prior.
     const rows = await prisma.$queryRaw<
       Array<{
         filing_year: number;
@@ -235,7 +235,7 @@ async function main() {
 
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(
-      `[lobby-trending-sync] DONE in ${elapsed}s — ` +
+      `[lobby-trending-sync] DONE in ${elapsed}s, ` +
         `latest=${latest.year}/${latest.period}, prior_quarters=${prior.length}, ` +
         `trending=${trendingRows.length}, top=${topRows.length}`,
     );

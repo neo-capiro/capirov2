@@ -136,7 +136,7 @@ export interface ClientProfileV1 {
         emails: number;
         tasks: number;
         debriefs: number;
-        // Optional for backward compatibility — older API responses did
+        // Optional for backward compatibility, older API responses did
         // not include outreach in the daily breakdown. SnapshotSection
         // treats `undefined` as 0 when summing.
         outreach?: number;
@@ -264,7 +264,7 @@ export function minutesAgoLabel(isoDate: string | null | undefined): string {
 
 // ── Shared data utilities ────────────────────────────────────────────
 
-/** Compact dollar formatter — no external dep */
+/** Compact dollar formatter, no external dep */
 export function formatCompact(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value) || value === 0) return '$0';
   const abs = Math.abs(value);
@@ -274,9 +274,9 @@ export function formatCompact(value: number | null | undefined): string {
   return `$${Math.round(value)}`;
 }
 
-/** Short human date — "May 26, 2026" */
+/** Short human date, "May 26, 2026" */
 export function formatDate(value: string | null | undefined): string {
-  if (!value) return '—';
+  if (!value) return '-';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return new Intl.DateTimeFormat(undefined, {

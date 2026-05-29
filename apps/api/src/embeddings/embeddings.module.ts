@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { EmbeddingsService } from './embeddings.service.js';
 
 /**
- * Embeddings module — provides EmbeddingsService for on-write hooks in
+ * Embeddings module, provides EmbeddingsService for on-write hooks in
  * write-path modules (ClientsModule for capability create/update).
  *
  * Imports nothing because PrismaService is exposed globally by PrismaModule

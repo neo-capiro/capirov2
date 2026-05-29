@@ -1,5 +1,5 @@
 /**
- * Engagement Overview — landing/orientation surface for the Engagement workspace.
+ * Engagement Overview, landing/orientation surface for the Engagement workspace.
  * Matches the capiro redesign v2 style system (theme.css tokens, Ant Design).
  */
 
@@ -34,7 +34,7 @@ export function OverviewTab({ onNavigate, stats }: OverviewTabProps) {
           </Title>
           <Paragraph className="eo-hero-sub">
             Engagement is where your day-to-day Hill work happens. Capture meetings, send personalized outreach
-            to congressional offices and your own clients, and keep a clean record of every touch — without
+            to congressional offices and your own clients, and keep a clean record of every touch, without
             updating a single spreadsheet.
           </Paragraph>
           <div className="eo-hero-cta">
@@ -64,7 +64,7 @@ export function OverviewTab({ onNavigate, stats }: OverviewTabProps) {
           icon={<CalendarOutlined style={{ fontSize: 22 }} />}
           iconTone="meetings"
           title="Meetings"
-          desc="Every meeting from your calendar lands here automatically. Clio writes a prep packet before, then a clean debrief after — from your notes, a voice memo, or an uploaded transcript."
+          desc="Every meeting from your calendar lands here automatically. Clio writes a prep packet before, then a clean debrief after, from your notes, a voice memo, or an uploaded transcript."
           cta="See your meetings"
           onClick={() => onNavigate('meetings')}
         />
@@ -72,7 +72,7 @@ export function OverviewTab({ onNavigate, stats }: OverviewTabProps) {
           icon={<MailOutlined style={{ fontSize: 22 }} />}
           iconTone="outreach"
           title="Outreach"
-          desc="Send personalized emails to dozens of congressional offices or your clients in minutes. You pick the recipients and what context Clio should use — it drafts a unique email for each person."
+          desc="Send personalized emails to dozens of congressional offices or your clients in minutes. You pick the recipients and what context Clio should use, it drafts a unique email for each person."
           cta="Start a campaign"
           onClick={() => onNavigate('outreach')}
         />
@@ -80,7 +80,7 @@ export function OverviewTab({ onNavigate, stats }: OverviewTabProps) {
           icon={<BarChartOutlined style={{ fontSize: 22 }} />}
           iconTone="reports"
           title="Reports"
-          desc="Track every Hill office, what you've done with them, and what's outstanding. Status pills update themselves from your meetings and outreach — you only touch them to override."
+          desc="Track every Hill office, what you've done with them, and what's outstanding. Status pills update themselves from your meetings and outreach, you only touch them to override."
           cta="Open the tracker"
           onClick={() => onNavigate('reports')}
         />
@@ -99,7 +99,7 @@ export function OverviewTab({ onNavigate, stats }: OverviewTabProps) {
           <FlowArrow />
           <FlowStep num={3} title="Outreach goes out" desc="Build a context plan, pick recipients, and Clio drafts a personalized email per person. You review before anything sends." />
           <FlowArrow />
-          <FlowStep num={4} title="Reports stay current" desc="Every meeting, outreach, and follow-up rolls into the Office Engagement Tracker — automatically." />
+          <FlowStep num={4} title="Reports stay current" desc="Every meeting, outreach, and follow-up rolls into the Office Engagement Tracker, automatically." />
         </div>
       </div>
 
@@ -115,7 +115,7 @@ export function OverviewTab({ onNavigate, stats }: OverviewTabProps) {
           <Text className="eo-clio-desc">
             Clio is the assistant woven through every screen in Engagement. It prepares meeting notes,
             drafts outreach emails, summarizes debriefs, and routes the right intelligence to the right
-            recipient. <strong>Every draft is yours to review and edit — Clio never sends without your approval.</strong>
+            recipient. <strong>Every draft is yours to review and edit, Clio never sends without your approval.</strong>
           </Text>
           <div className="eo-clio-quotes">
             <span className="eo-clio-quote">"I'll draft your prep."</span>
@@ -134,7 +134,7 @@ export function OverviewTab({ onNavigate, stats }: OverviewTabProps) {
           We replaced four tools and a shared spreadsheet with this one tab. Onboarding our new associate
           took an afternoon instead of two weeks.
         </blockquote>
-        <cite>— Government affairs lead, mid-size firm</cite>
+        <cite>- Government affairs lead, mid-size firm</cite>
       </div>
 
       {/* ──────── PICK WHERE TO START ──────────────────────── */}
@@ -241,7 +241,7 @@ function PickCard({ label, heading, desc, onClick }: {
 }
 
 /* ────────────────────────────────────────────────────────────────
-   Hero SVG illustration — three floating cards orbiting a Clio core
+   Hero SVG illustration, three floating cards orbiting a Clio core
    ──────────────────────────────────────────────────────────────── */
 
 function EOHeroIllustration() {

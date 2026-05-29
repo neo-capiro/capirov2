@@ -4,6 +4,7 @@ import type {
   ProgramElementContractorsResponse,
   ProgramElementDetail,
   ProgramElementListResponse,
+  ProgramElementMarkupMonitorResponse,
 } from './types.js';
 
 export async function getProgramElementDetail(
@@ -36,4 +37,31 @@ export async function getProgramElementsList(
   params: { q?: string; service?: string; page?: number; limit?: number },
 ): Promise<ProgramElementListResponse> {
   return (await api.get<ProgramElementListResponse>('/api/program-elements', { params })).data;
+}
+
+export async function getMarkupMonitor(
+  api: AxiosInstance,
+  params: { service?: string; divergence_threshold?: number },
+): Promise<ProgramElementMarkupMonitorResponse> {
+  return (
+    await api.get<ProgramElementMarkupMonitorResponse>('/api/program-elements', {
+      params: {
+        mode: 'markup-monitor',
+        ...params,
+      },
+    })
+  ).data;
+}
+
+export async function setProgramElementWatching(
+  api: AxiosInstance,
+  peCode: string,
+  watching: boolean,
+): Promise<{ peCode: string; watching: boolean }> {
+  return (
+    await api.post<{ peCode: string; watching: boolean }>(
+      `/api/program-elements/${encodeURIComponent(peCode)}/watch`,
+      { watching },
+    )
+  ).data;
 }

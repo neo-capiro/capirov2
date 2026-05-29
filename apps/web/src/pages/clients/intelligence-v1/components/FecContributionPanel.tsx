@@ -1,5 +1,5 @@
 /**
- * C-003 — FEC contribution flow panel
+ * C-003, FEC contribution flow panel
  *
  * Data-present state: lightweight 3-column flow visualization
  *   employer (contributor) → committees → candidates / recipients
@@ -176,7 +176,7 @@ function FecEmptyState({
 }) {
   return (
     <div className="iv1-empty iv1-fec-empty">
-      <div style={{ fontSize: 22, color: 'var(--ink-4)', marginBottom: 6 }}>—</div>
+      <div style={{ fontSize: 22, color: 'var(--ink-4)', marginBottom: 6 }}>-</div>
       <strong>No direct FEC contributions matched yet</strong>
       {fec?.mappedEmployer ? (
         <span>

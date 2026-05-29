@@ -961,7 +961,7 @@ export class EngagementAiService {
       hasEmailThreads
         ? 'Use recentThreads as evidence for talkingPoints/risks/followUps; quote or paraphrase only what is present.'
         : 'No recentThreads were provided. Keep output grounded in available non-email context only.',
-      'Tone: professional federal lobbying operator — direct, practical, no fluff.',
+      'Tone: professional federal lobbying operator, direct, practical, no fluff.',
       'Return JSON only with: agenda, talkingPoints, risks, followUps, summary, emailEvidence.',
       'Email thread highlights (for grounding):',
       emailHighlights,
@@ -1014,16 +1014,16 @@ export class EngagementAiService {
     const directionGuidance = direction
       ? direction === 'on-behalf'
         ? "Direction: on-behalf-of-client. The sender is the lobbyist's user, writing as the representative of `client`. The recipient is a congressional or federal-agency contact. Use the client's voice and the client's asks; reference the client by name where natural. Sign as the user, not the client."
-        : 'Direction: from-lobbyist-to-clients. The sender is the lobbyist writing directly to their own portfolio client(s). The tone is internal briefing — informative, candid, action-oriented. Do not write as if pitching the client; you ARE the client\'s trusted operator.'
+        : 'Direction: from-lobbyist-to-clients. The sender is the lobbyist writing directly to their own portfolio client(s). The tone is internal briefing, informative, candid, action-oriented. Do not write as if pitching the client; you ARE the client\'s trusted operator.'
       : null;
 
     const contextItemsGuidance = contextItemsBlock
       ? [
-          'CURATED CONTEXT — treat this as the source-of-truth for what to include and how. The list below is grouped into:',
-          '  • "Shared context" — must inform every recipient\'s draft. These are the campaign\'s spine.',
-          '  • "Personalized context for this recipient" — must be reflected explicitly in this draft only. If a per-item `Instruction:` line is present, follow it (e.g. "lead with this", "omit the deadline language", "soften the ask").',
+          'CURATED CONTEXT, treat this as the source-of-truth for what to include and how. The list below is grouped into:',
+          '  • "Shared context", must inform every recipient\'s draft. These are the campaign\'s spine.',
+          '  • "Personalized context for this recipient", must be reflected explicitly in this draft only. If a per-item `Instruction:` line is present, follow it (e.g. "lead with this", "omit the deadline language", "soften the ask").',
           'When a personalized item conflicts with a shared item, the personalized item wins for that recipient. If an item is a `[note]` kind, treat its body and Instruction as a direct user directive to obey, not as fact to cite.',
-          'Do not cite items the user did not curate — do not pull from the raw JSON dump if those facts are not in the curated block. Do not enumerate the items back to the recipient; weave them into a coherent message.',
+          'Do not cite items the user did not curate, do not pull from the raw JSON dump if those facts are not in the curated block. Do not enumerate the items back to the recipient; weave them into a coherent message.',
           '',
           contextItemsBlock,
         ].join('\n')
@@ -1054,7 +1054,7 @@ export class EngagementAiService {
       '  - What matters: implications for committee/member/staffer engagement, only when evidenced.',
       '  - Recommended next move: one practical next engagement step grounded in the meeting outcome.',
       '',
-      'actionItems: array of concrete, ownable follow-ups. Format: "[Owner] — [Action] by [Timing if known]". If owner/timing is not in source, leave it generic instead of guessing.',
+      'actionItems: array of concrete, ownable follow-ups. Format: "[Owner], [Action] by [Timing if known]". If owner/timing is not in source, leave it generic instead of guessing.',
       '',
       'notes: brief internal notes for next touch (tone, strategic signal, cautions) only if directly supported by source text.',
       '',
@@ -1081,7 +1081,7 @@ export class EngagementAiService {
     return [
       `Campaign type: ${input.campaignType}. ${guidance}`,
       'Use only the provided client, meeting, debrief, prep, and recipient context. Do not invent facts, commitments, or positions.',
-      'The email should read as if written by a senior government affairs professional — not generic.',
+      'The email should read as if written by a senior government affairs professional, not generic.',
       'Reference specific discussion points, action items, and next steps from the supplied meeting/debrief context when available.',
       'Use template variables {recipient_name}, {recipient_title}, {meeting_date}, {action_items} where appropriate for per-recipient personalization at send time.',
       'Do not leave unresolved bracket placeholders or variables that have no corresponding context.',

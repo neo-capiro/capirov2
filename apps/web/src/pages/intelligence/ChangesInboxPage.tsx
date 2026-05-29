@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import {
   Badge,
   Button,
@@ -44,6 +45,7 @@ function relativeTime(dateStr: string): string {
 export function ChangesInboxPage() {
   const api = useApi();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [notifApi, contextHolder] = notification.useNotification();
 
   const [selectedSource, setSelectedSource] = useState<string | undefined>();
@@ -88,7 +90,7 @@ export function ChangesInboxPage() {
       void qc.invalidateQueries({ queryKey: ['intel-changes-unread'] });
     },
     onError: () => {
-      /* silently ignore — backend endpoint may not exist yet */
+      /* silently ignore, backend endpoint may not exist yet */
     },
   });
 
@@ -369,6 +371,28 @@ export function ChangesInboxPage() {
                 </div>
               </div>
             )}
+            {Array.isArray((drawerRecord as IntelligenceChange & { relatedPeCodes?: string[] }).relatedPeCodes) &&
+              ((drawerRecord as IntelligenceChange & { relatedPeCodes?: string[] }).relatedPeCodes?.length ?? 0) > 0 && (
+                <div>
+                  <Text type="secondary" style={{ fontSize: 12 }}>Program Elements</Text>
+                  <div style={{ marginTop: 4 }}>
+                    {(drawerRecord as IntelligenceChange & { relatedPeCodes?: string[] }).relatedPeCodes?.map((peCode) => (
+                      <Tag
+                        key={peCode}
+                        color="blue"
+                        role="button"
+                        style={{ cursor: 'pointer', marginBottom: 4 }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          navigate(`/program-elements/${encodeURIComponent(peCode)}`);
+                        }}
+                      >
+                        PE {peCode}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+              )}
             <div>
               <Text type="secondary" style={{ fontSize: 12 }}>Description</Text>
               <Paragraph style={{ marginTop: 4, fontSize: 13 }}>{drawerRecord.description}</Paragraph>

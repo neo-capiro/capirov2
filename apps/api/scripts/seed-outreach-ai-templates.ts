@@ -62,7 +62,7 @@ const SYSTEM_TEMPLATES = [
     tone: 'professional',
     description: 'Introductory outreach email connecting a client to a congressional office.',
     prompt:
-      'Write an introductory outreach email on behalf of a client to a congressional office. Briefly introduce who the client is and why they matter to the recipient\'s portfolio. Connect the client\'s work to the recipient\'s committee jurisdiction or district interests. End with a low-friction first ask — a 15-minute introductory call or brief meeting. Under 200 words.',
+      'Write an introductory outreach email on behalf of a client to a congressional office. Briefly introduce who the client is and why they matter to the recipient\'s portfolio. Connect the client\'s work to the recipient\'s committee jurisdiction or district interests. End with a low-friction first ask, a 15-minute introductory call or brief meeting. Under 200 words.',
     samplePreview:
       'Dear [Name], I am writing on behalf of [Client], a [description] that [value proposition]...',
   },

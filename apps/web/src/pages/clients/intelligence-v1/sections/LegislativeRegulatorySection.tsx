@@ -1,5 +1,5 @@
 /**
- * Section 3 — Legislative & Regulatory
+ * Section 3, Legislative & Regulatory
  * Bill pipeline kanban (4 stages), regulatory lifecycle rails, and
  * upcoming hearings / markups.
  */
@@ -41,7 +41,7 @@ const KANBAN: BillKanbanColumn[] = [
   {
     stage: 'passed', label: 'Passed chamber', count: 11,
     cards: [
-      { num: 'S. 1208', title: 'Defense Authorization FY27 — Sec 218', pct: 82, probColor: 'var(--success)', clioTag: 'fit · 1.0' },
+      { num: 'S. 1208', title: 'Defense Authorization FY27, Sec 218', pct: 82, probColor: 'var(--success)', clioTag: 'fit · 1.0' },
       { num: 'S. 1944', title: 'Supply Chain Resilience Act', pct: 71, probColor: 'var(--success)' },
     ],
   },
@@ -62,7 +62,7 @@ interface RegBlock {
 
 const REGS: RegBlock[] = [
   {
-    title: 'EPA Significant New Use Rules — Chemical Substances (26-2)',
+    title: 'EPA Significant New Use Rules, Chemical Substances (26-2)',
     source: 'EPA · Federal Register',
     docket: 'EPA-HQ-OPPT-2026-0214',
     steps: [
@@ -75,7 +75,7 @@ const REGS: RegBlock[] = [
     deadlineSeverity: 'crit',
   },
   {
-    title: 'EPA State Plan Approval — Kentucky Designated Facilities',
+    title: 'EPA State Plan Approval, Kentucky Designated Facilities',
     source: 'EPA · Federal Register',
     docket: 'EPA-R04-OAR-2026-0188',
     steps: [
@@ -103,7 +103,7 @@ const REGS: RegBlock[] = [
 ];
 
 const HEARINGS = [
-  { month: 'Jun', day: '03', title: 'SENR — Critical Minerals Stockpile markup', sub: "S. 2847 in chairman's mark · 4 bills on agenda", time: '10:00 AM', room: 'SR-366' },
+  { month: 'Jun', day: '03', title: 'SENR, Critical Minerals Stockpile markup', sub: "S. 2847 in chairman's mark · 4 bills on agenda", time: '10:00 AM', room: 'SR-366' },
   { month: 'Jun', day: '11', title: 'HASC full committee · FY27 NDAA', sub: "Sec 218 (Critical Minerals) in chairman's mark", time: '9:00 AM', room: '2118 RHOB' },
   { month: 'Jun', day: '17', title: 'House Approps Defense subcommittee', sub: 'FY27 appropriations markup · SIGNET program touched', time: '2:00 PM', room: '2362-B RHOB' },
 ];
@@ -244,7 +244,7 @@ export function LegislativeRegulatorySection({
         return {
           month: d.toLocaleDateString(undefined, { month: 'short' }),
           day: d.toLocaleDateString(undefined, { day: '2-digit' }),
-          title: `${h.committeeName} — ${h.title}`,
+          title: `${h.committeeName}, ${h.title}`,
           sub: h.linkedBills.length > 0 ? `Tracked bills: ${h.linkedBills.slice(0, 3).join(', ')}` : `${h.chamber} ${h.type ?? 'hearing'}`,
           time: h.time ?? 'TBD',
           room: h.chamber,
@@ -267,7 +267,7 @@ export function LegislativeRegulatorySection({
           <BillKanbanControls value={controls} onChange={handleControlsChange} />
         </div>
         {/* Empty state when the API returned zero tracked bills across all
-            stages — typically a client that hasn't had its LDA issue codes
+            stages, typically a client that hasn't had its LDA issue codes
             confirmed yet, or one whose capability text doesn't have enough
             signal to match embedded bills. Rendering the 4 empty columns
             was confusing ("the kanban looks broken") so we replace it

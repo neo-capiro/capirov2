@@ -147,7 +147,7 @@ export class WorkflowsService {
 
     const instance = await this.getInstance(tenantId, instanceId);
 
-    // Look up client — try by id first, then search by tenant to give a clear error
+    // Look up client, try by id first, then search by tenant to give a clear error
     const client = await this.prisma.client.findFirst({
       where: { id: clientId, tenantId },
     });
@@ -222,7 +222,7 @@ export class WorkflowsService {
       maxLength?: number;
     }>;
 
-    // Fill ALL empty fields — text, textarea, integer, select, and boolean
+    // Fill ALL empty fields, text, textarea, integer, select, and boolean
     const fillableFields = allFields.filter(
       (f) => formData[f.key] === undefined || formData[f.key] === null || formData[f.key] === '',
     );
@@ -319,7 +319,7 @@ export class WorkflowsService {
     const prompt = [
       'You are a government affairs assistant helping fill out a federal NDAA authorization request form.',
       'You MUST fill in as many fields as possible using the client information, profile data, engagement history, and documents provided below.',
-      'Use the client profile data aggressively — if the client has a funding ask, PE number, program description, sector, or any relevant data, USE IT to fill the corresponding fields.',
+      'Use the client profile data aggressively, if the client has a funding ask, PE number, program description, sector, or any relevant data, USE IT to fill the corresponding fields.',
       'For integer fields (dollar amounts), return the numeric value as a string with no commas, decimals, or symbols (e.g. "5000000" not "$5,000,000").',
       'For select fields, return EXACTLY one of the valid options listed.',
       'For boolean fields, return "true" or "false".',
@@ -342,7 +342,7 @@ export class WorkflowsService {
         ? `CLIENT DOCUMENTS:\n${docTexts.join('\n\n')}`
         : 'No text documents available.',
       '',
-      'FIELDS TO FILL (currently empty — fill as many as you can):',
+      'FIELDS TO FILL (currently empty, fill as many as you can):',
       ...fillableFields.map((f) => {
         let desc = `  - key: "${f.key}", label: "${f.label}", type: "${f.type}"`;
         if (f.options?.length)
@@ -375,7 +375,7 @@ export class WorkflowsService {
         model: AI_FILL_MODEL,
         max_tokens: 4000,
         system:
-          'You are an expert government affairs assistant specializing in NDAA authorization requests. Fill in as many form fields as possible using the provided client data, documents, and engagement history. Be thorough — if you can reasonably infer a value from the context, include it. For dollar amounts use plain integers. For selects pick the best matching option. Return only valid JSON.',
+          'You are an expert government affairs assistant specializing in NDAA authorization requests. Fill in as many form fields as possible using the provided client data, documents, and engagement history. Be thorough, if you can reasonably infer a value from the context, include it. For dollar amounts use plain integers. For selects pick the best matching option. Return only valid JSON.',
         messages: [{ role: 'user', content: prompt }],
       }),
     });
@@ -400,7 +400,7 @@ export class WorkflowsService {
     }
     await this.getInstance(tenantId, instanceId);
 
-    const prompt = `Enhance the following government affairs justification text. Keep the same intent and key points, but make it more professional, specific, and persuasive. Do not invent facts — only improve the writing. Return only the enhanced text, no explanations.\n\nOriginal:\n${currentValue}`;
+    const prompt = `Enhance the following government affairs justification text. Keep the same intent and key points, but make it more professional, specific, and persuasive. Do not invent facts, only improve the writing. Return only the enhanced text, no explanations.\n\nOriginal:\n${currentValue}`;
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -593,7 +593,7 @@ export class WorkflowsService {
     const templatePrompts: Record<string, string> = {
       'program-white-paper': `Generate a 1-2 page program white paper for congressional submission.
 Format as a professional document with these sections:
-PROGRAM WHITE PAPER — [Program Name]
+PROGRAM WHITE PAPER, [Program Name]
 [Fiscal Year] Authorization/Appropriations Request
 
 Problem Statement: The specific capability gap or national security need being addressed.
@@ -604,13 +604,13 @@ National Security Impact: Why this capability matters strategically.
 Economic Impact: Jobs, districts supported, small business participation.
 District/State Connection: How this program connects to the Member's state or district.
 
-Use formal, concise prose. No bullet points — use short paragraphs. Length: 400-600 words.`,
+Use formal, concise prose. No bullet points, use short paragraphs. Length: 400-600 words.`,
 
       'meeting-request-letter': `Generate a formal meeting request letter to a Member of Congress or their staff.
 Format as a proper business letter with:
 - Date: [Current date]
 - Recipient: The Honorable [Name], [Title]
-- Re: Request for Meeting — [Program/Topic]
+- Re: Request for Meeting, [Program/Topic]
 - Opening: Who you are, what organization you represent, and the specific ask for a meeting.
 - Body (2-3 short paragraphs): Context for the meeting, what you'd like to discuss, why it's relevant to the Member's portfolio.
 - Closing: Flexible availability, offer to provide materials in advance, direct contact for scheduling.
@@ -645,9 +645,9 @@ Keep it scannable. No walls of text. Total: 200-300 words.`,
 Format as a formal business letter:
 - Date: [Date of follow-up, typically 1-2 days after meeting]
 - Recipient: [Staff member(s) who attended]
-- Re: Follow-Up — Meeting on [Program/Topic]
+- Re: Follow-Up, Meeting on [Program/Topic]
 - Thank you paragraph: Thank them for their time, reference the specific meeting.
-- Summary paragraph: Brief recap of what was discussed — the ask, any feedback received, key points of agreement.
+- Summary paragraph: Brief recap of what was discussed, the ask, any feedback received, key points of agreement.
 - Next steps paragraph: Restate the specific request, remind of any upcoming deadlines, offer to provide additional materials.
 - Materials paragraph (if applicable): Reference any follow-up materials being enclosed/attached.
 - Closing: Express continued availability, look forward to the Member's support.

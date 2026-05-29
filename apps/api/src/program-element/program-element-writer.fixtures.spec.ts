@@ -19,6 +19,10 @@ interface ProgramElementWriterLike {
     record: ProgramElementFixture['milestones'][number],
     source: string,
   ): Promise<{ inserted: boolean }>;
+  refreshProgramElementDetailMaterializedView(source?: string): Promise<void>;
+  emitRunSummary(source: string, startedAt: Date, inserted: number, updated: number, quarantined: number): Promise<void>;
+  emitRunError(source: string): Promise<void>;
+  emitInventoryMetrics(source?: string): Promise<void>;
 }
 
 interface SeedSummary {
@@ -29,6 +33,7 @@ interface SeedSummary {
 }
 
 async function runSeed(writer: ProgramElementWriterLike): Promise<SeedSummary> {
+  const startedAt = new Date();
   const summary: SeedSummary = {
     peInserted: 0,
     yearInserted: 0,
@@ -51,6 +56,16 @@ async function runSeed(writer: ProgramElementWriterLike): Promise<SeedSummary> {
       if (milestoneResult.inserted) summary.milestoneInserted += 1;
     }
   }
+
+  await writer.refreshProgramElementDetailMaterializedView('fixture');
+  await writer.emitRunSummary(
+    'fixture',
+    startedAt,
+    summary.peInserted + summary.yearInserted + summary.milestoneInserted,
+    summary.yearChanged,
+    0,
+  );
+  await writer.emitInventoryMetrics('fixture');
 
   return summary;
 }
@@ -96,6 +111,10 @@ describe('program element fixture seed', () => {
     expect(second.yearInserted).toBe(0);
     expect(second.yearChanged).toBe(0);
     expect(second.milestoneInserted).toBe(0);
+    expect(writer.refreshCalls).toBe(2);
+    expect(writer.runSummaryCalls).toBe(2);
+    expect(writer.inventoryMetricCalls).toBe(2);
+    expect(writer.runErrorCalls).toBe(0);
   });
 });
 
@@ -103,6 +122,10 @@ class InMemoryWriter implements ProgramElementWriterLike {
   private peCodes = new Set<string>();
   private years = new Map<string, string>();
   private milestones = new Set<string>();
+  refreshCalls = 0;
+  runSummaryCalls = 0;
+  runErrorCalls = 0;
+  inventoryMetricCalls = 0;
 
   async upsertProgramElement(record: { peCode: string }): Promise<{ inserted: boolean; pe_code: string }> {
     const exists = this.peCodes.has(record.peCode);
@@ -143,5 +166,27 @@ class InMemoryWriter implements ProgramElementWriterLike {
     const exists = this.milestones.has(key);
     if (!exists) this.milestones.add(key);
     return { inserted: !exists };
+  }
+
+  async refreshProgramElementDetailMaterializedView(_source?: string): Promise<void> {
+    this.refreshCalls += 1;
+  }
+
+  async emitRunSummary(
+    _source: string,
+    _startedAt: Date,
+    _inserted: number,
+    _updated: number,
+    _quarantined: number,
+  ): Promise<void> {
+    this.runSummaryCalls += 1;
+  }
+
+  async emitRunError(_source: string): Promise<void> {
+    this.runErrorCalls += 1;
+  }
+
+  async emitInventoryMetrics(_source?: string): Promise<void> {
+    this.inventoryMetricCalls += 1;
   }
 }

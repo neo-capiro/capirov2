@@ -133,7 +133,7 @@ export class ChatToolsService {
     return `Recent outreach records (${records.length}):\n${records
       .map(
         (r: Record<string, unknown>) =>
-          `- [${r.type}/${r.status}] ${r.title}${r.subject ? ' — "' + r.subject + '"' : ''}`,
+          `- [${r.type}/${r.status}] ${r.title}${r.subject ? ', "' + r.subject + '"' : ''}`,
       )
       .join('\n')}`;
   }
@@ -189,7 +189,7 @@ export class ChatToolsService {
       this.logger.warn(`Lobby intel fetch failed: ${(err as Error).message}`);
     }
 
-    // Congress bills — recent activity
+    // Congress bills, recent activity
     try {
       const bills = await this.ldaIntel.getCongressBills(
         undefined, // search

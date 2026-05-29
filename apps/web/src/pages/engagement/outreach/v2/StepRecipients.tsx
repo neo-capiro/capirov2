@@ -1,4 +1,4 @@
-// Step 3 — Recipients picker.
+// Step 3, Recipients picker.
 //
 // Branches on wizard direction:
 //   • on-behalf  → search the Congressional Directory (Hill/agency contacts).
@@ -53,7 +53,7 @@ const PARTY_COLORS: Record<string, string> = {
   Independent: 'purple',
 };
 
-// Strip the v1 component's identity transform out — the v2 wizard's
+// Strip the v1 component's identity transform out, the v2 wizard's
 // `recipientKey()` is the canonical id chain so we keep one definition.
 function fromDirectoryEntry(entry: DirectoryEntry): OutreachRecipient {
   const address = entry.addresses.find((a) => a.isMain) ?? entry.addresses[0];
@@ -215,7 +215,7 @@ function DirectoryAndManualPicker({
     {
       title: 'Committee',
       key: 'committee',
-      render: (_: unknown, entry: DirectoryEntry) => entry.committees[0] ?? '—',
+      render: (_: unknown, entry: DirectoryEntry) => entry.committees[0] ?? '-',
       ellipsis: true,
     },
     { title: 'State', dataIndex: 'state', key: 'state', width: 70 },
@@ -230,7 +230,7 @@ function DirectoryAndManualPicker({
             {party}
           </Tag>
         ) : (
-          '—'
+          '-'
         ),
     },
   ];
@@ -424,7 +424,7 @@ function ClientPeoplePicker({
       name: person.fullName,
       email: person.email ?? undefined,
       title: person.title ?? undefined,
-      relevanceReason: `${client.name} — ${person.role ?? 'Contact'}`,
+      relevanceReason: `${client.name}, ${person.role ?? 'Contact'}`,
     };
     onChange([...recipients, next]);
   };
@@ -445,7 +445,7 @@ function ClientPeoplePicker({
         name: p.fullName,
         email: p.email ?? undefined,
         title: p.title ?? undefined,
-        relevanceReason: `${client.name} — ${p.role ?? 'Contact'}`,
+        relevanceReason: `${client.name}, ${p.role ?? 'Contact'}`,
       }));
     onChange([...recipients, ...additions]);
   };
@@ -548,7 +548,7 @@ function ClientPeoplePicker({
                     fontStyle: 'italic',
                   }}
                 >
-                  No people on this client yet — add them on the client's Portfolio → People tab.
+                  No people on this client yet, add them on the client's Portfolio → People tab.
                 </div>
               )}
 

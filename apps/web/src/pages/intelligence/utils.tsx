@@ -11,7 +11,7 @@ import { SECTOR_COLORS, type SectorTag } from '@capiro/shared';
 /* ── Formatting helpers ────────────────────────────────────────────────── */
 
 export function formatMoney(n: number | null | undefined): string {
-  if (n == null) return '—';
+  if (n == null) return '-';
   if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
   if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
   if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
@@ -20,7 +20,7 @@ export function formatMoney(n: number | null | undefined): string {
 }
 
 export function formatNum(n: number | null | undefined): string {
-  if (n == null) return '—';
+  if (n == null) return '-';
   return n.toLocaleString();
 }
 

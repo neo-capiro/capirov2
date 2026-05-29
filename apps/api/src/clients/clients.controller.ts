@@ -76,7 +76,7 @@ class CreateClientDto {
 }
 
 class BulkImportClientsDto {
-  // 500 cap is a sanity bound — most CSV imports we expect are <50 rows.
+  // 500 cap is a sanity bound, most CSV imports we expect are <50 rows.
   // class-validator's array limits guard against accidental gigabyte
   // pastes that would otherwise OOM the per-tenant transaction.
   @IsArray()
@@ -173,7 +173,7 @@ class ConfirmClientLogoUploadDto {
 }
 
 /**
- * Clients API — the lobbying firm's customer records.
+ * Clients API, the lobbying firm's customer records.
  *
  * Read access: any tenant member (standard_user and above).
  * Create: any standard_user and above.
@@ -202,7 +202,7 @@ export class ClientsController {
   }
 
   // Bulk CSV import. The frontend parses the CSV client-side and POSTs the
-  // already-typed row array — keeping multipart out of this controller.
+  // already-typed row array, keeping multipart out of this controller.
   // Per-row errors are returned in the response (NOT thrown) so a single
   // bad row doesn't abort the whole import; the UI surfaces them inline.
   @Post('bulk-import')

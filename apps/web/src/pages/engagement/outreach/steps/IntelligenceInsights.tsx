@@ -59,7 +59,7 @@ function buildInsightCards(data: InsightsData): InsightCard[] {
   }
 
   for (const bill of data.recentBills.slice(0, 6)) {
-    const text = `Recent legislation: ${bill.billNumber} — ${bill.title}${bill.status ? ` (${bill.status})` : ''}`;
+    const text = `Recent legislation: ${bill.billNumber}, ${bill.title}${bill.status ? ` (${bill.status})` : ''}`;
     cards.push({
       id: `bill-${bill.id}`,
       category: 'legislative',
@@ -73,7 +73,7 @@ function buildInsightCards(data: InsightsData): InsightCard[] {
     const amount = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', notation: 'compact' }).format(
       agency.totalAmount,
     );
-    const text = `Federal spending — ${agency.agencyName}: ${amount}`;
+    const text = `Federal spending, ${agency.agencyName}: ${amount}`;
     cards.push({
       id: `agency-${agency.agencyName}`,
       category: 'spending',
@@ -85,7 +85,7 @@ function buildInsightCards(data: InsightsData): InsightCard[] {
 
   for (const year of data.clientLdaHistory.slice(0, 3)) {
     const areas = year.issueAreas.slice(0, 3).join(', ');
-    const text = `Client LDA ${year.year}: ${year.filingCount} filings — ${areas}`;
+    const text = `Client LDA ${year.year}: ${year.filingCount} filings, ${areas}`;
     cards.push({
       id: `lda-${year.year}`,
       category: 'lda',

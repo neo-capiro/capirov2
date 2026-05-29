@@ -1,7 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import LRUCache = require('lru-cache');
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ConferenceProbabilityService } from './models/conference-probability.service.js';
 
 export interface ProgramElementListQuery {
   service?: string;
@@ -9,13 +11,27 @@ export interface ProgramElementListQuery {
   q?: string;
   page?: number;
   limit?: number;
+  mode?: 'markup-monitor';
+  divergenceThreshold?: number;
 }
 
 @Injectable()
 export class ProgramElementReadService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly detailCache = new LRUCache<string, Record<string, unknown>>({
+    ttl: 60_000,
+    max: 500,
+  });
 
-  async listProgramElements(query: ProgramElementListQuery) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly conferenceProbabilityService: ConferenceProbabilityService,
+  ) {}
+
+  async listProgramElements(query: ProgramElementListQuery, ctx?: TenantContext) {
+    if (query.mode === 'markup-monitor') {
+      return this.listMarkupMonitor(query, ctx);
+    }
+
     const page = Math.max(1, query.page ?? 1);
     const limit = Math.min(100, Math.max(1, query.limit ?? 50));
 
@@ -79,7 +95,180 @@ export class ProgramElementReadService {
     };
   }
 
+  private async listMarkupMonitor(query: ProgramElementListQuery, ctx?: TenantContext) {
+    const service = query.service?.trim();
+    const divergenceThreshold = query.divergenceThreshold ?? 0;
+
+    if (!ctx?.tenantId) {
+      return { data: [], total: 0, page: 1, limit: 0 };
+    }
+
+    type MarkupMonitorRow = {
+      peCode: string;
+      title: string;
+      service: string | null;
+      request: number | null;
+      hascMark: number | null;
+      sascMark: number | null;
+      hacDMark: number | null;
+      sacDMark: number | null;
+      divergencePct: number;
+      totalCount: number;
+    };
+
+    const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.$queryRaw<MarkupMonitorRow[]>(Prisma.sql`
+        WITH watched AS (
+          SELECT DISTINCT pew.pe_code
+          FROM program_element_watch pew
+          WHERE pew.tenant_id = ${ctx.tenantId}::uuid
+        ),
+        current_cycle AS (
+          SELECT DISTINCT ON (pey.pe_code)
+            pey.pe_code,
+            pey.fy,
+            pey.request,
+            pey.hasc_mark,
+            pey.sasc_mark,
+            pey.hac_d_mark,
+            pey.sac_d_mark
+          FROM program_element_year pey
+          JOIN watched w ON w.pe_code = pey.pe_code
+          ORDER BY pey.pe_code, pey.fy DESC
+        ),
+        enriched AS (
+          SELECT
+            pe.pe_code AS "peCode",
+            pe.title,
+            pe.service,
+            cc.request::double precision AS request,
+            cc.hasc_mark::double precision AS "hascMark",
+            cc.sasc_mark::double precision AS "sascMark",
+            cc.hac_d_mark::double precision AS "hacDMark",
+            cc.sac_d_mark::double precision AS "sacDMark",
+            CASE
+              WHEN cc.request IS NULL OR cc.request = 0 THEN 0
+              ELSE (
+                (
+                  GREATEST(
+                    COALESCE(cc.hasc_mark, cc.request),
+                    COALESCE(cc.sasc_mark, cc.request),
+                    COALESCE(cc.hac_d_mark, cc.request),
+                    COALESCE(cc.sac_d_mark, cc.request)
+                  )
+                  -
+                  LEAST(
+                    COALESCE(cc.hasc_mark, cc.request),
+                    COALESCE(cc.sasc_mark, cc.request),
+                    COALESCE(cc.hac_d_mark, cc.request),
+                    COALESCE(cc.sac_d_mark, cc.request)
+                  )
+                ) / cc.request::double precision
+              ) * 100
+            END AS "divergencePct"
+          FROM current_cycle cc
+          JOIN program_element pe ON pe.pe_code = cc.pe_code
+          WHERE (${service ? Prisma.sql`pe.service ILIKE ${service}` : Prisma.sql`TRUE`})
+        )
+        SELECT
+          "peCode",
+          title,
+          service,
+          request,
+          "hascMark",
+          "sascMark",
+          "hacDMark",
+          "sacDMark",
+          "divergencePct",
+          COUNT(*) OVER()::int AS "totalCount"
+        FROM enriched
+        WHERE "divergencePct" >= ${divergenceThreshold}
+        ORDER BY "divergencePct" DESC, "peCode" ASC
+      `),
+    );
+
+    const total = rows[0]?.totalCount ?? 0;
+    return {
+      data: rows.map(({ totalCount: _ignored, ...rest }) => rest),
+      total,
+      page: 1,
+      limit: rows.length,
+    };
+  }
+
   async getProgramElement(peCode: string, ctx: TenantContext) {
+    const cacheKey = peCode.toUpperCase();
+    const cached = this.detailCache.get(cacheKey);
+
+    const watch = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT id
+        FROM program_element_watch
+        WHERE user_id = ${ctx.userId}::uuid
+          AND pe_code = ${peCode}
+        LIMIT 1
+      `),
+    );
+
+    if (cached) {
+      return {
+        ...cached,
+        currentUserIsWatching: Boolean(watch[0]),
+      };
+    }
+
+    type ProgramElementDetailMvRow = {
+      peCode: string;
+      title: string;
+      service: string | null;
+      budgetActivity: string | null;
+      acatLevel: string | null;
+      status: string | null;
+      latestYear: Prisma.JsonValue | null;
+      billCount: number;
+    };
+
+    const mvRows = await this.prisma.$queryRaw<ProgramElementDetailMvRow[]>(Prisma.sql`
+      SELECT
+        pe_code AS "peCode",
+        title,
+        service,
+        budget_activity AS "budgetActivity",
+        acat_level AS "acatLevel",
+        status,
+        latest_year AS "latestYear",
+        bill_count::int AS "billCount"
+      FROM program_element_detail_mv
+      WHERE pe_code = ${peCode}
+      LIMIT 1
+    `).catch(() => []);
+
+    if (mvRows.length) {
+      const mv = mvRows[0]!;
+      const latestYear =
+        mv.latestYear && typeof mv.latestYear === 'object' && !Array.isArray(mv.latestYear)
+          ? (mv.latestYear as Record<string, unknown>)
+          : null;
+
+      const detail: Record<string, unknown> = {
+        peCode: mv.peCode,
+        title: mv.title,
+        service: mv.service,
+        budgetActivity: mv.budgetActivity,
+        acatLevel: mv.acatLevel,
+        status: mv.status,
+        years: latestYear ? [latestYear] : [],
+        billCount: mv.billCount,
+      };
+
+      this.detailCache.set(cacheKey, detail);
+
+      return {
+        ...detail,
+        currentUserIsWatching: Boolean(watch[0]),
+      };
+    }
+
     const programElement = await this.prisma.programElement.findUnique({
       where: { peCode },
       include: {
@@ -94,19 +283,15 @@ export class ProgramElementReadService {
       throw new NotFoundException(`Program element ${peCode} not found`);
     }
 
-    const watch = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT id
-        FROM program_element_watch
-        WHERE user_id = ${ctx.userId}::uuid
-          AND pe_code = ${peCode}
-        LIMIT 1
-      `),
-    );
+    const detail: Record<string, unknown> = {
+      ...programElement,
+    };
+
+    this.detailCache.set(cacheKey, detail);
 
     return {
-      ...programElement,
-      currentUserIsWatching: Boolean(watch),
+      ...detail,
+      currentUserIsWatching: Boolean(watch[0]),
     };
   }
 
@@ -128,12 +313,22 @@ export class ProgramElementReadService {
       }),
     ]);
 
+    const yearsWithConferenceProbability = await Promise.all(
+      years.map(async (year) => {
+        const prediction = await this.conferenceProbabilityService.predict(peCode, year.fy);
+        return {
+          ...year,
+          conferenceProbability: prediction?.predicted ?? null,
+          conferenceProbabilityCiLow: prediction?.ciLow ?? null,
+          conferenceProbabilityCiHigh: prediction?.ciHigh ?? null,
+          conferenceProbabilityConfidence: prediction?.confidence ?? null,
+        };
+      }),
+    );
+
     return {
       peCode,
-      years: years.map((year) => ({
-        ...year,
-        conferenceProbability: null,
-      })),
+      years: yearsWithConferenceProbability,
       milestones,
     };
   }

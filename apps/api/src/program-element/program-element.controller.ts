@@ -14,14 +14,19 @@ export class ProgramElementController {
   constructor(private readonly service: ProgramElementReadService) {}
 
   @Get()
-  list(@Query() query: QueryProgramElementsDto) {
-    return this.service.listProgramElements({
-      service: query.service,
-      budgetActivity: query.budget_activity,
-      q: query.q,
-      page: query.page,
-      limit: query.limit,
-    });
+  list(@CurrentTenant() ctx: TenantContext, @Query() query: QueryProgramElementsDto) {
+    return this.service.listProgramElements(
+      {
+        service: query.service,
+        budgetActivity: query.budget_activity,
+        q: query.q,
+        page: query.page,
+        limit: query.limit,
+        mode: query.mode,
+        divergenceThreshold: query.divergence_threshold,
+      },
+      ctx,
+    );
   }
 
   @Get(':peCode')

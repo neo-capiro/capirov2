@@ -118,7 +118,7 @@ const INSIGHTS_SCHEMA = {
 const DAILY_BRIEFING_SCHEMA = {
   type: 'object',
   additionalProperties: false,
-  required: ['heroSummary', 'whatsNew', 'whatsComing', 'suggestedActions'],
+  required: ['heroSummary', 'whatsNew', 'whatsComing', 'suggestedActions', 'programElementStatus'],
   properties: {
     heroSummary: { type: 'string' },
     whatsNew: {
@@ -162,8 +162,206 @@ const DAILY_BRIEFING_SCHEMA = {
         },
       },
     },
+    programElementStatus: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['peCode', 'title', 'severity', 'narrative'],
+        properties: {
+          peCode: { type: 'string' },
+          title: { type: 'string' },
+          severity: { type: 'string', enum: ['critical', 'notable', 'info'] },
+          narrative: { type: 'string' },
+        },
+      },
+    },
   },
 };
+
+const SEVERITY_WEIGHT: Record<string, number> = {
+  critical: 3,
+  notable: 2,
+  info: 1,
+};
+
+interface PeNarrativeContext {
+  peCode: string;
+  title: string;
+  service: string | null;
+  fy: number | null;
+  request: string | null;
+  hascMark: string | null;
+  sascMark: string | null;
+  hacDMark: string | null;
+  sacDMark: string | null;
+  conferenceProbability: string | null;
+  changes: Array<{
+    id: string;
+    severity: string;
+    source: string;
+    changeType: string;
+    title: string;
+    detectedAt: string;
+    citation: string;
+  }>;
+  billsInMarkup: Array<{
+    billId: string;
+    title: string;
+    latestActionText: string | null;
+    latestActionDate: string | null;
+    citation: string;
+  }>;
+  suggestedActions: string[];
+  topSeverity: 'critical' | 'notable' | 'info';
+}
+
+function formatDecimalValue(value: Prisma.Decimal | number | null | undefined): string | null {
+  if (value == null) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value.toFixed(2) : null;
+  return value.toFixed(2);
+}
+
+function normalizePeCode(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toUpperCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function collectPeCodesFromIntakeData(intakeData: unknown): string[] {
+  if (!intakeData || typeof intakeData !== 'object' || Array.isArray(intakeData)) return [];
+  const asRecord = intakeData as Record<string, unknown>;
+  const raw = asRecord.peNumber;
+  if (typeof raw === 'string') {
+    const single = normalizePeCode(raw);
+    return single ? [single] : [];
+  }
+  if (Array.isArray(raw)) {
+    return raw
+      .map((entry) => normalizePeCode(entry))
+      .filter((entry): entry is string => Boolean(entry));
+  }
+  return [];
+}
+
+function isDefenseProfile(client: { profileType: string | null; sectorTag: string | null }): boolean {
+  const profileType = (client.profileType ?? '').toLowerCase();
+  const sectorTag = (client.sectorTag ?? '').toLowerCase();
+  return profileType.includes('defense') || sectorTag.includes('defense');
+}
+
+function toPeTopSeverity(changes: Array<{ severity: string }>): 'critical' | 'notable' | 'info' {
+  let best: 'critical' | 'notable' | 'info' = 'info';
+  for (const change of changes) {
+    if (change.severity === 'critical') return 'critical';
+    if (change.severity === 'notable') best = 'notable';
+  }
+  return best;
+}
+
+function sortBySeverityDesc<T extends { topSeverity: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => (SEVERITY_WEIGHT[b.topSeverity] ?? 0) - (SEVERITY_WEIGHT[a.topSeverity] ?? 0));
+}
+
+function toSafeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is string => typeof entry === 'string');
+}
+
+function isCheapModel(model: string | null | undefined): boolean {
+  if (!model) return false;
+  const normalized = model.toLowerCase();
+  return normalized.includes('gpt-4o-mini') || normalized.includes('haiku');
+}
+
+function toCheapModel(currentModel: string, provider: 'openai' | 'anthropic'): string {
+  if (isCheapModel(currentModel)) return currentModel;
+  return provider === 'openai' ? 'gpt-4o-mini' : 'claude-3-5-haiku-20241022';
+}
+
+function toIsoOrNull(value: Date | null): string | null {
+  return value ? value.toISOString() : null;
+}
+
+function pickStructuredPeStatus(
+  parsed: Record<string, unknown>,
+  peContextsByCode: Map<string, PeNarrativeContext>,
+): Array<{ peCode: string; title: string; severity: 'critical' | 'notable' | 'info'; narrative: string }> {
+  const rows = Array.isArray(parsed.programElementStatus) ? parsed.programElementStatus : [];
+  const out: Array<{ peCode: string; title: string; severity: 'critical' | 'notable' | 'info'; narrative: string }> = [];
+
+  for (const item of rows) {
+    const record = toRecord(item);
+    const peCode = normalizePeCode(record.peCode);
+    let narrative = typeof record.narrative === 'string' ? record.narrative.trim() : '';
+    if (!peCode || !narrative) continue;
+    const ctx = peContextsByCode.get(peCode);
+    if (!ctx) continue;
+
+    const severity =
+      record.severity === 'critical' || record.severity === 'notable' || record.severity === 'info'
+        ? (record.severity as 'critical' | 'notable' | 'info')
+        : ctx.topSeverity;
+
+    if (!/\[[^\]]+\]/.test(narrative)) {
+      const fallbackCitation = ctx.changes[0]?.citation ?? `[${peCode}]`;
+      narrative = `${narrative} ${fallbackCitation}`.trim();
+    }
+
+    out.push({
+      peCode,
+      title: ctx.title,
+      severity,
+      narrative,
+    });
+  }
+
+  return out.sort((a, b) => (SEVERITY_WEIGHT[b.severity] ?? 0) - (SEVERITY_WEIGHT[a.severity] ?? 0));
+}
+
+function getStringFromData(data: Prisma.JsonValue, keys: string[]): string | null {
+  const record = toRecord(data);
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
+
+function buildPeCitation(peCode: string, data: Prisma.JsonValue): string {
+  const markers = [`[${peCode}]`];
+  const billId = getStringFromData(data, ['billId', 'bill_id']);
+  const docketId = getStringFromData(data, ['docketId', 'docket_id']);
+  if (billId) markers.push(`[${billId}]`);
+  if (docketId) markers.push(`[${docketId}]`);
+  return markers.join(' ');
+}
+
+function sanitizePeChangeSeverity(value: string): 'critical' | 'notable' | 'info' {
+  if (value === 'critical' || value === 'notable' || value === 'info') return value;
+  return 'info';
+}
+
+function buildPeSuggestedActions(context: {
+  title: string;
+  topSeverity: 'critical' | 'notable' | 'info';
+  billsInMarkupCount: number;
+}): string[] {
+  const actions: string[] = [];
+  if (context.topSeverity === 'critical') {
+    actions.push(`Escalate ${context.title} funding delta with same-day principal outreach.`);
+  } else if (context.topSeverity === 'notable') {
+    actions.push(`Prepare a 48-hour engagement brief for ${context.title} focused on current committee signals.`);
+  } else {
+    actions.push(`Track ${context.title} change signals daily and refresh talking points before next touchpoint.`);
+  }
+
+  if (context.billsInMarkupCount > 0) {
+    actions.push('Prioritize markup-cycle offices tied to active bills and align asks to current bill text.');
+  }
+
+  return actions;
+}
 
 @Injectable()
 export class InsightGeneratorService {
@@ -257,6 +455,15 @@ export class InsightGeneratorService {
     const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const fourteenDaysOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
+    const clientPeCodes = new Set<string>();
+    for (const code of collectPeCodesFromIntakeData(client.intakeData)) {
+      clientPeCodes.add(code);
+    }
+    for (const capability of client.capabilities ?? []) {
+      const code = normalizePeCode(capability.peNumber);
+      if (code) clientPeCodes.add(code);
+    }
+
     // Resolve LDA issue codes via confirmed mapping
     const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
       where: { clientId, source: 'lda', confirmed: true },
@@ -278,7 +485,8 @@ export class InsightGeneratorService {
     const changeWhere: Record<string, unknown> = { detectedAt: { gte: yesterday }, OR: changeOrConditions };
 
     // Gather all context in parallel
-    const [lobbyCtx, spendCtx, ldaMatch, recentChanges, upcomingHearings, commentDeadlines] = await Promise.all([
+    const peCodes = Array.from(clientPeCodes);
+    const [lobbyCtx, spendCtx, ldaMatch, recentChanges, upcomingHearings, commentDeadlines, peDetails, peRecentChanges, peMarkupBills] = await Promise.all([
       this.lobbyIntel.getAiContext().catch(() => null),
       this.federalSpending.getAiContext(client.name).catch(() => null),
       this.prisma.$queryRaw<Array<{ name: string; total_filings: number; total_spending: number | null; issue_codes: string[]; similarity: number }>>`
@@ -306,6 +514,66 @@ export class InsightGeneratorService {
         take: 10,
         select: { title: true, type: true, commentEndDate: true, agencyNames: true, topics: true },
       }),
+      peCodes.length
+        ? this.prisma.programElement.findMany({
+            where: { peCode: { in: peCodes } },
+            select: {
+              peCode: true,
+              title: true,
+              service: true,
+              years: {
+                orderBy: { fy: 'desc' },
+                take: 1,
+                select: {
+                  fy: true,
+                  request: true,
+                  hascMark: true,
+                  sascMark: true,
+                  hacDMark: true,
+                  sacDMark: true,
+                },
+              },
+              conferenceProbabilities: {
+                orderBy: { fy: 'desc' },
+                take: 1,
+                select: {
+                  fy: true,
+                  predicted: true,
+                },
+              },
+            },
+          })
+        : Promise.resolve([]),
+      peCodes.length
+        ? this.prisma.intelligenceChange.findMany({
+            where: {
+              detectedAt: { gte: yesterday },
+              relatedPeCodes: { hasSome: peCodes },
+            },
+            orderBy: [{ severity: 'desc' }, { detectedAt: 'desc' }],
+            take: 100,
+          })
+        : Promise.resolve([]),
+      peCodes.length
+        ? this.prisma.congressBill.findMany({
+            where: {
+              peCodes: { hasSome: peCodes },
+              latestActionText: {
+                contains: 'markup',
+                mode: 'insensitive',
+              },
+            },
+            orderBy: { latestActionDate: 'desc' },
+            take: 50,
+            select: {
+              id: true,
+              title: true,
+              latestActionText: true,
+              latestActionDate: true,
+              peCodes: true,
+            },
+          })
+        : Promise.resolve([]),
     ]);
 
     const contextParts: string[] = [];
@@ -359,7 +627,7 @@ export class InsightGeneratorService {
     if (upcomingHearings.length) {
       const hearingList = upcomingHearings.map((h) => {
         const daysOut = Math.ceil((new Date(h.date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        return `${h.committeeName} — "${h.title.slice(0, 80)}" (in ${daysOut}d, ${h.chamber})`;
+        return `${h.committeeName}, "${h.title.slice(0, 80)}" (in ${daysOut}d, ${h.chamber})`;
       }).join('\n  ');
       contextParts.push(`UPCOMING HEARINGS (14d):\n  ${hearingList}`);
     }
@@ -372,6 +640,101 @@ export class InsightGeneratorService {
       contextParts.push(`COMMENT DEADLINES (14d):\n  ${deadlineList}`);
     }
 
+    const peContextByCode = new Map<string, PeNarrativeContext>();
+
+    if (isDefenseProfile({ profileType: client.profileType, sectorTag: client.sectorTag }) && peCodes.length) {
+      const peChangeByCode = new Map<string, Array<typeof peRecentChanges[number]>>();
+      for (const change of peRecentChanges) {
+        for (const code of change.relatedPeCodes) {
+          if (!clientPeCodes.has(code)) continue;
+          const existing = peChangeByCode.get(code);
+          if (existing) {
+            existing.push(change);
+          } else {
+            peChangeByCode.set(code, [change]);
+          }
+        }
+      }
+
+      const billByCode = new Map<string, Array<typeof peMarkupBills[number]>>();
+      for (const bill of peMarkupBills) {
+        for (const code of bill.peCodes) {
+          if (!clientPeCodes.has(code)) continue;
+          const existing = billByCode.get(code);
+          if (existing) {
+            existing.push(bill);
+          } else {
+            billByCode.set(code, [bill]);
+          }
+        }
+      }
+
+      for (const pe of peDetails) {
+        const peChanges = (peChangeByCode.get(pe.peCode) ?? []).map((change) => ({
+          id: change.id,
+          severity: sanitizePeChangeSeverity(change.severity),
+          source: change.source,
+          changeType: change.changeType,
+          title: change.title,
+          detectedAt: change.detectedAt.toISOString(),
+          citation: buildPeCitation(pe.peCode, change.data),
+        }));
+        if (!peChanges.length) continue;
+
+        const topSeverity = toPeTopSeverity(peChanges);
+        const bills = (billByCode.get(pe.peCode) ?? []).slice(0, 5).map((bill) => ({
+          billId: bill.id,
+          title: bill.title,
+          latestActionText: bill.latestActionText,
+          latestActionDate: toIsoOrNull(bill.latestActionDate),
+          citation: `[${bill.id}]`,
+        }));
+
+        const latestYear = pe.years[0] ?? null;
+        const latestProbability = pe.conferenceProbabilities[0] ?? null;
+        peContextByCode.set(pe.peCode, {
+          peCode: pe.peCode,
+          title: pe.title,
+          service: pe.service ?? null,
+          fy: latestYear?.fy ?? latestProbability?.fy ?? null,
+          request: formatDecimalValue(latestYear?.request),
+          hascMark: formatDecimalValue(latestYear?.hascMark),
+          sascMark: formatDecimalValue(latestYear?.sascMark),
+          hacDMark: formatDecimalValue(latestYear?.hacDMark),
+          sacDMark: formatDecimalValue(latestYear?.sacDMark),
+          conferenceProbability: formatDecimalValue(latestProbability?.predicted),
+          changes: peChanges,
+          billsInMarkup: bills,
+          suggestedActions: buildPeSuggestedActions({
+            title: pe.title,
+            topSeverity,
+            billsInMarkupCount: bills.length,
+          }),
+          topSeverity,
+        });
+      }
+
+      const peContexts = sortBySeverityDesc(Array.from(peContextByCode.values()));
+      if (peContexts.length) {
+        const peBlocks = peContexts.map((pe) => {
+          const changeLines = pe.changes
+            .slice(0, 8)
+            .map((change) =>
+              `- [${change.severity.toUpperCase()}] ${change.source}/${change.changeType}: ${change.title} ${change.citation}`,
+            )
+            .join('\n');
+          const billLines = pe.billsInMarkup.length
+            ? pe.billsInMarkup
+                .map((bill) => `- ${bill.billId}: ${bill.title} (${bill.latestActionText ?? 'markup activity'}) ${bill.citation}`)
+                .join('\n')
+            : '- none';
+          const actionLines = pe.suggestedActions.map((action) => `- ${action}`).join('\n');
+          return `PE ${pe.peCode}, ${pe.title}\nservice=${pe.service ?? 'unknown'} fy=${pe.fy ?? 'unknown'} request=${pe.request ?? 'n/a'} hasc=${pe.hascMark ?? 'n/a'} sasc=${pe.sascMark ?? 'n/a'} hac-d=${pe.hacDMark ?? 'n/a'} sac-d=${pe.sacDMark ?? 'n/a'} conference_probability=${pe.conferenceProbability ?? 'n/a'}\n24H_CHANGES:\n${changeLines}\nBILLS_IN_MARKUP:\n${billLines}\nSUGGESTED_ACTIONS:\n${actionLines}`;
+        });
+        contextParts.push(`PROGRAM ELEMENT STATUS (include only these PEs):\n${peBlocks.join('\n\n')}`);
+      }
+    }
+
     const prompt = `You are a senior federal government affairs analyst. Generate a structured daily intelligence briefing for the client below.
 
 ${contextParts.join('\n')}
@@ -380,12 +743,28 @@ Structure your response as:
 - heroSummary: 2-3 sentence executive summary of the most critical developments
 - whatsNew: Items from WHAT'S NEW section above (leave empty array if no changes)
 - whatsComing: Upcoming hearings and comment deadlines from the UPCOMING sections above
-- suggestedActions: 2-4 concrete recommended actions with urgency ratings (high/medium/low)`;
+- suggestedActions: 2-4 concrete recommended actions with urgency ratings (high/medium/low)
+- programElementStatus: Array of PE narrative objects only for PEs that have 24h changes in PROGRAM ELEMENT STATUS block. For each PE provide:
+  - peCode
+  - title
+  - severity (critical/notable/info)
+  - narrative: Generate a 2-3 sentence state-of-the-PE narrative grounded in the data above. Cite sources inline using [pe_code] [bill_id] [docket_id] markers. Do not invent facts.
+If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] only.`;
 
-    const result = await this.callAi(prompt, DAILY_BRIEFING_SCHEMA, 'daily_briefing');
+    const preferredProvider = this.resolveProvider();
+    const peContexts = sortBySeverityDesc(Array.from(peContextByCode.values()));
+    const aiProvider: 'openai' | 'anthropic' = preferredProvider === 'anthropic' ? 'anthropic' : 'openai';
+    const aiModel = toCheapModel(
+      aiProvider === 'openai' ? this.openaiModel : this.anthropicModel,
+      aiProvider,
+    );
+
+    const result = await this.callAi(prompt, DAILY_BRIEFING_SCHEMA, 'daily_briefing', aiProvider, aiModel);
     const parsed = parseJsonObject(result.text);
 
-    return {
+    const programElementStatus = peContexts.length ? pickStructuredPeStatus(parsed, peContextByCode) : [];
+
+    const base = {
       heroSummary: typeof parsed.heroSummary === 'string' ? parsed.heroSummary : '',
       whatsNew: Array.isArray(parsed.whatsNew) ? parsed.whatsNew : [],
       whatsComing: Array.isArray(parsed.whatsComing) ? parsed.whatsComing : [],
@@ -393,6 +772,18 @@ Structure your response as:
       generatedAt: new Date().toISOString(),
       provider: result.provider,
       model: result.model,
+    };
+
+    if (!programElementStatus.length) return base;
+
+    return {
+      ...base,
+      heroSummary: `${base.heroSummary}\n\nProgram Element status:\n${programElementStatus
+        .map((item) => `${item.peCode} (${item.severity}), ${item.narrative}`)
+        .join('\n')}`.trim(),
+      dataPoints: {
+        programElementStatus,
+      },
     };
   }
 
@@ -405,7 +796,7 @@ Structure your response as:
   async generateDailyBrief(tenantId: string) {
     const now = new Date();
     // Use UTC-midnight bounds for @db.Date columns (committee_hearing.date,
-    // federal_register_document.comment_end_date — both come back at UTC
+    // federal_register_document.comment_end_date, both come back at UTC
     // midnight regardless of intended timezone). setHours(0,0,0,0) resolves
     // in server-local time, which works on UTC prod but skews 4-5h on ET dev
     // and excludes today's rows from the calendar query.
@@ -482,7 +873,7 @@ Structure your response as:
         const days = d.commentEndDate
           ? Math.max(0, Math.ceil((d.commentEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
           : 0;
-        return `- ${days}d: ${d.agencyNames.slice(0, 2).join('/')} — ${d.title.slice(0, 110)}`;
+        return `- ${days}d: ${d.agencyNames.slice(0, 2).join('/')}, ${d.title.slice(0, 110)}`;
       })
       .join('\n') || '(no comment-period deadlines in next 14 days)';
 
@@ -499,7 +890,7 @@ Structure your response as:
 
     if (!hearings.length && !deadlines.length && !tenantChanges.length) {
       return {
-        brief: `${todayLabel} — quiet day on the federal calendar. No hearings, no comment deadlines closing, no high-severity changes in the last 48 hours. Use the window to advance long-running outreach.`,
+        brief: `${todayLabel}, quiet day on the federal calendar. No hearings, no comment deadlines closing, no high-severity changes in the last 48 hours. Use the window to advance long-running outreach.`,
         generatedAt: now.toISOString(),
         provider: null as string | null,
         model: null as string | null,
@@ -507,7 +898,7 @@ Structure your response as:
       };
     }
 
-    const prompt = `You are writing today's leverage brief for a federal lobbying firm. Write 3-5 sentences in a punchy, voice-of-Capiro-Clio tone — concrete, specific, name names, and point to the single highest-leverage action for today. Do not list everything; pick the 1-2 things that actually matter. Reference the firm's active clients by name when the data supports it. Avoid hedging.
+    const prompt = `You are writing today's leverage brief for a federal lobbying firm. Write 3-5 sentences in a punchy, voice-of-Capiro-Clio tone, concrete, specific, name names, and point to the single highest-leverage action for today. Do not list everything; pick the 1-2 things that actually matter. Reference the firm's active clients by name when the data supports it. Avoid hedging.
 
 TODAY: ${todayLabel}
 ACTIVE CLIENTS: ${tenantClientList || '(no active clients)'}
@@ -536,7 +927,7 @@ Write the brief now. Start with "Today's leverage is" or similar. Do not include
     } catch (err) {
       this.logger.warn(`Daily brief generation failed: ${(err as Error).message}`);
       return {
-        brief: `${todayLabel} — ${hearings.length} hearing(s), ${deadlines.length} comment deadline(s), ${tenantChanges.length} high-severity change(s) in the last 48 hours. AI brief unavailable; review the timeline.`,
+        brief: `${todayLabel}, ${hearings.length} hearing(s), ${deadlines.length} comment deadline(s), ${tenantChanges.length} high-severity change(s) in the last 48 hours. AI brief unavailable; review the timeline.`,
         generatedAt: now.toISOString(),
         provider: null as string | null,
         model: null as string | null,
@@ -640,17 +1031,26 @@ Write the brief now. Start with "Today's leverage is" or similar. Do not include
     prompt: string,
     schema: Record<string, unknown>,
     schemaName = 'insights',
+    forcedProvider?: 'openai' | 'anthropic',
+    forcedModel?: string,
   ): Promise<{ text: string; provider: string; model: string }> {
+    if (forcedProvider) {
+      if (forcedProvider === 'openai') {
+        return this.callOpenAi(prompt, schema, schemaName, forcedModel);
+      }
+      return this.callAnthropic(prompt, schema, forcedModel);
+    }
+
     return this.withProviderFallback('Insight generation', async (provider) => {
       if (provider === 'openai') {
-        return this.callOpenAi(prompt, schema, schemaName);
+        return this.callOpenAi(prompt, schema, schemaName, forcedModel);
       } else {
-        return this.callAnthropic(prompt, schema);
+        return this.callAnthropic(prompt, schema, forcedModel);
       }
     });
   }
 
-  private async callOpenAi(prompt: string, schema: Record<string, unknown>, schemaName: string) {
+  private async callOpenAi(prompt: string, schema: Record<string, unknown>, schemaName: string, modelOverride?: string) {
     if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY not configured');
     const res = await fetchWithTimeout('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -659,7 +1059,7 @@ Write the brief now. Start with "Today's leverage is" or similar. Do not include
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.openaiModel,
+        model: modelOverride ?? this.openaiModel,
         instructions: SYSTEM_PROMPT,
         input: prompt,
         text: { format: { type: 'json_schema', name: schemaName, strict: true, schema } },
@@ -667,10 +1067,10 @@ Write the brief now. Start with "Today's leverage is" or similar. Do not include
     });
     const json = (await res.json()) as Record<string, unknown>;
     if (!res.ok) throw new ServiceUnavailableException(`OpenAI failed: ${JSON.stringify(json).slice(0, 200)}`);
-    return { text: extractOpenAiText(json), provider: 'openai' as const, model: this.openaiModel };
+    return { text: extractOpenAiText(json), provider: 'openai' as const, model: modelOverride ?? this.openaiModel };
   }
 
-  private async callAnthropic(prompt: string, schema: Record<string, unknown>) {
+  private async callAnthropic(prompt: string, schema: Record<string, unknown>, modelOverride?: string) {
     if (!this.anthropicKey) throw new ServiceUnavailableException('ANTHROPIC_API_KEY not configured');
     const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -680,7 +1080,7 @@ Write the brief now. Start with "Today's leverage is" or similar. Do not include
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.anthropicModel,
+        model: modelOverride ?? this.anthropicModel,
         max_tokens: 2000,
         system: SYSTEM_PROMPT,
         messages: [
@@ -690,7 +1090,11 @@ Write the brief now. Start with "Today's leverage is" or similar. Do not include
     });
     const json = (await res.json()) as Record<string, unknown>;
     if (!res.ok) throw new ServiceUnavailableException(`Anthropic failed: ${JSON.stringify(json).slice(0, 200)}`);
-    return { text: extractAnthropicText(json), provider: 'anthropic' as const, model: this.anthropicModel };
+    return {
+      text: extractAnthropicText(json),
+      provider: 'anthropic' as const,
+      model: modelOverride ?? this.anthropicModel,
+    };
   }
 
   private resolveProvider(): 'openai' | 'anthropic' | null {

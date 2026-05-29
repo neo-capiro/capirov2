@@ -7,7 +7,7 @@
  * Rate limit: 10 req/sec with User-Agent header. No API key required.
  *
  * Strategy: 150+ curated CIKs across defense, pharma, energy, tech,
- * finance, telecom, agriculture — the companies that drive federal lobbying.
+ * finance, telecom, agriculture, the companies that drive federal lobbying.
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
@@ -232,7 +232,7 @@ function safeDate(v: string | null | undefined): Date | null {
 async function main() {
   const prisma = new PrismaClient();
   const t0 = Date.now();
-  console.log(`[sec-sync] starting — ${TARGET_CIKS.length} companies`);
+  console.log(`[sec-sync] starting, ${TARGET_CIKS.length} companies`);
 
   // Deduplicate CIKs (some appear twice due to copy errors)
   const seen = new Set<string>();
