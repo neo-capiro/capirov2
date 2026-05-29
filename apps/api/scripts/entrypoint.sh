@@ -99,6 +99,10 @@ case "${1:-serve}" in
     echo "Running emit-changes (post-sync IntelligenceChange emitter)"
     exec ./node_modules/.bin/tsx scripts/emit-changes.ts
     ;;
+  emit-bill-alerts)
+    echo "Running emit-bill-alerts (semantic per-bill stage alerts)"
+    exec ./node_modules/.bin/tsx scripts/emit-bill-alerts.ts
+    ;;
   backfill-sectors)
     echo "Running backfill-sector-tags"
     exec ./node_modules/.bin/tsx scripts/backfill-sector-tags.ts

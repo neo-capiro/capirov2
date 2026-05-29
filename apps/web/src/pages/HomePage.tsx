@@ -305,6 +305,18 @@ function NeedsAttention({
           href: pe ? `/program-elements/${encodeURIComponent(pe)}` : '/intelligence/changes',
           rank: hoursSince(c.detectedAt),
         });
+      } else if (c.source === 'congress_bill' && c.changeType.startsWith('bill_')) {
+        // Semantic per-bill stage alert (emit-bill-alerts). Coarse "new_data"
+        // bill counts are intentionally excluded from the banner.
+        out.push({
+          id: `b-${c.id}`,
+          sev,
+          eyebrow: `Bill · ${relativeTime(c.detectedAt)}`,
+          title: c.title,
+          context: names[0] ?? (c.relatedIssues[0] ? `Issue ${c.relatedIssues[0]}` : 'Tracked bill'),
+          href: '/intelligence/changes',
+          rank: hoursSince(c.detectedAt),
+        });
       } else if (
         (c.source === 'federal_register_document' || c.source === 'fec_contribution') &&
         sev !== 'info'
