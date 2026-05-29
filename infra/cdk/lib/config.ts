@@ -153,7 +153,15 @@ export function loadConfig(app: cdk.App): EnvConfig {
             auroraMinAcu: 0.5,
             auroraMaxAcu: 2,
             auroraBackupRetentionDays: 7,
-            clerkJwtIssuer: 'https://stirring-warthog-40.clerk.accounts.dev',
+            // NOTE: the env=dev stacks (cluster `capiro-dev`) ARE the live
+            // production deployment serving app.capiro.ai. The running API and
+            // the web's pk_live publishable key both use the PROD Clerk instance
+            // `clerk.app.capiro.ai`. This issuer MUST match it — pointing it at
+            // the throwaway dev instance (stirring-warthog-40.clerk.accounts.dev)
+            // would make every live user token fail validation (401 / logged
+            // out) on the next `cdk deploy`. Do not change without rotating the
+            // web publishable key + API secret to the same instance.
+            clerkJwtIssuer: 'https://clerk.app.capiro.ai',
             //
             // Fill in after creating each secret in account 967807252336.
             // Slash-delimited names require complete ARNs; partial ARNs cause
