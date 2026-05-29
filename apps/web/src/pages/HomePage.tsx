@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { useQuery } from '@tanstack/react-query';
 import { Empty, Skeleton, Tag } from 'antd';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/use-api.js';
+import clioBubbleImage from '../assets/chat/clio-bubble.png';
 import type { Client } from './clients/clientTypes.js';
 import type { WorkflowInstance } from './workspace/workflowTypes.js';
 import type {
@@ -169,22 +170,11 @@ export function HomePage() {
       <ClioBrief brief={brief.data} loading={brief.isLoading} isError={brief.isError} />
 
       <div className="home-grid-2">
-        <ClientEngagement
-          meetings={meetings.data ?? []}
-          loading={meetings.isLoading}
-        />
+        <ClientEngagement meetings={meetings.data ?? []} loading={meetings.isLoading} />
         <OutreachDrafts records={outreach.data ?? []} loading={outreach.isLoading} />
       </div>
 
-      <div className="home-grid-2">
-        <OpenWorkflows workflows={workflows.data ?? []} loading={workflows.isLoading} />
-        <RegulatoryAlerts
-          alerts={commentAlerts.data?.alerts ?? []}
-          changes={recentChanges.data ?? []}
-          clientNameById={clientNameById}
-          loading={recentChanges.isLoading || commentAlerts.isLoading}
-        />
-      </div>
+      <OpenWorkflows workflows={workflows.data ?? []} loading={workflows.isLoading} />
     </section>
   );
 }
@@ -233,7 +223,7 @@ function GreetingRow({
   );
 }
 
-/* ── Needs Attention banner (blended act-now feed, 4-up cards) ───────────── */
+/* ── Needs Attention banner (single-row scroller, up to 10) ─────────────── */
 
 interface BannerItem {
   id: string;
@@ -274,8 +264,7 @@ function NeedsAttention({
       });
     }
 
-    // 2. Hearings + markups in the next 7 days (skip deadlines/meetings —
-    //    comment deadlines already covered above)
+    // 2. Hearings + markups in the next 7 days
     for (const e of comingUp) {
       if (e.kind !== 'hearing' && e.kind !== 'markup') continue;
       const sev = e.severity === 'critical' || e.severity === 'notable' ? e.severity : 'info';
@@ -290,7 +279,7 @@ function NeedsAttention({
       });
     }
 
-    // 3. Program-element budget moves + high-severity regulatory / FEC changes
+    // 3. Program-element budget moves, per-bill stage alerts, high-sev reg/FEC
     for (const c of changes) {
       const sev = c.severity === 'critical' || c.severity === 'notable' ? c.severity : 'info';
       const names = c.relatedClientIds.map((id) => clientNameById.get(id)).filter(Boolean) as string[];
@@ -306,8 +295,6 @@ function NeedsAttention({
           rank: hoursSince(c.detectedAt),
         });
       } else if (c.source === 'congress_bill' && c.changeType.startsWith('bill_')) {
-        // Semantic per-bill stage alert (emit-bill-alerts). Coarse "new_data"
-        // bill counts are intentionally excluded from the banner.
         out.push({
           id: `b-${c.id}`,
           sev,
@@ -334,7 +321,7 @@ function NeedsAttention({
     }
 
     const sevRank = { critical: 0, notable: 1, info: 2 } as const;
-    return out.sort((x, y) => sevRank[x.sev] - sevRank[y.sev] || x.rank - y.rank).slice(0, 8);
+    return out.sort((x, y) => sevRank[x.sev] - sevRank[y.sev] || x.rank - y.rank).slice(0, 10);
   }, [alerts, comingUp, changes, clientNameById]);
 
   return (
@@ -349,9 +336,9 @@ function NeedsAttention({
         </span>
       </div>
       {loading ? (
-        <div className="home-attention-body home-attention-body--four">
+        <div className="home-attention-scroll">
           {[0, 1, 2, 3].map((i) => (
-            <div className="home-attention-cell" key={i}>
+            <div className="home-attention-card" key={i}>
               <Skeleton active paragraph={{ rows: 2 }} title={false} />
             </div>
           ))}
@@ -361,9 +348,9 @@ function NeedsAttention({
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing needs your attention right now." />
         </div>
       ) : (
-        <div className="home-attention-body home-attention-body--four">
+        <div className="home-attention-scroll">
           {items.map((it) => (
-            <Link key={it.id} to={it.href} className="home-attention-cell is-link">
+            <Link key={it.id} to={it.href} className="home-attention-card is-link">
               <span className="home-attention-eyebrow">
                 <span className={`dot ${it.sev}`} aria-hidden />
                 {it.eyebrow}
@@ -378,7 +365,7 @@ function NeedsAttention({
   );
 }
 
-/* ── Clio brief (full width) ────────────────────────────────────────────── */
+/* ── Clio brief (full width, gradient card) ─────────────────────────────── */
 
 function ClioBrief({
   brief,
@@ -396,22 +383,23 @@ function ClioBrief({
 
   return (
     <div className="home-brief">
-      <div className="home-brief-head">
-        <span className="home-brief-title">
-          Clio Brief <span className="home-brief-title-sub">· Your Morning Intelligence</span>
+      <span className="home-brief-corner" aria-hidden />
+      <div className="home-brief-top">
+        <span className="home-brief-avatar">
+          <img src={clioBubbleImage} alt="" aria-hidden />
         </span>
-        <span className="open">
-          <Link to="/intelligence">Open Intelligence Center →</Link>
-        </span>
+        <div className="home-brief-id">
+          <span className="home-brief-kicker">Clio briefing</span>
+          <span className="home-brief-date">{dateLabel}</span>
+        </div>
       </div>
       <div className="home-brief-body">
-        <p className="home-brief-date">{dateLabel}</p>
         {loading ? (
           <Skeleton active paragraph={{ rows: 3 }} title={false} />
         ) : isError ? (
           <p className="home-brief-empty">Clio is offline right now. Check back in a minute.</p>
         ) : brief?.brief ? (
-          <p className="home-brief-text">{brief.brief}</p>
+          <p className="home-brief-text">{renderBrief(brief.brief)}</p>
         ) : (
           <p className="home-brief-empty">
             No brief generated yet. Once Clio has client activity to summarize, your morning brief
@@ -419,11 +407,34 @@ function ClioBrief({
           </p>
         )}
       </div>
+      <div className="home-brief-foot">
+        <span className="home-brief-foot-meta">
+          {brief?.model ? `Synthesized · ${brief.model}` : 'Synthesized by Clio'}
+        </span>
+        <Link to="/intelligence/changes" className="home-brief-foot-link">
+          See all changes →
+        </Link>
+      </div>
     </div>
   );
 }
 
-/* ── Client engagement: week strip + meetings ───────────────────────────── */
+// Heuristic highlighter: tint sentences that signal an urgent deadline (red)
+// or a legislative movement (amber), approximating the designed brief card.
+// The daily-brief API returns plain prose, so this is a best-effort pass;
+// structured highlight spans would require a backend change.
+function renderBrief(text: string): ReactNode[] {
+  const urgent = /comment period|deadline|\bcloses?\b|\bdue\b|in \d+ days?\b|\btoday\b|\btomorrow\b|before EOD/i;
+  const legis = /\badvanced\b|\bpassed\b|\breported\b|\bmark(ed)? ?up\b|to (the )?floor|\bcleared\b|became law|\bvote\b|\bcosponsor/i;
+  const sentences = text.match(/[^.!?]+[.!?]*\s*/g) ?? [text];
+  return sentences.map((s, i) => {
+    if (urgent.test(s)) return <mark key={i} className="hl-urgent">{s}</mark>;
+    if (legis.test(s)) return <mark key={i} className="hl-note">{s}</mark>;
+    return <span key={i}>{s}</span>;
+  });
+}
+
+/* ── Client engagement: week strip + per-day meetings (fixed height) ─────── */
 
 function ClientEngagement({
   meetings,
@@ -432,19 +443,26 @@ function ClientEngagement({
   meetings: DashMeeting[];
   loading: boolean;
 }) {
-  const now = new Date();
+  const now = useMemo(() => new Date(), []);
   const days = useMemo(() => weekDays(now), [now]);
+  const todayKey = dayKey(now);
+  const [selectedDay, setSelectedDay] = useState<string>(todayKey);
+
   const meetingDayKeys = useMemo(
     () => new Set(meetings.map((m) => dayKey(new Date(m.startsAt)))),
     [meetings],
   );
-  const sorted = useMemo(
-    () => [...meetings].sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)).slice(0, 5),
-    [meetings],
+
+  const dayMeetings = useMemo(
+    () =>
+      meetings
+        .filter((m) => dayKey(new Date(m.startsAt)) === selectedDay)
+        .sort((a, b) => +new Date(a.startsAt) - +new Date(b.startsAt)),
+    [meetings, selectedDay],
   );
 
   return (
-    <div className="home-panel">
+    <div className="home-panel home-panel--fixed">
       <header className="home-panel-head">
         <span className="home-panel-title">Client Engagement</span>
         <span className="open">
@@ -454,16 +472,22 @@ function ClientEngagement({
 
       <div className="home-week-label">Meetings · This Week</div>
       <div className="home-week-strip">
-        {days.map((d) => (
-          <div
-            key={d.key}
-            className={`home-week-day${d.isToday ? ' is-today' : ''}`}
-          >
-            <span className="home-week-wd">{d.weekday}</span>
-            <span className="home-week-num num">{d.dayNum}</span>
-            {meetingDayKeys.has(d.key) ? <span className="home-week-dot" aria-hidden /> : null}
-          </div>
-        ))}
+        {days.map((d) => {
+          const cls = [
+            'home-week-day',
+            d.isToday ? 'is-today' : '',
+            d.key === selectedDay ? 'is-selected' : '',
+          ]
+            .filter(Boolean)
+            .join(' ');
+          return (
+            <button type="button" key={d.key} className={cls} onClick={() => setSelectedDay(d.key)}>
+              <span className="home-week-wd">{d.weekday}</span>
+              <span className="home-week-num num">{d.dayNum}</span>
+              {meetingDayKeys.has(d.key) ? <span className="home-week-dot" aria-hidden /> : null}
+            </button>
+          );
+        })}
       </div>
 
       {loading ? (
@@ -474,23 +498,26 @@ function ClientEngagement({
             </div>
           ))}
         </div>
-      ) : sorted.length === 0 ? (
+      ) : dayMeetings.length === 0 ? (
         <div className="home-panel-empty">
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No meetings scheduled this week." />
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={`No meetings on ${selectedDayLabel(selectedDay)}.`}
+          />
         </div>
       ) : (
         <div className="home-panel-list">
-          {sorted.map((m) => {
+          {dayMeetings.map((m) => {
             const status = meetingStatus(m, now);
             const channel = m.location || (m.source ? prettySource(m.source) : null);
             const who = m.organizerName || m.attendees.find((a) => a.name)?.name || m.client?.name || '';
             return (
               <Link key={m.id} to="/engagement" className="home-panel-row">
                 <div className="home-panel-row-main">
-                  <span className="home-meeting-when num">{meetingWhen(m.startsAt, now)}</span>
+                  <span className="home-meeting-when num">{formatCompactTime(new Date(m.startsAt))}</span>
                   <span className="home-panel-row-title">{m.subject}</span>
                   <span className="home-panel-row-sub">
-                    {[who, channel].filter(Boolean).join(' · ') || ' '}
+                    {[who, channel].filter(Boolean).join(' · ') || ' '}
                   </span>
                 </div>
                 <Tag color={status.color} className="home-panel-tag">
@@ -505,7 +532,7 @@ function ClientEngagement({
   );
 }
 
-/* ── Outreach drafts ────────────────────────────────────────────────────── */
+/* ── Outreach drafts (fixed height) ─────────────────────────────────────── */
 
 function OutreachDrafts({
   records,
@@ -518,13 +545,12 @@ function OutreachDrafts({
     () =>
       [...records]
         .filter((r) => r.status === 'draft')
-        .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
-        .slice(0, 5),
+        .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt)),
     [records],
   );
 
   return (
-    <div className="home-panel">
+    <div className="home-panel home-panel--fixed">
       <header className="home-panel-head">
         <span className="home-panel-title">Outreach Drafts</span>
         <span className="open">
@@ -568,9 +594,20 @@ function OutreachDrafts({
   );
 }
 
-/* ── Open workflows with stage pills ────────────────────────────────────── */
+/* ── Open workflows: full-width kanban + stat summary (fixed height) ─────── */
 
-const WORKFLOW_STAGES = ['Research', 'Draft', 'Client review', 'Final'] as const;
+interface WorkflowColumn {
+  key: WorkflowInstance['status'];
+  label: string;
+  tone: 'muted' | 'info' | 'notable' | 'success';
+}
+
+const WORKFLOW_COLUMNS: WorkflowColumn[] = [
+  { key: 'triage', label: 'Triage', tone: 'muted' },
+  { key: 'in_progress', label: 'In Progress', tone: 'info' },
+  { key: 'review', label: 'Client Review', tone: 'notable' },
+  { key: 'submitted', label: 'Submitted', tone: 'success' },
+];
 
 function OpenWorkflows({
   workflows,
@@ -579,15 +616,31 @@ function OpenWorkflows({
   workflows: WorkflowInstance[];
   loading: boolean;
 }) {
-  const active = useMemo(
-    () => workflows.filter((w) => w.status !== 'complete').slice(0, 5),
-    [workflows],
-  );
+  const columns = useMemo(() => {
+    const map: Record<string, WorkflowInstance[]> = {
+      triage: [],
+      in_progress: [],
+      review: [],
+      submitted: [],
+    };
+    for (const w of workflows) {
+      if (map[w.status]) map[w.status]!.push(w);
+    }
+    return map;
+  }, [workflows]);
+
+  const stats = useMemo(() => {
+    const triage = workflows.filter((w) => w.status === 'triage').length;
+    const inProgress = workflows.filter((w) => w.status === 'in_progress' || w.status === 'review').length;
+    const done = workflows.filter((w) => w.status === 'submitted' || w.status === 'complete').length;
+    return { triage, inProgress, done, total: triage + inProgress + done };
+  }, [workflows]);
 
   return (
-    <div className="home-panel">
+    <div className="home-panel home-workflows-panel">
       <header className="home-panel-head">
         <span className="home-panel-title">Open Workflows</span>
+        <WorkflowStatBar stats={stats} />
         <span className="open">
           <Link to="/workspace/workflows">Open Workspace →</Link>
         </span>
@@ -600,33 +653,35 @@ function OpenWorkflows({
             </div>
           ))}
         </div>
-      ) : active.length === 0 ? (
+      ) : stats.total === 0 ? (
         <div className="home-panel-empty">
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No active workflows. Kick one off from Workspace." />
         </div>
       ) : (
-        <div className="home-panel-list">
-          {active.map((w) => {
-            const activeIdx = workflowStageIndex(w.status);
+        <div className="home-kanban">
+          {WORKFLOW_COLUMNS.map((col) => {
+            const cards = columns[col.key] ?? [];
             return (
-              <Link key={w.id} to="/workspace/workflows" className="home-workflow-row">
-                <div className="home-workflow-meta">
-                  <span className="home-workflow-client">{w.client?.name ?? 'Cross-client'}</span>
-                  <span className="home-workflow-title">{w.title}</span>
+              <div className="home-kanban-col" key={col.key}>
+                <div className="home-kanban-col-head">
+                  <span className={`dot ${col.tone}`} aria-hidden />
+                  <span className="home-kanban-col-label">{col.label}</span>
+                  <span className="home-kanban-count num">{cards.length}</span>
                 </div>
-                <div className="home-stage-pills">
-                  {WORKFLOW_STAGES.map((stage, i) => (
-                    <span
-                      key={stage}
-                      className={`home-stage-pill ${
-                        i < activeIdx ? 'is-done' : i === activeIdx ? 'is-active' : 'is-upcoming'
-                      }`}
-                    >
-                      {stage}
-                    </span>
-                  ))}
+                <div className="home-kanban-cards">
+                  {cards.length === 0 ? (
+                    <div className="home-kanban-empty">—</div>
+                  ) : (
+                    cards.map((w) => (
+                      <Link key={w.id} to="/workspace/workflows" className="home-kanban-card">
+                        <span className="home-kanban-card-client">{w.client?.name ?? 'Cross-client'}</span>
+                        <span className="home-kanban-card-title">{w.title}</span>
+                        <span className="home-kanban-card-sub">{w.template?.name ?? 'Workflow'}</span>
+                      </Link>
+                    ))
+                  )}
                 </div>
-              </Link>
+              </div>
             );
           })}
         </div>
@@ -635,93 +690,26 @@ function OpenWorkflows({
   );
 }
 
-/* ── Regulatory intelligence alerts ─────────────────────────────────────── */
-
-interface AlertRow {
-  id: string;
-  title: string;
-  priority: 'High' | 'Medium' | 'Low';
-  sev: 'critical' | 'notable' | 'info';
-  client: string;
-  source: string;
-  timing: string;
-}
-
-function RegulatoryAlerts({
-  alerts,
-  changes,
-  clientNameById,
-  loading,
+function WorkflowStatBar({
+  stats,
 }: {
-  alerts: CommentAlertItem[];
-  changes: IntelligenceChange[];
-  clientNameById: Map<string, string>;
-  loading: boolean;
+  stats: { triage: number; inProgress: number; done: number; total: number };
 }) {
-  const rows = useMemo<AlertRow[]>(() => {
-    const fromComments: AlertRow[] = alerts.map((a) => ({
-      id: `c-${a.documentId}`,
-      title: `Comment period ${deadlineLabel(a.daysToDeadline).toLowerCase().startsWith('closes') ? deadlineLabel(a.daysToDeadline).toLowerCase() : `closes in ${a.daysToDeadline}d`} — ${a.title}`,
-      priority: a.daysToDeadline <= 1 ? 'High' : a.daysToDeadline <= 7 ? 'Medium' : 'Low',
-      sev: a.daysToDeadline <= 1 ? 'critical' : a.daysToDeadline <= 7 ? 'notable' : 'info',
-      client: a.clientName || 'no tracked clients mapped',
-      source: prettySource(a.agencies[0] || a.type || 'FedReg'),
-      timing: a.daysToDeadline <= 0 ? 'deadline EOD' : `${a.daysToDeadline}d`,
-    }));
-    const fromChanges: AlertRow[] = changes.map((c) => {
-      const names = c.relatedClientIds.map((id) => clientNameById.get(id)).filter(Boolean) as string[];
-      const sev = c.severity === 'critical' || c.severity === 'notable' ? c.severity : 'info';
-      return {
-        id: `x-${c.id}`,
-        title: c.title,
-        priority: sev === 'critical' ? 'High' : sev === 'notable' ? 'Medium' : 'Low',
-        sev,
-        client: names[0] ?? 'no tracked clients mapped',
-        source: prettySource(c.source),
-        timing: relativeTime(c.detectedAt),
-      };
-    });
-    const order = { High: 0, Medium: 1, Low: 2 } as const;
-    return [...fromComments, ...fromChanges]
-      .sort((a, b) => order[a.priority] - order[b.priority])
-      .slice(0, 5);
-  }, [alerts, changes, clientNameById]);
-
+  const { triage, inProgress, done, total } = stats;
+  if (!total) return null;
+  const pct = (n: number) => `${(n / total) * 100}%`;
   return (
-    <div className="home-panel">
-      <header className="home-panel-head">
-        <span className="home-panel-title">Regulatory Intelligence Alerts</span>
-        <span className="open">
-          <Link to="/intelligence/changes">Open Intelligence Feed →</Link>
-        </span>
-      </header>
-      {loading ? (
-        <div className="home-panel-list">
-          {[0, 1, 2].map((i) => (
-            <div className="home-panel-row" key={i}>
-              <Skeleton active paragraph={{ rows: 1 }} title={false} />
-            </div>
-          ))}
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="home-panel-empty">
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No regulatory alerts right now." />
-        </div>
-      ) : (
-        <div className="home-panel-list">
-          {rows.map((r) => (
-            <Link key={r.id} to="/intelligence/changes" className="home-alert-row">
-              <span className={`dot ${r.sev}`} aria-hidden />
-              <div className="home-alert-main">
-                <span className="home-panel-row-title">{r.title}</span>
-                <span className="home-panel-row-sub">
-                  {r.priority} · {r.client} · {r.source} · {r.timing}
-                </span>
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
+    <div className="home-wf-stat" aria-label="Workflow status overview">
+      <div className="home-wf-stat-bar" aria-hidden>
+        <span className="seg triage" style={{ width: pct(triage) }} />
+        <span className="seg prog" style={{ width: pct(inProgress) }} />
+        <span className="seg done" style={{ width: pct(done) }} />
+      </div>
+      <div className="home-wf-stat-legend">
+        <span><i className="dot muted" />{triage} triage</span>
+        <span><i className="dot info" />{inProgress} in progress</span>
+        <span><i className="dot success" />{done} done</span>
+      </div>
     </div>
   );
 }
@@ -829,13 +817,10 @@ function dayKey(d: Date): string {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
-function meetingWhen(startsAt: string, now: Date): string {
-  const d = new Date(startsAt);
-  const time = formatCompactTime(d);
-  if (dayKey(d) === dayKey(now)) return `Today · ${time}`;
-  const wd = d.toLocaleDateString('en-US', { weekday: 'short' });
-  if (d.getTime() < now.getTime()) return `${wd} · past`;
-  return `${wd} · ${time}`;
+function selectedDayLabel(key: string): string {
+  const [y, m, d] = key.split('-').map((n) => Number.parseInt(n, 10));
+  if (y == null || m == null || d == null) return 'this day';
+  return new Date(y, m, d).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 }
 
 function formatCompactTime(d: Date): string {
@@ -858,17 +843,6 @@ function meetingStatus(
   }
   const prepped = m.preps.some((p) => p.status === 'approved' || p.status === 'edited' || p.status === 'generated');
   return prepped ? { label: 'Prepped', color: 'green' } : { label: 'Prep needed', color: 'gold' };
-}
-
-function workflowStageIndex(status: WorkflowInstance['status']): number {
-  switch (status) {
-    case 'triage': return 0;
-    case 'in_progress': return 1;
-    case 'review': return 2;
-    case 'submitted': return 3;
-    case 'complete': return WORKFLOW_STAGES.length;
-    default: return 0;
-  }
 }
 
 function relativeTime(iso: string): string {
