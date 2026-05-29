@@ -10,6 +10,7 @@ import {
   DashboardOutlined,
   DownOutlined,
   FolderOpenOutlined,
+  FundOutlined,
   IdcardOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -59,6 +60,7 @@ type AppSection =
   | 'workspace'
   | 'planner'
   | 'intelligence'
+  | 'program-elements'
   | 'directory'
   | 'stakeholders'
   | 'collaborators'
@@ -123,6 +125,12 @@ const NAV: NavItem[] = [
     label: 'Intelligence Center',
     path: '/explorer',
     icon: <BulbOutlined />,
+  },
+  {
+    key: 'program-elements',
+    label: 'Program Elements',
+    path: '/program-elements/mark-up-monitor',
+    icon: <FundOutlined />,
   },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
@@ -798,6 +806,7 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname.startsWith('/engagement')) return 'engagement';
   if (pathname.startsWith('/workspace')) return 'workspace';
   if (pathname.startsWith('/explorer') || pathname.startsWith('/intelligence')) return 'intelligence';
+  if (pathname.startsWith('/program-elements')) return 'program-elements';
   if (pathname.startsWith('/directory')) return 'directory';
   if (pathname.startsWith('/portal')) return 'portal';
   if (pathname.startsWith('/settings')) return 'settings';
@@ -813,6 +822,7 @@ function pageConfigFor(pathname: string): PageConfig {
     workspace: 'Workspace',
     planner: 'Planner',
     intelligence: 'Intelligence Center',
+    'program-elements': 'Program Elements',
     directory: 'Directory',
     stakeholders: 'Stakeholders',
     collaborators: 'Collaborators',
