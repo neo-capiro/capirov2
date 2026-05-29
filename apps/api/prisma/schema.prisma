@@ -368,19 +368,20 @@ model IntegrationConnectionToken {
 }
 
 model EngagementContact {
-  id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String   @map("tenant_id") @db.Uuid
-  clientId         String?  @map("client_id") @db.Uuid
-  directoryEntryId String?  @map("directory_entry_id")
-  fullName         String?  @map("full_name")
-  email            String?  @db.Citext
-  phone            String?
-  organization     String?
-  title            String?
-  source           String   @default("manual")
-  metadata         Json     @default("{}") @map("metadata_jsonb")
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                     String   @id @default(uuid()) @db.Uuid
+  tenantId               String   @map("tenant_id") @db.Uuid
+  clientId               String?  @map("client_id") @db.Uuid
+  directoryEntryId       String?  @map("directory_entry_id")
+  acquisitionPersonnelId String?  @map("acquisition_personnel_id") @db.Uuid
+  fullName               String?  @map("full_name")
+  email                  String?  @db.Citext
+  phone                  String?
+  organization           String?
+  title                  String?
+  source                 String   @default("manual")
+  metadata               Json     @default("{}") @map("metadata_jsonb")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   client    Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
@@ -389,6 +390,7 @@ model EngagementContact {
 
   @@unique([tenantId, email], map: "engagement_contacts_tenant_email_key")
   @@index([tenantId, clientId], map: "engagement_contacts_tenant_client_idx")
+  @@index([acquisitionPersonnelId], map: "engagement_contacts_acquisition_personnel_id_idx")
   @@map("engagement_contacts")
 }
 
@@ -1180,28 +1182,30 @@ model Strategy {
 }
 
 model StrategyTarget {
-  id                 String    @id @default(uuid()) @db.Uuid
-  tenantId           String    @map("tenant_id") @db.Uuid
-  strategyId         String    @map("strategy_id") @db.Uuid
-  memberName         String    @map("member_name")
-  memberTitle        String?   @map("member_title")
-  memberParty        String?   @map("member_party")
-  memberState        String?   @map("member_state")
-  committee          String?
-  subcommittee       String?
-  stafferName        String?   @map("staffer_name")
-  stafferEmail       String?   @map("staffer_email")
-  directoryContactId String?   @map("directory_contact_id")
-  outreachStatus     String    @default("not_started") @map("outreach_status")
-  meetingDate        DateTime? @map("meeting_date") @db.Timestamptz(6)
-  notes              String?   @db.Text
-  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                     String    @id @default(uuid()) @db.Uuid
+  tenantId               String    @map("tenant_id") @db.Uuid
+  strategyId             String    @map("strategy_id") @db.Uuid
+  acquisitionPersonnelId String?   @map("acquisition_personnel_id") @db.Uuid
+  memberName             String    @map("member_name")
+  memberTitle            String?   @map("member_title")
+  memberParty            String?   @map("member_party")
+  memberState            String?   @map("member_state")
+  committee              String?
+  subcommittee           String?
+  stafferName            String?   @map("staffer_name")
+  stafferEmail           String?   @map("staffer_email")
+  directoryContactId     String?   @map("directory_contact_id")
+  outreachStatus         String    @default("not_started") @map("outreach_status")
+  meetingDate            DateTime? @map("meeting_date") @db.Timestamptz(6)
+  notes                  String?   @db.Text
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, strategyId], map: "strategy_targets_tenant_strategy_idx")
+  @@index([acquisitionPersonnelId], map: "strategy_targets_acquisition_personnel_id_idx")
   @@map("strategy_targets")
 }
 
@@ -1690,11 +1694,11 @@ model ProgramElement {
   firstSeenFy        Int?     @map("first_seen_fy")
   lastSyncedAt       DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
 
-  years                    ProgramElementYear[]
-  milestones               ProgramElementMilestone[]
-  yearSourceValues         ProgramElementYearSourceValue[]
-  watches                  ProgramElementWatch[]
-  conferenceProbabilities  ConferenceProbability[]
+  years                   ProgramElementYear[]
+  milestones              ProgramElementMilestone[]
+  yearSourceValues        ProgramElementYearSourceValue[]
+  watches                 ProgramElementWatch[]
+  conferenceProbabilities ConferenceProbability[]
 
   @@index([serviceCode], map: "program_element_service_code_idx")
   @@index([appropriationType], map: "program_element_appropriation_type_idx")
@@ -1786,6 +1790,80 @@ model ProgramElementWatch {
   @@unique([userId, peCode], map: "program_element_watch_user_pe_code_key")
   @@index([tenantId, peCode], map: "program_element_watch_tenant_pe_code_idx")
   @@map("program_element_watch")
+}
+
+model AcquisitionPersonnel {
+  id               String   @id @default(uuid()) @db.Uuid
+  fullName         String   @map("full_name")
+  nameKey          String   @map("name_key")
+  service          String?  @db.VarChar(8)
+  organization     String?
+  title            String?
+  role             String?
+  programOfRecord  String?  @map("program_of_record")
+  pePrimary        String?  @map("pe_primary") @db.VarChar(8)
+  peSecondary      String[] @default([]) @map("pe_secondary")
+  emailDomain      String?  @map("email_domain")
+  publicProfileUrl String?  @map("public_profile_url")
+  confidence       Float    @default(0.5)
+  status           String   @default("active") @db.VarChar(16)
+  firstSeenAt      DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt       DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  metadata         Json     @default("{}") @map("metadata_jsonb")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sources AcquisitionPersonnelSource[]
+
+  @@index([pePrimary], map: "acquisition_personnel_pe_primary_idx")
+  @@index([nameKey], map: "acquisition_personnel_name_key_idx")
+  @@index([service, organization], map: "acquisition_personnel_service_org_idx")
+  @@index([status], map: "acquisition_personnel_status_idx")
+  @@map("acquisition_personnel")
+}
+
+model AcquisitionPersonnelSource {
+  id         String   @id @default(uuid()) @db.Uuid
+  personId   String   @map("person_id") @db.Uuid
+  source     String   @db.VarChar(64)
+  sourceUrl  String?  @map("source_url")
+  snippet    String?  @db.Text
+  observedAt DateTime @map("observed_at") @db.Timestamptz(6)
+  confidence Float
+  metadata   Json     @default("{}") @map("metadata_jsonb")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  person AcquisitionPersonnel @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId, observedAt], map: "acquisition_personnel_source_person_observed_idx")
+  @@index([source], map: "acquisition_personnel_source_source_idx")
+  @@map("acquisition_personnel_source")
+}
+
+model AcquisitionPersonnelQuarantine {
+  id            String   @id @default(uuid()) @db.Uuid
+  rawRecord     Json     @map("raw_record_jsonb")
+  reason        String
+  source        String
+  quarantinedAt DateTime @default(now()) @map("quarantined_at") @db.Timestamptz(6)
+
+  @@map("acquisition_personnel_quarantine")
+}
+
+model AcquisitionPersonnelMergeCandidate {
+  id                String    @id @default(uuid()) @db.Uuid
+  primaryPersonId   String    @map("primary_person_id") @db.Uuid
+  secondaryPersonId String    @map("secondary_person_id") @db.Uuid
+  similarityScore   Float     @map("similarity_score")
+  scoreBreakdown    Json      @default("{}") @map("score_breakdown_jsonb")
+  status            String    @default("open") @db.VarChar(20)
+  resolvedByUserId  String?   @map("resolved_by_user_id") @db.Uuid
+  resolvedAt        DateTime? @map("resolved_at") @db.Timestamptz(6)
+  decisionNotes     String?   @map("decision_notes") @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([status], map: "acquisition_personnel_merge_candidate_status_idx")
+  @@map("acquisition_personnel_merge_candidate")
 }
 
 model ConferenceProbability {
