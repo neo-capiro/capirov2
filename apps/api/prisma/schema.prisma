@@ -162,6 +162,7 @@ model Tenant {
   clioMessages                 ClioMessage[]
   clioArtifacts                ClioArtifact[]
   clioNotes                    ClioNote[]
+  clioResearchSessions         ClioResearchSession[]
   workflowInstances            WorkflowInstance[]
   clientCapabilities           ClientCapability[]
   clientSubmissionHistory      ClientSubmissionHistory[]
@@ -206,6 +207,7 @@ model User {
   clioMessages              ClioMessage[]                  @relation("ClioMessageUser")
   clioArtifacts             ClioArtifact[]                 @relation("ClioArtifactUser")
   clioNotes                 ClioNote[]                     @relation("ClioNoteUser")
+  clioResearchSessions      ClioResearchSession[]          @relation("ClioResearchSessionUser")
   workflowInstances         WorkflowInstance[]             @relation("WorkflowInstanceCreator")
   strategies                Strategy[]                     @relation("StrategyCreator")
   createdCampaigns          EngagementCampaign[]           @relation("CampaignCreator")
@@ -287,6 +289,7 @@ model Client {
   clioMessages            ClioMessage[]
   clioArtifacts           ClioArtifact[]
   clioNotes               ClioNote[]
+  clioResearchSessions    ClioResearchSession[]
   workflowInstances       WorkflowInstance[]
   capabilities            ClientCapability[]
   submissionHistory       ClientSubmissionHistory[]
@@ -940,6 +943,44 @@ model ClioArtifact {
   @@index([tenantId, userId, createdAt(sort: Desc)], map: "clio_artifacts_tenant_user_created_idx")
   @@index([conversationId, createdAt(sort: Desc)], map: "clio_artifacts_conversation_created_idx")
   @@map("clio_artifacts")
+}
+
+/// Deep Research sessions. A lobbyist starts a research session with a topic;
+/// Clio proposes a plan + clarifying questions, the user answers, and Clio runs
+/// a multi-round agentic investigation across all internal data tools + the web,
+/// then synthesizes a long, cited report. The final report is persisted as a
+/// ClioArtifact (kind = 'research_report'); this row tracks the lifecycle and
+/// the inputs that produced it so a session can be resumed/audited.
+model ClioResearchSession {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  clientId        String?   @map("client_id") @db.Uuid
+  title           String
+  topic           String    @db.Text
+  /// plan | awaiting_clarification | researching | complete | failed
+  status          String    @default("plan")
+  /// AI-proposed clarifying questions (string[]) awaiting answers.
+  clarifyingQuestions Json   @default("[]") @map("clarifying_questions_jsonb")
+  /// User answers to the clarifying questions (keyed by question index).
+  clarifyingAnswers   Json   @default("{}") @map("clarifying_answers_jsonb")
+  /// AI-proposed research plan (list of sub-questions / angles).
+  plan            Json      @default("[]")
+  /// Source attributions gathered during the run.
+  sources         Json      @default("[]")
+  /// The final synthesized report artifact, once produced.
+  reportArtifactId String?  @map("report_artifact_id") @db.Uuid
+  metadata        Json      @default("{}") @map("metadata_jsonb")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User    @relation("ClioResearchSessionUser", fields: [userId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId, updatedAt(sort: Desc)], map: "clio_research_sessions_tenant_user_updated_idx")
+  @@index([tenantId, clientId, updatedAt(sort: Desc)], map: "clio_research_sessions_tenant_client_updated_idx")
+  @@map("clio_research_sessions")
 }
 
 model ClioNote {
@@ -1693,7 +1734,7 @@ model CongressBillSubject {
 // ─────────────────────────────────────────────────────────────────────────
 
 model ProgramElement {
-  peCode             String   @id @map("pe_code") @db.VarChar(8)
+  peCode             String   @id @map("pe_code") @db.VarChar(16)
   service            String?
   serviceCode        String?  @map("service_code")
   appropriationType  String?  @map("appropriation_type")
@@ -1735,7 +1776,7 @@ model ProgramElement {
 // tenant_id / RLS): J-book data is public-domain and read-only via API.
 model ProgramElementSource {
   id          String   @id @default(uuid()) @db.Uuid
-  peCode      String   @map("pe_code") @db.VarChar(8)
+  peCode      String   @map("pe_code") @db.VarChar(16)
   docType     String   @map("doc_type") @db.VarChar(8) // R | P | O
   exhibitType String?  @map("exhibit_type") @db.VarChar(16) // R-1 | R-2 | R-2A | P-1 | P-40
   fy          Int?
@@ -1766,7 +1807,7 @@ model ProgramElementSource {
 // public-domain and read-only via API. Mirrors ProgramElementSource conventions.
 model ProgramElementProject {
   id             String   @id @default(uuid()) @db.Uuid
-  peCode         String   @map("pe_code") @db.VarChar(8)
+  peCode         String   @map("pe_code") @db.VarChar(16)
   projectCode    String   @map("project_code") @db.VarChar(8)
   title          String
   mission        String?  @db.Text
@@ -1791,7 +1832,7 @@ model ProgramElementProject {
 
 model ProgramElementYear {
   id           String   @id @default(uuid()) @db.Uuid
-  peCode       String   @map("pe_code") @db.VarChar(8)
+  peCode       String   @map("pe_code") @db.VarChar(16)
   fy           Int
   request      Decimal? @db.Decimal(14, 2)
   hascMark     Decimal? @map("hasc_mark") @db.Decimal(14, 2)
@@ -1816,7 +1857,7 @@ model ProgramElementYear {
 
 model ProgramElementMilestone {
   id            String    @id @default(uuid()) @db.Uuid
-  peCode        String    @map("pe_code") @db.VarChar(8)
+  peCode        String    @map("pe_code") @db.VarChar(16)
   milestoneType String    @map("milestone_type")
   plannedDate   DateTime? @map("planned_date") @db.Date
   actualDate    DateTime? @map("actual_date") @db.Date
@@ -1844,7 +1885,7 @@ model ProgramElementQuarantine {
 
 model ProgramElementYearSourceValue {
   id         String   @id @default(uuid()) @db.Uuid
-  peCode     String   @map("pe_code") @db.VarChar(8)
+  peCode     String   @map("pe_code") @db.VarChar(16)
   fy         Int
   fieldName  String   @map("field_name")
   source     String
@@ -1863,7 +1904,7 @@ model ProgramElementWatch {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @map("user_id") @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
-  peCode    String   @map("pe_code") @db.VarChar(8)
+  peCode    String   @map("pe_code") @db.VarChar(16)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -1884,7 +1925,7 @@ model AcquisitionPersonnel {
   title            String?
   role             String?
   programOfRecord  String?  @map("program_of_record")
-  pePrimary        String?  @map("pe_primary") @db.VarChar(8)
+  pePrimary        String?  @map("pe_primary") @db.VarChar(16)
   peSecondary      String[] @default([]) @map("pe_secondary")
   emailDomain      String?  @map("email_domain")
   publicProfileUrl String?  @map("public_profile_url")
@@ -1950,7 +1991,7 @@ model AcquisitionPersonnelMergeCandidate {
 }
 
 model ConferenceProbability {
-  peCode       String   @map("pe_code") @db.VarChar(8)
+  peCode       String   @map("pe_code") @db.VarChar(16)
   fy           Int
   predicted    Decimal  @db.Decimal(14, 4)
   ciLow        Decimal  @map("ci_low") @db.Decimal(14, 4)
