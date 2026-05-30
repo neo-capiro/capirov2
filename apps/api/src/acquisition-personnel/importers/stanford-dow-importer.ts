@@ -87,8 +87,10 @@ function cleanLink(raw: string | undefined): string | undefined {
   const v = (raw ?? '').trim();
   if (!v) return undefined;
   const lower = v.toLowerCase();
-  if (lower === 'no link found' || lower === 'no link') return undefined;
-  return v;
+  if (lower === 'no link found' || lower === 'no link' || lower === 'n/a' || lower === 'none') return undefined;
+  if (lower.startsWith('mailto:')) return undefined;
+  if (lower.startsWith('http://') || lower.startsWith('https://')) return v;
+  return undefined;
 }
 
 function extractEmailDomain(...values: Array<string | undefined>): string | undefined {

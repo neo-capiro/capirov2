@@ -134,4 +134,39 @@ describe('AcquisitionPersonnelWriterService', () => {
 
     expect(quarantineRows).toHaveLength(1);
   });
+
+  test('extracts domain from mailto and rejects malformed domain strings', async () => {
+    const { svc, personnel } = createService();
+
+    await svc.upsertPerson(
+      {
+        fullName: 'Jane Tester',
+        email: 'mailto:jane.tester@army.mil',
+      },
+      'src-b',
+      undefined,
+      undefined,
+      new Date('2026-01-02T00:00:00Z'),
+      0.7,
+    );
+
+    const created = Array.from(personnel.values())[0] as Record<string, unknown>;
+    expect(created.emailDomain).toBe('army.mil');
+
+    await svc.upsertPerson(
+      {
+        fullName: 'John Invalid',
+        emailDomain: 'http://example.com/path',
+      },
+      'src-c',
+      undefined,
+      undefined,
+      new Date('2026-01-03T00:00:00Z'),
+      0.7,
+    );
+
+    const rows = Array.from(personnel.values()) as Array<Record<string, unknown>>;
+    const second = rows.find((r) => r.fullName === 'John Invalid');
+    expect(second?.emailDomain ?? null).toBeNull();
+  });
 });

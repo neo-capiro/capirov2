@@ -201,7 +201,14 @@ export class AcquisitionPersonnelWriterService {
     const source = email?.trim() || domain?.trim();
     if (!source) return null;
     const lowered = source.toLowerCase();
+    if (lowered.startsWith('mailto:')) {
+      const withoutScheme = lowered.replace(/^mailto:/, '').trim();
+      if (!withoutScheme) return null;
+      if (withoutScheme.includes('@')) return withoutScheme.split('@')[1] ?? null;
+      return null;
+    }
     if (lowered.includes('@')) return lowered.split('@')[1] ?? null;
+    if (lowered.includes('/') || lowered.includes(' ')) return null;
     return lowered;
   }
 
