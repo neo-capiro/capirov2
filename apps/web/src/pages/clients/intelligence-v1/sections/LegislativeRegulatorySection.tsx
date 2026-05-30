@@ -5,6 +5,7 @@
  */
 
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { ClientProfileV1 } from '../mappers.js';
 import { BillKanban, type BillKanbanCard, type BillKanbanColumn } from '../components/BillKanban.js';
 import {
@@ -21,34 +22,14 @@ interface LegislativeRegulatorySectionProps {
   setAlertsHref: string;
 }
 
-const KANBAN: BillKanbanColumn[] = [
-  {
-    stage: 'introduced', label: 'Introduced', count: 28,
-    cards: [
-      { num: 'HR 7702', title: 'Mineral Provenance & Traceability Act', pct: 22, probColor: 'var(--notable)', clioTag: 'fit · 0.91' },
-      { num: 'HR 5117', title: 'American Made Critical Materials Act', pct: 18, probColor: 'var(--notable)', clioTag: 'fit · 0.84' },
-      { num: 'S. 2117', title: 'Industrial Base Reauthorization', pct: 31, probColor: 'var(--notable)' },
-    ],
-  },
-  {
-    stage: 'committee', label: 'In committee', count: 32,
-    cards: [
-      { num: 'S. 2847', title: 'Critical Minerals Stockpile Act', pct: 68, probColor: 'var(--success)', clioTag: 'fit · 0.97' },
-      { num: 'HR 6112', title: 'Critical Minerals Stockpile Act (companion)', pct: 54, probColor: 'var(--success)' },
-      { num: 'HR 4421', title: 'Strategic Minerals Reserve Act', pct: 47, probColor: 'var(--notable)' },
-    ],
-  },
-  {
-    stage: 'passed', label: 'Passed chamber', count: 11,
-    cards: [
-      { num: 'S. 1208', title: 'Defense Authorization FY27, Sec 218', pct: 82, probColor: 'var(--success)', clioTag: 'fit · 1.0' },
-      { num: 'S. 1944', title: 'Supply Chain Resilience Act', pct: 71, probColor: 'var(--success)' },
-    ],
-  },
-  {
-    stage: 'enacted', label: 'Enacted', count: 4,
-    cards: [{ num: 'PL 119-42', title: 'FY26 Continuing Resolution', pct: 100, probColor: 'var(--success)' }],
-  },
+// Empty pipeline scaffold — the four stage columns with zero bills.
+// Rendered only as the structural basis for the "No bills tracked yet"
+// empty state; never populated with placeholder/demo bills.
+const EMPTY_KANBAN: BillKanbanColumn[] = [
+  { stage: 'introduced', label: 'Introduced', count: 0, cards: [] },
+  { stage: 'committee', label: 'In committee', count: 0, cards: [] },
+  { stage: 'passed', label: 'Passed chamber', count: 0, cards: [] },
+  { stage: 'enacted', label: 'Enacted', count: 0, cards: [] },
 ];
 
 interface RegBlock {
@@ -59,54 +40,6 @@ interface RegBlock {
   deadline: string;
   deadlineSeverity: 'crit' | 'warn';
 }
-
-const REGS: RegBlock[] = [
-  {
-    title: 'EPA Significant New Use Rules, Chemical Substances (26-2)',
-    source: 'EPA · Federal Register',
-    docket: 'EPA-HQ-OPPT-2026-0214',
-    steps: [
-      { label: 'ANPRM', state: 'done' },
-      { label: 'NPRM · comment open', state: 'current' },
-      { label: 'Final rule', state: 'pending' },
-      { label: 'Effective', state: 'pending' },
-    ],
-    deadline: 'Comment deadline · 2 days',
-    deadlineSeverity: 'crit',
-  },
-  {
-    title: 'EPA State Plan Approval, Kentucky Designated Facilities',
-    source: 'EPA · Federal Register',
-    docket: 'EPA-R04-OAR-2026-0188',
-    steps: [
-      { label: 'ANPRM', state: 'done' },
-      { label: 'NPRM · comment open', state: 'current' },
-      { label: 'Final rule', state: 'pending' },
-      { label: 'Effective', state: 'pending' },
-    ],
-    deadline: 'Comment deadline · 2 days',
-    deadlineSeverity: 'crit',
-  },
-  {
-    title: 'EPA Drinking Water Contaminant Candidate List 6-Draft',
-    source: 'EPA · Federal Register',
-    docket: 'EPA-HQ-OW-2026-0091',
-    steps: [
-      { label: 'ANPRM', state: 'done' },
-      { label: 'NPRM', state: 'current' },
-      { label: 'Final rule', state: 'pending' },
-      { label: 'Effective', state: 'pending' },
-    ],
-    deadline: 'Comment deadline · 12 days',
-    deadlineSeverity: 'warn',
-  },
-];
-
-const HEARINGS = [
-  { month: 'Jun', day: '03', title: 'SENR, Critical Minerals Stockpile markup', sub: "S. 2847 in chairman's mark · 4 bills on agenda", time: '10:00 AM', room: 'SR-366' },
-  { month: 'Jun', day: '11', title: 'HASC full committee · FY27 NDAA', sub: "Sec 218 (Critical Minerals) in chairman's mark", time: '9:00 AM', room: '2118 RHOB' },
-  { month: 'Jun', day: '17', title: 'House Approps Defense subcommittee', sub: 'FY27 appropriations markup · SIGNET program touched', time: '2:00 PM', room: '2362-B RHOB' },
-];
 
 const KANBAN_STORAGE_KEY = 'capiro:intel-v1:kanban-controls';
 const DEFAULT_CONTROLS: KanbanControlsValue = { filter: 'all', sort: 'probability' };
@@ -156,6 +89,14 @@ function applyKanbanControls(columns: BillKanbanColumn[], controls: KanbanContro
       cards = [...cards].sort((a, b) => a.num.localeCompare(b.num));
     }
 
+    // Count semantics:
+    //  - filter === 'all': cards are a server-truncated preview of a larger
+    //    set, so the column total (col.count) is authoritative and may exceed
+    //    cards.length. BillKanban derives "+N more" from count - visible.
+    //  - any active filter: filtering is applied client-side over the preview
+    //    cards only, so the only honest count is the number of matching cards.
+    //    Showing the server total here would imply the filter matched bills we
+    //    can't actually display, and "+N more" would link nowhere real.
     const count = controls.filter === 'all' ? col.count : cards.length;
     return { ...col, cards, count };
   });
@@ -179,7 +120,7 @@ export function LegislativeRegulatorySection({
   };
 
   const baseKanban = useMemo<BillKanbanColumn[]>(() => {
-    if (!dynamicKanban?.length) return KANBAN;
+    if (!dynamicKanban?.length) return EMPTY_KANBAN;
     return dynamicKanban.map((col) => ({
       stage: col.id,
       label: col.label,
@@ -203,9 +144,18 @@ export function LegislativeRegulatorySection({
 
   const kanbanData = useMemo(() => applyKanbanControls(baseKanban, controls), [baseKanban, controls]);
 
-  const regsData = dynamicRegs?.length
+  const regsData: RegBlock[] = dynamicRegs?.length
     ? dynamicRegs.map((r) => {
-        const currentIdx = r.stages.findIndex((s) => s.label === r.currentStage);
+        // Match the API's currentStage against the stable stage `key` first,
+        // then fall back to the display `label`. Matching on label alone is
+        // brittle: any casing/whitespace/wording drift yields currentIdx = -1,
+        // which renders every step as 'pending' (no progress shown at all).
+        const target = (r.currentStage ?? '').trim().toLowerCase();
+        const currentIdx = r.stages.findIndex(
+          (s) =>
+            s.key.trim().toLowerCase() === target ||
+            s.label.trim().toLowerCase() === target,
+        );
         const steps = r.stages.map((s, idx) => ({
           label: s.label,
           state:
@@ -236,7 +186,7 @@ export function LegislativeRegulatorySection({
           deadlineSeverity,
         };
       })
-    : REGS;
+    : [];
 
   const hearingsData = dynamicHearings?.length
     ? dynamicHearings.slice(0, 8).map((h) => {
@@ -247,10 +197,13 @@ export function LegislativeRegulatorySection({
           title: `${h.committeeName}, ${h.title}`,
           sub: h.linkedBills.length > 0 ? `Tracked bills: ${h.linkedBills.slice(0, 3).join(', ')}` : `${h.chamber} ${h.type ?? 'hearing'}`,
           time: h.time ?? 'TBD',
-          room: h.chamber,
+          // The API exposes no room/location field, so render the chamber as
+          // the location (honest) rather than placing it in a slot that reads
+          // as a room number (e.g. "SR-366").
+          room: h.chamber || 'TBD',
         };
       })
-    : HEARINGS;
+    : [];
 
   return (
     <section id="legislative-regulatory" className="iv1-section">
@@ -289,9 +242,9 @@ export function LegislativeRegulatorySection({
               The Issue-Bill Linker couldn't find legislation matching this
               client's confirmed issue codes or capability text.
             </div>
-            <a className="iv1-link" href="/settings/intelligence-mappings">
+            <Link className="iv1-link" to="/settings/intelligence-mappings">
               Manage source mappings →
-            </a>
+            </Link>
           </div>
         ) : (
           <BillKanban columns={kanbanData} billDrillHref={billDrillHref} />
@@ -306,7 +259,14 @@ export function LegislativeRegulatorySection({
             {(regulatoryLifecycle?.totalRegulations ?? regsData.length)} rules tracked · {(regulatoryLifecycle?.totalLinkedBills ?? 0)} linked bills
           </span>
         </div>
-          <RegLifecycleRail rails={regsData} />
+          {regsData.length > 0 ? (
+            <RegLifecycleRail rails={regsData} />
+          ) : (
+            <div className="iv1-empty" style={{ padding: '24px 16px', textAlign: 'center' }}>
+              <b>No regulations tracked</b>
+              <span>No Federal Register rulemakings are linked to this client's tracked issues yet.</span>
+            </div>
+          )}
         </div>
 
         <div className="iv1-surface">
@@ -314,11 +274,18 @@ export function LegislativeRegulatorySection({
             <h3>Hearings &amp; markups</h3>
             <span className="iv1-surface-sub">next 21 days</span>
           </div>
-          <HearingsMarkupList
-            items={hearingsData}
-            syncCalendarHref={syncCalendarHref}
-            setAlertsHref={setAlertsHref}
-          />
+          {hearingsData.length > 0 ? (
+            <HearingsMarkupList
+              items={hearingsData}
+              syncCalendarHref={syncCalendarHref}
+              setAlertsHref={setAlertsHref}
+            />
+          ) : (
+            <div className="iv1-empty" style={{ padding: '24px 16px', textAlign: 'center' }}>
+              <b>No upcoming hearings</b>
+              <span>No hearings or markups touching this client's tracked bills in the next 21 days.</span>
+            </div>
+          )}
         </div>
       </div>
     </section>

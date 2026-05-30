@@ -173,6 +173,7 @@ export interface ClientProfileV1 {
           contributionCount: number;
           latestContributionDate: string | Date | null;
           candidates: Array<{
+            candidateId?: string | null;
             candidateName: string;
             totalAmount: number;
             contributionCount: number;

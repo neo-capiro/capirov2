@@ -1785,6 +1785,7 @@ export class IntelligenceService {
       Array<{
         committee_id: string;
         committee_name: string | null;
+        candidate_id: string | null;
         candidate_name: string | null;
         contribution_count: number;
         total_amount: number;
@@ -1794,13 +1795,14 @@ export class IntelligenceService {
       SELECT
         fc.committee_id,
         MAX(fc.committee_name) AS committee_name,
+        fc.candidate_id,
         fc.candidate_name,
         COUNT(*)::int AS contribution_count,
         COALESCE(SUM(fc.amount), 0)::float AS total_amount,
         MAX(fc.contribution_date) AS latest_contribution_date
       FROM fec_contribution fc
       WHERE LOWER(fc.contributor_employer) = LOWER(${employer})
-      GROUP BY fc.committee_id, fc.candidate_name
+      GROUP BY fc.committee_id, fc.candidate_id, fc.candidate_name
       ORDER BY total_amount DESC
       LIMIT 250
     `;
@@ -1862,6 +1864,7 @@ export class IntelligenceService {
         contributionCount: number;
         latestContributionDate: Date | null;
         candidates: Array<{
+          candidateId: string | null;
           candidateName: string;
           totalAmount: number;
           contributionCount: number;
@@ -1895,6 +1898,7 @@ export class IntelligenceService {
       }
 
       g.candidates.push({
+        candidateId: row.candidate_id,
         candidateName,
         totalAmount: row.total_amount,
         contributionCount: row.contribution_count,

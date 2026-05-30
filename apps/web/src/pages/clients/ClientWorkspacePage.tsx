@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import {
   FilterOutlined,
   LinkOutlined,
-  MoreOutlined,
   PlusOutlined,
   UploadOutlined,
 } from '@ant-design/icons';
@@ -472,7 +471,7 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
       <div className="client-card-topline">
         <Avatar
           shape="square"
-          size={64}
+          size={48}
           src={client.logoUrl || undefined}
           className="client-avatar"
         >
@@ -493,7 +492,6 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
             <Typography.Text type="secondary">No website recorded</Typography.Text>
           )}
         </div>
-        <MoreOutlined className="client-card-menu" />
       </div>
 
       <div className="client-card-details">
@@ -507,9 +505,29 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
       </div>
 
       <div className="client-card-footer">
+        <StatusPill status={client.status} />
         <Typography.Text type="secondary">Updated {relativeTime(client.updatedAt)}</Typography.Text>
       </div>
     </article>
+  );
+}
+
+const STATUS_PILL_LABEL: Record<string, string> = {
+  active: 'Active',
+  inactive: 'Inactive',
+  prospect: 'Prospect',
+  archived: 'Archived',
+};
+
+/** Small status chip shown bottom-left of each client card. */
+function StatusPill({ status }: { status: string }) {
+  const key = (status || '').toLowerCase();
+  const label = STATUS_PILL_LABEL[key] ?? (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown');
+  return (
+    <span className={`client-status-pill status-${key || 'unknown'}`}>
+      <span className="client-status-dot" aria-hidden="true" />
+      {label}
+    </span>
   );
 }
 

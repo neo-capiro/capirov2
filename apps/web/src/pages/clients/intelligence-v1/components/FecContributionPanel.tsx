@@ -7,7 +7,13 @@
  * Empty state: explains the gap and offers a remediation CTA when the
  *   tenant has permission to trigger an FEC enrichment run.
  */
+import { Link } from 'react-router-dom';
 import { formatCompact, type ClientProfileV1 } from '../mappers.js';
+
+/** True for app-internal SPA routes that should navigate without a full reload. */
+function isInternalHref(href: string): boolean {
+  return href.startsWith('/') && !href.startsWith('//');
+}
 
 type FecMoneyFlow = ClientProfileV1['sections']['financialFootprint']['fecMoneyFlow'];
 type FecCommittee = NonNullable<FecMoneyFlow['committees']>[number];
@@ -25,12 +31,22 @@ interface FecContributionPanelProps {
 const MAX_COMMITTEES = 4;
 const MAX_CANDIDATES = 5;
 
-/** Flatten + aggregate candidates across all committees, sorted by total amount. */
+/**
+ * Flatten + aggregate candidates across all committees, sorted by total amount.
+ *
+ * Aggregation is keyed by the FEC candidate ID when present (the only reliable
+ * identity), falling back to a normalized name for legacy rows that predate
+ * candidate_id backfill. This prevents two distinct people who share a name
+ * from being merged into one row.
+ */
 function deriveTopCandidates(committees: FecCommittee[], max: number): FecCandidate[] {
   const map = new Map<string, FecCandidate>();
   for (const c of committees) {
     for (const cand of c.candidates) {
-      const key = cand.candidateName.toLowerCase();
+      const id = cand.candidateId?.trim();
+      const key = id
+        ? `id:${id.toLowerCase()}`
+        : `name:${cand.candidateName.trim().toLowerCase().replace(/\s+/g, ' ')}`;
       const existing = map.get(key);
       if (existing) {
         map.set(key, {
@@ -129,8 +145,8 @@ function FecFlowData({ fec }: { fec: FecMoneyFlow }) {
             Recipients{summary.candidateCount > 0 ? ` (${summary.candidateCount})` : ''}
           </div>
           {topCandidates.length > 0 ? (
-            topCandidates.map((cand) => (
-              <div key={cand.candidateName} className="iv1-fec-entity">
+            topCandidates.map((cand, idx) => (
+              <div key={cand.candidateId?.trim() || `${cand.candidateName}-${idx}`} className="iv1-fec-entity">
                 <div className="iv1-fec-entity-name">{cand.candidateName}</div>
                 <div className="iv1-fec-entity-amt">{formatCompact(cand.totalAmount)}</div>
                 {cand.linkedMembers[0] && (
@@ -191,9 +207,15 @@ function FecEmptyState({
       )}
       <span className="iv1-fec-empty-action">
         {runFecEnabled ? (
-          <a href={runFecHref} className="iv1-fec-cta">
-            Run FEC enrichment job →
-          </a>
+          isInternalHref(runFecHref) ? (
+            <Link to={runFecHref} className="iv1-fec-cta">
+              Run FEC enrichment job →
+            </Link>
+          ) : (
+            <a href={runFecHref} className="iv1-fec-cta">
+              Run FEC enrichment job →
+            </a>
+          )
         ) : (
           <span className="iv1-fec-disabled">
             FEC enrichment job (requires employer mapping first)

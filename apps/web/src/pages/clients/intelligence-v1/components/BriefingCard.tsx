@@ -1,5 +1,11 @@
 import type { ReactNode } from 'react';
+import { Link } from 'react-router-dom';
 import { formatDate } from '../mappers.js';
+
+/** True for app-internal SPA routes that should navigate without a full reload. */
+function isInternalHref(href: string): boolean {
+  return href.startsWith('/') && !href.startsWith('//');
+}
 
 type BriefingTone = 'critical' | 'notable' | 'info' | 'neutral';
 
@@ -92,9 +98,11 @@ export function BriefingCard({ briefing, fallbackSummary, ctaHref }: BriefingCar
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
           <span className="iv1-clio-badge">Clio briefing</span>
-          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-            {formatDate(generatedAt ?? new Date().toISOString())}
-          </span>
+          {generatedAt ? (
+            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+              {formatDate(generatedAt)}
+            </span>
+          ) : null}
         </div>
 
         <div className="iv1-briefing-highlights">
@@ -118,9 +126,15 @@ export function BriefingCard({ briefing, fallbackSummary, ctaHref }: BriefingCar
               : 'No events synthesized'}
           </span>
           <span>·</span>
-          <a className="iv1-link" href={targetHref}>
-            See all changes →
-          </a>
+          {isInternalHref(targetHref) ? (
+            <Link className="iv1-link" to={targetHref}>
+              See all changes →
+            </Link>
+          ) : (
+            <a className="iv1-link" href={targetHref}>
+              See all changes →
+            </a>
+          )}
         </div>
       </div>
     </div>

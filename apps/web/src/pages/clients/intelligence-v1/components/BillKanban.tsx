@@ -11,9 +11,15 @@
  *   so no bill card ever dead-ends.
  */
 
+import { Link } from 'react-router-dom';
 import { PassageProbabilityBar } from './PassageProbabilityBar.js';
 
 const MAX_VISIBLE = 5;
+
+/** True for app-internal SPA routes that should navigate without a full reload. */
+function isInternalHref(href: string): boolean {
+  return href.startsWith('/') && !href.startsWith('//');
+}
 
 export interface BillKanbanCard {
   /** e.g. "HR 7702" */
@@ -77,12 +83,15 @@ export function BillKanban({ columns, billDrillHref }: BillKanbanProps) {
               <span className="iv1-bill-col-count">{col.count}</span>
             </div>
 
-            {visible.map((card) => {
+            {visible.map((card, cardIdx) => {
               const href = buildBillHref(billDrillHref, card.num);
+              // Composite key: bill identifiers can repeat (House/Senate
+              // companions, duplicate rows), so `card.num` alone is not unique.
+              const cardKey = `${col.stage}-${cardIdx}-${card.num}`;
 
               if (!href) {
                 return (
-                  <div key={card.num} className="iv1-bill-card" aria-disabled="true">
+                  <div key={cardKey} className="iv1-bill-card" aria-disabled="true">
                     <div className="iv1-bill-num mono">{card.num}</div>
                     <div className="iv1-bill-title">{card.title}</div>
                     <PassageProbabilityBar score={card.pct} color={card.probColor} />
@@ -96,12 +105,8 @@ export function BillKanban({ columns, billDrillHref }: BillKanbanProps) {
                 );
               }
 
-              return (
-                <a
-                  key={card.num}
-                  href={href}
-                  className="iv1-bill-card"
-                >
+              const cardInner = (
+                <>
                   <div className="iv1-bill-num mono">{card.num}</div>
                   <div className="iv1-bill-title">{card.title}</div>
                   <PassageProbabilityBar score={card.pct} color={card.probColor} />
@@ -111,6 +116,18 @@ export function BillKanban({ columns, billDrillHref }: BillKanbanProps) {
                       {card.clioTag}
                     </div>
                   )}
+                </>
+              );
+
+              // Internal routes navigate via react-router (no full reload);
+              // external/absolute URLs fall back to a plain anchor.
+              return isInternalHref(href) ? (
+                <Link key={cardKey} to={href} className="iv1-bill-card">
+                  {cardInner}
+                </Link>
+              ) : (
+                <a key={cardKey} href={href} className="iv1-bill-card">
+                  {cardInner}
                 </a>
               );
             })}

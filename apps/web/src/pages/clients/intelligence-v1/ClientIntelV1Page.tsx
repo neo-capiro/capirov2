@@ -69,33 +69,48 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
   });
 
   useEffect(() => {
-    const observers: IntersectionObserver[] = [];
+    // Single observer across all sections. On each callback we pick the
+    // section with the largest intersection ratio currently on screen, rather
+    // than letting any intersecting section win the last write (which made the
+    // active nav highlight flicker when two sections intersected in one tick).
+    const elements = sectionIds
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el != null);
 
-    for (const id of sectionIds) {
-      const element = document.getElementById(id);
-      if (!element) continue;
+    if (elements.length === 0) return;
 
-      const observer = new IntersectionObserver(
-        (entries) => {
-          for (const entry of entries) {
-            if (!entry.isIntersecting) continue;
-            setActiveSection(id);
+    // Track the latest ratio per section id so we can choose the max.
+    const ratios = new Map<SectionId, number>();
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = entry.target.id as SectionId;
+          ratios.set(id, entry.isIntersecting ? entry.intersectionRatio : 0);
+        }
+
+        let bestId: SectionId | null = null;
+        let bestRatio = 0;
+        for (const id of sectionIds) {
+          const r = ratios.get(id) ?? 0;
+          if (r > bestRatio) {
+            bestRatio = r;
+            bestId = id;
           }
-        },
-        {
-          root: null,
-          rootMargin: '-30% 0px -55% 0px',
-          threshold: [0.1, 0.35, 0.6],
-        },
-      );
+        }
 
-      observer.observe(element);
-      observers.push(observer);
-    }
+        if (bestId) setActiveSection(bestId);
+      },
+      {
+        root: null,
+        rootMargin: '-30% 0px -55% 0px',
+        threshold: [0.1, 0.35, 0.6],
+      },
+    );
 
-    return () => {
-      observers.forEach((observer) => observer.disconnect());
-    };
+    elements.forEach((el) => observer.observe(el));
+
+    return () => observer.disconnect();
   }, [sectionIds]);
 
   const scrollToSection = (id: SectionId) => {

@@ -1,4 +1,10 @@
 import { useState, useMemo } from 'react';
+import { Link } from 'react-router-dom';
+
+/** True for app-internal SPA routes that should navigate without a full reload. */
+function isInternalHref(href: string): boolean {
+  return href.startsWith('/') && !href.startsWith('//');
+}
 
 export interface HearingMarkupItem {
   /** Optional stable ID, derived from month+day+title when absent. */
@@ -110,12 +116,24 @@ export function HearingsMarkupList({
       })}
 
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-1)', display: 'flex', gap: 8 }}>
-        <a href={enrichedSyncHref} className="iv1-btn iv1-btn-sm" style={{ textDecoration: 'none' }}>
-          Sync to calendar
-        </a>
-        <a href={enrichedAlertsHref} className="iv1-btn iv1-btn-sm" style={{ textDecoration: 'none' }}>
-          Set alerts
-        </a>
+        {isInternalHref(enrichedSyncHref) ? (
+          <Link to={enrichedSyncHref} className="iv1-btn iv1-btn-sm" style={{ textDecoration: 'none' }}>
+            Sync to calendar
+          </Link>
+        ) : (
+          <a href={enrichedSyncHref} className="iv1-btn iv1-btn-sm" style={{ textDecoration: 'none' }}>
+            Sync to calendar
+          </a>
+        )}
+        {isInternalHref(enrichedAlertsHref) ? (
+          <Link to={enrichedAlertsHref} className="iv1-btn iv1-btn-sm" style={{ textDecoration: 'none' }}>
+            Set alerts
+          </Link>
+        ) : (
+          <a href={enrichedAlertsHref} className="iv1-btn iv1-btn-sm" style={{ textDecoration: 'none' }}>
+            Set alerts
+          </a>
+        )}
       </div>
     </>
   );

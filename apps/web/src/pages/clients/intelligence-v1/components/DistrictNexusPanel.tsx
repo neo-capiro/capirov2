@@ -6,9 +6,25 @@
  * by total supported jobs, plus an inference-context note and a support
  * link for adding confirmed capability tags.
  */
+import { Link } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import type { ClientProfileV1 } from '../mappers.js';
 
 type DistrictNexus = ClientProfileV1['sections']['financialFootprint']['districtNexus'];
+
+/** True for app-internal SPA routes that should navigate without a full reload. */
+function isInternalHref(href: string): boolean {
+  return href.startsWith('/') && !href.startsWith('//');
+}
+
+/** Render an internal route as a react-router Link, external as a plain anchor. */
+function SmartLink({ href, className, children }: { href: string; className?: string; children: ReactNode }) {
+  return isInternalHref(href) ? (
+    <Link to={href} className={className}>{children}</Link>
+  ) : (
+    <a href={href} className={className}>{children}</a>
+  );
+}
 
 interface DistrictNexusPanelProps {
   /** districtNexus payload from the aggregate profile-v1 endpoint. */
@@ -16,15 +32,6 @@ interface DistrictNexusPanelProps {
   /** href used by the "Add to capability tags →" support link. */
   supportHref: string;
 }
-
-/** Static placeholder rows shown when the payload has no district data. */
-const FALLBACK_ROWS = [
-  { district: 'NV-04', capability: 'Federal Services',      jobs: 92_000, dataYear: 2024 },
-  { district: 'UT-02', capability: 'Critical Infrastructure', jobs: 64_000, dataYear: 2024 },
-  { district: 'WY-AL', capability: 'Defense',               jobs: 41_000, dataYear: 2024 },
-  { district: 'AK-AL', capability: 'Logistics',             jobs: 28_000, dataYear: 2024 },
-  { district: 'CA-52', capability: 'Technology',            jobs: 18_000, dataYear: 2024 },
-] as const;
 
 function formatJobs(jobs: number): string {
   if (!Number.isFinite(jobs) || jobs <= 0) return '-';
@@ -34,9 +41,7 @@ function formatJobs(jobs: number): string {
 }
 
 export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexusPanelProps) {
-  const sourceRows = (districtNexus?.topDistricts ?? []).length
-    ? districtNexus!.topDistricts
-    : [...FALLBACK_ROWS];
+  const sourceRows = districtNexus?.topDistricts ?? [];
 
   // Sort descending by jobs, take top 5, normalise bar widths.
   const rows = [...sourceRows]
@@ -61,28 +66,43 @@ export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexus
         <span className="iv1-surface-sub">jobs &amp; ops by CD</span>
       </div>
 
-      <div className="iv1-district-body">
-        {rows.map((row) => (
-          <div key={row.key} className="iv1-district-row">
-            <div className="iv1-district-meta">
-              <strong className="iv1-district-code">{row.district}</strong>
-              <span className="iv1-district-cap">({row.capability})</span>
-            </div>
-            <div className="iv1-district-bar-track">
-              <div className="iv1-district-bar-fill" style={{ width: `${row.pct}%` }} />
-            </div>
-            <span className="iv1-district-jobs num">{formatJobs(row.jobs)}</span>
+      {rows.length === 0 ? (
+        <div className="iv1-empty" style={{ padding: '24px 16px', textAlign: 'center' }}>
+          <b>No district nexus data</b>
+          <span>
+            Add capability/district nexus tags to infer supported jobs by
+            congressional district.{' '}
+            <SmartLink href={supportHref} className="iv1-link">
+              Add to capability tags →
+            </SmartLink>
+          </span>
+        </div>
+      ) : (
+        <>
+          <div className="iv1-district-body">
+            {rows.map((row) => (
+              <div key={row.key} className="iv1-district-row">
+                <div className="iv1-district-meta">
+                  <strong className="iv1-district-code">{row.district}</strong>
+                  <span className="iv1-district-cap">({row.capability})</span>
+                </div>
+                <div className="iv1-district-bar-track">
+                  <div className="iv1-district-bar-fill" style={{ width: `${row.pct}%` }} />
+                </div>
+                <span className="iv1-district-jobs num">{formatJobs(row.jobs)}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      <div className="iv1-district-foot">
-        Inferred from capability/district nexus text.{' '}
-        <a href={supportHref} className="iv1-link">
-          Add to capability tags →
-        </a>{' '}
-        for confirmed counts.
-      </div>
+          <div className="iv1-district-foot">
+            Inferred from capability/district nexus text.{' '}
+            <SmartLink href={supportHref} className="iv1-link">
+              Add to capability tags →
+            </SmartLink>{' '}
+            for confirmed counts.
+          </div>
+        </>
+      )}
     </div>
   );
 }

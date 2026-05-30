@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, test } from 'vitest';
 import { OfficeRecommenderList } from './OfficeRecommenderList.js';
 
@@ -15,12 +16,14 @@ describe('OfficeRecommenderList links', () => {
 
   test('renders All N anchor and row drill links when link builders provided', () => {
     render(
-      <OfficeRecommenderList
-        rows={rows}
-        allCount={12}
-        allHref="/intelligence/offices"
-        rowHrefBuilder={(row) => `/intelligence/offices/${encodeURIComponent(row.name)}`}
-      />,
+      <MemoryRouter>
+        <OfficeRecommenderList
+          rows={rows}
+          allCount={12}
+          allHref="/intelligence/offices"
+          rowHrefBuilder={(row) => `/intelligence/offices/${encodeURIComponent(row.name)}`}
+        />
+      </MemoryRouter>,
     );
 
     expect(screen.getByRole('link', { name: /All 12/i })).toHaveAttribute('href', '/intelligence/offices');

@@ -31,9 +31,15 @@ function kindLabel(kind: NodeKind): string {
 }
 
 function buildNodes(scopedGraph?: ScopedGraph, hardCap = HARD_NODE_CAP): ResolutionGraphNode[] {
-  const memberCount = scopedGraph?.meta.memberCount ?? 10;
-  const lobbyistCount = scopedGraph?.meta.lobbyistCount ?? 4;
-  const committeeCount = scopedGraph?.meta.committeeCount ?? 6;
+  // No invented defaults: when the scoped graph is absent or empty we render
+  // zero nodes and the caller shows an explicit empty state. Previously these
+  // fell back to 10 members / 4 lobbyists / 6 committees, fabricating a graph
+  // of generic "Member N" nodes for clients with no resolved relationships.
+  const memberCount = Math.max(0, scopedGraph?.meta.memberCount ?? 0);
+  const lobbyistCount = Math.max(0, scopedGraph?.meta.lobbyistCount ?? 0);
+  const committeeCount = Math.max(0, scopedGraph?.meta.committeeCount ?? 0);
+
+  if (memberCount + lobbyistCount + committeeCount === 0) return [];
 
   const nodes: ResolutionGraphNode[] = [{ id: 'client-0', label: 'Client', kind: 'client' }];
 
@@ -60,7 +66,7 @@ export function ResolutionGraphCard({
   const visibleNodes = nodes.slice(0, maxVisible);
   const hiddenCount = Math.max(0, nodes.length - visibleNodes.length);
 
-  const avgConfidence = scopedGraph?.resolutionQuality.avgConfidence ?? 64;
+  const avgConfidence = scopedGraph?.resolutionQuality.avgConfidence ?? null;
   const hasExpandableOverflow = nodes.length > defaultNodeCap;
   const expandEnabled = canExpand && hasExpandableOverflow;
 
@@ -75,7 +81,9 @@ export function ResolutionGraphCard({
     <div className="iv1-surface" style={{ overflow: 'hidden' }}>
       <div className="iv1-surface-head">
         <h3>Resolution graph</h3>
-        <span className="iv1-surface-sub">{nodes.length} entities · {avgConfidence}% avg confidence</span>
+        <span className="iv1-surface-sub">
+          {nodes.length} entities{avgConfidence != null ? ` · ${avgConfidence}% avg confidence` : ''}
+        </span>
         <span className="iv1-surface-right" style={{ display: 'flex', gap: 6 }}>
           <button
             type="button"
@@ -100,7 +108,13 @@ export function ResolutionGraphCard({
       </div>
 
       <div className="iv1-rgc-canvas">
-        {visibleNodes.map((node) => {
+        {visibleNodes.length === 0 ? (
+          <div className="iv1-empty" style={{ padding: '24px 16px', textAlign: 'center', width: '100%' }}>
+            <b>No resolved entities yet</b>
+            <span>No lobbyists, members, or committees are linked to this client in the resolution graph.</span>
+          </div>
+        ) : (
+          visibleNodes.map((node) => {
           const href = buildDrillHref(node);
           const focused = focusedNodeId === node.id;
           const commonClass = `iv1-rgc-node ${node.kind} ${focused ? 'is-focused' : ''}`;
@@ -138,7 +152,8 @@ export function ResolutionGraphCard({
               <span className="iv1-rgc-node-label">{node.label}</span>
             </a>
           );
-        })}
+          })
+        )}
       </div>
 
       <div className="iv1-kg-legend">

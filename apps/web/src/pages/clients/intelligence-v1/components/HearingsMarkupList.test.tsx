@@ -1,4 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, test } from 'vitest';
 import { HearingsMarkupList } from './HearingsMarkupList.js';
 
@@ -26,11 +27,13 @@ describe('HearingsMarkupList controls', () => {
 
   test('selecting a hearing updates Sync to calendar CTA context', () => {
     render(
-      <HearingsMarkupList
-        items={items}
-        syncCalendarHref="/engagement"
-        setAlertsHref="/intelligence/changes"
-      />, 
+      <MemoryRouter>
+        <HearingsMarkupList
+          items={items}
+          syncCalendarHref="/engagement"
+          setAlertsHref="/intelligence/changes"
+        />
+      </MemoryRouter>,
     );
 
     // default first item selected
@@ -49,11 +52,13 @@ describe('HearingsMarkupList controls', () => {
 
   test('Set alerts CTA includes selected hearing context', () => {
     render(
-      <HearingsMarkupList
-        items={items}
-        syncCalendarHref="/engagement"
-        setAlertsHref="/intelligence/changes?clientId=abc"
-      />, 
+      <MemoryRouter>
+        <HearingsMarkupList
+          items={items}
+          syncCalendarHref="/engagement"
+          setAlertsHref="/intelligence/changes?clientId=abc"
+        />
+      </MemoryRouter>,
     );
 
     fireEvent.click(screen.getByText('HASC full committee'));

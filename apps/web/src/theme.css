@@ -3605,7 +3605,7 @@ body {
 
 .client-card-topline {
   display: grid;
-  grid-template-columns: 58px minmax(0, 1fr) 18px;
+  grid-template-columns: 58px minmax(0, 1fr);
   gap: 12px;
   align-items: center;
 }
@@ -3643,10 +3643,6 @@ body {
   font-size: 13px;
 }
 
-.client-card-menu {
-  color: #a4adba;
-}
-
 .client-card-details {
   display: flex;
   flex-direction: column;
@@ -3682,7 +3678,7 @@ body {
 
 .client-card-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
   align-items: center;
   margin-top: auto;
@@ -3694,16 +3690,45 @@ body {
 .client-status-pill {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: 32px;
-  padding: 0 10px;
+  gap: 6px;
+  padding: 2px 9px;
   border: 1px solid #dce3ed;
   border-radius: 999px;
   color: #334155;
   background: #f8fafc;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.client-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+/* Status-specific accents (token-driven so dark/light themes follow). */
+.client-status-pill.status-active {
+  color: var(--success, #1a7f4b);
+  border-color: color-mix(in srgb, var(--success, #1a7f4b) 35%, transparent);
+  background: color-mix(in srgb, var(--success, #1a7f4b) 10%, transparent);
+}
+.client-status-pill.status-prospect {
+  color: var(--info, #2454a6);
+  border-color: color-mix(in srgb, var(--info, #2454a6) 35%, transparent);
+  background: color-mix(in srgb, var(--info, #2454a6) 10%, transparent);
+}
+.client-status-pill.status-inactive {
+  color: var(--notable, #9a6700);
+  border-color: color-mix(in srgb, var(--notable, #9a6700) 35%, transparent);
+  background: color-mix(in srgb, var(--notable, #9a6700) 10%, transparent);
+}
+.client-status-pill.status-archived,
+.client-status-pill.status-unknown {
+  color: var(--ink-3, #64748b);
 }
 
 .client-add-card {
@@ -3883,6 +3908,21 @@ body {
   gap: 16px;
 }
 
+/* Responsive: drop to 2 columns on tablet widths and a single column on
+   narrow viewports so cards never get crushed below a usable width. */
+@media (max-width: 1100px) {
+  .redesign .client-card-grid,
+  .client-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 680px) {
+  .redesign .client-card-grid,
+  .client-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* The redesigned card stacks: topline (18px pad) → details (4px 18px 14px
  * margin) → tag-row (0 18px 14px) → footer. The base .client-card-footer
  * style sets padding-top + border-top but no horizontal padding, so without
@@ -3917,7 +3957,7 @@ body {
 .redesign .client-card-topline {
   padding: 18px 18px 14px;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) 24px;
+  grid-template-columns: 48px minmax(0, 1fr);
   gap: 14px;
   align-items: flex-start;
 }
@@ -3925,6 +3965,9 @@ body {
 .redesign .client-avatar {
   width: 48px;
   height: 48px;
+  /* Ant Avatar sets an inline line-height matching its size prop; without
+     resetting it the initials sit off-centre once we constrain the box. */
+  line-height: 48px;
   border-radius: 10px;
   background: var(--bg-sunken);
   border: 1px solid var(--border-1);
@@ -3933,6 +3976,7 @@ body {
   font-size: 15px;
   display: grid;
   place-items: center;
+  overflow: hidden;
 }
 
 .redesign .client-card-title { gap: 2px; }
@@ -3957,15 +4001,8 @@ body {
 }
 
 .redesign .client-card-menu {
-  margin: 0;
-  color: var(--ink-3);
-  width: 28px;
-  height: 28px;
-  border-radius: 6px;
-  display: grid;
-  place-items: center;
+  display: none;
 }
-.redesign .client-card-menu:hover { background: var(--bg-sunken); }
 
 /* Inner details: sunken pill with k/v rows */
 .redesign .client-card-details {
@@ -4016,6 +4053,12 @@ body {
   border: 1px solid var(--border-1);
   color: var(--ink-2);
   margin: 0;
+  /* Keep a single long sector/track label from stretching the chip across the
+     whole row; clip with an ellipsis instead. */
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Footer */
@@ -4026,6 +4069,11 @@ body {
   background: var(--bg-surface-2);
   font-size: 11.5px;
   color: var(--ink-3);
+  /* Status pill sits left, "Updated …" right. */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 .redesign .client-card-footer .ant-typography {
   color: var(--ink-3);

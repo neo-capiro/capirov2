@@ -75,9 +75,13 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
     staleTime: 2 * 60 * 1000,
   });
 
-  /* ── Meetings (last 90 days) ── */
+  /* ── Meetings (last 14 days) ── */
+  // Kept at 14 days to match the "Activity · 14 days" panel header. This is
+  // only used as a fallback meetings count when the aggregate profile-v1
+  // endpoint doesn't supply activity14d; using a 90-day window here made the
+  // "Meetings" bar silently represent a different window than its label.
   const meetingsFrom = useMemo(
-    () => new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
+    () => new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
     [],
   );
   const meetingsQuery = useQuery<unknown[]>({
@@ -166,7 +170,7 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
             />
             <span className="iv1-snap-delta">
               {profile?.lda?.totalSpending != null && (profile?.lda?.totalFilings ?? 0) > 0
-                ? `$${Math.round(profile.lda.totalSpending / profile.lda.totalFilings / 1_000)}K/filing avg`
+                ? `$${Math.round(profile.lda.totalSpending / profile.lda.totalFilings / 1_000)}K/filing avg · all-time`
                 : 'No LDA data yet'}
             </span>
           </div>
@@ -284,63 +288,59 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
 /* ── Sub-components ──────────────────────────────────────────────── */
 
 function HealthGauge({ score }: { score: number | null }) {
-  const pct = score ?? 0;
+  const pct = Math.max(0, Math.min(100, score ?? 0));
   const color =
     pct < 30 ? 'var(--critical)' : pct < 70 ? 'var(--notable)' : 'var(--success)';
-  // CSS-only semi-circle gauge (no canvas/chart dep).
+
+  // SVG semi-circle gauge using stroke-dasharray. The track is a half-circle
+  // path (left→right across the top); the colored arc is the same path with
+  // its dash length set to `pct`% of the arc, so it fills left→right and is
+  // geometrically correct at every score (the old rotated-clipped-div
+  // approach pointed the arc the wrong way at low scores).
   //
-  // Geometry: two 70x70 circles stacked, each clipped to its top half by
-  // clipPath. The filled circle is rotated around its bottom-center so the
-  // colored half-ring sweeps from left (0%) to right (100%). The wrapper
-  // is 70x35 (just the visible semi-circle).
-  //
-  // Bug previously fixed here: at score=0 the filled circle rotates -180°,
-  // which moves the still-clipped visible half down BELOW the 35px wrapper.
-  // Without overflow:hidden the rotated arc bled out into whatever sat
-  // below (Top Alerts panel), rendering as a stray red half-circle. The
-  // overflow rule now clips the gauge to its own box.
-  const deg = Math.round((pct / 100) * 180) - 180;
+  // Path: semicircle of radius R centered at (W/2, R+stroke/2), drawn from the
+  // left end to the right end over the top.
+  const W = 70;
+  const STROKE = 7;
+  const R = (W - STROKE) / 2; // 31.5
+  const CX = W / 2;
+  const CY = R + STROKE / 2; // baseline of the semicircle
+  const arcLength = Math.PI * R; // length of a half-circle arc
+  const dash = (pct / 100) * arcLength;
+  // Start at left (CX-R, CY), sweep over the top to right (CX+R, CY).
+  const d = `M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`;
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-      <div
-        style={{
-          position: 'relative',
-          width: 70,
-          height: 35,
-          flexShrink: 0,
-          overflow: 'hidden',
-        }}
+      <svg
+        width={W}
+        height={CY + STROKE / 2}
+        viewBox={`0 0 ${W} ${CY + STROKE / 2}`}
+        style={{ flexShrink: 0, display: 'block' }}
+        role="img"
+        aria-label={score == null ? 'No health score' : `Engagement health ${pct} of 100`}
       >
         {/* Background track */}
-        <div
-          style={{
-            position: 'absolute',
-            width: 70, height: 70,
-            borderRadius: '50%',
-            border: '7px solid var(--bg-sunken)',
-            top: 0, left: 0,
-            clipPath: 'inset(0 0 50% 0)',
-          }}
+        <path
+          d={d}
+          fill="none"
+          stroke="var(--bg-sunken)"
+          strokeWidth={STROKE}
+          strokeLinecap="round"
         />
-        {/* Filled arc, only render when score > 0 so a perfect 0 doesn't
-            even try to draw the rotated overflow that the wrapper now clips. */}
+        {/* Filled arc */}
         {pct > 0 && (
-          <div
-            style={{
-              position: 'absolute',
-              width: 70, height: 70,
-              borderRadius: '50%',
-              border: `7px solid ${color}`,
-              top: 0, left: 0,
-              clipPath: 'inset(0 0 50% 0)',
-              transform: `rotate(${deg}deg)`,
-              transformOrigin: '50% 100%',
-              transition: 'transform 0.6s ease',
-            }}
+          <path
+            d={d}
+            fill="none"
+            stroke={color}
+            strokeWidth={STROKE}
+            strokeLinecap="round"
+            strokeDasharray={`${dash} ${arcLength}`}
+            style={{ transition: 'stroke-dasharray 0.6s ease' }}
           />
         )}
-      </div>
+      </svg>
       <div>
         <div
           className="num"

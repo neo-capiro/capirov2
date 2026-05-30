@@ -26,6 +26,9 @@ describe('IntelligenceService.getClientProfileV1', () => {
       meetingDebrief: {
         findMany: jest.fn(async () => []),
       },
+      outreachRecord: {
+        findMany: jest.fn(async () => []),
+      },
     };
 
     const prisma: any = {
@@ -46,6 +49,9 @@ describe('IntelligenceService.getClientProfileV1', () => {
         findMany: jest.fn(async () => []),
       },
       meetingDebrief: {
+        findMany: jest.fn(async () => []),
+      },
+      outreachRecord: {
         findMany: jest.fn(async () => []),
       },
       committeeHearing: {
@@ -180,6 +186,9 @@ describe('IntelligenceService.getClientProfileV1', () => {
           findMany: jest.fn(async () => []),
         },
         meetingDebrief: {
+          findMany: jest.fn(async () => []),
+        },
+        outreachRecord: {
           findMany: jest.fn(async () => []),
         },
       }),
