@@ -5,6 +5,8 @@ import {
   jbookDeepLink,
   citationKey,
   isValidPeCode,
+  r2PeSnippet,
+  r2aProjectSnippet,
 } from './jbook-extract.js';
 
 // Pins the pure logic that determines J-book data correctness + page-level
@@ -112,5 +114,29 @@ describe('isValidPeCode', () => {
   test('rejects null/undefined safely', () => {
     expect(isValidPeCode(null)).toBe(false);
     expect(isValidPeCode(undefined)).toBe(false);
+  });
+});
+
+describe('R-2 / R-2A citation snippets', () => {
+  test('r2PeSnippet renders a page range when the exhibit spans multiple pages', () => {
+    expect(r2PeSnippet('0601102A', 'Defense Research Sciences', 33, 40)).toBe(
+      '0601102A Defense Research Sciences — R-2 descriptive summary (pp.33-40)',
+    );
+  });
+
+  test('r2PeSnippet renders a single page when start==end or end missing', () => {
+    expect(r2PeSnippet('0601102A', 'Defense Research Sciences', 33, 33)).toBe(
+      '0601102A Defense Research Sciences — R-2 descriptive summary (p.33)',
+    );
+    expect(r2PeSnippet('0601102A', 'Defense Research Sciences', 33, null)).toBe(
+      '0601102A Defense Research Sciences — R-2 descriptive summary (p.33)',
+    );
+  });
+
+  test('r2aProjectSnippet embeds the page-anchored deep link', () => {
+    const url = 'https://x/RDTE - Vol 1 - Budget Activity 1.pdf';
+    expect(r2aProjectSnippet('0601102A', 'AA2', 'ILIR - SMDC', url, 41)).toBe(
+      `0601102A / AA2 ILIR - SMDC — R-2A project justification (p.41) ${url}#page=41`,
+    );
   });
 });

@@ -61,6 +61,24 @@ export function citationKey(peCode: string, docType: string, pageNumber: number)
   return `${peCode}|${docType}|${pageNumber}`;
 }
 
+/** Human-readable snippet for a PE-level R-2 descriptive-summary citation. */
+export function r2PeSnippet(peCode: string, peName: string, pageStart: number, pageEnd?: number | null): string {
+  const end = pageEnd && pageEnd > pageStart ? pageEnd : pageStart;
+  const range = end > pageStart ? `pp.${pageStart}-${end}` : `p.${pageStart}`;
+  return `${peCode} ${peName} — R-2 descriptive summary (${range})`;
+}
+
+/** Human-readable snippet for a project-level R-2A citation. */
+export function r2aProjectSnippet(
+  peCode: string,
+  projectCode: string,
+  title: string,
+  sourceUrl: string,
+  page: number,
+): string {
+  return `${peCode} / ${projectCode} ${title} — R-2A project justification (p.${page}) ${jbookDeepLink(sourceUrl, page)}`;
+}
+
 /**
  * DoD Program Element / Budget Line Item code validator.
  *

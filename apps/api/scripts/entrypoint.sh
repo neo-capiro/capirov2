@@ -164,12 +164,16 @@ case "${1:-serve}" in
   # the JSON artifact rather than re-parsing the PDF. --commit because a dispatched
   # task always writes (bare invocation is dry-run for local review only).
   sync-comptroller-jbooks) exec ./node_modules/.bin/tsx scripts/sync-comptroller-jbooks.ts --commit ;;
+  # Program Element R-2/R-2A descriptive-summary loader. Reads committed extraction
+  # artifacts (scripts/__data__/jbook_r2_*.json) and enriches program_element
+  # narrative + program_element_project + page citations. No PDF/Python at runtime.
+  sync-jbook-r2) exec ./node_modules/.bin/tsx scripts/sync-jbook-r2.ts --commit ;;
   serve)
     echo "Starting Capiro API"
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2)" >&2
     exit 1
     ;;
 esac

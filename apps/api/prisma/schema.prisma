@@ -191,25 +191,25 @@ model User {
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  memberships             TenantMembership[]
-  auditLogs               AuditLog[]                     @relation("AuditActor")
-  impersonationSessions   ImpersonationSession[]         @relation("ImpersonationActor")
-  directoryContactNotes   DirectoryContactNote[]         @relation("DirectoryContactNoteAuthor")
-  directoryContactFavorites DirectoryContactFavorite[]   @relation("DirectoryContactFavoriteUser")
-  meetingNotes            MeetingNote[]                  @relation("MeetingNoteAuthor")
-  meetingDebriefs         MeetingDebrief[]               @relation("MeetingDebriefAuthor")
-  engagementReportTargets EngagementReportTargetOffice[] @relation("EngagementReportTargetOfficeAuthor")
-  outreachRecords         OutreachRecord[]               @relation("OutreachRecordAuthor")
-  outreachTemplates       OutreachTemplate[]             @relation("OutreachTemplateAuthor")
-  outreachAiTemplates     OutreachAiTemplate[]           @relation("OutreachAiTemplateAuthor")
-  clioConversations       ClioConversation[]             @relation("ClioConversationUser")
-  clioMessages            ClioMessage[]                  @relation("ClioMessageUser")
-  clioArtifacts           ClioArtifact[]                 @relation("ClioArtifactUser")
-  clioNotes               ClioNote[]                     @relation("ClioNoteUser")
-  workflowInstances       WorkflowInstance[]             @relation("WorkflowInstanceCreator")
-  strategies              Strategy[]                     @relation("StrategyCreator")
-  createdCampaigns        EngagementCampaign[]           @relation("CampaignCreator")
-  programElementWatches   ProgramElementWatch[]
+  memberships               TenantMembership[]
+  auditLogs                 AuditLog[]                     @relation("AuditActor")
+  impersonationSessions     ImpersonationSession[]         @relation("ImpersonationActor")
+  directoryContactNotes     DirectoryContactNote[]         @relation("DirectoryContactNoteAuthor")
+  directoryContactFavorites DirectoryContactFavorite[]     @relation("DirectoryContactFavoriteUser")
+  meetingNotes              MeetingNote[]                  @relation("MeetingNoteAuthor")
+  meetingDebriefs           MeetingDebrief[]               @relation("MeetingDebriefAuthor")
+  engagementReportTargets   EngagementReportTargetOffice[] @relation("EngagementReportTargetOfficeAuthor")
+  outreachRecords           OutreachRecord[]               @relation("OutreachRecordAuthor")
+  outreachTemplates         OutreachTemplate[]             @relation("OutreachTemplateAuthor")
+  outreachAiTemplates       OutreachAiTemplate[]           @relation("OutreachAiTemplateAuthor")
+  clioConversations         ClioConversation[]             @relation("ClioConversationUser")
+  clioMessages              ClioMessage[]                  @relation("ClioMessageUser")
+  clioArtifacts             ClioArtifact[]                 @relation("ClioArtifactUser")
+  clioNotes                 ClioNote[]                     @relation("ClioNoteUser")
+  workflowInstances         WorkflowInstance[]             @relation("WorkflowInstanceCreator")
+  strategies                Strategy[]                     @relation("StrategyCreator")
+  createdCampaigns          EngagementCampaign[]           @relation("CampaignCreator")
+  programElementWatches     ProgramElementWatch[]
 
   @@map("users")
 }
@@ -1720,6 +1720,7 @@ model ProgramElement {
   watches                 ProgramElementWatch[]
   conferenceProbabilities ConferenceProbability[]
   sources                 ProgramElementSource[]
+  projects                ProgramElementProject[]
 
   @@index([serviceCode], map: "program_element_service_code_idx")
   @@index([appropriationType], map: "program_element_appropriation_type_idx")
@@ -1756,6 +1757,36 @@ model ProgramElementSource {
   @@index([peCode, fy], map: "program_element_source_pe_fy_idx")
   @@index([docType], map: "program_element_source_doc_type_idx")
   @@map("program_element_source")
+}
+
+// Project / sub-element within a Program Element, sourced from Service RDT&E
+// Justification Book R-2A exhibits (e.g. PE 0601102A -> projects AA1, AA2, ...).
+// Each project carries its own mission narrative and a page-level citation back to
+// the originating exhibit. Global table (no tenant_id / RLS): J-book data is
+// public-domain and read-only via API. Mirrors ProgramElementSource conventions.
+model ProgramElementProject {
+  id             String   @id @default(uuid()) @db.Uuid
+  peCode         String   @map("pe_code") @db.VarChar(8)
+  projectCode    String   @map("project_code") @db.VarChar(8)
+  title          String
+  mission        String?  @db.Text
+  budgetActivity String?  @map("budget_activity")
+  fy             Int?
+  sourceUrl      String?  @map("source_url")
+  pageNumber     Int?     @map("page_number")
+  source         String   @default("comptroller_jbook_r2a")
+  confidence     Float    @default(0.9)
+  metadata       Json     @default("{}") @map("metadata_jsonb")
+  firstSeenAt    DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSyncedAt   DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  @@unique([peCode, projectCode], map: "program_element_project_pe_code_project_key")
+  @@index([peCode], map: "program_element_project_pe_code_idx")
+  @@map("program_element_project")
 }
 
 model ProgramElementYear {
