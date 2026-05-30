@@ -2630,7 +2630,7 @@ export class EngagementService {
     });
   }
 
-  async generateMeetingPrep(ctx: TenantContext, meetingId: string) {
+  async generateMeetingPrep(ctx: TenantContext, meetingId: string, additionalContext?: string) {
     const context = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const meeting = await tx.meeting.findFirst({
         where: { id: meetingId, tenantId: ctx.tenantId, ...ownMeetingWhere(ctx.userId) },
@@ -2748,6 +2748,7 @@ export class EngagementService {
       recentMeetings: context.recentMeetings.map(pruneForAi),
       recentThreads: context.recentThreads.map(prepareThreadForAi),
       tasks: context.meeting.tasks.map(pruneForAi),
+      additionalContext: additionalContext?.trim() || null,
     };
     const promptHash = createHash('sha256').update(JSON.stringify(promptContext)).digest('hex');
     const generated = await this.ai.generateMeetingPrep(promptContext);

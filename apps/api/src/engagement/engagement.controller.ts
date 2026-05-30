@@ -170,6 +170,13 @@ class GenerateDebriefDraftDto {
   sourceText!: string;
 }
 
+class GenerateMeetingPrepDto {
+  @IsOptional()
+  @IsString()
+  @Length(0, 4000)
+  additionalContext?: string;
+}
+
 class UpdateMeetingPrepDto {
   @IsOptional()
   @IsString()
@@ -1116,8 +1123,12 @@ export class EngagementController {
   }
 
   @Post('meetings/:id/prep')
-  generatePrep(@CurrentTenant() ctx: TenantContext, @Param('id') meetingId: string) {
-    return this.service.generateMeetingPrep(ctx, meetingId);
+  generatePrep(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') meetingId: string,
+    @Body() body: GenerateMeetingPrepDto,
+  ) {
+    return this.service.generateMeetingPrep(ctx, meetingId, body.additionalContext);
   }
 
   @Patch('meeting-preps/:id')

@@ -29,6 +29,8 @@ export interface MeetingPrepInput {
   recentMeetings: Array<Record<string, unknown>>;
   recentThreads: Array<Record<string, unknown>>;
   tasks: Array<Record<string, unknown>>;
+  /** Free-form context the user typed to ground/steer the prep generation. */
+  additionalContext?: string | null;
 }
 
 export interface MeetingPrepResult {
@@ -936,18 +938,37 @@ export class EngagementAiService {
     const hasPriorMeetings = input.recentMeetings.length > 0;
     const hasDirectoryMatches = input.congressionalDirectoryMatches.length > 0;
     const hasTasks = input.tasks.length > 0;
+    const userContext = (input.additionalContext ?? '').trim();
+    const hasUserContext = userContext.length > 0;
+    // "Substantive" context = anything beyond the bare meeting record (subject,
+    // time, attendee names). With none of it, the model must NOT invent a brief.
+    const hasSubstantiveContext =
+      hasEmailThreads || hasPriorMeetings || hasTasks || hasDirectoryMatches || hasUserContext;
 
     return [
       'Write a lobbyist-ready meeting prep. Keep it concise, specific, and decision-focused.',
-      'Use only provided data. If a fact is missing, omit it. Do not guess, infer people\'s positions, or invent commitments.',
+      // --- Hard anti-fabrication contract ---
+      'STRICT GROUNDING RULES (highest priority, override everything else):',
+      '- Every statement in agenda, talkingPoints, risks, followUps, summary, and emailEvidence MUST be directly supported by the supplied JSON context below (recentThreads emails, recentMeetings, tasks, congressionalDirectoryMatches, the meeting/client/attendee records) or the user-provided additional context.',
+      '- Do NOT introduce any fact, policy position, relationship, history, statistic, commitment, priority, or topic that is not explicitly present in that data. No outside/world knowledge. No plausible-sounding guesses.',
+      '- Do NOT infer what attendees think, want, or will say unless the source text states it.',
+      '- If you are tempted to add a detail and cannot point to where it came from in the supplied data, omit it.',
+      '',
+      hasSubstantiveContext
+        ? 'There IS supporting context below. Ground every line in it.'
+        : 'INSUFFICIENT CONTEXT: there are no emails, prior meetings, tasks, directory matches, or user-provided notes for this meeting. Do NOT fabricate a brief. Instead: set summary to a short, honest statement that there is not enough context to prepare a substantive prep (e.g., "No emails, prior meetings, or notes were found for this meeting, so there isn\'t enough context to prepare a substantive brief. Add context below, or sync the relevant email threads."). Return EMPTY arrays for talkingPoints, risks, followUps, and emailEvidence. Keep agenda to logistics/objective placeholders only. Do not invent discussion priorities or attendee positions.',
+      '',
+      hasUserContext
+        ? `USER-PROVIDED ADDITIONAL CONTEXT (authoritative; treat as factual input from the user and incorporate it):\n${userContext}`
+        : 'No additional context was provided by the user.',
       '',
       'Output structure (JSON fields):',
-      'agenda: short section headers with one-line guidance for: Objective, Executive Summary, Discussion Priorities, Attendee Context, Risks, Logistics.',
-      'talkingPoints: 3-7 concrete points the lobbyist can say in the room.',
-      'risks: 2-5 likely objections/sensitivities grounded in supplied context only.',
+      'agenda: short section headers with one-line guidance for: Objective, Executive Summary, Discussion Priorities, Attendee Context, Risks, Logistics. Only include a section when supported by context.',
+      'talkingPoints: concrete points the lobbyist can say in the room, each grounded in supplied context (empty array if none).',
+      'risks: likely objections/sensitivities grounded in supplied context only (empty array if none).',
       'followUps: specific next steps with owner/timing when known; if unknown, leave timing blank rather than fabricating.',
-      'summary: 2-4 sentence plain-language brief (who, why now, what success looks like).',
-      'emailEvidence: concise bullets from provided threads only; empty array when none.',
+      'summary: 2-4 sentence plain-language brief (who, why now, what success looks like) — or the insufficient-context statement above when there is no context.',
+      'emailEvidence: concise bullets drawn verbatim/paraphrased from provided threads only; empty array when none.',
       '',
       hasDirectoryMatches
         ? 'Use congressionalDirectoryMatches for attendee context (role, committee/jurisdiction, office details) when present.'
@@ -960,7 +981,7 @@ export class EngagementAiService {
         : 'No open tasks were found.',
       hasEmailThreads
         ? 'Use recentThreads as evidence for talkingPoints/risks/followUps; quote or paraphrase only what is present.'
-        : 'No recentThreads were provided. Keep output grounded in available non-email context only.',
+        : 'No recentThreads were provided. Do not invent email-derived points.',
       'Tone: professional federal lobbying operator, direct, practical, no fluff.',
       'Return JSON only with: agenda, talkingPoints, risks, followUps, summary, emailEvidence.',
       'Email thread highlights (for grounding):',
@@ -1059,9 +1080,15 @@ export class EngagementAiService {
   }
 
   private buildDebriefPrompt(input: MeetingDebriefDraftInput): string {
+    const sourceText = (input.source?.text ?? '').trim();
+    const hasSource = sourceText.length > 0;
+
     return [
       'Write a concise, lobbyist-ready post-meeting debrief for CRM records.',
-      'Use only supplied source text/context. If a detail is missing, omit it. Do not invent facts, attendees, commitments, dates, or policy positions.',
+      'STRICT GROUNDING RULES (highest priority): the debrief MUST be built ONLY from the supplied source text (the user\'s meeting notes), visibleNotes, and the provided meeting/client/attendee/prep/directory context below. Do NOT invent facts, attendees, commitments, dates, numbers, policy positions, or outcomes. No outside knowledge. If a detail is not in the source text or supplied context, do not state it.',
+      hasSource
+        ? 'The user supplied meeting notes in source.text — treat that as the primary source of truth and stay within it.'
+        : 'INSUFFICIENT CONTEXT: source.text is empty and there are no usable notes. Do NOT fabricate a debrief. Set recap to a short honest statement that there are no meeting notes to summarize yet (e.g., "No meeting notes were provided, so there is nothing to debrief yet. Add notes above to generate a debrief."), and return EMPTY arrays/empty notes. Do not invent what happened.',
       '',
       'Output structure (JSON fields):',
       'recap: short structured narrative with only these headings:',

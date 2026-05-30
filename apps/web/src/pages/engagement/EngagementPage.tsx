@@ -690,9 +690,19 @@ export function EngagementPage() {
   });
 
   const generatePrep = useMutation({
-    mutationFn: async (meetingId: string) =>
-      (await api.post(`/api/engagement/meetings/${meetingId}/prep`)).data,
-    onSuccess: (_prep, meetingId) => {
+    mutationFn: async ({
+      meetingId,
+      additionalContext,
+    }: {
+      meetingId: string;
+      additionalContext?: string;
+    }) =>
+      (
+        await api.post(`/api/engagement/meetings/${meetingId}/prep`, {
+          additionalContext: additionalContext?.trim() || undefined,
+        })
+      ).data,
+    onSuccess: (_prep, { meetingId }) => {
       message.success('Meeting prep generated');
       qc.invalidateQueries({ queryKey: ['engagement-meeting', meetingId] });
       qc.invalidateQueries({ queryKey: ['engagement-meetings'] });
@@ -860,7 +870,9 @@ export function EngagementPage() {
     return () => window.removeEventListener('capiro:open-outreach', handler);
   }, []);
 
-  const generatingPrepMeetingId = generatePrep.isPending ? (generatePrep.variables ?? null) : null;
+  const generatingPrepMeetingId = generatePrep.isPending
+    ? (generatePrep.variables?.meetingId ?? null)
+    : null;
   const detailTab = meetingDetailTab === 'notes' ? 'prep' : meetingDetailTab;
 
   const openMeetingModal = () => {
@@ -873,10 +885,10 @@ export function EngagementPage() {
     setMeetingModalOpen(true);
   };
 
-  const handleGeneratePrep = (meeting: Meeting) => {
+  const handleGeneratePrep = (meeting: Meeting, additionalContext?: string) => {
     setSelectedMeetingId(meeting.id);
     setMeetingDetailTab('prep');
-    generatePrep.mutate(meeting.id);
+    generatePrep.mutate({ meetingId: meeting.id, additionalContext });
   };
 
   const handleTabChange = (nextKey: string) => {
@@ -1823,7 +1835,7 @@ function MeetingDetailPanel({
   savingDebrief: boolean;
   generatingDebrief: boolean;
   approving: boolean;
-  onGeneratePrep: (meeting: Meeting) => void;
+  onGeneratePrep: (meeting: Meeting, additionalContext?: string) => void;
   onUploadTranscript: (meeting: Meeting, file: File) => Promise<EngagementAttachment>;
   onExtractAttachmentText: (attachment: EngagementAttachment) => Promise<DebriefSourceExtraction>;
   onRemoveAttachment: (attachmentId: string) => void;
@@ -1837,6 +1849,9 @@ function MeetingDetailPanel({
   onApprovePrep: (prep: MeetingPrep) => void;
   onExportPdf: (meeting: Meeting) => void;
 }) {
+  // Optional free-form context the user can add to steer prep generation.
+  const [prepContext, setPrepContext] = useState('');
+
   if (!meeting) {
     return (
       <div className="engagement-panel engagement-detail-panel">
@@ -1927,15 +1942,23 @@ function MeetingDetailPanel({
                         </Typography.Text>
                       ) : (
                         <Typography.Text type="secondary">
-                          Generate prep from the client profile, participant profiles, prior meeting
-                          history, and congressional context.
+                          Prep is grounded only in the client profile, participant profiles, prior
+                          meetings, and synced emails. Add any extra context below to steer it.
                         </Typography.Text>
                       )}
+                      <Input.TextArea
+                        value={prepContext}
+                        onChange={(e) => setPrepContext(e.target.value)}
+                        placeholder="Optional: add context for this prep (goals, background, what you know going in). Clio uses only this plus your synced emails/meetings — it won't invent details."
+                        autoSize={{ minRows: 3, maxRows: 8 }}
+                        maxLength={4000}
+                        style={{ maxWidth: 560, margin: '8px auto 0' }}
+                      />
                       <Button
                         type="primary"
                         disabled={!aiConfigured || !meeting.client}
                         loading={generating}
-                        onClick={() => onGeneratePrep(meeting)}
+                        onClick={() => onGeneratePrep(meeting, prepContext)}
                       >
                         {generating ? 'Clio Is Preparing Your Brief...' : 'Generate Prep'}
                       </Button>
@@ -1983,11 +2006,19 @@ function MeetingDetailPanel({
         />
       </div>
       {activeTab === 'prep' && prep ? (
-        <div className="engagement-detail-actions">
+        <div className="engagement-detail-actions" style={{ flexWrap: 'wrap' }}>
+          <Input.TextArea
+            value={prepContext}
+            onChange={(e) => setPrepContext(e.target.value)}
+            placeholder="Add context to refine this prep, then Regenerate. Clio uses only this plus your synced emails/meetings."
+            autoSize={{ minRows: 1, maxRows: 4 }}
+            maxLength={4000}
+            style={{ flexBasis: '100%' }}
+          />
           <Button
             icon={<RobotOutlined />}
             loading={generating}
-            onClick={() => onGeneratePrep(meeting)}
+            onClick={() => onGeneratePrep(meeting, prepContext)}
           >
             Regenerate
           </Button>
