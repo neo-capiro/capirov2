@@ -620,6 +620,18 @@ class OutreachRecipientDto {
   personalNote?: string;
 
   @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsEmail({}, { each: true })
+  cc?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsEmail({}, { each: true })
+  bcc?: string[];
+
+  @IsOptional()
   @IsUUID()
   meetingId?: string;
 
@@ -810,6 +822,46 @@ class GenerateBatchEmailDto {
   @ValidateNested({ each: true })
   @Type(() => OutreachSelectedContextItemDto)
   contextItems?: OutreachSelectedContextItemDto[];
+}
+
+class SendBatchDraftDto {
+  @IsString()
+  @Length(1, 240)
+  recipientId!: string;
+
+  @IsString()
+  @Length(0, 300)
+  subject!: string;
+
+  @IsString()
+  @Length(0, 20000)
+  body!: string;
+}
+
+class SendBatchEmailDto {
+  @IsOptional()
+  @IsUUID()
+  clientId?: string;
+
+  @IsOptional()
+  @IsIn(['on-behalf', 'to-clients'])
+  direction?: 'on-behalf' | 'to-clients';
+
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachRecipientDto)
+  recipients!: OutreachRecipientDto[];
+
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => SendBatchDraftDto)
+  drafts!: SendBatchDraftDto[];
+
+  @IsOptional()
+  @IsBoolean()
+  testMode?: boolean;
 }
 
 class CreateOutreachRecordDto {
@@ -1171,6 +1223,11 @@ export class EngagementController {
     @Body() body: GenerateBatchEmailDto,
   ) {
     return this.service.generateBatchEmails(ctx, body);
+  }
+
+  @Post('outreach/send-batch')
+  sendBatchEmails(@CurrentTenant() ctx: TenantContext, @Body() body: SendBatchEmailDto) {
+    return this.service.sendBatchEmails(ctx, body);
   }
 
   @Get('outreach/:id')

@@ -27,7 +27,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { SearchOutlined, UserAddOutlined } from '@ant-design/icons';
+import { CloseOutlined, SearchOutlined, UserAddOutlined } from '@ant-design/icons';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import type { ColumnsType } from 'antd/es/table';
 import { useApi } from '../../../../lib/use-api.js';
@@ -109,6 +109,10 @@ export function StepRecipients({
     onChange(recipients.filter((x) => recipientKey(x) !== key));
   };
 
+  const updateRecipient = (key: string, patch: Partial<OutreachRecipient>) => {
+    onChange(recipients.map((x) => (recipientKey(x) === key ? { ...x, ...patch } : x)));
+  };
+
   return (
     <div>
       <h2>
@@ -126,22 +130,21 @@ export function StepRecipients({
           : 'Choose which client people from your portfolio should receive this briefing.'}
       </div>
 
-      {/* Chip rail of current selections */}
+      {/* Selected recipients: each gets its own email, and you can copy others
+          on it via Cc / Bcc. */}
       {recipients.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            Selected:
+            Selected ({recipients.length}) — each recipient gets their own email. Add others to Cc/Bcc per recipient.
           </Typography.Text>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
             {recipients.map((r) => (
-              <Tag
+              <SelectedRecipientRow
                 key={recipientKey(r)}
-                closable
-                onClose={() => removeRecipient(r)}
-                style={{ margin: 0 }}
-              >
-                {r.name || r.email || 'Recipient'}
-              </Tag>
+                recipient={r}
+                onUpdate={(patch) => updateRecipient(recipientKey(r), patch)}
+                onRemove={() => removeRecipient(r)}
+              />
             ))}
           </div>
         </div>
@@ -156,6 +159,100 @@ export function StepRecipients({
           recipients={recipients}
           onChange={onChange}
         />
+      )}
+    </div>
+  );
+}
+
+// A selected-recipient row with an expandable Cc/Bcc editor. Each recipient
+// receives their own personalized email; Cc/Bcc copies others on that one
+// message. Tags are filtered to syntactically valid emails so the send
+// endpoint (which validates each address) doesn't 400.
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function SelectedRecipientRow({
+  recipient,
+  onUpdate,
+  onRemove,
+}: {
+  recipient: OutreachRecipient;
+  onUpdate: (patch: Partial<OutreachRecipient>) => void;
+  onRemove: () => void;
+}) {
+  const ccCount = (recipient.cc?.length ?? 0) + (recipient.bcc?.length ?? 0);
+  const [open, setOpen] = useState(ccCount > 0);
+
+  const sanitize = (vals: string[]) =>
+    Array.from(new Set(vals.map((v) => v.trim().toLowerCase()).filter((v) => EMAIL_RE.test(v))));
+
+  return (
+    <div
+      style={{
+        border: '1px solid var(--ov2-border-1)',
+        borderRadius: 8,
+        padding: '8px 12px',
+        background: 'var(--ov2-bg-surface)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ fontWeight: 600, fontSize: 13 }}>
+            {recipient.name || recipient.email || 'Recipient'}
+          </span>
+          {recipient.email && (
+            <span style={{ fontSize: 12, color: 'var(--ov2-ink-3)', marginLeft: 8 }}>
+              {recipient.email}
+            </span>
+          )}
+          {ccCount > 0 && !open && (
+            <span style={{ fontSize: 11, color: 'var(--ov2-ink-3)', marginLeft: 8 }}>
+              +{ccCount} copied
+            </span>
+          )}
+        </div>
+        <Button size="small" type="text" onClick={() => setOpen((o) => !o)}>
+          {open ? 'Hide Cc/Bcc' : 'Add Cc/Bcc'}
+        </Button>
+        <Button
+          size="small"
+          type="text"
+          danger
+          icon={<CloseOutlined />}
+          onClick={onRemove}
+          aria-label="Remove recipient"
+        />
+      </div>
+      {open && (
+        <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: 'var(--ov2-ink-3)', marginBottom: 2 }}>Cc</div>
+            <Select
+              mode="tags"
+              size="small"
+              style={{ width: '100%' }}
+              placeholder="email@example.com"
+              tokenSeparators={[',', ';', ' ']}
+              value={recipient.cc ?? []}
+              onChange={(vals: string[]) => onUpdate({ cc: sanitize(vals) })}
+              open={false}
+              suffixIcon={null}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: 'var(--ov2-ink-3)', marginBottom: 2 }}>Bcc</div>
+            <Select
+              mode="tags"
+              size="small"
+              style={{ width: '100%' }}
+              placeholder="email@example.com"
+              tokenSeparators={[',', ';', ' ']}
+              value={recipient.bcc ?? []}
+              onChange={(vals: string[]) => onUpdate({ bcc: sanitize(vals) })}
+              open={false}
+              suffixIcon={null}
+            />
+          </div>
+        </div>
       )}
     </div>
   );

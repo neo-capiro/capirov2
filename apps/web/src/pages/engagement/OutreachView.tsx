@@ -111,6 +111,9 @@ export interface OutreachRecipient {
   relevanceReason?: string;
   sourceLabel?: string;
   personalNote?: string;
+  /** Additional Cc / Bcc addresses copied on this recipient's email. */
+  cc?: string[];
+  bcc?: string[];
   meetingId?: string;
   meetingSubject?: string;
   meetingDateTime?: string;

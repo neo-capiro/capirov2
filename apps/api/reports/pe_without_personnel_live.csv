@@ -1,0 +1,811 @@
+pe_code,title
+0101113F,B-52 Squadrons
+0101122F,Air-Launched Cruise Missile (ALCM)
+0101126F,B-1B Squadrons
+0101127F,B-2 Squadrons
+0101213F,Minuteman Squadrons
+0101221N,Strategic Sub & Weapons System Support
+0101224N,SSBN Security Technology Program
+0101226N,Submarine Acoustic Warfare Development
+0101316F,Worldwide Joint Strategic Communications
+0101318F,Service Support to STRATCOM - Global Strike
+0101328F,ICBM Reentry Vehicles
+0101402N,Navy Strategic Communications
+0102110F,MH-139A
+0102326F,Region/Sector Operation Control Center Modernization Program
+0102417F,Over-the-Horizon Backscatter Radar
+0105519N,Nuclear-Armed Sea-Launched Cruise Missile (SLCM-N) Support
+0202057C,Safety Program Management
+0202834F,Vehicles and Support Equipment  - General
+0203728A,Joint Automated Deep Operation Coordination System (JADOCS)
+0203735A,Combat Vehicle Improvement Programs
+0203743A,155mm Self-Propelled Howitzer Improvements
+0203752A,Aircraft Engine Component Improvement Program
+0203758A,Digitization
+0203801A,Missile/Air Defense Product Improvement Program
+0203802A,Other Missile Product Improvement Programs
+0204134N,Navy F/A-18 modernization
+0204136N,F/A-18 Squadrons
+0204202N,Destroyers Guided Missile (DDG-1000)
+0204228N,Surface Support
+0204229N,Tomahawk and Tomahawk Mission Planning Center (TMPC)
+0204311N,Integrated Surveillance System
+0204313N,Ship-Towed Array Surveillance Systems
+0204413N,Amphibious Tactical Support Units (Displacement Craft)
+0204460M,Ground/Air Task Oriented Radar (G/ATOR)
+0204571J,Joint Staff Analytical Support
+0204571N,Consolidated Training Systems Development
+0204575N,Electronic Warfare (EW) Readiness Support
+0205219F,MQ-9 UAV
+0205412A,Environmental Quality Technology - Operational System Dev
+0205601N,Anti-Radiation Missile Improvement
+0205620N,Surface ASW Combat System Integration
+0205632N,MK-48 ADCAP
+0205633N,Aviation Improvements
+0205671F,Joint Counter RCIED Electronic Warfare
+0205675N,Operational Nuclear Power Systems
+0205778A,Guided Multiple-Launch Rocket System (GMLRS)
+0206313M,Marine Corps Communications Systems
+0206335M,Common Aviation Command and Control System (CAC2S)
+0206623M,Marine Corps Ground Combat/Supporting Arms Systems
+0206624M,Marine Corps Combat Services Support
+0206625M,USMC Intelligence/Electronic Warfare Systems
+0206629M,Amphibious Assault Vehicle
+0207039F,Cognitive Electromagnetic Warfare
+0207040F,Multi-Platform Electronic Warfare Equipment
+0207110F,F-47
+0207133F,F-16 Squadrons
+0207134F,F-15E Squadrons
+0207136F,Manned Destructive Suppression
+0207138F,F-22A Squadrons
+0207142F,F-35 Squadrons
+0207146F,F-15EX
+0207147M,Collaborative Combat Aircraft
+0207161F,Tactical AIM Missiles
+0207161N,Tactical AIM Missiles
+0207163F,Advanced Medium Range Air-to-Air Missile (AMRAAM)
+0207163N,Advanced Medium Range Air-to-Air Missile (AMRAAM)
+0207171F,F-15 EPAWSS
+0207172F,Joint Advanced Tactical Missile (JATM)
+0207179F,Autonomous Collaborative Platforms
+0207227F,Combat Rescue - Pararescue
+0207238F,E-11A
+0207242F,Special Program Applications
+0207247F,AF TENCAP
+0207249F,Precision Attack Systems Procurement
+0207253F,Compass Call
+0207268F,Aircraft Engine Component Improvement Program
+0207279F,Isolated Personnel Survivability and Recovery
+0207325F,Joint Air-to-Surface Standoff Missile (JASSM)
+0207327F,Small Diameter Bomb (SDB)
+0207328F,Stand In Attack Weapon
+0207407F,Electromagnetic Battle Management (EMBM)
+0207410F,Air & Space Operations Center (AOC)
+0207412F,Control and Reporting Center (CRC)
+0207418F,AFSPECWAR - TACP
+0207420F,Combat Identification
+0207423F,Advanced Communications Systems
+0207431F,Combat Air Intelligence System Activities
+0207438F,Theater Battle Management (TBM) C4I
+0207439F,Electromagnetic Warfare Int Reprog (EWIR)
+0207444F,Tactical Air Control Party-Mod
+0207448F,C2ISR Tactical Data Link
+0207452F,DCAPES
+0207455F,Three Dimensional Long-Range Radar (3DELRR)
+0207457F,Air Force Special Warfare (SPECWAR)
+0207521F,Air Force Calibration Programs
+0207522F,Airbase Air Defense Systems (ABADS)
+0207573F,National Technical Nuclear Forensics
+0207590F,Seek Eagle
+0207605F,Wargaming and Simulation Centers
+0207606F,Joint Simulation Environment (JSE)
+0207611F,Readiness Decision Support Enterprise
+0207697F,Distributed Training and Exercises
+0207701F,Full Combat Mission Training
+0208006F,Mission Planning Systems
+0208007F,Tactical Deception
+0208030F,War Reserve Materiel - Ammunition
+0208036F,Medical C-CBRNE Programs
+0208043N,Planning and Decision Aid System (PDAS)
+0208045K,C4I Interoperability
+0208053A,Joint Tactical Ground System
+0208087F,Distributed Cyber Warfare Operations
+0208201F,Offensive small Unmanned Aircraft Systems (sUAS)
+0208288F,Intel Data Applications
+0300206R,Enterprise Information Technology Systems
+0301025F,GeoBase
+0301113F,Cyber Security Intelligence Support
+0301377F,Countering Advanced Conventional Weapons (CACW)
+0301377N,Countering Advanced Conventional Weapons (CACW)
+0301401F,AF Multi-Domain Non-Traditional ISR Battlespace Awareness
+0302015F,E-4B National Airborne Operations Center (NAOC)
+0302019K,Defense Info Infrastructure Engineering and Integration
+0302315F,Non-Kinetic Countermeasure Support
+0302315N,Non-Kinetic Countermeasure Support
+0302609V,Countering Threats Automated Platform
+0303004F,EIT CONNECT
+0303008F,SATURN
+0303010F,AF ISR Digital Infrastructure
+0303028A,Security and Intelligence Activities
+0303032A,TROJAN - RH12
+0303089F,Cyberspace and DoDIN Operations
+0303126K,Long-Haul Communications - DCS
+0303131F,Minimum Essential Emergency Communications Network (MEECN)
+0303131K,Minimum Essential Emergency Communications Network (MEECN)
+0303133F,High Frequency Radio Systems
+0303138N,Afloat Networks
+0303140A,Information Systems Security Program
+0303140F,Information Systems Security Program
+0303140K,Information Systems Security Program
+0303140N,Information Systems Security Program
+0303141A,Global Combat Support System
+0303142A,SATCOM Ground Environment (SPACE)
+0303150K,Global Command and Control System
+0303153K,Defense Spectrum Organization
+0303171K,Joint Planning and Execution Services
+0303228K,Joint Regional Security Stacks (JRSS)
+0303248F,All Domain Common Platform
+0303255F,Command, Control, Communication, and Computers (C4) - STRATCOM
+0303260F,Joint Military Deception Initiative
+0303260N,Defense Military Deception Initiative
+0303267F,Auctioned Spectrum Relocation Fund
+0303267N,Auctioned Spectrum Relocation Fund
+0303354N,ASW Systems Development - MIP
+0303430V,Federal Investigative Services Information Technology
+0303667N,Citizen Broadband Radio System
+0303767A,AMBIT - Pre-Auctioned SRF
+0303867F,AMBIT - Post-Auctioned SRF
+0303867K,AMBIT - Post-Auctioned SRF
+0303867N,AMBIT - Post-Auctioned SRF
+0304100F,Strategic Mission Planning & Execution System (SMPES)
+0304109F,THRESHER
+0304240M,Advanced Tactical Unmanned Aircraft System
+0304260F,Airborne SIGINT Enterprise
+0304270A,Electronic Warfare Development
+0304270N,Electronic Warfare Development - MIP
+0304310F,Commercial Economic Analysis
+0304785N,ISR & Info Operations
+0304797N,Undersea Artificial Intelligence / Machine Learning (AI/ML)
+0305015F,C2 Air Operations Suite - C2 Info Services
+0305020F,CCMD Intelligence Information Technology
+0305022F,ISR Modernization & Automation Dvmt (IMAD)
+0305099F,Global Air Traffic Management (GATM)
+0305103C,Cyber Security Initiative
+0305103F,Cyber Security Initiative
+0305111F,Weather Service
+0305114F,Air Traffic Control, Approach, and Landing System (ATCALS)
+0305116F,Aerial Targets
+0305128F,Security and Investigative Activities
+0305133V,Industrial Security Activities
+0305146F,Defense Joint Counterintelligence Activities
+0305146V,Defense Joint Counterintelligence Activities
+0305155F,Theater Nuclear Weapon Storage & Security System
+0305158F,Tactical Terminal
+0305172K,Combined Advanced Applications
+0305179A,Integrated Broadcast Service (IBS)
+0305179F,Integrated Broadcast Service (IBS)
+0305192N,Military Intelligence Program (MIP) Activities
+0305202F,Dragon U-2
+0305204N,Tactical Unmanned Aerial Vehicles
+0305205F,Endurance Unmanned Aerial Vehicles
+0305205N,UAS Integration and Interoperability
+0305206F,Airborne Reconnaissance Systems
+0305207F,Manned Reconnaissance Systems
+0305208F,Distributed Common Ground/Surface Systems
+0305208K,Distributed Common Ground/Surface Systems
+0305208M,Distributed Common Ground/Surface Systems
+0305219A,MQ-1 Gray Eagle UAV
+0305220F,RQ-4 UAV
+0305220N,MQ-4C Triton
+0305221F,Network-Centric Collaborative Targeting
+0305231N,MQ-8 UAV
+0305232M,RQ-11 UAV
+0305234N,Small (Level 0) Tactical UAS (STUASL0)
+0305236F,Common Data Link Executive Agent (CDL EA)
+0305238F,NATO AGS
+0305240F,ISR Transport and Processing
+0305241N,Multi-Intelligence Sensor Development
+0305242M,Unmanned Aerial Systems (UAS) Payloads (MIP)
+0305248J,Joint Staff Office of the Chief Data Officer (OCDO) Activities
+0305249F,AF JWICS Enterprise
+0305251A,Cyberspace Operations Forces and Force Support
+0305251N,Cyberspace Operations Forces and Force Support
+0305282F,Joint Fires Network (JFN)
+0305327N,Insider Threat
+0305327V,Insider Threat
+0305421N,MQ-4C Triton Modernization
+0305600F,International Intelligence Technology and Architectures
+0305601F,Mission Partner Environments
+0305836F,C2IMERA
+0305881F,Rapid Cyber Acquisition
+0305903F,COCOM Mobile Command and Control Centers (MCCCs)
+0305984F,Personnel Recovery Command & Ctrl (PRC2)
+0307577F,Intelligence Mission Data (IMD)
+0307577N,Intelligence Mission Data (IMD)
+0307609V,National Industrial Security Systems (NISS)
+0308601N,Modeling and Simulation Support
+0308602F,ENTEPRISE INFORMATION SERVICES (EIS)
+0401115F,C-130 Airlift Squadron
+0401119F,C-5 Airlift Squadrons (IF)
+0401130F,C-17 Aircraft (IF)
+0401132F,C-130J Program
+0401134F,Large Aircraft IR Countermeasures (LAIRCM)
+0401218F,KC-135s
+0401221F,KC-46A Tanker Squadrons
+0401318F,CV-22
+0401319F,VC-25B
+0408011F,Special Tactics / Combat Control
+0408042N,National Defense Sealift Fund
+0601103A,University Research Initiatives
+0601103F,University Research Initiatives
+0601104A,University and Industry Research Centers
+0601117E,Basic Operational Medical Research Science
+0601122E,Emerging Opportunities
+0601153N,Defense Research Sciences
+0602002A,Army Agile Innovation and Development-Applied Research
+0602020F,Future AF Capabilities Applied Research
+0602022F,University Affiliated Research Center (UARC) - Tactical Autonomy
+0602023E,Access and Awareness
+0602024E,Warfighting Performance
+0602025E,Making, Maintaining, Supply Chain and Logistics
+0602026E,Effects
+0602102F,Materials
+0602114N,Power Projection Applied Research
+0602115E,Biomedical Technology
+0602123N,Force Protection Applied Research
+0602131M,Marine Corps Landing Force Technology
+0602134A,Counter Improvised-Threat Advanced Studies
+0602141A,Lethality Technology
+0602142A,Army Applied Research
+0602144A,Ground Technology
+0602145A,Next Generation Combat Vehicle Technology
+0602147A,Long Range Precision Fires Technology
+0602148A,Future Verticle Lift Technology
+0602180A,Artificial Intelligence and Machine Learning Technologies
+0602181A,All Domain Convergence Applied Research
+0602182A,C3I Applied Research
+0602183A,Air Platform Applied Research
+0602202F,Human Effectiveness Applied Research
+0602203F,Aerospace Systems Technologies
+0602204F,Aerospace Sensors
+0602212F,Defense Laboratories R&D Projects (10 U.S.C, Sec 2358)
+0602213A,C3I Applied Cyber
+0602235N,Common Picture Applied Research
+0602236N,Warfighter Sustainment Applied Research
+0602271N,Electromagnetic Systems Applied Research
+0602275A,Electronic Warfare Applied Research
+0602276A,Electronic Warfare Cyber Applied Research
+0602298F,Science and Technology Management -  Major Headquarters Activities
+0602345A,Unmanned Aerial Systems Launched Effects Applied Research
+0602386A,Biotechnology for Materials - Applied Research
+0602435N,Ocean Warfighting Environment Applied Research
+0602605F,Directed Energy Technology
+0602651M,Joint Non-Lethal Weapons Applied Research
+0602702E,Tactical Technology
+0602716E,Electronics Technology
+0602747N,Undersea Warfare Applied Research
+0602750N,Future Naval Capabilities Applied Research
+0602782N,Mine and Expeditionary Warfare Applied Research
+0602787A,Medical Technology
+0602788F,Dominant Information Sciences and Methods
+0602792N,Innovative Naval Prototypes (INP) Applied Research
+0602861N,Science and Technology Management - ONR Field Acitivities
+0603002A,Medical Advanced Technology
+0603007A,Manpower, Personnel and Training Advanced Technology
+0603025A,Army Agile Innovation and Demonstration
+0603032F,Future AF Integrated Technology Demos
+0603040A,Artificial Intelligence and Machine Learning Advanced Technologies
+0603041A,All Domain Convergence Advanced Technology
+0603042A,C3I Advanced Technology
+0603043A,Air Platform Advanced Technology
+0603044A,Soldier Advanced Technology
+0603112F,Advanced Materials for Weapon Systems
+0603116A,Lethality Advanced Technology
+0603117A,Army Advanced Technology Development
+0603118A,Soldier Lethality Advanced Technology
+0603119A,Ground Advanced Technology
+0603123N,Force Protection Advanced Technology
+0603134A,Counter Improvised-Threat Simulation
+0603135A,Counter Small Unmanned Aerial Systems (C-SUAS) Advanced Technology
+0603176C,Advanced Concepts and Performance Assessment
+0603180C,Advanced Research
+0603199F,Sustainment Science and Technology (S&T)
+0603203F,Advanced Aerospace Sensors
+0603207N,Air/Ocean Tactical Applications
+0603211F,Aerospace Technology Dev/Demo
+0603216F,Aerospace Propulsion and Power Technology
+0603239N,Naval Construction Forces
+0603250F,Adaptive Engine Transition Program
+0603254N,ASW Systems Development
+0603260F,Intelligence Advanced Development
+0603261N,Tactical Airborne Reconnaissance
+0603270A,Army Electronic Warfare Technology
+0603270F,Electronic Combat Technology
+0603271N,Electromagnetic Systems Advanced Technology
+0603273F,Science & Technology for Nuclear Re-entry Systems
+0603275A,Electronic Warfare Advanced Technology
+0603276A,Electronic Warfare Cyber Advanced Technology
+0603286E,Advanced Aerospace Systems
+0603287E,Space Programs and Technology
+0603305A,Army Missle Defense Systems Integration
+0603327A,Air and Missile Defense Systems Engineering
+0603345A,Unmanned Aerial Systems Launched Effects Advanced Technology Development
+0603382N,Advanced Combat Systems Technology
+0603386A,Biotechnology for Materials - Advanced Research
+0603456F,Human Effectiveness Advanced Technology Development
+0603457A,C3I Cyber Advanced Development
+0603461A,High Performance Computing Modernization Program
+0603462A,Next Generation Combat Vehicle Advanced Technology
+0603463A,Network C3I Advanced Technology
+0603464A,Long Range Precision Fires Advanced Technology
+0603465A,Future Vertical Lift Advanced Technology
+0603466A,Air and Missile Defense Advanced Technology
+0603467E,DARPA Advanced Technology Development
+0603468E,Advanced Complex Systems
+0603469E,Advanced Enabling Technologies
+0603502N,Surface and Shallow Water Mine Countermeasures
+0603512N,Carrier Systems Development
+0603525N,PILOT FISH
+0603527N,RETRACT LARCH
+0603536N,RETRACT JUNIPER
+0603542N,Radiological Control
+0603553N,Surface ASW
+0603561N,Advanced Submarine System Development
+0603562N,Submarine Tactical Warfare Systems
+0603563N,Ship Concept Advanced Design
+0603564N,Ship Preliminary Design & Feasibility Studies
+0603570N,Advanced Nuclear Power Systems
+0603573N,Advanced Surface Machinery Systems
+0603576N,CHALK EAGLE
+0603581N,Littoral Combat Ship (LCS)
+0603582N,Combat System Integration
+0603595N,Ohio Replacement
+0603596N,LCS Mission Modules
+0603597N,Automated Test and Re-Test (ATRT)
+0603598N,ATRT Enterprise Rapid Capability
+0603599N,Frigate Development
+0603601F,Conventional Weapons Technology
+0603605F,Advanced Weapons Technology
+0603619A,Landmine Warfare and Barrier - Adv Dev
+0603635M,Marine Corps Ground Combat/Support System
+0603639A,Tank and Medium Caliber Ammunition
+0603640M,USMC Advanced Technology Demonstration (ATD)
+0603645A,Armored System Modernization - Adv Dev
+0603651M,Joint Non-Lethal Weapons Technology Development
+0603654N,Joint Service Explosive Ordnance Development
+0603673N,Future Naval Capabilities Advanced Technology Development
+0603680F,Manufacturing Technology Program
+0603680N,Manufacturing Technology Program
+0603680S,Manufacturing Technology Program
+0603713N,Ocean Engineering Technology Development
+0603720S,Microelectronics Technology Development and Support
+0603721N,Environmental Protection
+0603724N,Navy Energy Program
+0603725N,Facilities Improvement
+0603729N,Warfighter Protection Advanced Technology
+0603734N,CHALK CORAL
+0603739E,Advanced Electronics Technologies
+0603739N,Navy Logistic Productivity
+0603742F,Combat Identification Technology
+0603746N,RETRACT MAPLE
+0603747A,Soldier Support and Survivability
+0603748N,LINK PLUMERIA
+0603751N,RETRACT ELM
+0603758N,Navy Warfighting Experiments and Demonstrations
+0603760E,Command, Control and Communications Systems
+0603764M,LINK EVERGREEN
+0603766E,Network-Centric Warfare Technology
+0603766S,GPS III Follow-on
+0603767E,Sensor Technology
+0603774A,Night Vision Systems Advanced Development
+0603778A,MLRS Product Improvement Program
+0603779A,Environmental Quality Technology - Dem/Val
+0603782N,Mine and Expeditionary Warfare Advanced Technology
+0603788F,Battlespace Knowledge Development and Demonstration
+0603790A,NATO Research and Development
+0603790F,NATO Research and Development
+0603790N,NATO Research and Development
+0603795N,Land Attack Technology
+0603801N,Innovative Naval Prototypes (INP) Advanced Technology Development
+0603807A,Medical Systems - Adv Dev
+0603827A,Soldier Systems - Advanced Development
+0603829J,Joint Capability Experimentation
+0603851F,Intercontinental Ballistic Missile - Dem/Val
+0603851M,Joint Non-Lethal Weapons Testing
+0603860D,Counter-UAS Defeat
+0603860N,Joint Precision Approach and Landing Systems - Dem/Val
+0603882C,Ballistic Missile Defense Midcourse Defense Segment
+0603884C,Ballistic Missile Defense Sensors
+0603890C,BMD Enabling Programs
+0603891C,Special Programs - MDA
+0603892C,AEGIS BMD
+0603896C,Ballistic Missile Defense Command and Control, Battle Management and Communications (C2BMC)
+0603898C,Ballistic Missile Defense Joint Warfighter Support
+0603904C,Missile Defense Integration & Operations Center (MDIOC)
+0603906C,Regarding Trench
+0603907C,Sea Based X-Band Radar (SBX)
+0603913C,Israeli Cooperative Programs
+0603915C,Ballistic Missile Defense Targets
+0603920A,Humanitarian Demining
+0603925N,Directed Energy and Electric Weapon Systems
+0604001F,NC3 Advanced Concepts
+0604003F,Advanced Battle Management System (ABMS)
+0604004F,Advanced Engine Development
+0604005F,NC3 Commercial Development & Prototyping
+0604007F,E-7
+0604009F,AFWERX
+0604010F,Next Generation Adaptive Propulsion
+0604014N,F/A -18 Infrared Search and Track (IRST)
+0604015F,Long Range Strike - Bomber
+0604017A,Robotics Development
+0604019A,Expanded Mission Area Missile (EMAM)
+0604020A,Cross Functional Team (CFT) Advanced Development & Prototyping
+0604025F,Rapid Defense Experimentation Reserve (RDER)
+0604025M,Rapid Defense Experimentation Reserve (RDER)
+0604027N,Digital Warfare Office
+0604028N,Small and Medium Unmanned Undersea Vehicles
+0604029N,Unmanned Undersea Vehicle Core Technologies
+0604030N,Rapid Prototyping, Experimentation and Demonstration.
+0604031N,Large Unmanned Undersea Vehicles
+0604032F,Directed Energy Prototyping
+0604033F,Hypersonics Prototyping
+0604035A,Low Earth Orbit (LEO) Satellite Capability
+0604036A,Multi-Domain Sensing System (MDSS) Adv Dev
+0604037A,Tactical Intel Targeting Access Node (TITAN) Adv Dev
+0604038N,Maritime Targeting Cell
+0604100A,Analysis Of Alternatives
+0604101A,Small Unmanned Aerial Vehicle (SUAV) (6.4)
+0604102C,Guam Defense Development
+0604103A,Electronic Warfare Planning and Management Tool (EWPMT)
+0604114A,Lower Tier Air Missile Defense (LTAMD) Sensor
+0604115A,Technology Maturation Initiatives
+0604115C,Technology Maturation Initiatives
+0604117A,Maneuver - Short Range Air Defense (M-SHORAD)
+0604119A,Army Advanced Component Development & Prototyping
+0604120A,Assured Positioning, Navigation and Timing (PNT)
+0604121A,Synthetic Training Environment Refinement & Prototyping
+0604127N,Surface Mine Countermeasures
+0604130V,Enterprise Security System (ESS)
+0604135A,Strategic Mid-Range Fires
+0604181C,Hypersonic Defense
+0604183F,Hypersonics Prototyping - Hypersonic Attack Cruise Missile (HACM)
+0604200F,Future Advanced Weapon Analysis & Programs
+0604201A,Aircraft Avionics
+0604201F,PNT Resiliency, Mods, and Improvements
+0604212M,Other Helo Development
+0604212N,Other Helo Development
+0604214M,AV-8B Aircraft - Eng Dev
+0604215N,Standards Development
+0604216N,Multi-Mission Helicopter Upgrade Development
+0604221N,P-3 Modernization Program
+0604222F,Nuclear Weapons Support
+0604230N,Warfare Support System
+0604231N,Command and Control Systems
+0604233F,Specialized Undergraduate Flight Training
+0604234N,Advanced Hawkeye
+0604245M,H-1 Upgrades
+0604251A,Army Autonomous Systems
+0604252N,Navy Undersea AI
+0604253F,AF Mission Data Fabric
+0604254S,Space ISR Tasking
+0604255D,Joint EW Interop
+0604256A,Threat Simulator Development
+0604256F,Threat Simulator Development
+0604256N,Threat Simulator Development
+0604257F,Advanced Technology and Sensors
+0604258A,Target Systems Development
+0604258N,Target Systems Development
+0604261N,Acoustic Search Sensors
+0604262N,V-22
+0604264N,Air Crew Systems Development
+0604269N,EA-18
+0604270A,Electronic Warfare Development
+0604270F,Electronic Warfare Development
+0604270N,Electronic Warfare Development
+0604272N,Tactical Air Directional Infrared Countermeasures (TADIRCM)
+0604273M,Executive Helo Development
+0604274N,Next Generation Jammer (NGJ)
+0604280N,Joint Tactical Radio System - Navy (JTRS-Navy)
+0604282N,Next Generation Jammer (NGJ) Increment II
+0604283F,Battle Mgmt Com & Ctrl Sensor Development
+0604286N,Navy Advanced Manufacturing
+0604287F,Physical Security Equipment
+0604288F,Survivable Airborne Operations Center (SAOC)
+0604292N,Future Vertical Lift (Maritime Strike)
+0604295M,Marine Aviation Demonstration/Validation
+0604307N,Surface Combatant Combat System Engineering
+0604317F,Technology Transfer
+0604320M,Rapid Technology Capability Prototype
+0604327F,Hard and Deeply Buried Target Defeat System (HDBTDS) Program
+0604329N,Small Diameter Bomb (SDB)
+0604331J,Rapid Prototyping Program
+0604336F,Nuclear Delivery Systems Prototyping
+0604366N,Standard Missile Improvements
+0604373N,Airborne MCM
+0604378N,Naval Integrated Fire Control - Counter Air Systems Engineering
+0604386A,Biotechnology for Materials - Dem/Val
+0604403A,Future Interceptor
+0604419N,Advanced Sensors Application Program (ASAP)
+0604445F,Wide Area Surveillance
+0604454N,LX (R)
+0604501N,Advanced Above Water Sensors
+0604503N,Submarine SWFTS Modernization
+0604504N,Air Control
+0604512N,Shipboard Aviation Systems
+0604516N,Ship Survivability
+0604522N,Air and Missile Defense Radar (AMDR) System
+0604530N,Advanced Arresting Gear (AAG)
+0604531A,Counter - Small Unmanned Aircraft Systems Advanced Development
+0604536N,Advanced Undersea Prototyping
+0604541A,Unified Network Transport
+0604558N,New Design SSN
+0604562N,Submarine Tactical Warfare System
+0604567N,Ship Contract Design/ Live Fire T&E
+0604574N,Navy Tactical Computer Resources
+0604601A,Infantry Support Weapons
+0604601N,Mine Development
+0604602F,Armament/Ordnance Development
+0604604A,Medium Tactical Vehicles
+0604604F,Submunitions
+0604609F,Requirements Analysis & Concept Maturation
+0604610N,Lightweight Torpedo Development
+0604611A,JAVELIN
+0604617F,Agile Combat Support
+0604622A,Family of Heavy Tactical Vehicles
+0604633A,Air Traffic Control
+0604636N,Counter Unmanned Aircraft Systems (C-UAS)
+0604642A,Light Tactical Wheeled Vehicles
+0604645A,Armored Systems Modernization (ASM) - Eng Dev
+0604654N,Joint Service Explosive Ordnance Development
+0604657M,USMC Ground Combat/Supporting Arms Systems - Eng Dev
+0604659N,Precision Strike Weapons Development Program
+0604668F,Joint Transportation Management System (JTMS)
+0604703N,Personnel, Training, Simulation, and Human Factors
+0604706F,Life Support Systems
+0604710A,Night Vision Systems - Eng Dev
+0604713A,Combat Feeding, Clothing, and Equipment
+0604715A,Non-System Training Devices - Eng Dev
+0604721A,Network C3 Resilience
+0604727N,Joint Standoff Weapon Systems
+0604741A,Air Defense Command, Control and Intelligence - Eng Dev
+0604742A,Constructive Simulation Systems Development
+0604746A,Automatic Test Equipment Development
+0604755N,Ship Self Defense (Detect & Control)
+0604756N,Ship Self Defense (Engage: Hard Kill)
+0604757N,Ship Self Defense (Engage: Soft Kill/EW)
+0604759A,Major T&E Investment
+0604759F,Major T&E Investment
+0604759N,Major T&E Investment
+0604760A,Distributive Interactive Simulations (DIS) - Eng Dev
+0604761N,Intelligence Engineering
+0604771N,Medical Development
+0604776F,Deployment & Distribution Enterprise R&D
+0604777N,Navigation/ID System
+0604786N,Offensive Anti-Surface Warfare Weapon Development
+0604798A,Brigade Analysis, Integration and Evaluation
+0604804A,Logistics and Engineer Equipment - Eng Dev
+0604805A,Command, Control, Communications Systems - Eng Dev
+0604808A,Landmine Warfare/Barrier - Eng Dev
+0604818A,Army Tactical Command & Control Hardware & Software
+0604820A,Radar Development
+0604822A,General Fund Enterprise Business System (GFEBS)
+0604826J,Joint C5 Capability Development, Integration and interoperability Assessments
+0604827A,Soldier Systems - Warrior Dem/Val
+0604840F,F-35 C2D2
+0604840M,F-35 C2D2
+0604840N,F-35 C2D2
+0604850N,SSN(X)
+0604852A,Suite of Survivability Enhancement Systems - EMD
+0604854A,Artillery Systems - EMD
+0604858F,Tech Transition Program
+0604860F,Operational Energy and Installation Resilience
+0604873C,Long Range Discrimination Radar (LRDR)
+0604874C,Improved Homeland Defense Interceptors
+0604876C,Ballistic Missile Defense Terminal Defense Segment Test
+0604878C,Aegis BMD Test
+0604879C,Ballistic Missile Defense Sensor Test
+0604880C,Land-Based SM-3 (LBSM3)
+0604887C,Ballistic Missile Defense Midcourse Segment Test
+0604932F,Long Range Standoff Weapon
+0604933F,ICBM Fuze Modernization
+0605001E,Mission Support
+0605013A,Information Technology Development
+0605013D,Trusted Microelectronics Transition
+0605013M,Information Technology Development
+0605013N,Information Technology Development
+0605018A,Integrated Personnel and Pay System-Army (IPPS-A)
+0605018F,AF Integrated Personnel and Pay System (AF-IPPS)
+0605024A,Anti-Tamper Technology Support
+0605024F,Anti-Tamper Technology Executive Agency
+0605024N,Anti-Tamper Technology Support
+0605030A,Joint Tactical Network Center (JTNC)
+0605030F,Joint Tactical Network Center (JTNC)
+0605031A,Joint Tactical Network (JTN)
+0605031F,Joint Tactical Network (JTN)
+0605035A,Common Infrared Countermeasures (CIRCM)
+0605036A,Combating Weapons of Mass Destruction (CWMD)
+0605037A,Evidence Collection and Detainee Processing
+0605041A,Defensive CYBER Tool Development
+0605042A,Tactical Network Radio Systems (Low-Tier)
+0605047A,Contract Writing System
+0605049A,Missile Warning System Modernization (MWSM)
+0605051A,Aircraft Survivability Development
+0605052A,Indirect Fire Protection Capability Inc 2 - Block 1
+0605053A,Ground Robotics
+0605054A,Emerging Technology Initiatives
+0605056F,Open Architecture Management
+0605057F,Next Generation Air-refueling System
+0605080S,Defense Agency Initiatives (DAI) - Financial System
+0605101F,RAND Project Air Force
+0605103A,Rand Arroyo Center
+0605117F,Foreign Materiel Acquisition and Exploitation
+0605144A,Next Generation Load Device - Medium
+0605148A,Tactical Intel Targeting Access Node (TITAN) EMD
+0605152N,Studies and Analysis Support - Navy
+0605154N,Center for Naval Analyses
+0605164F,Air Refueling Capability Modernization
+0605180N,TACAMO Modernization
+0605203A,Army System Development & Demonstration
+0605205A,Small Unmanned Aerial Vehicle (SUAV) (6.5)
+0605206A,CI and HUMINT Equipment Program-Army (CIHEP-A)
+0605210F,Cyber Mission Resilience
+0605212M,CH-53K RDTE
+0605215N,Mission Planning
+0605216A,Joint Targeting Integrated Command and Coordination Suite (JTIC2S)
+0605217N,Common Avionics
+0605220N,Ship to Shore Connector (SSC)
+0605223F,Advanced Pilot Training
+0605224A,Multi-Domain Intelligence
+0605229F,HH-60W
+0605231A,Precision Strike Missile (PrSM)
+0605232A,Hypersonics EMD
+0605233A,Accessions Information Environment (AIE)
+0605235A,Strategic Mid-Range Capability
+0605236A,Integrated Tactical Communications
+0605238F,Ground Based Strategic Deterrent EMD
+0605241A,Future Long Range Assault Aircraft Development
+0605242A,Theater SIGINT System (TSIGS)
+0605244A,Joint Reduced Range Rocket (JR3)
+0605247A,Spectrum Situational Awareness System (S2AS)
+0605278F,HC/MC-130 Recap RDT&E
+0605285N,Next Generation Fighter
+0605296F,Microelectronics Secure Enclave
+0605301A,Army Kwajalein Atoll
+0605326A,Concepts Experimentation Program
+0605327N,T-AO 205 Class
+0605450A,Joint Air-to-Ground Missile (JAGM)
+0605450M,Joint Air-to-Ground Missile (JAGM)
+0605457A,Army Integrated Air and Missile Defense (AIAMD)
+0605500N,Multi-mission Maritime Aircraft (MMA)
+0605502A,Small Business Innovative Research
+0605502C,Small Business Innovation Research - MDA
+0605502E,Small Business Innovative Research
+0605502F,Small Business Innovation Research
+0605502N,Small Business Innovative Research
+0605502S,Small Business Innovative Research
+0605504N,Multi-Mission Maritime (MMA) Increment III
+0605512N,MEDIUM UNMANNED SURFACE VEHICLES (MUSVs))
+0605513N,Unmanned Surface Vehicle Enabling Capabilities
+0605514M,GROUND BASED ANTI-SHIP MISSILE
+0605516M,LONG RANGE FIRES
+0605516N,Long Range Fires
+0605518N,CONVENTIONAL PROMPT STRIKE (CPS)
+0605520M,MARINE CORPS AIR DEFENSE WEAPONS SYSTEMS
+0605531A,Counter - Small Unmanned Aircraft Systems Sys Dev & Demonstration
+0605601A,Army Test Ranges and Facilities
+0605602A,Army Technical Test Instrumentation and Targets
+0605604A,Survivability/Lethality Analysis
+0605606A,Aircraft Certification
+0605611M,Marine Corps Assault Vehicles System Development & Demonstration
+0605625A,Manned Ground Vehicle
+0605706A,Materiel Systems Analysis
+0605709A,Exploitation of Foreign Items
+0605712A,Support of Operational Testing
+0605712F,Initial Operational Test & Evaluation
+0605716A,Army Evaluation Center
+0605718A,Army Modeling & Sim X-Cmd Collaboration & Integ
+0605766A,National Capabilities Integration (MIP)
+0605801A,Programwide Activities
+0605803A,Technical Information Activities
+0605804N,Technical Information Services
+0605805A,Munitions Standardization, Effectiveness and Safety
+0605807F,Test and Evaluation Support
+0605812A,Joint Light Tactical Vehicle (JLTV) Engineering and Manufacturing Development Phase (EMD)
+0605813M,Joint Light Tactical Vehicle (JLTV) System Development & Demonstration
+0605827F,Acq Workforce- Global Vig & Combat Sys
+0605828F,Acq Workforce- Global Reach
+0605829F,Acq Workforce- Cyber, Network, & Bus Sys
+0605830A,Aviation Ground Support Equipment
+0605831F,Acq Workforce- Capability Integration
+0605832F,Acq Workforce- Advanced Prgm Technology
+0605833F,Acq Workforce- Nuclear Systems
+0605853N,Management, Technical  & International Support
+0605856N,Strategic Technical Support
+0605857A,Environmental Quality Technology Mgmt Support
+0605863N,RDT&E Ship and Aircraft Support
+0605864N,Test and Evaluation Support
+0605865N,Operational Test and Evaluation Capability
+0605866N,Navy Space and Electronic Warfare (SEW) Support
+0605873M,Marine Corps Program Wide Support
+0605898A,Army Direct Report Headquarters - R&D - MHA
+0605898E,Management HQ - R&D
+0605898F,Management HQ - R&D
+0605898N,Management HQ - R&D
+0605976F,Facilities Restoration and Modernization - Test and Evaluation Support
+0605978F,Facilities Sustainment - Test and Evaluation Support
+0606003A,CounterIntel and Human Intel Modernization
+0606004F,Nuclear Enterprise Research & Development
+0606005F,Digital Transformation Office
+0606017F,Requirements Analysis and Maturation
+0606018F,NC3 Integration
+0606118A,AIAMD Software Development & Integration
+0606295M,Marine Aviation Developmental Management and Support
+0606355N,Warfare Innovation Management
+0606398F,Management HQ - T&E
+0606942A,Assessments and Evaluations Cyber Vulnerabilities
+0607101A,Combating Weapons of Mass Destruction (CWMD) Product Improvement
+0607131A,Weapons and Munitions Product Improvement Programs
+0607136A,Blackhawk Product Improvement Program
+0607137A,Chinook Product Improvement Program
+0607138A,UAS Payload Interoperability
+0607139A,Improved Turbine Engine Program
+0607142A,Aviation Rocket System Product Improvement and Development
+0607143A,Unmanned Aircraft System Universal Products
+0607145A,Apache Future Development
+0607148A,AN/TPQ-53 Counterfire Target Acquisition Radar System
+0607150A,Intel Cyber Development
+0607212A,TENCAP Enhancements
+0607312A,Army Operational Systems Development
+0607313A,Electronic Warfare Development
+0607327T,Global Theater Security Cooperation Management Information Systems (G-TSCMIS)
+0607658N,Cooperative Engagement Capability (CEC)
+0607665A,Family of Biometrics
+0607865A,Patriot Product Improvement
+0608013N,Risk management Information - Software Pilot Program
+0608041A,Defensive CYBER - Software Prototype Development
+0608231N,Maritime Tactical Command and Control (MTC2) - Software Pilot Program
+0609135A,Counter Unmanned Aerial Systems (UAS) Agile Development
+0609277A,Electronic Warfare Agile Development
+0609278A,Electronic Warfare Agile Systems Development
+0609345A,Unmanned Aerial Systems Launched Effects Agile Systems Development
+0609346A,UAS Launched Effects Agile Development
+0701200F,Enterprise Select Class II
+0701212F,Automated Test Systems
+0702207N,Depot Maintenance (Non-IF)
+0702806F,Acquisition and Management Support
+0708012K,Logistics Support Activities
+0708012S,Pacific Disaster Centers
+0708045A,End Item Industrial Preparedness Activities
+0708047S,Defense Property Accountability System
+0708051F,Rapid Sustainment Modernization (RSM)
+0708081D,Chemical Materials Agency
+0708083D,Assembled Chemical Weapons Alternatives
+0708730N,Maritime Technology (MARITECH)
+0801380F,AF LVC Operational Training (LVC-OT)
+0804743F,Other Flight Training
+0804772F,Training Developments
+0804776F,Advanced Distributed Learning
+0808736F,Special Victim Accountability and Investigation
+0808737F,Integrated Primary Prevention
+0901202F,Joint Personnel Recovery Agency
+0901218F,Civilian Compensation Program
+0901220F,Personnel Administration
+0901226F,Air Force Studies and Analysis Agency
+0901410F,Contracting Information Technology System
+0901517X,Inspector General, DoD, Audit, Intelligence and Non-Criminal Investigative Activities
+0901538F,Financial Management Information Systems Development
+0901554F,Defense Enterprise Acntng and Mgt Sys (DEAMS)
+0901598C,Management HQ - MDA
+0902498N,Management Headquarters (Departmental Support Activities)
+0903235K,Joint Service Provider (JSP)
+0904903D,Defense-Wide Resources
+0909999A,Financing for Cancelled Account Adjustments
+0909999F,Financing for Cancelled Account Adjustments
+0909999N,Financing for Cancelled Account Adjustments
+1001004F,International Activities
+1201921F,Service Support to STRATCOM - Space Activities
+1202140F,Service Support to SPACECOM Activities
+1203176F,Combat Survivor Evader Locator
+1203610K,Teleport Program
+1206893S,Tactical SATCOM Agility
+(809 rows)

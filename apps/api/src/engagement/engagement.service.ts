@@ -181,6 +181,9 @@ export interface OutreachRecipientInput {
   address?: string;
   relevanceReason?: string;
   personalNote?: string;
+  /** Additional Cc / Bcc email addresses copied on this recipient's email. */
+  cc?: string[];
+  bcc?: string[];
   meetingId?: string;
   meetingSubject?: string;
   meetingDateTime?: string;
@@ -241,6 +244,22 @@ export interface GenerateTalkingPointsInput {
   insights: string[];
   clientId?: string;
   additionalContext?: string;
+}
+
+/** Per-recipient drafted email the v2 wizard sends to the batch sender. */
+export interface SendBatchDraftInput {
+  recipientId: string;
+  subject: string;
+  body: string;
+}
+
+export interface SendBatchEmailInput {
+  clientId?: string;
+  direction?: 'on-behalf' | 'to-clients';
+  recipients: OutreachRecipientInput[];
+  drafts: SendBatchDraftInput[];
+  /** When true, send a single test copy to the logged-in user instead. */
+  testMode?: boolean;
 }
 
 export interface CreateOutreachRecordInput {
@@ -1562,6 +1581,20 @@ export class EngagementService {
       );
     }
 
+    // Resolve the logged-in user so generated drafts are signed by the
+    // actual sender (not a hardcoded placeholder name).
+    const senderUser = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.user.findFirst({
+        where: { id: ctx.userId },
+        select: { firstName: true, lastName: true, title: true, email: true },
+      }),
+    );
+    const senderName =
+      [senderUser?.firstName, senderUser?.lastName].filter(Boolean).join(' ').trim() || null;
+    const senderSignature = senderName
+      ? [senderName, senderUser?.title?.trim() || null].filter(Boolean).join('\n')
+      : null;
+
     let client: Record<string, unknown> | null = null;
     let clientContextForCampaign: Record<string, unknown> | null = null;
     if (clientId) {
@@ -1633,6 +1666,8 @@ export class EngagementService {
         const context: Record<string, unknown> = {
           tone: tone ?? 'professional',
           ...(direction ? { direction } : {}),
+          ...(senderName ? { senderName } : {}),
+          ...(senderSignature ? { senderSignature } : {}),
           ...(insightsContext ? { insights: insightsContext } : {}),
           ...(additionalContext ? { additionalContext } : {}),
           ...(combinedContextNotes ? { contextItems: combinedContextNotes } : {}),
@@ -1658,6 +1693,90 @@ export class EngagementService {
     }
 
     return { results };
+  }
+
+  /**
+   * Send the v2 wizard's per-recipient drafts directly from the user's
+   * connected inbox. Each recipient receives their own personalized draft;
+   * the recipient's `cc`/`bcc` lists are copied onto that one email. In
+   * `testMode` a single [TEST] copy is sent to the logged-in user so they
+   * can preview formatting before the real send.
+   */
+  async sendBatchEmails(ctx: TenantContext, input: SendBatchEmailInput) {
+    const { recipients, drafts, testMode } = input;
+    if (!drafts.length) {
+      throw new BadRequestException('No drafts to send. Generate emails first.');
+    }
+
+    const connection = await this.findCampaignSendConnection(ctx);
+
+    // Test mode: one copy to the logged-in user, no real recipients touched.
+    if (testMode) {
+      const user = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.user.findFirst({
+          where: { id: ctx.userId },
+          select: { email: true, firstName: true },
+        }),
+      );
+      if (!user?.email) throw new BadRequestException('Your user has no email on file');
+      const sample = drafts.find((d) => d.subject?.trim() || d.body?.trim()) ?? drafts[0]!;
+      await this.microsoftGraph.sendMail(ctx, connection.id, {
+        subject: `[TEST] ${sample.subject || 'Outreach preview'}`,
+        body: sample.body || '(empty draft)',
+        toRecipients: [{ email: user.email, name: user.firstName ?? null }],
+      });
+      return { test: true, sentTo: user.email, sent: 1, failed: 0, errors: [] as Array<{ email: string; message: string }> };
+    }
+
+    // Match each recipient to its draft using the same id fallback chain the
+    // frontend's recipientKey() uses, so per-recipient drafts line up.
+    const draftById = new Map(drafts.map((d) => [d.recipientId, d]));
+    const findDraft = (r: OutreachRecipientInput) => {
+      for (const key of [r.id, r.directoryContactId, r.email, r.name]) {
+        if (key && draftById.has(key)) return draftById.get(key)!;
+      }
+      return undefined;
+    };
+
+    const sent: Array<{ email: string; name: string | null; sentAt: string }> = [];
+    const errors: Array<{ email: string; message: string }> = [];
+
+    for (const recipient of recipients) {
+      if (!recipient.email) {
+        errors.push({
+          email: recipient.name || '(no email)',
+          message: 'Recipient is missing an email address',
+        });
+        continue;
+      }
+      const draft = findDraft(recipient);
+      if (!draft || (!draft.subject?.trim() && !draft.body?.trim())) {
+        errors.push({ email: recipient.email, message: 'No generated draft for this recipient' });
+        continue;
+      }
+      try {
+        await this.microsoftGraph.sendMail(ctx, connection.id, {
+          subject: draft.subject,
+          body: draft.body,
+          toRecipients: [{ email: recipient.email, name: recipient.name ?? null }],
+          ccRecipients: (recipient.cc ?? [])
+            .filter((e) => e?.trim())
+            .map((email) => ({ email: email.trim() })),
+          bccRecipients: (recipient.bcc ?? [])
+            .filter((e) => e?.trim())
+            .map((email) => ({ email: email.trim() })),
+        });
+        sent.push({
+          email: recipient.email,
+          name: recipient.name ?? null,
+          sentAt: new Date().toISOString(),
+        });
+      } catch (error) {
+        errors.push({ email: recipient.email, message: emailSendErrorMessage(error) });
+      }
+    }
+
+    return { test: false, sent: sent.length, failed: errors.length, errors, sentRecipients: sent };
   }
 
   async deleteOutreachRecord(ctx: TenantContext, id: string) {

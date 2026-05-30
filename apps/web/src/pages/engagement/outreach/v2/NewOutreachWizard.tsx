@@ -10,12 +10,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useUser } from '@clerk/clerk-react';
 import { App, Button, Form, Input, Modal, Select, Skeleton, Space, Tag, Typography } from 'antd';
 import {
   ArrowRightOutlined,
+  CheckCircleFilled,
   CheckOutlined,
   EyeOutlined,
   PlusOutlined,
+  SaveOutlined,
   SendOutlined,
   ThunderboltOutlined,
 } from '@ant-design/icons';
@@ -88,6 +91,15 @@ interface MailThreadsResponse {
   }>;
 }
 
+/** Pull a human-readable message out of an axios-style error, if present. */
+function apiErrorMessage(err: unknown): string | null {
+  const resp = (err as { response?: { data?: { message?: unknown } } })?.response;
+  const msg = resp?.data?.message;
+  if (typeof msg === 'string') return msg;
+  if (Array.isArray(msg) && typeof msg[0] === 'string') return msg[0];
+  return null;
+}
+
 export function NewOutreachWizard({
   clients,
   selectedClientId,
@@ -100,12 +112,25 @@ export function NewOutreachWizard({
   const api = useApi();
   const qc = useQueryClient();
   const { message } = App.useApp();
+  const { user } = useUser();
+  const senderName =
+    user?.fullName ||
+    [user?.firstName, user?.lastName].filter(Boolean).join(' ') ||
+    user?.primaryEmailAddress?.emailAddress ||
+    'there';
 
   const [stepIdx, setStepIdx] = useState(0);
   const [state, setState] = useState<WizardV2State>({
     ...INITIAL_V2_STATE,
     clientId: selectedClientId,
   });
+  // Persisted draft record id (set after first Save as draft, reused on
+  // subsequent saves so we PATCH instead of creating duplicates).
+  const [draftId, setDraftId] = useState<string | null>(null);
+  // Confirmation shown after a real send completes.
+  const [sentResult, setSentResult] = useState<{ sent: number; failed: number } | null>(null);
+  // Recipient key currently being (re)generated individually, if any.
+  const [generatingKey, setGeneratingKey] = useState<string | null>(null);
 
   // WIZARD_STEPS is readonly + non-empty, but TS's noUncheckedIndexedAccess
   // narrows the indexed read to `T | undefined`. The clamp on stepIdx
@@ -297,8 +322,11 @@ export function NewOutreachWizard({
   };
 
   // ---- Generate & Send (delegated to existing API endpoints) ----
+  // Pass `recipients` to generate (or regenerate) a single recipient's draft;
+  // omit it to (re)generate the whole batch.
   const generateMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (vars?: { recipients?: OutreachRecipient[] }) => {
+      const targetRecipients = vars?.recipients ?? state.recipients;
       // The API's GenerateBatchEmailDto whitelists only id/kind/title/body/
       // scope/note on context items. With forbidNonWhitelisted enabled (see
       // apps/api/src/main.ts), sending the pool-only fields tag/sub/matches
@@ -315,7 +343,7 @@ export function NewOutreachWizard({
       }));
       const payload = {
         clientId: state.clientId ?? undefined,
-        recipients: state.recipients,
+        recipients: targetRecipients,
         templateId: state.templateId,
         tone: state.tone,
         direction: state.direction,
@@ -342,47 +370,107 @@ export function NewOutreachWizard({
         }
         return { ...prev, generatedEmails };
       });
-      message.success(`Generated ${data.results.length} drafts`);
+      setGeneratingKey(null);
+      message.success(
+        data.results.length === 1
+          ? 'Regenerated this email'
+          : `Generated ${data.results.length} drafts`,
+      );
     },
-    onError: () => {
-      // Endpoint may not exist yet, fall back to a placeholder draft so the
-      // reviewer can still see the layout. The server-side implementation is
-      // tracked separately (see task #5).
-      const generatedEmails: WizardV2State['generatedEmails'] = {};
-      for (const r of state.recipients) {
-        const key = recipientKey(r);
-        generatedEmails[key] = {
-          subject: `[Placeholder] ${state.campaignName || 'Outreach'}, ${r.name ?? r.email ?? key}`,
-          body: `Hi ${r.name ?? 'there'},\n\nThis is a placeholder draft. Wire the /api/engagement/outreach/generate-batch endpoint to produce real per-recipient copy using the ${state.contextItems.length} context items selected.\n\nBest,\nNeo`,
-          status: 'ready',
-        };
-      }
-      setState((prev) => ({ ...prev, generatedEmails }));
-      message.warning('Generation endpoint not wired yet, showing placeholder drafts');
+    onError: (_err, vars) => {
+      // Endpoint failure: fall back to a placeholder draft so the reviewer can
+      // still see the layout. Only touch the recipients we tried to generate.
+      const targets = vars?.recipients ?? state.recipients;
+      setState((prev) => {
+        const generatedEmails = { ...prev.generatedEmails };
+        for (const r of targets) {
+          const key = recipientKey(r);
+          generatedEmails[key] = {
+            subject: `[Placeholder] ${state.campaignName || 'Outreach'}, ${r.name ?? r.email ?? key}`,
+            body: `Hi ${r.name ?? 'there'},\n\nThis is a placeholder draft because email generation failed. Edit this text directly, or try Regenerate.\n\nBest regards,\n${senderName}`,
+            status: 'ready',
+          };
+        }
+        return { ...prev, generatedEmails };
+      });
+      setGeneratingKey(null);
+      message.warning('Generation failed; showing an editable placeholder draft.');
     },
   });
 
+  const buildDrafts = () =>
+    Object.entries(state.generatedEmails)
+      .filter(([, d]) => d.subject?.trim() || d.body?.trim())
+      .map(([recipientId, d]) => ({ recipientId, subject: d.subject, body: d.body }));
+
   const sendMutation = useMutation({
-    mutationFn: async () => {
-      const drafts = Object.entries(state.generatedEmails).map(([recipientId, d]) => ({
-        recipientId,
-        subject: d.subject,
-        body: d.body,
-      }));
-      const res = await api.post<{ sent: number }>('/api/engagement/outreach/send-batch', {
-        clientId: state.clientId,
+    mutationFn: async (vars?: { testMode?: boolean }) => {
+      const res = await api.post<{
+        test: boolean;
+        sent: number;
+        failed: number;
+        errors: Array<{ email: string; message: string }>;
+        sentTo?: string;
+      }>('/api/engagement/outreach/send-batch', {
+        clientId: state.clientId ?? undefined,
         recipients: state.recipients,
-        drafts,
-        direction: state.direction,
+        drafts: buildDrafts(),
+        direction: state.direction ?? undefined,
+        testMode: vars?.testMode ?? false,
       });
       return res.data;
     },
     onSuccess: (data) => {
-      message.success(`Sent ${data.sent} emails`);
+      if (data.test) {
+        message.success(`Test email sent to ${data.sentTo ?? 'your inbox'}`);
+        return;
+      }
       qc.invalidateQueries({ queryKey: ['engagement-outreach'] });
-      onComplete();
+      if (data.failed > 0) {
+        message.warning(`Sent ${data.sent}, but ${data.failed} failed. See details below.`);
+      } else {
+        message.success(`Sent ${data.sent} ${data.sent === 1 ? 'email' : 'emails'}`);
+      }
+      // Show an explicit confirmation screen rather than closing silently.
+      setSentResult({ sent: data.sent, failed: data.failed });
     },
-    onError: () => message.error('Send endpoint not wired yet'),
+    onError: (err) => message.error(apiErrorMessage(err) || 'Could not send emails'),
+  });
+
+  // Save the current drafts as a reusable outreach record. Available at any
+  // step; first save creates the record, later saves update it in place.
+  const saveDraftMutation = useMutation({
+    mutationFn: async () => {
+      const drafts = buildDrafts();
+      const first = drafts[0];
+      const common = {
+        clientId: state.clientId ?? undefined,
+        direction: state.direction ?? undefined,
+        title: state.campaignName?.trim() || 'Untitled outreach',
+        subject: first?.subject?.trim() || undefined,
+        body: first?.body?.trim() || undefined,
+        recipients: state.recipients,
+        metadata: {
+          source: 'v2-wizard',
+          lastStep: stepIdx + 1,
+          tone: state.tone,
+          templateId: state.templateId,
+          perRecipientEmails: drafts,
+        },
+      };
+      if (draftId) {
+        return (await api.patch<{ id: string }>(`/api/engagement/outreach/${draftId}`, common)).data;
+      }
+      return (
+        await api.post<{ id: string }>('/api/engagement/outreach', { type: 'campaign', ...common })
+      ).data;
+    },
+    onSuccess: (rec) => {
+      setDraftId(rec.id);
+      qc.invalidateQueries({ queryKey: ['engagement-outreach'] });
+      message.success('Draft saved');
+    },
+    onError: () => message.error('Could not save draft'),
   });
 
   // Auto-generate when we land on the Generate step the first time.
@@ -392,10 +480,36 @@ export function NewOutreachWizard({
       Object.keys(state.generatedEmails).length === 0 &&
       !generateMutation.isPending
     ) {
-      generateMutation.mutate();
+      generateMutation.mutate(undefined);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step.id]);
+
+  // Inline edits to a generated draft mark it 'edited' so the user can see
+  // their changes are captured; edits persist in wizard state immediately.
+  const updateDraft = (key: string, patch: { subject?: string; body?: string }) =>
+    setState((prev) => {
+      const existing = prev.generatedEmails[key];
+      if (!existing) return prev;
+      return {
+        ...prev,
+        generatedEmails: {
+          ...prev.generatedEmails,
+          [key]: { ...existing, ...patch, status: 'edited' },
+        },
+      };
+    });
+
+  // Generate (or regenerate) a single recipient's email.
+  const generateOne = (r: OutreachRecipient) => {
+    setGeneratingKey(recipientKey(r));
+    generateMutation.mutate({ recipients: [r] });
+  };
+
+  const canSaveDraft = Object.keys(state.generatedEmails).length > 0 || state.recipients.length > 0;
+  // Distinguish the real send from a test send so only the clicked button spins.
+  const realSending = sendMutation.isPending && !sendMutation.variables?.testMode;
+  const testSending = sendMutation.isPending && !!sendMutation.variables?.testMode;
 
   // ---- Render ----
   return (
@@ -474,8 +588,11 @@ export function NewOutreachWizard({
               generated={state.generatedEmails}
               selectedIdx={state.selectedRecipientIdx}
               onSelectedIdx={(i) => setState((p) => ({ ...p, selectedRecipientIdx: i }))}
-              onRegenerate={() => generateMutation.mutate()}
+              onRegenerate={() => generateMutation.mutate(undefined)}
+              onGenerateOne={generateOne}
+              onEdit={updateDraft}
               regenerating={generateMutation.isPending}
+              generatingKey={generatingKey}
             />
           )}
 
@@ -484,19 +601,32 @@ export function NewOutreachWizard({
               recipients={state.recipients}
               sendFrom={sendFrom}
               emailConnected={emailConnected}
-              onSend={() => sendMutation.mutate()}
-              sending={sendMutation.isPending}
+              onSend={() => sendMutation.mutate(undefined)}
+              onTest={() => sendMutation.mutate({ testMode: true })}
+              sending={realSending}
+              testing={testSending}
+              sentResult={sentResult}
+              onDone={onComplete}
             />
           )}
         </div>
 
         <div className="ov2-wiz-foot">
-          {/* Cancel is now available on every step (previously only on
-              step 0). Back is shown alongside Cancel once the user has
-              advanced past the first step. Calling onCancel here surfaces
-              the parent's "abandon this outreach?" confirmation dialog. */}
-          <Button onClick={onCancel}>Cancel</Button>
+          {/* Cancel discards the in-progress outreach (a confirmation dialog
+              guards it). "Save as draft" is the explicit way to keep your
+              work — available on every step. */}
+          <Button onClick={onCancel}>Cancel &amp; discard</Button>
           {stepIdx > 0 && <Button onClick={back}>Back</Button>}
+          {!sentResult && (
+            <Button
+              icon={<SaveOutlined />}
+              onClick={() => saveDraftMutation.mutate()}
+              loading={saveDraftMutation.isPending}
+              disabled={!canSaveDraft}
+            >
+              Save as draft
+            </Button>
+          )}
           <span className="step-label">
             Step {stepIdx + 1} of {WIZARD_STEPS.length}
           </span>
@@ -504,15 +634,21 @@ export function NewOutreachWizard({
             <span style={{ width: `${((stepIdx + 1) / WIZARD_STEPS.length) * 100}%` }} />
           </div>
           {step.id === 'send' ? (
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              onClick={() => sendMutation.mutate()}
-              loading={sendMutation.isPending}
-              disabled={!emailConnected}
-            >
-              Send all
-            </Button>
+            sentResult ? (
+              <Button type="primary" icon={<CheckOutlined />} onClick={onComplete}>
+                Done
+              </Button>
+            ) : (
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                onClick={() => sendMutation.mutate(undefined)}
+                loading={realSending}
+                disabled={!emailConnected}
+              >
+                Send all
+              </Button>
+            )
           ) : (
             <Button
               type="primary"
@@ -1024,7 +1160,10 @@ function StepGenerate({
   selectedIdx,
   onSelectedIdx,
   onRegenerate,
+  onGenerateOne,
+  onEdit,
   regenerating,
+  generatingKey,
 }: {
   recipients: OutreachRecipient[];
   tone: WizardV2State['tone'];
@@ -1033,28 +1172,40 @@ function StepGenerate({
   selectedIdx: number;
   onSelectedIdx: (i: number) => void;
   onRegenerate: () => void;
+  onGenerateOne: (r: OutreachRecipient) => void;
+  onEdit: (key: string, patch: { subject?: string; body?: string }) => void;
   regenerating: boolean;
+  generatingKey: string | null;
 }) {
   const list = recipients.length ? recipients : [];
   const active = list[selectedIdx];
   const activeKey = active ? recipientKey(active) : null;
   const activeDraft = activeKey ? generated[activeKey] : undefined;
-  const readyCount = Object.values(generated).filter((g) => g.status === 'ready').length;
+  const readyCount = Object.values(generated).filter(
+    (g) => g.status === 'ready' || g.status === 'edited',
+  ).length;
+  // A single-recipient (re)generation is in flight for the active draft.
+  const activeGenerating = !!activeKey && generatingKey === activeKey;
+  // Whole-batch regeneration (no specific key) is in flight.
+  const batchGenerating = regenerating && !generatingKey;
 
   return (
     <div>
       <h2>Generate &amp; review</h2>
       <div className="ov2-pane-sub">
-        Clio drafts a unique email per recipient using the context you built. Edit any draft inline before sending.
+        Clio drafts a unique email per recipient. Edit any draft inline (your changes are saved as
+        you type), regenerate individually, or save everything as a draft to finish later.
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 14 }}>
         <div style={{ background: 'var(--ov2-bg-surface)', border: '1px solid var(--ov2-border-1)', borderRadius: 6 }}>
           <div style={{ padding: '12px 14px', background: 'var(--ov2-ink-1)', color: '#fff', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ThunderboltOutlined /> {regenerating ? 'Generating…' : `${readyCount}/${list.length} ready`}
+            <ThunderboltOutlined /> {batchGenerating ? 'Generating…' : `${readyCount}/${list.length} ready`}
           </div>
           {list.map((r, i) => {
             const key = recipientKey(r);
-            const ready = generated[key]?.status === 'ready';
+            const draft = generated[key];
+            const ready = draft?.status === 'ready' || draft?.status === 'edited';
+            const rowGenerating = generatingKey === key || batchGenerating;
             return (
               <div
                 key={key}
@@ -1084,14 +1235,27 @@ function StepGenerate({
                 </span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12.5, fontWeight: 600 }}>{r.name || r.email || key}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ov2-ink-3)' }}>{r.state || r.office || ''}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ov2-ink-3)' }}>
+                    {draft?.status === 'edited' ? 'Edited' : r.state || r.office || ''}
+                  </div>
                 </div>
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<ThunderboltOutlined />}
+                  loading={rowGenerating}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onGenerateOne(r);
+                  }}
+                  title="Generate just this email"
+                />
               </div>
             );
           })}
         </div>
         <div style={{ background: 'var(--ov2-bg-surface)', border: '1px solid var(--ov2-border-1)', borderRadius: 6 }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--ov2-border-1)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--ov2-border-1)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 700 }}>{active?.name || active?.email || 'No recipient'}</div>
               <div style={{ fontSize: 12, color: 'var(--ov2-ink-3)' }}>{active?.office || active?.state || ''}</div>
@@ -1102,32 +1266,47 @@ function StepGenerate({
               style={{ marginLeft: 'auto', width: 140 }}
               options={['Professional', 'Friendly', 'Formal', 'Concise'].map((t) => ({ value: t, label: t }))}
             />
-            <Button icon={<ThunderboltOutlined />} loading={regenerating} onClick={onRegenerate}>
-              Regenerate
+            <Button
+              icon={<ThunderboltOutlined />}
+              loading={activeGenerating || batchGenerating}
+              onClick={() => active && onGenerateOne(active)}
+              disabled={!active}
+            >
+              Regenerate this
+            </Button>
+            <Button icon={<ThunderboltOutlined />} loading={batchGenerating} onClick={onRegenerate}>
+              Regenerate all
             </Button>
           </div>
           <div style={{ padding: '18px 22px' }}>
             {activeDraft ? (
               <>
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    padding: '8px 12px',
-                    border: '1px solid var(--ov2-border-1)',
-                    borderRadius: 6,
-                    marginBottom: 14,
-                  }}
-                >
+                <div style={{ marginBottom: 14 }}>
                   <div style={{ fontSize: 10.5, color: 'var(--ov2-ink-3)', marginBottom: 4 }}>Subject</div>
-                  {activeDraft.subject}
+                  <Input
+                    value={activeDraft.subject}
+                    onChange={(e) => activeKey && onEdit(activeKey, { subject: e.target.value })}
+                    placeholder="Email subject"
+                  />
                 </div>
-                <div style={{ fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                  {activeDraft.body}
+                <div>
+                  <div style={{ fontSize: 10.5, color: 'var(--ov2-ink-3)', marginBottom: 4 }}>Body</div>
+                  <Input.TextArea
+                    value={activeDraft.body}
+                    onChange={(e) => activeKey && onEdit(activeKey, { body: e.target.value })}
+                    autoSize={{ minRows: 12, maxRows: 28 }}
+                    style={{ fontSize: 13, lineHeight: 1.6 }}
+                  />
                 </div>
+                <Typography.Text type="secondary" style={{ fontSize: 11.5, display: 'block', marginTop: 8 }}>
+                  Edits save automatically. Use “Save as draft” below to keep everything and finish
+                  later.
+                </Typography.Text>
               </>
             ) : (
-              <Typography.Text type="secondary">No draft yet. Click Regenerate.</Typography.Text>
+              <Typography.Text type="secondary">
+                {activeGenerating ? 'Generating…' : 'No draft yet. Click “Regenerate this”.'}
+              </Typography.Text>
             )}
           </div>
         </div>
@@ -1141,20 +1320,53 @@ function StepSend({
   sendFrom,
   emailConnected,
   onSend,
+  onTest,
   sending,
+  testing,
+  sentResult,
+  onDone,
 }: {
   recipients: OutreachRecipient[];
   sendFrom: string | null;
   emailConnected: boolean;
   onSend: () => void;
+  onTest: () => void;
   sending: boolean;
+  testing: boolean;
+  sentResult: { sent: number; failed: number } | null;
+  onDone: () => void;
 }) {
+  // Post-send confirmation screen.
+  if (sentResult) {
+    return (
+      <div style={{ textAlign: 'center', padding: '48px 20px' }}>
+        <CheckCircleFilled style={{ fontSize: 52, color: 'var(--ov2-success, #22c55e)' }} />
+        <h2 style={{ marginTop: 18 }}>
+          {sentResult.failed > 0
+            ? `Sent ${sentResult.sent}, ${sentResult.failed} failed`
+            : `${sentResult.sent} ${sentResult.sent === 1 ? 'email' : 'emails'} sent`}
+        </h2>
+        <div className="ov2-pane-sub" style={{ fontSize: 13.5 }}>
+          {sentResult.failed > 0
+            ? 'Some emails could not be sent. Check the failed addresses and your email connection, then retry from Outreach.'
+            : `Your personalized emails went out from ${sendFrom || 'your connected inbox'}.`}
+        </div>
+        <Space style={{ marginTop: 22 }}>
+          <Button type="primary" icon={<CheckOutlined />} onClick={onDone}>
+            Done
+          </Button>
+        </Space>
+      </div>
+    );
+  }
+
   return (
     <div style={{ textAlign: 'center', padding: '40px 20px' }}>
       <h2 style={{ marginTop: 14 }}>Ready to send</h2>
       <div className="ov2-pane-sub" style={{ fontSize: 13.5 }}>
-        <b style={{ color: 'var(--ov2-ink-1)' }}>{recipients.length}</b> personalized emails are queued. Capiro will send
-        from <b>{sendFrom || 'your connected inbox'}</b>.
+        <b style={{ color: 'var(--ov2-ink-1)' }}>{recipients.length}</b> personalized{' '}
+        {recipients.length === 1 ? 'email is' : 'emails are'} queued. Capiro will send from{' '}
+        <b>{sendFrom || 'your connected inbox'}</b>.
       </div>
       {!emailConnected && (
         <Typography.Paragraph type="warning" style={{ marginTop: 12 }}>
@@ -1162,11 +1374,22 @@ function StepSend({
         </Typography.Paragraph>
       )}
       <Space style={{ marginTop: 20 }}>
-        <Button>Send as drafts</Button>
+        <Button
+          icon={<EyeOutlined />}
+          loading={testing && !sending}
+          onClick={onTest}
+          disabled={!emailConnected}
+        >
+          Send test email to myself
+        </Button>
         <Button type="primary" icon={<SendOutlined />} loading={sending} onClick={onSend} disabled={!emailConnected}>
           Confirm Send
         </Button>
       </Space>
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 14 }}>
+        “Send test email” delivers one copy to your own inbox so you can preview formatting before
+        the real send.
+      </Typography.Paragraph>
     </div>
   );
 }

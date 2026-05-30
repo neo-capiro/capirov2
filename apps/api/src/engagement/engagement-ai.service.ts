@@ -1017,12 +1017,26 @@ export class EngagementAiService {
         : 'Direction: from-lobbyist-to-clients. The sender is the lobbyist writing directly to their own portfolio client(s). The tone is internal briefing, informative, candid, action-oriented. Do not write as if pitching the client; you ARE the client\'s trusted operator.'
       : null;
 
+    // Sign-off must use the real logged-in user's name, never an invented one.
+    const senderName =
+      typeof input.context?.senderName === 'string' && input.context.senderName.trim()
+        ? input.context.senderName.trim()
+        : null;
+    const senderSignature =
+      typeof input.context?.senderSignature === 'string' && input.context.senderSignature.trim()
+        ? input.context.senderSignature.trim()
+        : null;
+    const signatureGuidance = senderName
+      ? `Sign off the email as the sender, ${senderName}. Use exactly this signature block at the end and do not invent a different name, company, or title:\n${senderSignature ?? senderName}`
+      : 'Do not fabricate a sender name in the sign-off. If no sender name is provided, end the email without a made-up signature (use a neutral close such as "Best regards,").';
+
     const contextItemsGuidance = contextItemsBlock
       ? [
           'CURATED CONTEXT, treat this as the source-of-truth for what to include and how. The list below is grouped into:',
           '  • "Shared context", must inform every recipient\'s draft. These are the campaign\'s spine.',
           '  • "Personalized context for this recipient", must be reflected explicitly in this draft only. If a per-item `Instruction:` line is present, follow it (e.g. "lead with this", "omit the deadline language", "soften the ask").',
           'When a personalized item conflicts with a shared item, the personalized item wins for that recipient. If an item is a `[note]` kind, treat its body and Instruction as a direct user directive to obey, not as fact to cite.',
+          'CRITICAL for `[note]` items: incorporate the note using ONLY the information it literally contains. Do NOT invent, embellish, or infer any additional specifics — for example, if a note says "It was nice meeting you at dinner last week", you may reference the dinner warmly but must NOT fabricate what was discussed, who attended, decisions made, topics, or any detail not explicitly written. When in doubt, paraphrase the note rather than expanding it.',
           'Do not cite items the user did not curate, do not pull from the raw JSON dump if those facts are not in the curated block. Do not enumerate the items back to the recipient; weave them into a coherent message.',
           '',
           contextItemsBlock,
@@ -1036,6 +1050,7 @@ export class EngagementAiService {
       'Use only the provided client, meeting, recipient, and engagement context. Do not invent facts.',
       'Never return unresolved template variables or bracket placeholders in subject or body. Use real provided values or omit the unsupported line/phrase.',
       contextItemsGuidance,
+      signatureGuidance,
       'Return JSON with subject, body, and contextNote. The body must be directly editable by the user.',
       JSON.stringify(inputForJson, null, 2),
     ]

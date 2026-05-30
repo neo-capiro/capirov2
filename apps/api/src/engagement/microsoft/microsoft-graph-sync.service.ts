@@ -169,6 +169,8 @@ export interface MicrosoftGraphSendMailInput {
   subject: string;
   body: string;
   toRecipients: Array<{ email: string; name?: string | null }>;
+  ccRecipients?: Array<{ email: string; name?: string | null }>;
+  bccRecipients?: Array<{ email: string; name?: string | null }>;
 }
 
 @Injectable()
@@ -331,6 +333,16 @@ export class MicrosoftGraphSyncService {
     await this.assertConnectionAccess(ctx, connectionId);
     const { token } = await this.loadConnection(ctx.tenantId, connectionId);
     const accessToken = await this.getValidAccessToken(ctx.tenantId, connectionId, token);
+    const toGraphRecipients = (
+      list: Array<{ email: string; name?: string | null }> | undefined,
+    ) =>
+      (list ?? []).map((recipient) => ({
+        emailAddress: {
+          address: recipient.email,
+          ...(recipient.name ? { name: recipient.name } : {}),
+        },
+      }));
+
     await this.graphPostNoContent('/me/sendMail', accessToken, {
       message: {
         subject: input.subject,
@@ -338,12 +350,13 @@ export class MicrosoftGraphSyncService {
           contentType: 'Text',
           content: input.body,
         },
-        toRecipients: input.toRecipients.map((recipient) => ({
-          emailAddress: {
-            address: recipient.email,
-            ...(recipient.name ? { name: recipient.name } : {}),
-          },
-        })),
+        toRecipients: toGraphRecipients(input.toRecipients),
+        ...(input.ccRecipients?.length
+          ? { ccRecipients: toGraphRecipients(input.ccRecipients) }
+          : {}),
+        ...(input.bccRecipients?.length
+          ? { bccRecipients: toGraphRecipients(input.bccRecipients) }
+          : {}),
       },
       saveToSentItems: true,
     });
