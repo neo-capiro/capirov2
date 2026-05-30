@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { App as AntApp, Avatar, Button, Empty, Input, Select, Skeleton, Tag, Typography } from 'antd';
 import { FilterOutlined, PlusOutlined } from '@ant-design/icons';
@@ -99,6 +99,23 @@ export function WorkflowsView() {
     setSelectedInstance(workflow);
     setDrawerOpen(true);
   };
+
+  // Deep-link support: /workspace/workflows?instance=<id> (e.g. from the
+  // dashboard's Open Workflows widget) auto-opens that workflow once loaded.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openedFromUrlRef = useRef<string | null>(null);
+  useEffect(() => {
+    const instanceId = searchParams.get('instance');
+    if (!instanceId || openedFromUrlRef.current === instanceId) return;
+    const target = (instances.data ?? []).find((w) => w.id === instanceId);
+    if (!target) return;
+    openedFromUrlRef.current = instanceId;
+    openCard(target);
+    const next = new URLSearchParams(searchParams);
+    next.delete('instance');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, instances.data]);
 
   return (
     <section className="workflows-view" aria-label="Workspace workflows">

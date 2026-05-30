@@ -1,12 +1,15 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { useQuery } from '@tanstack/react-query';
 import { Empty, Skeleton, Tag } from 'antd';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/use-api.js';
-import clioBubbleImage from '../assets/chat/clio-bubble.png';
 import type { Client } from './clients/clientTypes.js';
-import type { WorkflowInstance } from './workspace/workflowTypes.js';
+import {
+  STATUS_LABELS,
+  type WorkflowInstance,
+  type WorkflowStatus,
+} from './workspace/workflowTypes.js';
 import type {
   ComingUpItem,
   ComingUpResult,
@@ -174,7 +177,10 @@ export function HomePage() {
         <OutreachDrafts records={outreach.data ?? []} loading={outreach.isLoading} />
       </div>
 
-      <OpenWorkflows workflows={workflows.data ?? []} loading={workflows.isLoading} />
+      <div className="home-grid-2">
+        <OpenWorkflows workflows={workflows.data ?? []} loading={workflows.isLoading} />
+        <DashboardSpotlight />
+      </div>
     </section>
   );
 }
@@ -385,8 +391,11 @@ function ClioBrief({
     <div className="home-brief">
       <span className="home-brief-corner" aria-hidden />
       <div className="home-brief-top">
-        <span className="home-brief-avatar">
-          <img src={clioBubbleImage} alt="" aria-hidden />
+        <span className="home-brief-avatar" aria-hidden>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="#fff" aria-hidden>
+            <path d="M12 2.2l1.9 5.6 5.6 1.9-5.6 1.9L12 17.2l-1.9-5.6L4.5 9.7l5.6-1.9z" />
+            <path d="M18.2 13.4l.85 2.45 2.45.85-2.45.85-.85 2.45-.85-2.45-2.45-.85 2.45-.85z" opacity="0.85" />
+          </svg>
         </span>
         <div className="home-brief-id">
           <span className="home-brief-kicker">Clio briefing</span>
@@ -512,7 +521,11 @@ function ClientEngagement({
             const channel = m.location || (m.source ? prettySource(m.source) : null);
             const who = m.organizerName || m.attendees.find((a) => a.name)?.name || m.client?.name || '';
             return (
-              <Link key={m.id} to="/engagement" className="home-panel-row">
+              <Link
+                key={m.id}
+                to={`/engagement/meetings/${encodeURIComponent(m.id)}`}
+                className="home-panel-row"
+              >
                 <div className="home-panel-row-main">
                   <span className="home-meeting-when num">{formatCompactTime(new Date(m.startsAt))}</span>
                   <span className="home-panel-row-title">{m.subject}</span>
@@ -575,7 +588,11 @@ function OutreachDrafts({
             const ready = Boolean(r.body && r.body.trim() && r.recipientCount > 0);
             const sub = r.subject || (r.recipientCount ? `${r.recipientCount} recipient${r.recipientCount === 1 ? '' : 's'}` : 'No recipients yet');
             return (
-              <Link key={r.id} to="/engagement" className="home-panel-row">
+              <Link
+                key={r.id}
+                to={`/engagement/outreach/draft/${encodeURIComponent(r.id)}`}
+                className="home-panel-row"
+              >
                 <div className="home-panel-row-main">
                   <span className="home-panel-row-title">{r.title}</span>
                   <span className="home-panel-row-sub">
@@ -594,20 +611,11 @@ function OutreachDrafts({
   );
 }
 
-/* ── Open workflows: full-width kanban + stat summary (fixed height) ─────── */
+/* ── Open workflows: half-width, grouped by client, progress stepper ─────── */
 
-interface WorkflowColumn {
-  key: WorkflowInstance['status'];
-  label: string;
-  tone: 'muted' | 'info' | 'notable' | 'success';
-}
-
-const WORKFLOW_COLUMNS: WorkflowColumn[] = [
-  { key: 'triage', label: 'Triage', tone: 'muted' },
-  { key: 'in_progress', label: 'In Progress', tone: 'info' },
-  { key: 'review', label: 'Client Review', tone: 'notable' },
-  { key: 'submitted', label: 'Submitted', tone: 'success' },
-];
+// The lifecycle a request moves through. The stepper highlights where each
+// workflow currently sits.
+const WF_STAGES: WorkflowStatus[] = ['triage', 'in_progress', 'review', 'submitted', 'complete'];
 
 function OpenWorkflows({
   workflows,
@@ -616,31 +624,26 @@ function OpenWorkflows({
   workflows: WorkflowInstance[];
   loading: boolean;
 }) {
-  const columns = useMemo(() => {
-    const map: Record<string, WorkflowInstance[]> = {
-      triage: [],
-      in_progress: [],
-      review: [],
-      submitted: [],
-    };
+  // Group by client name (A–Z); workflows with no client fall under
+  // "Cross-client". Within a client, most-recently-updated first.
+  const groups = useMemo(() => {
+    const map = new Map<string, WorkflowInstance[]>();
     for (const w of workflows) {
-      if (map[w.status]) map[w.status]!.push(w);
+      const name = w.client?.name?.trim() || 'Cross-client';
+      const arr = map.get(name) ?? [];
+      arr.push(w);
+      map.set(name, arr);
     }
-    return map;
-  }, [workflows]);
-
-  const stats = useMemo(() => {
-    const triage = workflows.filter((w) => w.status === 'triage').length;
-    const inProgress = workflows.filter((w) => w.status === 'in_progress' || w.status === 'review').length;
-    const done = workflows.filter((w) => w.status === 'submitted' || w.status === 'complete').length;
-    return { triage, inProgress, done, total: triage + inProgress + done };
+    for (const arr of map.values()) {
+      arr.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [workflows]);
 
   return (
-    <div className="home-panel home-workflows-panel">
+    <div className="home-panel home-panel--fixed">
       <header className="home-panel-head">
         <span className="home-panel-title">Open Workflows</span>
-        <WorkflowStatBar stats={stats} />
         <span className="open">
           <Link to="/workspace/workflows">Open Workspace →</Link>
         </span>
@@ -653,62 +656,85 @@ function OpenWorkflows({
             </div>
           ))}
         </div>
-      ) : stats.total === 0 ? (
+      ) : workflows.length === 0 ? (
         <div className="home-panel-empty">
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No active workflows. Kick one off from Workspace." />
         </div>
       ) : (
-        <div className="home-kanban">
-          {WORKFLOW_COLUMNS.map((col) => {
-            const cards = columns[col.key] ?? [];
-            return (
-              <div className="home-kanban-col" key={col.key}>
-                <div className="home-kanban-col-head">
-                  <span className={`dot ${col.tone}`} aria-hidden />
-                  <span className="home-kanban-col-label">{col.label}</span>
-                  <span className="home-kanban-count num">{cards.length}</span>
-                </div>
-                <div className="home-kanban-cards">
-                  {cards.length === 0 ? (
-                    <div className="home-kanban-empty">—</div>
-                  ) : (
-                    cards.map((w) => (
-                      <Link key={w.id} to="/workspace/workflows" className="home-kanban-card">
-                        <span className="home-kanban-card-client">{w.client?.name ?? 'Cross-client'}</span>
-                        <span className="home-kanban-card-title">{w.title}</span>
-                        <span className="home-kanban-card-sub">{w.template?.name ?? 'Workflow'}</span>
-                      </Link>
-                    ))
-                  )}
-                </div>
+        <div className="home-panel-list">
+          {groups.map(([client, items]) => (
+            <div className="home-wf-group" key={client}>
+              <div className="home-wf-group-head">
+                <span className="home-wf-group-name">{client}</span>
+                <span className="home-wf-group-count num">{items.length}</span>
               </div>
-            );
-          })}
+              {items.map((w) => (
+                <Link
+                  key={w.id}
+                  to={`/workspace/workflows?instance=${encodeURIComponent(w.id)}`}
+                  className="home-wf-row"
+                >
+                  <div className="home-wf-row-top">
+                    <span className="home-wf-row-title">{w.title}</span>
+                    <span className="home-wf-row-stage">{STATUS_LABELS[w.status]}</span>
+                  </div>
+                  <WorkflowProgress status={w.status} />
+                </Link>
+              ))}
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function WorkflowStatBar({
-  stats,
-}: {
-  stats: { triage: number; inProgress: number; done: number; total: number };
-}) {
-  const { triage, inProgress, done, total } = stats;
-  if (!total) return null;
-  const pct = (n: number) => `${(n / total) * 100}%`;
+function WorkflowProgress({ status }: { status: WorkflowStatus }) {
+  const idx = WF_STAGES.indexOf(status);
   return (
-    <div className="home-wf-stat" aria-label="Workflow status overview">
-      <div className="home-wf-stat-bar" aria-hidden>
-        <span className="seg triage" style={{ width: pct(triage) }} />
-        <span className="seg prog" style={{ width: pct(inProgress) }} />
-        <span className="seg done" style={{ width: pct(done) }} />
-      </div>
-      <div className="home-wf-stat-legend">
-        <span><i className="dot muted" />{triage} triage</span>
-        <span><i className="dot info" />{inProgress} in progress</span>
-        <span><i className="dot success" />{done} done</span>
+    <div className="home-wfp" role="img" aria-label={`Stage: ${STATUS_LABELS[status]}`}>
+      {WF_STAGES.map((s, i) => (
+        <Fragment key={s}>
+          {i > 0 ? <span className={`home-wfp-bar${i <= idx ? ' is-done' : ''}`} aria-hidden /> : null}
+          <span
+            className={
+              'home-wfp-node' +
+              (i < idx ? ' is-done' : '') +
+              (i === idx ? ' is-current' : '')
+            }
+            title={STATUS_LABELS[s]}
+            aria-hidden
+          />
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+/* ── Spotlight gadget (placeholder, same size as Open Workflows) ─────────── */
+
+function DashboardSpotlight() {
+  return (
+    <div className="home-panel home-panel--fixed">
+      <header className="home-panel-head">
+        <span className="home-panel-title">Spotlight</span>
+        <span className="open" style={{ color: 'var(--ink-3)' }}>
+          Coming soon
+        </span>
+      </header>
+      <div className="home-panel-empty">
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            <span style={{ display: 'block', maxWidth: 280 }}>
+              <span style={{ fontWeight: 600, color: 'var(--ink-2)' }}>Reserved for a new widget</span>
+              <span style={{ display: 'block', marginTop: 6, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.6 }}>
+                Candidates: upcoming submission deadlines, client portfolio health, tasks due this
+                week, or recent bill movements.
+              </span>
+            </span>
+          }
+        />
       </div>
     </div>
   );
