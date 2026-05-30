@@ -21,6 +21,7 @@ import {
   type MenuProps,
 } from 'antd';
 import {
+  BankOutlined,
   CopyOutlined,
   CheckOutlined,
   DownOutlined,
@@ -31,7 +32,6 @@ import {
   SearchOutlined,
   SendOutlined,
   TeamOutlined,
-  UserOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
@@ -989,8 +989,8 @@ function DirectoryStatsRow({
   }> = [
     { label: 'All Members', value: totals.all, tone: 'accent', icon: <TeamOutlined /> },
     { label: 'House', value: totals.house, tone: 'info', icon: <HomeOutlined /> },
-    { label: 'Staff', value: totals.staff, tone: 'notable', icon: <TeamOutlined /> },
-    { label: 'Governors', value: totals.governors, tone: 'muted', icon: <UserOutlined /> },
+    { label: 'Senate', value: totals.senate, tone: 'notable', icon: <BankOutlined /> },
+    { label: 'Staffers', value: totals.staff, tone: 'muted', icon: <TeamOutlined /> },
   ];
 
   return (
