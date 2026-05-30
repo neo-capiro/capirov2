@@ -172,6 +172,12 @@ class ConfirmClientLogoUploadDto {
   contentType!: string;
 }
 
+class AppendClientNoteDto {
+  @IsString()
+  @Length(1, 4000)
+  body!: string;
+}
+
 /**
  * Clients API, the lobbying firm's customer records.
  *
@@ -224,6 +230,17 @@ export class ClientsController {
   @Roles('standard_user')
   archive(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.archive(ctx, id);
+  }
+
+  // Quick Log: append a timestamped personal note to the client's profile
+  // notes (intakeData.profileNotes), shown in the profile Documents → Notes.
+  @Post(':id/notes')
+  appendNote(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: AppendClientNoteDto,
+  ) {
+    return this.service.appendClientNote(ctx, id, body.body);
   }
 
   @Post(':id/logo/upload-url')

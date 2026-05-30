@@ -217,6 +217,38 @@ export class ClientsService {
     return this.update(ctx, id, { status: 'archived' });
   }
 
+  /**
+   * Quick Log: prepend a timestamped, attributed note to the client's profile
+   * notes (intakeData.profileNotes). Read-modify-write within the tenant
+   * transaction so it composes with manual edits in the Documents tab.
+   */
+  async appendClientNote(ctx: TenantContext, id: string, body: string) {
+    const trimmed = body.trim();
+    if (!trimmed) throw new BadRequestException('Note body is required');
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const client = await tx.client.findUnique({ where: { id } });
+      if (!client) throw new NotFoundException('Client not found');
+      const user = await tx.user.findFirst({
+        where: { id: ctx.userId },
+        select: { firstName: true, lastName: true, email: true },
+      });
+      const author =
+        [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim() ||
+        user?.email ||
+        'Unknown';
+      const stamp = new Date().toISOString().slice(0, 10);
+      const intake = (client.intakeData ?? {}) as Record<string, unknown>;
+      const existing = typeof intake.profileNotes === 'string' ? intake.profileNotes : '';
+      const entry = `[${stamp} · ${author}] ${trimmed}`;
+      const profileNotes = existing.trim() ? `${entry}\n\n${existing}` : entry;
+      await tx.client.update({
+        where: { id },
+        data: { intakeData: { ...intake, profileNotes } as object },
+      });
+      return { ok: true, profileNotes };
+    });
+  }
+
   async createLogoUploadUrl(
     ctx: TenantContext,
     clientId: string,

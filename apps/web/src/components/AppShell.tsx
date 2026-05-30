@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ChatDrawer } from './chat/ChatDrawer.js';
 import { ChangesInboxBell } from './ChangesInboxBell.js';
+import { QuickLogButton } from './QuickLog.js';
 import {
   ApartmentOutlined,
   BulbOutlined,
@@ -471,6 +472,7 @@ export function AppShell() {
           />
           <TopbarSearch />
           <span className="app-topbar-spacer" />
+          <QuickLogButton />
           {/*
             Bell opens an inline Changes Inbox dropdown instead of navigating
             to /explorer. The full inbox at /intelligence/changes is still
