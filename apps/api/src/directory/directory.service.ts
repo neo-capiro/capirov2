@@ -679,6 +679,55 @@ export class DirectoryService {
     });
   }
 
+  /** Current user's favorited directory members (ids + names). */
+  listFavorites(ctx: TenantContext) {
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.directoryContactFavorite.findMany({
+        where: { tenantId: ctx.tenantId, userId: ctx.userId },
+        select: { directoryContactId: true, directoryContactName: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+  }
+
+  async addFavorite(ctx: TenantContext, contactId: string, directoryContactName?: string) {
+    const normalizedContactId = normalizeContactId(contactId);
+    const name = directoryContactName?.trim().slice(0, 240) || null;
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.directoryContactFavorite.upsert({
+        where: {
+          tenantId_userId_directoryContactId: {
+            tenantId: ctx.tenantId,
+            userId: ctx.userId,
+            directoryContactId: normalizedContactId,
+          },
+        },
+        create: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          directoryContactId: normalizedContactId,
+          directoryContactName: name,
+        },
+        update: { directoryContactName: name },
+      }),
+    );
+    return { ok: true, directoryContactId: normalizedContactId, favorited: true };
+  }
+
+  async removeFavorite(ctx: TenantContext, contactId: string) {
+    const normalizedContactId = normalizeContactId(contactId);
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.directoryContactFavorite.deleteMany({
+        where: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          directoryContactId: normalizedContactId,
+        },
+      }),
+    );
+    return { ok: true, directoryContactId: normalizedContactId, favorited: false };
+  }
+
   private async fetchGzipJson<T>(key: string): Promise<T> {
     const out = await this.s3.send(
       new GetObjectCommand({

@@ -153,6 +153,7 @@ model Tenant {
   associationOverrides         ClientAssociationOverride[]
   contextEmbeddings            ContextEmbedding[]
   directoryContactNotes        DirectoryContactNote[]
+  directoryContactFavorites    DirectoryContactFavorite[]
   engagementReportTargets      EngagementReportTargetOffice[]
   outreachRecords              OutreachRecord[]
   outreachTemplates            OutreachTemplate[]
@@ -194,6 +195,7 @@ model User {
   auditLogs               AuditLog[]                     @relation("AuditActor")
   impersonationSessions   ImpersonationSession[]         @relation("ImpersonationActor")
   directoryContactNotes   DirectoryContactNote[]         @relation("DirectoryContactNoteAuthor")
+  directoryContactFavorites DirectoryContactFavorite[]   @relation("DirectoryContactFavoriteUser")
   meetingNotes            MeetingNote[]                  @relation("MeetingNoteAuthor")
   meetingDebriefs         MeetingDebrief[]               @relation("MeetingDebriefAuthor")
   engagementReportTargets EngagementReportTargetOffice[] @relation("EngagementReportTargetOfficeAuthor")
@@ -314,6 +316,24 @@ model DirectoryContactNote {
   @@index([tenantId, directoryContactId, createdAt], map: "directory_contact_notes_tenant_contact_created_idx")
   @@index([createdByUserId], map: "directory_contact_notes_created_by_idx")
   @@map("directory_contact_notes")
+}
+
+/// Per-user "favorite"/starred directory members, so users get quick access to
+/// the offices they email most when building outreach.
+model DirectoryContactFavorite {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  userId               String   @map("user_id") @db.Uuid
+  directoryContactId   String   @map("directory_contact_id")
+  directoryContactName String?  @map("directory_contact_name")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation("DirectoryContactFavoriteUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, directoryContactId], map: "directory_contact_favorites_unique")
+  @@index([tenantId, userId], map: "directory_contact_favorites_tenant_user_idx")
+  @@map("directory_contact_favorites")
 }
 
 model IntegrationConnection {
@@ -1699,11 +1719,43 @@ model ProgramElement {
   yearSourceValues        ProgramElementYearSourceValue[]
   watches                 ProgramElementWatch[]
   conferenceProbabilities ConferenceProbability[]
+  sources                 ProgramElementSource[]
 
   @@index([serviceCode], map: "program_element_service_code_idx")
   @@index([appropriationType], map: "program_element_appropriation_type_idx")
   @@index([status], map: "program_element_status_idx")
   @@map("program_element")
+}
+
+// Page-level provenance for a Program Element, sourced from DoD Comptroller
+// budget justification books (J-books). Each row is one citation users can open
+// at the exact page (deep link: `${sourceUrl}#page=${pageNumber}`) and screenshot
+// the original exhibit. Mirrors AcquisitionPersonnelSource. Global table (no
+// tenant_id / RLS): J-book data is public-domain and read-only via API.
+model ProgramElementSource {
+  id          String   @id @default(uuid()) @db.Uuid
+  peCode      String   @map("pe_code") @db.VarChar(8)
+  docType     String   @map("doc_type") @db.VarChar(8) // R | P | O
+  exhibitType String?  @map("exhibit_type") @db.VarChar(16) // R-1 | R-2 | R-2A | P-1 | P-40
+  fy          Int?
+  sourceUrl   String   @map("source_url")
+  pageNumber  Int?     @map("page_number")
+  pageEnd     Int?     @map("page_end")
+  snippet     String?  @db.Text
+  publisher   String?  @db.VarChar(64) // e.g. "DoD Comptroller"
+  confidence  Float    @default(0.9)
+  metadata    Json     @default("{}") @map("metadata_jsonb")
+  observedAt  DateTime @default(now()) @map("observed_at") @db.Timestamptz(6)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  @@unique([peCode, docType, sourceUrl, pageNumber], map: "program_element_source_pe_doc_url_page_key")
+  @@index([peCode], map: "program_element_source_pe_code_idx")
+  @@index([peCode, fy], map: "program_element_source_pe_fy_idx")
+  @@index([docType], map: "program_element_source_doc_type_idx")
+  @@map("program_element_source")
 }
 
 model ProgramElementYear {

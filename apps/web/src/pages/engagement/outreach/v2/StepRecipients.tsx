@@ -27,8 +27,14 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { CloseOutlined, SearchOutlined, UserAddOutlined } from '@ant-design/icons';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import {
+  CloseOutlined,
+  SearchOutlined,
+  StarFilled,
+  StarOutlined,
+  UserAddOutlined,
+} from '@ant-design/icons';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnsType } from 'antd/es/table';
 import { useApi } from '../../../../lib/use-api.js';
 import type {
@@ -307,12 +313,47 @@ function DirectoryAndManualPicker({
 
   const directoryRows = directory.data?.contacts ?? [];
 
+  // ---- Favorites (starred members) ----
+  const qc = useQueryClient();
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const favoritesQuery = useQuery<Array<{ directoryContactId: string; directoryContactName: string | null }>>({
+    queryKey: ['directory-favorites'],
+    queryFn: async () =>
+      (await api.get<Array<{ directoryContactId: string; directoryContactName: string | null }>>(
+        '/api/directory/favorites',
+      )).data,
+    staleTime: 30_000,
+  });
+  const favoriteIds = useMemo(
+    () => new Set((favoritesQuery.data ?? []).map((f) => f.directoryContactId)),
+    [favoritesQuery.data],
+  );
+  const toggleFavorite = useMutation({
+    mutationFn: async (entry: DirectoryEntry) => {
+      const on = favoriteIds.has(entry.id);
+      if (on) {
+        await api.delete(`/api/directory/contacts/${encodeURIComponent(entry.id)}/favorite`);
+      } else {
+        await api.post(`/api/directory/contacts/${encodeURIComponent(entry.id)}/favorite`, {
+          directoryContactName: entry.fullName,
+        });
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['directory-favorites'] }),
+  });
+
   const filteredRows = useMemo(() => {
     let rows = directoryRows;
     if (stateFilter) rows = rows.filter((r) => r.state === stateFilter);
     if (chamberFilter) rows = rows.filter((r) => r.chamber === chamberFilter);
-    return rows;
-  }, [directoryRows, stateFilter, chamberFilter]);
+    if (favoritesOnly) rows = rows.filter((r) => favoriteIds.has(r.id));
+    // Float starred members to the top so frequently-emailed offices are first.
+    return [...rows].sort((a, b) => {
+      const fa = favoriteIds.has(a.id) ? 0 : 1;
+      const fb = favoriteIds.has(b.id) ? 0 : 1;
+      return fa - fb;
+    });
+  }, [directoryRows, stateFilter, chamberFilter, favoritesOnly, favoriteIds]);
 
   const states = useMemo(
     () => Array.from(new Set(directoryRows.map((r) => r.state).filter(Boolean))).sort(),
@@ -324,6 +365,35 @@ function DirectoryAndManualPicker({
     .map((r) => r.directoryContactId as string);
 
   const columns: ColumnsType<DirectoryEntry> = [
+    {
+      title: '',
+      key: 'favorite',
+      width: 38,
+      render: (_: unknown, entry: DirectoryEntry) => {
+        const on = favoriteIds.has(entry.id);
+        return (
+          <button
+            type="button"
+            aria-label={on ? 'Unfavorite' : 'Favorite'}
+            title={on ? 'Remove from favorites' : 'Favorite this office'}
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleFavorite.mutate(entry);
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 4,
+              lineHeight: 1,
+              color: on ? '#f59e0b' : 'var(--ov2-ink-3)',
+            }}
+          >
+            {on ? <StarFilled /> : <StarOutlined />}
+          </button>
+        );
+      },
+    },
     {
       title: 'Name',
       dataIndex: 'fullName',
@@ -442,6 +512,13 @@ function DirectoryAndManualPicker({
                     { value: 'Senate', label: 'Senate' },
                   ]}
                 />
+                <Button
+                  type={favoritesOnly ? 'primary' : 'default'}
+                  icon={favoritesOnly ? <StarFilled /> : <StarOutlined />}
+                  onClick={() => setFavoritesOnly((v) => !v)}
+                >
+                  Favorites{favoriteIds.size ? ` (${favoriteIds.size})` : ''}
+                </Button>
               </Space>
 
               {debouncedQuery.trim().length < 2 && (

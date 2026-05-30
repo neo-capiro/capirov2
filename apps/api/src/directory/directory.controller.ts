@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { IsOptional, IsString, Length, MaxLength } from 'class-validator';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
@@ -11,6 +11,13 @@ class CreateDirectoryContactNoteDto {
   @Length(1, 4000)
   body!: string;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  directoryContactName?: string;
+}
+
+class FavoriteContactDto {
   @IsOptional()
   @IsString()
   @MaxLength(240)
@@ -83,5 +90,25 @@ export class DirectoryController {
     @Body() body: CreateDirectoryContactNoteDto,
   ) {
     return this.service.createContactNote(ctx, contactId, body);
+  }
+
+  // Per-user favorites/stars for directory members (quick access in outreach).
+  @Get('favorites')
+  favorites(@CurrentTenant() ctx: TenantContext) {
+    return this.service.listFavorites(ctx);
+  }
+
+  @Post('contacts/:contactId/favorite')
+  addFavorite(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('contactId') contactId: string,
+    @Body() body: FavoriteContactDto,
+  ) {
+    return this.service.addFavorite(ctx, contactId, body.directoryContactName);
+  }
+
+  @Delete('contacts/:contactId/favorite')
+  removeFavorite(@CurrentTenant() ctx: TenantContext, @Param('contactId') contactId: string) {
+    return this.service.removeFavorite(ctx, contactId);
   }
 }
