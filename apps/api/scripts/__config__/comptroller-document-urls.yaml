@@ -23,67 +23,74 @@ top_level_summaries:
 services:
   ARMY:
     fm_office: ASA(FM&C)
-    index_url: https://www.asafm.army.mil/Budget-Materials/   # or current location
+    index_url: https://www.asafm.army.mil/Budget-Materials/
+    # FY2027 RDT&E detail volume URLs confirmed via the asafm Budget-Materials
+    # index (path scheme: Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/).
+    # NOTE: asafm.army.mil is WAF/IP-blocked from our build + AWS egress (connect
+    # refused, HTTP 000). These URLs are correct but require a reachable fetch path
+    # (allow-listed egress, a one-time manual download into S3, or a proxy) before
+    # the R-2 sync can pull them. See README / handoff notes.
+    rdte_base: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte"
     rdte_volumes:
       - volume_id: vol1_ba1
         budget_activity: "0601"
         title: "Basic Research"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 1 - Budget Activity 1.pdf"
         parse_priority: 4
       - volume_id: vol1_ba2
         budget_activity: "0602"
         title: "Applied Research"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 1 - Budget Activity 2.pdf"
         parse_priority: 4
       - volume_id: vol1_ba3
         budget_activity: "0603"
         title: "Advanced Technology Development"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 1 - Budget Activity 3.pdf"
         parse_priority: 1   # start here — 0603270A lives here
       - volume_id: vol2_ba4a
         budget_activity: "0604"
         title: "Advanced Component Development & Prototypes (4A)"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 2 - Budget Activity 4A.pdf"
         parse_priority: 2
       - volume_id: vol2_ba4b
         budget_activity: "0604"
         title: "Advanced Component Development & Prototypes (4B)"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 2 - Budget Activity 4B.pdf"
         parse_priority: 2
       - volume_id: vol3_ba5a
         budget_activity: "0605"
         title: "System Development & Demonstration (5A)"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 3 - Budget Activity 5A.pdf"
         parse_priority: 1   # MDAP territory — high value
       - volume_id: vol3_ba5b
         budget_activity: "0605"
         title: "System Development & Demonstration (5B)"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 3 - Budget Activity 5B.pdf"
         parse_priority: 1
       - volume_id: vol3_ba5c
         budget_activity: "0605"
         title: "System Development & Demonstration (5C)"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 3 - Budget Activity 5C.pdf"
         parse_priority: 1
       - volume_id: vol3_ba5d
         budget_activity: "0605"
         title: "System Development & Demonstration (5D)"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 3 - Budget Activity 5D.pdf"
         parse_priority: 1
       - volume_id: vol4_ba6
         budget_activity: "0606"
         title: "RDT&E Management Support"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 4 - Budget Activity 6.pdf"
         parse_priority: 3
       - volume_id: vol4_ba7
         budget_activity: "0607"
         title: "Operational Systems Development"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 4 - Budget Activity 7.pdf"
         parse_priority: 2
       - volume_id: vol4_ba8
         budget_activity: "0608"
         title: "Software & Digital Tech Pilot Programs"
-        url: PASTE_URL_HERE
+        url: "https://www.asafm.army.mil/Portals/72/Documents/BudgetMaterial/2027/Discretionary Budget/rdte/RDTE - Vol 4 - Budget Activity 8.pdf"
         parse_priority: 2
     procurement_volumes:
       - volume_id: aircraft
