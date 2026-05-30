@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Alert, Skeleton, Space } from 'antd';
+import { Alert, Button, Skeleton, Space } from 'antd';
 import { useApi } from '../../../lib/use-api.js';
 import type { ClientIntelProfile } from '../../intelligence/types.js';
 import { SectionNav } from './components/SectionNav.js';
@@ -53,19 +53,18 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
 
   const sectionIds = useMemo(() => SECTION_ORDER.map((section) => section.id), []);
 
-  const profileV1Query = useQuery<ClientProfileV1 | null>({
+  const profileV1Query = useQuery<ClientProfileV1>({
     queryKey: ['client-intel-v1-aggregate', clientId],
-    queryFn: async () => {
-      try {
-        return (
-          await api.get<ClientProfileV1>(`/api/intelligence/clients/${clientId}/profile-v1`)
-        ).data;
-      } catch {
-        return null;
-      }
-    },
+    // Let real failures surface as query errors instead of silently
+    // collapsing to `null`. A swallowed error here blanked every
+    // aggregate-fed section (Top Alerts, District Nexus, Hearings, Financial
+    // Footprint, kanban, relationships) at once with no diagnostic — the
+    // sections looked "empty" when the endpoint was actually erroring.
+    queryFn: async () =>
+      (await api.get<ClientProfileV1>(`/api/intelligence/clients/${clientId}/profile-v1`)).data,
     enabled: !!clientId,
     staleTime: 2 * 60 * 1000,
+    retry: 1,
   });
 
   useEffect(() => {
@@ -170,6 +169,35 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
               showIcon
               message="Client intelligence is unavailable"
               description="Showing shell sections while data reconnects."
+            />
+          )}
+
+          {profileV1Query.isError && (
+            <Alert
+              type="error"
+              showIcon
+              style={{ marginBottom: 14 }}
+              message="Intelligence aggregate failed to load"
+              description={
+                <span>
+                  Snapshot alerts, financial footprint, bill pipeline, hearings, and
+                  relationships could not be retrieved for this client. This is a load
+                  error, not an empty dataset.
+                  {(() => {
+                    const err = profileV1Query.error as unknown;
+                    const status =
+                      err && typeof err === 'object' && 'response' in err
+                        ? (err as { response?: { status?: number } }).response?.status
+                        : undefined;
+                    return status ? ` (HTTP ${status})` : '';
+                  })()}
+                </span>
+              }
+              action={
+                <Button size="small" onClick={() => void profileV1Query.refetch()}>
+                  Retry
+                </Button>
+              }
             />
           )}
 

@@ -245,26 +245,12 @@ export class IntelligenceService {
       }),
     );
 
-    const [
-      profile,
-      roi,
-      fec,
-      district,
-      trackedBills,
-      regLinks,
-      graph,
-      health,
-      exStaffers,
-      commentAlerts,
-      changes,
-      hearings,
-      meetings,
-      threads,
-      doneTasks,
-      debriefs,
-      outreachRows,
-      mappingRows,
-    ] = await Promise.all([
+    // Each source is resolved independently via allSettled so one failing
+    // builder (a missing sync table, a tenant without a given mapping, a slow
+    // query) degrades only its own section instead of rejecting the whole
+    // aggregate and blanking every section at once. Failures are logged with
+    // the source label so production issues are diagnosable.
+    const settled = await Promise.allSettled([
       this.getClientProfile(clientId, tenantId),
       this.getLobbyingRoi(clientId, tenantId),
       this.getFecMoneyFlow(clientId, tenantId),
@@ -326,6 +312,48 @@ export class IntelligenceService {
       ),
       mappingRowsPromise,
     ]);
+
+    const settledSourceLabels = [
+      'profile', 'lobbyingRoi', 'fecMoneyFlow', 'districtNexus', 'trackedBills',
+      'billRegulationLinks', 'knowledgeGraph', 'engagementHealth', 'exStaffers',
+      'commentAlerts', 'changes', 'hearings', 'meetings', 'mailThreads',
+      'doneTasks', 'debriefs', 'outreachRecords', 'mappingRows',
+    ] as const;
+
+    const settle = <T,>(index: number, fallback: T): T => {
+      const result = settled[index];
+      if (result && result.status === 'fulfilled') return result.value as T;
+      const reason = result && result.status === 'rejected' ? result.reason : 'unknown';
+      this.logger.warn(
+        `profile-v1 source "${settledSourceLabels[index]}" failed for client ${clientId}: ${
+          reason instanceof Error ? reason.message : String(reason)
+        }`,
+      );
+      return fallback;
+    };
+
+    // `profile` is the spine of the response (drives identity + trajectory).
+    // If it failed we can't build a coherent aggregate, so surface the error.
+    if (settled[0].status === 'rejected') throw settled[0].reason;
+    const profile = settled[0].value as Awaited<ReturnType<typeof this.getClientProfile>>;
+
+    const roi = settle(1, { lobbySpend: 0, contractWins: 0, roi: null, gap: 0, mappedLdaClientId: null } as Awaited<ReturnType<typeof this.getLobbyingRoi>>);
+    const fec = settle(2, { clientId, clientName: client.name, mappedEmployer: null, summary: { totalContributions: 0, totalAmount: 0, committeeCount: 0, candidateCount: 0, memberCount: 0, billCount: 0 }, committees: [] } as Awaited<ReturnType<typeof this.getFecMoneyFlow>>);
+    const district = settle(3, { capabilities: [] } as unknown as Awaited<ReturnType<typeof this.getDistrictNexus>>);
+    const trackedBills = settle(4, { total: 0, issueCodes: [], bills: [] } as Awaited<ReturnType<typeof this.getTrackedBills>>);
+    const regLinks = settle(5, { totalBills: 0, totalRegulations: 0, rails: [] } as unknown as Awaited<ReturnType<typeof this.getBillRegulationLinks>>);
+    const graph = settle(6, { nodes: [], edges: [], resolutionQuality: { avgConfidence: 0, confirmedCount: 0, unconfirmedCount: 0 } } as unknown as Awaited<ReturnType<typeof this.getKnowledgeGraph>>);
+    const health = settle(7, null as unknown as Awaited<ReturnType<typeof this.computeEngagementHealth>>);
+    const exStaffers = settle(8, { lobbyists: [] } as unknown as Awaited<ReturnType<typeof this.getExStaffers>>);
+    const commentAlerts = settle(9, { alerts: [] } as Awaited<ReturnType<typeof this.getCommentPeriodAlerts>>);
+    const changes = settle(10, [] as Awaited<ReturnType<typeof this.getChanges>>);
+    const hearings = settle(11, [] as Awaited<ReturnType<typeof this.prisma.committeeHearing.findMany>>);
+    const meetings = settle(12, [] as Array<{ startsAt: Date }>);
+    const threads = settle(13, [] as Array<{ lastMessageAt: Date | null }>);
+    const doneTasks = settle(14, [] as Array<{ updatedAt: Date }>);
+    const debriefs = settle(15, [] as Array<{ createdAt: Date }>);
+    const outreachRows = settle(16, [] as Array<{ sentAt: Date }>);
+    const mappingRows = settle(17, [] as Array<{ source: string; confirmed: boolean; externalId: string | null }>);
 
     // Freshness + unresolved metadata derived from the tenant-scoped mapping query.
     // mappingRows is fetched via withTenant, clientId is guaranteed to belong to tenantId.

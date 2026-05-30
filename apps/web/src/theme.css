@@ -15452,6 +15452,14 @@ body {
   color: var(--ink-3);
 }
 
+/* Inner body padding for surface panels (e.g. the Snapshot "Activity" panel).
+   The header is inset 16px; without this rule the body content (sparkline,
+   activity bars, action buttons) sat flush against the card edges, leaving the
+   panel visibly misaligned with its own header and the sibling panels. */
+.iv1-surface-body {
+  padding: 14px 16px;
+}
+
 .iv1-surface-right {
   margin-left: auto;
   font-size: 11px;

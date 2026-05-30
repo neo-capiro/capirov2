@@ -145,6 +145,15 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
     criticalAlerts.length,
     1,
   );
+  // Whether there is any CRM activity at all in the window. When everything is
+  // zero we render a compact empty state instead of five flat zero-bars, which
+  // read as a broken/empty chart.
+  const hasActivity =
+    activityMeetings > 0 ||
+    activityOutreach > 0 ||
+    activityTasks > 0 ||
+    trackedTotal > 0 ||
+    criticalAlerts.length > 0;
   return (
     <section id="snapshot" className="iv1-section">
       {/* ── Section heading ── */}
@@ -210,46 +219,58 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
             <span className="iv1-surface-sub">CRM signals</span>
           </div>
           <div className="iv1-surface-body">
-            {/* Tiny sparkline of total daily activity above the row list.
-                Title used to say "90 days" but we only fetch 14d on the
-                profile endpoint, keep the label honest. */}
-            {activityRows && activityRows.length > 0 && (
-              <ActivitySparkline rows={activityRows} />
+            {/* When the client has any CRM activity in the window we show the
+                sparkline + per-category bars; otherwise a compact empty state
+                so the panel doesn't read as a broken chart of flat zero-bars. */}
+            {hasActivity ? (
+              <>
+                {activityRows && activityRows.length > 0 && (
+                  <ActivitySparkline rows={activityRows} />
+                )}
+                <ActivityBar
+                  label="Meetings"
+                  value={activityMeetings}
+                  max={activityMax}
+                  color={activityMeetings === 0 ? 'var(--ink-4)' : 'var(--accent)'}
+                  criticalIfZero
+                />
+                <ActivityBar
+                  label="Outreach sent"
+                  value={activityOutreach}
+                  max={activityMax}
+                  color={activityOutreach === 0 ? 'var(--ink-4)' : 'var(--info)'}
+                />
+                <ActivityBar
+                  label="Tasks done"
+                  value={activityTasks}
+                  max={activityMax}
+                  color={activityTasks === 0 ? 'var(--ink-4)' : 'var(--success)'}
+                />
+                <ActivityBar
+                  label="Bills tracked"
+                  value={trackedTotal}
+                  max={Math.max(trackedTotal, activityMax, 1)}
+                  color="var(--info)"
+                />
+                <ActivityBar
+                  label="Critical alerts"
+                  value={criticalAlerts.length}
+                  max={Math.max(criticalAlerts.length, clientAlerts.length, 1)}
+                  color={criticalAlerts.length > 0 ? 'var(--critical)' : 'var(--ink-4)'}
+                />
+              </>
+            ) : (
+              <div
+                className="iv1-empty"
+                style={{ padding: '20px 8px 16px', textAlign: 'center' }}
+              >
+                <b>No activity in the last 14 days</b>
+                <span>Logged meetings, outreach, tasks, and tracked bills will appear here.</span>
+              </div>
             )}
-            <ActivityBar
-              label="Meetings"
-              value={activityMeetings}
-              max={activityMax}
-              color={activityMeetings === 0 ? 'var(--ink-4)' : 'var(--accent)'}
-              criticalIfZero
-            />
-            <ActivityBar
-              label="Outreach sent"
-              value={activityOutreach}
-              max={activityMax}
-              color={activityOutreach === 0 ? 'var(--ink-4)' : 'var(--info)'}
-            />
-            <ActivityBar
-              label="Tasks done"
-              value={activityTasks}
-              max={activityMax}
-              color={activityTasks === 0 ? 'var(--ink-4)' : 'var(--success)'}
-            />
-            <ActivityBar
-              label="Bills tracked"
-              value={trackedTotal}
-              max={Math.max(trackedTotal, activityMax, 1)}
-              color="var(--info)"
-            />
-            <ActivityBar
-              label="Critical alerts"
-              value={criticalAlerts.length}
-              max={Math.max(criticalAlerts.length, clientAlerts.length, 1)}
-              color={criticalAlerts.length > 0 ? 'var(--critical)' : 'var(--ink-4)'}
-            />
             <div
               style={{
-                marginTop: 12,
+                marginTop: hasActivity ? 12 : 4,
                 paddingTop: 12,
                 borderTop: '1px solid var(--border-1)',
                 display: 'flex',
