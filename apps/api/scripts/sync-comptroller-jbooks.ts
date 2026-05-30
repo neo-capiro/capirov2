@@ -67,15 +67,25 @@ async function main() {
   const commit = process.argv.includes('--commit');
   const configPath = path.resolve('scripts/__config__/comptroller-document-urls.yaml');
   const extractor = path.resolve('scripts/__tools__/extract_jbook_r1.py');
+  // Committed extraction artifact (Python/pdfplumber output). Preferred source so
+  // the loader runs in the Node-only production runtime (no Python in the image).
+  const artifactPath = path.resolve('scripts/__data__/jbook_r1_fy2027.json');
   const url = readR1Url(configPath);
-  const pdfPath = path.resolve('tmp/jbooks', path.basename(new URL(url).pathname));
 
-  await download(url, pdfPath);
-
-  const { stdout } = await execFileAsync('python', [extractor, pdfPath, '--doc-type', 'R'], {
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  const result = JSON.parse(stdout) as ExtractResult;
+  let result: ExtractResult;
+  if (fs.existsSync(artifactPath)) {
+    // Artifact path: pure JSON, works anywhere Node runs (incl. ECS/Aurora).
+    result = JSON.parse(fs.readFileSync(artifactPath, 'utf-8')) as ExtractResult;
+  } else {
+    // Local fallback: download the PDF and run the deterministic extractor.
+    // Requires python + pdfplumber; only used in dev to (re)generate the artifact.
+    const pdfPath = path.resolve('tmp/jbooks', path.basename(new URL(url).pathname));
+    await download(url, pdfPath);
+    const { stdout } = await execFileAsync('python', [extractor, pdfPath, '--doc-type', 'R'], {
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    result = JSON.parse(stdout) as ExtractResult;
+  }
   if (result.error) throw new Error(`extractor error: ${result.error}`);
 
   const stats = {
