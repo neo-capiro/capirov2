@@ -1,0 +1,144 @@
+# apps/api/scripts/__config__/comptroller-document-urls.yaml
+fy: 2027
+publisher: DoD Comptroller (comptroller.war.gov)
+notes: |
+  Top-level summary docs live at comptroller.war.gov.
+  Per-Service R-2 + P-Doc detail volumes live at each Service's FM&C site.
+  Update URLs annually at PB release (typically Feb-Mar).
+
+  Provenance requirement: every PE line ingested MUST persist the source
+  document URL + page number so users can open the J-book at the exact page
+  (deep link via "<pdf-url>#page=N") and screenshot the original exhibit.
+
+top_level_summaries:
+  r1:
+    url: https://comptroller.war.gov/Portals/45/Documents/defbudget/FY2027/FY2027_r1.pdf
+    role: rdte_master_list
+    parse_priority: 1
+  p1:
+    url: https://comptroller.war.gov/Portals/45/Documents/defbudget/FY2027/FY2027_p1.pdf
+    role: procurement_master_list
+    parse_priority: 1
+
+services:
+  ARMY:
+    fm_office: ASA(FM&C)
+    index_url: https://www.asafm.army.mil/Budget-Materials/   # or current location
+    rdte_volumes:
+      - volume_id: vol1_ba1
+        budget_activity: "0601"
+        title: "Basic Research"
+        url: PASTE_URL_HERE
+        parse_priority: 4
+      - volume_id: vol1_ba2
+        budget_activity: "0602"
+        title: "Applied Research"
+        url: PASTE_URL_HERE
+        parse_priority: 4
+      - volume_id: vol1_ba3
+        budget_activity: "0603"
+        title: "Advanced Technology Development"
+        url: PASTE_URL_HERE
+        parse_priority: 1   # start here — 0603270A lives here
+      - volume_id: vol2_ba4a
+        budget_activity: "0604"
+        title: "Advanced Component Development & Prototypes (4A)"
+        url: PASTE_URL_HERE
+        parse_priority: 2
+      - volume_id: vol2_ba4b
+        budget_activity: "0604"
+        title: "Advanced Component Development & Prototypes (4B)"
+        url: PASTE_URL_HERE
+        parse_priority: 2
+      - volume_id: vol3_ba5a
+        budget_activity: "0605"
+        title: "System Development & Demonstration (5A)"
+        url: PASTE_URL_HERE
+        parse_priority: 1   # MDAP territory — high value
+      - volume_id: vol3_ba5b
+        budget_activity: "0605"
+        title: "System Development & Demonstration (5B)"
+        url: PASTE_URL_HERE
+        parse_priority: 1
+      - volume_id: vol3_ba5c
+        budget_activity: "0605"
+        title: "System Development & Demonstration (5C)"
+        url: PASTE_URL_HERE
+        parse_priority: 1
+      - volume_id: vol3_ba5d
+        budget_activity: "0605"
+        title: "System Development & Demonstration (5D)"
+        url: PASTE_URL_HERE
+        parse_priority: 1
+      - volume_id: vol4_ba6
+        budget_activity: "0606"
+        title: "RDT&E Management Support"
+        url: PASTE_URL_HERE
+        parse_priority: 3
+      - volume_id: vol4_ba7
+        budget_activity: "0607"
+        title: "Operational Systems Development"
+        url: PASTE_URL_HERE
+        parse_priority: 2
+      - volume_id: vol4_ba8
+        budget_activity: "0608"
+        title: "Software & Digital Tech Pilot Programs"
+        url: PASTE_URL_HERE
+        parse_priority: 2
+    procurement_volumes:
+      - volume_id: aircraft
+        title: "Aircraft Procurement Army"
+        url: PASTE_URL_HERE
+      - volume_id: missile
+        title: "Missile Procurement Army"
+        url: PASTE_URL_HERE
+      - volume_id: other_ba1
+        title: "Other Procurement BA1 - Tactical & Support Vehicles"
+        url: PASTE_URL_HERE
+      - volume_id: other_ba2
+        title: "Other Procurement BA2 - Communications & Electronics"
+        url: PASTE_URL_HERE
+      - volume_id: other_ba3_4
+        title: "Other Procurement BA3 & 4 - Other Support Equipment & Initial Spares"
+        url: PASTE_URL_HERE
+      - volume_id: ammunition
+        title: "Procurement of Ammunition"
+        url: PASTE_URL_HERE
+      - volume_id: weapons_tracked
+        title: "Procurement of Weapons and Tracked Combat Vehicles"
+        url: PASTE_URL_HERE
+
+  NAVY:
+    fm_office: SECNAV FM&C
+    index_url: https://www.secnav.navy.mil/fmc/fmb/Pages/Fiscal-Year-Budget.aspx
+    rdte_volumes:
+      # Pull from Navy FM page (similar structure to Army; Navy publishes ~10 volumes)
+    procurement_volumes:
+      # Aircraft Procurement Navy, Shipbuilding & Conversion Navy, Weapons Procurement Navy, Other Procurement Navy, Procurement Marine Corps, Procurement of Ammunition Navy & Marine Corps
+
+  AF:
+    fm_office: SAF/FM
+    index_url: https://www.saffm.hq.af.mil/FM-Resources/Budget/
+    rdte_volumes: []
+    procurement_volumes: []
+
+  SF:
+    fm_office: SAF/FM (Space Force published with AF)
+    rdte_volumes: []
+    procurement_volumes: []
+
+  USMC:
+    fm_office: SECNAV (bundled with Navy)
+    rdte_volumes: []
+    procurement_volumes: []
+
+  DW:
+    fm_office: DoD Comptroller (Defense-Wide section)
+    index_url: https://comptroller.war.gov/Budget-Materials/
+    rdte_volumes: []
+    procurement_volumes: []
+
+  DARPA:
+    fm_office: DARPA Comptroller (published in Defense-Wide R-2)
+    rdte_volumes: []
+    procurement_volumes: []

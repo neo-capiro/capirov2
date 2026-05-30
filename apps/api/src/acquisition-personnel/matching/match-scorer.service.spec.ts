@@ -1,17 +1,22 @@
 import { describe, expect, test } from '@jest/globals';
 import { MatchScorerService } from './match-scorer.service.js';
 
-// `rows` is retained for the pending (skipped) scoring tests so their fixtures
-// stay meaningful once `findMatches` is implemented against a real prisma client.
-function createService(_rows: Array<Record<string, unknown>>) {
-  void _rows;
-  return new MatchScorerService();
+// `rows` drives the mocked prisma $queryRawUnsafe so findMatches scores against
+// real candidate rows. Un-skipped now that findMatches is wired to pg_trgm.
+function createService(rows: Array<Record<string, unknown>>) {
+  const prisma = {
+    $queryRawUnsafe: async (_sql: string, nameKey: string) => {
+      void nameKey;
+      return rows;
+    },
+  };
+  return new MatchScorerService(prisma as never);
 }
 
-// `findMatches` is currently a stub that returns []. The scoring behavior below
-// is not yet implemented, so these expectations are skipped to keep typecheck +
-// jest green. Un-skip when MatchScorerService.findMatches is wired to prisma/pg_trgm.
-describe.skip('MatchScorerService scoring (pending implementation)', () => {
+// Scoring contract: name is the dominant identity signal; a near-exact name
+// match clears 0.92 only WITH corroboration, while same-name/different-person
+// (lower name_sim or org mismatch) stays in the 0.5-0.7 review band.
+describe('MatchScorerService scoring', () => {
   test('same name + org + similar title scores > 0.92', async () => {
     const service = createService([
       {

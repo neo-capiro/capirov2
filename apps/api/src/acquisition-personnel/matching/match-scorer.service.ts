@@ -61,13 +61,34 @@ export class MatchScorerService {
         const rowPrograms = [row.programOfRecord ?? '', row.pePrimary ?? '', ...(row.peSecondary ?? [])];
         const programOverlap = this.jaccardOverlap(candidatePrograms, rowPrograms);
 
-        const score = this.capScore(
-          row.nameSimilarity * 0.58 +
-            orgSimilarity * 0.17 +
-            titleCompatibility * 0.13 +
-            emailDomainMatch * 0.07 +
-            programOverlap * 0.05,
-        );
+        // Name is the dominant identity signal. A near-exact name match must be
+        // able to clear the dedupe/match threshold on its own; org/title/email/
+        // program act as boosters (and corroboration), not required mass.
+        // Prior weighting capped a perfect-name match at ~0.58 which made the
+        // 0.92 match bar effectively unreachable for press mentions (org/title
+        // strings differ from the Stanford directory), yielding zero matches.
+        const corroboration =
+          orgSimilarity * 0.40 +
+          titleCompatibility * 0.30 +
+          emailDomainMatch * 0.20 +
+          programOverlap * 0.10;
+
+        // Base is name-driven (up to 0.90 for a perfect name match); the
+        // remaining headroom (up to 0.10) is earned via corroboration. This lets
+        // an exact name + any corroboration reach >=0.92, while a weak name match
+        // stays low regardless of corroboration.
+        //
+        // Guard: when the name match is weak (< 0.92, i.e. same-name-but-maybe-
+        // different-person territory) and titles are incompatible, org overlap
+        // alone must NOT lift the pair out of the review band -- incompatible
+        // titles at the same org signal two different people sharing a name.
+        const weakNameIncompatibleTitle = row.nameSimilarity < 0.92 && titleCompatibility < 0.2;
+        const corroborationApplied = weakNameIncompatibleTitle
+          ? Math.min(corroboration, 0.3)
+          : corroboration;
+
+        const nameBase = row.nameSimilarity * 0.9;
+        const score = this.capScore(nameBase + corroborationApplied * 0.1 + (row.nameSimilarity >= 0.92 ? corroboration * 0.02 : 0));
 
         return {
           personId: row.id,
