@@ -219,7 +219,7 @@ export interface UpdateAiTemplateInput {
 /** v2 wizard's per-item scoped context object. */
 export interface OutreachSelectedContextItemInput {
   id: string;
-  kind: 'bill' | 'intel' | 'email' | 'meeting' | 'note';
+  kind: 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document';
   title: string;
   body?: string;
   /** 'all' = shared across every recipient; else recipient-key string. */
@@ -3232,13 +3232,15 @@ export class EngagementService {
       }),
     );
     if (!attachment) throw new NotFoundException('Attachment not found');
-    if (!attachment.meetingId) {
-      throw new BadRequestException('Only meeting attachments can be used for debrief extraction');
+    // Allow extraction for both meeting attachments (debrief sources) and
+    // client-profile documents (used as outreach context).
+    if (!attachment.meetingId && !attachment.clientId) {
+      throw new BadRequestException('Attachment is not linked to a meeting or client');
     }
 
     await this.validateAttachmentParents(ctx, {
       clientId: attachment.clientId ?? undefined,
-      meetingId: attachment.meetingId,
+      meetingId: attachment.meetingId ?? undefined,
     });
 
     const bytes = await this.readAttachmentBytes(attachment.s3Key);

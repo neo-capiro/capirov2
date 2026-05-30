@@ -769,8 +769,8 @@ class OutreachSelectedContextItemDto {
   @IsString()
   id!: string;
 
-  @IsIn(['bill', 'intel', 'email', 'meeting', 'note'])
-  kind!: 'bill' | 'intel' | 'email' | 'meeting' | 'note';
+  @IsIn(['bill', 'intel', 'email', 'meeting', 'note', 'document'])
+  kind!: 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document';
 
   @IsString()
   title!: string;

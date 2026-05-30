@@ -9,7 +9,7 @@
 // work to existing API endpoints under /api/engagement/outreach.
 
 import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import { App, Button, Form, Input, Modal, Select, Skeleton, Space, Tag, Typography } from 'antd';
 import {
@@ -89,6 +89,23 @@ interface MailThreadsResponse {
     clientId?: string | null;
     participants?: Array<{ email?: string | null; name?: string | null }>;
   }>;
+}
+
+interface AttachmentItem {
+  id: string;
+  fileName: string;
+  contentType: string;
+}
+interface AttachmentsResponse {
+  items: AttachmentItem[];
+}
+
+interface DirectoryNoteItem {
+  id: string;
+  directoryContactId: string;
+  directoryContactName: string | null;
+  body: string;
+  _memberContactId: string;
 }
 
 /** Pull a human-readable message out of an axios-style error, if present. */
@@ -188,6 +205,45 @@ export function NewOutreachWizard({
     retry: false,
   });
 
+  // Client documents (uploaded files) for the Docs & Notes tab. Text is
+  // extracted lazily when an item is selected (see StepContext).
+  const docsQuery = useQuery<AttachmentsResponse>({
+    enabled: step.id === 'context' && !!state.clientId,
+    queryKey: ['outreach-pool-docs', state.clientId],
+    queryFn: async () => {
+      const res = await api.get<AttachmentItem[]>('/api/engagement/attachments', {
+        params: { clientId: state.clientId },
+      });
+      return { items: res.data };
+    },
+    retry: false,
+  });
+
+  // Member directory notes: one query per unique directory member among the
+  // recipients (staffer ids are "memberId:stafferId" → take the member part).
+  const memberContactIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of state.recipients) {
+      if (r.directoryContactId) ids.add(r.directoryContactId.split(':')[0] ?? r.directoryContactId);
+    }
+    return Array.from(ids);
+  }, [state.recipients]);
+
+  const memberNotesQueries = useQueries({
+    queries: memberContactIds.map((contactId) => ({
+      enabled: step.id === 'context',
+      queryKey: ['outreach-pool-member-notes', contactId],
+      queryFn: async () =>
+        (
+          await api.get<DirectoryNoteItem[]>(
+            `/api/directory/contacts/${encodeURIComponent(contactId)}/notes`,
+          )
+        ).data.map((n) => ({ ...n, _memberContactId: contactId })),
+      retry: false,
+      staleTime: 60_000,
+    })),
+  });
+
   const pool: Record<ContextKind, ContextPoolItem[]> = useMemo(() => {
     const out: Record<ContextKind, ContextPoolItem[]> = {
       bill: [],
@@ -195,7 +251,56 @@ export function NewOutreachWizard({
       email: [],
       meeting: [],
       note: [],
+      document: [],
     };
+
+    // ---- Docs & Notes: client profile notes + client documents + member notes ----
+    // Client profile notes (saved in the client profile → Documents → Notes,
+    // stored on intakeData.profileNotes).
+    const activeClient = clients.find((c) => c.id === state.clientId);
+    const profileNotes =
+      typeof (activeClient?.intakeData as { profileNotes?: unknown } | null)?.profileNotes === 'string'
+        ? ((activeClient!.intakeData as { profileNotes?: string }).profileNotes as string).trim()
+        : '';
+    if (profileNotes) {
+      out.document.push({
+        id: `clientnote-${state.clientId}`,
+        kind: 'document',
+        title: `${activeClient?.name ?? 'Client'} — profile notes`,
+        body: profileNotes,
+        tag: 'Client note',
+      });
+    }
+
+    // Client documents (uploaded files). Body (extracted text) is filled in
+    // lazily on selection; here we list them as selectable items.
+    for (const d of docsQuery.data?.items ?? []) {
+      out.document.push({
+        id: `doc-${d.id}`,
+        kind: 'document',
+        title: d.fileName,
+        sub: 'Client document',
+        tag: 'Document',
+      });
+    }
+
+    // Member directory notes, matched to the recipients who are that member.
+    for (const q of memberNotesQueries) {
+      for (const n of q.data ?? []) {
+        const memberId = n._memberContactId;
+        const matchedRecipientIds = state.recipients
+          .map((r) => r.directoryContactId)
+          .filter((id): id is string => !!id && (id === memberId || id.split(':')[0] === memberId));
+        out.document.push({
+          id: `membernote-${n.id}`,
+          kind: 'document',
+          title: `Note: ${n.directoryContactName ?? 'member'}`,
+          body: n.body,
+          tag: 'Member note',
+          matches: [memberId, ...matchedRecipientIds],
+        });
+      }
+    }
 
     // Bills come from /outreach/insights → recentBills.
     for (const b of insightsQuery.data?.recentBills ?? []) {
@@ -298,10 +403,20 @@ export function NewOutreachWizard({
     }
 
     return out;
-  }, [insightsQuery.data, meetingsQuery.data, mailQuery.data]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    insightsQuery.data,
+    meetingsQuery.data,
+    mailQuery.data,
+    docsQuery.data,
+    memberNotesQueries,
+    clients,
+    state.clientId,
+    state.recipients,
+  ]);
 
   const poolLoading =
-    insightsQuery.isLoading || meetingsQuery.isLoading || mailQuery.isLoading;
+    insightsQuery.isLoading || meetingsQuery.isLoading || mailQuery.isLoading || docsQuery.isLoading;
 
   // ---- Gating ----
   const canAdvance = (): boolean => {

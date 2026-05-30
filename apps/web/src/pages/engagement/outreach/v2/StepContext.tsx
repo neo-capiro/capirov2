@@ -14,13 +14,14 @@
 // item.matches (by recipient.id OR recipient.clientId). One match →
 // scope = that recipient.id. Zero or multi → scope = 'all'.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   CloseOutlined,
   FileTextOutlined,
   MailOutlined,
   CalendarOutlined,
+  PaperClipOutlined,
   PlusOutlined,
   SearchOutlined,
   RobotOutlined,
@@ -57,6 +58,7 @@ const TABS: Array<{ id: ContextKind; label: string; Icon: typeof FileTextOutline
   { id: 'bill', label: 'Bills', Icon: FileTextOutlined },
   { id: 'email', label: 'Past emails', Icon: MailOutlined },
   { id: 'meeting', label: 'Past meetings', Icon: CalendarOutlined },
+  { id: 'document', label: 'Docs & Notes', Icon: PaperClipOutlined },
   { id: 'note', label: 'Custom note', Icon: PlusOutlined },
 ];
 
@@ -66,6 +68,7 @@ const KIND_LABEL: Record<ContextKind, string> = {
   email: 'Past email',
   meeting: 'Meeting',
   note: 'Note',
+  document: 'Doc/Note',
 };
 
 export function StepContext({ recipients, selected, onChange, pool, loading }: Props) {
@@ -156,12 +159,43 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
     return `${matched.length} recipients`;
   };
 
+  // Latest `selected` for async callbacks (document text extraction resolves
+  // after the user may have toggled other items).
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+
+  // Client documents have no body until selected; pull the extracted text on
+  // demand (txt/docx supported server-side).
+  const extractDoc = async (attachmentId: string, itemId: string) => {
+    let body: string;
+    try {
+      const res = await api.post<{ text?: string }>(
+        `/api/engagement/attachments/${attachmentId}/extract-text`,
+      );
+      const text = (res.data?.text ?? '').trim();
+      body = text ? text.slice(0, 8000) : '(no extractable text in this document)';
+    } catch {
+      body = '(could not extract text — only .txt and .docx documents are supported)';
+    }
+    onChange(selectedRef.current.map((c) => (c.id === itemId ? { ...c, body } : c)));
+  };
+
   const toggle = (item: ContextPoolItem) => {
     if (isOn(item.id)) {
       onChange(selected.filter((c) => c.id !== item.id));
       return;
     }
-    onChange([...selected, { ...item, scope: deriveScope(item), note: '' }]);
+    const needsExtract = item.kind === 'document' && item.id.startsWith('doc-') && !item.body;
+    onChange([
+      ...selected,
+      {
+        ...item,
+        scope: deriveScope(item),
+        note: '',
+        body: needsExtract ? 'Extracting document text…' : item.body,
+      },
+    ]);
+    if (needsExtract) void extractDoc(item.id.slice('doc-'.length), item.id);
   };
 
   const setNote = (id: string, note: string) =>

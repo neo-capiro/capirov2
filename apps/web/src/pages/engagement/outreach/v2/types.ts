@@ -10,7 +10,7 @@ import type { OutreachRecipient } from '../../OutreachView.js';
 
 export type WizardDirection = 'on-behalf' | 'to-clients';
 
-export type ContextKind = 'bill' | 'intel' | 'email' | 'meeting' | 'note';
+export type ContextKind = 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document';
 
 export interface ContextPoolItem {
   id: string;
