@@ -1,5 +1,6 @@
 import * as ExcelJS from 'exceljs';
 import { normalizeName } from '../normalization/name-normalizer.js';
+import { isValidPeCode } from '../../program-element/jbook/jbook-extract.js';
 import { PersonRecordInput } from '../types.js';
 
 export interface ImportStats {
@@ -59,7 +60,6 @@ export interface ImportDeps {
 }
 
 const OBSERVED_AT = new Date('2026-01-15T00:00:00Z');
-const PE_CODE_REGEX = /^[0-9]{7}[A-Z]$/;
 
 function toRowObj(headers: string[], rowValues: ExcelJS.CellValue[]): Record<string, string> {
   const out: Record<string, string> = {};
@@ -212,7 +212,7 @@ async function processFullDirectory(
 
     const emailDomain = extractEmailDomain(obj['Verified Email'], obj['Assumed Email']);
     const publicProfileUrl = cleanLink(obj['Profile / Bio Link']);
-    const pePrimary = (obj['PE/BLI'] && PE_CODE_REGEX.test(obj['PE/BLI'])) ? obj['PE/BLI'] : undefined;
+    const pePrimary = (obj['PE/BLI'] && isValidPeCode(obj['PE/BLI'])) ? obj['PE/BLI'] : undefined;
 
     const metadata = {
       salesTier: obj['Capiro Sales Tier'] || null,
@@ -397,7 +397,7 @@ async function processProgramElements(ws: ExcelJS.Worksheet, deps: ImportDeps, s
     const title = obj['Program Element/Budget Line Item (BLI) Title']?.trim() ?? '';
     if (!peCode || !title) continue;
 
-    if (!PE_CODE_REGEX.test(peCode)) {
+    if (!isValidPeCode(peCode)) {
       stats.quarantined_rows += 1;
       await deps.programElementWriter.quarantine(obj, `Invalid pe_code: ${peCode}`, 'stanford_pe_directory_jan2026');
       continue;

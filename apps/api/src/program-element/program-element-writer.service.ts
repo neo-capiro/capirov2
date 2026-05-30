@@ -3,6 +3,7 @@ import { Prisma, ProgramElementMilestone, ProgramElementYear } from '@prisma/cli
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProgramElementMetricsService } from './program-element-metrics.service.js';
 import { FieldDelta, PeMilestoneInput, PeRecordInput, PeYearInput, SOURCE_PRIORITY } from './types.js';
+import { isValidPeCode } from './jbook/jbook-extract.js';
 
 const MARK_FIELDS = new Set(['hascMark', 'sascMark', 'hacDMark', 'sacDMark', 'conference', 'enacted']);
 const FIELD_LABEL: Record<string, string> = {
@@ -29,8 +30,6 @@ interface AffectedTenantContext {
   tenantId: string;
   relatedClientIds: string[];
 }
-
-const PE_CODE_REGEX = /^[0-9]{7}[A-Z]$/;
 
 type YearChangeResult = {
   inserted: boolean;
@@ -315,7 +314,7 @@ export class ProgramElementWriterService {
   }
 
   private isValidPeCode(peCode: string): boolean {
-    return PE_CODE_REGEX.test(peCode);
+    return isValidPeCode(peCode);
   }
 
   private getSourceRank(source: string): number {

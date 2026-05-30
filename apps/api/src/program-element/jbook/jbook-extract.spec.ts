@@ -4,6 +4,7 @@ import {
   readR1UrlFromText,
   jbookDeepLink,
   citationKey,
+  isValidPeCode,
 } from './jbook-extract.js';
 
 // Pins the pure logic that determines J-book data correctness + page-level
@@ -80,5 +81,36 @@ describe('citationKey dedup', () => {
       }
     }
     expect(kept).toEqual(['0601102A|R|10', '0601102A|R|42', '0603506N|R|10']);
+  });
+});
+
+describe('isValidPeCode', () => {
+  test('accepts canonical 8-char Service codes', () => {
+    for (const code of ['0601102A', '0603506N', '0602201F', '0305282M', '0602303E', '0603860D']) {
+      expect(isValidPeCode(code)).toBe(true);
+    }
+  });
+
+  test('accepts Defense-Wide / Space Force codes with sub-element suffixes', () => {
+    // These were previously quarantined by the 8-char-only regex.
+    for (const code of ['0604122D8Z', '0505167D8Z', '0604011D8Z', '0208085JCY', '1203622SF', '1203154SF', '1206616SF']) {
+      expect(isValidPeCode(code)).toBe(true);
+    }
+  });
+
+  test('trims and upper-cases before validating', () => {
+    expect(isValidPeCode('  0604122d8z ')).toBe(true);
+    expect(isValidPeCode('0603270a')).toBe(true);
+  });
+
+  test('rejects pure-numeric and malformed codes', () => {
+    for (const bad of ['9999999999', '1234567', '123A', '060270A', 'ABCDEFGH', '', '   ']) {
+      expect(isValidPeCode(bad)).toBe(false);
+    }
+  });
+
+  test('rejects null/undefined safely', () => {
+    expect(isValidPeCode(null)).toBe(false);
+    expect(isValidPeCode(undefined)).toBe(false);
   });
 });

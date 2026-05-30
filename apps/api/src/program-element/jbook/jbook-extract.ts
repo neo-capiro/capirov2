@@ -61,4 +61,29 @@ export function citationKey(peCode: string, docType: string, pageNumber: number)
   return `${peCode}|${docType}|${pageNumber}`;
 }
 
-export const PE_CODE_REGEX = /^[0-9]{7}[A-Z]$/;
+/**
+ * DoD Program Element / Budget Line Item code validator.
+ *
+ * Format: 7 digits + a 1-letter Service designator (8th char), optionally
+ * followed by a sub-element / budget-activity suffix of letters and/or digits.
+ *
+ * Examples that MUST pass:
+ *   0603270A     RDT&E, Army (canonical 8-char form)
+ *   0604122D8Z   Defense-Wide, sub-element 8Z
+ *   1203622SF    Space Force, 2-char designator
+ *   0208085JCY   3-char suffix
+ * Examples that MUST fail:
+ *   9999999999   no Service letter (pure digits)
+ *   123A         too few digits
+ *
+ * Anchored on a letter at position 8 so pure-numeric garbage is rejected while
+ * the variable-length Defense-Wide / Space Force suffixes are accepted. This is
+ * the single source of truth — every ingest path validates through isValidPeCode.
+ */
+export const PE_CODE_REGEX = /^[0-9]{7}[A-Z][A-Z0-9]*$/;
+
+/** Canonical PE/BLI code validity check. Trims and upper-cases before testing. */
+export function isValidPeCode(peCode: string | null | undefined): boolean {
+  if (!peCode) return false;
+  return PE_CODE_REGEX.test(peCode.trim().toUpperCase());
+}
