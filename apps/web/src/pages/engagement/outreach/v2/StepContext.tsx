@@ -14,17 +14,18 @@
 // item.matches (by recipient.id OR recipient.clientId). One match →
 // scope = that recipient.id. Zero or multi → scope = 'all'.
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   CloseOutlined,
   FileTextOutlined,
   MailOutlined,
   CalendarOutlined,
   PlusOutlined,
-  ThunderboltOutlined,
   SearchOutlined,
   RobotOutlined,
 } from '@ant-design/icons';
+import { useApi } from '../../../../lib/use-api.js';
 import type { OutreachRecipient } from '../../OutreachView.js';
 import {
   recipientKey,
@@ -32,6 +33,16 @@ import {
   type ContextPoolItem,
   type SelectedContextItem,
 } from './types.js';
+
+interface BillSearchRow {
+  id: string;
+  billType: string | null;
+  billNumber: string | null;
+  title: string;
+  latestActionText: string | null;
+  latestActionDate: string | null;
+  policyArea: string | null;
+}
 
 interface Props {
   recipients: OutreachRecipient[];
@@ -41,9 +52,9 @@ interface Props {
   loading?: boolean;
 }
 
+// Intel tab intentionally removed — bills/emails/meetings/notes only.
 const TABS: Array<{ id: ContextKind; label: string; Icon: typeof FileTextOutlined }> = [
   { id: 'bill', label: 'Bills', Icon: FileTextOutlined },
-  { id: 'intel', label: 'Intel', Icon: ThunderboltOutlined },
   { id: 'email', label: 'Past emails', Icon: MailOutlined },
   { id: 'meeting', label: 'Past meetings', Icon: CalendarOutlined },
   { id: 'note', label: 'Custom note', Icon: PlusOutlined },
@@ -58,17 +69,51 @@ const KIND_LABEL: Record<ContextKind, string> = {
 };
 
 export function StepContext({ recipients, selected, onChange, pool, loading }: Props) {
+  const api = useApi();
   const [tab, setTab] = useState<ContextKind>('bill');
   const [search, setSearch] = useState('');
 
+  // Debounce the search box so bill lookups don't fire on every keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Bills: searching hits the ENTIRE congress-bill corpus server-side (not just
+  // the client's tracked bills shown by default). Keyword match on title/sponsor.
+  const billSearchActive = tab === 'bill' && debouncedSearch.length >= 2;
+  const billSearch = useQuery({
+    enabled: billSearchActive,
+    queryKey: ['ctx-bill-search', debouncedSearch],
+    queryFn: async () => {
+      const res = await api.get<{ rows: BillSearchRow[] }>('/api/explorer/congress-bills', {
+        params: { q: debouncedSearch, pageSize: 30, sort: 'latestAction' },
+      });
+      return res.data.rows.map<ContextPoolItem>((b) => ({
+        // Same id scheme as tracked bills so selection/dedupe lines up.
+        id: `bill-${b.id}`,
+        kind: 'bill',
+        title: `${(b.billType ?? '').toUpperCase()}${b.billNumber ? ` ${b.billNumber}` : ''}${b.billType || b.billNumber ? ', ' : ''}${b.title}`,
+        body: b.latestActionText ?? undefined,
+        tag: b.policyArea ?? undefined,
+        sub: b.latestActionDate ? new Date(b.latestActionDate).toLocaleDateString() : undefined,
+      }));
+    },
+  });
+
   const visible = useMemo(() => {
+    // Full-corpus bill search results take over the bill list while searching.
+    if (billSearchActive) return billSearch.data ?? [];
     const items = pool[tab] || [];
     if (!search) return items;
     const q = search.toLowerCase();
     return items.filter(
       (it) => it.title.toLowerCase().includes(q) || (it.body && it.body.toLowerCase().includes(q)),
     );
-  }, [pool, tab, search]);
+  }, [pool, tab, search, billSearchActive, billSearch.data]);
+
+  const listLoading = loading || (billSearchActive && billSearch.isLoading);
 
   const isOn = (id: string) => selected.some((c) => c.id === id);
 
@@ -185,18 +230,35 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder={`Search ${tab}…`}
+                  placeholder={
+                    tab === 'bill'
+                      ? 'Search all bills by title or sponsor…'
+                      : `Search ${tab}…`
+                  }
                 />
               </div>
+              {tab === 'bill' && (
+                <div
+                  style={{
+                    padding: '4px 12px 6px',
+                    fontSize: 11,
+                    color: 'var(--ov2-ink-3)',
+                  }}
+                >
+                  {billSearchActive
+                    ? 'Searching every tracked bill in Congress.'
+                    : 'Showing this client’s bills. Type to search the full bill database.'}
+                </div>
+              )}
               <div className="ov2-ctx-list">
-                {loading && (
+                {listLoading && (
                   <div style={{ padding: 30, textAlign: 'center', color: 'var(--ov2-ink-3)', fontSize: 12.5 }}>
                     Loading…
                   </div>
                 )}
-                {!loading && visible.length === 0 && (
+                {!listLoading && visible.length === 0 && (
                   <div style={{ padding: 30, textAlign: 'center', color: 'var(--ov2-ink-3)', fontSize: 12.5, fontStyle: 'italic' }}>
-                    No matches.
+                    {billSearchActive ? 'No bills match your search.' : 'No matches.'}
                   </div>
                 )}
                 {visible.map((it) => {
