@@ -555,12 +555,29 @@ function DirectoryAndManualPicker({
 
 interface ClientPerson {
   id: string;
-  fullName: string;
+  // The API can return people with a missing name; keep this nullable so the
+  // UI guards it (an unguarded `.split` here was crashing the whole step).
+  fullName: string | null;
   email: string | null;
   title: string | null;
   role: string | null;
   avatar?: string | null;
   color?: string | null;
+}
+
+/** Safe display name for a client person that may lack a fullName. */
+function personLabel(p: ClientPerson): string {
+  return p.fullName?.trim() || p.email?.trim() || 'Unnamed contact';
+}
+
+/** Up-to-2-letter initials from a possibly-missing name. */
+function personInitials(p: ClientPerson): string {
+  return personLabel(p)
+    .split(' ')
+    .map((s) => s[0] ?? '')
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 function ClientPeoplePicker({
@@ -613,7 +630,7 @@ function ClientPeoplePicker({
     const next: OutreachRecipient = {
       id: person.id,
       clientId: client.id,
-      name: person.fullName,
+      name: personLabel(person),
       email: person.email ?? undefined,
       title: person.title ?? undefined,
       relevanceReason: `${client.name}, ${person.role ?? 'Contact'}`,
@@ -634,7 +651,7 @@ function ClientPeoplePicker({
       .map<OutreachRecipient>((p) => ({
         id: p.id,
         clientId: client.id,
-        name: p.fullName,
+        name: personLabel(p),
         email: p.email ?? undefined,
         title: p.title ?? undefined,
         relevanceReason: `${client.name}, ${p.role ?? 'Contact'}`,
@@ -776,10 +793,10 @@ function ClientPeoplePicker({
                           fontWeight: 600,
                         }}
                       >
-                        {p.avatar || p.fullName.split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase()}
+                        {p.avatar || personInitials(p)}
                       </span>
                       <div>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{p.fullName}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{personLabel(p)}</div>
                         <div style={{ fontSize: 11.5, color: 'var(--ov2-ink-3)' }}>{p.title}</div>
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--ov2-ink-2)' }}>{p.email}</div>
