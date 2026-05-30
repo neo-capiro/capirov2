@@ -168,12 +168,16 @@ case "${1:-serve}" in
   # artifacts (scripts/__data__/jbook_r2_*.json) and enriches program_element
   # narrative + program_element_project + page citations. No PDF/Python at runtime.
   sync-jbook-r2) exec ./node_modules/.bin/tsx scripts/sync-jbook-r2.ts --commit ;;
+  # Stanford DoW acquisition-personnel directory import (idempotent: pre-seeds its
+  # dedup map from the DB by nameKey, re-runs add source mentions not duplicates).
+  # Populates program_element + acquisition_personnel + person->PE links.
+  import-dow-directory) exec ./node_modules/.bin/tsx scripts/import-stanford-dow-directory.ts ;;
   serve)
     echo "Starting Capiro API"
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory)" >&2
     exit 1
     ;;
 esac
