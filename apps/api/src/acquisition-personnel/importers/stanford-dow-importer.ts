@@ -57,6 +57,10 @@ export interface ImportDeps {
   writer: PersonnelWriterLike;
   programElementWriter: ProgramElementWriterLike;
   existingPersonByKey?: Map<string, string>;
+  // Optional: returns existing people as [nameKey, id] pairs so the importer can
+  // pre-seed its dedup map and stay idempotent across re-runs (the writer runs
+  // with a noOp matcher during import, so this map is the sole dedup gate).
+  loadExistingByNameKey?: () => Promise<Array<[string, string]>>;
 }
 
 const OBSERVED_AT = new Date('2026-01-15T00:00:00Z');
@@ -162,8 +166,14 @@ function moneyThousandsToDollars(raw: string): number | null {
 }
 
 function personKey(fullName: string, organization: string, title: string): string {
-  const normalized = normalizeName(fullName);
-  return `${normalized.nameKey}|${organization.trim().toLowerCase()}|${title.trim().toLowerCase()}`;
+  // Dedup key MUST match the DB's uniqueness (acquisition_personnel.nameKey),
+  // otherwise the same human appearing across sheets/passes with a different
+  // org/title string produces a different key, misses the in-memory map, and the
+  // writer (which runs with a noOpMatcher during import) creates a duplicate row.
+  // Key on nameKey alone — org/title are intentionally ignored here.
+  void organization;
+  void title;
+  return normalizeName(fullName).nameKey;
 }
 
 function pickDeterministicSample<T>(items: T[], sampleSize: number): T[] {
@@ -460,6 +470,16 @@ async function processProgramElements(ws: ExcelJS.Worksheet, deps: ImportDeps, s
 export async function importStanfordDowDirectory(workbookPath: string, deps: ImportDeps): Promise<ImportStats> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(workbookPath);
+
+  // Ensure a single shared dedup map across all sheets, and pre-seed it from the
+  // DB so re-runs are idempotent (same person -> map hit -> addSourceMention, not
+  // a duplicate insert). Keyed by nameKey to match DB uniqueness.
+  if (!deps.existingPersonByKey) deps.existingPersonByKey = new Map<string, string>();
+  if (deps.loadExistingByNameKey) {
+    for (const [nameKey, id] of await deps.loadExistingByNameKey()) {
+      if (!deps.existingPersonByKey.has(nameKey)) deps.existingPersonByKey.set(nameKey, id);
+    }
+  }
 
   const stats: ImportStats = {
     persons_inserted: 0,

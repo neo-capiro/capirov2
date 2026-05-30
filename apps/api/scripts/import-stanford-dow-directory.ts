@@ -28,16 +28,26 @@ async function main() {
   try {
     const existingPersonByKey = new Map<string, string>();
 
+    // Idempotency: pre-seed the dedup map from existing people (keyed by nameKey,
+    // matching DB uniqueness) so re-runs add source mentions instead of creating
+    // duplicate person rows.
+    const loadExistingByNameKey = async (): Promise<Array<[string, string]>> => {
+      const rows = await prisma.acquisitionPersonnel.findMany({ select: { id: true, nameKey: true } });
+      return rows.map((r) => [r.nameKey, r.id] as [string, string]);
+    };
+
     const first = await importStanfordDowDirectory(workbookPath, {
       writer,
       programElementWriter,
       existingPersonByKey,
+      loadExistingByNameKey,
     });
 
     const second = await importStanfordDowDirectory(workbookPath, {
       writer,
       programElementWriter,
       existingPersonByKey,
+      loadExistingByNameKey,
     });
 
     console.log(

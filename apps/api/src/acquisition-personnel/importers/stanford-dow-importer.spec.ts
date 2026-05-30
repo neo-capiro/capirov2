@@ -1,11 +1,13 @@
 import { describe, expect, test } from '@jest/globals';
 import { importStanfordDowDirectory } from './stanford-dow-importer.js';
+import { normalizeName } from '../normalization/name-normalizer.js';
 
 const FIXTURE_PATH = 'C:/Users/neoma/OneDrive/Documents/Claude/Projects/capirov2/git/capirov2/apps/api/scripts/__fixtures__/dow_directory_full.xlsx';
 
 type PersonRow = {
   id: string;
   fullName: string;
+  nameKey: string;
   organization: string;
   title: string;
   metadata?: Record<string, unknown>;
@@ -38,16 +40,18 @@ describe('importStanfordDowDirectory', () => {
 
         const org = (record.organization ?? '').toString();
         const title = (record.title ?? '').toString();
-        const key = `${record.fullName.toLowerCase()}|${org.toLowerCase()}|${title.toLowerCase()}`;
+        // Model the REAL DB: uniqueness is on nameKey alone (NOT org/title). The
+        // production writer runs with a noOp matcher during import, so the only
+        // dedup is the importer's in-memory map keyed by nameKey.
+        const nameKey = normalizeName(record.fullName).nameKey;
 
-        let existing = Array.from(people.values()).find(
-          (p) => `${p.fullName.toLowerCase()}|${p.organization.toLowerCase()}|${p.title.toLowerCase()}` === key,
-        );
+        let existing = Array.from(people.values()).find((p) => p.nameKey === nameKey);
 
         if (!existing) {
           existing = {
             id: `p-${++idSeq}`,
             fullName: record.fullName,
+            nameKey,
             organization: org,
             title,
             metadata: (record.metadata as Record<string, unknown> | undefined) ?? {},
@@ -108,10 +112,22 @@ describe('importStanfordDowDirectory', () => {
     };
 
     const existingPersonByKey = new Map<string, string>();
-    const deps = { writer, programElementWriter, existingPersonByKey };
+    // Model the script's DB pre-seed: idempotency must hold even with a FRESH map
+    // each run, because the importer re-seeds from the DB (here, the mock `people`).
+    const loadExistingByNameKey = async (): Promise<Array<[string, string]>> =>
+      Array.from(people.values()).map((p) => [p.nameKey, p.id] as [string, string]);
+    const deps = { writer, programElementWriter, existingPersonByKey, loadExistingByNameKey };
 
     const first = await importStanfordDowDirectory(FIXTURE_PATH, deps);
-    const second = await importStanfordDowDirectory(FIXTURE_PATH, deps);
+    const peopleAfterFirst = people.size;
+    // Second run uses a FRESH map to prove re-seed-from-DB idempotency (the real
+    // Aurora re-run scenario), not just shared-map luck.
+    const second = await importStanfordDowDirectory(FIXTURE_PATH, {
+      writer,
+      programElementWriter,
+      existingPersonByKey: new Map<string, string>(),
+      loadExistingByNameKey,
+    });
 
     expect(first.persons_inserted).toBeGreaterThan(3000);
     expect(first.pes_inserted).toBeGreaterThan(800);
@@ -122,6 +138,11 @@ describe('importStanfordDowDirectory', () => {
     expect(second.persons_addSourceMentioned).toBe(0);
     expect(second.pes_inserted).toBe(0);
     expect(second.pe_years_inserted).toBe(0);
+
+    // The core idempotency guarantee: re-running creates ZERO new person rows
+    // (no duplicates), even though the same humans appear across multiple sheets
+    // with differing org/title strings.
+    expect(people.size).toBe(peopleAfterFirst);
 
     expect(quarantined.length).toBeGreaterThanOrEqual(0);
 
