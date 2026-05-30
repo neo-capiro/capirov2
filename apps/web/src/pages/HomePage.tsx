@@ -179,7 +179,11 @@ export function HomePage() {
 
       <div className="home-grid-2">
         <OpenWorkflows workflows={workflows.data ?? []} loading={workflows.isLoading} />
-        <DashboardSpotlight />
+        <UpcomingDeadlines
+          workflows={workflows.data ?? []}
+          alerts={commentAlerts.data?.alerts ?? []}
+          loading={workflows.isLoading || commentAlerts.isLoading}
+        />
       </div>
     </section>
   );
@@ -711,33 +715,118 @@ function WorkflowProgress({ status }: { status: WorkflowStatus }) {
   );
 }
 
-/* ── Spotlight gadget (placeholder, same size as Open Workflows) ─────────── */
+/* ── Upcoming deadlines (half-width, what's due & when) ──────────────────── */
 
-function DashboardSpotlight() {
+interface DeadlineItem {
+  id: string;
+  kind: 'Submission' | 'Comment';
+  title: string;
+  client: string;
+  due: Date;
+  href: string;
+}
+
+function UpcomingDeadlines({
+  workflows,
+  alerts,
+  loading,
+}: {
+  workflows: WorkflowInstance[];
+  alerts: CommentAlertItem[];
+  loading: boolean;
+}) {
+  const items = useMemo<DeadlineItem[]>(() => {
+    const out: DeadlineItem[] = [];
+
+    // Workflow submission deadlines (obligations the team owes), excluding
+    // already-submitted/complete work.
+    for (const w of workflows) {
+      if (!w.submissionDeadline) continue;
+      if (w.status === 'submitted' || w.status === 'complete') continue;
+      const due = new Date(w.submissionDeadline);
+      if (Number.isNaN(due.getTime())) continue;
+      out.push({
+        id: `wf-${w.id}`,
+        kind: 'Submission',
+        title: w.title,
+        client: w.client?.name?.trim() || 'Cross-client',
+        due,
+        href: `/workspace/workflows?instance=${encodeURIComponent(w.id)}`,
+      });
+    }
+
+    // Regulatory comment-period deadlines.
+    for (const a of alerts) {
+      const due = new Date(a.commentEndDate);
+      if (Number.isNaN(due.getTime())) continue;
+      out.push({
+        id: `cm-${a.documentId}`,
+        kind: 'Comment',
+        title: a.title,
+        client: a.clientName || 'Unmapped',
+        due,
+        href: COMMENTS_LINK,
+      });
+    }
+
+    // Hide anything more than a day past due; soonest first; cap at 10.
+    return out
+      .filter((d) => dayDiff(d.due.toISOString()) >= -1)
+      .sort((a, b) => a.due.getTime() - b.due.getTime())
+      .slice(0, 10);
+  }, [workflows, alerts]);
+
   return (
     <div className="home-panel home-panel--fixed">
       <header className="home-panel-head">
-        <span className="home-panel-title">Spotlight</span>
-        <span className="open" style={{ color: 'var(--ink-3)' }}>
-          Coming soon
+        <span className="home-panel-title">Upcoming Deadlines</span>
+        <span className="open">
+          <Link to="/workspace/workflows">Open Workspace →</Link>
         </span>
       </header>
-      <div className="home-panel-empty">
-        <Empty
-          image={Empty.PRESENTED_IMAGE_SIMPLE}
-          description={
-            <span style={{ display: 'block', maxWidth: 280 }}>
-              <span style={{ fontWeight: 600, color: 'var(--ink-2)' }}>Reserved for a new widget</span>
-              <span style={{ display: 'block', marginTop: 6, fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.6 }}>
-                Candidates: upcoming submission deadlines, client portfolio health, tasks due this
-                week, or recent bill movements.
-              </span>
-            </span>
-          }
-        />
-      </div>
+      {loading ? (
+        <div className="home-panel-list">
+          {[0, 1, 2].map((i) => (
+            <div className="home-panel-row" key={i}>
+              <Skeleton active paragraph={{ rows: 1 }} title={false} />
+            </div>
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="home-panel-empty">
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing due in the near term." />
+        </div>
+      ) : (
+        <div className="home-panel-list">
+          {items.map((d) => {
+            const days = dayDiff(d.due.toISOString());
+            const sev = days < 0 ? 'critical' : commentSeverity(days);
+            const color = sev === 'critical' ? 'red' : sev === 'notable' ? 'gold' : 'default';
+            return (
+              <Link key={d.id} to={d.href} className="home-panel-row">
+                <div className="home-panel-row-main">
+                  <span className="home-panel-row-title">{d.title}</span>
+                  <span className="home-panel-row-sub">
+                    {[d.client, d.kind].filter(Boolean).join(' · ')}
+                  </span>
+                </div>
+                <Tag color={color} className="home-panel-tag">
+                  {dueCountdown(days)}
+                </Tag>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
+}
+
+function dueCountdown(days: number): string {
+  if (days < 0) return `${Math.abs(days)}d overdue`;
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  return `${days}d`;
 }
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
