@@ -146,6 +146,7 @@ case "${1:-serve}" in
   sync-gao)               exec ./node_modules/.bin/tsx scripts/sync-gao.ts ;;
   sync-crs)               exec ./node_modules/.bin/tsx scripts/sync-crs.ts ;;
   sync-fec)               exec ./node_modules/.bin/tsx scripts/sync-fec.ts ;;
+  sync-fec-pac)           exec ./node_modules/.bin/tsx scripts/sync-fec-pac.ts ;;
   sync-fara)              exec ./node_modules/.bin/tsx scripts/sync-fara.ts ;;
   sync-sec-edgar)         exec ./node_modules/.bin/tsx scripts/sync-sec-edgar.ts ;;
   sync-rss-intel)         exec ./node_modules/.bin/tsx scripts/sync-rss-intel.ts ;;
@@ -187,12 +188,22 @@ case "${1:-serve}" in
   # path as an extra arg; --chamber/--fy fall back to the artifact's own fields.
   parse-hasc-report) shift; exec ./node_modules/.bin/tsx scripts/parse-hasc-sasc-reports.ts --chamber HASC "$@" ;;
   parse-sasc-report) shift; exec ./node_modules/.bin/tsx scripts/parse-hasc-sasc-reports.ts --chamber SASC "$@" ;;
+  # Step 23: load House/Senate Defense Appropriations subcommittee PE marks from a
+  # committed rows artifact (offline pdfplumber extraction) via the writer. Same
+  # pattern as Step 22; writes hac_d_mark / sac_d_mark.
+  parse-hac-d-report) shift; exec ./node_modules/.bin/tsx scripts/parse-defense-approps-reports.ts --chamber HAC-D "$@" ;;
+  parse-sac-d-report) shift; exec ./node_modules/.bin/tsx scripts/parse-defense-approps-reports.ts --chamber SAC-D "$@" ;;
+  # Step 24: NDAA conference report (final authorization -> conference field) and
+  # enacted Defense Appropriations public law (-> enacted field). Same offline-rows
+  # pattern. Scheduled primarily Nov-Jan (conference + enactment window).
+  parse-ndaa-conference) shift; exec ./node_modules/.bin/tsx scripts/parse-ndaa-conference.ts "$@" ;;
+  parse-defense-approps-public-law) shift; exec ./node_modules/.bin/tsx scripts/parse-defense-approps-public-law.ts "$@" ;;
   serve)
     echo "Starting Capiro API"
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | generate-pe-person-candidates | sync-peo-rosters | extract-bill-pe-codes | parse-hasc-report | parse-sasc-report)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fec-pac | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | generate-pe-person-candidates | sync-peo-rosters | extract-bill-pe-codes | parse-hasc-report | parse-sasc-report | parse-hac-d-report | parse-sac-d-report | parse-ndaa-conference | parse-defense-approps-public-law)" >&2
     exit 1
     ;;
 esac

@@ -1643,6 +1643,33 @@ model FecContribution {
   @@map("fec_contribution")
 }
 
+model FecPacContribution {
+  // Schedule B — disbursements BY a committee (PAC) TO candidates/committees.
+  // This is the organization's OWN PAC giving — legally distinct from the
+  // individual employer-linked contributions in FecContribution (Schedule A).
+  // GLOBAL table (no tenant_id, no RLS); attributed to a client via a confirmed
+  // ClientIntelMapping(source='fec_committee') linking client -> committeeId.
+  id                   String    @id @default(uuid()) @db.Uuid
+  committeeId          String    @map("committee_id") // the giving PAC committee
+  committeeName        String?   @map("committee_name")
+  recipientName        String?   @map("recipient_name") // candidate/committee receiving
+  recipientCommitteeId String?   @map("recipient_committee_id")
+  candidateId          String?   @map("candidate_id")
+  candidateName        String?   @map("candidate_name")
+  amount               Decimal   @db.Decimal(18, 2)
+  disbursementDate     DateTime? @map("disbursement_date") @db.Date
+  disbursementType     String?   @map("disbursement_type")
+  memoText             String?   @map("memo_text")
+  cycle                Int
+  lastSyncedAt         DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@unique([committeeId, recipientName, amount, disbursementDate, cycle], map: "fec_pac_contribution_dedup_key")
+  @@index([committeeId], map: "fec_pac_contribution_committee_id_idx")
+  @@index([candidateName], map: "fec_pac_contribution_candidate_name_idx")
+  @@index([cycle], map: "fec_pac_contribution_cycle_idx")
+  @@map("fec_pac_contribution")
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Congress.gov Legislative Data
 //

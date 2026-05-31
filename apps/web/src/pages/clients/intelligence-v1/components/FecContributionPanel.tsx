@@ -84,25 +84,58 @@ export function FecContributionPanel({ fec, runFecEnabled, runFecHref }: FecCont
         <FecEmptyState fec={fec} runFecEnabled={runFecEnabled} runFecHref={runFecHref} />
       )}
 
-      <FecPacGivingNote tracked={fec?.pacGiving?.tracked ?? false} />
+      <FecPacGiving pac={fec?.pacGiving} />
       <FecDisclaimer text={fec?.disclaimer} />
     </div>
   );
 }
 
+type PacGiving = NonNullable<FecMoneyFlow['pacGiving']>;
+
 /**
- * Explicit separation of the client's OWN PAC giving from the individual,
- * employer-linked contributions shown above. PAC giving (committee → candidate
- * disbursements) is a distinct FEC dataset not yet ingested; we surface the bucket
- * so the two are never conflated. When tracked becomes true, this renders the data.
+ * Client's OWN PAC giving (Schedule B), kept strictly separate from the individual
+ * employer-linked contributions above. When not tracked (no committee mapped) we
+ * show the explanatory separator; when tracked we render the committee → recipient
+ * disbursements. The two are never conflated.
  */
-function FecPacGivingNote({ tracked }: { tracked: boolean }) {
-  if (tracked) return null;
+function FecPacGiving({ pac }: { pac?: PacGiving }) {
+  if (!pac?.tracked) {
+    return (
+      <div className="iv1-fec-pac-note">
+        <strong>Client PAC giving</strong> — the organization&apos;s own PAC contributions to
+        candidates are tracked separately and are not yet available for this client. The figures
+        above reflect individual filers who list the mapped employer, which is legally distinct
+        from PAC giving.
+      </div>
+    );
+  }
+  const committees = pac.committees ?? [];
+  if (committees.length === 0) {
+    return (
+      <div className="iv1-fec-pac-note">
+        <strong>Client PAC giving</strong> — PAC committee mapped, but no candidate
+        disbursements found in the tracked cycles.
+      </div>
+    );
+  }
   return (
     <div className="iv1-fec-pac-note">
-      <strong>Client PAC giving</strong> — the organization&apos;s own PAC contributions to
-      candidates are tracked separately and are not yet available. The figures above reflect
-      individual filers who list the mapped employer, which is legally distinct from PAC giving.
+      <div style={{ marginBottom: 6 }}>
+        <strong>Client PAC giving</strong>{' '}
+        {pac.summary ? `· ${formatCompact(pac.summary.totalAmount)} to ${pac.summary.recipientCount} recipients` : ''}
+        {' '}(the organization&apos;s own PAC — distinct from the individual contributions above)
+      </div>
+      {committees.map((c) => (
+        <div key={c.committeeId} style={{ marginTop: 4 }}>
+          <span style={{ fontWeight: 600 }}>{c.committeeName ?? c.committeeId}</span>{' '}
+          <span>{formatCompact(c.totalAmount)}</span>
+          {c.recipients.slice(0, 5).map((r, i) => (
+            <div key={`${c.committeeId}-${i}`} style={{ fontSize: 11, opacity: 0.8, marginLeft: 8 }}>
+              {r.candidateName ?? r.recipientName} · {formatCompact(r.totalAmount)}
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }

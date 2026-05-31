@@ -183,8 +183,18 @@ export interface ClientProfileV1 {
         }>;
         /** Discriminates the kind of money shown; individual employer-linked vs PAC. */
         contributionType?: 'individual_employer_linked';
-        /** Client's own PAC giving — separate dataset, not yet ingested (tracked:false). */
-        pacGiving?: { tracked: boolean; committees: unknown[] };
+        /** Client's own PAC giving (Schedule B). tracked:false until a committee is mapped. */
+        pacGiving?: {
+          tracked: boolean;
+          committees: Array<{
+            committeeId: string;
+            committeeName: string | null;
+            totalAmount: number;
+            disbursementCount: number;
+            recipients: Array<{ recipientName: string; candidateName: string | null; totalAmount: number }>;
+          }>;
+          summary?: { totalAmount: number; disbursementCount: number; recipientCount: number };
+        };
         /** Legal/compliance disclaimer text, single source of truth from the API. */
         disclaimer?: string;
       };

@@ -339,7 +339,7 @@ export class IntelligenceService {
     const profile = settled[0].value as Awaited<ReturnType<typeof this.getClientProfile>>;
 
     const roi = settle(1, { lobbySpend: 0, contractWins: 0, roi: null, gap: 0, mappedLdaClientId: null } as Awaited<ReturnType<typeof this.getLobbyingRoi>>);
-    const fec = settle(2, { clientId, clientName: client.name, mappedEmployer: null, contributionType: 'individual_employer_linked' as const, summary: { totalContributions: 0, totalAmount: 0, committeeCount: 0, candidateCount: 0, memberCount: 0, billCount: 0 }, committees: [], pacGiving: { tracked: false as const, committees: [] as never[] }, disclaimer: FEC_DISCLAIMER } as Awaited<ReturnType<typeof this.getFecMoneyFlow>>);
+    const fec = settle(2, { clientId, clientName: client.name, mappedEmployer: null, contributionType: 'individual_employer_linked' as const, summary: { totalContributions: 0, totalAmount: 0, committeeCount: 0, candidateCount: 0, memberCount: 0, billCount: 0 }, committees: [], pacGiving: { tracked: false, committees: [], summary: { totalAmount: 0, disbursementCount: 0, recipientCount: 0 } }, disclaimer: FEC_DISCLAIMER } as unknown as Awaited<ReturnType<typeof this.getFecMoneyFlow>>);
     const district = settle(3, { capabilities: [] } as unknown as Awaited<ReturnType<typeof this.getDistrictNexus>>);
     const trackedBills = settle(4, { total: 0, issueCodes: [], bills: [] } as Awaited<ReturnType<typeof this.getTrackedBills>>);
     const regLinks = settle(5, { totalBills: 0, totalRegulations: 0, rails: [] } as unknown as Awaited<ReturnType<typeof this.getBillRegulationLinks>>);
@@ -1814,6 +1814,93 @@ export class IntelligenceService {
   }
 
   /**
+   * Client's OWN PAC giving (Schedule B): disbursements BY committees mapped to
+   * this client (confirmed source='fec_committee') TO candidates. Returns
+   * tracked:false when no committee is mapped yet, so the UI distinguishes
+   * "no PAC mapped" from "PAC mapped, no giving". Read-only, tenant-scoped via mapping.
+   */
+  private async getPacGiving(clientId: string): Promise<{
+    tracked: boolean;
+    committees: Array<{
+      committeeId: string;
+      committeeName: string | null;
+      totalAmount: number;
+      disbursementCount: number;
+      recipients: Array<{ recipientName: string; candidateName: string | null; totalAmount: number }>;
+    }>;
+    summary: { totalAmount: number; disbursementCount: number; recipientCount: number };
+  }> {
+    const committeeMappings = await this.prisma.clientIntelMapping.findMany({
+      where: { clientId, source: 'fec_committee', confirmed: true },
+      select: { externalId: true },
+    });
+    const committeeIds = Array.from(new Set(committeeMappings.map((m) => m.externalId.trim()).filter(Boolean)));
+    if (committeeIds.length === 0) {
+      return { tracked: false, committees: [], summary: { totalAmount: 0, disbursementCount: 0, recipientCount: 0 } };
+    }
+
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        committee_id: string;
+        committee_name: string | null;
+        recipient_name: string | null;
+        candidate_name: string | null;
+        total_amount: number;
+        disbursement_count: number;
+      }>
+    >`
+      SELECT
+        committee_id,
+        MAX(committee_name) AS committee_name,
+        recipient_name,
+        MAX(candidate_name) AS candidate_name,
+        COALESCE(SUM(amount), 0)::float AS total_amount,
+        COUNT(*)::int AS disbursement_count
+      FROM fec_pac_contribution
+      WHERE committee_id = ANY(${committeeIds}::text[])
+      GROUP BY committee_id, recipient_name
+      ORDER BY total_amount DESC
+      LIMIT 500
+    `;
+
+    const grouped = new Map<
+      string,
+      {
+        committeeId: string;
+        committeeName: string | null;
+        totalAmount: number;
+        disbursementCount: number;
+        recipients: Array<{ recipientName: string; candidateName: string | null; totalAmount: number }>;
+      }
+    >();
+    for (const r of rows) {
+      const g = grouped.get(r.committee_id) ?? {
+        committeeId: r.committee_id,
+        committeeName: r.committee_name,
+        totalAmount: 0,
+        disbursementCount: 0,
+        recipients: [],
+      };
+      g.totalAmount += r.total_amount;
+      g.disbursementCount += r.disbursement_count;
+      if (r.recipient_name) {
+        g.recipients.push({ recipientName: r.recipient_name, candidateName: r.candidate_name, totalAmount: r.total_amount });
+      }
+      grouped.set(r.committee_id, g);
+    }
+    const committees = Array.from(grouped.values()).sort((a, b) => b.totalAmount - a.totalAmount);
+    return {
+      tracked: true,
+      committees,
+      summary: {
+        totalAmount: committees.reduce((s, c) => s + c.totalAmount, 0),
+        disbursementCount: committees.reduce((s, c) => s + c.disbursementCount, 0),
+        recipientCount: committees.reduce((s, c) => s + c.recipients.length, 0),
+      },
+    };
+  }
+
+  /**
    * Phase 2.2, FEC money flow trace.
    * contributor_employer (mapped client) → committee → candidate → sponsoring member → committee → bill
    */
@@ -1841,6 +1928,9 @@ export class IntelligenceService {
       };
     }
 
+    // Client's own PAC giving (Schedule B) — computed once, used in all paths below.
+    const pacGiving = await this.getPacGiving(clientId);
+
     const fecMapping = await this.prisma.clientIntelMapping.findFirst({
       where: { clientId, source: 'fec_employer', confirmed: true },
       orderBy: { confidence: 'desc' },
@@ -1862,7 +1952,7 @@ export class IntelligenceService {
         },
         contributionType: 'individual_employer_linked' as const,
         committees: [],
-        pacGiving: { tracked: false as const, committees: [] as never[] },
+        pacGiving,
         disclaimer: FEC_DISCLAIMER,
       };
     }
@@ -2031,10 +2121,10 @@ export class IntelligenceService {
         billCount: uniqueBills.size,
       },
       committees,
-      // The client's OWN PAC giving (committee → candidate disbursements) is a
-      // separate FEC dataset not yet ingested. Surfaced explicitly so the UI never
-      // conflates individual employer-linked money with organizational/PAC giving.
-      pacGiving: { tracked: false as const, committees: [] as never[] },
+      // The client's OWN PAC giving (Schedule B committee → candidate disbursements),
+      // ingested for committees mapped via confirmed ClientIntelMapping(fec_committee).
+      // Kept strictly separate from the individual employer-linked data above.
+      pacGiving,
       disclaimer: FEC_DISCLAIMER,
     };
   }
