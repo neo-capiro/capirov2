@@ -1,0 +1,21 @@
+{
+  "org": "CPE Aviation",
+  "formerName": "PEO Aviation",
+  "service": "ARMY",
+  "source": "CPE Aviation — The United States Army (army.mil), org roster",
+  "asOf": "2026-05-01",
+  "stats": { "people": 11 },
+  "people": [
+    { "fullName": "Rodney Davis", "rank": null, "role": "PEO", "roleTitle": "Capability Program Executive for Aviation", "programOfRecord": null },
+    { "fullName": "Leon Black", "rank": "SGM", "role": "STAFF", "roleTitle": "Sergeant Major", "programOfRecord": null },
+    { "fullName": "Jaime I. Craig", "rank": "CW5", "role": "STAFF", "roleTitle": "Chief Warrant Officer", "programOfRecord": null },
+    { "fullName": "Daniel Thetford", "rank": "COL", "role": "PM", "roleTitle": "Apache Helicopters Project Manager", "programOfRecord": "Apache Helicopters" },
+    { "fullName": "James Bamburg", "rank": null, "role": "PM", "roleTitle": "Aviation Mission Systems & Architecture Project Manager", "programOfRecord": "Aviation Mission Systems & Architecture" },
+    { "fullName": "Regina Bublitz", "rank": null, "role": "PM", "roleTitle": "Aviation Turbine Engines Project Manager", "programOfRecord": "Aviation Turbine Engines" },
+    { "fullName": "Jennie Conlon", "rank": "COL", "role": "PM", "roleTitle": "Cargo Helicopters Project Manager (Acting)", "programOfRecord": "Cargo Helicopters" },
+    { "fullName": "Joseph Minor", "rank": "COL", "role": "PM", "roleTitle": "Fixed Wing Project Manager", "programOfRecord": "Fixed Wing" },
+    { "fullName": "Jeffrey Poquette", "rank": "COL", "role": "PM", "roleTitle": "Future Long Range Assault Aircraft Project Manager", "programOfRecord": "Future Long Range Assault Aircraft" },
+    { "fullName": "Danielle Medaglia", "rank": "COL", "role": "PM", "roleTitle": "Uncrewed Aircraft Systems Project Manager", "programOfRecord": "Uncrewed Aircraft Systems" },
+    { "fullName": "Ryan Nesrsta", "rank": "COL", "role": "PM", "roleTitle": "Utility Helicopters Project Manager", "programOfRecord": "Utility Helicopters" }
+  ]
+}

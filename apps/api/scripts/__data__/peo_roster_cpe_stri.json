@@ -1,0 +1,341 @@
+{
+  "org": "CPE STRI",
+  "formerName": "PEO STRI",
+  "service": "ARMY",
+  "source": "CPE ST3 Org Charts_3.16.2026.pdf",
+  "asOf": "2026-03-20",
+  "stats": {
+    "people": 47
+  },
+  "people": [
+    {
+      "fullName": "JEREMY LANMAN",
+      "rank": "DR",
+      "role": "PEO",
+      "roleTitle": "ASSISTANT CAPABILITY PROGRAM EXECUTIVE & CHIEF OF STAFF",
+      "raw": "DR. JEREMY LANMAN ASSISTANT CAPABILITY PROGRAM EXECUTIVE & CHIEF OF STAFF"
+    },
+    {
+      "fullName": "CHARLES W. HOUSTON III",
+      "rank": "SGM",
+      "role": "STAFF",
+      "roleTitle": "SENIOR ENLISTED ADVISOR",
+      "raw": "SGM CHARLES W. HOUSTON III SENIOR ENLISTED ADVISOR"
+    },
+    {
+      "fullName": "CHRISTINE A. BEELER",
+      "rank": "BG",
+      "role": "PEO",
+      "roleTitle": "CAPABILITY PROGRAM EXECUTIVE",
+      "raw": "BG CHRISTINE A. BEELER CAPABILITY PROGRAM EXECUTIVE"
+    },
+    {
+      "fullName": "LEE A. JAMES III, SES",
+      "rank": "MR",
+      "role": "PEO",
+      "roleTitle": "DEPUTY CAPABILITY PROGRAM EXECUTIVE",
+      "raw": "MR. LEE A. JAMES III, SES DEPUTY CAPABILITY PROGRAM EXECUTIVE"
+    },
+    {
+      "fullName": "BRADLEY HORTON",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PROJECT LEAD THREAT SYSTEMS MANAGEMENT OFFICE",
+      "raw": "MR. BRADLEY HORTON PROJECT LEAD THREAT SYSTEMS MANAGEMENT OFFICE"
+    },
+    {
+      "fullName": "NATASHIA L. COLEMAN",
+      "rank": "COL",
+      "role": "PM",
+      "roleTitle": "PROJECT MANAGER SIMULATION",
+      "raw": "COL NATASHIA L. COLEMAN PROJECT MANAGER SIMULATION"
+    },
+    {
+      "fullName": "LIZ BLEDSOE",
+      "rank": "MS",
+      "role": "PM",
+      "roleTitle": "PROJECT MANAGER TRAINING DEVICES",
+      "raw": "MS. LIZ BLEDSOE PROJECT MANAGER TRAINING DEVICES"
+    },
+    {
+      "fullName": "MICHAEL WILLOUGHBY",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PROJECT LEAD TADSS SUPPORT OPERATIONS",
+      "raw": "MR. MICHAEL WILLOUGHBY PROJECT LEAD TADSS SUPPORT OPERATIONS"
+    },
+    {
+      "fullName": "DALE WHITTAKER",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PROJECT LEAD INTERNATIONAL PROGRAM",
+      "raw": "MR. DALE WHITTAKER PROJECT LEAD INTERNATIONAL PROGRAM"
+    },
+    {
+      "fullName": "JUSTIN FORTUNE",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "DEPUTY PROJECT LEAD TADSS SUPPORT OPERATIONS",
+      "raw": "MR. JUSTIN FORTUNE DEPUTY PROJECT LEAD TADSS SUPPORT OPERATIONS"
+    },
+    {
+      "fullName": "CHRISTINA BELL",
+      "rank": "MS",
+      "role": "PM",
+      "roleTitle": "DEPUTY PROJECT LEAD INTERNATIONAL PROGRAM",
+      "raw": "MS. CHRISTINA BELL DEPUTY PROJECT LEAD INTERNATIONAL PROGRAM"
+    },
+    {
+      "fullName": "ALVIN BROWN",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "DEPUTY PROJECT LEAD THREAT SYSTEMS MANAGEMENT OFFICE",
+      "raw": "MR. ALVIN BROWN DEPUTY PROJECT LEAD THREAT SYSTEMS MANAGEMENT OFFICE"
+    },
+    {
+      "fullName": "DESTINY LASKI",
+      "rank": "MS",
+      "role": "PM",
+      "roleTitle": "DEPUTY PROJECT MANAGER SIMULATION (ACTING)",
+      "raw": "MS. DESTINY LASKI DEPUTY PROJECT MANAGER SIMULATION (ACTING)"
+    },
+    {
+      "fullName": "AARON BROWN",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "DEPUTY PROJECT MANAGER TRAINING DEVICES",
+      "raw": "MR. AARON BROWN DEPUTY PROJECT MANAGER TRAINING DEVICES"
+    },
+    {
+      "fullName": "MICHELE GENTILE",
+      "rank": "MS",
+      "role": "PM",
+      "roleTitle": "PRODUCT LEAD INSTRUMENTATION MANAGEMENT OFFICE (ACTING)",
+      "raw": "MS. MICHELE GENTILE PRODUCT LEAD INSTRUMENTATION MANAGEMENT OFFICE (ACTING)"
+    },
+    {
+      "fullName": "ZACHARY LINDSAY",
+      "rank": "MR",
+      "role": "STAFF",
+      "roleTitle": "DIRECTOR WARFIGHTER TRAINING AND READINESS SOLUTIONS",
+      "raw": "MR. ZACHARY LINDSAY DIRECTOR WARFIGHTER TRAINING AND READINESS SOLUTIONS"
+    },
+    {
+      "fullName": "JENNIFER BREWSTER",
+      "rank": "LTC",
+      "role": "PM",
+      "roleTitle": "PRODUCT MANAGER COMBAT TRAINING INSTRUMENTATION SYSTEMS",
+      "raw": "LTC JENNIFER BREWSTER PRODUCT MANAGER COMBAT TRAINING INSTRUMENTATION SYSTEMS"
+    },
+    {
+      "fullName": "ZACHARY P. YOKLIC",
+      "rank": "LTC",
+      "role": "PM",
+      "roleTitle": "PRODUCT MANAGER FORCES TRAINING SYSTEMS",
+      "raw": "LTC ZACHARY P. YOKLIC PRODUCT MANAGER FORCES TRAINING SYSTEMS"
+    },
+    {
+      "fullName": "RODNEY JOYNER",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT LEAD INTERNATIONAL PROGRAM GROUND",
+      "raw": "MR. RODNEY JOYNER PRODUCT LEAD INTERNATIONAL PROGRAM GROUND"
+    },
+    {
+      "fullName": "MICHAEL POWELL",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT MANAGER LIVE TRAINING SYSTEMS",
+      "raw": "MR. MICHAEL POWELL PRODUCT MANAGER LIVE TRAINING SYSTEMS"
+    },
+    {
+      "fullName": "STEVE BUSHWAY",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT LEAD SYNTHETIC AND LIVE TRAINING",
+      "raw": "MR. STEVE BUSHWAY PRODUCT LEAD SYNTHETIC AND LIVE TRAINING"
+    },
+    {
+      "fullName": "JOSEPH ORSI",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT LEAD INTERNATIONAL PROGRAM AVIATION",
+      "raw": "MR. JOSEPH ORSI PRODUCT LEAD INTERNATIONAL PROGRAM AVIATION"
+    },
+    {
+      "fullName": "BEN PRYOR",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT MANAGER CYBER RESILIENCY AND TRAINING",
+      "raw": "MR. BEN PRYOR PRODUCT MANAGER CYBER RESILIENCY AND TRAINING"
+    },
+    {
+      "fullName": "BRIAN HILL",
+      "rank": "MR",
+      "role": "STAFF",
+      "roleTitle": "DIVISION CHIEF SYSTEMS",
+      "raw": "MR. BRIAN HILL DIVISION CHIEF SYSTEMS"
+    },
+    {
+      "fullName": "RANDY CAVES",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT LEAD INTERNATIONAL PROGRAM TRAIN, ADVISE, ASSIST AND MENTOR (ACTING)",
+      "raw": "MR. RANDY CAVES PRODUCT LEAD INTERNATIONAL PROGRAM TRAIN, ADVISE, ASSIST AND MENTOR (ACTING)"
+    },
+    {
+      "fullName": "STEPHEN MCFARLANE",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT MANAGER TACTICAL TRAINING SYSTEMS",
+      "raw": "MR. STEPHEN MCFARLANE PRODUCT MANAGER TACTICAL TRAINING SYSTEMS"
+    },
+    {
+      "fullName": "MARKO NIKITUK",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT LEAD COMBINED, JOINT TRAINING READINESS SUPPORT",
+      "raw": "MR. MARKO NIKITUK PRODUCT LEAD COMBINED, JOINT TRAINING READINESS SUPPORT"
+    },
+    {
+      "fullName": "MINDY BROWN",
+      "rank": "LTC",
+      "role": "PM",
+      "roleTitle": "PRODUCT MANAGER SYNTHETIC WARRIOR SYSTEMS",
+      "raw": "LTC MINDY BROWN PRODUCT MANAGER SYNTHETIC WARRIOR SYSTEMS"
+    },
+    {
+      "fullName": "SARA ESTILL",
+      "rank": "MS",
+      "role": "STAFF",
+      "roleTitle": "DIVISION CHIEF INFORMATION ADVANTAGE",
+      "raw": "MS. SARA ESTILL DIVISION CHIEF INFORMATION ADVANTAGE"
+    },
+    {
+      "fullName": "JAMES STAGGS",
+      "rank": "LTC",
+      "role": "PM",
+      "roleTitle": "PRODUCT MANAGER COMMON SYNTHETIC ENVIRONMENT",
+      "raw": "LTC JAMES STAGGS PRODUCT MANAGER COMMON SYNTHETIC ENVIRONMENT"
+    },
+    {
+      "fullName": "SCOTT TURNER",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT LEAD COMBAT TRAINING CENTERS AND RANGES (ACTING)",
+      "raw": "MR. SCOTT TURNER PRODUCT LEAD COMBAT TRAINING CENTERS AND RANGES (ACTING)"
+    },
+    {
+      "fullName": "JOSH HICKS",
+      "rank": "MR",
+      "role": "STAFF",
+      "roleTitle": "DIVISION CHIEF CYBER",
+      "raw": "MR. JOSH HICKS DIVISION CHIEF CYBER"
+    },
+    {
+      "fullName": "CHRISTOPHER DUNLAP",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT LEAD GLOBAL OPERATIONS (ACTING)",
+      "raw": "MR. CHRISTOPHER DUNLAP PRODUCT LEAD GLOBAL OPERATIONS (ACTING)"
+    },
+    {
+      "fullName": "BRENT BELL JR.",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT DIRECTOR NEXT GENERATION CONSTRUCTIVE",
+      "raw": "MR. BRENT BELL JR. PRODUCT DIRECTOR NEXT GENERATION CONSTRUCTIVE"
+    },
+    {
+      "fullName": "TODD KOSIS",
+      "rank": "MR",
+      "role": "PM",
+      "roleTitle": "PRODUCT LEAD CONSTRUCTIVE SIMULATION SUPPORT",
+      "raw": "MR. TODD KOSIS PRODUCT LEAD CONSTRUCTIVE SIMULATION SUPPORT"
+    },
+    {
+      "fullName": "MARWANE BAHBAZ",
+      "rank": "MR",
+      "role": "STAFF",
+      "roleTitle": "CHIEF TECHNOLOGY OFFICER",
+      "raw": "MR. MARWANE BAHBAZ CHIEF TECHNOLOGY OFFICER"
+    },
+    {
+      "fullName": "SHERI PETERS STRATEGIC INITIATIVES GROUP",
+      "rank": "MS",
+      "role": "STAFF",
+      "roleTitle": "CHIEF",
+      "raw": "MS. SHERI PETERS STRATEGIC INITIATIVES GROUP CHIEF"
+    },
+    {
+      "fullName": "STEVE MEINTS",
+      "rank": "MR",
+      "role": "STAFF",
+      "roleTitle": "CHIEF COUNSEL (ACTING)",
+      "raw": "MR. STEVE MEINTS CHIEF COUNSEL (ACTING)"
+    },
+    {
+      "fullName": "JARED GRACE",
+      "rank": "CPT",
+      "role": "STAFF",
+      "roleTitle": "EXECUTIVE OFFICER",
+      "raw": "CPT JARED GRACE EXECUTIVE OFFICER"
+    },
+    {
+      "fullName": "DONNIE RYAN",
+      "rank": "MR",
+      "role": "STAFF",
+      "roleTitle": "PUBLIC AFFAIRS OFFICER",
+      "raw": "MR. DONNIE RYAN PUBLIC AFFAIRS OFFICER"
+    },
+    {
+      "fullName": "D. SHANE MARKLEY",
+      "rank": "MR",
+      "role": "STAFF",
+      "roleTitle": "DIRECTOR SECURITY (G2)",
+      "raw": "MR. D. SHANE MARKLEY DIRECTOR SECURITY (G2)"
+    },
+    {
+      "fullName": "M. BRANDON GARNER",
+      "rank": "MR",
+      "role": "STAFF",
+      "roleTitle": "DIRECTOR OPERATIONS (G3)",
+      "raw": "MR. M. BRANDON GARNER DIRECTOR OPERATIONS (G3)"
+    },
+    {
+      "fullName": "ROBERT BRIAR",
+      "rank": "MR",
+      "role": "STAFF",
+      "roleTitle": "DIRECTOR PRODUCT SUPPORT (G4)",
+      "raw": "MR. ROBERT BRIAR DIRECTOR PRODUCT SUPPORT (G4)"
+    },
+    {
+      "fullName": "RODNEY FIGAROA",
+      "rank": "MR",
+      "role": "STAFF",
+      "roleTitle": "DIRECTOR ACQUISITION (G5)",
+      "raw": "MR. RODNEY FIGAROA DIRECTOR ACQUISITION (G5)"
+    },
+    {
+      "fullName": "NELSON MAISONET",
+      "rank": "MR",
+      "role": "STAFF",
+      "roleTitle": "CHIEF INFORMATION OFFICER (G6)",
+      "raw": "MR. NELSON MAISONET CHIEF INFORMATION OFFICER (G6)"
+    },
+    {
+      "fullName": "PRIMILA RAJAKULASINGHAM",
+      "rank": "MS",
+      "role": "STAFF",
+      "roleTitle": "DIRECTOR BUSINESS MANAGEMENT (G8)",
+      "raw": "MS. PRIMILA RAJAKULASINGHAM DIRECTOR BUSINESS MANAGEMENT (G8)"
+    },
+    {
+      "fullName": "SHELLY MOORE",
+      "rank": "MS",
+      "role": "STAFF",
+      "roleTitle": "DIRECTOR PERSONNEL RESOURCES (G1) TALENT MANAGEMENT (G7)",
+      "raw": "MS. SHELLY MOORE DIRECTOR PERSONNEL RESOURCES (G1) TALENT MANAGEMENT (G7)"
+    }
+  ]
+}
