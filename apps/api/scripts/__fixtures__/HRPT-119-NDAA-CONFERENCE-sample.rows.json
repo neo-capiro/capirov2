@@ -1,0 +1,13 @@
+{
+  "report": "HRPT-119-NDAA-CONFERENCE-sample",
+  "stage": "conference",
+  "fy": 2027,
+  "note": "Representative pre-extracted rows from the offline pdfplumber tool (extract_armed_services_report.py --chamber conference). Mirrors an NDAA conference report PE table — the final negotiated authorization mark.",
+  "rows": [
+    { "peCode": "0603270A", "fy": 2027, "request": 125000, "mark": 145000, "explanation": "Conference agreement increase" },
+    { "peCode": "0603250F", "fy": 2027, "request": 80000, "mark": 76000, "explanation": "Conference reduction" },
+    { "peCode": "0604201A", "fy": 2027, "request": 210000, "mark": 200000, "explanation": "Conference compromise" },
+    { "peCode": "0101221N", "fy": 2027, "request": 50000, "mark": 58000, "explanation": "Conference plus-up" },
+    { "peCode": "BADPE0001", "fy": 2027, "request": 100, "mark": 100, "explanation": "malformed pe code row" }
+  ]
+}

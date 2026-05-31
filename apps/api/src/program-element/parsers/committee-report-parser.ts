@@ -52,7 +52,7 @@ export interface LoadResult {
 }
 
 /** Mark fields on ProgramElementYear that a committee report can populate. */
-export type MarkField = 'hascMark' | 'sascMark' | 'hacDMark' | 'sacDMark';
+export type MarkField = 'hascMark' | 'sascMark' | 'hacDMark' | 'sacDMark' | 'conference' | 'enacted';
 
 // PE code: 7 digits + service letter (+ optional suffix). Same canon as jbook.
 const PE_TOKEN = /\b([0-9]{7}[A-Z][A-Z0-9]*)\b/;
