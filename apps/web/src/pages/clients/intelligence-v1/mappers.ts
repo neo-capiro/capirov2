@@ -181,6 +181,10 @@ export interface ClientProfileV1 {
           }>;
           bills: Array<{ billId: string; billTitle: string; sponsorName: string | null }>;
         }>;
+        /** Discriminates the kind of money shown; individual employer-linked vs PAC. */
+        contributionType?: 'individual_employer_linked';
+        /** Client's own PAC giving — separate dataset, not yet ingested (tracked:false). */
+        pacGiving?: { tracked: boolean; committees: unknown[] };
         /** Legal/compliance disclaimer text, single source of truth from the API. */
         disclaimer?: string;
       };

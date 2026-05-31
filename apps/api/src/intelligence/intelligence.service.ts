@@ -339,7 +339,7 @@ export class IntelligenceService {
     const profile = settled[0].value as Awaited<ReturnType<typeof this.getClientProfile>>;
 
     const roi = settle(1, { lobbySpend: 0, contractWins: 0, roi: null, gap: 0, mappedLdaClientId: null } as Awaited<ReturnType<typeof this.getLobbyingRoi>>);
-    const fec = settle(2, { clientId, clientName: client.name, mappedEmployer: null, summary: { totalContributions: 0, totalAmount: 0, committeeCount: 0, candidateCount: 0, memberCount: 0, billCount: 0 }, committees: [], disclaimer: FEC_DISCLAIMER } as Awaited<ReturnType<typeof this.getFecMoneyFlow>>);
+    const fec = settle(2, { clientId, clientName: client.name, mappedEmployer: null, contributionType: 'individual_employer_linked' as const, summary: { totalContributions: 0, totalAmount: 0, committeeCount: 0, candidateCount: 0, memberCount: 0, billCount: 0 }, committees: [], pacGiving: { tracked: false as const, committees: [] as never[] }, disclaimer: FEC_DISCLAIMER } as Awaited<ReturnType<typeof this.getFecMoneyFlow>>);
     const district = settle(3, { capabilities: [] } as unknown as Awaited<ReturnType<typeof this.getDistrictNexus>>);
     const trackedBills = settle(4, { total: 0, issueCodes: [], bills: [] } as Awaited<ReturnType<typeof this.getTrackedBills>>);
     const regLinks = settle(5, { totalBills: 0, totalRegulations: 0, rails: [] } as unknown as Awaited<ReturnType<typeof this.getBillRegulationLinks>>);
@@ -1834,7 +1834,9 @@ export class IntelligenceService {
           memberCount: 0,
           billCount: 0,
         },
+        contributionType: 'individual_employer_linked' as const,
         committees: [],
+        pacGiving: { tracked: false as const, committees: [] as never[] },
         disclaimer: FEC_DISCLAIMER,
       };
     }
@@ -1858,7 +1860,9 @@ export class IntelligenceService {
           memberCount: 0,
           billCount: 0,
         },
+        contributionType: 'individual_employer_linked' as const,
         committees: [],
+        pacGiving: { tracked: false as const, committees: [] as never[] },
         disclaimer: FEC_DISCLAIMER,
       };
     }
@@ -2014,6 +2018,10 @@ export class IntelligenceService {
       clientId,
       clientName: client.name,
       mappedEmployer: employer,
+      // Everything in `committees` is Schedule A (received-by-committee) data keyed by
+      // contributor EMPLOYER — i.e. individual filers who list this employer. It is
+      // legally distinct from the organization's / its PAC's own giving.
+      contributionType: 'individual_employer_linked' as const,
       summary: {
         totalContributions,
         totalAmount,
@@ -2023,6 +2031,10 @@ export class IntelligenceService {
         billCount: uniqueBills.size,
       },
       committees,
+      // The client's OWN PAC giving (committee → candidate disbursements) is a
+      // separate FEC dataset not yet ingested. Surfaced explicitly so the UI never
+      // conflates individual employer-linked money with organizational/PAC giving.
+      pacGiving: { tracked: false as const, committees: [] as never[] },
       disclaimer: FEC_DISCLAIMER,
     };
   }

@@ -1685,8 +1685,8 @@ export function FecMoneyFlowTab({ clientId }: { clientId: string }) {
       <Alert
         type="info"
         showIcon
-        message={`Mapped employer: ${data.mappedEmployer}`}
-        description={`${formatMoney(data.summary.totalAmount)} across ${formatNum(data.summary.totalContributions)} contributions → ${data.summary.candidateCount} candidates → ${data.summary.memberCount} members → ${data.summary.billCount} bills`}
+        message={`Individual contributions (employer-linked): ${data.mappedEmployer}`}
+        description={`${formatMoney(data.summary.totalAmount)} across ${formatNum(data.summary.totalContributions)} contributions → ${data.summary.candidateCount} candidates → ${data.summary.memberCount} members → ${data.summary.billCount} bills. These are individuals listing this employer — legally distinct from the client's own PAC giving, which is tracked separately and not yet available.`}
       />
       {data.committees.map((c) => (
         <Card

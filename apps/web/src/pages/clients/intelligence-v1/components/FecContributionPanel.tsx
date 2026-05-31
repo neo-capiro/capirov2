@@ -71,8 +71,8 @@ export function FecContributionPanel({ fec, runFecEnabled, runFecHref }: FecCont
   return (
     <div className="iv1-surface">
       <div className="iv1-surface-head">
-        <h3>FEC contribution flow</h3>
-        <span className="iv1-surface-sub">via registered lobbyists · TTM</span>
+        <h3>FEC contributions — individual (employer-linked)</h3>
+        <span className="iv1-surface-sub">individuals listing the mapped employer · TTM</span>
         {hasData && (
           <span className="iv1-surface-right">{summary!.totalContributions} contributions</span>
         )}
@@ -84,7 +84,25 @@ export function FecContributionPanel({ fec, runFecEnabled, runFecHref }: FecCont
         <FecEmptyState fec={fec} runFecEnabled={runFecEnabled} runFecHref={runFecHref} />
       )}
 
+      <FecPacGivingNote tracked={fec?.pacGiving?.tracked ?? false} />
       <FecDisclaimer text={fec?.disclaimer} />
+    </div>
+  );
+}
+
+/**
+ * Explicit separation of the client's OWN PAC giving from the individual,
+ * employer-linked contributions shown above. PAC giving (committee → candidate
+ * disbursements) is a distinct FEC dataset not yet ingested; we surface the bucket
+ * so the two are never conflated. When tracked becomes true, this renders the data.
+ */
+function FecPacGivingNote({ tracked }: { tracked: boolean }) {
+  if (tracked) return null;
+  return (
+    <div className="iv1-fec-pac-note">
+      <strong>Client PAC giving</strong> — the organization&apos;s own PAC contributions to
+      candidates are tracked separately and are not yet available. The figures above reflect
+      individual filers who list the mapped employer, which is legally distinct from PAC giving.
     </div>
   );
 }

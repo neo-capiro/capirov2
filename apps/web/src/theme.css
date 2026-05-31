@@ -15355,6 +15355,18 @@ body {
   color: var(--ink-4);
 }
 
+/* "Client PAC giving — not yet tracked" separator note (individual vs PAC split) */
+.iv1-fec-pac-note {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px dashed var(--border-1);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--ink-3);
+  background: var(--bg-sunken);
+}
+
 /* Empty state, extends iv1-empty */
 .iv1-fec-empty {
   display: flex;
