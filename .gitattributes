@@ -4,3 +4,6 @@
 *.sh        text eol=lf
 Dockerfile  text eol=lf
 *.Dockerfile text eol=lf
+
+# Binary fixtures/assets — never apply text/EOL normalization (would corrupt them).
+*.pdf       binary
