@@ -32,6 +32,7 @@
     "parse:sac-d-report": "tsx scripts/parse-defense-approps-reports.ts --chamber SAC-D",
     "parse:ndaa-conference": "tsx scripts/parse-ndaa-conference.ts",
     "parse:defense-approps-public-law": "tsx scripts/parse-defense-approps-public-law.ts",
+    "parse:pdoc": "tsx scripts/parse-pdoc-army.ts",
     "sync:federal-register": "tsx scripts/sync-federal-register.ts",
     "sync:regulations": "tsx scripts/sync-regulations.ts",
     "sync:sec": "tsx scripts/sync-sec-edgar.ts",

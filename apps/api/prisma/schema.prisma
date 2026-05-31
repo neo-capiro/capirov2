@@ -2557,3 +2557,27 @@ model GovInfoCache {
   @@index([fetchedAt], map: "govinfo_cache_fetched_at_idx")
   @@map("govinfo_cache")
 }
+
+/// Child procurement line items under a parent Program Element (P-Doc / Procurement
+/// budget books). A parent PE (e.g. 0204134N F/A-18 Series) has FY totals on
+/// program_element_year; its sub-line breakouts (kit codes, sub-quantities) live
+/// here. Global table — no tenant_id, no RLS. Idempotent dedup on
+/// (pe_code, line_description, fy).
+model ProgramElementProcurementLine {
+  id              String   @id @default(uuid()) @db.Uuid
+  peCode          String   @map("pe_code") @db.VarChar(16)
+  lineDescription String   @map("line_description")
+  fy              Int
+  quantity        Decimal? @db.Decimal(14, 2)
+  dollars         Decimal? @db.Decimal(18, 2)
+  unitCost        Decimal? @map("unit_cost") @db.Decimal(18, 2)
+  source          String?
+  sourceUrl       String?  @map("source_url")
+  raw             Json     @default("{}") @map("raw_jsonb")
+  lastSyncedAt    DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@unique([peCode, lineDescription, fy], map: "pe_procurement_line_dedup_key")
+  @@index([peCode], map: "pe_procurement_line_pe_code_idx")
+  @@index([fy], map: "pe_procurement_line_fy_idx")
+  @@map("program_element_procurement_line")
+}

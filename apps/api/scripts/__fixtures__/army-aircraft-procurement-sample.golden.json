@@ -1,0 +1,49 @@
+{
+  "service": "ARMY",
+  "fy": 2027,
+  "source": "p_doc_army_fy27",
+  "note": "Expected parsed output. BADPROC99 is included in input to exercise quarantine; valid records below.",
+  "records": [
+    {
+      "peCode": "0204134N",
+      "title": "F/A-18 Series",
+      "service": "ARMY",
+      "budgetActivity": "01",
+      "lineNumber": "1",
+      "programOfRecord": "F/A-18E/F",
+      "fyData": [
+        { "fy": 2027, "quantity": 12, "requestDollarsThousands": 1320000, "unitCostDollars": 110000000 }
+      ],
+      "lineItems": [
+        { "description": "Airframe", "fy": 2027, "quantity": 12, "dollars": 960000, "unitCost": null },
+        { "description": "Advance Procurement (CY)", "fy": 2027, "quantity": 0, "dollars": 180000, "unitCost": null },
+        { "description": "Engineering Change Orders", "fy": 2027, "quantity": 0, "dollars": 180000, "unitCost": null }
+      ]
+    },
+    {
+      "peCode": "0204136A",
+      "title": "AH-64 Apache Block IIIA Remanufacture",
+      "service": "ARMY",
+      "budgetActivity": "01",
+      "lineNumber": "5",
+      "programOfRecord": "AH-64E",
+      "fyData": [
+        { "fy": 2027, "quantity": 24, "requestDollarsThousands": 840000, "unitCostDollars": 35000000 }
+      ],
+      "lineItems": [
+        { "description": "Remanufacture Airframe", "fy": 2027, "quantity": 24, "dollars": 720000, "unitCost": null },
+        { "description": "Initial Spares", "fy": 2027, "quantity": 0, "dollars": 120000, "unitCost": null }
+      ]
+    },
+    {
+      "peCode": "BADPROC99",
+      "title": "Malformed PE row",
+      "service": "ARMY",
+      "budgetActivity": "01",
+      "lineNumber": null,
+      "programOfRecord": null,
+      "fyData": [{ "fy": 2027, "quantity": 1, "requestDollarsThousands": 100, "unitCostDollars": null }],
+      "lineItems": []
+    }
+  ]
+}
