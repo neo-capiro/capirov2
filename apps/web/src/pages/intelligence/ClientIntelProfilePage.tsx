@@ -1749,6 +1749,19 @@ export function FecMoneyFlowTab({ clientId }: { clientId: string }) {
           )}
         </Card>
       ))}
+      <Alert
+        type="warning"
+        showIcon
+        message="Compliance notice"
+        description={
+          'Source: public Federal Election Commission filings, shown for informational and intelligence ' +
+          'purposes only — not legal, compliance, or campaign-finance advice. Contributions attributed via a ' +
+          "contributor's listed employer reflect individual filers and are legally distinct from any " +
+          'contribution by that organization or its PAC. Nothing here is a recommendation to make, solicit, ' +
+          'or direct any political contribution. Verify against the official record at FEC.gov before relying on it.'
+        }
+        style={{ fontSize: 11 }}
+      />
     </div>
   );
 }
