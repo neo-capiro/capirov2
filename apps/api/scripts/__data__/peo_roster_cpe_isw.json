@@ -1,0 +1,18 @@
+{
+  "org": "CPE ISW",
+  "formerName": "PEO IEW&S",
+  "service": "ARMY",
+  "source": "cpeisw.army.mil (Capability Program Executive for Intelligence & Spectrum Warfare), scraped roster + PM pages",
+  "asOf": "2026-05-31",
+  "stats": { "people": 8 },
+  "people": [
+    { "fullName": "Kevin Chaney", "rank": "BG", "role": "PEO", "roleTitle": "Capability Program Executive, Intelligence and Spectrum Warfare", "programOfRecord": null },
+    { "fullName": "Laurence Mixon", "rank": null, "role": "DPEO", "roleTitle": "Acting Deputy Capability Program Executive, Intelligence and Spectrum Warfare", "programOfRecord": null },
+    { "fullName": "Brock Zimmerman", "rank": "COL", "role": "PM", "roleTitle": "Project Manager, Aircraft Survivability Equipment (PM ASE)", "programOfRecord": "Aircraft Survivability Equipment" },
+    { "fullName": "Stephen O'Brian", "rank": null, "role": "DPM", "roleTitle": "Deputy Project Manager, Aircraft Survivability Equipment (PM ASE)", "programOfRecord": "Aircraft Survivability Equipment" },
+    { "fullName": "Linda Jones", "rank": null, "role": "PM", "roleTitle": "Acting Project Manager, Defensive Cyber Operations (PM DCO)", "programOfRecord": "Defensive Cyber Operations" },
+    { "fullName": "Lareina Adams", "rank": null, "role": "PM", "roleTitle": "Project Manager, Terrestrial Sensors (PM TS)", "programOfRecord": "Terrestrial Sensors" },
+    { "fullName": "Jerord Wilson", "rank": null, "role": "DPM", "roleTitle": "Deputy Project Manager, Terrestrial Sensors (PM TS)", "programOfRecord": "Terrestrial Sensors" },
+    { "fullName": "Christine L. Moulton", "rank": null, "role": "STAFF", "roleTitle": "Director, CPE Integration Directorate", "programOfRecord": null }
+  ]
+}
