@@ -117,6 +117,42 @@ export class EntityResolutionService {
     `;
   }
 
+  /**
+   * Match a client to its OWN PAC committee (FecCommittee). PAC names are noisy
+   * ("BOEING COMPANY PAC", "EMPLOYEES OF X POLITICAL ACTION COMMITTEE"), so we
+   * strip PAC-specific noise words before scoring. Source 'fec_committee' powers
+   * the Schedule B PAC-giving sync; because attributing an org's PAC is compliance-
+   * sensitive, these are scored conservatively and NEVER auto-confirmed (see
+   * scoreCommittee) — a human must confirm in the mappings review UI.
+   */
+  private async matchFecCommittee(clientName: string): Promise<MatchRow[]> {
+    return this.prisma.$queryRaw<MatchRow[]>`
+      SELECT id AS external_id,
+             name AS external_name,
+             similarity(
+               regexp_replace(
+                 lower(name),
+                 '\\m(pac|political action committee|employees?|company|corp|inc|fund|for|of|the)\\M',
+                 ' ', 'g'
+               ),
+               lower(${clientName})
+             ) AS similarity,
+             state
+      FROM fec_committee
+      WHERE committee_type IN ('Q', 'N', 'O', 'V', 'W')  -- PAC-type committees
+        AND similarity(
+              regexp_replace(
+                lower(name),
+                '\\m(pac|political action committee|employees?|company|corp|inc|fund|for|of|the)\\M',
+                ' ', 'g'
+              ),
+              lower(${clientName})
+            ) > 0.35
+      ORDER BY similarity DESC
+      LIMIT 25
+    `;
+  }
+
   private async matchFara(clientName: string): Promise<MatchRow[]> {
     return this.prisma.$queryRaw<MatchRow[]>`
       SELECT registration_number AS external_id, registrant_name AS external_name,
@@ -146,12 +182,13 @@ export class EntityResolutionService {
   async resolveClient(clientId: string, clientName: string): Promise<void> {
     const clientFp = this.fingerprint(clientName);
 
-    const [ldaRows, contractorRows, secRows, fecRows, faraRows, lobbyRows] =
+    const [ldaRows, contractorRows, secRows, fecRows, fecCommitteeRows, faraRows, lobbyRows] =
       await Promise.all([
         this.matchLda(clientName),
         this.matchContractor(clientName),
         this.matchSec(clientName),
         this.matchFec(clientName),
+        this.matchFecCommittee(clientName),
         this.matchFara(clientName),
         this.matchLobbyIntel(clientName),
       ]);
@@ -159,6 +196,13 @@ export class EntityResolutionService {
     const allCandidates: CandidateMatch[] = [
       ...ldaRows.map((r) => ({
         source: 'lda',
+        externalId: r.external_id,
+        externalName: r.external_name,
+        rawSimilarity: r.similarity,
+        confidence: this.scoreCandidate(clientFp, r),
+      })),
+      ...fecCommitteeRows.map((r) => ({
+        source: 'fec_committee',
         externalId: r.external_id,
         externalName: r.external_name,
         rawSimilarity: r.similarity,
@@ -202,8 +246,9 @@ export class EntityResolutionService {
     ];
 
     for (const candidate of allCandidates) {
-      // Stage D thresholds
-      const autoConfirm = candidate.confidence >= 0.85;
+      // Stage D thresholds. PAC committee attribution is compliance-sensitive:
+      // never auto-confirm fec_committee — always route to human review.
+      const autoConfirm = candidate.source !== 'fec_committee' && candidate.confidence >= 0.85;
 
       const updateData: {
         externalName: string;
@@ -249,12 +294,13 @@ export class EntityResolutionService {
 
     for (const client of clients) {
       const clientFp = this.fingerprint(client.name);
-      const [ldaRows, contractorRows, secRows, fecRows, faraRows, lobbyRows] =
+      const [ldaRows, contractorRows, secRows, fecRows, fecCommitteeRows, faraRows, lobbyRows] =
         await Promise.all([
           this.matchLda(client.name),
           this.matchContractor(client.name),
           this.matchSec(client.name),
           this.matchFec(client.name),
+          this.matchFecCommittee(client.name),
           this.matchFara(client.name),
           this.matchLobbyIntel(client.name),
         ]);
@@ -264,6 +310,7 @@ export class EntityResolutionService {
         { source: 'contracting', rows: contractorRows },
         { source: 'sec', rows: secRows },
         { source: 'fec_employer', rows: fecRows },
+        { source: 'fec_committee', rows: fecCommitteeRows },
         { source: 'fara', rows: faraRows },
         { source: 'lobby_intel', rows: lobbyRows },
       ];
@@ -271,7 +318,9 @@ export class EntityResolutionService {
       for (const { source, rows } of sourceGroups) {
         for (const row of rows) {
           const confidence = this.scoreCandidate(clientFp, row);
-          const autoConfirm = confidence >= 0.85;
+          // PAC committee attribution is compliance-sensitive: never auto-confirm,
+          // always route to human review regardless of score.
+          const autoConfirm = source !== 'fec_committee' && confidence >= 0.85;
 
           const updateData: {
             externalName: string;
