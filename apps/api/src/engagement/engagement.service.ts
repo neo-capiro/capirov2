@@ -1637,7 +1637,13 @@ export class EngagementService {
     const results: Array<{ recipientId: string; subject: string; body: string }> = [];
 
     for (const recipient of recipients) {
+      // Must match the frontend's recipientKey() chain (id first) so generated
+      // drafts land under the key the wizard looks them up by. Previously this
+      // started at directoryContactId, so to-clients recipients (which have
+      // `id` but no directoryContactId) got keyed by email and the wizard
+      // showed "no draft".
       const recipientId =
+        (recipient as Record<string, unknown>).id?.toString() ||
         (recipient as Record<string, unknown>).directoryContactId?.toString() ||
         (recipient as Record<string, unknown>).email?.toString() ||
         String(results.length);
@@ -3440,7 +3446,34 @@ export class EngagementService {
     const or: Prisma.MailThreadWhereInput[] = [{ clientId }];
 
     if (clientProfileEmails.length) {
-      or.push({ messages: { some: { fromEmail: { in: clientProfileEmails } } } });
+      // A thread belongs to the client if any of the client's people appear as
+      // the sender, in To, or in Cc on any message (case-insensitive). The
+      // recipient lists are JSONB arrays of {email,name}, which Prisma can't
+      // filter with `in`, so resolve matching thread ids via a raw query.
+      const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+        SELECT DISTINCT mt.id
+        FROM mail_threads mt
+        JOIN mail_messages mm ON mm.thread_id = mt.id
+        WHERE mt.tenant_id = ${tenantId}::uuid
+          AND (
+            lower(mm.from_email) = ANY(${clientProfileEmails})
+            OR EXISTS (
+              SELECT 1 FROM jsonb_array_elements(mm.to_recipients_jsonb) e
+              WHERE lower(e->>'email') = ANY(${clientProfileEmails})
+            )
+            OR EXISTS (
+              SELECT 1 FROM jsonb_array_elements(mm.cc_recipients_jsonb) e
+              WHERE lower(e->>'email') = ANY(${clientProfileEmails})
+            )
+          )
+      `);
+      if (rows.length) {
+        or.push({ id: { in: rows.map((r) => r.id) } });
+      } else {
+        // Fallback so the OR still has a sender match if the raw query yielded
+        // nothing (e.g. recipient lists empty): keep the original behavior.
+        or.push({ messages: { some: { fromEmail: { in: clientProfileEmails } } } });
+      }
     }
 
     return { OR: or };

@@ -1884,6 +1884,16 @@ function MeetingDetailPanel({
               .filter(Boolean)
               .join(' | ')}
           </Typography.Text>
+          <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {meeting.client ? 'Client:' : 'No client —'}
+            </Typography.Text>
+            <AssignClientControl
+              entityType="meeting"
+              entityId={meeting.id}
+              currentClientId={meeting.client?.id ?? null}
+            />
+          </div>
           {status.kind === 'missing' && !hasSavedDebrief ? (
             <Typography.Text className="engagement-detail-warning">
               Debrief Not Completed
@@ -2730,6 +2740,74 @@ function CalendarView({ meetings }: { meetings: Meeting[] }) {
   );
 }
 
+// Self-contained control to (re)assign a meeting or mail thread to a client,
+// wired to POST /api/engagement/associations/override. Drop it anywhere; it
+// fetches clients itself and invalidates the relevant caches on success.
+function AssignClientControl({
+  entityType,
+  entityId,
+  currentClientId,
+  size = 'small',
+}: {
+  entityType: 'meeting' | 'mail_thread';
+  entityId: string;
+  currentClientId?: string | null;
+  size?: 'small' | 'middle';
+}) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const { message } = App.useApp();
+  const clients = useQuery<Client[]>({
+    queryKey: ['clients'],
+    queryFn: async () => (await api.get<Client[]>('/api/clients')).data,
+    staleTime: 60_000,
+  });
+  const options = useMemo(
+    () =>
+      (clients.data ?? [])
+        .filter((c) => c.status !== 'archived' && c.name?.trim())
+        .map((c) => ({ value: c.id, label: c.name })),
+    [clients.data],
+  );
+  const assign = useMutation({
+    mutationFn: async (clientId: string) =>
+      (
+        await api.post('/api/engagement/associations/override', {
+          entityType,
+          entityId,
+          clientId,
+          reason: 'Manual association from Engagement',
+        })
+      ).data,
+    onSuccess: () => {
+      message.success('Reassigned to client');
+      for (const key of [
+        ['engagement-meetings'],
+        ['engagement-meeting'],
+        ['engagement-mail-threads'],
+        ['outreach-pool-mail'],
+        ['outreach-pool-meetings'],
+      ]) {
+        qc.invalidateQueries({ queryKey: key });
+      }
+    },
+    onError: (e) => message.error(errorMessage(e)),
+  });
+  return (
+    <Select
+      size={size}
+      showSearch
+      placeholder="Assign client…"
+      style={{ minWidth: 170 }}
+      value={currentClientId ?? undefined}
+      options={options}
+      optionFilterProp="label"
+      loading={clients.isLoading || assign.isPending}
+      onChange={(v) => v && assign.mutate(v)}
+    />
+  );
+}
+
 function MailView({ threads }: { threads: MailThread[] }) {
   return (
     <div className="engagement-panel">
@@ -2749,16 +2827,23 @@ function MailView({ threads }: { threads: MailThread[] }) {
                   <Typography.Paragraph>{thread.snippet}</Typography.Paragraph>
                 ) : null}
               </div>
-              <Button
-                size="small"
-                icon={<ExportOutlined />}
-                disabled={!openUrl(thread)}
-                href={openUrl(thread)}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open
-              </Button>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                <AssignClientControl
+                  entityType="mail_thread"
+                  entityId={thread.id}
+                  currentClientId={thread.client?.id ?? null}
+                />
+                <Button
+                  size="small"
+                  icon={<ExportOutlined />}
+                  disabled={!openUrl(thread)}
+                  href={openUrl(thread)}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Open
+                </Button>
+              </div>
             </div>
           ))}
         </div>
