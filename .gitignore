@@ -49,3 +49,9 @@ docker-compose.override.yml
 
 # Local-only deploy logs
 .deploy-logs/
+
+# Transient build/extraction artifacts (not source)
+__pycache__/
+*.pyc
+apps/api/scripts/**/extract_err.txt
+apps/web/lh-*.json
