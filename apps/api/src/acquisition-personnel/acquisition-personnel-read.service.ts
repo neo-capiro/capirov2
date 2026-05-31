@@ -353,6 +353,148 @@ export class AcquisitionPersonnelReadService {
     return { resolved: true };
   }
 
+  // ── Phase 1b: person -> Program Element link candidate review queue ──────────
+  // Candidates are proposed by the deterministic matcher (generate-pe-person-candidates).
+  // Confirming one applies the link (sets pe_primary) AND records a citation source
+  // so the link is defensible/auditable. Rejecting just closes the candidate.
+
+  async listPersonCandidates(
+    status: string,
+    pageRaw: number | undefined,
+    limitRaw: number | undefined,
+    ctx: TenantContext,
+  ) {
+    const page = this.normalizePage(pageRaw);
+    const limit = this.normalizeLimit(limitRaw);
+    const where: Prisma.ProgramElementPersonCandidateWhereInput = status ? { status } : {};
+
+    const [total, rows] = await Promise.all([
+      this.prisma.programElementPersonCandidate.count({ where }),
+      this.prisma.programElementPersonCandidate.findMany({
+        where,
+        orderBy: [{ score: 'desc' }, { createdAt: 'desc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+    ]);
+
+    // Enrich with person + PE display fields for the reviewer UI.
+    const personIds = Array.from(new Set(rows.map((r) => r.personId)));
+    const peCodes = Array.from(new Set(rows.map((r) => r.peCode)));
+    const [people, pes] = await Promise.all([
+      this.prisma.acquisitionPersonnel.findMany({
+        where: { id: { in: personIds } },
+        select: { id: true, fullName: true, organization: true, title: true, pePrimary: true },
+      }),
+      this.prisma.programElement.findMany({
+        where: { peCode: { in: peCodes } },
+        select: { peCode: true, title: true, service: true },
+      }),
+    ]);
+    const personById = new Map(people.map((p) => [p.id, p]));
+    const peByCode = new Map(pes.map((p) => [p.peCode, p]));
+
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          actorRole: ctx.role,
+          action: 'program_element.person_candidate.list',
+          entityType: 'program_element_person_candidate',
+          entityId: null,
+          after: { status: status ?? null, page, limit, total },
+        },
+      });
+    });
+
+    return {
+      data: rows.map((r) => ({
+        ...r,
+        person: personById.get(r.personId) ?? null,
+        programElement: peByCode.get(r.peCode) ?? null,
+      })),
+      total,
+      page,
+      limit,
+    };
+  }
+
+  async resolvePersonCandidate(
+    id: string,
+    decision: 'confirm' | 'reject',
+    notes: string | undefined,
+    ctx: TenantContext,
+  ): Promise<{ resolved: true; linked: boolean }> {
+    const candidate = await this.prisma.programElementPersonCandidate.findUnique({ where: { id } });
+    if (!candidate) throw new NotFoundException(`Person-PE candidate ${id} not found`);
+
+    let linked = false;
+
+    if (decision === 'confirm') {
+      // Look up an R-2 citation for this PE (if any) so the link carries provenance.
+      const r2 = await this.prisma.programElementSource.findFirst({
+        where: { peCode: candidate.peCode, exhibitType: { in: ['R-2', 'R-2A'] } },
+        orderBy: [{ pageNumber: 'asc' }],
+        select: { sourceUrl: true, pageNumber: true },
+      });
+      const citationUrl =
+        r2?.sourceUrl && r2.pageNumber ? `${r2.sourceUrl}#page=${r2.pageNumber}` : r2?.sourceUrl ?? null;
+
+      await this.prisma.$transaction(async (tx) => {
+        // Apply the link only if the person isn't already mapped (don't clobber).
+        await tx.acquisitionPersonnel.updateMany({
+          where: { id: candidate.personId, pePrimary: null },
+          data: { pePrimary: candidate.peCode },
+        });
+        // Record a citable source explaining WHY this link exists.
+        await tx.acquisitionPersonnelSource.create({
+          data: {
+            personId: candidate.personId,
+            source: 'pe_match_confirmed',
+            sourceUrl: citationUrl,
+            snippet: `Linked to PE ${candidate.peCode} (review-confirmed). Match basis: ${candidate.matchBasis ?? 'n/a'}.`,
+            observedAt: new Date(),
+            confidence: candidate.score,
+            metadata: {
+              candidateId: candidate.id,
+              peCode: candidate.peCode,
+              score: candidate.score,
+              confirmedByUserId: ctx.userId,
+            },
+          },
+        });
+      });
+      linked = true;
+    }
+
+    await this.prisma.programElementPersonCandidate.update({
+      where: { id },
+      data: {
+        status: decision === 'confirm' ? 'confirmed' : 'rejected',
+        resolvedByUserId: ctx.userId,
+        resolvedAt: new Date(),
+        decisionNotes: notes ?? null,
+      },
+    });
+
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          actorRole: ctx.role,
+          action: 'program_element.person_candidate.resolve',
+          entityType: 'program_element_person_candidate',
+          entityId: id,
+          after: { decision, peCode: candidate.peCode, personId: candidate.personId, linked, notes: notes ?? null },
+        },
+      });
+    });
+
+    return { resolved: true, linked };
+  }
+
   private normalizePage(page?: number): number {
     const p = Number(page ?? 1);
     if (!Number.isFinite(p) || p < 1) return 1;

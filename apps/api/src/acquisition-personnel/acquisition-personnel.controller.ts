@@ -22,6 +22,17 @@ class ResolveMergeQueueDto {
   notes?: string;
 }
 
+class PersonCandidateQueryDto {
+  status?: string;
+  page?: number;
+  limit?: number;
+}
+
+class ResolvePersonCandidateDto {
+  decision!: 'confirm' | 'reject';
+  notes?: string;
+}
+
 @Controller()
 @UseGuards(RolesGuard)
 @Roles('standard_user')
@@ -76,5 +87,21 @@ export class AcquisitionPersonnelController {
       async (primaryId: string, secondaryId: string, userId: string) =>
         this.writerService.mergePersons(primaryId, secondaryId, userId),
     );
+  }
+
+  @Get('admin/program-elements/person-candidates')
+  @Roles('capiro_admin')
+  personCandidates(@CurrentTenant() ctx: TenantContext, @Query() query: PersonCandidateQueryDto) {
+    return this.readService.listPersonCandidates(query.status ?? 'open', query.page, query.limit, ctx);
+  }
+
+  @Post('admin/program-elements/person-candidates/:id/resolve')
+  @Roles('capiro_admin')
+  resolvePersonCandidate(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: ResolvePersonCandidateDto,
+  ) {
+    return this.readService.resolvePersonCandidate(id, body.decision, body.notes, ctx);
   }
 }

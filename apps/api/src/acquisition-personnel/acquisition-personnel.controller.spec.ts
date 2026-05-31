@@ -91,6 +91,30 @@ describe('AcquisitionPersonnelController', () => {
     expect(listResult).toEqual({ data: [], total: 0, page: 1, limit: 50 });
     expect(resolveResult).toEqual({ resolved: true });
   });
+
+  test('person-candidate queue is admin-only and resolves confirm/reject', async () => {
+    const { controller, readService } = makeController();
+    readService.listPersonCandidates.mockResolvedValueOnce({ data: [], total: 0, page: 1, limit: 50 });
+    readService.resolvePersonCandidate.mockResolvedValueOnce({ resolved: true, linked: true });
+
+    await expect(
+      runAdminOnly('standard_user', () =>
+        controller.resolvePersonCandidate(standardCtx, 'cand-1', { decision: 'confirm' }),
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+
+    const listResult = await runAdminOnly('capiro_admin', () =>
+      controller.personCandidates(adminCtx, { status: 'open' }),
+    );
+    const resolveResult = await runAdminOnly('capiro_admin', () =>
+      controller.resolvePersonCandidate(adminCtx, 'cand-1', { decision: 'confirm', notes: 'looks right' }),
+    );
+
+    expect(readService.listPersonCandidates).toHaveBeenCalledWith('open', undefined, undefined, adminCtx);
+    expect(readService.resolvePersonCandidate).toHaveBeenCalledWith('cand-1', 'confirm', 'looks right', adminCtx);
+    expect(listResult).toEqual({ data: [], total: 0, page: 1, limit: 50 });
+    expect(resolveResult).toEqual({ resolved: true, linked: true });
+  });
 });
 
 function makeController() {
@@ -101,6 +125,8 @@ function makeController() {
     linkCrmContact: jest.fn(),
     listMergeQueue: jest.fn(),
     resolveMergeQueue: jest.fn(),
+    listPersonCandidates: jest.fn(),
+    resolvePersonCandidate: jest.fn(),
   };
 
   const writerService = {

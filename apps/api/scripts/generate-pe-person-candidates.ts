@@ -31,7 +31,7 @@ function arg(name: string, def: string): string {
 async function main(): Promise<void> {
   dotenvConfig();
   const commit = process.argv.includes('--commit');
-  const threshold = Number(arg('threshold', '0.6'));
+  const threshold = Number(arg('threshold', '0.7'));
   const limit = Number(arg('limit', '3'));
   const maxPeople = Number(arg('max-people', '0')); // 0 = all
 
