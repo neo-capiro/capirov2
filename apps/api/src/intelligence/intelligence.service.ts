@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { EMBEDDING_MODEL, embedText, normalize, vectorLiteral } from '../embeddings/embedder.js';
 import { classifyTrajectory } from './trajectory-classifier.model.js';
 import { addDateInZone, dateBoundsInZone, dayBoundsInZone } from './time-bounds.js';
+import { FEC_DISCLAIMER } from './fec-disclaimer.js';
 
 @Injectable()
 export class IntelligenceService {
@@ -338,7 +339,7 @@ export class IntelligenceService {
     const profile = settled[0].value as Awaited<ReturnType<typeof this.getClientProfile>>;
 
     const roi = settle(1, { lobbySpend: 0, contractWins: 0, roi: null, gap: 0, mappedLdaClientId: null } as Awaited<ReturnType<typeof this.getLobbyingRoi>>);
-    const fec = settle(2, { clientId, clientName: client.name, mappedEmployer: null, summary: { totalContributions: 0, totalAmount: 0, committeeCount: 0, candidateCount: 0, memberCount: 0, billCount: 0 }, committees: [] } as Awaited<ReturnType<typeof this.getFecMoneyFlow>>);
+    const fec = settle(2, { clientId, clientName: client.name, mappedEmployer: null, summary: { totalContributions: 0, totalAmount: 0, committeeCount: 0, candidateCount: 0, memberCount: 0, billCount: 0 }, committees: [], disclaimer: FEC_DISCLAIMER } as Awaited<ReturnType<typeof this.getFecMoneyFlow>>);
     const district = settle(3, { capabilities: [] } as unknown as Awaited<ReturnType<typeof this.getDistrictNexus>>);
     const trackedBills = settle(4, { total: 0, issueCodes: [], bills: [] } as Awaited<ReturnType<typeof this.getTrackedBills>>);
     const regLinks = settle(5, { totalBills: 0, totalRegulations: 0, rails: [] } as unknown as Awaited<ReturnType<typeof this.getBillRegulationLinks>>);
@@ -1834,6 +1835,7 @@ export class IntelligenceService {
           billCount: 0,
         },
         committees: [],
+        disclaimer: FEC_DISCLAIMER,
       };
     }
 
@@ -1857,6 +1859,7 @@ export class IntelligenceService {
           billCount: 0,
         },
         committees: [],
+        disclaimer: FEC_DISCLAIMER,
       };
     }
 
@@ -2020,6 +2023,7 @@ export class IntelligenceService {
         billCount: uniqueBills.size,
       },
       committees,
+      disclaimer: FEC_DISCLAIMER,
     };
   }
 

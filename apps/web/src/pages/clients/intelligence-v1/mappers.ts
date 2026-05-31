@@ -181,6 +181,8 @@ export interface ClientProfileV1 {
           }>;
           bills: Array<{ billId: string; billTitle: string; sponsorName: string | null }>;
         }>;
+        /** Legal/compliance disclaimer text, single source of truth from the API. */
+        disclaimer?: string;
       };
       districtNexus: {
         topDistricts: Array<{ district: string; jobs: number; capability: string; dataYear: number }>;

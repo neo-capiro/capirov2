@@ -84,7 +84,7 @@ export function FecContributionPanel({ fec, runFecEnabled, runFecHref }: FecCont
         <FecEmptyState fec={fec} runFecEnabled={runFecEnabled} runFecHref={runFecHref} />
       )}
 
-      <FecDisclaimer />
+      <FecDisclaimer text={fec?.disclaimer} />
     </div>
   );
 }
@@ -92,21 +92,24 @@ export function FecContributionPanel({ fec, runFecEnabled, runFecHref }: FecCont
 /**
  * Compliance disclaimer for the FEC panel. Renders in every state (data + empty)
  * because the panel surfaces individual employer-linked contributions resolved to
- * candidates/members. Three points it must make, per legal review:
- *  1. Source + nature: public FEC filings, shown as intelligence/context only.
- *  2. Individual ≠ organizational: an individual listing an employer is THAT
- *     person's contribution, legally distinct from a corporate/PAC contribution.
- *  3. Not a recommendation: nothing here suggests making, soliciting, or directing
- *     any political contribution.
+ * candidates/members. The text is supplied by the API (single source of truth in
+ * apps/api/src/intelligence/fec-disclaimer.ts) so the wording cannot drift across
+ * surfaces; FALLBACK_DISCLAIMER is a defensive copy for older payloads that predate
+ * the API field. Three required points: (1) public FEC data, intelligence-only, not
+ * legal/campaign-finance advice; (2) individual employer-linked ≠ corporate/PAC
+ * giving; (3) not a recommendation to make/solicit/direct any contribution.
  */
-function FecDisclaimer() {
+const FALLBACK_DISCLAIMER =
+  'Source: public Federal Election Commission filings, shown for informational and intelligence ' +
+  'purposes only — not legal, compliance, or campaign-finance advice. Contributions attributed via a ' +
+  "contributor's listed employer reflect individual filers and are legally distinct from any " +
+  'contribution by that organization or its PAC. Nothing here is a recommendation to make, solicit, or ' +
+  'direct any political contribution. Verify against the official record at FEC.gov before relying on it.';
+
+function FecDisclaimer({ text }: { text?: string }) {
   return (
     <p className="iv1-fec-disclaimer" role="note">
-      Source: public Federal Election Commission filings, shown for informational and intelligence
-      purposes only — not legal, compliance, or campaign-finance advice. Contributions attributed via a
-      contributor&apos;s listed employer reflect individual filers and are legally distinct from any
-      contribution by that organization or its PAC. Nothing here is a recommendation to make, solicit, or
-      direct any political contribution. Verify against the official record at FEC.gov before relying on it.
+      {text ?? FALLBACK_DISCLAIMER}
     </p>
   );
 }
