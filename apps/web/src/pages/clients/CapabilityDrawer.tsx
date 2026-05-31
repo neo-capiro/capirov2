@@ -114,9 +114,11 @@ interface Props {
   clientId: string;
   onClose: () => void;
   onUpdated: () => void;
+  /** Optional: when provided, a delete control is shown in the drawer header. */
+  onDelete?: () => void;
 }
 
-export function CapabilityDrawer({ capability, clientId, onClose, onUpdated }: Props) {
+export function CapabilityDrawer({ capability, clientId, onClose, onUpdated, onDelete }: Props) {
   const api = useApi();
   const qc = useQueryClient();
   const { message, modal } = AntApp.useApp();
@@ -190,9 +192,22 @@ export function CapabilityDrawer({ capability, clientId, onClose, onUpdated }: P
             ) : null}
           </div>
         </div>
-        <button className="cp-back" onClick={onClose} aria-label="Close drawer">
-          <CloseOutlined style={{ fontSize: 12 }} />
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {onDelete ? (
+            <Button
+              type="text"
+              danger
+              size="small"
+              icon={<DeleteOutlined />}
+              onClick={onDelete}
+              aria-label="Delete capability"
+              title="Delete capability"
+            />
+          ) : null}
+          <button className="cp-back" onClick={onClose} aria-label="Close drawer">
+            <CloseOutlined style={{ fontSize: 12 }} />
+          </button>
+        </div>
       </div>
 
       <div className="cap-drawer-tabs">

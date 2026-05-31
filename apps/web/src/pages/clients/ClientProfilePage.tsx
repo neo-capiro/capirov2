@@ -4,6 +4,8 @@ import {
   ArrowLeftOutlined,
   CloudUploadOutlined,
   DeleteOutlined,
+  DownOutlined,
+  RightOutlined,
   DownloadOutlined,
   FileImageOutlined,
   FileOutlined,
@@ -424,6 +426,17 @@ export function ClientProfilePage({
             onUpdated={() => {
               qc.invalidateQueries({ queryKey: ['client-capabilities', client.id] });
             }}
+            onDelete={() => {
+              const cap = selectedCapability;
+              if (!cap) return;
+              modal.confirm({
+                title: 'Remove this capability?',
+                content: 'This will also remove all submission history for this capability.',
+                okText: 'Remove',
+                okButtonProps: { danger: true },
+                onOk: () => deleteCapability.mutateAsync(cap.id),
+              });
+            }}
           />
         ) : null}
       </div>
@@ -471,6 +484,27 @@ function OverviewTab({
   onAddCap: () => void;
 }) {
   const api = useApi();
+
+  // Capabilities preview is collapsible; persist the choice across the session
+  // (and future visits) via localStorage so it doesn't reset on every render.
+  const [capsCollapsed, setCapsCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('capiro:overview-caps-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleCaps = () =>
+    setCapsCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('capiro:overview-caps-collapsed', next ? '1' : '0');
+      } catch {
+        /* ignore storage failures (private mode, etc.) */
+      }
+      return next;
+    });
+
   const cageCode = readText(intake, ['cageCode', 'cage_code']);
   const uei = readText(intake, ['uei']);
   const primaryNaics = readText(intake, ['primaryNaics', 'primary_naics', 'naics']);
@@ -711,45 +745,72 @@ function OverviewTab({
         {/* Capabilities preview */}
         <section className="surface">
           <header className="surface-head">
+            <button
+              type="button"
+              onClick={toggleCaps}
+              aria-label={capsCollapsed ? 'Expand capabilities' : 'Collapse capabilities'}
+              aria-expanded={!capsCollapsed}
+              title={capsCollapsed ? 'Expand' : 'Collapse'}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+                marginRight: 6,
+                color: 'var(--ink-3)',
+                display: 'inline-flex',
+                alignItems: 'center',
+              }}
+            >
+              {capsCollapsed ? (
+                <RightOutlined style={{ fontSize: 11 }} />
+              ) : (
+                <DownOutlined style={{ fontSize: 11 }} />
+              )}
+            </button>
             <h3>Capabilities</h3>
             <span className="sub">{capabilities.length} total</span>
             <button className="surface-link" onClick={onViewAllCaps} type="button">
               View all →
             </button>
           </header>
-          <div style={{ padding: 4 }}>
-            {capsLoading ? (
-              <Skeleton active paragraph={{ rows: 3 }} />
-            ) : capabilities.length === 0 ? (
-              <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-3)' }}>
-                No capabilities yet.
+          {!capsCollapsed && (
+            <>
+              <div style={{ padding: 4 }}>
+                {capsLoading ? (
+                  <Skeleton active paragraph={{ rows: 3 }} />
+                ) : capabilities.length === 0 ? (
+                  <div style={{ padding: '20px 14px', fontSize: 12, color: 'var(--ink-3)' }}>
+                    No capabilities yet.
+                  </div>
+                ) : (
+                  capabilities.slice(0, 4).map((cap) => (
+                    <button
+                      type="button"
+                      key={cap.id}
+                      onClick={() => onCapClick(cap)}
+                      className="overview-cap-row"
+                    >
+                      <span className="overview-cap-name">{cap.name}</span>
+                      <span className="overview-cap-meta">
+                        {cap.type ? (
+                          <span className={`cap-pill ${cap.type.toLowerCase()}`}>{cap.type}</span>
+                        ) : null}
+                        {cap.sector ? <span className="cap-sector">{cap.sector}</span> : null}
+                      </span>
+                      <span className="overview-cap-trl num">
+                        {cap.trl != null ? `TRL ${cap.trl}` : '-'}
+                        {cap.mrl != null ? ` · MRL ${cap.mrl}` : ''}
+                      </span>
+                    </button>
+                  ))
+                )}
               </div>
-            ) : (
-              capabilities.slice(0, 4).map((cap) => (
-                <button
-                  type="button"
-                  key={cap.id}
-                  onClick={() => onCapClick(cap)}
-                  className="overview-cap-row"
-                >
-                  <span className="overview-cap-name">{cap.name}</span>
-                  <span className="overview-cap-meta">
-                    {cap.type ? (
-                      <span className={`cap-pill ${cap.type.toLowerCase()}`}>{cap.type}</span>
-                    ) : null}
-                    {cap.sector ? <span className="cap-sector">{cap.sector}</span> : null}
-                  </span>
-                  <span className="overview-cap-trl num">
-                    {cap.trl != null ? `TRL ${cap.trl}` : '-'}
-                    {cap.mrl != null ? ` · MRL ${cap.mrl}` : ''}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-          <button className="she-add-btn" onClick={onAddCap} style={{ margin: '4px 14px 14px' }}>
-            <PlusOutlined /> Add capability
-          </button>
+              <button className="she-add-btn" onClick={onAddCap} style={{ margin: '4px 14px 14px' }}>
+                <PlusOutlined /> Add capability
+              </button>
+            </>
+          )}
         </section>
 
         {/* Primary contacts preview */}

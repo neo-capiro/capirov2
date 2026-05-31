@@ -24,10 +24,6 @@ export interface EnvConfig {
   apiMemoryMib: number;
   apiDesiredCount: number;
   apiMaxCount: number;
-  clioCpu: number;
-  clioMemoryMib: number;
-  clioDesiredCount: number;
-  clioMaxCount: number;
   webCpu: number;
   webMemoryMib: number;
   webDesiredCount: number;
@@ -64,10 +60,6 @@ const BASE: Omit<EnvConfig, 'envName' | 'account' | 'region'> = {
   apiMemoryMib: 1024,
   apiDesiredCount: 2,
   apiMaxCount: 6,
-  clioCpu: 1024,
-  clioMemoryMib: 2048,
-  clioDesiredCount: 2,
-  clioMaxCount: 4,
   webCpu: 256,
   webMemoryMib: 512,
   webDesiredCount: 2,
@@ -104,8 +96,6 @@ export function loadConfig(app: cdk.App): EnvConfig {
           auroraMaxAcu: 8,
           apiDesiredCount: 3,
           apiMaxCount: 12,
-          clioDesiredCount: 2,
-          clioMaxCount: 6,
           webDesiredCount: 2,
           webMaxCount: 6,
           protectFromDestroy: true,
@@ -144,8 +134,6 @@ export function loadConfig(app: cdk.App): EnvConfig {
             // Single replicas for dev, no HA needed.
             apiDesiredCount: 1,
             apiMaxCount: 2,
-            clioDesiredCount: 1,
-            clioMaxCount: 2,
             webDesiredCount: 1,
             webMaxCount: 2,
             marketingDesiredCount: 1,

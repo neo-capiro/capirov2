@@ -1,15 +1,12 @@
 import {
   BadGatewayException,
   BadRequestException,
-  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
-  UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EngagementTaskStatus, MembershipStatus, Prisma } from '@prisma/client';
-import { timingSafeEqual } from 'node:crypto';
+import { EngagementTaskStatus, Prisma } from '@prisma/client';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { EngagementService } from '../engagement/engagement.service.js';
@@ -157,16 +154,150 @@ export class ClioToolsService {
     };
   }
 
-  executeFromAuthenticatedUser(ctx: TenantContext, rawName: string, rawInput: unknown) {
-    return this.execute(ctx, normalizeToolName(rawName), objectInput(rawInput));
+  /**
+   * Anthropic-native tool definitions for the Clio chat brain. Every tool the
+   * model may call on demand during a streamed turn. input_schema is JSON
+   * Schema; descriptions come from TOOL_DEFINITIONS so the manifest and the
+   * tool-use schemas never drift apart.
+   */
+  anthropicToolSchemas(): Array<{ name: string; description: string; input_schema: Record<string, unknown> }> {
+    const obj = (
+      properties: Record<string, unknown>,
+      required: string[] = [],
+    ): Record<string, unknown> => ({ type: 'object', properties, required });
+
+    const str = (description?: string) => (description ? { type: 'string', description } : { type: 'string' });
+    const int = (description?: string) => (description ? { type: 'integer', description } : { type: 'integer' });
+
+    const schemas: Record<ClioToolName, Record<string, unknown>> = {
+      get_client_context: obj({ clientId: str('Client UUID') }, ['clientId']),
+      search_research_sources: obj({
+        query: str('Free-text search across clients, meetings, mail, notes'),
+        clientId: str('Optional client UUID to scope the search'),
+        limit: int('Max records (1-25)'),
+      }, ['query']),
+      query_intelligence: obj({
+        clientName: str('Optional client name to add federal contracting context'),
+      }),
+      search_congress_bills: obj({
+        query: str('Keyword search'),
+        policyArea: str('Policy area filter'),
+        congress: int('Congress number, e.g. 118 or 119'),
+        activeSince: str('ISO date; only bills with action since then'),
+        limit: int('Max results (1-50)'),
+        page: int('Page number'),
+      }),
+      search_lda_filings: obj({
+        clientName: str('Client name filter'),
+        registrantName: str('Lobbying registrant filter'),
+        issueCode: str('Issue area / code filter'),
+        year: int('Filing year'),
+        limit: int('Max results (1-50)'),
+        page: int('Page number'),
+      }),
+      search_sec_filings: obj({
+        query: str('Company name search'),
+        formType: str('Form type, e.g. 10-K, 10-Q, 8-K, DEF 14A, S-1'),
+        cik: str('SEC CIK identifier'),
+        limit: int('Max results (1-50)'),
+      }),
+      search_fara_registrations: obj({
+        query: str('Search registrant, foreign principal, or description'),
+        registrantName: str('Registrant filter'),
+        foreignPrincipal: str('Foreign principal filter'),
+        country: str('Country filter'),
+        status: str('Registration status'),
+        limit: int('Max results (1-50)'),
+      }),
+      search_federal_grants: obj({
+        query: str('Keyword search across title/description/agency'),
+        agency: str('Agency filter'),
+        status: str('posted | closed | forecasted'),
+        limit: int('Max results (1-50)'),
+      }),
+      search_gao_reports: obj({
+        query: str('Keyword search across title/summary/topics/agencies'),
+        reportType: str('Report type filter'),
+        limit: int('Max results (1-50)'),
+      }),
+      search_state_bills: obj({
+        query: str('Keyword search'),
+        state: str('Two-letter state code'),
+        session: str('Legislative session'),
+        limit: int('Max results (1-50)'),
+      }),
+      search_intel_articles: obj({
+        query: str('Keyword search'),
+        source: str('Source filter, e.g. Roll Call, Politico'),
+        limit: int('Max results (1-50)'),
+      }),
+      search_committee_hearings: obj({
+        query: str('Keyword search'),
+        chamber: str('House | Senate | Joint'),
+        committeeName: str('Committee name filter'),
+        limit: int('Max results (1-50)'),
+      }),
+      search_crs_reports: obj({
+        query: str('Keyword search across title/summary/topics/authors'),
+        limit: int('Max results (1-50)'),
+      }),
+      query_economic_data: obj({
+        source: str('census | bls | bea'),
+        state: str('Two-letter state code'),
+        district: str('Congressional district'),
+        limit: int('Max results (1-50)'),
+      }),
+      search_public_web: obj({
+        query: str('Search query'),
+        limit: int('Max results'),
+      }, ['query']),
+      scrape_web_page: obj({
+        url: str('Public http(s) URL to fetch readable text from'),
+      }, ['url']),
+      create_meeting_brief: obj({
+        meetingId: str('Meeting UUID'),
+        title: str('Optional brief title'),
+      }, ['meetingId']),
+      draft_policy_memo: obj({
+        clientId: str('Client UUID'),
+        title: str('Memo title'),
+        objective: str('Memo objective'),
+        body: str('Optional pre-written body'),
+      }, ['clientId']),
+      save_note: obj({
+        body: str('Note body'),
+        title: str('Optional note title'),
+        clientId: str('Optional client UUID'),
+        meetingId: str('Optional meeting UUID for an encrypted meeting note'),
+        confidential: { type: 'boolean' },
+        accessLevel: str('Optional access level'),
+      }, ['body']),
+      send_email: obj({
+        to: str('Recipient email address'),
+        subject: str('Subject line'),
+        body: str('Email body'),
+        clientId: str('Optional client UUID to associate with'),
+      }, ['to', 'subject', 'body']),
+      list_emails: obj({
+        clientId: str('Optional client UUID filter'),
+        limit: int('Max threads (default 15, max 50)'),
+      }),
+      reply_email: obj({
+        threadId: str('Mail thread ID to reply to'),
+        body: str('Reply body'),
+        clientId: str('Optional client UUID'),
+      }, ['threadId', 'body']),
+    };
+
+    return TOOL_DEFINITIONS.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: schemas[tool.name] ?? obj({}),
+    }));
   }
 
-  async executeFromRuntime(rawAuthorization: string | undefined, rawName: string, rawInput: unknown) {
-    this.assertRuntimeToolAuth(rawAuthorization);
-    const input = objectInput(rawInput);
-    const conversationId = requiredString(input, 'conversationId', 80);
-    const ctx = await this.contextFromConversation(conversationId);
-    return this.execute(ctx, normalizeToolName(rawName), input);
+  executeFromAuthenticatedUser(ctx: TenantContext, rawName: string, rawInput: unknown) {
+    return this.execute(ctx, normalizeToolName(rawName), objectInput(rawInput));
   }
 
   async execute(ctx: TenantContext, name: ClioToolName, input: Record<string, unknown>) {
@@ -1532,51 +1663,6 @@ export class ClioToolsService {
       }),
     );
   }
-
-  private async contextFromConversation(conversationId: string): Promise<TenantContext> {
-    const row = await this.prisma.withSystem((tx) =>
-      tx.clioConversation.findFirst({
-        where: { id: conversationId, archivedAt: null },
-        include: {
-          tenant: { select: { id: true, slug: true } },
-          user: { select: { id: true, clerkUserId: true } },
-        },
-      }),
-    );
-    if (!row) throw new NotFoundException('Clio conversation not found');
-
-    const membership = await this.prisma.withSystem((tx) =>
-      tx.tenantMembership.findFirst({
-        where: {
-          tenantId: row.tenantId,
-          userId: row.userId,
-          status: MembershipStatus.active,
-        },
-        select: { role: true },
-      }),
-    );
-    if (!membership) throw new ForbiddenException('Clio conversation user is not an active tenant member');
-
-    return {
-      tenantId: row.tenantId,
-      tenantSlug: row.tenant.slug,
-      userId: row.userId,
-      clerkUserId: row.user.clerkUserId,
-      role: membership.role as TenantContext['role'],
-    };
-  }
-
-  private assertRuntimeToolAuth(rawAuthorization: string | undefined) {
-    const configured =
-      this.config.get('CLIO_TOOL_API_KEY', { infer: true }) ??
-      this.config.get('CLIO_RUNTIME_API_KEY', { infer: true }) ??
-      this.config.get('CLIO_NANOCLAW_API_KEY', { infer: true });
-    if (!configured) throw new UnauthorizedException('Clio runtime tool API key is not configured');
-    const token = rawAuthorization?.match(/^Bearer\s+(.+)$/i)?.[1];
-    if (!token || !safeEqual(token, configured)) {
-      throw new UnauthorizedException('Invalid Clio runtime tool API key');
-    }
-  }
 }
 
 function normalizeToolName(value: string): ClioToolName {
@@ -1909,13 +1995,6 @@ function formatDate(value: Date): string {
 
 function dateMillis(value: Date | null): number {
   return value ? value.getTime() : 0;
-}
-
-function safeEqual(left: string, right: string): boolean {
-  const leftBuffer = Buffer.from(left);
-  const rightBuffer = Buffer.from(right);
-  if (leftBuffer.length !== rightBuffer.length) return false;
-  return timingSafeEqual(leftBuffer, rightBuffer);
 }
 
 function assertNever(value: never): never {

@@ -42,7 +42,13 @@ function formatJobs(jobs: number): string {
 
 export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexusPanelProps) {
   const sourceRows = districtNexus?.topDistricts ?? [];
-  const capabilities = districtNexus?.capabilities ?? [];
+  // Only treat capabilities as a fallback when they carry an actual
+  // district-nexus narrative. Listing capabilities that have no CD detail
+  // reads as irrelevant noise under a "District nexus" heading, so those
+  // fall through to the clean empty state instead.
+  const capsWithNexus = (districtNexus?.capabilities ?? []).filter(
+    (c) => (c.districtNexus ?? '').trim().length > 0,
+  );
 
   // Sort descending by jobs, take top 5, normalise bar widths.
   const rows = [...sourceRows]
@@ -65,11 +71,6 @@ export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexus
       <div className="iv1-surface-head">
         <h3>District nexus</h3>
         <span className="iv1-surface-sub">jobs &amp; ops by CD</span>
-        {rows.length === 0 && capabilities.length > 0 && (
-          <span className="iv1-surface-right">
-            {capabilities.length} capabilit{capabilities.length === 1 ? 'y' : 'ies'}
-          </span>
-        )}
       </div>
 
       {rows.length > 0 ? (
@@ -97,29 +98,24 @@ export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexus
             for confirmed counts.
           </div>
         </>
-      ) : capabilities.length > 0 ? (
-        // No census-joined district rows yet, but the client has declared
-        // capabilities. Surface those (with any district-nexus narrative)
-        // instead of a dead "no data" panel, and guide the user to add the CD
-        // detail that unlocks the jobs-by-district bars.
+      ) : capsWithNexus.length > 0 ? (
+        // No census-joined district rows yet, but some capabilities carry a
+        // real district-nexus narrative. Surface only those (never empty
+        // placeholders) and guide the user to add CD codes that unlock the
+        // jobs-by-district bars.
         <>
           <div className="iv1-capnexus-body">
-            {capabilities.slice(0, 5).map((cap) => {
-              const nexus = (cap.districtNexus ?? '').trim();
-              return (
-                <div key={cap.capabilityId} className="iv1-capnexus-row">
-                  <div className="iv1-capnexus-head">
-                    <strong className="iv1-capnexus-name">{cap.capabilityName}</strong>
-                    {cap.capabilitySector && (
-                      <span className="iv1-capnexus-sector">{cap.capabilitySector}</span>
-                    )}
-                  </div>
-                  <div className="iv1-capnexus-detail">
-                    {nexus || 'No congressional-district detail captured yet.'}
-                  </div>
+            {capsWithNexus.slice(0, 5).map((cap) => (
+              <div key={cap.capabilityId} className="iv1-capnexus-row">
+                <div className="iv1-capnexus-head">
+                  <strong className="iv1-capnexus-name">{cap.capabilityName}</strong>
+                  {cap.capabilitySector && (
+                    <span className="iv1-capnexus-sector">{cap.capabilitySector}</span>
+                  )}
                 </div>
-              );
-            })}
+                <div className="iv1-capnexus-detail">{(cap.districtNexus ?? '').trim()}</div>
+              </div>
+            ))}
           </div>
 
           <div className="iv1-district-foot">

@@ -1,0 +1,662 @@
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
+import type { TenantContext } from '@capiro/shared';
+import type { AppConfig } from '../config/config.schema.js';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { ClioToolsService } from './clio-tools.service.js';
+import {
+  assembleReportArtifact,
+  buildPlanSystemPrompt,
+  buildPlanUserPrompt,
+  buildResearchSystemPrompt,
+  buildResearchUserPrompt,
+  clampTitle,
+  humanToolLabel,
+  parsePlanProposal,
+  summarizeJsonForPrompt,
+  summarizeToolResultForTrust,
+  type PlanProposal,
+} from './clio-research.helpers.js';
+
+const PRODUCT_NAME = 'Clio';
+
+interface SourceAttribution {
+  tool: string;
+  label: string;
+  count?: number | null;
+  summary: string;
+  confidence: 'low' | 'high';
+}
+
+interface SseSink {
+  write: (data: string) => void;
+}
+
+/**
+ * ClioResearchService — the "Deep Research" brain.
+ *
+ * A lobbyist starts a session with a topic. Clio:
+ *   1. PLAN: proposes a research plan + clarifying questions (one model call).
+ *   2. CLARIFY: the user answers (no model call; persisted via answerClarifications).
+ *   3. GATHER + 4. SYNTHESIZE: an agentic Anthropic-native streaming tool loop
+ *      across all 22 internal Clio tools + web, then a long, cited report.
+ *
+ * The final report is persisted as a ClioArtifact (kind = 'research_report') and
+ * linked back to the session. Mirrors the drawer's streaming tool-use loop in
+ * clio.service.ts so behavior is consistent (SSE block parsing, record-boundary
+ * -safe tool-result feedback, in-process tool execution).
+ */
+@Injectable()
+export class ClioResearchService {
+  private readonly logger = new Logger(ClioResearchService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService<AppConfig, true>,
+    private readonly tools: ClioToolsService,
+  ) {}
+
+  // ── Session CRUD ─────────────────────────────────────────────────────────
+
+  async listSessions(ctx: TenantContext) {
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioResearchSession.findMany({
+        where: { tenantId: ctx.tenantId, userId: ctx.userId },
+        orderBy: { updatedAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          title: true,
+          topic: true,
+          status: true,
+          clientId: true,
+          reportArtifactId: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+    );
+  }
+
+  async getSession(ctx: TenantContext, id: string) {
+    const session = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioResearchSession.findFirst({
+        where: { id, tenantId: ctx.tenantId, userId: ctx.userId },
+      }),
+    );
+    if (!session) throw new NotFoundException('Research session not found');
+
+    // Attach the report artifact body when complete.
+    let report: { id: string; title: string; bodyText: string | null } | null = null;
+    if (session.reportArtifactId) {
+      report = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.clioArtifact.findFirst({
+          where: { id: session.reportArtifactId ?? undefined, tenantId: ctx.tenantId },
+          select: { id: true, title: true, bodyText: true },
+        }),
+      );
+    }
+    return { ...session, report };
+  }
+
+  async createSession(
+    ctx: TenantContext,
+    input: { topic: string; clientId?: string | null; title?: string },
+  ) {
+    const topic = (input.topic ?? '').trim();
+    if (!topic) throw new BadRequestException('A research topic is required');
+
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioResearchSession.create({
+        data: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          clientId: input.clientId ?? null,
+          title: clampTitle(input.title?.trim() || topic),
+          topic,
+          status: 'plan',
+        },
+        select: { id: true, title: true, topic: true, status: true, clientId: true, createdAt: true },
+      }),
+    );
+  }
+
+  async deleteSession(ctx: TenantContext, id: string) {
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioResearchSession.deleteMany({ where: { id, tenantId: ctx.tenantId, userId: ctx.userId } }),
+    );
+    return { ok: true };
+  }
+
+  /**
+   * Fetch the completed report's markdown for a session (for export). Throws if
+   * the session has no report yet.
+   */
+  async getReportMarkdown(ctx: TenantContext, id: string): Promise<{ title: string; markdown: string }> {
+    const session = await this.ensureSession(ctx, id);
+    if (!session.reportArtifactId) {
+      throw new BadRequestException('This research session has no report yet');
+    }
+    const artifact = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioArtifact.findFirst({
+        where: { id: session.reportArtifactId ?? undefined, tenantId: ctx.tenantId },
+        select: { title: true, bodyText: true },
+      }),
+    );
+    if (!artifact) throw new NotFoundException('Report artifact not found');
+    return { title: artifact.title, markdown: artifact.bodyText ?? '' };
+  }
+
+  /** Persist the lobbyist's answers to the clarifying questions. */
+  async answerClarifications(
+    ctx: TenantContext,
+    id: string,
+    answers: Record<string, string>,
+  ) {
+    const session = await this.ensureSession(ctx, id);
+    const clean: Record<string, string> = {};
+    for (const [k, v] of Object.entries(answers ?? {})) {
+      if (typeof v === 'string' && v.trim()) clean[String(k)] = v.trim();
+    }
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioResearchSession.update({
+        where: { id: session.id },
+        data: {
+          clarifyingAnswers: clean as Prisma.InputJsonValue,
+          status: 'researching',
+          updatedAt: new Date(),
+        },
+      }),
+    );
+    return { ok: true };
+  }
+
+  // ── Phase 1: PLAN (streamed) ───────────────────────────────────────────────
+
+  /**
+   * Stream the PLAN phase: one model call that returns a plan + clarifying
+   * questions. Persists them on the session and emits a `clarify` SSE event the
+   * UI renders as an answer form.
+   */
+  async streamPlan(ctx: TenantContext, id: string, sse: SseSink) {
+    const session = await this.ensureSession(ctx, id);
+    sse.write(sseEvent({ type: 'phase', phase: 'plan' }));
+
+    const clientContext = await this.clientContext(ctx, session.clientId);
+    const system = buildPlanSystemPrompt(PRODUCT_NAME);
+    const user = buildPlanUserPrompt(session.topic, clientContext);
+
+    let proposal: PlanProposal;
+    try {
+      const raw = await this.anthropicComplete(system, user);
+      proposal = parsePlanProposal(raw, session.topic);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Planning failed';
+      this.logger.warn(`Research plan failed: ${msg}`);
+      // Fall back to a safe deterministic plan so the lobbyist is never stuck.
+      proposal = parsePlanProposal('', session.topic);
+    }
+
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioResearchSession.update({
+        where: { id: session.id },
+        data: {
+          title: clampTitle(proposal.title),
+          plan: proposal.plan as Prisma.InputJsonValue,
+          clarifyingQuestions: proposal.clarifyingQuestions as Prisma.InputJsonValue,
+          status: 'awaiting_clarification',
+          updatedAt: new Date(),
+        },
+      }),
+    );
+
+    sse.write(sseEvent({ type: 'title', title: proposal.title }));
+    sse.write(sseEvent({ type: 'plan', plan: proposal.plan }));
+    sse.write(sseEvent({ type: 'clarify', questions: proposal.clarifyingQuestions }));
+    sse.write(sseEvent({ type: 'done' }));
+  }
+
+  // ── Phases 3+4: GATHER + SYNTHESIZE (streamed) ──────────────────────────────
+
+  /**
+   * Stream the agentic research run: multi-round Anthropic tool loop over all 22
+   * internal tools + web, then the synthesized report. Persists the report as a
+   * ClioArtifact and links it to the session.
+   */
+  async streamResearch(ctx: TenantContext, id: string, sse: SseSink) {
+    const session = await this.ensureSession(ctx, id);
+
+    const plan = asStringArray(session.plan);
+    const clarifyingQuestions = asStringArray(session.clarifyingQuestions);
+    const clarifyingAnswers = asStringRecord(session.clarifyingAnswers);
+    const clientContext = await this.clientContext(ctx, session.clientId);
+
+    sse.write(sseEvent({ type: 'phase', phase: 'gather' }));
+
+    const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
+    if (!anthropicKey) {
+      sse.write(sseEvent({ type: 'error', message: 'ANTHROPIC_API_KEY not configured' }));
+      sse.write(sseEvent({ type: 'done' }));
+      return;
+    }
+
+    const model = this.config.get('CLIO_RESEARCH_MODEL', { infer: true });
+    const maxTokens = this.config.get('CLIO_RESEARCH_MAX_TOKENS', { infer: true });
+    const timeoutMs = this.config.get('CLIO_REQUEST_TIMEOUT_MS', { infer: true });
+    const maxRounds = this.config.get('CLIO_RESEARCH_MAX_TOOL_ROUNDS', { infer: true });
+    const toolSchemas = this.tools.anthropicToolSchemas();
+    const system = buildResearchSystemPrompt(PRODUCT_NAME);
+
+    const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = [
+      {
+        role: 'user',
+        content: buildResearchUserPrompt({
+          topic: session.topic,
+          plan,
+          clarifyingQuestions,
+          clarifyingAnswers,
+          clientContext,
+        }),
+      },
+    ];
+
+    let reportBody = '';
+    const sources: SourceAttribution[] = [];
+    const toolsUsed: string[] = [];
+    let synthesizing = false;
+
+    try {
+      for (let round = 0; round < maxRounds; round += 1) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const toolUseById = new Map<number, { id: string; name: string; jsonParts: string[] }>();
+        let stopReason: string | null = null;
+
+        try {
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'x-api-key': anthropicKey,
+              'anthropic-version': '2023-06-01',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: maxTokens,
+              stream: true,
+              system,
+              tools: toolSchemas,
+              messages,
+            }),
+            signal: controller.signal,
+          });
+
+          if (!response.ok || !response.body) {
+            const errText = await response.text().catch(() => '');
+            throw new Error(`Anthropic HTTP ${response.status}${errText ? `: ${errText.slice(0, 300)}` : ''}`);
+          }
+
+          const decoder = new TextDecoder();
+          const responseBody = response.body as unknown as AsyncIterable<Uint8Array>;
+          let buffer = '';
+
+          for await (const chunk of responseBody) {
+            buffer += decoder.decode(chunk, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const payload = line.slice(6).trim();
+              if (!payload || payload === '[DONE]') continue;
+              try {
+                const evt = JSON.parse(payload);
+                if (evt.type === 'content_block_start') {
+                  const block = evt.content_block ?? {};
+                  if (block.type === 'tool_use') {
+                    toolUseById.set(evt.index, {
+                      id: String(block.id ?? ''),
+                      name: String(block.name ?? ''),
+                      jsonParts: [],
+                    });
+                  }
+                } else if (evt.type === 'content_block_delta') {
+                  const delta = evt.delta ?? {};
+                  if (delta.type === 'text_delta' && typeof delta.text === 'string') {
+                    // The first streamed prose marks the transition into synthesis.
+                    if (!synthesizing) {
+                      synthesizing = true;
+                      sse.write(sseEvent({ type: 'phase', phase: 'synthesize' }));
+                    }
+                    reportBody += delta.text;
+                    sse.write(sseEvent({ type: 'text', text: delta.text }));
+                  } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
+                    toolUseById.get(evt.index)?.jsonParts.push(delta.partial_json);
+                  }
+                } else if (evt.type === 'message_delta') {
+                  stopReason = evt.delta?.stop_reason ?? stopReason;
+                }
+              } catch {
+                /* incomplete chunk */
+              }
+            }
+          }
+        } finally {
+          clearTimeout(timer);
+        }
+
+        // If the model did not request tools, the report is complete.
+        if (stopReason !== 'tool_use' || toolUseById.size === 0) break;
+
+        const orderedTools = [...toolUseById.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+
+        const assistantTurn: Array<Record<string, unknown>> = [];
+        for (const t of orderedTools) {
+          let parsedInput: Record<string, unknown> = {};
+          const raw = t.jsonParts.join('');
+          if (raw.trim()) {
+            try {
+              parsedInput = JSON.parse(raw);
+            } catch {
+              parsedInput = {};
+            }
+          }
+          assistantTurn.push({ type: 'tool_use', id: t.id, name: t.name, input: parsedInput });
+        }
+        messages.push({ role: 'assistant', content: assistantTurn });
+
+        const toolResultBlocks: Array<Record<string, unknown>> = [];
+        for (const t of orderedTools) {
+          let parsedInput: Record<string, unknown> = {};
+          const raw = t.jsonParts.join('');
+          if (raw.trim()) {
+            try {
+              parsedInput = JSON.parse(raw);
+            } catch {
+              parsedInput = {};
+            }
+          }
+          // Default clientId from the session if the model omitted it.
+          if (session.clientId && parsedInput.clientId === undefined) {
+            parsedInput.clientId = session.clientId;
+          }
+          toolsUsed.push(t.name);
+          sse.write(
+            sseEvent({ type: 'step', tool: t.name, label: humanToolLabel(t.name) }),
+          );
+
+          let resultPayload: unknown;
+          let isError = false;
+          try {
+            resultPayload = await this.tools.execute(ctx, t.name as never, parsedInput);
+          } catch (err) {
+            isError = true;
+            resultPayload = { error: err instanceof Error ? err.message : 'Tool execution failed' };
+          }
+
+          const { count, detail } = summarizeToolResultForTrust(resultPayload);
+          const source: SourceAttribution = {
+            tool: t.name,
+            label: humanToolLabel(t.name),
+            count: count ?? undefined,
+            summary: isError
+              ? typeof (resultPayload as { error?: unknown })?.error === 'string'
+                ? (resultPayload as { error: string }).error
+                : 'Tool error'
+              : detail || 'Completed',
+            confidence: isError ? 'low' : 'high',
+          };
+          sources.push(source);
+          sse.write(sseEvent({ type: 'source', source }));
+
+          toolResultBlocks.push({
+            type: 'tool_result',
+            tool_use_id: t.id,
+            is_error: isError,
+            content: summarizeJsonForPrompt(resultPayload, 12_000),
+          });
+        }
+        messages.push({ role: 'user', content: toolResultBlocks });
+      }
+
+      // FORCED SYNTHESIS: the agentic loop above can exhaust all rounds while
+      // still calling tools (gathering) and never emit the report prose, which
+      // is exactly the "it only tells me what it searched" symptom. If no report
+      // text was streamed, make one final call with NO tools and an explicit
+      // "write the report now" instruction so the model must produce prose.
+      if (!reportBody.trim()) {
+        messages.push({
+          role: 'user',
+          content:
+            'You have gathered enough. Do NOT call any more tools. Write the full, decision-grade ' +
+            'research report NOW, in markdown, following the report requirements: Executive Summary, ' +
+            'plan-driven sections with inline source citations, Recommended Actions, and Open Questions.',
+        });
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'x-api-key': anthropicKey,
+              'anthropic-version': '2023-06-01',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: maxTokens,
+              stream: true,
+              system,
+              // No `tools` key → the model cannot call tools and must answer.
+              messages,
+            }),
+            signal: controller.signal,
+          });
+          if (!response.ok || !response.body) {
+            const errText = await response.text().catch(() => '');
+            throw new Error(`Anthropic HTTP ${response.status}${errText ? `: ${errText.slice(0, 300)}` : ''}`);
+          }
+          if (!synthesizing) {
+            synthesizing = true;
+            sse.write(sseEvent({ type: 'phase', phase: 'synthesize' }));
+          }
+          const decoder = new TextDecoder();
+          const responseBody = response.body as unknown as AsyncIterable<Uint8Array>;
+          let buffer = '';
+          for await (const chunk of responseBody) {
+            buffer += decoder.decode(chunk, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const payload = line.slice(6).trim();
+              if (!payload || payload === '[DONE]') continue;
+              try {
+                const evt = JSON.parse(payload);
+                if (
+                  evt.type === 'content_block_delta' &&
+                  evt.delta?.type === 'text_delta' &&
+                  typeof evt.delta.text === 'string'
+                ) {
+                  reportBody += evt.delta.text;
+                  sse.write(sseEvent({ type: 'text', text: evt.delta.text }));
+                }
+              } catch {
+                /* incomplete chunk */
+              }
+            }
+          }
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Research failed';
+      this.logger.warn(`Research run failed: ${msg}`);
+      sse.write(sseEvent({ type: 'error', message: msg }));
+    }
+
+    // Persist the report artifact + link it to the session.
+    const artifactBody = assembleReportArtifact({
+      title: session.title,
+      topic: session.topic,
+      plan,
+      reportBody,
+      sources,
+      generatedAt: new Date(),
+    });
+
+    const artifactId = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      // ClioArtifact.conversationId is a required FK to clio_conversations, so a
+      // research session needs a lightweight backing conversation to anchor its
+      // report artifact (this also surfaces the report in the existing artifact
+      // panel). One backing conversation per session, created on first report.
+      const existing = (session.metadata && typeof session.metadata === 'object' && !Array.isArray(session.metadata)
+        ? (session.metadata as Record<string, unknown>).backingConversationId
+        : undefined);
+      let conversationId = typeof existing === 'string' ? existing : null;
+      if (!conversationId) {
+        const conversation = await tx.clioConversation.create({
+          data: {
+            tenantId: ctx.tenantId,
+            userId: ctx.userId,
+            clientId: session.clientId ?? null,
+            title: `Research: ${session.title}`,
+            status: 'active',
+            metadata: { researchSessionId: session.id } as Prisma.InputJsonObject,
+          },
+          select: { id: true },
+        });
+        conversationId = conversation.id;
+      }
+
+      const artifact = await tx.clioArtifact.create({
+        data: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          clientId: session.clientId ?? null,
+          conversationId,
+          title: session.title,
+          kind: 'research_report',
+          contentType: 'text/markdown',
+          bodyText: artifactBody,
+          metadata: {
+            researchSessionId: session.id,
+            topic: session.topic,
+            plan,
+            toolsUsed,
+            sourceCount: sources.length,
+            model,
+          } as Prisma.InputJsonObject,
+        },
+        select: { id: true },
+      });
+      await tx.clioResearchSession.update({
+        where: { id: session.id },
+        data: {
+          status: 'complete',
+          reportArtifactId: artifact.id,
+          sources: sources as unknown as Prisma.InputJsonValue,
+          metadata: { backingConversationId: conversationId } as Prisma.InputJsonObject,
+          updatedAt: new Date(),
+        },
+      });
+      return artifact.id;
+    });
+
+    sse.write(sseEvent({ type: 'phase', phase: 'done' }));
+    sse.write(sseEvent({ type: 'report', artifactId, body: artifactBody }));
+    sse.write(sseEvent({ type: 'done' }));
+  }
+
+  // ── internals ───────────────────────────────────────────────────────────
+
+  private async ensureSession(ctx: TenantContext, id: string) {
+    const session = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioResearchSession.findFirst({
+        where: { id, tenantId: ctx.tenantId, userId: ctx.userId },
+      }),
+    );
+    if (!session) throw new NotFoundException('Research session not found');
+    return session;
+  }
+
+  private async clientContext(ctx: TenantContext, clientId: string | null): Promise<string | null> {
+    if (!clientId) return null;
+    try {
+      const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.client.findFirst({
+          where: { id: clientId },
+          select: { name: true, description: true, productDescription: true },
+        }),
+      );
+      if (!client) return null;
+      const parts = [`Client: ${client.name}`];
+      if (client.description) parts.push(`Description: ${client.description}`);
+      if (client.productDescription) parts.push(`Product/service: ${client.productDescription}`);
+      return parts.join('\n');
+    } catch {
+      return null;
+    }
+  }
+
+  /** Single non-streaming Anthropic completion (used for the PLAN phase). */
+  private async anthropicComplete(system: string, user: string): Promise<string> {
+    const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
+    if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not configured');
+    const model = this.config.get('CLIO_RESEARCH_PLAN_MODEL', { infer: true });
+    const timeoutMs = this.config.get('CLIO_REQUEST_TIMEOUT_MS', { infer: true });
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 1500,
+          system,
+          messages: [{ role: 'user', content: user }],
+        }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const errText = await response.text().catch(() => '');
+        throw new Error(`Anthropic HTTP ${response.status}${errText ? `: ${errText.slice(0, 300)}` : ''}`);
+      }
+      const json = (await response.json()) as { content?: Array<{ type: string; text?: string }> };
+      return (json.content ?? [])
+        .filter((b) => b.type === 'text' && typeof b.text === 'string')
+        .map((b) => b.text)
+        .join('');
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+}
+
+/* ── module-private pure helpers ─────────────────────────────────────────── */
+
+function sseEvent(payload: Record<string, unknown>): string {
+  return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+function asStringArray(value: Prisma.JsonValue | null | undefined): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((v): v is string => typeof v === 'string');
+}
+
+function asStringRecord(value: Prisma.JsonValue | null | undefined): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return out;
+}

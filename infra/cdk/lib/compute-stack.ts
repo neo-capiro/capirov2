@@ -9,7 +9,6 @@ import * as iam from 'aws-cdk-lib/aws-iam';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as kms from 'aws-cdk-lib/aws-kms';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
-import * as efs from 'aws-cdk-lib/aws-efs';
 import * as route53 from 'aws-cdk-lib/aws-route53';
 import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
@@ -55,11 +54,9 @@ export class ComputeStack extends cdk.Stack {
   public readonly cluster: ecs.Cluster;
   public readonly apiRepo: ecr.IRepository;
   public readonly webRepo: ecr.IRepository;
-  public readonly clioRepo: ecr.IRepository;
   public readonly marketingRepo: ecr.IRepository;
   public readonly alb: elb.ApplicationLoadBalancer;
   public readonly apiService: ecs.FargateService;
-  public readonly clioService: ecs.FargateService;
   public readonly webService: ecs.FargateService;
   public readonly marketingService: ecs.FargateService;
   public readonly apiMigrateTaskDefinition: ecs.FargateTaskDefinition;
@@ -120,11 +117,6 @@ export class ComputeStack extends cdk.Stack {
       this,
       'ImportedClerkPubKey',
       secretsStack.clerkPublishableKey.secretArn,
-    );
-    const clioApiServerKeyImported = secretsmanager.Secret.fromSecretCompleteArn(
-      this,
-      'ImportedClioApiServerKey',
-      secretsStack.clioApiServerKey.secretArn,
     );
 
     // Microsoft 365 Graph OAuth + token-at-rest crypto. These secrets are
@@ -193,11 +185,6 @@ export class ComputeStack extends cdk.Stack {
     // their `:latest` tag for the task definitions.
     this.apiRepo = ecr.Repository.fromRepositoryName(this, 'ApiRepo', `capiro/${cfg.envName}/api`);
     this.webRepo = ecr.Repository.fromRepositoryName(this, 'WebRepo', `capiro/${cfg.envName}/web`);
-    this.clioRepo = ecr.Repository.fromRepositoryName(
-      this,
-      'ClioRuntimeRepo',
-      `capiro/${cfg.envName}/clio-runtime`,
-    );
 
     // ------------------------------------------------------------------ ECS cluster
     this.cluster = new ecs.Cluster(this, 'Cluster', {
@@ -221,11 +208,6 @@ export class ComputeStack extends cdk.Stack {
     });
     const webLogGroup = new logs.LogGroup(this, 'WebLogs', {
       logGroupName: `/capiro/${cfg.envName}/web`,
-      retention: cfg.logRetentionDays as unknown as logs.RetentionDays,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
-    const clioLogGroup = new logs.LogGroup(this, 'ClioRuntimeLogs', {
-      logGroupName: `/capiro/${cfg.envName}/clio-runtime`,
       retention: cfg.logRetentionDays as unknown as logs.RetentionDays,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
@@ -269,7 +251,6 @@ export class ComputeStack extends cdk.Stack {
           clerkSecretKeyImported.secretArn,
           clerkWebhookImported.secretArn,
           clerkPubKeyImported.secretArn,
-          clioApiServerKeyImported.secretArn,
           // Trailing `*` (no preceding dash) matches both the bare name and
           // the auto-generated `-XXXXXX` version suffix Secrets Manager
           // appends to every secret ARN.
@@ -319,75 +300,9 @@ export class ComputeStack extends cdk.Stack {
     });
     // Web only needs to log + (if we add /healthz pinging) the basics.
 
-    const clioTaskRole = new iam.Role(this, 'ClioRuntimeTaskRole', {
-      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
-      description: 'Private Clio runtime task role',
-    });
-    clioTaskRole.addToPolicy(
-      new iam.PolicyStatement({
-        actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
-        resources: [
-          clioApiServerKeyImported.secretArn,
-          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
-          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
-        ],
-      }),
-    );
-    clioTaskRole.addToPolicy(
-      new iam.PolicyStatement({
-        actions: ['kms:Decrypt', 'kms:DescribeKey'],
-        resources: [dataKey.keyArn, secretsStack.secretsKey.keyArn],
-      }),
-    );
 
-    const apiToClioSecurityGroup = new ec2.SecurityGroup(this, 'ApiToClioSg', {
-      vpc,
-      description: 'Capiro API egress identity for private Clio runtime calls',
-      allowAllOutbound: true,
-    });
-    const clioSecurityGroup = new ec2.SecurityGroup(this, 'ClioRuntimeSg', {
-      vpc,
-      description: 'Private Clio runtime ingress',
-      allowAllOutbound: true,
-    });
-    clioSecurityGroup.addIngressRule(
-      apiToClioSecurityGroup,
-      ec2.Port.tcp(8642),
-      'Capiro API to private Clio runtime',
-    );
 
-    const clioEfsSecurityGroup = new ec2.SecurityGroup(this, 'ClioEfsSg', {
-      vpc,
-      description: 'Clio EFS ingress',
-      allowAllOutbound: false,
-    });
-    clioEfsSecurityGroup.addIngressRule(
-      clioSecurityGroup,
-      ec2.Port.tcp(2049),
-      'Clio runtime to EFS',
-    );
 
-    const clioFileSystem = new efs.FileSystem(this, 'ClioFileSystem', {
-      vpc,
-      encrypted: true,
-      kmsKey: dataKey,
-      securityGroup: clioEfsSecurityGroup,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      removalPolicy: cfg.protectFromDestroy ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-    });
-    const clioAccessPoint = clioFileSystem.addAccessPoint('ClioAccessPoint', {
-      path: '/clio',
-      createAcl: {
-        ownerUid: '10000',
-        ownerGid: '10000',
-        permissions: '750',
-      },
-      posixUser: {
-        uid: '10000',
-        gid: '10000',
-      },
-    });
-    clioFileSystem.grantReadWrite(clioTaskRole);
 
     // ------------------------------------------------------------------ Task secret bundles
     // The API runs as `capiro_app` (least-privilege, no DDL). Migrations
@@ -410,8 +325,6 @@ export class ComputeStack extends cdk.Stack {
       NOTES_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(notesEncryptionKeySecret),
       OPENAI_API_KEY: ecs.Secret.fromSecretsManager(openaiApiKeySecret),
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(anthropicApiKeySecret),
-      CLIO_RUNTIME_API_KEY: ecs.Secret.fromSecretsManager(clioApiServerKeyImported),
-      CLIO_TOOL_API_KEY: ecs.Secret.fromSecretsManager(clioApiServerKeyImported),
     };
     const apiMigrateSecrets = {
       CLERK_SECRET_KEY: ecs.Secret.fromSecretsManager(clerkSecretKeyImported),
@@ -435,8 +348,6 @@ export class ComputeStack extends cdk.Stack {
       WEB_ORIGIN: `https://${cfg.appHost},https://${cfg.wildcardHost.replace('*', 'acmelobby')}`,
       ASSETS_BUCKET: assetsStack.bucket.bucketName,
       AWS_REGION_DEFAULT: this.region,
-      CLIO_RUNTIME_BASE_URL: `http://clio.capiro-${cfg.envName}.local:8642`,
-      CLIO_RUNTIME_TIMEOUT_MS: '120000',
       APP_SIGN_IN_URL: `https://${cfg.appHost}/sign-in`,
       MICROSOFT_REDIRECT_URI: `https://${cfg.appHost}/api/engagement/integrations/microsoft/callback`,
       MICROSOFT_GRAPH_NOTIFICATION_URL: `https://${cfg.appHost}/api/engagement/integrations/microsoft/notifications`,
@@ -501,7 +412,6 @@ export class ComputeStack extends cdk.Stack {
         dbSecretImported.secretArn,
         clerkSecretKeyImported.secretArn,
         clerkWebhookImported.secretArn,
-        clioApiServerKeyImported.secretArn,
         ...externalRuntimeSecretArnPatterns,
       ],
       [dataKey.keyArn, secretsStack.secretsKey.keyArn],
@@ -531,7 +441,7 @@ export class ComputeStack extends cdk.Stack {
       serviceName: `capiro-${cfg.envName}-api`,
       desiredCount: cfg.apiDesiredCount,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [serviceSecurityGroup as ec2.SecurityGroup, apiToClioSecurityGroup],
+      securityGroups: [serviceSecurityGroup as ec2.SecurityGroup],
       assignPublicIp: false,
       enableExecuteCommand: cfg.envName !== 'prod', // prod uses session manager via separate path
       cloudMapOptions: { name: 'api' },
@@ -550,99 +460,6 @@ export class ComputeStack extends cdk.Stack {
       scaleOutCooldown: cdk.Duration.seconds(30),
     });
 
-    // ------------------------------------------------------------------ Private Clio runtime
-    const clioTaskDef = new ecs.FargateTaskDefinition(this, 'ClioRuntimeTaskDef', {
-      family: `capiro-${cfg.envName}-clio-runtime`,
-      cpu: cfg.clioCpu,
-      memoryLimitMiB: cfg.clioMemoryMib,
-      runtimePlatform: {
-        cpuArchitecture: ecs.CpuArchitecture.ARM64,
-        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
-      },
-      taskRole: clioTaskRole,
-    });
-    grantSecretsAndKmsToExecutionRole(
-      clioTaskDef,
-      [
-        clioApiServerKeyImported.secretArn,
-        `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
-        `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
-      ],
-      [dataKey.keyArn, secretsStack.secretsKey.keyArn],
-    );
-    clioTaskDef.addVolume({
-      name: 'ClioData',
-      efsVolumeConfiguration: {
-        fileSystemId: clioFileSystem.fileSystemId,
-        transitEncryption: 'ENABLED',
-        authorizationConfig: {
-          accessPointId: clioAccessPoint.accessPointId,
-          iam: 'ENABLED',
-        },
-      },
-    });
-
-    const clioContainer = clioTaskDef.addContainer('clio', {
-      image: ecs.ContainerImage.fromEcrRepository(this.clioRepo, 'latest'),
-      essential: true,
-      logging: ecs.LogDrivers.awsLogs({ logGroup: clioLogGroup, streamPrefix: 'clio' }),
-      command: ['gateway', 'run'],
-      environment: {
-        HERMES_HOME: '/opt/data',
-        HERMES_UID: '10000',
-        HERMES_GID: '10000',
-        HERMES_INFERENCE_PROVIDER: 'anthropic',
-        HERMES_INFERENCE_MODEL: 'anthropic/claude-sonnet-4.5',
-        API_SERVER_ENABLED: 'true',
-        API_SERVER_HOST: '0.0.0.0',
-        API_SERVER_PORT: '8642',
-        API_SERVER_MODEL_NAME: 'clio',
-      },
-      secrets: {
-        API_SERVER_KEY: ecs.Secret.fromSecretsManager(clioApiServerKeyImported),
-        OPENAI_API_KEY: ecs.Secret.fromSecretsManager(openaiApiKeySecret),
-        ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(anthropicApiKeySecret),
-      },
-      readonlyRootFilesystem: false,
-      portMappings: [{ containerPort: 8642, protocol: ecs.Protocol.TCP }],
-      healthCheck: {
-        command: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:8642/health || exit 1'],
-        interval: cdk.Duration.seconds(30),
-        timeout: cdk.Duration.seconds(10),
-        retries: 3,
-        startPeriod: cdk.Duration.seconds(90),
-      },
-    });
-    clioContainer.addMountPoints({
-      sourceVolume: 'ClioData',
-      containerPath: '/opt/data',
-      readOnly: false,
-    });
-
-    this.clioService = new ecs.FargateService(this, 'ClioRuntimeService', {
-      cluster: this.cluster,
-      taskDefinition: clioTaskDef,
-      serviceName: `capiro-${cfg.envName}-clio-runtime`,
-      desiredCount: cfg.clioDesiredCount,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [clioSecurityGroup],
-      assignPublicIp: false,
-      enableExecuteCommand: cfg.envName !== 'prod',
-      cloudMapOptions: { name: 'clio' },
-      circuitBreaker: { rollback: true },
-      minHealthyPercent: 100,
-      maxHealthyPercent: 200,
-    });
-
-    const clioScaling = this.clioService.autoScaleTaskCount({
-      minCapacity: cfg.clioDesiredCount,
-      maxCapacity: cfg.clioMaxCount,
-    });
-    clioScaling.scaleOnCpuUtilization('ClioCpuScaling', {
-      targetUtilizationPercent: 65,
-      scaleInCooldown: cdk.Duration.seconds(90),
-      scaleOutCooldown: cdk.Duration.seconds(45),
-    });
 
     // ------------------------------------------------------------------ Web task definition + service
     const webTaskDef = new ecs.FargateTaskDefinition(this, 'WebTaskDef', {
@@ -1132,9 +949,7 @@ export class ComputeStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'AlbDnsName', { value: this.alb.loadBalancerDnsName });
     new cdk.CfnOutput(this, 'ApiRepoUri', { value: this.apiRepo.repositoryUri });
     new cdk.CfnOutput(this, 'WebRepoUri', { value: this.webRepo.repositoryUri });
-    new cdk.CfnOutput(this, 'ClioRuntimeRepoUri', { value: this.clioRepo.repositoryUri });
     new cdk.CfnOutput(this, 'ApiServiceArn', { value: this.apiService.serviceArn });
-    new cdk.CfnOutput(this, 'ClioRuntimeServiceArn', { value: this.clioService.serviceArn });
     new cdk.CfnOutput(this, 'ApiMigrateTaskDefArn', {
       value: this.apiMigrateTaskDefinition.taskDefinitionArn,
     });

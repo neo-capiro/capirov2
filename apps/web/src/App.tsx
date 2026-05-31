@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
-import { RedirectToSignIn, SignIn, SignedIn, SignedOut, SignUp } from '@clerk/clerk-react';
+import { SignIn, SignUp, useAuth } from '@clerk/clerk-react';
+import { config } from './env.js';
 import { AppShell } from './components/AppShell.js';
 import { PlaceholderPage } from './pages/PlaceholderPage.js';
 import { SettingsLayout } from './pages/settings/SettingsLayout.js';
@@ -49,20 +50,29 @@ const ProgramElementFinderPage = lazy(async () =>
 );
 
 export function App() {
+  const { isLoaded, isSignedIn } = useAuth();
+
+  if (!isLoaded) {
+    if (import.meta.env.DEV) {
+      const waitInfo = config.clerkPublishableKey.startsWith('pk_test_')
+        ? `Waiting for Clerk session on ${config.clerkPublishableKey.split('_').at(-1) ?? 'unknown'}`
+        : 'Waiting for Clerk session...';
+      return <PlaceholderPage title="Loading" description={waitInfo} />;
+    }
+    return <PlaceholderPage title="Loading" description="Please wait..." />;
+  }
+
   return (
     <Routes>
       <Route path="/sign-in/*" element={<AuthPage mode="sign-in" />} />
       <Route path="/sign-up/*" element={<AuthPage mode="sign-up" />} />
       <Route
         element={
-          <>
-            <SignedIn>
-              <AppShell />
-            </SignedIn>
-            <SignedOut>
-              <RedirectToSignIn />
-            </SignedOut>
-          </>
+          isSignedIn ? (
+            <AppShell />
+          ) : (
+            <Navigate to="/sign-in" replace />
+          )
         }
       >
         <Route path="/" element={<HomePage />} />

@@ -6,6 +6,12 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
+    // Serve /runtime-config.js from public/runtime-config.js in local dev.
+    // Without this, SPA fallback can return index.html for script requests,
+    // causing HTML-as-JS parse failures before React boot.
+    fs: {
+      strict: false,
+    },
   },
   // The dev server uses esbuild's depOptimizer rather than Rollup's commonjs
   // plugin, so the build-time `commonjsOptions` block below doesn't help.

@@ -29,17 +29,26 @@ export const configSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default('claude-haiku-4-5-20251001'),
 
-  // Clio is the Capiro-branded assistant surface. The agent runtime runs behind
-  // the Capiro backend; browsers never call it directly. If no runtime URL is
-  // configured, Clio endpoints fail closed instead of returning canned output.
-  CLIO_RUNTIME_BASE_URL: z.string().url().optional(),
-  CLIO_RUNTIME_API_KEY: z.string().optional(),
-  CLIO_RUNTIME_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
-  // Backward-compatible env names from the first NanoClaw spike.
-  CLIO_NANOCLAW_BASE_URL: z.string().url().optional(),
-  CLIO_NANOCLAW_API_KEY: z.string().optional(),
-  CLIO_TOOL_API_KEY: z.string().optional(),
-  CLIO_NANOCLAW_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  // Clio chat brain (single Anthropic-native model + budgets). Env-driven so
+  // the model and token ceiling are not hard-coded in service code.
+  CLIO_MODEL: z.string().default('claude-sonnet-4-6'),
+  CLIO_MAX_TOKENS: z.coerce.number().int().positive().default(4000),
+  CLIO_INTENT_MODEL: z.string().default('claude-haiku-4-5-20251001'),
+  CLIO_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  // Max characters of prior conversation history sent to the model. Older turns
+  // beyond this budget are dropped (oldest-first) to avoid silent context-limit
+  // 400s on long sessions.
+  CLIO_HISTORY_CHAR_BUDGET: z.coerce.number().int().positive().default(24_000),
+  // Max agentic tool-use rounds per message before forcing a final answer.
+  CLIO_MAX_TOOL_ROUNDS: z.coerce.number().int().positive().default(5),
+
+  // Clio Deep Research (a heavier, multi-round agentic research run that produces
+  // a long, cited report artifact). Separate budgets from the chat drawer because
+  // research runs longer and writes a much larger output.
+  CLIO_RESEARCH_MODEL: z.string().default('claude-sonnet-4-6'),
+  CLIO_RESEARCH_PLAN_MODEL: z.string().default('claude-haiku-4-5-20251001'),
+  CLIO_RESEARCH_MAX_TOKENS: z.coerce.number().int().positive().default(8000),
+  CLIO_RESEARCH_MAX_TOOL_ROUNDS: z.coerce.number().int().positive().default(10),
 
   // 32-byte base64 or hex key used for AES-256-GCM encrypted meeting notes.
   NOTES_ENCRYPTION_KEY: z.string().optional(),

@@ -1,5 +1,5 @@
 import { useState, type KeyboardEvent } from 'react';
-import { SendOutlined } from '@ant-design/icons';
+import { ExperimentOutlined, SendOutlined } from '@ant-design/icons';
 import { Button } from 'antd';
 
 interface ChatInputProps {
@@ -7,9 +7,20 @@ interface ChatInputProps {
   onSend: (content: string) => void;
   writeMode?: boolean;
   onToggleWriteMode?: () => void;
+  researchMode?: boolean;
+  onToggleResearchMode?: () => void;
+  researchAwaitingAnswers?: boolean;
 }
 
-export function ChatInput({ disabled, onSend, writeMode = false, onToggleWriteMode }: ChatInputProps) {
+export function ChatInput({
+  disabled,
+  onSend,
+  writeMode = false,
+  onToggleWriteMode,
+  researchMode = false,
+  onToggleResearchMode,
+  researchAwaitingAnswers = false,
+}: ChatInputProps) {
   const [value, setValue] = useState('');
 
   const submit = () => {
@@ -26,16 +37,22 @@ export function ChatInput({ disabled, onSend, writeMode = false, onToggleWriteMo
     }
   };
 
+  const placeholder = researchMode
+    ? researchAwaitingAnswers
+      ? 'Answer Clio’s questions (or say “go ahead”) to start the research…'
+      : 'Describe what to research — Clio will plan it and ask a few questions…'
+    : writeMode
+      ? 'Write mode: describe what to update on this page (subject/body/field)…'
+      : 'Ask Clio… (Enter to send, Shift+Enter for newline)';
+
   return (
     <div className="chat-input-row">
       <textarea
-        className={`chat-input-textarea${writeMode ? ' chat-input-textarea--write' : ''}`}
+        className={`chat-input-textarea${writeMode ? ' chat-input-textarea--write' : ''}${
+          researchMode ? ' chat-input-textarea--research' : ''
+        }`}
         value={value}
-        placeholder={
-          writeMode
-            ? 'Write mode: describe what to update on this page (subject/body/field)…'
-            : 'Ask Capiro AI… (Enter to send, Shift+Enter for newline)'
-        }
+        placeholder={placeholder}
         disabled={disabled}
         rows={1}
         onInput={(e) => {
@@ -46,10 +63,23 @@ export function ChatInput({ disabled, onSend, writeMode = false, onToggleWriteMo
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
       />
+      {onToggleResearchMode ? (
+        <button
+          type="button"
+          className={`chat-mode-toggle chat-research-toggle${researchMode ? ' is-active' : ''}`}
+          onClick={onToggleResearchMode}
+          disabled={disabled}
+          aria-label={researchMode ? 'Disable deep research' : 'Enable deep research'}
+          title={researchMode ? 'Deep research on' : 'Deep research'}
+        >
+          <ExperimentOutlined />
+          <span>Research</span>
+        </button>
+      ) : null}
       {onToggleWriteMode ? (
         <button
           type="button"
-          className={`chat-write-toggle${writeMode ? ' is-active' : ''}`}
+          className={`chat-mode-toggle chat-write-toggle${writeMode ? ' is-active' : ''}`}
           onClick={onToggleWriteMode}
           disabled={disabled}
           aria-label={writeMode ? 'Disable write mode' : 'Enable write mode'}

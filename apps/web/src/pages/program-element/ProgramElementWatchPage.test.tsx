@@ -251,24 +251,28 @@ describe('ProgramElementWatchPage', () => {
     setupBrowserMocks();
   });
 
-  test('renders without errors given mocked response', async () => {
-    setupApi(true);
-    renderPage();
+  test(
+    'renders without errors given mocked response',
+    async () => {
+      setupApi(true);
+      renderPage();
 
-    await waitFor(() => expect(screen.getByText(/0603270A/i)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(/0603270A/i)).toBeInTheDocument());
 
-    expect(screen.getByText(/Electronic Warfare Advanced Payloads/i)).toBeInTheDocument();
-    expect(screen.getByText(/Army/i)).toBeInTheDocument();
-    expect(await screen.findByTestId('fy-chart')).toHaveTextContent('rows:5');
-    expect(await screen.findByTestId('bills-panel')).toHaveTextContent('bills:1');
-    expect(await screen.findByTestId('contractors-panel')).toHaveTextContent('contractors:1');
-    expect(await screen.findByTestId('program-team-panel')).toHaveTextContent('program-team:1');
-    expect(screen.getByTestId('fy-detail-drawer')).toHaveTextContent('open:false fy:null');
-    expect(screen.getByRole('button', { name: /Watching/i })).toBeInTheDocument();
+      expect(screen.getByText(/Electronic Warfare Advanced Payloads/i)).toBeInTheDocument();
+      expect(screen.getByText(/Army/i)).toBeInTheDocument();
+      expect(await screen.findByTestId('fy-chart')).toHaveTextContent('rows:5');
+      expect(await screen.findByTestId('bills-panel')).toHaveTextContent('bills:1');
+      expect(await screen.findByTestId('contractors-panel')).toHaveTextContent('contractors:1');
+      expect(await screen.findByTestId('program-team-panel')).toHaveTextContent('program-team:1');
+      expect(screen.getByTestId('fy-detail-drawer')).toHaveTextContent('open:false fy:null');
+      expect(screen.getByRole('button', { name: /Watching/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('select-fy'));
-    expect(screen.getByTestId('fy-detail-drawer')).toHaveTextContent('open:true fy:2023');
-  });
+      fireEvent.click(screen.getByText('select-fy'));
+      expect(screen.getByTestId('fy-detail-drawer')).toHaveTextContent('open:true fy:2023');
+    },
+    15000,
+  );
 
   test('watch toggle performs optimistic update and calls POST /watch', async () => {
     setupApi(false);

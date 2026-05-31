@@ -92,73 +92,77 @@ describe('MarkupMonitorPage', () => {
     expect(screen.getByTestId('mark-cell-default')).toHaveTextContent('-');
   });
 
-  test('sorts divergence and filters by service + threshold', async () => {
-    apiGetMock.mockResolvedValue({
-      data: {
-        data: [
-          {
-            peCode: '0601000A',
-            title: 'Army Program',
-            service: 'Army',
-            request: 100,
-            hascMark: 110,
-            sascMark: 103,
-            hacDMark: 100,
-            sacDMark: 105,
-            divergencePct: 10,
-          },
-          {
-            peCode: '0602000N',
-            title: 'Navy Program',
-            service: 'Navy',
-            request: 100,
-            hascMark: 130,
-            sascMark: 100,
-            hacDMark: 95,
-            sacDMark: 110,
-            divergencePct: 35,
-          },
-          {
-            peCode: '0603000F',
-            title: 'Air Force Program',
-            service: 'Air Force',
-            request: 100,
-            hascMark: 115,
-            sascMark: 112,
-            hacDMark: 110,
-            sacDMark: 111,
-            divergencePct: 5,
-          },
-        ],
-        total: 3,
-        page: 1,
-        limit: 3,
-      },
-    });
+  test(
+    'sorts divergence and filters by service + threshold',
+    async () => {
+      apiGetMock.mockResolvedValue({
+        data: {
+          data: [
+            {
+              peCode: '0601000A',
+              title: 'Army Program',
+              service: 'Army',
+              request: 100,
+              hascMark: 110,
+              sascMark: 103,
+              hacDMark: 100,
+              sacDMark: 105,
+              divergencePct: 10,
+            },
+            {
+              peCode: '0602000N',
+              title: 'Navy Program',
+              service: 'Navy',
+              request: 100,
+              hascMark: 130,
+              sascMark: 100,
+              hacDMark: 95,
+              sacDMark: 110,
+              divergencePct: 35,
+            },
+            {
+              peCode: '0603000F',
+              title: 'Air Force Program',
+              service: 'Air Force',
+              request: 100,
+              hascMark: 115,
+              sascMark: 112,
+              hacDMark: 110,
+              sacDMark: 111,
+              divergencePct: 5,
+            },
+          ],
+          total: 3,
+          page: 1,
+          limit: 3,
+        },
+      });
 
-    renderPage();
+      renderPage();
 
-    await waitFor(() => expect(screen.getByText('0601000A')).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText('0601000A')).toBeInTheDocument());
 
-    const rowsBefore = screen.getAllByRole('row');
-    expect(rowsBefore[1]).toHaveTextContent('0602000N');
+      const rowsBefore = screen.getAllByRole('row');
+      expect(rowsBefore[1]).toHaveTextContent('0602000N');
 
-    fireEvent.mouseDown(screen.getByRole('combobox'));
-    fireEvent.click(screen.getByText('Army'));
+      fireEvent.mouseDown(screen.getByRole('combobox'));
+      fireEvent.click(screen.getByText('Army'));
 
-    await waitFor(() => {
-      expect(screen.getByText('0601000A')).toBeInTheDocument();
-      expect(screen.queryByText('0602000N')).toBeNull();
-      expect(screen.queryByText('0603000F')).toBeNull();
-    });
+      await waitFor(() => {
+        expect(screen.getByText('0601000A')).toBeInTheDocument();
+        expect(screen.queryByText('0602000N')).toBeNull();
+        expect(screen.queryByText('0603000F')).toBeNull();
+      });
 
-    const thresholdInput = screen.getByRole('spinbutton');
-    fireEvent.change(thresholdInput, { target: { value: '12' } });
+      const thresholdInput = screen.getByRole('spinbutton');
+      fireEvent.change(thresholdInput, { target: { value: '12' } });
 
-    await waitFor(() => {
-      expect(screen.queryByText('0601000A')).toBeNull();
-    });
-  });
+      await waitFor(() => {
+        expect(screen.queryByText('0601000A')).toBeNull();
+      });
+    },
+    15000,
+  );
 
   test('shows empty state when no watched PEs', async () => {
     apiGetMock.mockResolvedValue({

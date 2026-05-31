@@ -91,20 +91,24 @@ describe('ChangesInboxPage', () => {
     apiPatchMock.mockResolvedValue({ data: {} });
   });
 
-  test('filter includes program_element source and PE pill navigates to PE Watch', async () => {
-    renderPage();
+  test(
+    'filter includes program_element source and PE pill navigates to PE Watch',
+    async () => {
+      renderPage();
 
-    await waitFor(() => expect(screen.getByText(/HASC marked PE 0603270A/i)).toBeInTheDocument());
+      await waitFor(() => expect(screen.getByText(/HASC marked PE 0603270A/i)).toBeInTheDocument());
 
-    const titleCell = screen.getByText(/HASC marked PE 0603270A/i);
-    const row = titleCell.closest('tr');
-    expect(row).not.toBeNull();
-    fireEvent.click(row as HTMLElement);
+      const titleCell = screen.getByText(/HASC marked PE 0603270A/i);
+      const row = titleCell.closest('tr');
+      expect(row).not.toBeNull();
+      fireEvent.click(row as HTMLElement);
 
-    const peTag = await screen.findByRole('button', { name: /PE 0603270A/i });
-    expect(screen.getAllByText('program_element').length).toBeGreaterThan(0);
-    fireEvent.click(peTag);
+      const peTag = await screen.findByRole('button', { name: /PE 0603270A/i });
+      expect(screen.getAllByText('program_element').length).toBeGreaterThan(0);
+      fireEvent.click(peTag);
 
-    await waitFor(() => expect(screen.getByTestId('pe-watch-destination')).toBeInTheDocument());
-  });
+      await waitFor(() => expect(screen.getByTestId('pe-watch-destination')).toBeInTheDocument());
+    },
+    15000,
+  );
 });

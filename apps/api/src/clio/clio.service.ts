@@ -1,10 +1,8 @@
 import {
-  BadGatewayException,
   BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
-  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
@@ -72,44 +70,6 @@ interface StreamControl {
   pageWriteEnabled: boolean;
 }
 
-interface RuntimeMessage {
-  id?: unknown;
-  role?: unknown;
-  text?: unknown;
-  body?: unknown;
-  content?: unknown;
-  markdown?: unknown;
-  artifacts?: unknown;
-  metadata?: unknown;
-}
-
-interface RuntimeArtifact {
-  title?: unknown;
-  kind?: unknown;
-  contentType?: unknown;
-  bodyText?: unknown;
-  body?: unknown;
-  content?: unknown;
-  s3Key?: unknown;
-  metadata?: unknown;
-}
-
-interface RuntimeChatCompletionResponse {
-  id?: unknown;
-  choices?: unknown;
-  usage?: unknown;
-  hermes?: unknown;
-}
-
-interface RuntimeChatChoice {
-  message?: unknown;
-  finish_reason?: unknown;
-}
-
-interface RuntimeChatMessage {
-  content?: unknown;
-}
-
 const RUNTIME_NAME = 'Hermes';
 const PRODUCT_NAME = 'Clio';
 
@@ -124,46 +84,19 @@ export class ClioService {
   ) {}
 
   async status(ctx: TenantContext) {
-    const runtimeBaseUrl = this.runtimeBaseUrl();
     const profile = await this.currentProfile(ctx);
-    const configured = Boolean(runtimeBaseUrl);
-    if (!runtimeBaseUrl) {
-      return {
-        brand: PRODUCT_NAME,
-        runtime: RUNTIME_NAME,
-        configured,
-        healthy: false,
-        user: profile,
-        tools: this.tools.manifest(),
-        detail: 'Clio runtime is not configured.',
-      };
-    }
-
-    try {
-      const health = await this.runtimeRequest<Record<string, unknown>>('/health', {
-        method: 'GET',
-        timeoutMs: 5_000,
-      });
-      return {
-        brand: PRODUCT_NAME,
-        runtime: RUNTIME_NAME,
-        configured,
-        healthy: true,
-        user: profile,
-        tools: this.tools.manifest(),
-        detail: typeof health.status === 'string' ? health.status : 'Runtime reachable.',
-      };
-    } catch (err) {
-      return {
-        brand: PRODUCT_NAME,
-        runtime: RUNTIME_NAME,
-        configured,
-        healthy: false,
-        user: profile,
-        tools: this.tools.manifest(),
-        detail: errorMessage(err),
-      };
-    }
+    const configured = Boolean(this.config.get('ANTHROPIC_API_KEY', { infer: true }));
+    return {
+      brand: PRODUCT_NAME,
+      runtime: RUNTIME_NAME,
+      configured,
+      healthy: configured,
+      user: profile,
+      tools: this.tools.manifest(),
+      detail: configured
+        ? 'Clio is online.'
+        : 'Clio is not configured: ANTHROPIC_API_KEY is missing.',
+    };
   }
 
   async listConversations(ctx: TenantContext) {
@@ -191,7 +124,6 @@ export class ClioService {
       await this.ensureClientVisible(ctx, input.clientId);
     }
     const profile = await this.currentProfile(ctx);
-    const platformId = this.clioPlatformId(ctx);
 
     return this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.clioConversation.create({
@@ -201,7 +133,6 @@ export class ClioService {
           clientId: input.clientId ?? null,
           title,
           workspaceKey: 'workspace',
-          nanoclawPlatformId: platformId,
           metadata: {
             brand: PRODUCT_NAME,
             runtime: RUNTIME_NAME,
@@ -303,121 +234,6 @@ export class ClioService {
     );
   }
 
-  async sendMessage(ctx: TenantContext, conversationId: string, rawBody: string) {
-    const body = rawBody.trim();
-    if (!body) throw new BadRequestException('Message body is required');
-    if (!this.runtimeBaseUrl()) {
-      throw new ServiceUnavailableException('Clio runtime is not configured');
-    }
-
-    const conversation = await this.ensureConversation(ctx, conversationId);
-    const profile = await this.currentProfile(ctx);
-    const clientContext = conversation.clientId
-      ? await this.clientContextForRuntime(ctx, conversation.clientId)
-      : null;
-
-    const userMessage = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
-      const created = await tx.clioMessage.create({
-        data: {
-          tenantId: ctx.tenantId,
-          userId: ctx.userId,
-          clientId: conversation.clientId,
-          conversationId,
-          role: 'user',
-          body,
-          metadata: { source: 'capiro-workspace' },
-        },
-      });
-      await tx.clioConversation.update({
-        where: { id: conversationId },
-        data: { updatedAt: new Date(), title: conversation.title || titleFromMessage(body) },
-      });
-      return created;
-    });
-
-    const runtimeResponse = await this.runtimeRequest<RuntimeChatCompletionResponse>('/v1/chat/completions', {
-      method: 'POST',
-      headers: this.scopedRuntimeHeaders(ctx, conversation),
-      body: {
-        model: PRODUCT_NAME.toLowerCase(),
-        stream: false,
-        messages: [
-          { role: 'system', content: this.systemPrompt(ctx, conversation, profile, clientContext) },
-          { role: 'user', content: body },
-        ],
-      },
-    });
-
-    const normalizedMessages = normalizeRuntimeMessagesFromChatCompletion(runtimeResponse);
-    const normalizedArtifacts: ReturnType<typeof normalizeRuntimeArtifacts> = [];
-    if (!normalizedMessages.length && !normalizedArtifacts.length) {
-      throw new BadGatewayException('Clio runtime returned no messages or artifacts');
-    }
-
-    const persisted = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
-      const assistantMessages = [];
-      for (const runtimeMessage of normalizedMessages) {
-        const message = await tx.clioMessage.create({
-          data: {
-            tenantId: ctx.tenantId,
-            userId: ctx.userId,
-            clientId: conversation.clientId,
-            conversationId,
-            role: runtimeMessage.role,
-            body: runtimeMessage.body,
-            nanoclawId: runtimeMessage.nanoclawId,
-            metadata: runtimeMessage.metadata,
-          },
-        });
-        assistantMessages.push(message);
-
-        for (const artifact of runtimeMessage.artifacts) {
-          await tx.clioArtifact.create({
-            data: {
-              tenantId: ctx.tenantId,
-              userId: ctx.userId,
-              clientId: conversation.clientId,
-              conversationId,
-              messageId: message.id,
-              ...artifact,
-            },
-          });
-        }
-      }
-
-      for (const artifact of normalizedArtifacts) {
-        await tx.clioArtifact.create({
-          data: {
-            tenantId: ctx.tenantId,
-            userId: ctx.userId,
-            clientId: conversation.clientId,
-            conversationId,
-            ...artifact,
-          },
-        });
-      }
-
-      await tx.clioConversation.update({
-        where: { id: conversationId },
-        data: {
-          updatedAt: new Date(),
-          title: conversation.title === 'New Clio session' ? titleFromMessage(body) : conversation.title,
-        },
-      });
-
-      return {
-        userMessage,
-        assistantMessages,
-        artifacts: await tx.clioArtifact.findMany({
-          where: { tenantId: ctx.tenantId, userId: ctx.userId, conversationId },
-          orderBy: { createdAt: 'desc' },
-        }),
-      };
-    });
-
-    return persisted;
-  }
-
   private async ensureConversation(ctx: TenantContext, conversationId: string) {
     const conversation = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.clioConversation.findFirst({
@@ -474,196 +290,6 @@ export class ClioService {
         displayName,
       };
     });
-  }
-
-  private async clientContextForRuntime(ctx: TenantContext, clientId: string) {
-    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
-      const client = await tx.client.findFirst({
-        where: { id: clientId, tenantId: ctx.tenantId, status: { not: 'archived' } },
-        select: {
-          id: true,
-          name: true,
-          website: true,
-          description: true,
-          productDescription: true,
-          primaryContactName: true,
-          primaryContactEmail: true,
-          intakeData: true,
-        },
-      });
-      if (!client) throw new NotFoundException('Client not found');
-
-      const [meetings, mailThreads, tasks] = await Promise.all([
-        tx.meeting.findMany({
-          where: {
-            tenantId: ctx.tenantId,
-            clientId,
-            OR: [{ createdByUserId: ctx.userId }, { connection: { createdByUserId: ctx.userId } }],
-          },
-          orderBy: { startsAt: 'desc' },
-          take: 8,
-          select: {
-            id: true,
-            subject: true,
-            startsAt: true,
-            endsAt: true,
-            organizerEmail: true,
-            organizerName: true,
-            status: true,
-          },
-        }),
-        tx.mailThread.findMany({
-          where: {
-            tenantId: ctx.tenantId,
-            clientId,
-            connection: { createdByUserId: ctx.userId },
-          },
-          orderBy: { lastMessageAt: 'desc' },
-          take: 8,
-          select: {
-            id: true,
-            subject: true,
-            snippet: true,
-            lastMessageAt: true,
-            status: true,
-          },
-        }),
-        tx.engagementTask.findMany({
-          where: { tenantId: ctx.tenantId, clientId, status: { not: 'canceled' } },
-          orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
-          take: 8,
-          select: {
-            id: true,
-            title: true,
-            description: true,
-            dueDate: true,
-            status: true,
-          },
-        }),
-      ]);
-
-      return { client, meetings, mailThreads, tasks };
-    });
-  }
-
-  private runtimeBaseUrl(): string | undefined {
-    return (
-      this.config.get('CLIO_RUNTIME_BASE_URL', { infer: true }) ??
-      this.config.get('CLIO_NANOCLAW_BASE_URL', { infer: true })
-    );
-  }
-
-  private async runtimeRequest<T>(
-    pathname: string,
-    options: {
-      method: 'GET' | 'POST';
-      body?: unknown;
-      timeoutMs?: number;
-      headers?: Record<string, string>;
-    },
-  ): Promise<T> {
-    const baseUrl = this.runtimeBaseUrl();
-    if (!baseUrl) throw new ServiceUnavailableException('Clio runtime is not configured');
-
-    const url = new URL(pathname.replace(/^\//, ''), baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`);
-    const timeoutMs =
-      options.timeoutMs ??
-      this.config.get('CLIO_RUNTIME_TIMEOUT_MS', { infer: true }) ??
-      this.config.get('CLIO_NANOCLAW_TIMEOUT_MS', { infer: true });
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const headers: Record<string, string> = { Accept: 'application/json', ...options.headers };
-    const apiKey =
-      this.config.get('CLIO_RUNTIME_API_KEY', { infer: true }) ??
-      this.config.get('CLIO_NANOCLAW_API_KEY', { infer: true });
-    if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-    if (options.body !== undefined) headers['Content-Type'] = 'application/json';
-
-    try {
-      const response = await fetch(url, {
-        method: options.method,
-        headers,
-        body: options.body === undefined ? undefined : JSON.stringify(options.body),
-        signal: controller.signal,
-      });
-      const text = await response.text();
-      if (!response.ok) {
-        throw new Error(`Runtime ${response.status}: ${text.slice(0, 500) || response.statusText}`);
-      }
-      return text ? (JSON.parse(text) as T) : ({} as T);
-    } catch (err) {
-      this.logger.warn(`Clio runtime request failed: ${errorMessage(err)}`);
-      if (err instanceof ServiceUnavailableException) throw err;
-      throw new ServiceUnavailableException(`Clio runtime unavailable: ${errorMessage(err)}`);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  private scopedRuntimeHeaders(
-    ctx: TenantContext,
-    conversation: { id: string; workspaceKey: string; clientId: string | null },
-  ): Record<string, string> {
-    return {
-      'X-Hermes-Session-Id': conversation.id,
-      'X-Hermes-Session-Key': [
-        `tenant:${ctx.tenantId}`,
-        `user:${ctx.userId}`,
-        `workspace:${conversation.workspaceKey}`,
-        conversation.clientId ? `client:${conversation.clientId}` : null,
-      ]
-        .filter((part): part is string => Boolean(part))
-        .join('|'),
-      'X-Capiro-Tenant-Id': ctx.tenantId,
-      'X-Capiro-User-Id': ctx.userId,
-    };
-  }
-
-  private systemPrompt(
-    ctx: TenantContext,
-    conversation: { id: string; title: string; clientId: string | null; workspaceKey: string },
-    profile: { email: string | null; displayName: string },
-    clientContext: unknown,
-  ): string {
-    return [
-      "You are Clio, Capiro's workspace assistant for lobbying teams.",
-      'Use the signed-in Capiro identity and tenant context supplied below. Do not ask the browser for tenant IDs, user IDs, or permissions.',
-      'Respect that Capiro is the authorization boundary. Only use facts present in this prompt, the conversation, and runtime tools that are already enabled in the private runtime.',
-      'When you create a draft or artifact, write it as clean Markdown with a concise title.',
-      '',
-      JSON.stringify(
-        {
-          product: PRODUCT_NAME,
-          tenant: { id: ctx.tenantId, slug: ctx.tenantSlug },
-          user: {
-            id: ctx.userId,
-            clerkUserId: ctx.clerkUserId,
-            email: profile.email,
-            name: profile.displayName,
-            role: ctx.role,
-          },
-          conversation: {
-            id: conversation.id,
-            title: conversation.title,
-            clientId: conversation.clientId,
-            workspaceKey: conversation.workspaceKey,
-          },
-          clientContext,
-          capiroTools: {
-            manifest: this.tools.manifest(),
-            runtimeEndpoint: '/api/clio/runtime/tools/{toolName}',
-            conversationId: conversation.id,
-            auth: 'private_bearer_key',
-          },
-        },
-        null,
-        2,
-      ),
-    ].join('\n');
-  }
-
-  private clioPlatformId(ctx: TenantContext): string {
-    return `capiro:${ctx.tenantId}:${ctx.userId}`;
   }
 
   // ── SSE Streaming (Phase 1: Unified brain) ──
@@ -729,78 +355,210 @@ export class ClioService {
       sse.write(`data: ${JSON.stringify({ type: 'template', template: orchestration.template })}\n\n`);
     }
 
+    // Trim history to a char budget (oldest-first) so long sessions don't
+    // silently exceed the model context window and 400.
+    const historyBudget = this.config.get('CLIO_HISTORY_CHAR_BUDGET', { infer: true });
+    const trimmedHistory = trimHistoryToBudget(
+      history.map((m) => ({ role: m.role as 'user' | 'assistant', body: m.body })),
+      historyBudget,
+    );
+
     let assistantContent = '';
+    const producedArtifacts: Array<{
+      title: string;
+      kind: string;
+      contentType: string | null;
+      bodyText: string | null;
+      s3Key: string | null;
+      metadata: Prisma.InputJsonValue;
+    }> = [];
+    const toolsUsed: string[] = [];
+    let pageWritePayload: { subject?: string; body?: string } | null = null;
+
     try {
       const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
       if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not configured');
 
-      const messages = history.map((m) => ({
-        role: m.role as 'user' | 'assistant',
+      const model = this.config.get('CLIO_MODEL', { infer: true });
+      const maxTokens = this.config.get('CLIO_MAX_TOKENS', { infer: true });
+      const timeoutMs = this.config.get('CLIO_REQUEST_TIMEOUT_MS', { infer: true });
+      const maxRounds = this.config.get('CLIO_MAX_TOOL_ROUNDS', { infer: true });
+      const toolSchemas = this.tools.anthropicToolSchemas();
+
+      // Anthropic message turns. content can be a string (history) or an array
+      // of blocks (assistant tool_use / user tool_result) during the agentic loop.
+      const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = trimmedHistory.map((m) => ({
+        role: m.role,
         content: m.body,
       }));
 
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 90_000);
+      for (let round = 0; round < maxRounds; round += 1) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-      try {
-        const response = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'x-api-key': anthropicKey,
-            'anthropic-version': '2023-06-01',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: 'claude-sonnet-4-6',
-            max_tokens: 4000,
-            stream: true,
-            system: unifiedSystemPrompt,
-            messages,
-          }),
-          signal: controller.signal,
-        });
+        // Accumulators for this round's assistant turn.
+        const toolUseById = new Map<number, { id: string; name: string; jsonParts: string[] }>();
+        let stopReason: string | null = null;
 
-        if (!response.ok || !response.body) {
-          throw new Error(`Anthropic HTTP ${response.status}`);
-        }
+        try {
+          const response = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: {
+              'x-api-key': anthropicKey,
+              'anthropic-version': '2023-06-01',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model,
+              max_tokens: maxTokens,
+              stream: true,
+              system: unifiedSystemPrompt,
+              tools: toolSchemas,
+              messages,
+            }),
+            signal: controller.signal,
+          });
 
-        const decoder = new TextDecoder();
-        const responseBody = response.body as unknown as AsyncIterable<Uint8Array>;
-        let buffer = '';
-
-        for await (const chunk of responseBody) {
-          buffer += decoder.decode(chunk, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop() ?? '';
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const payload = line.slice(6).trim();
-            if (!payload || payload === '[DONE]') continue;
-            try {
-              const evt = JSON.parse(payload);
-              if (evt.type === 'content_block_delta') {
-                const delta = evt.delta ?? {};
-                if (delta.type === 'text_delta' && typeof delta.text === 'string') {
-                  assistantContent += delta.text;
-                  sse.write(`data: ${JSON.stringify({ type: 'text', text: delta.text })}\n\n`);
-                }
-              }
-            } catch { /* incomplete chunk */ }
+          if (!response.ok || !response.body) {
+            const errText = await response.text().catch(() => '');
+            throw new Error(`Anthropic HTTP ${response.status}${errText ? `: ${errText.slice(0, 300)}` : ''}`);
           }
+
+          const decoder = new TextDecoder();
+          const responseBody = response.body as unknown as AsyncIterable<Uint8Array>;
+          let buffer = '';
+
+          for await (const chunk of responseBody) {
+            buffer += decoder.decode(chunk, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() ?? '';
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const payload = line.slice(6).trim();
+              if (!payload || payload === '[DONE]') continue;
+              try {
+                const evt = JSON.parse(payload);
+                if (evt.type === 'content_block_start') {
+                  const block = evt.content_block ?? {};
+                  if (block.type === 'tool_use') {
+                    toolUseById.set(evt.index, {
+                      id: String(block.id ?? ''),
+                      name: String(block.name ?? ''),
+                      jsonParts: [],
+                    });
+                  }
+                } else if (evt.type === 'content_block_delta') {
+                  const delta = evt.delta ?? {};
+                  if (delta.type === 'text_delta' && typeof delta.text === 'string') {
+                    assistantContent += delta.text;
+                    sse.write(`data: ${JSON.stringify({ type: 'text', text: delta.text })}\n\n`);
+                  } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
+                    toolUseById.get(evt.index)?.jsonParts.push(delta.partial_json);
+                  }
+                } else if (evt.type === 'message_delta') {
+                  stopReason = evt.delta?.stop_reason ?? stopReason;
+                }
+              } catch { /* incomplete chunk */ }
+            }
+          }
+        } finally {
+          clearTimeout(timer);
         }
-      } finally {
-        clearTimeout(timer);
+
+        // If the model did not request tools, the turn is complete.
+        if (stopReason !== 'tool_use' || toolUseById.size === 0) {
+          break;
+        }
+
+        // Reconstruct the assistant turn (text + tool_use blocks) and append it,
+        // then execute each tool in-process and feed results back as a user turn.
+        const orderedTools = [...toolUseById.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+        // Assistant content blocks: include any streamed text, then tool_use blocks.
+        const assistantTurn: Array<Record<string, unknown>> = [];
+        // Note: we cannot perfectly reconstruct interleaved text positions from
+        // the stream, so we emit accumulated text (if any new this round) as one
+        // block followed by the tool_use blocks. Anthropic accepts this ordering.
+        for (const t of orderedTools) {
+          let parsedInput: Record<string, unknown> = {};
+          const raw = t.jsonParts.join('');
+          if (raw.trim()) {
+            try { parsedInput = JSON.parse(raw); } catch { parsedInput = {}; }
+          }
+          assistantTurn.push({ type: 'tool_use', id: t.id, name: t.name, input: parsedInput });
+        }
+        messages.push({ role: 'assistant', content: assistantTurn });
+
+        const toolResultBlocks: Array<Record<string, unknown>> = [];
+        for (const t of orderedTools) {
+          let parsedInput: Record<string, unknown> = {};
+          const raw = t.jsonParts.join('');
+          if (raw.trim()) {
+            try { parsedInput = JSON.parse(raw); } catch { parsedInput = {}; }
+          }
+          // Default clientId from the conversation if the model omitted it.
+          if (conversation.clientId && parsedInput.clientId === undefined) {
+            parsedInput.clientId = conversation.clientId;
+          }
+          toolsUsed.push(t.name);
+          // Always emit the tool call to the trust timeline (not gated on
+          // #trace) so the user always sees what Clio is doing.
+          sse.write(`data: ${JSON.stringify({ type: 'tool_call', tool: t.name, label: humanToolLabel(t.name), input: redactToolInput(parsedInput) })}\n\n`);
+          let resultPayload: unknown;
+          let isError = false;
+          try {
+            resultPayload = await this.tools.execute(ctx, t.name as never, parsedInput);
+            // Capture any artifacts the tool persisted so the artifact panel sees them.
+            for (const art of extractToolArtifacts(resultPayload)) producedArtifacts.push(art);
+            // If a draft/email tool ran in page-write mode, capture body for the page-write event.
+            if (streamControl.pageWriteEnabled && (t.name === 'draft_policy_memo' || t.name === 'create_meeting_brief')) {
+              const art = producedArtifacts[producedArtifacts.length - 1];
+              if (art?.bodyText) pageWritePayload = { subject: art.title, body: art.bodyText };
+            }
+          } catch (err) {
+            isError = true;
+            resultPayload = { error: err instanceof Error ? err.message : 'Tool execution failed' };
+          }
+          // Emit a real source with a human detail (counts / sample titles) so
+          // the trust panel can show actual citations, not just a tool name.
+          const { count, detail } = summarizeToolResultForTrust(resultPayload);
+          sse.write(`data: ${JSON.stringify({
+            type: 'sources',
+            sources: [{
+              tool: t.name,
+              label: humanToolLabel(t.name),
+              count: count ?? undefined,
+              summary: isError
+                ? (typeof (resultPayload as { error?: unknown })?.error === 'string' ? (resultPayload as { error: string }).error : 'Tool error')
+                : (detail || 'Completed'),
+              confidence: isError ? 'low' : 'high',
+            }],
+          })}\n\n`);
+          toolResultBlocks.push({
+            type: 'tool_result',
+            tool_use_id: t.id,
+            is_error: isError,
+            content: summarizeJsonForPrompt(resultPayload, 12_000),
+          });
+        }
+        messages.push({ role: 'user', content: toolResultBlocks });
+        // Loop again so the model can read tool results and answer (or call more tools).
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'AI generation failed';
       sse.write(`data: ${JSON.stringify({ type: 'error', message: msg })}\n\n`);
-      assistantContent = `Error: ${msg}`;
+      if (!assistantContent) assistantContent = `Error: ${msg}`;
     }
 
-    // Persist assistant response
-    await this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.clioMessage.create({
+    // If page-write mode produced concrete content, emit the real event the
+    // frontend listens for (previously only a static "enabled" note was sent).
+    if (streamControl.pageWriteEnabled && pageWritePayload) {
+      sse.write(`data: ${JSON.stringify({ type: 'page_write', target: 'outreach_draft', subject: pageWritePayload.subject, body: pageWritePayload.body })}\n\n`);
+    }
+
+    // Persist assistant response (+ any artifacts produced by tools).
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const message = await tx.clioMessage.create({
         data: {
           tenantId: ctx.tenantId,
           userId: ctx.userId,
@@ -810,22 +568,31 @@ export class ClioService {
           body: assistantContent,
           metadata: {
             intent,
+            model: this.config.get('CLIO_MODEL', { infer: true }),
             tier: orchestration.policy.tier,
-            sources: orchestration.sources.map((source) => source.tool),
-            sourceConfidence: orchestration.sources.map((source) => ({ tool: source.tool, confidence: source.confidence })),
-            hasConflict: Boolean(orchestration.conflict),
+            preWarmSources: orchestration.sources.map((source) => source.tool),
+            toolsUsed,
           },
         },
-      }),
-    );
+      });
+      for (const art of producedArtifacts) {
+        await tx.clioArtifact.create({
+          data: {
+            tenantId: ctx.tenantId,
+            userId: ctx.userId,
+            clientId: conversation.clientId ?? null,
+            conversationId,
+            messageId: message.id,
+            ...art,
+          },
+        });
+      }
+    });
 
     // Auto-summarize for memory (if substantial)
     if (assistantContent.length > 200) {
       void this.maybeLearnFromConversation(ctx.tenantId, ctx.userId, conversationId, content, assistantContent).catch(() => {});
     }
-
-    // Generate proactive alerts in background
-    void this.generateProactiveAlerts(ctx.tenantId).catch(() => {});
 
     sse.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
   }
@@ -1003,7 +770,11 @@ export class ClioService {
     }
 
     const template = this.templateForIntent(intent);
-    const conflict = this.detectOrchestratorConflict(query, sources);
+    // Conflict surfacing is the model's job (the system prompt instructs it to
+    // state discrepancies between public-web and Capiro data). The old
+    // keyword-overlap heuristic produced false positives and caught no real
+    // conflicts, so it was removed. Field kept null for forward compatibility.
+    const conflict = null;
 
     return {
       context: truncateText(contextParts.join('\n'), policy.contextCharBudget),
@@ -1027,7 +798,7 @@ export class ClioService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
+          model: this.config.get('CLIO_INTENT_MODEL', { infer: true }),
           max_tokens: 50,
           system: 'You classify user intent for a lobbying AI. Return only JSON: {"intent":"<intent>"}. Valid: query_intelligence, query_clients, query_engagement, query_workflow, edit_draft, edit_workflow_field, generate_draft, generate_briefing, navigate, general_question',
           messages: [{ role: 'user', content: message }],
@@ -1075,7 +846,9 @@ export class ClioService {
       '- Public-web results are supplemental only and may be incomplete or noisy.',
       '- If public web conflicts with Capiro internal data, state the discrepancy and prioritize Capiro data unless user asks otherwise.',
       '',
-      'You have access to Capiro data including congressional bills, LDA filings, federal spending, engagement records, and firm memory.',
+      'You have a set of tools to retrieve authoritative Capiro and federal data on demand: client context, workspace research, federal lobbying intelligence, congressional bills, LDA filings, SEC/FARA filings, federal grants, GAO/CRS reports, state bills, committee hearings, policy news, economic data, public-web search/scrape, and actions (create_meeting_brief, draft_policy_memo, save_note, send_email, list_emails, reply_email).',
+      'USE THESE TOOLS rather than guessing. When a question concerns specific bills, filings, spending, clients, meetings, or emails, call the relevant tool and ground your answer in the result. Prefer Capiro internal tools first; use public-web tools only to corroborate.',
+      'Any context pre-loaded below is a convenience snapshot, not a substitute for calling a tool when you need current or specific data.',
       'Do not fabricate facts. If uncertain, state uncertainty and propose the fastest verification path.',
     ].join('\n');
 
@@ -1134,32 +907,6 @@ export class ClioService {
       researchChars: 3_800,
       intelChars: 3_800,
       clientContextChars: 3_500,
-    };
-  }
-
-  private detectOrchestratorConflict(query: string, sources: ClioSourceAttribution[]): OrchestratorConflict | null {
-    const queryKeywords = extractKeywords(query);
-    if (!queryKeywords.length || sources.length < 2) return null;
-
-    const highConfidence = sources.filter((source) => confidenceRank(source.confidence) >= 2);
-    if (highConfidence.length < 2) return null;
-
-    const coverage = highConfidence.map((source) => {
-      const combined = `${source.summary} ${source.tool}`.toLowerCase();
-      const matched = queryKeywords.filter((word) => combined.includes(word)).length;
-      return { source, matched };
-    });
-
-    const maxMatched = Math.max(...coverage.map((item) => item.matched));
-    const minMatched = Math.min(...coverage.map((item) => item.matched));
-    if (maxMatched - minMatched < 3) return null;
-
-    const weakest = coverage.find((item) => item.matched === minMatched)?.source;
-    if (!weakest) return null;
-
-    return {
-      title: 'Potential cross-source mismatch',
-      detail: `${weakest.tool} appears less aligned with the query than other retrieved sources.`,
     };
   }
 
@@ -1299,10 +1046,10 @@ export class ClioService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'claude-haiku-4-5-20251001',
-          max_tokens: 500,
+          model: this.config.get('CLIO_INTENT_MODEL', { infer: true }),
+          max_tokens: 600,
           system:
-            'Extract 0-3 durable facts from this conversation exchange. Split outputs into either firm-level institutional facts or user-specific writing/tone preferences. Ignore temporary statuses, one-off tasks, runtime errors, specific timestamps, and operational chatter. Return JSON: {"memories":[{"key":"short_label","value":"fact to remember"}]}. Return {"memories":[]} if nothing worth remembering.',
+            'Extract 0-3 durable facts from this conversation exchange. For each, return a confidence in [0,1] (how certain this is a stable, reusable fact and not a one-off), and a scope: "firm" only for institutional facts that are TRUE FOR THE WHOLE FIRM and clearly stated by the user (clients, processes, standing relationships); "user" for the speaker\'s personal writing/tone/format preferences or anything client-specific or uncertain. When in doubt use "user". Ignore temporary statuses, one-off tasks, runtime errors, specific timestamps, speculation, and operational chatter. Return JSON: {"memories":[{"key":"short_label","value":"fact","confidence":0.0,"scope":"user|firm"}]}. Return {"memories":[]} if nothing is durable.',
           messages: [{ role: 'user', content: `User: ${userMessage}\n\nAssistant: ${assistantResponse}` }],
         }),
       });
@@ -1314,26 +1061,51 @@ export class ClioService {
 
       const match = text.match(/\{[\s\S]*\}/);
       if (!match) return;
-      const parsed = JSON.parse(match[0]) as { memories?: Array<{ key?: unknown; value?: unknown }> };
+      const parsed = JSON.parse(match[0]) as { memories?: Array<{ key?: unknown; value?: unknown; confidence?: unknown; scope?: unknown }> };
       if (!Array.isArray(parsed.memories)) return;
+
+      // Confidence threshold below which we never persist a learned fact.
+      const MIN_CONFIDENCE = 0.7;
+      // Cosine similarity above which a candidate is treated as a duplicate of
+      // an existing memory (update in place instead of inserting a near-clone).
+      const DEDUPE_SIMILARITY = 0.92;
 
       for (const mem of parsed.memories) {
         if (typeof mem.key !== 'string' || typeof mem.value !== 'string') continue;
         const normalized = this.normalizeMemoryCandidate(mem.key, mem.value);
         if (!normalized) continue;
 
-        const memoryType = this.classifyMemoryType(normalized.key, normalized.value);
-        const keyWithoutPrefix = memoryType === 'user_private' ? this.userScopedMemoryKey(userId, normalized.key) : normalized.key;
-        const scope = memoryType;
+        // (1) Confidence gate — drop low-confidence extractions entirely.
+        const confidence = typeof mem.confidence === 'number' ? mem.confidence : 0;
+        if (confidence < MIN_CONFIDENCE) continue;
+
+        // (2) Default to user-private. Promote to firm scope ONLY when the
+        // extractor explicitly says "firm", confidence is high, and the heuristic
+        // classifier does not flag it as a personal style preference. This stops
+        // a single chat's guess from silently becoming firm-wide truth.
+        const extractorScope = mem.scope === 'firm' ? 'firm' : 'user';
+        const styleType = this.classifyMemoryType(normalized.key, normalized.value); // 'firm' | 'user_private'
+        const promoteToFirm = extractorScope === 'firm' && confidence >= 0.85 && styleType === 'firm';
+        const scope: 'firm' | 'user_private' = promoteToFirm ? 'firm' : 'user_private';
         const ownerUserId = scope === 'user_private' ? userId : null;
-        const storedKey = keyWithoutPrefix;
+        const storedKey = scope === 'user_private' ? this.userScopedMemoryKey(userId, normalized.key) : normalized.key;
         const source = scope === 'user_private' ? 'user_style' : 'firm';
         const memoryMetadata = {
           conversationId,
           updatedBy: 'auto',
           userId,
           visibility: scope,
+          confidence,
         };
+
+        // (3) Semantic dedupe — if a near-identical memory already exists in the
+        // same scope, update it rather than inserting a near-clone.
+        let dedupeTargetKey: string | null = null;
+        try {
+          const similar = await this.semanticMemorySearch(tenantId, userId, normalized.value, 3);
+          const hit = similar.find((s) => s.score >= DEDUPE_SIMILARITY);
+          if (hit) dedupeTargetKey = hit.key;
+        } catch { /* dedupe is best-effort */ }
 
         const existing = await this.prisma.withTenant(tenantId, (tx) =>
           tx.clioMemory.findFirst({
@@ -1341,7 +1113,7 @@ export class ClioService {
               tenantId,
               scope,
               ownerUserId,
-              key: storedKey,
+              key: dedupeTargetKey ?? storedKey,
             },
           }),
         );
@@ -1440,8 +1212,12 @@ export class ClioService {
   }
 
   // ── Proactive Alert Generation ────────────────────────────────────────
-  // Called on each stream response to check if anything warrants a proactive alert.
-  // Also callable externally for scheduled scans.
+  // INTENTIONALLY NOT called on the chat hot path (it previously ran a full
+  // tenant-wide scan after every message). The scheduled job
+  // scripts/emit-clio-alerts.ts runs this same logic across all active tenants
+  // every 30-60 min. This method is retained for in-process/single-tenant use
+  // (e.g. an admin "refresh alerts now" action). The dashboard intel inbox is
+  // the alert surface; GET /clio/alerts reads the rows produced here.
 
   async generateProactiveAlerts(tenantId: string): Promise<number> {
     let created = 0;
@@ -1603,129 +1379,95 @@ export class ClioService {
       return [];
     }
   }
-}
 
-function normalizeRuntimeMessagesFromChatCompletion(
-  response: RuntimeChatCompletionResponse,
-): ReturnType<typeof normalizeRuntimeMessages> {
-  const choices = Array.isArray(response.choices) ? response.choices : [];
-  const firstChoice = choices[0] as RuntimeChatChoice | undefined;
-  const message =
-    firstChoice?.message && typeof firstChoice.message === 'object'
-      ? (firstChoice.message as RuntimeChatMessage)
-      : null;
-  const body = firstString(message?.content);
-  if (!body) return [];
-  return [
-    {
-      role: 'assistant',
-      body,
-      nanoclawId: typeof response.id === 'string' ? response.id : null,
-      metadata: jsonObjectOrEmpty({
-        runtime: RUNTIME_NAME,
-        finishReason: firstChoice?.finish_reason,
-        usage: response.usage,
-        hermes: response.hermes,
+  // ── Learned-memory surface (item 5/E: "Clio learned X" + one-click undo) ──
+
+  /**
+   * Recently auto-learned memories visible to this user (firm-scope + this
+   * user's private). Used by the drawer to show "Clio learned: …" chips with an
+   * undo affordance. Only auto-created entries are surfaced (createdBy === 'auto').
+   */
+  async listRecentLearnedMemories(ctx: TenantContext, limit = 5) {
+    const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMemory.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          OR: [
+            { scope: 'firm' },
+            { scope: 'user_private', ownerUserId: ctx.userId },
+          ],
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: Math.min(Math.max(limit, 1), 20),
+        select: { id: true, key: true, value: true, scope: true, metadata: true, updatedAt: true },
       }),
-      artifacts: [],
-    },
-  ];
-}
-
-function normalizeRuntimeMessages(raw: unknown): Array<{
-  role: 'assistant' | 'tool' | 'system';
-  body: string;
-  nanoclawId: string | null;
-  metadata: Prisma.InputJsonValue;
-  artifacts: Array<{
-    title: string;
-    kind: string;
-    contentType: string | null;
-    bodyText: string | null;
-    s3Key: string | null;
-    metadata: Prisma.InputJsonValue;
-  }>;
-}> {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((message): ReturnType<typeof normalizeRuntimeMessages>[number] | null => {
-      if (!message || typeof message !== 'object') return null;
-      const m = message as RuntimeMessage;
-      const body = firstString(m.body, m.text, m.markdown, m.content);
-      if (!body) return null;
-      const role = normalizeRole(m.role);
-      return {
-        role,
-        body,
-        nanoclawId: typeof m.id === 'string' ? m.id : null,
-        metadata: jsonObjectOrEmpty(m.metadata),
-        artifacts: normalizeRuntimeArtifacts(m.artifacts),
-      };
-    })
-    .filter((message): message is NonNullable<typeof message> => Boolean(message));
-}
-
-function normalizeRuntimeArtifacts(raw: unknown): Array<{
-  title: string;
-  kind: string;
-  contentType: string | null;
-  bodyText: string | null;
-  s3Key: string | null;
-  metadata: Prisma.InputJsonValue;
-}> {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((artifact): ReturnType<typeof normalizeRuntimeArtifacts>[number] | null => {
-      if (!artifact || typeof artifact !== 'object') return null;
-      const a = artifact as RuntimeArtifact;
-      const bodyText = firstString(a.bodyText, a.body, a.content);
-      const s3Key = typeof a.s3Key === 'string' ? a.s3Key : null;
-      if (!bodyText && !s3Key) return null;
-      return {
-        title: firstString(a.title) ?? 'Clio artifact',
-        kind: firstString(a.kind) ?? 'document',
-        contentType: firstString(a.contentType),
-        bodyText,
-        s3Key,
-        metadata: jsonObjectOrEmpty(a.metadata),
-      };
-    })
-    .filter((artifact): artifact is NonNullable<typeof artifact> => Boolean(artifact));
-}
-
-function normalizeRole(value: unknown): 'assistant' | 'tool' | 'system' {
-  return value === 'tool' || value === 'system' ? value : 'assistant';
-}
-
-function firstString(...values: unknown[]): string | null {
-  for (const value of values) {
-    if (typeof value === 'string' && value.trim()) return value.trim();
+    );
+    return rows
+      .filter((row) => {
+        const meta = (row.metadata ?? {}) as Record<string, unknown>;
+        return meta.createdBy === 'auto' || meta.updatedBy === 'auto';
+      })
+      .map((row) => {
+        const meta = (row.metadata ?? {}) as Record<string, unknown>;
+        return {
+          id: row.id,
+          key: row.key,
+          value: row.value,
+          scope: row.scope,
+          confidence: typeof meta.confidence === 'number' ? meta.confidence : null,
+          learnedAt: row.updatedAt,
+        };
+      });
   }
-  return null;
-}
 
-function jsonObjectOrEmpty(value: unknown): Prisma.InputJsonValue {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Prisma.InputJsonObject;
+  /**
+   * Undo a learned memory. Deletes the row in a scope the user is allowed to
+   * touch (own private memory, or firm memory within the tenant). Idempotent.
+   */
+  async forgetMemory(ctx: TenantContext, memoryId: string) {
+    const row = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMemory.findFirst({
+        where: { id: memoryId, tenantId: ctx.tenantId },
+        select: { id: true, scope: true, ownerUserId: true },
+      }),
+    );
+    if (!row) throw new NotFoundException('Memory not found');
+    if (row.scope === 'user_private' && row.ownerUserId !== ctx.userId) {
+      throw new NotFoundException('Memory not found');
+    }
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMemory.deleteMany({ where: { id: memoryId, tenantId: ctx.tenantId } }),
+    );
+    return { ok: true, id: memoryId };
   }
-  return {};
-}
-
-function titleFromMessage(body: string): string {
-  const firstLine = body
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find(Boolean);
-  if (!firstLine) return 'New Clio session';
-  return firstLine.length > 72 ? `${firstLine.slice(0, 69)}...` : firstLine;
 }
 
 function summarizeJsonForPrompt(value: unknown, maxChars = 5000): string {
   try {
+    // Record-boundary-safe: if the value is an array, drop whole elements from
+    // the end until the serialized form fits. This guarantees we never emit a
+    // half-serialized record (which would split a bill number / CIK / dollar
+    // figure mid-token and make the model "read" a corrupted value).
+    if (Array.isArray(value)) {
+      const records = [...value];
+      let dropped = 0;
+      while (records.length > 0) {
+        const text = JSON.stringify(records, null, 2);
+        if (text && text.length <= maxChars) {
+          return dropped > 0
+            ? `${text}\n... [${dropped} more record(s) omitted to fit context budget]`
+            : text;
+        }
+        records.pop();
+        dropped += 1;
+      }
+      // Even a single record exceeds the budget — fall through to line-safe trim.
+      return truncateText(JSON.stringify(value, null, 2), maxChars);
+    }
+
     const text = JSON.stringify(value, null, 2);
     if (!text) return '';
-    if (text.length <= maxChars) return text;
-    return `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`;
+    return truncateText(text, maxChars);
   } catch {
     return '';
   }
@@ -1733,18 +1475,18 @@ function summarizeJsonForPrompt(value: unknown, maxChars = 5000): string {
 
 function truncateText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
-  return `${text.slice(0, maxChars)}\n... [truncated ${text.length - maxChars} chars]`;
-}
-
-function confidenceRank(confidence: ConfidenceLevel): number {
-  switch (confidence) {
-    case 'high':
-      return 3;
-    case 'medium':
-      return 2;
-    default:
-      return 1;
+  // Cut on the last newline before the budget so we never slice a line (and
+  // therefore never split a number/ID/URL) in half. Fall back to the last
+  // whitespace, then to a hard cut only if there is no safe boundary at all.
+  const window = text.slice(0, maxChars);
+  let cut = window.lastIndexOf('\n');
+  if (cut < maxChars * 0.5) {
+    const space = window.lastIndexOf(' ');
+    if (space > cut) cut = space;
   }
+  if (cut <= 0) cut = maxChars;
+  const omitted = text.length - cut;
+  return `${text.slice(0, cut)}\n... [truncated ${omitted} chars at a safe boundary]`;
 }
 
 function extractKeywords(text: string): string[] {
@@ -1759,7 +1501,151 @@ function extractKeywords(text: string): string[] {
   ).slice(0, 20);
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return typeof error === 'string' ? error : 'Unknown error';
+/**
+ * Trim conversation history to a character budget, keeping the most recent
+ * turns (oldest dropped first). Prevents silent context-limit 400s.
+ */
+function trimHistoryToBudget(
+  history: Array<{ role: 'user' | 'assistant'; body: string }>,
+  budgetChars: number,
+): Array<{ role: 'user' | 'assistant'; body: string }> {
+  let total = 0;
+  const kept: Array<{ role: 'user' | 'assistant'; body: string }> = [];
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const turn = history[i];
+    if (!turn) continue;
+    const len = turn.body.length;
+    if (total + len > budgetChars && kept.length > 0) break;
+    total += len;
+    kept.unshift(turn);
+  }
+  return kept;
+}
+
+/** Redact obviously sensitive fields before echoing tool input to the trace UI. */
+function redactToolInput(input: Record<string, unknown>): Record<string, unknown> {
+  const redacted: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(input)) {
+    if (/body|password|token|secret/i.test(k) && typeof v === 'string' && v.length > 80) {
+      redacted[k] = `${v.slice(0, 60)}… [${v.length} chars]`;
+    } else {
+      redacted[k] = v;
+    }
+  }
+  return redacted;
+}
+
+/** Human-friendly action label for a tool name, shown in the trust timeline. */
+function humanToolLabel(tool: string): string {
+  const labels: Record<string, string> = {
+    get_client_context: 'Loaded client context',
+    search_research_sources: 'Searched workspace records',
+    query_intelligence: 'Pulled federal lobbying intelligence',
+    search_congress_bills: 'Searched congressional bills',
+    search_lda_filings: 'Searched LDA lobbying filings',
+    search_sec_filings: 'Searched SEC filings',
+    search_fara_registrations: 'Searched FARA registrations',
+    search_federal_grants: 'Searched federal grants',
+    search_gao_reports: 'Searched GAO reports',
+    search_state_bills: 'Searched state bills',
+    search_intel_articles: 'Searched policy news',
+    search_committee_hearings: 'Searched committee hearings',
+    search_crs_reports: 'Searched CRS reports',
+    query_economic_data: 'Queried economic data',
+    search_public_web: 'Searched the public web',
+    scrape_web_page: 'Read a web page',
+    create_meeting_brief: 'Created a meeting brief',
+    draft_policy_memo: 'Drafted a policy memo',
+    save_note: 'Saved a note',
+    send_email: 'Sent an email',
+    list_emails: 'Listed email threads',
+    reply_email: 'Replied to an email thread',
+  };
+  return labels[tool] ?? tool.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Derive a count + human detail string from a tool result so the trust panel
+ * can show what was actually found (citations), not just that a tool ran.
+ * Handles the common Clio tool result shapes: { total, data: [...] },
+ * { results: [...] }, { data: "<text>" }, { artifact }.
+ */
+function summarizeToolResultForTrust(payload: unknown): { count: number | null; detail: string } {
+  if (!payload || typeof payload !== 'object') return { count: null, detail: '' };
+  const rec = payload as Record<string, unknown>;
+  if (typeof rec.error === 'string') return { count: null, detail: rec.error };
+
+  const rows = Array.isArray(rec.data) ? (rec.data as unknown[])
+    : Array.isArray(rec.results) ? (rec.results as unknown[])
+    : null;
+  const total = typeof rec.total === 'number' ? rec.total : (rows ? rows.length : null);
+
+  if (rows && rows.length) {
+    const sample = rows
+      .slice(0, 3)
+      .map((r) => {
+        if (r && typeof r === 'object') {
+          const o = r as Record<string, unknown>;
+          const label = o.title ?? o.name ?? o.subject ?? o.companyName ?? o.registrantName ?? o.identifier ?? o.billNumber;
+          if (typeof label === 'string') return label.length > 60 ? `${label.slice(0, 57)}…` : label;
+        }
+        return null;
+      })
+      .filter((x): x is string => Boolean(x));
+    const head = total != null ? `${total} result${total === 1 ? '' : 's'}` : `${rows.length} result(s)`;
+    return { count: total, detail: sample.length ? `${head}: ${sample.join('; ')}` : head };
+  }
+
+  if (typeof rec.data === 'string' && rec.data.trim()) {
+    const text = rec.data.trim();
+    return { count: null, detail: text.length > 100 ? `${text.slice(0, 97)}…` : text };
+  }
+  if (rec.artifact && typeof rec.artifact === 'object') {
+    const a = rec.artifact as Record<string, unknown>;
+    return { count: null, detail: typeof a.title === 'string' ? `Created: ${a.title}` : 'Created artifact' };
+  }
+  return { count: total, detail: total != null ? `${total} result(s)` : 'Completed' };
+}
+
+/**
+ * Extract persisted artifacts from a Clio tool result so the streaming brain
+ * can save them as clioArtifact rows (the artifact panel reads these).
+ * Tools return { artifact: {...} } or { artifacts: [...] } with persisted!==false.
+ */
+function extractToolArtifacts(value: unknown): Array<{
+  title: string;
+  kind: string;
+  contentType: string | null;
+  bodyText: string | null;
+  s3Key: string | null;
+  metadata: Prisma.InputJsonValue;
+}> {
+  if (!value || typeof value !== 'object') return [];
+  const record = value as Record<string, unknown>;
+  const candidates: unknown[] = [];
+  if (record.artifact) candidates.push(record.artifact);
+  if (Array.isArray(record.artifacts)) candidates.push(...record.artifacts);
+  const out: ReturnType<typeof extractToolArtifacts> = [];
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const a = candidate as Record<string, unknown>;
+    if (a.persisted === false) continue;
+    const bodyText =
+      typeof a.bodyText === 'string' ? a.bodyText :
+      typeof a.body === 'string' ? a.body :
+      typeof a.content === 'string' ? a.content : null;
+    const s3Key = typeof a.s3Key === 'string' ? a.s3Key : null;
+    if (!bodyText && !s3Key) continue;
+    out.push({
+      title: typeof a.title === 'string' && a.title.trim() ? a.title.trim() : 'Clio artifact',
+      kind: typeof a.kind === 'string' && a.kind.trim() ? a.kind.trim() : 'document',
+      contentType: typeof a.contentType === 'string' ? a.contentType : 'text/markdown',
+      bodyText,
+      s3Key,
+      metadata: a.metadata && typeof a.metadata === 'object' && !Array.isArray(a.metadata)
+        ? (a.metadata as Prisma.InputJsonObject)
+        : {},
+    });
+  }
+  return out;
 }

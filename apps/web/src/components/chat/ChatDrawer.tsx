@@ -31,21 +31,37 @@ import {
 import { ChatInput } from './ChatInput.js';
 import { ChatMessage } from './ChatMessage.js';
 import { SessionRail } from './SessionRail.js';
+import { ThoughtProcess, type TrustStep } from './ThoughtProcess.js';
+import { ResearchClarifyForm } from './ResearchClarifyForm.js';
 import clioBubbleImage from '../../assets/chat/clio-bubble.png';
 import './chat.css';
 
 type SseEvent =
   | { type: 'start'; intent: string; tier?: 'fast' | 'deep' }
   | { type: 'trace'; trace?: Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>; policy?: { tier?: 'fast' | 'deep' } }
+  | { type: 'tool_call'; tool: string; label?: string; input?: Record<string, unknown> }
   | { type: 'template'; template?: { heading: string; sections: string[] } }
   | { type: 'conflict'; conflict?: { title: string; detail: string } }
-  | { type: 'sources'; sources?: ClioSourceAttribution[] }
+  | { type: 'sources'; sources?: Array<ClioSourceAttribution & { label?: string }> }
   | { type: 'text'; text: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
   | { type: 'draft_updated'; engagementId: string; recipientId?: string; subject: string; body: string }
   | { type: 'workflow_updated'; instanceId: string; fieldKey: string; updatedValue: string }
   | { type: 'page_write'; target: 'outreach_draft'; engagementId?: string; recipientId?: string; subject?: string; body?: string; note?: string };
+
+// Deep Research SSE events (from /api/clio/research/:id/plan|stream).
+type ResearchSseEvent =
+  | { type: 'phase'; phase: 'plan' | 'clarify' | 'gather' | 'synthesize' | 'done' | 'error' }
+  | { type: 'title'; title: string }
+  | { type: 'plan'; plan: string[] }
+  | { type: 'clarify'; questions: string[] }
+  | { type: 'text'; text: string }
+  | { type: 'step'; tool: string; label?: string }
+  | { type: 'source'; source: { tool: string; label: string; count?: number | null; summary: string; confidence: 'low' | 'high' } }
+  | { type: 'report'; artifactId?: string; body?: string }
+  | { type: 'error'; message: string }
+  | { type: 'done' };
 
 function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -71,13 +87,6 @@ interface ClientOption {
   name: string;
 }
 
-function toolNameLabel(tool: string): string {
-  return tool
-    .split('_')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-}
-
 interface ChatDrawerProps {
   selectedClientName?: string | null;
 }
@@ -94,14 +103,26 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [sessionTitle, setSessionTitle] = useState('');
   const [sessionClientId, setSessionClientId] = useState('');
-  const [sourceBadges, setSourceBadges] = useState<ClioSourceAttribution[]>([]);
-  const [orchestratorTrace, setOrchestratorTrace] = useState<Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>>([]);
   const [orchestratorTier, setOrchestratorTier] = useState<'fast' | 'deep' | null>(null);
+  const [orchestratorIntent, setOrchestratorIntent] = useState<string | null>(null);
+  const [trustSteps, setTrustSteps] = useState<TrustStep[]>([]);
   const [orchestratorConflict, setOrchestratorConflict] = useState<{ title: string; detail: string } | null>(null);
   const [orchestratorTemplate, setOrchestratorTemplate] = useState<{ heading: string; sections: string[] } | null>(null);
   const [isSavingMeta, setIsSavingMeta] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [writeMode, setWriteMode] = useState(false);
+  // Deep Research mode lives inside the chat: first message = topic (Clio plans +
+  // asks clarifying questions), next message = answers (Clio runs the agentic
+  // research and streams a cited report into the conversation).
+  const [researchMode, setResearchMode] = useState(false);
+  const researchSessionRef = useRef<string | null>(null);
+  const [researchAwaitingAnswers, setResearchAwaitingAnswers] = useState(false);
+  // Clarifying questions Clio asked, rendered as an inline answer form (Claude-style).
+  const [researchQuestions, setResearchQuestions] = useState<string[]>([]);
+  // Map of assistant message id -> completed research session id, so a finished
+  // report can show Download Word / Open as page actions.
+  const [researchReports, setResearchReports] = useState<Record<string, string>>({});
+  const [learnedMemories, setLearnedMemories] = useState<Array<{ id: string; key: string; value: string; scope: string }>>([]);
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const resizingRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [drawerWidth, setDrawerWidth] = useState(420);
@@ -183,8 +204,8 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
   useEffect(() => {
     if (!messages.length) {
-      setSourceBadges([]);
-      setOrchestratorTrace([]);
+      setTrustSteps([]);
+      setOrchestratorIntent(null);
       setOrchestratorTier(null);
       setOrchestratorConflict(null);
       setOrchestratorTemplate(null);
@@ -246,7 +267,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
       }
       removeConversation(activeConversationId);
       clearChatSession();
-      setSourceBadges([]);
+      setTrustSteps([]);
     } catch (err) {
       setMetaError(err instanceof Error ? err.message : 'Failed to archive conversation');
     }
@@ -277,16 +298,220 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const handleNewSession = useCallback(async () => {
     abortRef.current?.abort();
     clearChatSession();
-    setSourceBadges([]);
-    setOrchestratorTrace([]);
+    setTrustSteps([]);
+    setOrchestratorIntent(null);
     setOrchestratorTier(null);
     setOrchestratorConflict(null);
     setOrchestratorTemplate(null);
     await doCreateSession();
   }, [doCreateSession]);
 
+  // ── Deep Research (in-chat) ────────────────────────────────────────────
+  // Reads an SSE stream from a research endpoint, dispatching each event.
+  const consumeResearchStream = useCallback(
+    async (path: string, controller: AbortController, onEvent: (e: ResearchSseEvent) => void) => {
+      const res = await fetch(`${config.apiBaseUrl}${path}`, {
+        method: 'POST',
+        headers: await authHeaders(),
+        signal: controller.signal,
+      });
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}: ${text || res.statusText}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      outer: while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const jsonStr = line.slice(6).trim();
+          if (!jsonStr) continue;
+          let event: ResearchSseEvent;
+          try {
+            event = JSON.parse(jsonStr) as ResearchSseEvent;
+          } catch {
+            continue;
+          }
+          onEvent(event);
+          if (event.type === 'done') break outer;
+        }
+      }
+    },
+    [authHeaders],
+  );
+
+  const runResearch = useCallback(
+    async (content: string) => {
+      // Echo the user's message into the conversation.
+      appendChatMessage({ id: generateId(), role: 'user', content, createdAt: new Date() });
+      const assistantId = generateId();
+      appendChatMessage({ id: assistantId, role: 'assistant', content: '', createdAt: new Date() });
+      setStreaming(true);
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        if (!researchSessionRef.current) {
+          // ── Phase 1: topic → plan + clarifying questions ──
+          setTrustSteps([]);
+          setOrchestratorIntent('deep_research');
+          setOrchestratorTier('deep');
+          const created = await fetch(`${config.apiBaseUrl}/api/clio/research`, {
+            method: 'POST',
+            headers: await authHeaders(),
+            body: JSON.stringify({ topic: content, clientId: selectedClientId || undefined }),
+          });
+          if (!created.ok) throw new Error(`Could not start research (HTTP ${created.status})`);
+          const { id } = (await created.json()) as { id: string };
+          researchSessionRef.current = id;
+
+          let planText = '';
+          let questions: string[] = [];
+          await consumeResearchStream(`/api/clio/research/${id}/plan/stream`, controller, (e) => {
+            if (e.type === 'title') {
+              planText = `**Research plan — ${e.title}**\n\n`;
+              updateChatMessage(assistantId, planText);
+            } else if (e.type === 'plan') {
+              planText += e.plan.map((p, idx) => `${idx + 1}. ${p}`).join('\n');
+              updateChatMessage(assistantId, planText);
+            } else if (e.type === 'clarify') {
+              questions = e.questions;
+            } else if (e.type === 'error') {
+              updateChatMessage(assistantId, `Error: ${e.message}`);
+            }
+          });
+          // Render clarifying questions as an inline answer form (Claude-style),
+          // not as text the user has to reply to free-form.
+          setResearchQuestions(questions);
+          setResearchAwaitingAnswers(questions.length > 0);
+          if (questions.length === 0) {
+            // No questions — go straight to the run.
+            await executeResearchRun(controller);
+          }
+          return;
+        }
+
+        // ── Phase 2 (free-text fallback): a typed reply during awaiting state ──
+        // The inline form is the primary path; this handles a user who just types.
+        const id = researchSessionRef.current;
+        await fetch(`${config.apiBaseUrl}/api/clio/research/${id}/clarify`, {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify({ answers: { '0': content } }),
+        });
+        setResearchAwaitingAnswers(false);
+        setResearchQuestions([]);
+        await executeResearchRun(controller, assistantId);
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        updateChatMessage(assistantId, `Research failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+        researchSessionRef.current = null;
+        setResearchAwaitingAnswers(false);
+        setResearchQuestions([]);
+      } finally {
+        setStreaming(false);
+      }
+    },
+    // executeResearchRun is stable via useCallback below; deps kept minimal.
+    [authHeaders, consumeResearchStream, selectedClientId], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  // Streams the gather+synthesize phase into the given (or a new) assistant
+  // message, threading tool steps into the trust timeline and the report text
+  // into the message body. Records the finished session id for export actions.
+  const executeResearchRun = useCallback(
+    async (controller: AbortController, existingAssistantId?: string) => {
+      const id = researchSessionRef.current;
+      if (!id) return;
+      const assistantId = existingAssistantId ?? generateId();
+      if (!existingAssistantId) {
+        appendChatMessage({ id: assistantId, role: 'assistant', content: '', createdAt: new Date() });
+      }
+      setTrustSteps([]);
+      let report = '';
+      await consumeResearchStream(`/api/clio/research/${id}/stream`, controller, (e) => {
+        if (e.type === 'step') {
+          const label = e.label || e.tool;
+          setTrustSteps((prev) => [...prev, { tool: e.tool, label, status: 'running' as const }]);
+        } else if (e.type === 'source') {
+          const s = e.source;
+          setTrustSteps((prev) => {
+            const next = [...prev];
+            for (let i = next.length - 1; i >= 0; i -= 1) {
+              if (next[i]!.status === 'running' && next[i]!.tool === s.tool) {
+                next[i] = {
+                  ...next[i]!,
+                  label: s.label || next[i]!.label,
+                  detail: s.summary,
+                  count: typeof s.count === 'number' ? s.count : next[i]!.count,
+                  confidence: s.confidence,
+                  status: s.confidence === 'low' ? 'error' : 'done',
+                };
+                return next;
+              }
+            }
+            return next;
+          });
+        } else if (e.type === 'text') {
+          report += e.text;
+          updateChatMessage(assistantId, report);
+        } else if (e.type === 'report' && typeof e.body === 'string') {
+          report = e.body;
+          updateChatMessage(assistantId, report);
+        } else if (e.type === 'error') {
+          updateChatMessage(assistantId, `${report}\n\n_Error: ${e.message}_`);
+        }
+      });
+      // Mark this message as a finished report so export actions render.
+      const finishedId = researchSessionRef.current;
+      if (finishedId) setResearchReports((prev) => ({ ...prev, [assistantId]: finishedId }));
+      // Reset for the next research request in this conversation.
+      researchSessionRef.current = null;
+    },
+    [consumeResearchStream],
+  );
+
+  // Submit per-question answers from the inline clarify form, then run research.
+  const submitResearchAnswers = useCallback(
+    async (answers: Record<string, string>, skipped: boolean) => {
+      const id = researchSessionRef.current;
+      if (!id || isStreaming) return;
+      setResearchAwaitingAnswers(false);
+      setResearchQuestions([]);
+      setStreaming(true);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        await fetch(`${config.apiBaseUrl}/api/clio/research/${id}/clarify`, {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify({ answers: skipped ? {} : answers }),
+        });
+        await executeResearchRun(controller);
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        researchSessionRef.current = null;
+      } finally {
+        setStreaming(false);
+      }
+    },
+    [authHeaders, executeResearchRun, isStreaming],
+  );
+
   const sendMessage = useCallback(async (content: string) => {
     if (isStreaming) return;
+
+    // Deep Research mode is handled by a dedicated multi-phase flow.
+    if (researchMode) {
+      await runResearch(content);
+      return;
+    }
 
     const writePrefix = 'write on this page:';
     const outgoing = writeMode ? `${writePrefix} ${content}` : content;
@@ -351,9 +576,18 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
           if (event.type === 'start') {
             setOrchestratorTier(event.tier ?? null);
+            setOrchestratorIntent(event.intent ?? null);
+            setTrustSteps([]);
           } else if (event.type === 'trace') {
-            setOrchestratorTrace(Array.isArray(event.trace) ? event.trace : []);
             if (event.policy?.tier) setOrchestratorTier(event.policy.tier);
+          } else if (event.type === 'tool_call') {
+            // Live agentic tool call — push a "running" step into the trust
+            // timeline; the matching `sources` event flips it to done/error.
+            const label = event.label || event.tool;
+            setTrustSteps((prev) => [
+              ...prev,
+              { tool: event.tool, label, status: 'running' as const },
+            ]);
           } else if (event.type === 'template') {
             setOrchestratorTemplate(event.template ?? null);
           } else if (event.type === 'conflict') {
@@ -362,7 +596,29 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             accumulated += event.text;
             updateChatMessage(assistantId, accumulated);
           } else if (event.type === 'sources') {
-            setSourceBadges(Array.isArray(event.sources) ? event.sources : []);
+            const sources = Array.isArray(event.sources) ? event.sources : [];
+            // Resolve the most recent running step (the tool that just finished)
+            // with the real result detail/count/confidence.
+            const src = sources[0];
+            if (src) {
+              setTrustSteps((prev) => {
+                const next = [...prev];
+                for (let i = next.length - 1; i >= 0; i -= 1) {
+                  if (next[i]!.status === 'running' && next[i]!.tool === src.tool) {
+                    next[i] = {
+                      ...next[i]!,
+                      label: src.label || next[i]!.label,
+                      detail: src.summary,
+                      count: typeof src.count === 'number' ? src.count : next[i]!.count,
+                      confidence: src.confidence,
+                      status: src.confidence === 'low' ? 'error' : 'done',
+                    };
+                    return next;
+                  }
+                }
+                return next;
+              });
+            }
           } else if (event.type === 'done') {
             break outer;
           } else if (event.type === 'error') {
@@ -411,9 +667,66 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     } finally {
       setStreaming(false);
     }
-  }, [isStreaming, sessionId, doCreateSession, authHeaders, selectedClientId, selectedClientName, location.pathname]);
+  }, [isStreaming, sessionId, doCreateSession, authHeaders, selectedClientId, selectedClientName, location.pathname, researchMode, writeMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleClose = () => setChatOpen(false);
+
+  const fetchLearnedMemories = useCallback(async () => {
+    try {
+      const res = await fetch(`${config.apiBaseUrl}/api/clio/memory/recent?limit=5`, {
+        headers: await authHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) {
+        setLearnedMemories(
+          data
+            .filter((m) => m && typeof m.id === 'string')
+            .map((m) => ({ id: String(m.id), key: String(m.key ?? ''), value: String(m.value ?? ''), scope: String(m.scope ?? '') })),
+        );
+      }
+    } catch { /* ignore */ }
+  }, [authHeaders]);
+
+  const forgetMemory = useCallback(async (id: string) => {
+    setLearnedMemories((prev) => prev.filter((m) => m.id !== id)); // optimistic
+    try {
+      await fetch(`${config.apiBaseUrl}/api/clio/memory/${id}`, {
+        method: 'DELETE',
+        headers: await authHeaders(),
+      });
+    } catch { /* ignore — already removed from UI */ }
+  }, [authHeaders]);
+
+  // Fetch an authenticated research export (Word .doc or printable HTML) and
+  // either download it or open it in a new browser tab via a blob URL.
+  const fetchResearchExport = useCallback(
+    async (researchId: string, kind: 'word' | 'html') => {
+      try {
+        const token = await getToken({ template: 'capiro' });
+        const res = await fetch(`${config.apiBaseUrl}/api/clio/research/${researchId}/export/${kind}`, {
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...(actAsTenantSlug ? { 'x-capiro-impersonate-tenant': actAsTenantSlug } : {}),
+          },
+        });
+        if (!res.ok) throw new Error(`Export failed (HTTP ${res.status})`);
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        if (kind === 'html') {
+          window.open(url, '_blank', 'noopener,noreferrer');
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        } else {
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'research-report.doc';
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+      } catch { /* surfaced as a no-op; report text is still in the chat */ }
+    },
+    [getToken, actAsTenantSlug],
+  );
 
   const handleResizePointerMove = useCallback((event: PointerEvent) => {
     const state = resizingRef.current;
@@ -436,6 +749,14 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   }, [handleResizePointerMove]);
 
   useEffect(() => () => stopResize(), [stopResize]);
+
+  // After a streamed turn finishes, refresh the "Clio learned" chips. The
+  // backend extracts memories fire-and-forget post-stream, so delay slightly.
+  useEffect(() => {
+    if (isStreaming || !sessionId) return;
+    const t = setTimeout(() => { void fetchLearnedMemories(); }, 1500);
+    return () => clearTimeout(t);
+  }, [isStreaming, sessionId, fetchLearnedMemories]);
 
   const startResize = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
     const currentWidth = drawerRef.current?.getBoundingClientRect().width ?? drawerWidth;
@@ -558,20 +879,24 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             </button>
           </div>
           {metaError && <div className="chat-session-error">{metaError}</div>}
-          {orchestratorTier && (
-            <div className="chat-tier-pill">Orchestrator: {orchestratorTier.toUpperCase()}</div>
-          )}
-          {sourceBadges.length > 0 && (
-            <div className="chat-sources" aria-label="Orchestrator sources">
-              {sourceBadges.map((source) => (
+          {learnedMemories.length > 0 && (
+            <div className="chat-learned-memories" aria-label="Things Clio learned">
+              {learnedMemories.map((mem) => (
                 <span
-                  key={`${source.tool}:${source.summary}`}
-                  className={`chat-source-pill chat-source-pill--${source.confidence ?? 'medium'}`}
-                  title={source.summary}
+                  key={mem.id}
+                  className={`chat-learned-pill chat-learned-pill--${mem.scope === 'firm' ? 'firm' : 'private'}`}
+                  title={mem.value}
                 >
-                  {toolNameLabel(source.tool)}
-                  {typeof source.count === 'number' ? ` (${source.count})` : ''}
-                  {source.confidence ? ` · ${source.confidence}` : ''}
+                  Clio learned: {mem.value.length > 80 ? `${mem.value.slice(0, 77)}…` : mem.value}
+                  <button
+                    type="button"
+                    className="chat-learned-undo"
+                    aria-label="Undo (forget this)"
+                    title="Forget this"
+                    onClick={() => void forgetMemory(mem.id)}
+                  >
+                    undo
+                  </button>
                 </span>
               ))}
             </div>
@@ -589,19 +914,6 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
               </div>
             </div>
           )}
-          {orchestratorTrace.length > 0 && (
-            <details className="chat-orchestrator-trace">
-              <summary>Orchestrator trace</summary>
-              <ul>
-                {orchestratorTrace.map((step, idx) => (
-                  <li key={`${step.tool}-${idx}`}>
-                    <span className={`chat-trace-badge chat-trace-badge--${step.action}`}>{step.action}</span>
-                    <strong>{toolNameLabel(step.tool)}</strong>: {step.reason}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          )}
         </div>
 
         <SessionRail />
@@ -617,19 +929,57 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <ChatMessage
-              key={msg.id}
-              role={msg.role}
-              content={msg.content}
-              isStreaming={
-                isStreaming &&
-                i === messages.length - 1 &&
-                msg.role === 'assistant' &&
-                msg.content !== ''
-              }
+          {messages.map((msg, i) => {
+            const isLastAssistant = msg.role === 'assistant' && i === messages.length - 1;
+            return (
+              <div key={msg.id}>
+                {isLastAssistant && (
+                  <ThoughtProcess
+                    intent={orchestratorIntent}
+                    tier={orchestratorTier}
+                    steps={trustSteps}
+                    isStreaming={isStreaming}
+                  />
+                )}
+                <ChatMessage
+                  role={msg.role}
+                  content={msg.content}
+                  isStreaming={
+                    isStreaming &&
+                    i === messages.length - 1 &&
+                    msg.role === 'assistant' &&
+                    msg.content !== ''
+                  }
+                />
+                {researchReports[msg.id] && (
+                  <div className="chat-research-actions">
+                    <button
+                      type="button"
+                      className="chat-research-action"
+                      onClick={() => void fetchResearchExport(researchReports[msg.id]!, 'html')}
+                    >
+                      Open as page
+                    </button>
+                    <button
+                      type="button"
+                      className="chat-research-action"
+                      onClick={() => void fetchResearchExport(researchReports[msg.id]!, 'word')}
+                    >
+                      Download Word
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {researchAwaitingAnswers && researchQuestions.length > 0 && (
+            <ResearchClarifyForm
+              questions={researchQuestions}
+              disabled={isStreaming}
+              onSubmit={(answers, skipped) => void submitResearchAnswers(answers, skipped)}
             />
-          ))}
+          )}
 
           {showTypingIndicator && (
             <div className="chat-typing" aria-label="Clio is typing">
@@ -647,7 +997,26 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             disabled={isStreaming}
             onSend={(c) => void sendMessage(c)}
             writeMode={writeMode}
-            onToggleWriteMode={() => setWriteMode((current) => !current)}
+            onToggleWriteMode={() => {
+              setWriteMode((current) => !current);
+              if (researchMode) setResearchMode(false);
+            }}
+            researchMode={researchMode}
+            researchAwaitingAnswers={researchAwaitingAnswers}
+            onToggleResearchMode={() => {
+              setResearchMode((current) => {
+                const next = !current;
+                if (!next) {
+                  // Leaving research mode resets any in-progress research session.
+                  researchSessionRef.current = null;
+                  setResearchAwaitingAnswers(false);
+                  setResearchQuestions([]);
+                } else if (writeMode) {
+                  setWriteMode(false);
+                }
+                return next;
+              });
+            }}
           />
         </div>
       </div>
