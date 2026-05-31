@@ -204,8 +204,8 @@ export function CapabilityDrawer({ capability, clientId, onClose, onUpdated, onD
               title="Delete capability"
             />
           ) : null}
-          <button className="cp-back" onClick={onClose} aria-label="Close drawer">
-            <CloseOutlined style={{ fontSize: 12 }} />
+          <button className="cap-drawer-close" onClick={onClose} aria-label="Close drawer" title="Close">
+            <CloseOutlined style={{ fontSize: 13 }} />
           </button>
         </div>
       </div>

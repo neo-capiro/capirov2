@@ -366,7 +366,13 @@ export function ClientProfilePage({
               peopleLoading={people.isLoading}
               onViewAllCaps={() => setActiveTab('capabilities')}
               onViewAllPeople={() => setActiveTab('people')}
-              onCapClick={setSelectedCapability}
+              onCapClick={(cap) => {
+                // Open the capability in the dedicated Capabilities tab (with the
+                // drawer) rather than over the Overview, so the user lands in the
+                // full editing context.
+                setActiveTab('capabilities');
+                setSelectedCapability(cap);
+              }}
               onAddCap={() => setAddCapabilityOpen(true)}
             />
           )}
@@ -516,141 +522,9 @@ function OverviewTab({
     (t) => SUBMISSION_TRACK_LABELS[t as SubmissionTrack] ?? t,
   );
 
-  // Engagement snapshot, uses existing endpoints; falls back to 0/- if any
-  // single endpoint is unavailable so the card always renders.
-  const trackedBills = useQuery<{ total: number } | null>({
-    queryKey: ['tracked-bills', client.id, 'overview'],
-    queryFn: async () => {
-      try {
-        return (
-          await api.get<{ total: number }>(`/api/intelligence/clients/${client.id}/tracked-bills`)
-        ).data;
-      } catch {
-        return null;
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-  const profile = useQuery<{ lda?: { totalSpending: number | null } } | null>({
-    queryKey: ['client-intel-profile', client.id, 'overview'],
-    queryFn: async () => {
-      try {
-        return (await api.get<{ lda?: { totalSpending: number | null } }>(
-          `/api/intelligence/client-profile/${client.id}`,
-        )).data;
-      } catch {
-        return null;
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-  // Engagement snapshot card advertises "last 90 days", pass `from` so the
-  // count actually reflects that window instead of all-time.
-  const meetingsFromIso = useMemo(
-    () => new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
-    [],
-  );
-  const meetings = useQuery<unknown[]>({
-    queryKey: ['client-meetings', client.id, meetingsFromIso],
-    queryFn: async () => {
-      try {
-        return (
-          await api.get<unknown[]>('/api/engagement/meetings', {
-            params: { clientId: client.id, from: meetingsFromIso },
-          })
-        ).data;
-      } catch {
-        return [];
-      }
-    },
-    staleTime: 60_000,
-  });
-  const commentAlerts = useQuery<{ alerts: Array<{ clientId: string; daysToDeadline: number }> }>({
-    queryKey: ['comment-alerts'],
-    queryFn: async () => {
-      try {
-        return (
-          await api.get<{ alerts: Array<{ clientId: string; daysToDeadline: number }> }>(
-            '/api/intelligence/comment-alerts',
-          )
-        ).data;
-      } catch {
-        return { alerts: [] };
-      }
-    },
-    staleTime: 5 * 60 * 1000,
-  });
-
-  const activeDeadlines = (commentAlerts.data?.alerts ?? []).filter((a) => a.clientId === client.id);
-
-  const snapshotCells: Array<{
-    label: string;
-    value: string;
-    detail: string;
-    tone?: 'critical' | 'info' | 'notable';
-  }> = [
-    {
-      label: 'Meetings',
-      value: String(meetings.data?.length ?? 0),
-      detail: 'Last 90 days',
-    },
-    {
-      label: 'Bills tracked',
-      value: String(trackedBills.data?.total ?? 0),
-      detail: 'Via LDA issue codes',
-      tone: 'info',
-    },
-    {
-      label: 'Active deadlines',
-      value: String(activeDeadlines.length),
-      detail:
-        activeDeadlines.length > 0
-          ? `${activeDeadlines.filter((a) => a.daysToDeadline < 7).length} this week`
-          : 'None in next 14 days',
-      tone: activeDeadlines.length > 0 ? 'critical' : undefined,
-    },
-    {
-      label: 'LDA spend (LTM)',
-      value: profile.data?.lda?.totalSpending
-        ? formatCompactDollars(profile.data.lda.totalSpending)
-        : '$0',
-      detail: profile.data?.lda?.totalSpending ? 'From confirmed mapping' : 'No LDA mapping',
-    },
-  ];
-
   return (
     <div className="overview-grid">
       <div>
-        {/* Engagement snapshot, last 90 days */}
-        <section className="surface" style={{ marginBottom: 14 }}>
-          <header className="surface-head">
-            <h3>Engagement snapshot</h3>
-            <span className="sub">last 90 days</span>
-          </header>
-          <div className="snapshot-grid">
-            {snapshotCells.map((s) => (
-              <div className="snapshot-cell" key={s.label}>
-                <div className="snapshot-label">{s.label}</div>
-                <div
-                  className="snapshot-value num"
-                  style={
-                    s.tone === 'critical'
-                      ? { color: 'var(--critical)' }
-                      : s.tone === 'info'
-                        ? { color: 'var(--info)' }
-                        : s.tone === 'notable'
-                          ? { color: 'var(--notable)' }
-                          : undefined
-                  }
-                >
-                  {s.value}
-                </div>
-                <div className="snapshot-detail">{s.detail}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-
         {/* Company information */}
         <section className="surface">
           <header className="surface-head">

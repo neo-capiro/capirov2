@@ -15897,7 +15897,7 @@ body {
 /* Snapshot + activity cells */
 .iv1-snap-hero {
   display: grid;
-  grid-template-columns: 0.9fr 1.7fr;
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 

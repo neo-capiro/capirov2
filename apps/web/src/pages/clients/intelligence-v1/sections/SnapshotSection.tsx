@@ -160,17 +160,11 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
         <span className="iv1-sec-sub">30-second status · what changed today</span>
       </div>
 
-      {/* ── Hero: trajectory · health · Clio briefing ── */}
+      {/* ── Hero: Clio briefing ── */}
       {healthQuery.isLoading && !aggregate && !profile ? (
         <Skeleton active paragraph={{ rows: 3 }} style={{ marginBottom: 14 }} />
       ) : (
         <div className="iv1-snap-hero">
-          {/* Engagement health */}
-          <div className="iv1-snap-cell">
-            <span className="iv1-snap-label">Engagement health</span>
-            <HealthGauge score={healthScore} />
-          </div>
-
           {/* Clio briefing */}
           <BriefingCard
             briefing={aggregate?.sections.snapshot.dailyBriefing ?? null}
