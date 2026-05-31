@@ -1292,6 +1292,9 @@ export class IntelligenceService {
     try {
       const vector = await embedText(query);
       const vecLiteral = vectorLiteral(vector);
+      // Relevance floor (cosine similarity): drop weakly-related bills so the
+      // linker doesn't surface tangential matches. Mirrors the tracked-bills floor.
+      const SIMILARITY_FLOOR = 0.65;
       const candidateRows = await this.prisma.$queryRawUnsafe<Array<{ source_id: string; score: number }>>(
         `SELECT ce.source_id,
                 (1 - (ce.embedding <=> $1::vector))::float8 AS score
@@ -1299,10 +1302,12 @@ export class IntelligenceService {
           WHERE ce.source_type = 'bill'
             AND ce.model = $2
             AND ce.embedding IS NOT NULL
+            AND (1 - (ce.embedding <=> $1::vector)) >= $3
           ORDER BY ce.embedding <=> $1::vector
           LIMIT 150`,
         vecLiteral,
         EMBEDDING_MODEL,
+        SIMILARITY_FLOOR,
       );
 
       const candidateIds = Array.from(
@@ -2337,6 +2342,12 @@ export class IntelligenceService {
     try {
       const vector = await embedText(query);
       const vecLiteral = vectorLiteral(vector);
+      // Relevance floor: cosine similarity (1 - distance) must clear this to count
+      // as a tracked bill. Without it the vector search returns its top-N nearest
+      // regardless of how weakly related, inflating the "tracked" count with noise.
+      // 0.65 keeps genuinely on-topic bills while dropping tangential matches;
+      // tune here if precision/recall needs shifting.
+      const SIMILARITY_FLOOR = 0.65;
       const candidateRows = await this.prisma.$queryRawUnsafe<Array<{ source_id: string; score: number }>>(
         `SELECT ce.source_id,
                 (1 - (ce.embedding <=> $1::vector))::float8 AS score
@@ -2344,10 +2355,12 @@ export class IntelligenceService {
           WHERE ce.source_type = 'bill'
             AND ce.model = $2
             AND ce.embedding IS NOT NULL
+            AND (1 - (ce.embedding <=> $1::vector)) >= $3
           ORDER BY ce.embedding <=> $1::vector
           LIMIT 200`,
         vecLiteral,
         EMBEDDING_MODEL,
+        SIMILARITY_FLOOR,
       );
 
       const rankedIds = Array.from(
