@@ -10,6 +10,7 @@ import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { FEC_DISCLAIMER } from '../intelligence/fec-disclaimer.js';
 
 type Chamber = 'House' | 'Senate' | 'Governor';
 type Party = 'D' | 'R' | 'I';
@@ -619,6 +620,128 @@ export class DirectoryService {
         orderBy: { createdAt: 'desc' },
       }),
     );
+  }
+
+  /**
+   * Member-scoped FEC summary (Gap #1): for one directory member, surface the
+   * financial relationship with the tenant's mapped clients — contributions whose
+   * recipient candidate matches this member, from employers tied to a confirmed
+   * fec_employer client mapping, grouped by client.
+   *
+   * IMPORTANT — this is an APPROXIMATE, name-matched view. FEC contributions link to
+   * members only by candidate name (no shared ID), so the API returns matchQuality
+   * and the disclaimer; the UI labels it accordingly. It is read-only context, not
+   * an assertion, and never a contribution recommendation. Tenant-scoped via the
+   * confirmed client mappings; fec_contribution is a global read-only table.
+   */
+  async getMemberFecSummary(ctx: TenantContext, contactId: string) {
+    const normalizedContactId = normalizeContactId(contactId);
+    const { contacts } = await this.getDirectoryData();
+    const contact = contacts.find((c) => c.id === normalizedContactId);
+    const empty = {
+      contactId: normalizedContactId,
+      memberName: contact?.memberName ?? null,
+      matchQuality: 'name_approximate' as const,
+      clients: [] as Array<{
+        clientId: string;
+        clientName: string;
+        mappedEmployer: string;
+        totalAmount: number;
+        contributionCount: number;
+        latestContributionDate: Date | null;
+      }>,
+      summary: { totalAmount: 0, contributionCount: 0, clientCount: 0 },
+      disclaimer: FEC_DISCLAIMER,
+    };
+    if (!contact || !contact.memberName?.trim()) return empty;
+
+    // Confirmed fec_employer mappings for this tenant's clients (the only employers
+    // we attribute). Tenant-scoped read.
+    const mappings = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { source: 'fec_employer', confirmed: true },
+        select: { clientId: true, externalName: true },
+      }),
+    );
+    if (mappings.length === 0) return empty;
+
+    const employers = Array.from(
+      new Set(mappings.map((m) => (m.externalName ?? '').trim().toLowerCase()).filter(Boolean)),
+    );
+    if (employers.length === 0) return empty;
+
+    // Resolve client names (tenant-scoped) for display.
+    const clientIds = Array.from(new Set(mappings.map((m) => m.clientId)));
+    const clientRows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.client.findMany({ where: { id: { in: clientIds } }, select: { id: true, name: true } }),
+    );
+    const clientNameById = new Map(clientRows.map((c) => [c.id, c.name]));
+
+    // Match contributions to this member by candidate name (approximate) for the
+    // mapped employers. fec_contribution is a global, read-only table.
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        contributor_employer: string;
+        total_amount: number;
+        contribution_count: number;
+        latest_contribution_date: Date | null;
+      }>
+    >`
+      SELECT
+        LOWER(fc.contributor_employer) AS contributor_employer,
+        COALESCE(SUM(fc.amount), 0)::float AS total_amount,
+        COUNT(*)::int AS contribution_count,
+        MAX(fc.contribution_date) AS latest_contribution_date
+      FROM fec_contribution fc
+      WHERE LOWER(fc.contributor_employer) = ANY(${employers}::text[])
+        AND LOWER(fc.candidate_name) = LOWER(${contact.memberName.trim()})
+      GROUP BY LOWER(fc.contributor_employer)
+    `;
+
+    const byEmployer = new Map(rows.map((r) => [r.contributor_employer, r]));
+    const clients = mappings
+      .map((m) => {
+        const key = (m.externalName ?? '').trim().toLowerCase();
+        const row = byEmployer.get(key);
+        if (!row || row.total_amount <= 0) return null;
+        return {
+          clientId: m.clientId,
+          clientName: clientNameById.get(m.clientId) ?? 'Unknown client',
+          mappedEmployer: (m.externalName ?? '').trim(),
+          totalAmount: row.total_amount,
+          contributionCount: row.contribution_count,
+          latestContributionDate: row.latest_contribution_date,
+        };
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null)
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          actorRole: ctx.role,
+          action: 'directory.member_fec_summary.view',
+          entityType: 'directory_contact',
+          entityId: normalizedContactId,
+          after: { memberName: contact.memberName, clientCount: clients.length },
+        },
+      });
+    });
+
+    return {
+      contactId: normalizedContactId,
+      memberName: contact.memberName,
+      matchQuality: 'name_approximate' as const,
+      clients,
+      summary: {
+        totalAmount: clients.reduce((s, c) => s + c.totalAmount, 0),
+        contributionCount: clients.reduce((s, c) => s + c.contributionCount, 0),
+        clientCount: clients.length,
+      },
+      disclaimer: FEC_DISCLAIMER,
+    };
   }
 
   async createContactNote(

@@ -83,6 +83,13 @@ export class DirectoryController {
     return this.service.listContactNotes(ctx, contactId);
   }
 
+  // Member-scoped FEC summary: the financial relationship between this member and
+  // the tenant's mapped clients. Approximate (name-matched), disclaimer-wrapped.
+  @Get('contacts/:contactId/fec-summary')
+  contactFecSummary(@CurrentTenant() ctx: TenantContext, @Param('contactId') contactId: string) {
+    return this.service.getMemberFecSummary(ctx, contactId);
+  }
+
   @Post('contacts/:contactId/notes')
   createContactNote(
     @CurrentTenant() ctx: TenantContext,

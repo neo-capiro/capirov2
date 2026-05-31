@@ -826,6 +826,7 @@ export function DirectoryPage() {
                           </Space>
                         </Card>
                         <DirectoryNotesPanel entry={selectedEntry} />
+                        <DirectoryFecPanel entry={selectedEntry} />
                       </Col>
                     </Row>
                   ),
@@ -1690,6 +1691,98 @@ function DirectoryNotesPanel({ entry }: { entry: DirectoryEntry }) {
             </div>
           ))}
         </div>
+      </Space>
+    </Card>
+  );
+}
+
+interface MemberFecSummary {
+  contactId: string;
+  memberName: string | null;
+  matchQuality: 'name_approximate';
+  clients: Array<{
+    clientId: string;
+    clientName: string;
+    mappedEmployer: string;
+    totalAmount: number;
+    contributionCount: number;
+    latestContributionDate: string | null;
+  }>;
+  summary: { totalAmount: number; contributionCount: number; clientCount: number };
+  disclaimer: string;
+}
+
+function formatUsd(n: number): string {
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
+  return `$${n.toFixed(0)}`;
+}
+
+/**
+ * Member-scoped FEC relationship: contributions to this member from the tenant's
+ * mapped clients' employers. APPROXIMATE (name-matched) — clearly labeled — and
+ * wrapped in the API-provided compliance disclaimer. Read-only context only.
+ */
+function DirectoryFecPanel({ entry }: { entry: DirectoryEntry }) {
+  const api = useApi();
+  const query = useQuery<MemberFecSummary>({
+    queryKey: ['directory-contact-fec', entry.id],
+    queryFn: async () =>
+      (await api.get<MemberFecSummary>(`/api/directory/contacts/${encodeURIComponent(entry.id)}/fec-summary`)).data,
+    staleTime: 5 * 60_000,
+  });
+
+  const data = query.data;
+  const hasData = (data?.clients.length ?? 0) > 0;
+
+  return (
+    <Card
+      className="directory-side-card"
+      title={
+        <Space size={8}>
+          <span>Client FEC relationship</span>
+          <Tag color="default" style={{ fontSize: 10 }}>approximate · name-matched</Tag>
+        </Space>
+      }
+    >
+      <Space direction="vertical" size={10} style={{ display: 'flex' }}>
+        {query.isLoading ? (
+          <Spin size="small" />
+        ) : hasData ? (
+          <>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              {formatUsd(data!.summary.totalAmount)} across {data!.summary.contributionCount} contribution
+              {data!.summary.contributionCount !== 1 ? 's' : ''} from {data!.summary.clientCount} mapped client
+              {data!.summary.clientCount !== 1 ? 's' : ''}.
+            </Typography.Text>
+            <div className="directory-note-list">
+              {data!.clients.map((c) => (
+                <div key={c.clientId} className="directory-note-preview">
+                  <Space style={{ justifyContent: 'space-between', display: 'flex', width: '100%' }}>
+                    <Typography.Text strong>{c.clientName}</Typography.Text>
+                    <Tag color="green">{formatUsd(c.totalAmount)}</Tag>
+                  </Space>
+                  <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                    via employer {c.mappedEmployer} · {c.contributionCount} contribution
+                    {c.contributionCount !== 1 ? 's' : ''}
+                  </Typography.Text>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="No contributions from your mapped clients matched this member."
+          />
+        )}
+
+        <Typography.Paragraph type="secondary" style={{ fontSize: 10, margin: 0, lineHeight: 1.4 }}>
+          {data?.disclaimer ??
+            'Source: public FEC filings, for informational purposes only — not legal or campaign-finance advice. ' +
+              'Matches are approximate (by candidate name) and reflect individual filers, legally distinct from ' +
+              'corporate/PAC giving. Not a recommendation to make any contribution. Verify at FEC.gov.'}
+        </Typography.Paragraph>
       </Space>
     </Card>
   );
