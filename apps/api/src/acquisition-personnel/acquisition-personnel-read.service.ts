@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { normalizeName } from './normalization/name-normalizer.js';
 import { ListPersonnelDto, type PersonnelListResponseDto } from './dto/list-personnel.dto.js';
 import type { PersonDetailDto } from './dto/person-detail.dto.js';
 
@@ -493,6 +494,91 @@ export class AcquisitionPersonnelReadService {
     });
 
     return { resolved: true, linked };
+  }
+
+  /**
+   * user_admin suggestion: a tenant admin proposes a person they know for a PE.
+   * Creates a low-confidence person (status=unknown, source=user_suggested) + an
+   * OPEN candidate for capiro_admin review. Never auto-applies a link.
+   */
+  async suggestPersonForProgramElement(
+    peCode: string,
+    input: { fullName: string; roleTitle?: string; organization?: string; notes?: string },
+    ctx: TenantContext,
+  ): Promise<{ suggested: true; candidateId: string }> {
+    const fullName = (input.fullName ?? '').trim();
+    if (!fullName) throw new BadRequestException('fullName is required');
+
+    const pe = await this.prisma.programElement.findUnique({ where: { peCode }, select: { peCode: true } });
+    if (!pe) throw new NotFoundException(`Program Element ${peCode} not found`);
+
+    const nameKey = normalizeName(fullName).nameKey;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // Reuse an existing person by nameKey if present; otherwise create one.
+      let person = await tx.acquisitionPersonnel.findFirst({ where: { nameKey }, select: { id: true } });
+      if (!person) {
+        person = await tx.acquisitionPersonnel.create({
+          data: {
+            fullName,
+            nameKey,
+            organization: input.organization ?? null,
+            title: input.roleTitle ?? null,
+            role: 'OTHER',
+            confidence: 0.3,
+            status: 'unknown',
+            metadata: { suggestedByUserId: ctx.userId, suggestedForPe: peCode },
+          },
+          select: { id: true },
+        });
+        await tx.acquisitionPersonnelSource.create({
+          data: {
+            personId: person.id,
+            source: 'user_suggested',
+            sourceUrl: null,
+            snippet: `Suggested for PE ${peCode} by tenant admin${input.notes ? `: ${input.notes}` : ''}`,
+            observedAt: new Date(),
+            confidence: 0.3,
+            metadata: { suggestedByUserId: ctx.userId, tenantId: ctx.tenantId },
+          },
+        });
+      }
+
+      const candidate = await tx.programElementPersonCandidate.upsert({
+        where: { personId_peCode: { personId: person.id, peCode } },
+        create: {
+          personId: person.id,
+          peCode,
+          score: 0.3,
+          matchBasis: `user-suggested by tenant admin${input.roleTitle ? ` (${input.roleTitle})` : ''}`,
+          scoreBreakdown: { source: 'user_suggested', notes: input.notes ?? null } as unknown as object,
+          status: 'open',
+        },
+        update: {
+          // Re-open if previously rejected, refresh basis; never clobber a confirmed link.
+          matchBasis: `user-suggested by tenant admin${input.roleTitle ? ` (${input.roleTitle})` : ''}`,
+        },
+        select: { id: true },
+      });
+
+      return candidate.id;
+    });
+
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          actorRole: ctx.role,
+          action: 'program_element.person_candidate.suggest',
+          entityType: 'program_element_person_candidate',
+          entityId: result,
+          after: { peCode, fullName, roleTitle: input.roleTitle ?? null, organization: input.organization ?? null },
+        },
+      });
+    });
+
+    return { suggested: true, candidateId: result };
   }
 
   private normalizePage(page?: number): number {

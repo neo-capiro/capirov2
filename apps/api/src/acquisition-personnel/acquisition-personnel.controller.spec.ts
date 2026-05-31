@@ -115,6 +115,24 @@ describe('AcquisitionPersonnelController', () => {
     expect(listResult).toEqual({ data: [], total: 0, page: 1, limit: 50 });
     expect(resolveResult).toEqual({ resolved: true, linked: true });
   });
+
+  test('user_admin can suggest a person for a PE (uppercases peCode)', async () => {
+    const { controller, readService } = makeController();
+    readService.suggestPersonForProgramElement.mockResolvedValueOnce({ suggested: true, candidateId: 'cand-9' });
+
+    const result = await controller.suggestPerson(adminCtx, '0602785a', {
+      fullName: 'Jane Smith',
+      roleTitle: 'Project Manager',
+      notes: 'met at AUSA',
+    });
+
+    expect(readService.suggestPersonForProgramElement).toHaveBeenCalledWith(
+      '0602785A',
+      { fullName: 'Jane Smith', roleTitle: 'Project Manager', organization: undefined, notes: 'met at AUSA' },
+      adminCtx,
+    );
+    expect(result).toEqual({ suggested: true, candidateId: 'cand-9' });
+  });
 });
 
 function makeController() {
@@ -127,6 +145,7 @@ function makeController() {
     resolveMergeQueue: jest.fn(),
     listPersonCandidates: jest.fn(),
     resolvePersonCandidate: jest.fn(),
+    suggestPersonForProgramElement: jest.fn(),
   };
 
   const writerService = {

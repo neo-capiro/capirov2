@@ -33,6 +33,13 @@ class ResolvePersonCandidateDto {
   notes?: string;
 }
 
+class SuggestPersonDto {
+  fullName!: string;
+  roleTitle?: string;
+  organization?: string;
+  notes?: string;
+}
+
 @Controller()
 @UseGuards(RolesGuard)
 @Roles('standard_user')
@@ -103,5 +110,22 @@ export class AcquisitionPersonnelController {
     @Body() body: ResolvePersonCandidateDto,
   ) {
     return this.readService.resolvePersonCandidate(id, body.decision, body.notes, ctx);
+  }
+
+  // user_admin (and above) can SUGGEST a person they know for a PE. The suggestion
+  // becomes an open candidate (source=user_suggested) for capiro_admin review — it
+  // never auto-applies a link.
+  @Post('program-elements/:peCode/suggest-person')
+  @Roles('user_admin')
+  suggestPerson(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('peCode') peCode: string,
+    @Body() body: SuggestPersonDto,
+  ) {
+    return this.readService.suggestPersonForProgramElement(
+      peCode.toUpperCase(),
+      { fullName: body.fullName, roleTitle: body.roleTitle, organization: body.organization, notes: body.notes },
+      ctx,
+    );
   }
 }

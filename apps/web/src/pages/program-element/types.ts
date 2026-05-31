@@ -137,3 +137,32 @@ export interface FyHistoryChartProps {
   loading?: boolean;
   onFyClick?: (fy: number) => void;
 }
+
+// ── Person -> PE link candidate review queue (Phase 1b) ───────────────────────
+export interface PersonCandidate {
+  id: string;
+  personId: string;
+  peCode: string;
+  score: number;
+  matchBasis: string;
+  status: string;
+  person: {
+    id: string;
+    fullName: string;
+    organization: string | null;
+    title: string | null;
+    role: string | null;
+  } | null;
+  programElement: {
+    peCode: string;
+    title: string | null;
+    service: string | null;
+  } | null;
+}
+
+export interface PersonCandidateListResponse {
+  data: PersonCandidate[];
+  total: number;
+  page: number;
+  limit: number;
+}

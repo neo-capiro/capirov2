@@ -6,6 +6,7 @@ import type {
   ProgramElementListResponse,
   ProgramElementMarkupMonitorResponse,
   ProgramTeamPerson,
+  PersonCandidateListResponse,
 } from './types.js';
 
 export async function getProgramElementDetail(
@@ -82,6 +83,47 @@ export async function setProgramElementWatching(
     await api.post<{ peCode: string; watching: boolean }>(
       `/api/program-elements/${encodeURIComponent(peCode)}/watch`,
       { watching },
+    )
+  ).data;
+}
+
+// ── Person -> PE link candidate review queue (Phase 1b) ───────────────────────
+
+/** capiro_admin: list the person->PE candidate review queue. */
+export async function getPersonCandidates(
+  api: AxiosInstance,
+  params: { status?: string; page?: number; limit?: number } = {},
+): Promise<PersonCandidateListResponse> {
+  return (
+    await api.get<PersonCandidateListResponse>('/api/admin/program-elements/person-candidates', { params })
+  ).data;
+}
+
+/** capiro_admin: confirm (apply link) or reject a candidate. */
+export async function resolvePersonCandidate(
+  api: AxiosInstance,
+  id: string,
+  decision: 'confirm' | 'reject',
+  notes?: string,
+): Promise<{ resolved: true; linked: boolean }> {
+  return (
+    await api.post<{ resolved: true; linked: boolean }>(
+      `/api/admin/program-elements/person-candidates/${encodeURIComponent(id)}/resolve`,
+      { decision, notes },
+    )
+  ).data;
+}
+
+/** user_admin: suggest a person they know for a PE (queued for capiro_admin review). */
+export async function suggestPersonForPe(
+  api: AxiosInstance,
+  peCode: string,
+  body: { fullName: string; roleTitle?: string; organization?: string; notes?: string },
+): Promise<{ suggested: true; candidateId: string }> {
+  return (
+    await api.post<{ suggested: true; candidateId: string }>(
+      `/api/program-elements/${encodeURIComponent(peCode)}/suggest-person`,
+      body,
     )
   ).data;
 }

@@ -4,6 +4,7 @@ import { Alert, Button, Card, Empty, Input, Select, Space, Table, Tag, Typograph
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '../../lib/use-api.js';
+import { useMe } from '../../lib/me.js';
 import { getProgramElementsList } from './api.js';
 import type { ProgramElementListItem } from './types.js';
 
@@ -19,6 +20,7 @@ const SERVICE_OPTIONS = [
 export function ProgramElementFinderPage() {
   const api = useApi();
   const navigate = useNavigate();
+  const me = useMe();
   const [term, setTerm] = useState('');
   const [service, setService] = useState('');
 
@@ -85,7 +87,14 @@ export function ProgramElementFinderPage() {
       <Card
         title="Program Element Finder"
         extra={
-          <Button onClick={() => navigate('/program-elements/mark-up-monitor')}>Mark-up Monitor</Button>
+          <Space>
+            {(me.data?.role === 'capiro_admin' || me.data?.role === 'user_admin') && (
+              <Button onClick={() => navigate('/program-elements/contacts')}>
+                {me.data?.role === 'capiro_admin' ? 'Contact Review Queue' : 'Suggest a Contact'}
+              </Button>
+            )}
+            <Button onClick={() => navigate('/program-elements/mark-up-monitor')}>Mark-up Monitor</Button>
+          </Space>
         }
       >
         <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>

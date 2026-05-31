@@ -49,6 +49,12 @@ const ProgramElementFinderPage = lazy(async () =>
   })),
 );
 
+const PersonCandidatesPage = lazy(async () =>
+  import('./pages/program-element/PersonCandidatesPage.js').then((m) => ({
+    default: m.PersonCandidatesPage,
+  })),
+);
+
 export function App() {
   const { isLoaded, isSignedIn } = useAuth();
 
@@ -105,6 +111,14 @@ export function App() {
           element={
             <Suspense fallback={<PlaceholderPage title="Loading mark-up monitor" description="Please wait..." />}>
               <MarkupMonitorPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/program-elements/contacts"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading contacts" description="Please wait..." />}>
+              <PersonCandidatesPage />
             </Suspense>
           }
         />
