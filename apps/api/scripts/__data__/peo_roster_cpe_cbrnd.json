@@ -1,0 +1,27 @@
+{
+  "org": "CPE CBRND",
+  "formerName": "JPEO-CBRND",
+  "service": "ARMY",
+  "source": "CPE CBRND Command Brief (org slide, updated 26 Mar 2026)",
+  "asOf": "2026-03-26",
+  "stats": { "people": 17 },
+  "people": [
+    { "fullName": "Nicole Kilgore", "rank": null, "role": "PEO", "roleTitle": "Capability Program Executive for CBRND", "programOfRecord": null },
+    { "fullName": "Wyatt Ulrich", "rank": null, "role": "DPEO", "roleTitle": "Interim Deputy for CPE CBRND", "programOfRecord": null },
+    { "fullName": "Gordon Graham", "rank": null, "role": "STAFF", "roleTitle": "Chief of Staff", "programOfRecord": null },
+    { "fullName": "Jen Dabisch", "rank": null, "role": "STAFF", "roleTitle": "Director of Acquisition & Systems Management", "programOfRecord": null },
+    { "fullName": "Steven Batts", "rank": null, "role": "PM", "roleTitle": "Joint Project Manager, CBRN Protection", "programOfRecord": "CBRN Protection" },
+    { "fullName": "John Nuckols", "rank": "COL", "role": "PM", "roleTitle": "Joint Project Manager, CBRN Medical", "programOfRecord": "CBRN Medical" },
+    { "fullName": "Timothy Tharp", "rank": null, "role": "PM", "roleTitle": "Joint Project Manager, CBRN Integrated Early Warning", "programOfRecord": "CBRN Integrated Early Warning" },
+    { "fullName": "Deborah Olson", "rank": null, "role": "PM", "roleTitle": "Joint Project Manager, CBRN SOF", "programOfRecord": "CBRN SOF" },
+    { "fullName": "Bruce Goodwin", "rank": null, "role": "PM", "roleTitle": "Joint Project Lead, CBRN Enabling Technologies", "programOfRecord": "CBRN Enabling Technologies" },
+    { "fullName": "Curt Rogers", "rank": null, "role": "STAFF", "roleTitle": "Assistant CPE Strategic Engagements (Acting)", "programOfRecord": null },
+    { "fullName": "Josh Israel", "rank": null, "role": "STAFF", "roleTitle": "Assistant CPE Technology, Engineering, and Capability Integration", "programOfRecord": null },
+    { "fullName": "Mike Danhires", "rank": null, "role": "STAFF", "roleTitle": "Assistant CPE Logistics", "programOfRecord": null },
+    { "fullName": "Alfred Wong", "rank": null, "role": "STAFF", "roleTitle": "Chief Data Officer", "programOfRecord": null },
+    { "fullName": "Chris Dorsey", "rank": null, "role": "STAFF", "roleTitle": "Assistant CPE Medical Regulatory & Acquisition Strategy", "programOfRecord": null },
+    { "fullName": "Ann Allen", "rank": null, "role": "STAFF", "roleTitle": "Chief of Operations", "programOfRecord": null },
+    { "fullName": "George Sfakianoudis", "rank": null, "role": "STAFF", "roleTitle": "Assistant CPE Business Management", "programOfRecord": null },
+    { "fullName": "Chris Newton", "rank": null, "role": "STAFF", "roleTitle": "Chief People Officer", "programOfRecord": null }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "org": "ASIC (CECOM)",
+  "formerName": null,
+  "service": "ARMY",
+  "source": "Leadership - ASIC (U.S. Army CECOM Software/ASIC), leadership page",
+  "asOf": "2026-05-31",
+  "stats": { "people": 3 },
+  "people": [
+    { "fullName": "Garrett Shoemaker", "rank": null, "role": "STAFF", "roleTitle": "Executive Director, ASIC (CECOM)", "programOfRecord": null },
+    { "fullName": "Ronald \"Boomer\" Rizzo", "rank": null, "role": "STAFF", "roleTitle": "Deputy Executive Director, ASIC (CECOM)", "programOfRecord": null },
+    { "fullName": "Odene Brathwaite", "rank": "LTC", "role": "STAFF", "roleTitle": "Military Deputy Director, ASIC (CECOM)", "programOfRecord": null }
+  ]
+}
