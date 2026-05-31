@@ -29,21 +29,19 @@ interface RelationshipsSectionProps {
 export function RelationshipsSection({ aggregate, clientId, issueHref, expandEnabled }: RelationshipsSectionProps) {
   const offices: OfficeRecommenderRow[] =
     aggregate?.sections.relationships.officeRecommender?.length
-      ? aggregate.sections.relationships.officeRecommender.map((o, idx) => ({
-          rank: idx + 1,
-          name: o.office,
-          sub: `${o.billCount} tracked bill${o.billCount === 1 ? '' : 's'}`,
-          tags: o.tags.map((tag) => ({
-            label: tag,
-            variant:
-              tag === 'ex-staffer'
-                ? ('purple' as const)
-                : tag === 'district'
-                  ? ('green' as const)
-                  : ('amber' as const),
-          })),
-          score: o.score,
-        }))
+      ? aggregate.sections.relationships.officeRecommender.map((o, idx) => {
+          const isCommittee = o.tags.includes('committee');
+          return {
+            rank: idx + 1,
+            name: o.office,
+            sub: isCommittee
+              ? `${o.billCount} tracked bill${o.billCount === 1 ? '' : 's'} in jurisdiction`
+              : `${o.billCount} tracked bill${o.billCount === 1 ? '' : 's'}`,
+            // variant is used verbatim as a `.iv1-office-tag.<variant>` CSS class.
+            tags: o.tags.map((tag) => ({ label: tag, variant: tag })),
+            score: o.score,
+          };
+        })
       : [];
 
   const relationships = aggregate?.sections.relationships;

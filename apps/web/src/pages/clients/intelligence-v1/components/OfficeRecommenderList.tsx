@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom';
 
 interface OfficeTag {
   label: string;
-  variant: 'amber' | 'purple' | 'green';
+  /** CSS modifier class appended to `.iv1-office-tag` (e.g. committee, sponsor, fec). */
+  variant: string;
 }
 
 /** True for app-internal SPA routes that should navigate without a full reload. */
@@ -58,13 +59,19 @@ export function OfficeRecommenderList({
       </div>
 
       <div style={{ padding: '8px 16px 0', fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-        Ranked: committee jurisdiction × district nexus × ex-staffer ties × MAVEN history.
+        Ranked by committee jurisdiction over tracked bills, with bill sponsor,
+        district nexus, and ex-staffer ties layered in when available.
       </div>
 
       {rows.length === 0 ? (
         <div className="iv1-empty" style={{ padding: '24px 16px', textAlign: 'center' }}>
           <b>No office recommendations yet</b>
-          <span>Confirm this client's issue codes and capability mappings to surface ranked congressional offices.</span>
+          <span>
+            Recommendations are derived from the committees of jurisdiction over
+            this client&apos;s tracked bills. Confirm the client&apos;s issue codes or
+            capability mappings so bills get tracked, and ranked congressional
+            offices will appear here.
+          </span>
         </div>
       ) : (
         <div>

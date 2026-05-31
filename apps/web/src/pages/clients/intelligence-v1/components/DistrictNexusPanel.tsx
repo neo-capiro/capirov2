@@ -42,6 +42,7 @@ function formatJobs(jobs: number): string {
 
 export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexusPanelProps) {
   const sourceRows = districtNexus?.topDistricts ?? [];
+  const capabilities = districtNexus?.capabilities ?? [];
 
   // Sort descending by jobs, take top 5, normalise bar widths.
   const rows = [...sourceRows]
@@ -64,20 +65,14 @@ export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexus
       <div className="iv1-surface-head">
         <h3>District nexus</h3>
         <span className="iv1-surface-sub">jobs &amp; ops by CD</span>
+        {rows.length === 0 && capabilities.length > 0 && (
+          <span className="iv1-surface-right">
+            {capabilities.length} capabilit{capabilities.length === 1 ? 'y' : 'ies'}
+          </span>
+        )}
       </div>
 
-      {rows.length === 0 ? (
-        <div className="iv1-empty" style={{ padding: '24px 16px', textAlign: 'center' }}>
-          <b>No district nexus data</b>
-          <span>
-            Add capability/district nexus tags to infer supported jobs by
-            congressional district.{' '}
-            <SmartLink href={supportHref} className="iv1-link">
-              Add to capability tags →
-            </SmartLink>
-          </span>
-        </div>
-      ) : (
+      {rows.length > 0 ? (
         <>
           <div className="iv1-district-body">
             {rows.map((row) => (
@@ -102,6 +97,50 @@ export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexus
             for confirmed counts.
           </div>
         </>
+      ) : capabilities.length > 0 ? (
+        // No census-joined district rows yet, but the client has declared
+        // capabilities. Surface those (with any district-nexus narrative)
+        // instead of a dead "no data" panel, and guide the user to add the CD
+        // detail that unlocks the jobs-by-district bars.
+        <>
+          <div className="iv1-capnexus-body">
+            {capabilities.slice(0, 5).map((cap) => {
+              const nexus = (cap.districtNexus ?? '').trim();
+              return (
+                <div key={cap.capabilityId} className="iv1-capnexus-row">
+                  <div className="iv1-capnexus-head">
+                    <strong className="iv1-capnexus-name">{cap.capabilityName}</strong>
+                    {cap.capabilitySector && (
+                      <span className="iv1-capnexus-sector">{cap.capabilitySector}</span>
+                    )}
+                  </div>
+                  <div className="iv1-capnexus-detail">
+                    {nexus || 'No congressional-district detail captured yet.'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="iv1-district-foot">
+            Add state/CD references (e.g. &ldquo;TX-23&rdquo;) to each
+            capability&apos;s district nexus to unlock supported jobs by district.{' '}
+            <SmartLink href={supportHref} className="iv1-link">
+              Edit capability tags →
+            </SmartLink>
+          </div>
+        </>
+      ) : (
+        <div className="iv1-empty" style={{ padding: '24px 16px', textAlign: 'center' }}>
+          <b>No district nexus data</b>
+          <span>
+            Add capability/district nexus tags to infer supported jobs by
+            congressional district.{' '}
+            <SmartLink href={supportHref} className="iv1-link">
+              Add to capability tags →
+            </SmartLink>
+          </span>
+        </div>
       )}
     </div>
   );

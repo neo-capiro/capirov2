@@ -709,7 +709,7 @@ export class IntelligenceService {
     const topDistrictWeight = districtRows.length ? districtRows[0]!.jobs : 0;
     const hasFecSignal = (fec.summary?.totalAmount ?? 0) > 0;
 
-    const officeRecommendations = Array.from(sponsorMembers.values())
+    const sponsorRecommendations = Array.from(sponsorMembers.values())
       .map((member) => {
         const committeeWeight = Math.min(1, member.billCount / 4);
         const districtWeight = topDistrictWeight > 0 ? 0.2 : 0;
@@ -718,7 +718,7 @@ export class IntelligenceService {
         const score = Math.min(1, 0.35 + committeeWeight * 0.35 + districtWeight + exStafferWeight + fecWeight);
 
         const tags = [
-          { key: 'committee', on: committeeWeight > 0 },
+          { key: 'sponsor', on: true },
           { key: 'district', on: districtWeight > 0 },
           { key: 'ex-staffer', on: exStafferWeight > 0 },
           { key: 'fec', on: fecWeight > 0 },
@@ -735,6 +735,57 @@ export class IntelligenceService {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 6);
+
+    // Fallback signal: congress bill `sponsor_name` is not populated for most
+    // synced bills, so the sponsor-based recommender returns nothing even for
+    // clients tracking hundreds of bills. Committee-of-jurisdiction IS
+    // populated (congress_bill_committee), so rank the committees that handle
+    // the client's tracked bills — "which offices have jurisdiction over what
+    // you track" is the actionable recommendation when sponsors are missing.
+    let committeeRecommendations: Array<{ office: string; score: number; tags: string[]; billCount: number }> = [];
+    if (sponsorRecommendations.length === 0) {
+      const trackedBillIds = trackedBills.bills
+        .map((b) => b.identifier)
+        .filter((v): v is string => typeof v === 'string' && v.length > 0);
+      if (trackedBillIds.length > 0) {
+        try {
+          const jurisdictionRows = await this.prisma.$queryRaw<
+            Array<{ committee_name: string; chamber: string | null; bill_count: number }>
+          >`
+            SELECT cbc.committee_name,
+                   MAX(cbc.chamber) AS chamber,
+                   COUNT(DISTINCT cbc.bill_id)::int AS bill_count
+            FROM congress_bill_committee cbc
+            WHERE cbc.bill_id = ANY(${trackedBillIds}::text[])
+              AND cbc.committee_name IS NOT NULL
+              AND cbc.committee_name <> ''
+            GROUP BY cbc.committee_name
+            ORDER BY bill_count DESC, cbc.committee_name ASC
+            LIMIT 6
+          `;
+          const maxBills = Number(jurisdictionRows[0]?.bill_count ?? 0);
+          committeeRecommendations = jurisdictionRows.map((row) => {
+            const count = Number(row.bill_count);
+            const share = maxBills > 0 ? count / maxBills : 0;
+            const tags = ['committee'];
+            if (hasFecSignal) tags.push('fec');
+            return {
+              office: row.chamber ? `${row.committee_name} · ${row.chamber}` : row.committee_name,
+              score: Math.min(1, 0.45 + share * 0.5),
+              tags,
+              billCount: count,
+            };
+          });
+        } catch (err) {
+          this.logger.warn(
+            `office-recommender committee fallback failed for client ${clientId}: ${(err as Error).message}`,
+          );
+        }
+      }
+    }
+
+    const officeRecommendations =
+      sponsorRecommendations.length > 0 ? sponsorRecommendations : committeeRecommendations;
 
     const scopedGraph = {
       nodes: graph.nodes

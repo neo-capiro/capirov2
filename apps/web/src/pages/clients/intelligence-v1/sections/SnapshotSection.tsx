@@ -10,7 +10,6 @@ import { Skeleton } from 'antd';
 import { useApi } from '../../../../lib/use-api.js';
 import type { ClientIntelProfile, HealthScore, CommentAlert } from '../mappers.js';
 import { daysUntil, formatDate, type ClientProfileV1 } from '../mappers.js';
-import { TrajectoryChipSparkline } from '../components/TrajectoryChipSparkline.js';
 import { BriefingCard } from '../components/BriefingCard.js';
 import { TopAlertsList } from '../components/TopAlertsList.js';
 
@@ -121,8 +120,6 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
   const meetings = meetingsQuery.data ?? [];
   const trackedTotal = aggregate?.sections.legislativeRegulatory.kanban.total ?? profile?.relevantBills?.total ?? 0;
   const healthScore = aggregate?.sections.snapshot.health?.score ?? health?.score ?? null;
-  const trajectorySection = aggregate?.sections.snapshot.trajectory;
-  const trajectory = trajectorySection?.label ?? profile?.lobbyIntel?.trajectory ?? null;
   const activityRows = aggregate?.sections.snapshot.activity14d ?? null;
   const activityMeetings = activityRows ? activityRows.reduce((sum, d) => sum + d.meetings, 0) : meetings.length;
   // Aggregate the 14-day breakdown into 5 totals the mockup specifies:
@@ -168,22 +165,6 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
         <Skeleton active paragraph={{ rows: 3 }} style={{ marginBottom: 14 }} />
       ) : (
         <div className="iv1-snap-hero">
-          {/* Trajectory */}
-          <div className="iv1-snap-cell">
-            <span className="iv1-snap-label">Trajectory · 8q</span>
-            <TrajectoryChipSparkline
-              trajectory={trajectory}
-              series={buildQuarterlySeries(profile)}
-              model={trajectorySection?.model ?? null}
-              fallback={trajectorySection?.fallback ?? null}
-            />
-            <span className="iv1-snap-delta">
-              {profile?.lda?.totalSpending != null && (profile?.lda?.totalFilings ?? 0) > 0
-                ? `$${Math.round(profile.lda.totalSpending / profile.lda.totalFilings / 1_000)}K/filing avg · all-time`
-                : 'No LDA data yet'}
-            </span>
-          </div>
-
           {/* Engagement health */}
           <div className="iv1-snap-cell">
             <span className="iv1-snap-label">Engagement health</span>
@@ -543,15 +524,3 @@ function clioText(
   );
 }
 
-function buildQuarterlySeries(profile: ClientIntelProfile | null): Array<{ label: string; value: number }> {
-  const yearly = profile?.lda?.yearlySpend ?? [];
-
-  if (!yearly.length) return [];
-
-  const sorted = [...yearly]
-    .filter((item) => Number.isFinite(item.amount) && Number.isFinite(item.year))
-    .sort((a, b) => a.year - b.year)
-    .slice(-8);
-
-  return sorted.map((item) => ({ label: String(item.year), value: item.amount }));
-}

@@ -15547,6 +15547,59 @@ body {
   line-height: 1.5;
 }
 
+/* ── District nexus: capability fallback (no census districts yet) ────── */
+
+.iv1-capnexus-body {
+  padding: 10px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.iv1-capnexus-row {
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  background: var(--bg-canvas);
+  padding: 9px 11px;
+}
+
+.iv1-capnexus-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.iv1-capnexus-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.iv1-capnexus-sector {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(28, 100, 242, 0.08);
+  color: var(--accent);
+  border: 1px solid rgba(28, 100, 242, 0.2);
+}
+
+.iv1-capnexus-detail {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  line-height: 1.45;
+}
+
+.iv1-fec-empty-glyph {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink-4);
+  margin-bottom: 6px;
+}
+
 /* ── E-002 Resolution graph card ─────────────────────────────────────── */
 
 .iv1-rgc-canvas {
@@ -15714,8 +15767,10 @@ body {
   border: 1px solid var(--border-1);
 }
 .iv1-office-tag.committee { background: rgba(28, 100, 242, 0.08); color: var(--accent); border-color: rgba(28, 100, 242, 0.2); }
+.iv1-office-tag.sponsor   { background: rgba(28, 100, 242, 0.08); color: var(--accent); border-color: rgba(28, 100, 242, 0.2); }
 .iv1-office-tag.district  { background: rgba(11, 156, 49, 0.08); color: var(--success); border-color: rgba(11, 156, 49, 0.2); }
 .iv1-office-tag.ex-staffer { background: rgba(122, 63, 181, 0.08); color: #7A3FB5; border-color: rgba(122, 63, 181, 0.2); }
+.iv1-office-tag.fec { background: rgba(201, 122, 12, 0.10); color: #B26A00; border-color: rgba(201, 122, 12, 0.22); }
 .iv1-office-score {
   font-size: 13px;
   font-weight: 600;
@@ -15842,7 +15897,7 @@ body {
 /* Snapshot + activity cells */
 .iv1-snap-hero {
   display: grid;
-  grid-template-columns: 1fr 1fr 1.4fr;
+  grid-template-columns: 0.9fr 1.7fr;
   gap: 12px;
 }
 

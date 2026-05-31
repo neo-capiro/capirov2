@@ -190,38 +190,42 @@ function FecEmptyState({
   runFecEnabled: boolean;
   runFecHref: string;
 }) {
+  const isMapped = Boolean(fec?.mappedEmployer);
+  const ctaLabel = isMapped ? 'Run FEC enrichment job →' : 'Map an FEC employer →';
+
   return (
     <div className="iv1-empty iv1-fec-empty">
-      <div style={{ fontSize: 22, color: 'var(--ink-4)', marginBottom: 6 }}>-</div>
-      <strong>No direct FEC contributions matched yet</strong>
-      {fec?.mappedEmployer ? (
+      <div className="iv1-fec-empty-glyph" aria-hidden="true">◎</div>
+      <strong>
+        {isMapped ? 'No direct FEC contributions matched yet' : 'No FEC employer mapped yet'}
+      </strong>
+      {isMapped ? (
         <span>
-          Mapped lobbyists for <em>{fec.mappedEmployer}</em> have FEC records, but no
-          contributions tie back to this client in the resolution graph.
+          Mapped lobbyists for <em>{fec!.mappedEmployer}</em> have FEC records, but no
+          contributions tie back to this client in the resolution graph yet.
         </span>
       ) : (
         <span>
-          Mapped lobbyists have FEC records, but no contributions tie back to this
-          client&apos;s employees in the resolution graph.
+          Map this client to an FEC employer to trace political contributions from its
+          registered lobbyists through committees to candidate recipients.
         </span>
       )}
       <span className="iv1-fec-empty-action">
         {runFecEnabled ? (
           isInternalHref(runFecHref) ? (
             <Link to={runFecHref} className="iv1-fec-cta">
-              Run FEC enrichment job →
+              {ctaLabel}
             </Link>
           ) : (
             <a href={runFecHref} className="iv1-fec-cta">
-              Run FEC enrichment job →
+              {ctaLabel}
             </a>
           )
         ) : (
           <span className="iv1-fec-disabled">
-            FEC enrichment job (requires employer mapping first)
+            FEC enrichment (requires employer mapping first)
           </span>
         )}
-        {' or surface lobbyist-level contributions as a proxy.'}
       </span>
     </div>
   );
