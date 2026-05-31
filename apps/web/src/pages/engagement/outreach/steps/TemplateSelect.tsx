@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Alert,
   App,
   Badge,
   Button,
@@ -15,7 +16,7 @@ import {
   Tag,
   Typography,
 } from 'antd';
-import { LockOutlined, PlusOutlined } from '@ant-design/icons';
+import { DeleteOutlined, LockOutlined, PlusOutlined } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useApi } from '../../../../lib/use-api.js';
 
@@ -62,7 +63,7 @@ const TONE_OPTIONS = [
 
 export function TemplateSelect({ selectedTemplateId, additionalContext, onChange }: TemplateSelectProps) {
   const api = useApi();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [previewTemplateId, setPreviewTemplateId] = useState<string | null>(null);
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -107,6 +108,27 @@ export function TemplateSelect({ selectedTemplateId, additionalContext, onChange
     },
     onError: (err: unknown) => message.error(extractMessage(err)),
   });
+
+  const deleteTemplate = useMutation({
+    mutationFn: async (id: string) =>
+      (await api.delete(`/api/engagement/outreach/ai-templates/${id}`)).data,
+    onSuccess: (_data, id) => {
+      message.success('Template deleted');
+      if (selectedTemplateId === id) onChange({ selectedTemplateId: null });
+      templates.refetch().catch(() => {});
+    },
+    onError: (err: unknown) => message.error(extractMessage(err)),
+  });
+
+  const confirmDelete = (id: string, name: string) => {
+    modal.confirm({
+      title: 'Delete this template?',
+      content: `“${name}” will be permanently removed. This only affects your own saved templates.`,
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      onOk: () => deleteTemplate.mutateAsync(id),
+    });
+  };
 
   const openPreview = async (templateId: string) => {
     setPreviewTemplateId(templateId);
@@ -196,7 +218,7 @@ export function TemplateSelect({ selectedTemplateId, additionalContext, onChange
                     {tmpl.prompt.length > 90 ? '…' : ''}
                   </Typography.Text>
 
-                  <div style={{ marginTop: 8 }}>
+                  <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
                     <Button
                       size="small"
                       onClick={(e) => {
@@ -206,6 +228,19 @@ export function TemplateSelect({ selectedTemplateId, additionalContext, onChange
                     >
                       Preview
                     </Button>
+                    {tmpl.source === 'user' && (
+                      <Button
+                        size="small"
+                        danger
+                        icon={<DeleteOutlined />}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          confirmDelete(tmpl.id, tmpl.name);
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    )}
                   </div>
                 </Card>
               </Col>
@@ -329,13 +364,61 @@ export function TemplateSelect({ selectedTemplateId, additionalContext, onChange
           <Form.Item label="Description" name="description">
             <Input placeholder="One-line description (optional)" maxLength={500} />
           </Form.Item>
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message="How to write a good prompt"
+            description={
+              <div style={{ fontSize: 12.5, lineHeight: 1.6 }}>
+                Brief Clio like a colleague — describe the email you want, not a finished
+                draft (Clio personalizes per recipient). The more specific you are, the
+                better the output.
+                <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                  <li>
+                    <b>Goal &amp; audience:</b> what the email should achieve and who it&apos;s
+                    for — e.g. &ldquo;introduce the client to a House staffer and request a
+                    20-minute meeting.&rdquo;
+                  </li>
+                  <li>
+                    <b>Tone:</b> state it explicitly — e.g. &ldquo;warm but professional,&rdquo;
+                    &ldquo;direct and concise,&rdquo; or &ldquo;deferential to a senior
+                    member.&rdquo;
+                  </li>
+                  <li>
+                    <b>Words/phrases to avoid:</b> call them out — e.g. &ldquo;avoid buzzwords
+                    like <i>synergy</i> / <i>leverage</i>,&rdquo; &ldquo;no exclamation
+                    points,&rdquo; &ldquo;don&apos;t mention pricing or dollar amounts.&rdquo;
+                  </li>
+                  <li>
+                    <b>Must-include points:</b> key message, a specific bill/issue, a deadline,
+                    or a relevant credential.
+                  </li>
+                  <li>
+                    <b>Length &amp; format:</b> e.g. &ldquo;under 150 words, two short
+                    paragraphs, plain prose (no bullet lists).&rdquo;
+                  </li>
+                </ul>
+              </div>
+            }
+          />
           <Form.Item
             label="Prompt instructions"
             name="prompt"
             rules={[{ required: true }]}
-            extra="Write instructions for Clio as if you're briefing a colleague. E.g. 'Write a concise introduction email on behalf of the client…'"
+            extra="Reusable instructions for Clio — not a one-off finished email. Recipient details are filled in automatically."
           >
-            <Input.TextArea rows={5} placeholder="Write a concise introduction email on behalf of the client…" />
+            <Input.TextArea
+              rows={7}
+              placeholder={
+                'Write a concise introduction email on behalf of the client to a congressional staffer.\n\n' +
+                'Goal: introduce the client and request a brief meeting to discuss [issue].\n' +
+                'Tone: warm but professional; respectful of the staffer’s time.\n' +
+                'Avoid: buzzwords (synergy, leverage), exclamation points, and any dollar figures.\n' +
+                'Include: one sentence on the client’s mission and why it matters to the member’s district.\n' +
+                'Length: under 150 words, two short paragraphs, end with a clear ask.'
+              }
+            />
           </Form.Item>
           <Space>
             <Button onClick={() => setCreateModalOpen(false)}>Cancel</Button>
