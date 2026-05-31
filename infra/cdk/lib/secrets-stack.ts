@@ -27,6 +27,7 @@ export class SecretsStack extends cdk.Stack {
   public readonly clerkWebhookSigningSecret: secretsmanager.Secret;
   public readonly clerkPublishableKey: secretsmanager.Secret;
   public readonly clioApiServerKey: secretsmanager.Secret;
+  public readonly govInfoApiKey: secretsmanager.Secret;
   public readonly secretsKey: kms.Key;
 
   constructor(scope: Construct, id: string, props: SecretsStackProps) {
@@ -83,6 +84,17 @@ export class SecretsStack extends cdk.Stack {
         excludePunctuation: true,
         passwordLength: 48,
       },
+      removalPolicy: removal,
+    });
+
+    // GovInfo / api.data.gov key for congressional bills, committee reports, and
+    // public laws. Placeholder; operator sets the real api.data.gov key via
+    // put-secret-value. Consumed by GovInfoService as the GOVINFO_API_KEY env var.
+    this.govInfoApiKey = new secretsmanager.Secret(this, 'GovInfoApiKey', {
+      secretName: `/capiro/${cfg.envName}/govinfo/api-key`,
+      description: 'api.data.gov key for GovInfo (BILLS / CRPT / PLAW / CHRG)',
+      encryptionKey: this.secretsKey,
+      secretStringValue: cdk.SecretValue.unsafePlainText('REPLACE_ME'),
       removalPolicy: removal,
     });
 

@@ -2506,3 +2506,15 @@ model SyncRun {
   @@index([source, startedAt(sort: Desc)], map: "sync_run_source_started_at_idx")
   @@map("sync_run")
 }
+
+/// Global 24h response cache for GovInfo (api.data.gov) JSON API calls. Keyed by
+/// the request URL (api_key stripped). Global table — no tenant_id, no RLS.
+model GovInfoCache {
+  id        String   @id @default(uuid()) @db.Uuid
+  url       String   @unique
+  response  Json     @map("response_jsonb")
+  fetchedAt DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+
+  @@index([fetchedAt], map: "govinfo_cache_fetched_at_idx")
+  @@map("govinfo_cache")
+}

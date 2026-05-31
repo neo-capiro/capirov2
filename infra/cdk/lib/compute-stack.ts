@@ -118,6 +118,11 @@ export class ComputeStack extends cdk.Stack {
       'ImportedClerkPubKey',
       secretsStack.clerkPublishableKey.secretArn,
     );
+    const govInfoApiKeyImported = secretsmanager.Secret.fromSecretCompleteArn(
+      this,
+      'ImportedGovInfoApiKey',
+      secretsStack.govInfoApiKey.secretArn,
+    );
 
     // Microsoft 365 Graph OAuth + token-at-rest crypto. These secrets are
     // provisioned out-of-band and imported by complete ARN when available. ECS
@@ -251,6 +256,7 @@ export class ComputeStack extends cdk.Stack {
           clerkSecretKeyImported.secretArn,
           clerkWebhookImported.secretArn,
           clerkPubKeyImported.secretArn,
+          govInfoApiKeyImported.secretArn,
           // Trailing `*` (no preceding dash) matches both the bare name and
           // the auto-generated `-XXXXXX` version suffix Secrets Manager
           // appends to every secret ARN.
@@ -325,6 +331,7 @@ export class ComputeStack extends cdk.Stack {
       NOTES_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(notesEncryptionKeySecret),
       OPENAI_API_KEY: ecs.Secret.fromSecretsManager(openaiApiKeySecret),
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(anthropicApiKeySecret),
+      GOVINFO_API_KEY: ecs.Secret.fromSecretsManager(govInfoApiKeyImported),
     };
     const apiMigrateSecrets = {
       CLERK_SECRET_KEY: ecs.Secret.fromSecretsManager(clerkSecretKeyImported),
@@ -333,6 +340,8 @@ export class ComputeStack extends cdk.Stack {
       DB_PORT: ecs.Secret.fromSecretsManager(dbSecretImported, 'port'),
       DB_USER: ecs.Secret.fromSecretsManager(dbSecretImported, 'username'),
       DB_PASSWORD: ecs.Secret.fromSecretsManager(dbSecretImported, 'password'),
+      // GovInfo sync scripts (bills/reports/laws) run under the migrate task def.
+      GOVINFO_API_KEY: ecs.Secret.fromSecretsManager(govInfoApiKeyImported),
     };
 
     const apiSharedEnv: Record<string, string> = {
@@ -348,6 +357,7 @@ export class ComputeStack extends cdk.Stack {
       WEB_ORIGIN: `https://${cfg.appHost},https://${cfg.wildcardHost.replace('*', 'acmelobby')}`,
       ASSETS_BUCKET: assetsStack.bucket.bucketName,
       AWS_REGION_DEFAULT: this.region,
+      GOVINFO_CACHE_BUCKET: `capiro-govinfo-cache-${this.account}-${this.region}`,
       APP_SIGN_IN_URL: `https://${cfg.appHost}/sign-in`,
       MICROSOFT_REDIRECT_URI: `https://${cfg.appHost}/api/engagement/integrations/microsoft/callback`,
       MICROSOFT_GRAPH_NOTIFICATION_URL: `https://${cfg.appHost}/api/engagement/integrations/microsoft/notifications`,
@@ -369,6 +379,17 @@ export class ComputeStack extends cdk.Stack {
       new iam.PolicyStatement({
         actions: ['s3:ListBucket'],
         resources: ['arn:aws:s3:::updated-directory-967807252336-us-east-1'],
+      }),
+    );
+
+    // GovInfo PDF cache bucket (committee reports, public laws). GovInfoService
+    // reads cached PDFs and writes fresh ones under pdfs/. Bucket is provisioned
+    // out-of-band as capiro-govinfo-cache-<account>-<region>.
+    const govInfoCacheBucketArn = `arn:aws:s3:::capiro-govinfo-cache-${this.account}-${this.region}`;
+    apiTaskRole.addToPolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:GetObject', 's3:PutObject'],
+        resources: [`${govInfoCacheBucketArn}/*`],
       }),
     );
 
@@ -404,6 +425,9 @@ export class ComputeStack extends cdk.Stack {
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/notes-encryption-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
+      // GovInfo key is created in the SecretsStack with a leading-slash name
+      // (/capiro/<env>/govinfo/api-key); match its versioned ARN form.
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:/capiro/${cfg.envName}/govinfo/api-key*`,
     ];
 
     grantSecretsAndKmsToExecutionRole(
@@ -606,6 +630,7 @@ export class ComputeStack extends cdk.Stack {
         dbSecretImported.secretArn,
         clerkSecretKeyImported.secretArn,
         clerkWebhookImported.secretArn,
+        govInfoApiKeyImported.secretArn,
       ],
       [dataKey.keyArn, secretsStack.secretsKey.keyArn],
     );

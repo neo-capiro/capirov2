@@ -10,6 +10,9 @@ export interface FetchJsonOptions extends RequestInit {
 export class SourceClientError extends Error {
   readonly status?: number;
   readonly url: string;
+  // Error.cause exists at runtime (ES2022) but isn't in this project's TS lib,
+  // so declare it explicitly to type the assignment below.
+  cause?: unknown;
 
   constructor(message: string, input: { status?: number; url: string; cause?: unknown }) {
     super(message);

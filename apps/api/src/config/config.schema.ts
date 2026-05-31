@@ -95,6 +95,13 @@ export const configSchema = z.object({
   // Amazon SES. The source address must be a verified SES identity.
   DEMO_REQUEST_EMAIL_FROM: z.string().email().default('sales@capiro.ai'),
   DEMO_REQUEST_EMAIL_TO: z.string().email().default('sales@capiro.ai'),
+
+  // GovInfo (api.data.gov) — congressional bills, committee reports, public laws.
+  // Key is an api.data.gov key sourced from Secrets Manager (injected as env by CDK).
+  // Endpoints fail closed (the service throws) when the key is unset.
+  GOVINFO_API_KEY: z.string().optional(),
+  // S3 bucket for cached GovInfo PDFs (committee reports, public laws).
+  GOVINFO_CACHE_BUCKET: z.string().optional(),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;
