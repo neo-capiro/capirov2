@@ -1,0 +1,12 @@
+{
+  "chamber": "HAC-D",
+  "fy": 2027,
+  "source": "hac_d_report_fy27",
+  "records": [
+    { "peCode": "0603270A", "fy": 2027, "request": 125000, "mark": 140000, "explanation": "Program increase" },
+    { "peCode": "0603250F", "fy": 2027, "request": 80000, "mark": 72000, "explanation": "Unjustified growth reduction" },
+    { "peCode": "0604201A", "fy": 2027, "request": 210000, "mark": 210000, "explanation": "No change" },
+    { "peCode": "0101221N", "fy": 2027, "request": 50000, "mark": 55000, "explanation": "Industrial base support" },
+    { "peCode": "NOTAPECODE", "fy": 2027, "request": 999, "mark": 999, "explanation": "malformed pe code row" }
+  ]
+}

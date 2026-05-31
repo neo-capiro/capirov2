@@ -81,7 +81,7 @@ def extract_rows(pdf_path, fy):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pdf")
-    ap.add_argument("--chamber", required=True, choices=["HASC", "SASC"])
+    ap.add_argument("--chamber", required=True, choices=["HASC", "SASC", "HAC-D", "SAC-D"])
     ap.add_argument("--fy", type=int, required=True)
     ap.add_argument("--out", required=True)
     args = ap.parse_args()

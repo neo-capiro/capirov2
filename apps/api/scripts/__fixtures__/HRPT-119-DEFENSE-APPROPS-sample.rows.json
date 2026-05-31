@@ -1,0 +1,13 @@
+{
+  "report": "HRPT-119-DEFENSE-APPROPS-sample",
+  "chamber": "HAC-D",
+  "fy": 2027,
+  "note": "Representative pre-extracted rows from the offline pdfplumber tool (extract_armed_services_report.py --chamber HAC-D). Mirrors a House Defense Appropriations subcommittee report PE-mark table. Amounts in thousands of dollars as printed.",
+  "rows": [
+    { "peCode": "0603270A", "fy": 2027, "request": 125000, "mark": 140000, "explanation": "Program increase" },
+    { "peCode": "0603250F", "fy": 2027, "request": 80000, "mark": 72000, "explanation": "Unjustified growth reduction" },
+    { "peCode": "0604201A", "fy": 2027, "request": 210000, "mark": 210000, "explanation": "No change" },
+    { "peCode": "0101221N", "fy": 2027, "request": 50000, "mark": 55000, "explanation": "Industrial base support" },
+    { "peCode": "NOTAPECODE", "fy": 2027, "request": 999, "mark": 999, "explanation": "malformed pe code row" }
+  ]
+}
