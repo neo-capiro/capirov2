@@ -24,6 +24,7 @@
     "sync:lda:incremental": "tsx scripts/sync-lda.ts --incremental",
     "sync:fec": "tsx scripts/sync-fec.ts",
     "sync:congress": "tsx scripts/sync-congress.ts",
+    "extract:bill-pe-codes": "tsx scripts/extract-bill-pe-codes.ts",
     "sync:federal-register": "tsx scripts/sync-federal-register.ts",
     "sync:regulations": "tsx scripts/sync-regulations.ts",
     "sync:sec": "tsx scripts/sync-sec-edgar.ts",
