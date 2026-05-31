@@ -25,6 +25,8 @@
     "sync:fec": "tsx scripts/sync-fec.ts",
     "sync:congress": "tsx scripts/sync-congress.ts",
     "extract:bill-pe-codes": "tsx scripts/extract-bill-pe-codes.ts",
+    "parse:hasc-report": "tsx scripts/parse-hasc-sasc-reports.ts --chamber HASC",
+    "parse:sasc-report": "tsx scripts/parse-hasc-sasc-reports.ts --chamber SASC",
     "sync:federal-register": "tsx scripts/sync-federal-register.ts",
     "sync:regulations": "tsx scripts/sync-regulations.ts",
     "sync:sec": "tsx scripts/sync-sec-edgar.ts",

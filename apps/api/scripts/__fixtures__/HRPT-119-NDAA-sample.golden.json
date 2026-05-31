@@ -1,0 +1,12 @@
+{
+  "chamber": "HASC",
+  "fy": 2027,
+  "source": "hasc_report_fy27",
+  "records": [
+    { "peCode": "0603270A", "fy": 2027, "request": 125000, "mark": 150000, "explanation": "Electronic warfare development increase" },
+    { "peCode": "0603250F", "fy": 2027, "request": 80000, "mark": 80000, "explanation": "No change" },
+    { "peCode": "0604201A", "fy": 2027, "request": 210000, "mark": 185000, "explanation": "Schedule slip reduction" },
+    { "peCode": "0101221N", "fy": 2027, "request": 50000, "mark": 62500, "explanation": "Program acceleration plus-up" },
+    { "peCode": "BADCODE99", "fy": 2027, "request": 1000, "mark": 1000, "explanation": "malformed pe code row" }
+  ]
+}

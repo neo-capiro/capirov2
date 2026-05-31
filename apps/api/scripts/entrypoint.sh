@@ -182,12 +182,17 @@ case "${1:-serve}" in
   # Step 21: scan CongressBill text for PE codes, filter to existing program_element,
   # upsert congress_bill.pe_codes, emit IntelligenceChange when a new PE is watched.
   extract-bill-pe-codes) exec ./node_modules/.bin/tsx scripts/extract-bill-pe-codes.ts ;;
+  # Step 22: load HASC/SASC committee-report PE marks from a committed rows artifact
+  # (offline pdfplumber extraction) via the program-element writer. Pass the artifact
+  # path as an extra arg; --chamber/--fy fall back to the artifact's own fields.
+  parse-hasc-report) shift; exec ./node_modules/.bin/tsx scripts/parse-hasc-sasc-reports.ts --chamber HASC "$@" ;;
+  parse-sasc-report) shift; exec ./node_modules/.bin/tsx scripts/parse-hasc-sasc-reports.ts --chamber SASC "$@" ;;
   serve)
     echo "Starting Capiro API"
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | generate-pe-person-candidates | sync-peo-rosters | extract-bill-pe-codes)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | generate-pe-person-candidates | sync-peo-rosters | extract-bill-pe-codes | parse-hasc-report | parse-sasc-report)" >&2
     exit 1
     ;;
 esac
