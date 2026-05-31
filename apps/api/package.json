@@ -23,6 +23,7 @@
     "sync:lda": "tsx scripts/sync-lda.ts",
     "sync:lda:incremental": "tsx scripts/sync-lda.ts --incremental",
     "sync:fec": "tsx scripts/sync-fec.ts",
+    "sync:federal-award": "tsx scripts/sync-federal-award.ts",
     "sync:fec-pac": "tsx scripts/sync-fec-pac.ts",
     "sync:congress": "tsx scripts/sync-congress.ts",
     "extract:bill-pe-codes": "tsx scripts/extract-bill-pe-codes.ts",

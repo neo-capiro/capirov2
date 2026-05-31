@@ -146,6 +146,9 @@ case "${1:-serve}" in
   sync-gao)               exec ./node_modules/.bin/tsx scripts/sync-gao.ts ;;
   sync-crs)               exec ./node_modules/.bin/tsx scripts/sync-crs.ts ;;
   sync-fec)               exec ./node_modules/.bin/tsx scripts/sync-fec.ts ;;
+  # Step 28: USAspending federal awards (DoD), PE-tagged. Daily 7-day delta; pass
+  # --backfill --since YYYY-MM-DD for the separate backfill.
+  sync-federal-award)     shift; exec ./node_modules/.bin/tsx scripts/sync-federal-award.ts "$@" ;;
   sync-fec-pac)           exec ./node_modules/.bin/tsx scripts/sync-fec-pac.ts ;;
   sync-fara)              exec ./node_modules/.bin/tsx scripts/sync-fara.ts ;;
   sync-sec-edgar)         exec ./node_modules/.bin/tsx scripts/sync-sec-edgar.ts ;;
@@ -206,7 +209,7 @@ case "${1:-serve}" in
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-fec-pac | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | generate-pe-person-candidates | sync-peo-rosters | extract-bill-pe-codes | parse-hasc-report | parse-sasc-report | parse-hac-d-report | parse-sac-d-report | parse-ndaa-conference | parse-defense-approps-public-law | parse-pdoc)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-federal-award | sync-fec-pac | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | generate-pe-person-candidates | sync-peo-rosters | extract-bill-pe-codes | parse-hasc-report | parse-sasc-report | parse-hac-d-report | parse-sac-d-report | parse-ndaa-conference | parse-defense-approps-public-law | parse-pdoc)" >&2
     exit 1
     ;;
 esac
