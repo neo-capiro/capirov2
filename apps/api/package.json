@@ -26,6 +26,8 @@
     "sync:federal-award": "tsx scripts/sync-federal-award.ts",
     "extract:press-personnel": "tsx scripts/extract-personnel-from-press-releases.ts",
     "sync:sam-personnel": "tsx scripts/sync-sam-personnel.ts",
+    "extract:hearing-witnesses": "tsx scripts/extract-hearing-witnesses.ts",
+    "extract:gao-interviewees": "tsx scripts/extract-gao-interviewees.ts",
     "sync:fec-pac": "tsx scripts/sync-fec-pac.ts",
     "sync:entity-resolution": "tsx scripts/sync-entity-resolution.ts",
     "enrich:award-districts": "tsx scripts/enrich-award-districts.ts",

@@ -153,6 +153,10 @@ case "${1:-serve}" in
   extract-press-personnel) shift; exec ./node_modules/.bin/tsx scripts/extract-personnel-from-press-releases.ts "$@" ;;
   # Step 33: SAM.gov DoD solicitation KO/CS personnel (email domain only).
   sync-sam-personnel)     shift; exec ./node_modules/.bin/tsx scripts/sync-sam-personnel.ts "$@" ;;
+  # Step 34A: DoD witnesses at defense-committee hearings (committee_hearing).
+  extract-hearing-witnesses) shift; exec ./node_modules/.bin/tsx scripts/extract-hearing-witnesses.ts "$@" ;;
+  # Step 34B: DoD personnel named in recent GAO reports (LLM NER over metadata).
+  extract-gao-interviewees)  shift; exec ./node_modules/.bin/tsx scripts/extract-gao-interviewees.ts "$@" ;;
   sync-fec-pac)           exec ./node_modules/.bin/tsx scripts/sync-fec-pac.ts ;;
   sync-entity-resolution) shift; exec ./node_modules/.bin/tsx scripts/sync-entity-resolution.ts "$@" ;;
   enrich-award-districts) shift; exec ./node_modules/.bin/tsx scripts/enrich-award-districts.ts "$@" ;;
