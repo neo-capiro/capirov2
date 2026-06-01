@@ -1,0 +1,68 @@
+{
+  "categories": [
+    {
+      "id": "getting-started",
+      "title": "Getting started",
+      "description": "The basics — your first 15 minutes in Capiro.",
+      "items": [
+        {
+          "id": "product-tour",
+          "title": "Product tour",
+          "description": "A quick walkthrough of the dashboard, navigation, and the key areas.",
+          "type": "video",
+          "s3Key": "help/videos/product-tour.mp4",
+          "thumbnailS3Key": "help/thumbnails/product-tour.png",
+          "durationLabel": "5 min"
+        },
+        {
+          "id": "quick-start",
+          "title": "Quick-start guide",
+          "description": "Step-by-step setup: connect your inbox, add clients, invite your team.",
+          "type": "guide",
+          "s3Key": "help/guides/quick-start.pdf",
+          "durationLabel": "6 pages"
+        }
+      ]
+    },
+    {
+      "id": "clio",
+      "title": "Clio (AI assistant)",
+      "description": "Get the most out of your AI chief of staff.",
+      "items": [
+        {
+          "id": "clio-basics",
+          "title": "Asking Clio great questions",
+          "description": "How to phrase requests, read citations, and run deep research.",
+          "type": "video",
+          "s3Key": "help/videos/clio-basics.mp4",
+          "thumbnailS3Key": "help/thumbnails/clio-basics.png",
+          "durationLabel": "7 min"
+        },
+        {
+          "id": "clio-user-guide",
+          "title": "Clio user guide",
+          "description": "The complete reference for Clio's features and capabilities.",
+          "type": "guide",
+          "s3Key": "help/guides/clio-user-guide.pdf",
+          "durationLabel": "8 pages"
+        }
+      ]
+    },
+    {
+      "id": "engagement",
+      "title": "Engagement & outreach",
+      "description": "Meetings, drafts, and the outreach workflow.",
+      "items": [
+        {
+          "id": "outreach-walkthrough",
+          "title": "Running an outreach campaign",
+          "description": "Build, review, and send outreach end-to-end in the Engagement Manager.",
+          "type": "video",
+          "s3Key": "help/videos/outreach-walkthrough.mp4",
+          "thumbnailS3Key": "help/thumbnails/outreach-walkthrough.png",
+          "durationLabel": "9 min"
+        }
+      ]
+    }
+  ]
+}

@@ -14,6 +14,7 @@ import { BillingPage } from './pages/admin/BillingPage.js';
 import { CapiroAdminPage } from './pages/capiro-admin/CapiroAdminPage.js';
 import { ClientWorkspacePage } from './pages/clients/ClientWorkspacePage.js';
 import { DirectoryPage } from './pages/directory/DirectoryPage.js';
+import { HelpPage } from './pages/help/HelpPage.js';
 import { HomePage } from './pages/HomePage.js';
 import { EngagementPage } from './pages/engagement/EngagementPage.js';
 import { IntegrationsPage } from './pages/settings/IntegrationsPage.js';
@@ -156,6 +157,7 @@ export function App() {
         <Route path="/intelligence/*" element={<Navigate to="/explorer" replace />} />
         <Route path="/intelligence-center" element={<IntelligenceCenterPage />} />
         <Route path="/directory" element={<DirectoryPage />} />
+        <Route path="/help" element={<HelpPage />} />
         <Route path="/portal/*" element={<Navigate to="/clients" replace />} />
 
         {/* Settings hosts personal + admin + capiro-admin tabs. Tabs are
