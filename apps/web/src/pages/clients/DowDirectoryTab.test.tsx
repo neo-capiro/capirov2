@@ -66,7 +66,7 @@ describe('DowDirectoryTab', () => {
       data: { data: [person(), person({ id: 'p2', fullName: 'Bob Jones', role: 'KO' })], total: 2, page: 1, limit: 100 },
     });
     renderWithClient(
-      <DowDirectoryTab client={{ id: 'c1' }} capabilities={[{ peCode: '0604201A' }]} />,
+      <DowDirectoryTab client={{ id: 'c1' }} capabilities={[{ peNumber: '0604201A' }]} />,
     );
     expect(await screen.findByText('Jane Smith')).toBeInTheDocument();
     expect(screen.getByText('Bob Jones')).toBeInTheDocument();
@@ -78,7 +78,7 @@ describe('DowDirectoryTab', () => {
   });
 
   test('empty state when client has no PE-code capabilities', () => {
-    renderWithClient(<DowDirectoryTab client={{ id: 'c1' }} capabilities={[{ peCode: null }, {}]} />);
+    renderWithClient(<DowDirectoryTab client={{ id: 'c1' }} capabilities={[{ peNumber: null }, {}]} />);
     expect(
       screen.getByText('No defense program capabilities linked to this client yet'),
     ).toBeInTheDocument();
@@ -94,7 +94,7 @@ describe('DowDirectoryTab', () => {
         limit: 100,
       },
     });
-    renderWithClient(<DowDirectoryTab client={{ id: 'c1' }} capabilities={[{ peCode: '0604201A' }]} />);
+    renderWithClient(<DowDirectoryTab client={{ id: 'c1' }} capabilities={[{ peNumber: '0604201A' }]} />);
     expect(await screen.findByText('Jane Smith')).toBeInTheDocument();
     expect(screen.getByText('Bob Jones')).toBeInTheDocument();
 
