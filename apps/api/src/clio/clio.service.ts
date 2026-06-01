@@ -34,6 +34,7 @@ import { parseSuggestions } from './clio-suggestions.helpers.js';
 import { normalizeFeedback, type NormalizedFeedback } from './clio-feedback.helpers.js';
 import { COMPLIANCE_GUARDRAILS, screenComplianceRisk } from './clio-compliance.helpers.js';
 import { confidenceLevel } from './clio-confidence.helpers.js';
+import { classifyToolAction, isSideEffectingTool } from './clio-actions.helpers.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -468,6 +469,7 @@ export class ClioService {
       metadata: Prisma.InputJsonValue;
     }> = [];
     const toolsUsed: string[] = [];
+    const actionsTaken: Array<{ tool: string; kind: string; ok: boolean }> = [];
     const usageTotals = emptyUsage();
     const citations: ClioCitation[] = [];
     let finalCitations: ClioCitation[] = [];
@@ -694,6 +696,16 @@ export class ClioService {
           if (outcomes[item.index]?.ok) this.toolBreaker.recordSuccess(key);
           else this.toolBreaker.recordFailure(key);
         }
+        // P2-5: audit every side-effecting action Clio takes this round.
+        for (const item of preparedTools) {
+          if (!isSideEffectingTool(item.tool.name)) continue;
+          const ok = outcomes[item.index]?.ok ?? false;
+          const kind = classifyToolAction(item.tool.name);
+          actionsTaken.push({ tool: item.tool.name, kind, ok });
+          this.logger.log(
+            `Clio action [${kind}] tool=${item.tool.name} ok=${ok} tenant=${ctx.tenantId} user=${ctx.userId} conversation=${conversationId}`,
+          );
+        }
 
         // Phase 3: surface each source + assemble tool_result blocks in tool_use order.
         const toolResultBlocks: Array<Record<string, unknown>> = [];
@@ -867,6 +879,7 @@ export class ClioService {
             verification: verification as unknown as Prisma.InputJsonValue,
             trace: turnTrace as unknown as Prisma.InputJsonValue,
             suggestions,
+            actions: actionsTaken,
             ...(complianceScreen.flagged
               ? { compliance: { flagged: true, category: complianceScreen.category } }
               : {}),
