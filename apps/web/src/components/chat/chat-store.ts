@@ -22,6 +22,7 @@ export interface ClioVerification {
   unsupportedCount: number;
   unsupportedRatio: number;
   lowConfidence: boolean;
+  confidence?: { level: 'high' | 'medium' | 'low' | 'unknown'; label: string };
 }
 
 export interface ChatMessage {

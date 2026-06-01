@@ -55,7 +55,12 @@ type SseEvent =
   | { type: 'conflict'; conflict?: { title: string; detail: string } }
   | { type: 'sources'; sources?: Array<ClioSourceAttribution & { label?: string }> }
   | { type: 'citations'; citations?: ClioCitation[] }
-  | { type: 'verification'; title?: string; verification?: ClioVerification }
+  | {
+      type: 'verification';
+      title?: string;
+      verification?: ClioVerification;
+      confidence?: { level: 'high' | 'medium' | 'low' | 'unknown'; label: string };
+    }
   | { type: 'text'; text: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
@@ -658,7 +663,11 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           } else if (event.type === 'citations') {
             setChatMessageCitations(assistantId, Array.isArray(event.citations) ? event.citations : []);
           } else if (event.type === 'verification') {
-            if (event.verification) setChatMessageVerification(assistantId, event.verification);
+            if (event.verification)
+              setChatMessageVerification(assistantId, {
+                ...event.verification,
+                confidence: event.confidence,
+              });
           } else if (event.type === 'suggestions') {
             setChatMessageSuggestions(
               assistantId,

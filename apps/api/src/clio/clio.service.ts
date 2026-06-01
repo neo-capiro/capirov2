@@ -33,6 +33,7 @@ import { loopBudgetExceeded, type LoopStopReason } from './clio-budget.helpers.j
 import { parseSuggestions } from './clio-suggestions.helpers.js';
 import { normalizeFeedback, type NormalizedFeedback } from './clio-feedback.helpers.js';
 import { COMPLIANCE_GUARDRAILS, screenComplianceRisk } from './clio-compliance.helpers.js';
+import { confidenceLevel } from './clio-confidence.helpers.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -804,7 +805,9 @@ export class ClioService {
         finalCitations.map((c) => ({ n: c.n, title: c.title, snippet: c.snippet })),
       );
       if (verification) {
-        sse.write(`data: ${JSON.stringify({ type: 'verification', title: deliverable.title, verification })}\n\n`);
+        sse.write(
+          `data: ${JSON.stringify({ type: 'verification', title: deliverable.title, verification, confidence: confidenceLevel(verification.unsupportedRatio) })}\n\n`,
+        );
       }
     }
 
