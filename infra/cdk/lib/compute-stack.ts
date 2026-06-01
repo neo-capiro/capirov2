@@ -184,12 +184,13 @@ export class ComputeStack extends cdk.Stack {
     );
     // SAM.gov API key for Step 33 DoD solicitation personnel sync
     // (sync-sam-personnel). Provisioned out-of-band at
-    // /capiro/<env>/sam-gov/api-key (leading slash); imported by name like the
-    // GovInfo key. Consumed as SAM_GOV_API_KEY under the migrate task def.
+    // capiro/<env>/sam-gov-api-key (no leading slash; covered by the existing
+    // capiro/<env>/* exec-role grant). Consumed as SAM_GOV_API_KEY under the
+    // migrate task def.
     const samGovApiKeySecret = importExternalSecret(
       this,
       'ImportedSamGovApiKey',
-      `/capiro/${cfg.envName}/sam-gov/api-key`,
+      `capiro/${cfg.envName}/sam-gov-api-key`,
       cfg.externalSecretArns?.samGovApiKey,
     );
 
@@ -440,8 +441,8 @@ export class ComputeStack extends cdk.Stack {
       // GovInfo key is created in the SecretsStack with a leading-slash name
       // (/capiro/<env>/govinfo/api-key); match its versioned ARN form.
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:/capiro/${cfg.envName}/govinfo/api-key*`,
-      // SAM.gov key provisioned out-of-band, leading-slash name.
-      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:/capiro/${cfg.envName}/sam-gov/api-key*`,
+      // SAM.gov key provisioned out-of-band (capiro/<env>/sam-gov-api-key).
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/sam-gov-api-key*`,
     ];
 
     grantSecretsAndKmsToExecutionRole(
