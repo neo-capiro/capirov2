@@ -29,6 +29,10 @@ export const configSchema = z.object({
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_MODEL: z.string().default('claude-haiku-4-5-20251001'),
 
+  // SAM.gov Contract Opportunities API key (api.data.gov). Stored in Secrets
+  // Manager and injected as an env var; optional so non-prod boots without it.
+  SAM_GOV_API_KEY: z.string().optional(),
+
   // Clio chat brain (single Anthropic-native model + budgets). Env-driven so
   // the model and token ceiling are not hard-coded in service code.
   CLIO_MODEL: z.string().default('claude-sonnet-4-6'),
