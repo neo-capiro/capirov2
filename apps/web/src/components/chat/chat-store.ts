@@ -1,10 +1,21 @@
 import { useEffect, useState } from 'react';
 
+export interface ClioCitation {
+  n: number;
+  type: string;
+  id: string;
+  title: string;
+  url: string | null;
+  snippet: string | null;
+  tool: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   createdAt: Date;
+  citations?: ClioCitation[];
 }
 
 export interface ActiveDraftContext {
@@ -94,6 +105,12 @@ export function appendChatMessage(message: ChatMessage): void {
 
 export function updateChatMessage(id: string, content: string): void {
   const messages = state.messages.map((m) => (m.id === id ? { ...m, content } : m));
+  state = { ...state, messages };
+  notify();
+}
+
+export function setChatMessageCitations(id: string, citations: ClioCitation[]): void {
+  const messages = state.messages.map((m) => (m.id === id ? { ...m, citations } : m));
   state = { ...state, messages };
   notify();
 }

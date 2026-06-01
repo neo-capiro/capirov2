@@ -15,12 +15,14 @@ import {
   appendChatMessage,
   clearChatSession,
   ClioSourceAttribution,
+  type ClioCitation,
   getActiveDraft,
   removeConversation,
   setAlerts,
   setActiveConversation,
   setChatOpen,
   setChatSession,
+  setChatMessageCitations,
   setStreaming,
   toggleChat,
   toggleSessionRail,
@@ -43,6 +45,7 @@ type SseEvent =
   | { type: 'template'; template?: { heading: string; sections: string[] } }
   | { type: 'conflict'; conflict?: { title: string; detail: string } }
   | { type: 'sources'; sources?: Array<ClioSourceAttribution & { label?: string }> }
+  | { type: 'citations'; citations?: ClioCitation[] }
   | { type: 'text'; text: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
@@ -619,6 +622,8 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                 return next;
               });
             }
+          } else if (event.type === 'citations') {
+            setChatMessageCitations(assistantId, Array.isArray(event.citations) ? event.citations : []);
           } else if (event.type === 'done') {
             break outer;
           } else if (event.type === 'error') {
@@ -944,6 +949,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                 <ChatMessage
                   role={msg.role}
                   content={msg.content}
+                  citations={msg.citations}
                   isStreaming={
                     isStreaming &&
                     i === messages.length - 1 &&
