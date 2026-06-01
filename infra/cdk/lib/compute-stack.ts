@@ -182,6 +182,16 @@ export class ComputeStack extends cdk.Stack {
       `capiro/${cfg.envName}/anthropic-api-key`,
       cfg.externalSecretArns?.anthropicApiKey,
     );
+    // SAM.gov API key for Step 33 DoD solicitation personnel sync
+    // (sync-sam-personnel). Provisioned out-of-band at
+    // /capiro/<env>/sam-gov/api-key (leading slash); imported by name like the
+    // GovInfo key. Consumed as SAM_GOV_API_KEY under the migrate task def.
+    const samGovApiKeySecret = importExternalSecret(
+      this,
+      'ImportedSamGovApiKey',
+      `/capiro/${cfg.envName}/sam-gov/api-key`,
+      cfg.externalSecretArns?.samGovApiKey,
+    );
 
     // ------------------------------------------------------------------ ECR
     // Repos are pre-created out-of-band so images can be pushed BEFORE the
@@ -342,6 +352,8 @@ export class ComputeStack extends cdk.Stack {
       DB_PASSWORD: ecs.Secret.fromSecretsManager(dbSecretImported, 'password'),
       // GovInfo sync scripts (bills/reports/laws) run under the migrate task def.
       GOVINFO_API_KEY: ecs.Secret.fromSecretsManager(govInfoApiKeyImported),
+      // Step 33 SAM.gov personnel sync (sync-sam-personnel) also runs here.
+      SAM_GOV_API_KEY: ecs.Secret.fromSecretsManager(samGovApiKeySecret),
     };
 
     const apiSharedEnv: Record<string, string> = {
@@ -428,6 +440,8 @@ export class ComputeStack extends cdk.Stack {
       // GovInfo key is created in the SecretsStack with a leading-slash name
       // (/capiro/<env>/govinfo/api-key); match its versioned ARN form.
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:/capiro/${cfg.envName}/govinfo/api-key*`,
+      // SAM.gov key provisioned out-of-band, leading-slash name.
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:/capiro/${cfg.envName}/sam-gov/api-key*`,
     ];
 
     grantSecretsAndKmsToExecutionRole(
@@ -631,6 +645,7 @@ export class ComputeStack extends cdk.Stack {
         clerkSecretKeyImported.secretArn,
         clerkWebhookImported.secretArn,
         govInfoApiKeyImported.secretArn,
+        samGovApiKeySecret.secretArn,
       ],
       [dataKey.keyArn, secretsStack.secretsKey.keyArn],
     );
