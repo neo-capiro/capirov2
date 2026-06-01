@@ -53,6 +53,10 @@ const TOOL_DEFINITIONS = [
     description: 'Search federal grant opportunities (NOFOs) from Grants.gov. Filter by agency, keyword, status (posted/closed/forecasted), or date range. Returns title, agency, funding amounts, eligibility, and deadlines.',
   },
   {
+    name: 'search_federal_awards',
+    description: 'Search federal contract awards/obligations (USAspending) the firm has synced. Filter by keyword, awarding agency, or Program Element (PE) code. Returns contractor, agency, amount, description, PE code, and place-of-performance — useful for defense-contracting and PE-linked questions.',
+  },
+  {
     name: 'search_gao_reports',
     description: 'Search GAO (Government Accountability Office) reports and testimonies. Filter by keyword, report type, topic, or agency. Returns title, report type, date, topics, and recommendations count.',
   },
@@ -234,6 +238,12 @@ export class ClioToolsService {
         status: str('posted | closed | forecasted'),
         limit: int('Max results (1-50)'),
       }),
+      search_federal_awards: obj({
+        query: str('Keyword search across description/contractor/agency'),
+        agency: str('Awarding agency filter'),
+        peCode: str('Program Element (PE) code filter, e.g. 0604201A'),
+        limit: int('Max results (1-50)'),
+      }),
       search_gao_reports: obj({
         query: str('Keyword search across title/summary/topics/agencies'),
         reportType: str('Report type filter'),
@@ -350,6 +360,8 @@ export class ClioToolsService {
         return this.searchFaraRegistrations(input);
       case 'search_federal_grants':
         return this.searchFederalGrants(input);
+      case 'search_federal_awards':
+        return this.searchFederalAwards(input);
       case 'search_gao_reports':
         return this.searchGaoReports(input);
       case 'search_state_bills':
@@ -739,6 +751,50 @@ export class ClioToolsService {
         status: r.status,
         registrationDate: r.registrationDate,
         description: summarizeText(r.description, 300),
+      })),
+    };
+  }
+
+  private async searchFederalAwards(input: Record<string, unknown>) {
+    const query = optionalString(input, 'query', 240);
+    const agency = optionalString(input, 'agency', 240);
+    const peCode = optionalString(input, 'peCode', 16);
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    const where: Record<string, unknown> = {};
+    if (query) {
+      where.OR = [
+        { description: { contains: query, mode: 'insensitive' } },
+        { contractorName: { contains: query, mode: 'insensitive' } },
+        { awardingAgency: { contains: query, mode: 'insensitive' } },
+      ];
+    }
+    if (agency) where.awardingAgency = { contains: agency, mode: 'insensitive' };
+    if (peCode) where.peCode = peCode.toUpperCase();
+
+    const [data, total] = await Promise.all([
+      this.prisma.withSystem((tx) =>
+        tx.federalAward.findMany({ where, orderBy: { actionDate: 'desc' }, take: limit }),
+      ),
+      this.prisma.withSystem((tx) => tx.federalAward.count({ where })),
+    ]);
+
+    return {
+      tool: 'search_federal_awards',
+      generatedAt: new Date().toISOString(),
+      total,
+      data: data.map((a) => ({
+        id: a.id,
+        contractorName: a.contractorName,
+        awardingAgency: a.awardingAgency,
+        awardingSubTier: a.awardingSubTier,
+        amount: a.amount != null ? Number(a.amount) : null,
+        description: summarizeText(a.description ?? '', 240),
+        peCode: a.peCode,
+        recipientState: a.recipientState,
+        popCongressionalDistrict: a.popCongressionalDistrict,
+        actionDate: a.actionDate,
+        piid: a.piid,
       })),
     };
   }

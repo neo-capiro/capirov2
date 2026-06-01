@@ -23,6 +23,8 @@ interface ThoughtProcessProps {
   tier?: 'fast' | 'deep' | null;
   /** Ordered steps: tool calls + their results. */
   steps: TrustStep[];
+  /** Streamed plan steps shown up front before tools run (P2-1). */
+  planSteps?: string[];
   /** True while the assistant turn is still streaming. */
   isStreaming: boolean;
 }
@@ -50,7 +52,7 @@ function confidenceDot(c?: 'high' | 'medium' | 'low'): string {
  * collapses to a one-line summary when done, expandable to the full step list
  * with data sources and their confidence.
  */
-export function ThoughtProcess({ intent, tier, steps, isStreaming }: ThoughtProcessProps) {
+export function ThoughtProcess({ intent, tier, steps, planSteps, isStreaming }: ThoughtProcessProps) {
   const [expanded, setExpanded] = useState(false);
 
   // Nothing to show until the agent does something beyond plain text.
@@ -93,12 +95,21 @@ export function ThoughtProcess({ intent, tier, steps, isStreaming }: ThoughtProc
 
       {expanded && (
         <div className="chat-tp-body">
-          {intent && (
+          {planSteps && planSteps.length > 0 ? (
+            <div className="chat-tp-plan">
+              <span className="chat-tp-plan-label">Plan</span>
+              <ol className="chat-tp-plan-steps">
+                {planSteps.map((step, i) => (
+                  <li key={i}>{step}</li>
+                ))}
+              </ol>
+            </div>
+          ) : intent ? (
             <div className="chat-tp-plan">
               <span className="chat-tp-plan-label">Plan</span>
               <span>{planLabel}</span>
             </div>
-          )}
+          ) : null}
           <ol className="chat-tp-steps">
             {steps.map((step, i) => (
               <li key={`${step.tool}-${i}`} className={`chat-tp-step chat-tp-step--${step.status}`}>

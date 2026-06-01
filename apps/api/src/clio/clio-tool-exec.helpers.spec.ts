@@ -139,3 +139,82 @@ describe('runToolsConcurrently', () => {
     expect(outcomes[1]!.result).toBe('fine');
   });
 });
+
+describe('runToolsConcurrently — retries + isRetryable (P2-2)', () => {
+  it('retries a failing concurrency-safe tool until it succeeds', async () => {
+    let calls = 0;
+    const outcomes = await runToolsConcurrently(
+      [{ index: 0, concurrencySafe: true }],
+      async () => {
+        calls += 1;
+        if (calls < 3) throw new Error('transient');
+        return 'ok';
+      },
+      { timeoutMs: 5000, retries: 2, retryBackoffMs: 0 },
+    );
+    expect(outcomes[0]!.ok).toBe(true);
+    expect(outcomes[0]!.result).toBe('ok');
+    expect(outcomes[0]!.attempts).toBe(3);
+    expect(calls).toBe(3);
+  });
+
+  it('never retries side-effecting (concurrency-unsafe) tools', async () => {
+    let calls = 0;
+    const outcomes = await runToolsConcurrently(
+      [{ index: 0, concurrencySafe: false }],
+      async () => {
+        calls += 1;
+        throw new Error('boom');
+      },
+      { timeoutMs: 5000, retries: 3, retryBackoffMs: 0 },
+    );
+    expect(outcomes[0]!.ok).toBe(false);
+    expect(outcomes[0]!.attempts).toBe(1);
+    expect(calls).toBe(1);
+  });
+
+  it('honors isRetryable to skip retrying specific errors', async () => {
+    let calls = 0;
+    const outcomes = await runToolsConcurrently(
+      [{ index: 0, concurrencySafe: true }],
+      async () => {
+        calls += 1;
+        throw new Error('do-not-retry');
+      },
+      {
+        timeoutMs: 5000,
+        retries: 3,
+        retryBackoffMs: 0,
+        isRetryable: (e) => !(e instanceof Error && e.message === 'do-not-retry'),
+      },
+    );
+    expect(outcomes[0]!.ok).toBe(false);
+    expect(outcomes[0]!.attempts).toBe(1);
+    expect(calls).toBe(1);
+  });
+
+  it('reports attempts=1 on first-try success', async () => {
+    const outcomes = await runToolsConcurrently(
+      [{ index: 0, concurrencySafe: true }],
+      async () => 'v',
+      { timeoutMs: 5000, retries: 2 },
+    );
+    expect(outcomes[0]!.attempts).toBe(1);
+  });
+
+  it('exhausts retries and reports the last error', async () => {
+    let calls = 0;
+    const outcomes = await runToolsConcurrently(
+      [{ index: 0, concurrencySafe: true }],
+      async () => {
+        calls += 1;
+        throw new Error(`fail-${calls}`);
+      },
+      { timeoutMs: 5000, retries: 2, retryBackoffMs: 0 },
+    );
+    expect(outcomes[0]!.ok).toBe(false);
+    expect(outcomes[0]!.attempts).toBe(3);
+    expect(outcomes[0]!.error).toBe('fail-3');
+    expect(calls).toBe(3);
+  });
+});

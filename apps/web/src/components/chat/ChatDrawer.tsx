@@ -25,6 +25,8 @@ import {
   setChatSession,
   setChatMessageCitations,
   setChatMessageVerification,
+  setChatMessageSuggestions,
+  setChatMessageFeedback,
   setStreaming,
   toggleChat,
   toggleSessionRail,
@@ -37,6 +39,7 @@ import { ChatInput } from './ChatInput.js';
 import { ChatMessage } from './ChatMessage.js';
 import { SessionRail } from './SessionRail.js';
 import { ThoughtProcess, type TrustStep } from './ThoughtProcess.js';
+import { ClioCanvas, type CanvasArtifact } from './ClioCanvas.js';
 import { ResearchClarifyForm } from './ResearchClarifyForm.js';
 import clioBubbleImage from '../../assets/chat/clio-bubble.png';
 import './chat.css';
@@ -44,12 +47,20 @@ import './chat.css';
 type SseEvent =
   | { type: 'start'; intent: string; tier?: 'fast' | 'deep' }
   | { type: 'trace'; trace?: Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>; policy?: { tier?: 'fast' | 'deep' } }
+  | { type: 'plan'; steps?: string[] }
+  | { type: 'suggestions'; suggestions?: string[] }
+  | { type: 'artifact'; artifact?: { id?: string; title?: string; kind?: string; bodyText?: string } }
   | { type: 'tool_call'; tool: string; label?: string; input?: Record<string, unknown> }
   | { type: 'template'; template?: { heading: string; sections: string[] } }
   | { type: 'conflict'; conflict?: { title: string; detail: string } }
   | { type: 'sources'; sources?: Array<ClioSourceAttribution & { label?: string }> }
   | { type: 'citations'; citations?: ClioCitation[] }
-  | { type: 'verification'; title?: string; verification?: ClioVerification }
+  | {
+      type: 'verification';
+      title?: string;
+      verification?: ClioVerification;
+      confidence?: { level: 'high' | 'medium' | 'low' | 'unknown'; label: string };
+    }
   | { type: 'text'; text: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
@@ -123,6 +134,8 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const [orchestratorTier, setOrchestratorTier] = useState<'fast' | 'deep' | null>(null);
   const [orchestratorIntent, setOrchestratorIntent] = useState<string | null>(null);
   const [trustSteps, setTrustSteps] = useState<TrustStep[]>([]);
+  const [planSteps, setPlanSteps] = useState<string[]>([]);
+  const [activeArtifact, setActiveArtifact] = useState<CanvasArtifact | null>(null);
   const [orchestratorConflict, setOrchestratorConflict] = useState<{ title: string; detail: string } | null>(null);
   const [orchestratorTemplate, setOrchestratorTemplate] = useState<{ heading: string; sections: string[] } | null>(null);
   const [isSavingMeta, setIsSavingMeta] = useState(false);
@@ -603,8 +616,11 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             setOrchestratorTier(event.tier ?? null);
             setOrchestratorIntent(event.intent ?? null);
             setTrustSteps([]);
+            setPlanSteps([]);
           } else if (event.type === 'trace') {
             if (event.policy?.tier) setOrchestratorTier(event.policy.tier);
+          } else if (event.type === 'plan') {
+            setPlanSteps(Array.isArray(event.steps) ? event.steps : []);
           } else if (event.type === 'tool_call') {
             // Live agentic tool call — push a "running" step into the trust
             // timeline; the matching `sources` event flips it to done/error.
@@ -647,7 +663,18 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           } else if (event.type === 'citations') {
             setChatMessageCitations(assistantId, Array.isArray(event.citations) ? event.citations : []);
           } else if (event.type === 'verification') {
-            if (event.verification) setChatMessageVerification(assistantId, event.verification);
+            if (event.verification)
+              setChatMessageVerification(assistantId, {
+                ...event.verification,
+                confidence: event.confidence,
+              });
+          } else if (event.type === 'suggestions') {
+            setChatMessageSuggestions(
+              assistantId,
+              Array.isArray(event.suggestions) ? event.suggestions : [],
+            );
+          } else if (event.type === 'artifact') {
+            if (event.artifact?.bodyText) setActiveArtifact(event.artifact);
           } else if (event.type === 'done') {
             break outer;
           } else if (event.type === 'error') {
@@ -702,6 +729,22 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
   // Stop: abort the in-flight stream. The server-side handler cancels the model
   // call on disconnect (P0-4); the partial answer streamed so far is kept.
+  const submitFeedback = useCallback(
+    async (messageId: string, rating: 'up' | 'down' | null) => {
+      setChatMessageFeedback(messageId, rating); // optimistic
+      try {
+        await fetch(`${config.apiBaseUrl}/api/clio/messages/${messageId}/feedback`, {
+          method: 'POST',
+          headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rating }),
+        });
+      } catch {
+        /* keep optimistic UI; feedback is best-effort */
+      }
+    },
+    [authHeaders],
+  );
+
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
     setStreaming(false);
@@ -751,6 +794,26 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
       }
     } catch { /* ignore */ }
   }, [authHeaders]);
+
+  const submitMemoryEdit = useCallback(
+    async (id: string, currentValue: string) => {
+      const next = window.prompt('Edit what Clio remembers:', currentValue);
+      if (next == null) return; // cancelled
+      const trimmed = next.trim();
+      if (!trimmed || trimmed === currentValue) return;
+      setLearnedMemories((prev) => prev.map((m) => (m.id === id ? { ...m, value: trimmed } : m)));
+      try {
+        await fetch(`${config.apiBaseUrl}/api/clio/memory/${id}`, {
+          method: 'PATCH',
+          headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: trimmed }),
+        });
+      } catch {
+        void fetchLearnedMemories(); // resync on failure
+      }
+    },
+    [authHeaders, fetchLearnedMemories],
+  );
 
   const forgetMemory = useCallback(async (id: string) => {
     setLearnedMemories((prev) => prev.filter((m) => m.id !== id)); // optimistic
@@ -955,6 +1018,15 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                   <button
                     type="button"
                     className="chat-learned-undo"
+                    aria-label="Edit this memory"
+                    title="Edit"
+                    onClick={() => void submitMemoryEdit(mem.id, mem.value)}
+                  >
+                    edit
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-learned-undo"
                     aria-label="Undo (forget this)"
                     title="Forget this"
                     onClick={() => void forgetMemory(mem.id)}
@@ -1002,6 +1074,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     intent={orchestratorIntent}
                     tier={orchestratorTier}
                     steps={trustSteps}
+                    planSteps={planSteps}
                     isStreaming={isStreaming}
                   />
                 )}
@@ -1017,6 +1090,46 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     msg.content !== ''
                   }
                 />
+                {msg.role === 'assistant' &&
+                  msg.content !== '' &&
+                  !(isStreaming && i === messages.length - 1) && (
+                    <div style={{ marginLeft: 40, marginTop: 2, display: 'flex', gap: 4 }}>
+                      <button
+                        type="button"
+                        aria-label="Helpful"
+                        title="Helpful"
+                        onClick={() => submitFeedback(msg.id, msg.feedback === 'up' ? null : 'up')}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontSize: 13,
+                          padding: 2,
+                          opacity: msg.feedback === 'up' ? 1 : 0.45,
+                        }}
+                      >
+                        👍
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Not helpful"
+                        title="Not helpful"
+                        onClick={() =>
+                          submitFeedback(msg.id, msg.feedback === 'down' ? null : 'down')
+                        }
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontSize: 13,
+                          padding: 2,
+                          opacity: msg.feedback === 'down' ? 1 : 0.45,
+                        }}
+                      >
+                        👎
+                      </button>
+                    </div>
+                  )}
                 {isLastAssistant && !isStreaming && !researchReports[msg.id] && (
                   <div style={{ marginLeft: 40, marginTop: 2 }}>
                     <button
@@ -1027,6 +1140,38 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     >
                       ↻ Regenerate
                     </button>
+                  </div>
+                )}
+                {isLastAssistant && !isStreaming && msg.suggestions && msg.suggestions.length > 0 && (
+                  <div
+                    style={{
+                      marginLeft: 40,
+                      marginTop: 6,
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 6,
+                    }}
+                  >
+                    {msg.suggestions.map((s, si) => (
+                      <button
+                        key={si}
+                        type="button"
+                        onClick={() => sendMessage(s)}
+                        aria-label={`Ask: ${s}`}
+                        style={{
+                          font: 'inherit',
+                          fontSize: 12,
+                          padding: '4px 10px',
+                          border: '1px solid #d9d9d9',
+                          borderRadius: 14,
+                          background: '#fafafa',
+                          color: '#1677ff',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {s}
+                      </button>
+                    ))}
                   </div>
                 )}
                 {msg.role === 'user' &&
@@ -1114,6 +1259,10 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
           <div ref={messagesEndRef} />
         </div>
+
+        {activeArtifact && (
+          <ClioCanvas artifact={activeArtifact} onClose={() => setActiveArtifact(null)} />
+        )}
 
         <div className="chat-input-area">
           {isStreaming && (

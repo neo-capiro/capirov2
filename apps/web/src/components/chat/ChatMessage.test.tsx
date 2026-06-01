@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '@testing-library/react';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 import { ChatMessage } from './ChatMessage.js';
 import type { ClioCitation, ClioVerification } from './chat-store.js';
 
@@ -102,5 +102,20 @@ describe('ChatMessage verification gate', () => {
     render(<ChatMessage role="assistant" content="plain answer" />);
     expect(screen.queryByText(/Low confidence/i)).toBeNull();
     expect(screen.queryByText(/checked against sources/i)).toBeNull();
+  });
+});
+
+describe('ChatMessage copy action (P2-11)', () => {
+  test('copies the message text to the clipboard on assistant messages', () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    render(<ChatMessage role="assistant" content="Copy me please" />);
+    fireEvent.click(screen.getByRole('button', { name: /copy message/i }));
+    expect(writeText).toHaveBeenCalledWith('Copy me please');
+  });
+
+  test('no copy button on user messages', () => {
+    render(<ChatMessage role="user" content="hi there" />);
+    expect(screen.queryByRole('button', { name: /copy message/i })).toBeNull();
   });
 });

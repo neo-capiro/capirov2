@@ -43,8 +43,11 @@ export const configSchema = z.object({
   // beyond this budget are dropped (oldest-first) to avoid silent context-limit
   // 400s on long sessions.
   CLIO_HISTORY_CHAR_BUDGET: z.coerce.number().int().positive().default(24_000),
-  // Max agentic tool-use rounds per message before forcing a final answer.
-  CLIO_MAX_TOOL_ROUNDS: z.coerce.number().int().positive().default(5),
+  // Max agentic tool-use rounds per message before forcing a final answer (P2-3).
+  CLIO_MAX_TOOL_ROUNDS: z.coerce.number().int().positive().default(8),
+  // Wall-clock budget for a whole turn across all rounds (P2-3). When exceeded the
+  // loop stops and wraps up gracefully. <= 0 disables. Keep <= the request timeout.
+  CLIO_TURN_BUDGET_MS: z.coerce.number().int().min(0).default(90_000),
   // Anthropic prompt caching (P0-1). When enabled, cache breakpoints are placed
   // on the static system base and the tool-schema block, so repeated turns within
   // the ~5-minute cache TTL reuse that prefix (response usage reports
@@ -59,6 +62,10 @@ export const configSchema = z.object({
   // by this timeout. On timeout the model receives an error tool_result and the
   // turn proceeds (the tool is not hard-aborted).
   CLIO_TOOL_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  // Max retries for idempotent (read-only) Clio tools; side-effecting tools never
+  // retry. After repeated failures a per-(tenant, tool) circuit breaker pauses the
+  // tool so the turn proceeds without it instead of retrying a dead dependency (P2-2).
+  CLIO_TOOL_RETRIES: z.coerce.number().int().min(0).default(1),
   // Inline citations (P0-3). When enabled, numbered sources are injected into
   // tool results and the model cites them as [N]; hallucinated markers are
   // stripped post-hoc and the used citations are emitted (SSE) + persisted to
@@ -81,6 +88,12 @@ export const configSchema = z.object({
   // retrieved sources; >20% unsupported marks the output low-confidence. Never
   // gates raw chat. Fail-open. Set false/0/no/off to disable.
   CLIO_VERIFIER_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  // Suggested next actions (P2-4): after an answer, a cheap intent-model pass
+  // proposes 2-3 follow-up prompts rendered as clickable chips. Fail-open.
+  CLIO_SUGGESTIONS_ENABLED: z
     .string()
     .default('true')
     .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),

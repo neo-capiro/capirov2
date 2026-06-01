@@ -26,6 +26,17 @@ import {
   type ClioCitation,
 } from './clio-citations.helpers.js';
 import { matchSkill } from './skills/skill-registry.js';
+import { summarizeTurnTrace, traceLogLine, type ClioRoundTrace } from './clio-trace.helpers.js';
+import { buildPlanSteps } from './clio-plan.helpers.js';
+import { ToolCircuitBreaker, CircuitOpenError } from './clio-circuit-breaker.js';
+import { loopBudgetExceeded, type LoopStopReason } from './clio-budget.helpers.js';
+import { parseSuggestions } from './clio-suggestions.helpers.js';
+import { normalizeFeedback, type NormalizedFeedback } from './clio-feedback.helpers.js';
+import { COMPLIANCE_GUARDRAILS, screenComplianceRisk } from './clio-compliance.helpers.js';
+import { confidenceLevel } from './clio-confidence.helpers.js';
+import { classifyToolAction, isSideEffectingTool } from './clio-actions.helpers.js';
+import mammoth from 'mammoth';
+import { validateAttachment, formatAttachmentContext } from './clio-attachment.helpers.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -98,6 +109,10 @@ const PRODUCT_NAME = 'Clio';
 @Injectable()
 export class ClioService {
   private readonly logger = new Logger(ClioService.name);
+
+  // P2-2: per-(tenant, tool) circuit breaker — pauses a tool after repeated
+  // failures so the turn proceeds without it instead of retrying a dead dep.
+  private readonly toolBreaker = new ToolCircuitBreaker({ threshold: 3, cooldownMs: 30_000 });
 
   constructor(
     private readonly prisma: PrismaService,
@@ -327,6 +342,15 @@ export class ClioService {
     const conversation = await this.ensureConversation(ctx, conversationId);
     const streamControl = this.extractStreamControl(body);
 
+    // Compliance pre-screen (P1-7): audit-log clearly high-risk asks. Does not
+    // block — the guardrails baked into the system prompt drive the refusal.
+    const complianceScreen = screenComplianceRisk(streamControl.cleanContent);
+    if (complianceScreen.flagged) {
+      this.logger.warn(
+        `Clio compliance flag [${complianceScreen.category}] tenant=${ctx.tenantId} user=${ctx.userId} conversation=${conversationId}`,
+      );
+    }
+
     let content: string;
     if (mode === 'new') {
       content = streamControl.cleanContent.trim();
@@ -402,6 +426,11 @@ export class ClioService {
     );
 
     sse.write(`data: ${JSON.stringify({ type: 'start', intent, tier: orchestration.policy.tier })}\n\n`);
+    // Stream the plan up front (P2-1): a short "here's what I'll do" derived from
+    // the orchestration's selected context sources, shown before tokens stream.
+    sse.write(
+      `data: ${JSON.stringify({ type: 'plan', steps: buildPlanSteps(orchestration.trace, intent) })}\n\n`,
+    );
     if (streamControl.pageWriteEnabled) {
       sse.write(
         `data: ${JSON.stringify({
@@ -442,11 +471,15 @@ export class ClioService {
       metadata: Prisma.InputJsonValue;
     }> = [];
     const toolsUsed: string[] = [];
+    const actionsTaken: Array<{ tool: string; kind: string; ok: boolean }> = [];
     const usageTotals = emptyUsage();
     const citations: ClioCitation[] = [];
     let finalCitations: ClioCitation[] = [];
     let pageWritePayload: { subject?: string; body?: string } | null = null;
     let aborted = false;
+    const turnStartMs = Date.now();
+    const traceRounds: ClioRoundTrace[] = [];
+    let loopStopReason: LoopStopReason | null = null;
 
     try {
       const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
@@ -456,7 +489,9 @@ export class ClioService {
       const maxTokens = this.config.get('CLIO_MAX_TOKENS', { infer: true });
       const timeoutMs = this.config.get('CLIO_REQUEST_TIMEOUT_MS', { infer: true });
       const maxRounds = this.config.get('CLIO_MAX_TOOL_ROUNDS', { infer: true });
+      const turnBudgetMs = this.config.get('CLIO_TURN_BUDGET_MS', { infer: true });
       const toolTimeoutMs = this.config.get('CLIO_TOOL_TIMEOUT_MS', { infer: true });
+      const toolRetries = this.config.get('CLIO_TOOL_RETRIES', { infer: true });
       const toolSchemas = applyToolCacheControl(this.tools.anthropicToolSchemas(), promptCacheEnabled);
 
       // Anthropic message turns. content can be a string (history) or an array
@@ -466,7 +501,29 @@ export class ClioService {
         content: m.body,
       }));
 
-      for (let round = 0; round < maxRounds; round += 1) {
+      for (let round = 0; ; round += 1) {
+        // Raised round cap + wall-clock turn budget (P2-3): stop and wrap up
+        // gracefully rather than letting a single turn run away.
+        const budgetStop = loopBudgetExceeded({
+          round,
+          maxRounds,
+          elapsedMs: Date.now() - turnStartMs,
+          budgetMs: turnBudgetMs,
+        });
+        if (budgetStop) {
+          loopStopReason = budgetStop;
+          if (!assistantContent.trim()) {
+            const note =
+              'I gathered information but reached this turn’s limit before composing a full answer — ask again and I’ll continue.';
+            assistantContent = note;
+            sse.write(`data: ${JSON.stringify({ type: 'text', text: note })}\n\n`);
+          } else if (budgetStop === 'time_budget') {
+            const note = '\n\n_(Reached this turn’s time budget — wrapping up.)_';
+            assistantContent += note;
+            sse.write(`data: ${JSON.stringify({ type: 'text', text: note })}\n\n`);
+          }
+          break;
+        }
         if (clientSignal?.aborted) {
           aborted = true;
           break;
@@ -484,6 +541,7 @@ export class ClioService {
         const toolUseById = new Map<number, { id: string; name: string; jsonParts: string[] }>();
         const roundUsage = emptyUsage();
         let stopReason: string | null = null;
+        const roundStartMs = Date.now();
 
         try {
           const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -561,6 +619,13 @@ export class ClioService {
 
         // If the model did not request tools, the turn is complete.
         if (stopReason !== 'tool_use' || toolUseById.size === 0) {
+          traceRounds.push({
+            round,
+            durationMs: Date.now() - roundStartMs,
+            usage: roundUsage,
+            stopReason,
+            tools: [],
+          });
           break;
         }
 
@@ -602,11 +667,47 @@ export class ClioService {
 
         // Phase 2: execute concurrently — read-only tools in parallel, side-effecting
         // tools serialized — with a per-tool timeout, preserving result order (P0-2).
+        // P2-2: skip tools whose circuit is open (recent repeated failures) — the
+        // closure throws CircuitOpenError (surfaced honestly, never retried);
+        // idempotent tools get retried with backoff; results record breaker state.
+        const breakerOpenAtStart = new Set(
+          preparedTools
+            .filter((item) => this.toolBreaker.isOpen(`${ctx.tenantId}:${item.tool.name}`))
+            .map((item) => item.tool.name),
+        );
         const outcomes = await runToolsConcurrently(
           preparedTools,
-          (item) => this.tools.execute(ctx, item.tool.name as never, item.parsedInput),
-          { timeoutMs: toolTimeoutMs },
+          (item) => {
+            if (this.toolBreaker.isOpen(`${ctx.tenantId}:${item.tool.name}`)) {
+              throw new CircuitOpenError(item.tool.name);
+            }
+            return this.tools.execute(ctx, item.tool.name as never, item.parsedInput);
+          },
+          {
+            timeoutMs: toolTimeoutMs,
+            retries: toolRetries,
+            retryBackoffMs: 250,
+            isRetryable: (err) => !(err instanceof CircuitOpenError),
+          },
         );
+        // Record breaker state only for tools we actually attempted (don't
+        // penalize a tool we skipped because its breaker was already open).
+        for (const item of preparedTools) {
+          if (breakerOpenAtStart.has(item.tool.name)) continue;
+          const key = `${ctx.tenantId}:${item.tool.name}`;
+          if (outcomes[item.index]?.ok) this.toolBreaker.recordSuccess(key);
+          else this.toolBreaker.recordFailure(key);
+        }
+        // P2-5: audit every side-effecting action Clio takes this round.
+        for (const item of preparedTools) {
+          if (!isSideEffectingTool(item.tool.name)) continue;
+          const ok = outcomes[item.index]?.ok ?? false;
+          const kind = classifyToolAction(item.tool.name);
+          actionsTaken.push({ tool: item.tool.name, kind, ok });
+          this.logger.log(
+            `Clio action [${kind}] tool=${item.tool.name} ok=${ok} tenant=${ctx.tenantId} user=${ctx.userId} conversation=${conversationId}`,
+          );
+        }
 
         // Phase 3: surface each source + assemble tool_result blocks in tool_use order.
         const toolResultBlocks: Array<Record<string, unknown>> = [];
@@ -662,6 +763,16 @@ export class ClioService {
           });
         }
         messages.push({ role: 'user', content: toolResultBlocks });
+        traceRounds.push({
+          round,
+          durationMs: Date.now() - roundStartMs,
+          usage: roundUsage,
+          stopReason,
+          tools: preparedTools.map((item) => ({
+            name: item.tool.name,
+            ok: outcomes[item.index]?.ok ?? false,
+          })),
+        });
         // Loop again so the model can read tool results and answer (or call more tools).
       }
     } catch (err) {
@@ -708,7 +819,9 @@ export class ClioService {
         finalCitations.map((c) => ({ n: c.n, title: c.title, snippet: c.snippet })),
       );
       if (verification) {
-        sse.write(`data: ${JSON.stringify({ type: 'verification', title: deliverable.title, verification })}\n\n`);
+        sse.write(
+          `data: ${JSON.stringify({ type: 'verification', title: deliverable.title, verification, confidence: confidenceLevel(verification.unsupportedRatio) })}\n\n`,
+        );
       }
     }
 
@@ -718,7 +831,35 @@ export class ClioService {
       sse.write(`data: ${JSON.stringify({ type: 'page_write', target: 'outreach_draft', subject: pageWritePayload.subject, body: pageWritePayload.body })}\n\n`);
     }
 
+    // Execution trace (P1-3): aggregate per-round timings/usage + tool outcomes
+    // for observability; persisted to metadata.trace and logged. Streamed to the
+    // client only when the user opted into the trace view (#trace).
+    const turnTrace = summarizeTurnTrace({
+      intent,
+      skill: this.skillsEnabled() ? (matchSkill(intent)?.id ?? null) : null,
+      rounds: traceRounds,
+      totalUsage: usageTotals,
+      totalDurationMs: Date.now() - turnStartMs,
+      lowConfidence: verification ? verification.lowConfidence : null,
+    });
+    this.logger.log(traceLogLine(turnTrace));
+    if (streamControl.traceEnabled) {
+      sse.write(`data: ${JSON.stringify({ type: 'exec_trace', trace: turnTrace })}\n\n`);
+    }
+
+    // Suggested next actions (P2-4): a cheap pass proposes 2-3 follow-up prompts,
+    // streamed as chips. Skipped on abort / trivial answers; fail-open.
+    let suggestions: string[] = [];
+    if (this.suggestionsEnabled() && !aborted && assistantContent.trim().length > 40) {
+      suggestions = await this.generateSuggestions(streamControl.cleanContent, assistantContent);
+      if (suggestions.length) {
+        sse.write(`data: ${JSON.stringify({ type: 'suggestions', suggestions })}\n\n`);
+      }
+    }
+
     // Persist assistant response (+ any artifacts produced by tools).
+    const createdDeliverables: Array<{ id: string; title: string; kind: string; bodyText: string }> =
+      [];
     await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const message = await tx.clioMessage.create({
         data: {
@@ -736,13 +877,19 @@ export class ClioService {
             toolsUsed,
             usage: { ...usageTotals },
             citations: finalCitations as unknown as Prisma.InputJsonValue,
-            finishReason: aborted ? 'aborted' : 'stop',
+            finishReason: aborted ? 'aborted' : (loopStopReason ?? 'stop'),
             verification: verification as unknown as Prisma.InputJsonValue,
+            trace: turnTrace as unknown as Prisma.InputJsonValue,
+            suggestions,
+            actions: actionsTaken,
+            ...(complianceScreen.flagged
+              ? { compliance: { flagged: true, category: complianceScreen.category } }
+              : {}),
           },
         },
       });
       for (const art of producedArtifacts) {
-        await tx.clioArtifact.create({
+        const createdArtifact = await tx.clioArtifact.create({
           data: {
             tenantId: ctx.tenantId,
             userId: ctx.userId,
@@ -752,8 +899,22 @@ export class ClioService {
             ...art,
           },
         });
+        if (art.bodyText && art.bodyText.trim()) {
+          createdDeliverables.push({
+            id: createdArtifact.id,
+            title: art.title,
+            kind: art.kind,
+            bodyText: art.bodyText,
+          });
+        }
       }
     });
+
+    // Artifacts / Canvas (P1-4): stream produced deliverables so the client can
+    // open them in the side canvas (copy / download / version).
+    for (const deliverable of createdDeliverables) {
+      sse.write(`data: ${JSON.stringify({ type: 'artifact', artifact: deliverable })}\n\n`);
+    }
 
     // Auto-summarize for memory (if substantial)
     if (assistantContent.length > 200) {
@@ -966,7 +1127,10 @@ export class ClioService {
         body: JSON.stringify({
           model: this.config.get('CLIO_INTENT_MODEL', { infer: true }),
           max_tokens: 50,
-          system: 'You classify user intent for a lobbying AI. Return only JSON: {"intent":"<intent>"}. Valid: query_intelligence, query_clients, query_engagement, query_workflow, edit_draft, edit_workflow_field, generate_draft, generate_briefing, navigate, general_question',
+          system:
+            'You classify user intent for a lobbying AI. Return only JSON: {"intent":"<intent>"}. ' +
+            'Valid: query_intelligence, query_clients, query_engagement, query_workflow, edit_draft, edit_workflow_field, generate_draft, generate_briefing, analyze_bill, prep_hearing, draft_coalition_letter, track_amendment, navigate, general_question. ' +
+            'Use analyze_bill for section-by-section bill analysis, prep_hearing for hearing preparation, draft_coalition_letter for sign-on/coalition letters, track_amendment for amendment status/whip questions.',
           messages: [{ role: 'user', content: message }],
         }),
       });
@@ -1076,6 +1240,7 @@ export class ClioService {
       'Do not fabricate facts. If uncertain, state uncertainty and propose the fastest verification path.',
       'Citations: when you state a fact drawn from a retrieved source, cite it inline with the bracketed number shown for that source in the tool results (e.g. [1], [2]). Only cite numbers that appear in the provided sources; never invent citation numbers.',
       'Memory: you have persistent, cross-conversation memory for this firm and user. Relevant remembered facts are injected into the context below when available. When the user shares a durable preference, name, or ongoing priority — or explicitly asks you to remember something — call the save_memory tool to persist it, then briefly confirm. Never claim you lack memory or cannot retain information across sessions.',
+      COMPLIANCE_GUARDRAILS,
     ].join('\n');
 
     const intentGuidance: Record<string, string> = {
@@ -1160,6 +1325,52 @@ export class ClioService {
   /** Whether the filesystem-driven skill registry (P0-5) is active. */
   private skillsEnabled(): boolean {
     return this.config.get('CLIO_SKILLS_ENABLED', { infer: true });
+  }
+
+  private suggestionsEnabled(): boolean {
+    return this.config.get('CLIO_SUGGESTIONS_ENABLED', { infer: true });
+  }
+
+  /**
+   * Cheap follow-up suggestion pass (P2-4): asks the intent model for 2-3 likely
+   * next prompts. Fail-open — returns [] on any error so it never blocks a turn.
+   */
+  private async generateSuggestions(userMessage: string, answer: string): Promise<string[]> {
+    try {
+      const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
+      if (!anthropicKey) return [];
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.config.get('CLIO_INTENT_MODEL', { infer: true }),
+          max_tokens: 200,
+          system:
+            "You propose the user's likely next prompts for a U.S. federal government-affairs assistant. " +
+            'Output ONLY a JSON array of 2-3 short, specific follow-ups (max ~10 words each), phrased as the user would type them. No prose.',
+          messages: [
+            {
+              role: 'user',
+              content: `User asked:\n${userMessage}\n\nAssistant answered:\n${answer.slice(0, 4000)}\n\nReturn a JSON array of 2-3 next prompts.`,
+            },
+          ],
+        }),
+      });
+      if (!res.ok) return [];
+      const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
+      const text = (data.content ?? [])
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text ?? '')
+        .join('\n');
+      return parseSuggestions(text);
+    } catch (err) {
+      this.logger.warn(`Clio suggestion generation failed: ${(err as Error).message}`);
+      return [];
+    }
   }
 
   private templateForIntent(intent: string): { heading: string; sections: string[] } | null {
@@ -1468,6 +1679,66 @@ export class ClioService {
     );
   }
 
+  // ── Message feedback (P1-2) ───────────────────────────────────────────
+
+  /**
+   * Record thumbs up/down (+ optional note) on an assistant message, stored in
+   * clio_message.metadata.feedback. Tenant-scoped; passing a non-up/down rating
+   * clears the feedback.
+   */
+  async recordMessageFeedback(
+    ctx: TenantContext,
+    messageId: string,
+    input: { rating?: unknown; note?: unknown },
+  ): Promise<NormalizedFeedback> {
+    const feedback = normalizeFeedback(input);
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const msg = await tx.clioMessage.findFirst({
+        where: { id: messageId, tenantId: ctx.tenantId },
+      });
+      if (!msg) throw new NotFoundException('Message not found');
+      const metadata =
+        msg.metadata && typeof msg.metadata === 'object' && !Array.isArray(msg.metadata)
+          ? (msg.metadata as Record<string, unknown>)
+          : {};
+      await tx.clioMessage.update({
+        where: { id: messageId },
+        data: {
+          metadata: {
+            ...metadata,
+            feedback: { ...feedback, userId: ctx.userId, at: new Date().toISOString() },
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
+      return feedback;
+    });
+  }
+
+  /**
+   * Extract text from an uploaded document for use as chat context (P2-7).
+   * docx (mammoth) + plain text are extracted; pdf/image return a placeholder
+   * note (no PDF parser / OCR in deps yet). Stateless — the caller injects the
+   * returned text into the next message (which is tenant-scoped).
+   */
+  async extractAttachmentText(
+    buffer: Buffer,
+    contentType: string,
+    filename: string,
+  ): Promise<{ filename: string; kind: string; text: string }> {
+    const validation = validateAttachment({ contentType, byteSize: buffer.length, filename });
+    if (!validation.ok) throw new BadRequestException(validation.reason ?? 'Invalid attachment');
+    let raw = '';
+    if (validation.kind === 'text') {
+      raw = buffer.toString('utf8');
+    } else if (validation.kind === 'docx') {
+      const result = await mammoth.extractRawText({ buffer });
+      raw = result.value;
+    } else {
+      raw = `[A ${validation.kind} file was attached; automatic text extraction for ${validation.kind} files is not yet available — paste the relevant text or describe it.]`;
+    }
+    return { filename, kind: validation.kind, text: formatAttachmentContext(filename, raw) };
+  }
+
   // ── Proactive Alert Generation ────────────────────────────────────────
   // INTENTIONALLY NOT called on the chat hot path (it previously ran a full
   // tenant-wide scan after every message). The scheduled job
@@ -1696,6 +1967,72 @@ export class ClioService {
       tx.clioMemory.deleteMany({ where: { id: memoryId, tenantId: ctx.tenantId } }),
     );
     return { ok: true, id: memoryId };
+  }
+
+  /**
+   * All memories visible to this user (firm-scope + this user's private), for the
+   * inspect/edit panel (P2-6). Not limited to auto-created entries.
+   */
+  async listMemories(ctx: TenantContext, limit = 100) {
+    const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMemory.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          OR: [{ scope: 'firm' }, { scope: 'user_private', ownerUserId: ctx.userId }],
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: Math.min(Math.max(limit, 1), 200),
+        select: { id: true, key: true, value: true, scope: true, metadata: true, updatedAt: true },
+      }),
+    );
+    return rows.map((row) => {
+      const meta = (row.metadata ?? {}) as Record<string, unknown>;
+      return {
+        id: row.id,
+        key: row.key,
+        value: row.value,
+        scope: row.scope,
+        confidence: typeof meta.confidence === 'number' ? meta.confidence : null,
+        learnedAt: row.updatedAt,
+      };
+    });
+  }
+
+  /**
+   * Edit a memory's value (P2-6). Same scope access control as forgetMemory: a
+   * user_private memory is only editable by its owner. Marks it user-edited.
+   */
+  async updateMemory(ctx: TenantContext, memoryId: string, value: unknown) {
+    const next = (typeof value === 'string' ? value.trim() : '').slice(0, 4000);
+    if (!next) throw new BadRequestException('Memory value must be a non-empty string');
+    const row = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMemory.findFirst({
+        where: { id: memoryId, tenantId: ctx.tenantId },
+        select: { id: true, scope: true, ownerUserId: true, metadata: true },
+      }),
+    );
+    if (!row) throw new NotFoundException('Memory not found');
+    if (row.scope === 'user_private' && row.ownerUserId !== ctx.userId) {
+      throw new NotFoundException('Memory not found');
+    }
+    const meta =
+      row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+        ? (row.metadata as Record<string, unknown>)
+        : {};
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMemory.updateMany({
+        where: { id: memoryId, tenantId: ctx.tenantId },
+        data: {
+          value: next,
+          metadata: {
+            ...meta,
+            updatedBy: 'user',
+            editedByUserId: ctx.userId,
+          } as unknown as Prisma.InputJsonValue,
+        },
+      }),
+    );
+    return { ok: true, id: memoryId, value: next };
   }
 }
 

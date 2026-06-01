@@ -22,6 +22,7 @@ export interface ClioVerification {
   unsupportedCount: number;
   unsupportedRatio: number;
   lowConfidence: boolean;
+  confidence?: { level: 'high' | 'medium' | 'low' | 'unknown'; label: string };
 }
 
 export interface ChatMessage {
@@ -31,6 +32,8 @@ export interface ChatMessage {
   createdAt: Date;
   citations?: ClioCitation[];
   verification?: ClioVerification;
+  suggestions?: string[];
+  feedback?: 'up' | 'down' | null;
 }
 
 export interface ActiveDraftContext {
@@ -132,6 +135,18 @@ export function setChatMessageCitations(id: string, citations: ClioCitation[]): 
 
 export function setChatMessageVerification(id: string, verification: ClioVerification): void {
   const messages = state.messages.map((m) => (m.id === id ? { ...m, verification } : m));
+  state = { ...state, messages };
+  notify();
+}
+
+export function setChatMessageSuggestions(id: string, suggestions: string[]): void {
+  const messages = state.messages.map((m) => (m.id === id ? { ...m, suggestions } : m));
+  state = { ...state, messages };
+  notify();
+}
+
+export function setChatMessageFeedback(id: string, feedback: 'up' | 'down' | null): void {
+  const messages = state.messages.map((m) => (m.id === id ? { ...m, feedback } : m));
   state = { ...state, messages };
   notify();
 }
