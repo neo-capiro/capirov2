@@ -28,6 +28,7 @@ import {
 import { matchSkill } from './skills/skill-registry.js';
 import { summarizeTurnTrace, traceLogLine, type ClioRoundTrace } from './clio-trace.helpers.js';
 import { buildPlanSteps } from './clio-plan.helpers.js';
+import { ToolCircuitBreaker, CircuitOpenError } from './clio-circuit-breaker.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -100,6 +101,10 @@ const PRODUCT_NAME = 'Clio';
 @Injectable()
 export class ClioService {
   private readonly logger = new Logger(ClioService.name);
+
+  // P2-2: per-(tenant, tool) circuit breaker — pauses a tool after repeated
+  // failures so the turn proceeds without it instead of retrying a dead dep.
+  private readonly toolBreaker = new ToolCircuitBreaker({ threshold: 3, cooldownMs: 30_000 });
 
   constructor(
     private readonly prisma: PrismaService,
@@ -466,6 +471,7 @@ export class ClioService {
       const timeoutMs = this.config.get('CLIO_REQUEST_TIMEOUT_MS', { infer: true });
       const maxRounds = this.config.get('CLIO_MAX_TOOL_ROUNDS', { infer: true });
       const toolTimeoutMs = this.config.get('CLIO_TOOL_TIMEOUT_MS', { infer: true });
+      const toolRetries = this.config.get('CLIO_TOOL_RETRIES', { infer: true });
       const toolSchemas = applyToolCacheControl(this.tools.anthropicToolSchemas(), promptCacheEnabled);
 
       // Anthropic message turns. content can be a string (history) or an array
@@ -619,11 +625,37 @@ export class ClioService {
 
         // Phase 2: execute concurrently — read-only tools in parallel, side-effecting
         // tools serialized — with a per-tool timeout, preserving result order (P0-2).
+        // P2-2: skip tools whose circuit is open (recent repeated failures) — the
+        // closure throws CircuitOpenError (surfaced honestly, never retried);
+        // idempotent tools get retried with backoff; results record breaker state.
+        const breakerOpenAtStart = new Set(
+          preparedTools
+            .filter((item) => this.toolBreaker.isOpen(`${ctx.tenantId}:${item.tool.name}`))
+            .map((item) => item.tool.name),
+        );
         const outcomes = await runToolsConcurrently(
           preparedTools,
-          (item) => this.tools.execute(ctx, item.tool.name as never, item.parsedInput),
-          { timeoutMs: toolTimeoutMs },
+          (item) => {
+            if (this.toolBreaker.isOpen(`${ctx.tenantId}:${item.tool.name}`)) {
+              throw new CircuitOpenError(item.tool.name);
+            }
+            return this.tools.execute(ctx, item.tool.name as never, item.parsedInput);
+          },
+          {
+            timeoutMs: toolTimeoutMs,
+            retries: toolRetries,
+            retryBackoffMs: 250,
+            isRetryable: (err) => !(err instanceof CircuitOpenError),
+          },
         );
+        // Record breaker state only for tools we actually attempted (don't
+        // penalize a tool we skipped because its breaker was already open).
+        for (const item of preparedTools) {
+          if (breakerOpenAtStart.has(item.tool.name)) continue;
+          const key = `${ctx.tenantId}:${item.tool.name}`;
+          if (outcomes[item.index]?.ok) this.toolBreaker.recordSuccess(key);
+          else this.toolBreaker.recordFailure(key);
+        }
 
         // Phase 3: surface each source + assemble tool_result blocks in tool_use order.
         const toolResultBlocks: Array<Record<string, unknown>> = [];

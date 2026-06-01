@@ -59,6 +59,10 @@ export const configSchema = z.object({
   // by this timeout. On timeout the model receives an error tool_result and the
   // turn proceeds (the tool is not hard-aborted).
   CLIO_TOOL_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  // Max retries for idempotent (read-only) Clio tools; side-effecting tools never
+  // retry. After repeated failures a per-(tenant, tool) circuit breaker pauses the
+  // tool so the turn proceeds without it instead of retrying a dead dependency (P2-2).
+  CLIO_TOOL_RETRIES: z.coerce.number().int().min(0).default(1),
   // Inline citations (P0-3). When enabled, numbered sources are injected into
   // tool results and the model cites them as [N]; hallucinated markers are
   // stripped post-hoc and the used citations are emitted (SSE) + persisted to

@@ -31,6 +31,8 @@ export interface ToolRunOutcome<R> {
   error?: string;
   timedOut: boolean;
   latencyMs: number;
+  /** Number of attempts made (1 = no retry). */
+  attempts: number;
 }
 
 export class ToolTimeoutError extends Error {
@@ -66,32 +68,60 @@ export function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  * serializing unsafe ones, and return outcomes in original `index` order.
  * Never rejects: each item's failure is captured in its `ToolRunOutcome`.
  */
+export interface RunToolsOptions {
+  timeoutMs: number;
+  /** Max retries for CONCURRENCY-SAFE tools only (side-effecting tools never retry). */
+  retries?: number;
+  /** Linear backoff base: attempt N waits retryBackoffMs * N before retrying. */
+  retryBackoffMs?: number;
+  /** Injectable sleep (defaults to setTimeout) for deterministic tests. */
+  sleep?: (ms: number) => Promise<void>;
+  /** When provided, an error is only retried if this returns true (e.g. skip circuit-open). */
+  isRetryable?: (err: unknown) => boolean;
+}
+
 export async function runToolsConcurrently<T extends ConcurrentToolItem, R>(
   items: T[],
   run: (item: T) => Promise<R>,
-  opts: { timeoutMs: number },
+  opts: RunToolsOptions,
 ): Promise<Array<ToolRunOutcome<R>>> {
   const outcomes = new Array<ToolRunOutcome<R>>(items.length);
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const maxRetries = Math.max(0, opts.retries ?? 0);
+  const backoffMs = Math.max(0, opts.retryBackoffMs ?? 0);
 
   const runOne = async (item: T): Promise<void> => {
     const start = Date.now();
-    try {
-      const result = await withTimeout(run(item), opts.timeoutMs);
-      outcomes[item.index] = {
-        index: item.index,
-        ok: true,
-        result,
-        timedOut: false,
-        latencyMs: Date.now() - start,
-      };
-    } catch (err) {
-      outcomes[item.index] = {
-        index: item.index,
-        ok: false,
-        error: err instanceof Error ? err.message : 'Tool execution failed',
-        timedOut: err instanceof ToolTimeoutError,
-        latencyMs: Date.now() - start,
-      };
+    // Retry idempotent (concurrency-safe / read-only) tools only — never retry a
+    // side-effecting tool, since a retry could double-send an email or note.
+    const maxAttempts = item.concurrencySafe ? 1 + maxRetries : 1;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const result = await withTimeout(run(item), opts.timeoutMs);
+        outcomes[item.index] = {
+          index: item.index,
+          ok: true,
+          result,
+          timedOut: false,
+          latencyMs: Date.now() - start,
+          attempts: attempt,
+        };
+        return;
+      } catch (err) {
+        const canRetry = attempt < maxAttempts && (opts.isRetryable?.(err) ?? true);
+        if (!canRetry) {
+          outcomes[item.index] = {
+            index: item.index,
+            ok: false,
+            error: err instanceof Error ? err.message : 'Tool execution failed',
+            timedOut: err instanceof ToolTimeoutError,
+            latencyMs: Date.now() - start,
+            attempts: attempt,
+          };
+          return;
+        }
+        if (backoffMs > 0) await sleep(backoffMs * attempt);
+      }
     }
   };
 
