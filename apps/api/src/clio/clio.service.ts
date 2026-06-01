@@ -960,6 +960,7 @@ export class ClioService {
       'Any context pre-loaded below is a convenience snapshot, not a substitute for calling a tool when you need current or specific data.',
       'Do not fabricate facts. If uncertain, state uncertainty and propose the fastest verification path.',
       'Citations: when you state a fact drawn from a retrieved source, cite it inline with the bracketed number shown for that source in the tool results (e.g. [1], [2]). Only cite numbers that appear in the provided sources; never invent citation numbers.',
+      'Memory: you have persistent, cross-conversation memory for this firm and user. Relevant remembered facts are injected into the context below when available. When the user shares a durable preference, name, or ongoing priority — or explicitly asks you to remember something — call the save_memory tool to persist it, then briefly confirm. Never claim you lack memory or cannot retain information across sessions.',
     ].join('\n');
 
     const intentGuidance: Record<string, string> = {
