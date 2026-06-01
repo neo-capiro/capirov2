@@ -16,7 +16,7 @@
  * one), so NER runs over title+summary. Yield is modest by design.
  */
 import { config as dotenvConfig } from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { PrismaService } from '../src/prisma/prisma.service.js';
 import {
   PressReleasePersonnelExtractorService,
   PRESS_RELEASE_SOURCE,
@@ -25,6 +25,7 @@ import {
   type LlmMention,
 } from '../src/acquisition-personnel/extractors/press-release-personnel-extractor.service.js';
 import { AcquisitionPersonnelWriterService } from '../src/acquisition-personnel/acquisition-personnel-writer.service.js';
+import { MatchScorerService } from '../src/acquisition-personnel/matching/match-scorer.service.js';
 
 dotenvConfig();
 
@@ -73,9 +74,9 @@ async function main(): Promise<void> {
   const since = new Date(Date.now() - hours * 3600_000);
   const source = 'press_release_ner';
 
-  const prisma = new PrismaClient();
-  await prisma.$connect();
-  const writer = new AcquisitionPersonnelWriterService(prisma);
+  const prisma = new PrismaService();
+  await prisma.onModuleInit();
+  const writer = new AcquisitionPersonnelWriterService(prisma, new MatchScorerService(prisma));
   const extractor = new PressReleasePersonnelExtractorService();
 
   const run = await prisma.syncRun.create({ data: { source, startedAt: new Date(), status: 'running' } });
@@ -87,7 +88,7 @@ async function main(): Promise<void> {
 
   try {
     const pes = await prisma.programElement.findMany({ select: { peCode: true } });
-    const knownPeCodes = new Set(pes.map((p) => p.peCode.toUpperCase()));
+    const knownPeCodes = new Set<string>(pes.map((p: { peCode: string }) => p.peCode.toUpperCase()));
 
     const rows = await prisma.intelArticle.findMany({
       where: { source: DOD_SOURCE, publishedAt: { gte: since } },
@@ -139,7 +140,7 @@ async function main(): Promise<void> {
     });
     throw err;
   } finally {
-    await prisma.$disconnect();
+    await prisma.onModuleDestroy();
   }
 }
 

@@ -15,7 +15,7 @@
  * Requires SAM_GOV_API_KEY (Secrets Manager -> env).
  */
 import { config as dotenvConfig } from 'dotenv';
-import { PrismaClient } from '@prisma/client';
+import { PrismaService } from '../src/prisma/prisma.service.js';
 import {
   SamPersonnelExtractorService,
   SAM_SOURCE,
@@ -23,6 +23,7 @@ import {
   type SamOpportunity,
 } from '../src/acquisition-personnel/extractors/sam-personnel-extractor.service.js';
 import { AcquisitionPersonnelWriterService } from '../src/acquisition-personnel/acquisition-personnel-writer.service.js';
+import { MatchScorerService } from '../src/acquisition-personnel/matching/match-scorer.service.js';
 
 dotenvConfig();
 
@@ -71,9 +72,9 @@ async function main(): Promise<void> {
   const from = new Date(Date.now() - days * 86400_000);
   const source = 'sam_personnel';
 
-  const prisma = new PrismaClient();
-  await prisma.$connect();
-  const writer = new AcquisitionPersonnelWriterService(prisma);
+  const prisma = new PrismaService();
+  await prisma.onModuleInit();
+  const writer = new AcquisitionPersonnelWriterService(prisma, new MatchScorerService(prisma));
   const extractor = new SamPersonnelExtractorService();
 
   const run = await prisma.syncRun.create({ data: { source, startedAt: new Date(), status: 'running' } });
@@ -85,7 +86,7 @@ async function main(): Promise<void> {
 
   try {
     const pes = await prisma.programElement.findMany({ select: { peCode: true } });
-    const knownPeCodes = new Set(pes.map((p) => p.peCode.toUpperCase()));
+    const knownPeCodes = new Set<string>(pes.map((p: { peCode: string }) => p.peCode.toUpperCase()));
 
     const limit = 100;
     let offset = 0;
@@ -144,7 +145,7 @@ async function main(): Promise<void> {
     });
     throw err;
   } finally {
-    await prisma.$disconnect();
+    await prisma.onModuleDestroy();
   }
 }
 
