@@ -153,6 +153,7 @@ case "${1:-serve}" in
   extract-press-personnel) shift; exec ./node_modules/.bin/tsx scripts/extract-personnel-from-press-releases.ts "$@" ;;
   sync-fec-pac)           exec ./node_modules/.bin/tsx scripts/sync-fec-pac.ts ;;
   sync-entity-resolution) shift; exec ./node_modules/.bin/tsx scripts/sync-entity-resolution.ts "$@" ;;
+  enrich-award-districts) shift; exec ./node_modules/.bin/tsx scripts/enrich-award-districts.ts "$@" ;;
   sync-fara)              exec ./node_modules/.bin/tsx scripts/sync-fara.ts ;;
   sync-sec-edgar)         exec ./node_modules/.bin/tsx scripts/sync-sec-edgar.ts ;;
   sync-rss-intel)         exec ./node_modules/.bin/tsx scripts/sync-rss-intel.ts ;;

@@ -3399,6 +3399,139 @@ export class IntelligenceService {
   }
 
   /**
+   * District Nexus (spend-based, the data-driven path). Aggregates ACTUAL federal
+   * contract spend (federal_award) into the client's congressional districts and
+   * joins CensusDistrict demographics. Unlike getDistrictNexus (which parses the
+   * capability free-text districtNexus field), this derives districts from real
+   * USAspending place-of-performance data.
+   *
+   * Client -> awards link: the client's confirmed `contracting` intel mapping(s)
+   * supply the contractor name(s); awards are matched on federal_award.contractor_name.
+   * Only awards enriched with pop_congressional_district (via enrich-award-districts)
+   * contribute district-level rows; the rest roll up under state-only / unknown.
+   *
+   * Returns spend grouped by district, demographics, and the unmatched remainder so
+   * the UI can be honest about coverage. Read-only over a GLOBAL table; no tenant
+   * rows are written. The client/mapping lookup IS tenant-scoped.
+   */
+  async getDistrictNexusSpend(clientId: string, tenantId: string) {
+    // 1. Resolve the client's contractor name(s) from confirmed contracting mappings.
+    const mappings = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId, source: 'contracting', confirmed: true },
+        select: { externalName: true },
+      }),
+    );
+    const contractorNames = Array.from(
+      new Set(mappings.map((m) => m.externalName.trim()).filter((n) => n.length > 0)),
+    );
+
+    if (!contractorNames.length) {
+      return {
+        linked: false as const,
+        reason: 'no_confirmed_contracting_mapping',
+        contractorNames: [],
+        totalAwards: 0,
+        totalAmount: 0,
+        districts: [],
+        unmappedAmount: 0,
+        disclaimer:
+          'Spend is matched to this client via confirmed USAspending contractor mappings. Confirm a contracting source mapping in Manage Sources to populate district spend.',
+      };
+    }
+
+    // 2. Aggregate award spend by place-of-performance district (global table, read-only).
+    const spendRows = await this.prisma.$queryRaw<
+      Array<{ pop_state: string | null; pop_district: string | null; award_count: bigint; total_amount: number | null }>
+    >`
+      SELECT pop_state, pop_congressional_district AS pop_district,
+             COUNT(*)::bigint AS award_count,
+             COALESCE(SUM(amount), 0)::float8 AS total_amount
+      FROM federal_award
+      WHERE contractor_name = ANY(${contractorNames}::text[])
+      GROUP BY pop_state, pop_congressional_district
+    `;
+
+    // 3. Join CensusDistrict demographics for the districts we resolved.
+    const districtKeys = spendRows
+      .filter((r) => r.pop_state && r.pop_district)
+      .map((r) => `${r.pop_state}-${normalizeDistrict(r.pop_district)}`);
+
+    const censusRows = districtKeys.length
+      ? await this.prisma.$queryRaw<
+          Array<{
+            state: string;
+            district: string;
+            total_population: number | null;
+            median_household_income: number | null;
+            labor_force_size: number | null;
+            unemployment_rate: number | null;
+            percent_veteran: number | null;
+            data_year: number;
+          }>
+        >`
+          SELECT DISTINCT ON (state, district)
+            state, district, total_population, median_household_income,
+            labor_force_size, unemployment_rate, percent_veteran, data_year
+          FROM census_district
+          WHERE state || '-' || district = ANY(${districtKeys}::text[])
+          ORDER BY state, district, congress DESC
+        `
+      : [];
+    const censusMap = new Map(censusRows.map((c) => [`${c.state}-${c.district}`, c]));
+
+    let totalAwards = 0;
+    let totalAmount = 0;
+    let unmappedAmount = 0;
+    const districts = spendRows
+      .map((r) => {
+        const count = Number(r.award_count);
+        const amount = Number(r.total_amount ?? 0);
+        totalAwards += count;
+        totalAmount += amount;
+        // Rows without a resolved district roll into the "unmapped" bucket.
+        if (!r.pop_state || !r.pop_district) {
+          unmappedAmount += amount;
+          return null;
+        }
+        const dnum = normalizeDistrict(r.pop_district);
+        const key = `${r.pop_state}-${dnum}`;
+        const c = censusMap.get(key);
+        return {
+          district: key,
+          state: r.pop_state,
+          districtNumber: dnum,
+          awardCount: count,
+          totalAmount: amount,
+          demographics: c
+            ? {
+                totalPopulation: c.total_population,
+                medianHouseholdIncome: c.median_household_income,
+                laborForceSize: c.labor_force_size,
+                unemploymentRate: c.unemployment_rate,
+                percentVeteran: c.percent_veteran,
+                dataYear: c.data_year,
+              }
+            : null,
+        };
+      })
+      .filter((d): d is NonNullable<typeof d> => d !== null)
+      .sort((a, b) => b.totalAmount - a.totalAmount);
+
+    return {
+      linked: true as const,
+      contractorNames,
+      totalAwards,
+      totalAmount,
+      districtCount: districts.length,
+      unmappedAmount,
+      districts,
+      disclaimer:
+        'Federal contract spend (USAspending) matched to this client via confirmed contractor mappings, grouped by place-of-performance congressional district. Awards without a resolved district are shown as unmapped. Public data; for intelligence, not legal or compliance advice.',
+    };
+  }
+
+  /**
    * Phase 2.5, Bill → Regulation lifecycle.
    * For each of the client's tracked bills, find FederalRegisterDocuments whose
    * `topics` array overlaps the bill's subjects, OR whose title/abstract references
@@ -4102,3 +4235,20 @@ function startOfQuarter(now: Date): Date {
   const quarterStartMonth = Math.floor(month / 3) * 3;
   return new Date(now.getFullYear(), quarterStartMonth, 1);
 }
+
+/**
+ * Normalize a USAspending congressional_code to match CensusDistrict.district.
+ * USAspending returns zero-padded ('02', '11') or '90'/'98'/'00' for non-district
+ * / at-large; CensusDistrict stores plain numbers ('2', '11') or 'AL' for at-large.
+ * Returns 'AL' for at-large/unknown sentinels, else the leading-zero-stripped number.
+ */
+function normalizeDistrict(code: string | null): string {
+  if (!code) return 'AL';
+  const trimmed = code.trim().toUpperCase();
+  if (trimmed === 'AL' || trimmed === '00' || trimmed === '98' || trimmed === '90' || trimmed === 'ZZ') {
+    return 'AL';
+  }
+  const n = parseInt(trimmed, 10);
+  return Number.isFinite(n) ? String(n) : 'AL';
+}
+

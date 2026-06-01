@@ -321,6 +321,14 @@ export class IntelligenceController {
     return this.service.getDistrictNexus(clientId, ctx.tenantId);
   }
 
+  @Get('clients/:clientId/district-nexus-spend')
+  getDistrictNexusSpend(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getDistrictNexusSpend(clientId, ctx.tenantId);
+  }
+
   @Get('clients/:clientId/bill-regulation-links')
   getBillRegulationLinks(
     @CurrentTenant() ctx: TenantContext,
