@@ -2278,9 +2278,15 @@ export class IntelligenceService {
       }
     }
 
-    // Also pull capability keywords if tenantId provided
+    // Always union client capability keywords with LDA issue names (Caveat 2).
+    // Previously capabilities were only pulled when the client had NO LDA issue
+    // codes, so a client with a broad code (e.g. "DEF") missed the precise
+    // capability bills (e.g. "hypersonics", "electronic warfare"). LDA codes and
+    // capabilities are complementary signals — capabilities are often the more
+    // specific of the two — so we combine both rather than treating them as
+    // mutually exclusive.
     const capKeywords: string[] = [];
-    if (tenantId && issueCodes.length === 0) {
+    if (tenantId) {
       const caps = await this.prisma.withTenant(tenantId, (tx) =>
         tx.clientCapability.findMany({
           where: { clientId },

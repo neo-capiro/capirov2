@@ -835,7 +835,7 @@ function TrackedBillsTab({ clientId }: { clientId: string }) {
   if (query.isLoading) return <Skeleton active paragraph={{ rows: 5 }} />;
 
   if (!data || data.bills.length === 0) {
-    return <Empty description="No tracked bills found" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 32 }} />;
+    return <Empty description="No relevant bills found" image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ marginTop: 32 }} />;
   }
 
   return (

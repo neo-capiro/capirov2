@@ -236,7 +236,7 @@ export function LegislativeRegulatorySection({
             }}
           >
             <div style={{ fontWeight: 600, color: 'var(--ink-2)', marginBottom: 6 }}>
-              No bills tracked yet
+              No relevant bills yet
             </div>
             <div style={{ marginBottom: 10 }}>
               The Issue-Bill Linker couldn't find legislation matching this

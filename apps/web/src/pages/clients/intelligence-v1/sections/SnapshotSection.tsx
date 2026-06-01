@@ -489,7 +489,7 @@ function clioText(
       <>
         No LDA or contract mapping confirmed for <b>{clientName}</b>. Visit{' '}
         <b>Manage sources</b> to confirm the intelligence mapping and unlock financial data.
-        {totalBills > 0 ? ` ${totalBills} bills tracked via capability matching.` : ''}
+        {totalBills > 0 ? ` ${totalBills} relevant bills matched from this client's capabilities.` : ''}
       </>
     );
   }
@@ -507,7 +507,7 @@ function clioText(
       )}
       {totalBills > 0 && (
         <>
-          <mark>{totalBills} bills tracked</mark> via issue codes.{' '}
+          <mark>{totalBills} relevant bills</mark> matching this client&apos;s issues &amp; capabilities.{' '}
         </>
       )}
       {meetingCount === 0 && 'No meetings logged this quarter. '}
