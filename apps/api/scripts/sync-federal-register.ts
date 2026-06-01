@@ -11,6 +11,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 
 dotenvConfig();
 
@@ -148,6 +149,10 @@ async function main() {
   console.log('[fr-sync] starting Federal Register sync from', startDate);
 
   try {
+    await runWithSyncRun(
+      prisma as any,
+      'sync-federal-register',
+      async (_ctx) => {
     // Fetch first page to get total count.
     const firstPage = await fetchPage(1, startDate);
     if (!firstPage) throw new Error('Failed to fetch first page');
@@ -240,6 +245,10 @@ async function main() {
 
     const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
     console.log(`[fr-sync] DONE, ${upserted.toLocaleString()} upserted, ${errored} errors, ${elapsed}m`);
+      return { inserted: 0, updated: upserted, skipped: 0, errors: errored };
+    },
+    { overrideSince: startDate ?? null },
+    );
   } finally {
     await prisma.$disconnect();
   }

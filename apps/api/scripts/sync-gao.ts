@@ -6,6 +6,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 dotenvConfig();
 
 const GAO_RSS = 'https://www.gao.gov/rss/reports.xml';
@@ -28,6 +29,7 @@ async function main() {
   console.log('[gao-sync] starting');
 
   try {
+    await runWithSyncRun(prisma as any, 'sync-gao', async () => {
     const resp = await fetch(GAO_RSS);
     if (!resp.ok) throw new Error(`RSS HTTP ${resp.status}`);
     const xml = await resp.text();
@@ -73,6 +75,8 @@ async function main() {
 
     console.log(`[gao-sync] total: ${total} reports`);
     console.log(`[gao-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      return { inserted: 0, updated: total, skipped: 0, errors: 0 };
+    });
   } finally { await prisma.$disconnect(); }
 }
 

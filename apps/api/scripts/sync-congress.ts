@@ -16,6 +16,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 import { buildBillText, embedAndUpsert } from '../src/embeddings/embedder.js';
 
 dotenvConfig();
@@ -204,7 +205,11 @@ async function main() {
       throw new Error('CONGRESS_API_KEY env var is required');
     }
 
-    let totalBills = 0;
+    await runWithSyncRun(
+      prisma as any,
+      'sync-congress',
+      async (_ctx) => {
+        let totalBills = 0;
 
     for (const congress of TARGET_CONGRESSES) {
       // Resolve fromDateTime for this congress. In incremental mode we read
@@ -458,6 +463,10 @@ async function main() {
     console.log(`[congress-sync] total bills: ${totalBills}`);
     const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
     console.log(`[congress-sync] DONE in ${elapsed}m`);
+        return { inserted: 0, updated: totalBills, skipped: 0, errors: 0 };
+      },
+      { overrideSince: SINCE_OVERRIDE ?? null },
+    );
   } finally {
     await prisma.$disconnect();
   }

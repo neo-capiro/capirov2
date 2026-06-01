@@ -25,6 +25,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 dotenvConfig();
 
 const CONGRESS_BASE = 'https://api.congress.gov/v3';
@@ -128,6 +129,7 @@ async function main() {
   let totalDetailFails = 0;
 
   try {
+    await runWithSyncRun(prisma as any, 'sync-hearings', async () => {
     for (const congress of TARGET_CONGRESSES) {
       console.log(`[hearings-sync] fetching ${congress}th Congress`);
       let offset = 0;
@@ -237,6 +239,8 @@ async function main() {
     console.log(
       `[hearings-sync] DONE, inserted ${totalInserted}, skipped(no-date) ${totalSkippedNoDate}, detail-fails ${totalDetailFails} in ${((Date.now() - t0) / 1000).toFixed(1)}s`,
     );
+      return { inserted: 0, updated: totalInserted, skipped: totalSkippedNoDate, errors: totalDetailFails };
+    });
   } finally {
     await prisma.$disconnect();
   }
