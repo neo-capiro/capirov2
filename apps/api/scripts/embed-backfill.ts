@@ -33,6 +33,12 @@ import {
 } from '@aws-sdk/client-bedrock-runtime';
 import { createHash } from 'node:crypto';
 import { parseArgs } from 'node:util';
+import {
+  embedSyncSource,
+  resolveSinceWindow,
+  statusFromCounts,
+  type RunCounts,
+} from '../src/ingestion/embed-watermark.js';
 
 dotenvConfig();
 
@@ -71,10 +77,11 @@ const { values: args } = parseArgs({
 });
 
 type SourceKind = 'bills' | 'lda' | 'capabilities';
-const source = args.source as SourceKind | undefined;
-if (!source || !['bills', 'lda', 'capabilities'].includes(source)) {
+const ALL_SOURCES: SourceKind[] = ['bills', 'lda', 'capabilities'];
+const sourceArg = args.source as SourceKind | 'all' | undefined;
+if (!sourceArg || ![...ALL_SOURCES, 'all'].includes(sourceArg)) {
   console.error(
-    'usage: embed-backfill --source <bills|lda|capabilities> [--tenant <uuid>] [--since <YYYY-MM-DD>] [--limit N] [--dryRun]',
+    'usage: embed-backfill --source <bills|lda|capabilities|all> [--tenant <uuid>] [--since <YYYY-MM-DD>] [--limit N] [--dryRun]',
   );
   process.exit(2);
 }
@@ -296,7 +303,7 @@ function capabilityText(c: {
 
 // ─── Drivers ──────────────────────────────────────────────────────────────────
 
-async function backfillBills(limit?: number): Promise<void> {
+async function backfillBills(limit?: number): Promise<RunCounts> {
   const total = await prisma.congressBill.count();
   console.log(`[bills] ${total} rows in congress_bill`);
 
@@ -304,6 +311,7 @@ async function backfillBills(limit?: number): Promise<void> {
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
+  let errors = 0;
   let lastId: string | undefined;
 
   while (true) {
@@ -354,6 +362,7 @@ async function backfillBills(limit?: number): Promise<void> {
       if (r === 'inserted') inserted++;
       else if (r === 'updated') updated++;
       else if (r === 'skip') skipped++;
+      else if (r === 'error') errors++;
     }
     processed += batch.length;
     lastId = batch[batch.length - 1]!.id;
@@ -363,9 +372,10 @@ async function backfillBills(limit?: number): Promise<void> {
 
     if (limit && processed >= limit) break;
   }
+  return { inserted, updated, skipped, errors };
 }
 
-async function backfillLda(since: string | undefined, limit?: number): Promise<void> {
+async function backfillLda(since: string | undefined, limit?: number): Promise<RunCounts> {
   // LDA has 500K+ rows; filter by recency to make initial runs tractable.
   const where = since ? { dtPosted: { gte: new Date(since) } } : {};
   const total = await prisma.ldaFiling.count({ where });
@@ -375,6 +385,7 @@ async function backfillLda(since: string | undefined, limit?: number): Promise<v
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
+  let errors = 0;
   let lastId: string | undefined;
 
   while (true) {
@@ -423,6 +434,7 @@ async function backfillLda(since: string | undefined, limit?: number): Promise<v
       if (r === 'inserted') inserted++;
       else if (r === 'updated') updated++;
       else if (r === 'skip') skipped++;
+      else if (r === 'error') errors++;
     }
     processed += batch.length;
     lastId = batch[batch.length - 1]!.id;
@@ -432,12 +444,13 @@ async function backfillLda(since: string | undefined, limit?: number): Promise<v
 
     if (limit && processed >= limit) break;
   }
+  return { inserted, updated, skipped, errors };
 }
 
 async function backfillCapabilities(
   tenantFilter: string | undefined,
   limit?: number,
-): Promise<void> {
+): Promise<RunCounts> {
   const where = tenantFilter ? { tenantId: tenantFilter } : {};
   const total = await prisma.clientCapability.count({ where });
   console.log(`[capabilities] ${total} rows, tenant=${tenantFilter ?? 'all'}`);
@@ -446,6 +459,7 @@ async function backfillCapabilities(
   let inserted = 0;
   let updated = 0;
   let skipped = 0;
+  let errors = 0;
   let lastId: string | undefined;
 
   while (true) {
@@ -487,6 +501,7 @@ async function backfillCapabilities(
       if (r === 'inserted') inserted++;
       else if (r === 'updated') updated++;
       else if (r === 'skip') skipped++;
+      else if (r === 'error') errors++;
     }
     processed += batch.length;
     lastId = batch[batch.length - 1]!.id;
@@ -496,34 +511,126 @@ async function backfillCapabilities(
 
     if (limit && processed >= limit) break;
   }
+  return { inserted, updated, skipped, errors };
+}
+
+// ─── SyncRun watermark + observability ────────────────────────────────────────
+// Pure helpers (embedSyncSource / resolveSinceWindow / statusFromCounts) live in
+// ../src/ingestion/embed-watermark.ts so they're unit-tested without booting this
+// script. Phase 0 will fold the SyncRun read/write below into the shared
+// runWithSyncRun helper.
+
+/** Most recent successful run's start time for this source, or null. */
+async function lastSuccessfulSince(kind: SourceKind): Promise<Date | null> {
+  const run = await prisma.syncRun.findFirst({
+    where: { source: embedSyncSource(kind), status: 'success' },
+    orderBy: { startedAt: 'desc' },
+    select: { startedAt: true },
+  });
+  return run?.startedAt ?? null;
+}
+
+/**
+ * Wrap one source's embedding pass in a SyncRun record. Opens a 'running' row,
+ * runs `fn`, then closes it with counts + status. On throw, records the error
+ * and rethrows so the process exits non-zero (scheduler/alarm sees the failure).
+ */
+async function withSyncRun(
+  kind: SourceKind,
+  fn: () => Promise<RunCounts>,
+): Promise<RunCounts> {
+  const run = await prisma.syncRun.create({
+    data: { source: embedSyncSource(kind), startedAt: new Date(), status: 'running' },
+    select: { id: true },
+  });
+  try {
+    const counts = await fn();
+    await prisma.syncRun.update({
+      where: { id: run.id },
+      data: {
+        finishedAt: new Date(),
+        rowsInserted: counts.inserted,
+        rowsUpdated: counts.updated,
+        errorCount: counts.errors,
+        status: statusFromCounts(counts),
+      },
+    });
+    return counts;
+  } catch (e) {
+    await prisma.syncRun.update({
+      where: { id: run.id },
+      data: {
+        finishedAt: new Date(),
+        status: 'error',
+        errorCount: 1,
+        errorMessage: (e as Error).message.slice(0, 1000),
+      },
+    });
+    throw e;
+  }
 }
 
 // ─── Entrypoint ───────────────────────────────────────────────────────────────
 
+/** Resolve the effective `since` for LDA: explicit flag wins, else the
+ *  per-source SyncRun watermark (autonomous incremental). */
+async function resolveLdaSince(): Promise<string | undefined> {
+  const since = resolveSinceWindow(args.since, await lastSuccessfulSince('lda'));
+  if (args.since) {
+    // explicit flag
+  } else if (since) {
+    console.log(`[lda] no --since given; using SyncRun watermark since=${since}`);
+  } else {
+    console.log('[lda] no --since and no prior successful run; full backfill');
+  }
+  return since;
+}
+
+async function runSource(kind: SourceKind, limit?: number): Promise<RunCounts> {
+  return withSyncRun(kind, async () => {
+    if (kind === 'bills') return backfillBills(limit);
+    if (kind === 'lda') return backfillLda(await resolveLdaSince(), limit);
+    return backfillCapabilities(args.tenant, limit);
+  });
+}
+
 async function main(): Promise<void> {
   const limit = args.limit ? Number(args.limit) : undefined;
+  const sources: SourceKind[] = sourceArg === 'all' ? ALL_SOURCES : [sourceArg as SourceKind];
   console.log(
-    `embed-backfill source=${source} model=${MODEL} dim=${DIMENSIONS} concurrency=${CONCURRENCY} dryRun=${!!args.dryRun}`,
+    `embed-backfill sources=[${sources.join(', ')}] model=${MODEL} dim=${DIMENSIONS} concurrency=${CONCURRENCY} dryRun=${!!args.dryRun}`,
   );
+
   if (args.dryRun) {
     console.log('dryRun: counting source rows only, no Bedrock calls');
-    if (source === 'bills') {
-      console.log(`bills total=${await prisma.congressBill.count()}`);
-    } else if (source === 'lda') {
-      const where = args.since ? { dtPosted: { gte: new Date(args.since) } } : {};
-      console.log(`lda total=${await prisma.ldaFiling.count({ where })}`);
-    } else {
-      const where = args.tenant ? { tenantId: args.tenant } : {};
-      console.log(`capabilities total=${await prisma.clientCapability.count({ where })}`);
+    for (const s of sources) {
+      if (s === 'bills') {
+        console.log(`bills total=${await prisma.congressBill.count()}`);
+      } else if (s === 'lda') {
+        const since = await resolveLdaSince();
+        const where = since ? { dtPosted: { gte: new Date(since) } } : {};
+        console.log(`lda total=${await prisma.ldaFiling.count({ where })} (since=${since ?? 'all'})`);
+      } else {
+        const where = args.tenant ? { tenantId: args.tenant } : {};
+        console.log(`capabilities total=${await prisma.clientCapability.count({ where })}`);
+      }
     }
     return;
   }
 
   const t0 = Date.now();
-  if (source === 'bills') await backfillBills(limit);
-  else if (source === 'lda') await backfillLda(args.since, limit);
-  else await backfillCapabilities(args.tenant, limit);
-  console.log(`done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  const totals: RunCounts = { inserted: 0, updated: 0, skipped: 0, errors: 0 };
+  for (const s of sources) {
+    const c = await runSource(s, limit);
+    totals.inserted += c.inserted;
+    totals.updated += c.updated;
+    totals.skipped += c.skipped;
+    totals.errors += c.errors;
+  }
+  console.log(
+    `done in ${((Date.now() - t0) / 1000).toFixed(1)}s ` +
+      `inserted=${totals.inserted} updated=${totals.updated} skipped=${totals.skipped} errors=${totals.errors}`,
+  );
 }
 
 main()

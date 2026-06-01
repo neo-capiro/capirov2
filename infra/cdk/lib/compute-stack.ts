@@ -14,7 +14,11 @@ import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as wafv2 from 'aws-cdk-lib/aws-wafv2';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as eventsTargets from 'aws-cdk-lib/aws-events-targets';
 import { commonTags, type EnvConfig } from './config';
+import { ScheduledIngestionJobs } from './constructs/scheduled-ingestion-jobs';
+import { INGESTION_JOBS } from './ingestion-schedule';
 import type { SecretsStack } from './secrets-stack';
 import type { AssetsStack } from './assets-stack';
 
@@ -708,6 +712,105 @@ export class ComputeStack extends cdk.Stack {
       // task role, no API key needed.
       secrets: apiMigrateSecrets,
       readonlyRootFilesystem: false,
+    });
+
+    // ---------------------------------------------- embed-backfill DAILY schedule
+    // Autonomous embeddings (Production Ingestion plan, Phase 1 Task 1.2).
+    // EventBridge fires the embed-backfill task once daily with `--source all`.
+    // The script is content-hash idempotent (unchanged text => no Bedrock call,
+    // $0) and LDA uses a SyncRun watermark, so each run only embeds NEW/changed
+    // rows. Runs at 13:00 UTC — AFTER the daily federal source syncs (06:00) and
+    // derived emitters (10:00–11:00) per the schedule matrix, so the day's new
+    // bills/capabilities are present before we embed them.
+    //
+    // Override the container command so the scheduled run does `--source all`
+    // instead of the task def's default `--source bills`.
+    const embedRule = new events.Rule(this, 'EmbedBackfillDailyRule', {
+      ruleName: `capiro-${cfg.envName}-embed-backfill-daily`,
+      description: 'Daily autonomous embeddings refresh (bills, lda, capabilities).',
+      schedule: events.Schedule.cron({ minute: '0', hour: '13' }),
+    });
+    embedRule.addTarget(
+      new eventsTargets.EcsTask({
+        cluster: this.cluster,
+        taskDefinition: this.apiEmbedBackfillTaskDefinition,
+        taskCount: 1,
+        subnetSelection: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+        securityGroups: [serviceSecurityGroup as ec2.SecurityGroup],
+        // EventBridge retries the RunTask API call, not the workload; the task
+        // itself is safe to re-run (idempotent). Drop failed invocations to a
+        // dead-letter queue would be added in Phase 2 alongside the generic
+        // ScheduledJob construct + alarms.
+        containerOverrides: [
+          {
+            containerName: 'api-embed-backfill',
+            command: ['embed-backfill', '--source', 'all'],
+          },
+        ],
+      }),
+    );
+
+    // ------------------------------------------------- scheduled ingestion jobs
+    // Production Ingestion plan, Phase 2. One shared "sync" Fargate task def
+    // (API image) + one EventBridge rule per job in the schedule matrix, each
+    // overriding the container command to the kebab job name wired in
+    // entrypoint.sh. Daily/weekly/monthly cadence is encoded in
+    // ingestion-schedule.ts. The scripts upsert + write SyncRun, so runs are
+    // idempotent and observable.
+    const syncJobsLogGroup = new logs.LogGroup(this, 'ApiSyncJobsLogs', {
+      logGroupName: `/capiro/${cfg.envName}/api-sync-jobs`,
+      retention: logs.RetentionDays.ONE_YEAR,
+      removalPolicy: cfg.protectFromDestroy ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
+    });
+    // Metric filter: turn the helper's `INGESTION_METRIC {...error_count...}`
+    // stdout lines into a CloudWatch metric the Alarms stack watches. Zero
+    // runtime AWS dependency in the scripts; matches the ProgramElementSync
+    // pattern. Aggregate (no per-source dimension) so one alarm covers all jobs.
+    new logs.MetricFilter(this, 'IngestionErrorMetricFilter', {
+      logGroup: syncJobsLogGroup,
+      metricNamespace: 'Capiro/Ingestion',
+      metricName: 'ingestion.error_count',
+      filterPattern: logs.FilterPattern.literal('{ $.error_count = * }'),
+      metricValue: '$.error_count',
+      defaultValue: 0,
+    });
+    const syncJobsTaskDef = new ecs.FargateTaskDefinition(this, 'ApiSyncJobsTaskDef', {
+      family: `capiro-${cfg.envName}-api-sync-jobs`,
+      cpu: 512,
+      memoryLimitMiB: 1024,
+      runtimePlatform: {
+        cpuArchitecture: ecs.CpuArchitecture.ARM64,
+        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
+      },
+      taskRole: apiTaskRole,
+    });
+    grantSecretsAndKmsToExecutionRole(
+      syncJobsTaskDef,
+      [dbSecretImported.secretArn, appDbSecretImported.secretArn],
+      [dataKey.keyArn],
+    );
+    syncJobsTaskDef.addContainer('api-sync-jobs', {
+      image: ecs.ContainerImage.fromEcrRepository(this.apiRepo, 'latest'),
+      essential: true,
+      logging: ecs.LogDrivers.awsLogs({
+        logGroup: syncJobsLogGroup,
+        streamPrefix: 'sync',
+      }),
+      // Default is a no-op help command; every scheduled rule overrides this
+      // with its own job command (e.g. ['sync-congress']).
+      command: ['serve'],
+      environment: apiSharedEnv,
+      secrets: apiMigrateSecrets,
+      readonlyRootFilesystem: false,
+    });
+
+    new ScheduledIngestionJobs(this, 'IngestionSchedules', {
+      envName: cfg.envName,
+      cluster: this.cluster,
+      taskDefinition: syncJobsTaskDef,
+      containerName: 'api-sync-jobs',
+      securityGroup: serviceSecurityGroup,
+      jobs: INGESTION_JOBS,
     });
 
     // -------------------------------------------------------- bootstrap-roles task

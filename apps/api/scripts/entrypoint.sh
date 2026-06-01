@@ -214,12 +214,18 @@ case "${1:-serve}" in
   # Step 27: load P-Doc (Procurement) parent PEs + child line items from a committed
   # rows artifact (offline pdfplumber extraction). Pass --service + --artifact.
   parse-pdoc) shift; exec ./node_modules/.bin/tsx scripts/parse-pdoc-army.ts "$@" ;;
+  # Personnel + derived jobs that were missing dispatch cases (Production
+  # Ingestion plan, Phase 2). Scheduled via EventBridge in infra/cdk.
+  sync-dod-orgcharts) shift; exec ./node_modules/.bin/tsx scripts/sync-dod-orgcharts.ts "$@" ;;
+  sync-dod-press-personnel) shift; exec ./node_modules/.bin/tsx scripts/sync-dod-press-personnel.ts "$@" ;;
+  sync-cpe-roster) shift; exec ./node_modules/.bin/tsx scripts/sync-cpe-roster.ts "$@" ;;
+  recompute-conference-probability) shift; exec ./node_modules/.bin/tsx scripts/recompute-conference-probability.ts "$@" ;;
   serve)
     echo "Starting Capiro API"
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-federal-award | extract-press-personnel | sync-sam-personnel | sync-fec-pac | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | generate-pe-person-candidates | sync-peo-rosters | extract-bill-pe-codes | parse-hasc-report | parse-sasc-report | parse-hac-d-report | parse-sac-d-report | parse-ndaa-conference | parse-defense-approps-public-law | parse-pdoc)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-federal-award | extract-press-personnel | sync-sam-personnel | sync-fec-pac | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | generate-pe-person-candidates | sync-peo-rosters | sync-dod-orgcharts | sync-dod-press-personnel | sync-cpe-roster | recompute-conference-probability | extract-bill-pe-codes | extract-gao-interviewees | extract-hearing-witnesses | parse-hasc-report | parse-sasc-report | parse-hac-d-report | parse-sac-d-report | parse-ndaa-conference | parse-defense-approps-public-law | parse-pdoc)" >&2
     exit 1
     ;;
 esac

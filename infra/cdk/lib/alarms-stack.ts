@@ -272,6 +272,27 @@ export class AlarmsStack extends cdk.Stack {
     });
     peDurationAlarm.addAlarmAction(action);
 
+    // Aggregate ingestion-error alarm (Production Ingestion plan, Phase 2.3).
+    // Fires if ANY scheduled sync job reports errors across 2 consecutive
+    // 1-hour windows. Sourced from the IngestionErrorMetricFilter on the
+    // api-sync-jobs log group (Capiro/Ingestion namespace).
+    const ingestionErrorAlarm = new cloudwatch.Alarm(this, 'IngestionErrorAlarm', {
+      alarmName: `capiro-${cfg.envName}-ingestion-error`,
+      alarmDescription: 'A scheduled ingestion job reported errors (any source)',
+      metric: new cloudwatch.Metric({
+        namespace: 'Capiro/Ingestion',
+        metricName: 'ingestion.error_count',
+        statistic: 'Sum',
+        period: cdk.Duration.hours(1),
+      }),
+      threshold: 0,
+      evaluationPeriods: 2,
+      datapointsToAlarm: 2,
+      comparisonOperator: cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    ingestionErrorAlarm.addAlarmAction(action);
+
     const peSyncDashboard = new cloudwatch.Dashboard(this, 'PeSyncDashboard', {
       dashboardName: `capiro-${cfg.envName}-pe-sync`,
     });

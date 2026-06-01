@@ -1,0 +1,84 @@
+/**
+ * Capiro ingestion schedule matrix — single source of truth for which sync job
+ * runs when. Consumed by ComputeStack to create one EventBridge rule per job,
+ * each firing the shared sync Fargate task with a command override (the
+ * kebab-case name already wired in apps/api/scripts/entrypoint.sh).
+ *
+ * Cadence rationale lives in docs/plans/2026-06-01-...-schedule-matrix.md.
+ * Times are UTC, staggered so SOURCES finish before DERIVED emitters, emitters
+ * before EMBEDDINGS, and the lobby MV refresh runs after LDA.
+ *
+ * `command` is the argv passed to the container (entrypoint.sh dispatches on
+ * argv[0]). Add `--since`-aware flags here only when the script reads them; the
+ * SyncRun watermark handles incrementality for the rest.
+ */
+
+export interface ScheduledIngestionJob {
+  /** Stable id (becomes the EventBridge rule + CDK construct id). */
+  id: string;
+  /** Container command argv (entrypoint.sh kebab name + optional flags). */
+  command: string[];
+  /** EventBridge cron. Use the 6-field AWS form via the `cron` helper below. */
+  cron: { minute: string; hour: string; day?: string; month?: string; weekDay?: string };
+  /** Human note for the rule description. */
+  description: string;
+  /** Tier for grouping/observability. */
+  tier: 'daily' | 'weekly' | 'monthly' | 'derived' | 'embeddings';
+}
+
+// NOTE: AWS EventBridge cron requires exactly one of day-of-month / day-of-week
+// to be '?'. The helpers below default the unused field to '?'.
+
+export const INGESTION_JOBS: ScheduledIngestionJob[] = [
+  // ── TIER 1 — DAILY sources ────────────────────────────────────────────────
+  { id: 'SyncCongress', command: ['sync-congress'], cron: { minute: '0', hour: '6' }, tier: 'daily', description: 'Congress bills/actions (daily, incremental)' },
+  { id: 'SyncFederalRegister', command: ['sync-federal-register'], cron: { minute: '15', hour: '6' }, tier: 'daily', description: 'Federal Register documents (daily)' },
+  { id: 'SyncRegulations', command: ['sync-regulations'], cron: { minute: '30', hour: '6' }, tier: 'daily', description: 'Regulations.gov dockets (daily)' },
+  { id: 'SyncHearings', command: ['sync-hearings'], cron: { minute: '45', hour: '6' }, tier: 'daily', description: 'Committee hearings (daily)' },
+  { id: 'SyncRssIntel', command: ['sync-rss-intel'], cron: { minute: '0', hour: '0/6' }, tier: 'daily', description: 'RSS intel news (every 6h)' },
+  { id: 'SyncFec', command: ['sync-fec'], cron: { minute: '0', hour: '7' }, tier: 'daily', description: 'FEC contributions (daily)' },
+  { id: 'SyncFecPac', command: ['sync-fec-pac'], cron: { minute: '20', hour: '7' }, tier: 'daily', description: 'FEC PAC (Schedule B) giving (daily)' },
+  { id: 'SyncFederalAward', command: ['sync-federal-award'], cron: { minute: '40', hour: '7' }, tier: 'daily', description: 'USAspending federal awards (daily)' },
+  { id: 'EnrichAwardDistricts', command: ['enrich-award-districts'], cron: { minute: '0', hour: '8' }, tier: 'daily', description: 'Award district enrichment (after awards)' },
+
+  // ── TIER 2 — WEEKLY ───────────────────────────────────────────────────────
+  { id: 'SyncLda', command: ['sync-lda'], cron: { minute: '0', hour: '5', weekDay: 'MON' }, tier: 'weekly', description: 'LDA lobbying filings (weekly Mon)' },
+  { id: 'SyncOpenlobby', command: ['sync-openlobby'], cron: { minute: '30', hour: '5', weekDay: 'MON' }, tier: 'weekly', description: 'OpenLobby derived intel (weekly Mon)' },
+  { id: 'SyncFara', command: ['sync-fara'], cron: { minute: '0', hour: '6', weekDay: 'MON' }, tier: 'weekly', description: 'FARA registrations (weekly Mon)' },
+  { id: 'SyncGao', command: ['sync-gao'], cron: { minute: '30', hour: '6', weekDay: 'MON' }, tier: 'weekly', description: 'GAO reports (weekly Mon)' },
+  { id: 'SyncCrs', command: ['sync-crs'], cron: { minute: '0', hour: '7', weekDay: 'MON' }, tier: 'weekly', description: 'CRS reports (weekly Mon)' },
+  { id: 'SyncGrants', command: ['sync-grants'], cron: { minute: '30', hour: '7', weekDay: 'MON' }, tier: 'weekly', description: 'Federal grants (weekly Mon)' },
+  { id: 'SyncOpenstates', command: ['sync-openstates'], cron: { minute: '0', hour: '8', weekDay: 'MON' }, tier: 'weekly', description: 'State bills/legislators (weekly Mon)' },
+  { id: 'SyncSecEdgar', command: ['sync-sec-edgar'], cron: { minute: '30', hour: '8', weekDay: 'MON' }, tier: 'weekly', description: 'SEC EDGAR filings (weekly Mon)' },
+  { id: 'SyncPeoRosters', command: ['sync-peo-rosters'], cron: { minute: '0', hour: '9', weekDay: 'TUE' }, tier: 'weekly', description: 'PEO rosters (weekly Tue)' },
+  { id: 'SyncDodOrgcharts', command: ['sync-dod-orgcharts'], cron: { minute: '30', hour: '9', weekDay: 'TUE' }, tier: 'weekly', description: 'DoD org charts (weekly Tue)' },
+  { id: 'SyncDodPressPersonnel', command: ['sync-dod-press-personnel'], cron: { minute: '0', hour: '10', weekDay: 'TUE' }, tier: 'weekly', description: 'DoD press personnel (weekly Tue)' },
+  { id: 'ExtractPressPersonnel', command: ['extract-press-personnel'], cron: { minute: '30', hour: '10', weekDay: 'TUE' }, tier: 'weekly', description: 'Press-release personnel NER (after press sync)' },
+  { id: 'ExtractGaoInterviewees', command: ['extract-gao-interviewees'], cron: { minute: '0', hour: '11', weekDay: 'TUE' }, tier: 'weekly', description: 'GAO interviewees (after GAO sync)' },
+  { id: 'ExtractHearingWitnesses', command: ['extract-hearing-witnesses'], cron: { minute: '30', hour: '11', weekDay: 'TUE' }, tier: 'weekly', description: 'Hearing witnesses (after hearings sync)' },
+  { id: 'SyncSamPersonnel', command: ['sync-sam-personnel'], cron: { minute: '0', hour: '12', weekDay: 'TUE' }, tier: 'weekly', description: 'SAM.gov solicitation personnel (weekly Tue)' },
+
+  // ── TIER 3 — MONTHLY (1st of month) ───────────────────────────────────────
+  { id: 'SyncBea', command: ['sync-bea'], cron: { minute: '0', hour: '4', day: '1' }, tier: 'monthly', description: 'BEA economic series (monthly)' },
+  { id: 'SyncBls', command: ['sync-bls'], cron: { minute: '30', hour: '4', day: '1' }, tier: 'monthly', description: 'BLS series (monthly)' },
+  { id: 'SyncCensus', command: ['sync-census'], cron: { minute: '0', hour: '5', day: '1' }, tier: 'monthly', description: 'Census district refs (monthly)' },
+  { id: 'SyncOpenspending', command: ['sync-openspending'], cron: { minute: '30', hour: '5', day: '1' }, tier: 'monthly', description: 'Agency/contractor/industry refs (monthly)' },
+  { id: 'SyncCpeRoster', command: ['sync-cpe-roster'], cron: { minute: '0', hour: '6', day: '1' }, tier: 'monthly', description: 'CPE roster (monthly)' },
+  { id: 'ImportDowDirectory', command: ['import-dow-directory'], cron: { minute: '30', hour: '6', day: '1' }, tier: 'monthly', description: 'Stanford DoW directory (monthly)' },
+  { id: 'SyncLobbyTrending', command: ['sync-lobby-trending'], cron: { minute: '0', hour: '7', day: '1' }, tier: 'monthly', description: 'Lobby trending topics recompute (monthly)' },
+
+  // ── TIER 5 — DERIVED / EMITTERS (daily, after sources) ────────────────────
+  { id: 'ExtractBillPeCodes', command: ['extract-bill-pe-codes'], cron: { minute: '0', hour: '9' }, tier: 'derived', description: 'Bill<->PE linkage (after congress)' },
+  { id: 'RefreshLobbyIntelMv', command: ['refresh-lobby-intel-mv'], cron: { minute: '30', hour: '9' }, tier: 'derived', description: 'Lobby intel MV refresh (after LDA/openlobby)' },
+  { id: 'EmitChanges', command: ['emit-changes'], cron: { minute: '0', hour: '10' }, tier: 'derived', description: 'IntelligenceChange emitter (after sources)' },
+  { id: 'EmitBillAlerts', command: ['emit-bill-alerts'], cron: { minute: '20', hour: '10' }, tier: 'derived', description: 'Per-bill stage alerts (after bill-PE link)' },
+  { id: 'CheckCommentPeriods', command: ['check-comment-periods'], cron: { minute: '40', hour: '10' }, tier: 'derived', description: 'Reg comment-period alerts (after regulations)' },
+  { id: 'ComputeHealthScores', command: ['compute-health-scores'], cron: { minute: '0', hour: '11' }, tier: 'derived', description: 'Health scores (after emit-changes)' },
+  { id: 'GenerateBriefings', command: ['generate-briefings'], cron: { minute: '30', hour: '11' }, tier: 'derived', description: 'Briefings (after changes + health)' },
+  { id: 'RecomputeConferenceProbability', command: ['recompute-conference-probability'], cron: { minute: '50', hour: '11' }, tier: 'derived', description: 'PE conference probability recompute' },
+
+  // ── TIER 6 — EMBEDDINGS (daily, last) ─────────────────────────────────────
+  // NOTE: embed-backfill has its own dedicated task def + rule already wired in
+  // compute-stack.ts (Phase 1). It is intentionally NOT in this list to avoid a
+  // duplicate rule; it runs at 13:00 UTC via EmbedBackfillDailyRule.
+];
