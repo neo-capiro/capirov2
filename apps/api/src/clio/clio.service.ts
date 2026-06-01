@@ -35,6 +35,8 @@ import { normalizeFeedback, type NormalizedFeedback } from './clio-feedback.help
 import { COMPLIANCE_GUARDRAILS, screenComplianceRisk } from './clio-compliance.helpers.js';
 import { confidenceLevel } from './clio-confidence.helpers.js';
 import { classifyToolAction, isSideEffectingTool } from './clio-actions.helpers.js';
+import mammoth from 'mammoth';
+import { validateAttachment, formatAttachmentContext } from './clio-attachment.helpers.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -1710,6 +1712,31 @@ export class ClioService {
       });
       return feedback;
     });
+  }
+
+  /**
+   * Extract text from an uploaded document for use as chat context (P2-7).
+   * docx (mammoth) + plain text are extracted; pdf/image return a placeholder
+   * note (no PDF parser / OCR in deps yet). Stateless — the caller injects the
+   * returned text into the next message (which is tenant-scoped).
+   */
+  async extractAttachmentText(
+    buffer: Buffer,
+    contentType: string,
+    filename: string,
+  ): Promise<{ filename: string; kind: string; text: string }> {
+    const validation = validateAttachment({ contentType, byteSize: buffer.length, filename });
+    if (!validation.ok) throw new BadRequestException(validation.reason ?? 'Invalid attachment');
+    let raw = '';
+    if (validation.kind === 'text') {
+      raw = buffer.toString('utf8');
+    } else if (validation.kind === 'docx') {
+      const result = await mammoth.extractRawText({ buffer });
+      raw = result.value;
+    } else {
+      raw = `[A ${validation.kind} file was attached; automatic text extraction for ${validation.kind} files is not yet available — paste the relevant text or describe it.]`;
+    }
+    return { filename, kind: validation.kind, text: formatAttachmentContext(filename, raw) };
   }
 
   // ── Proactive Alert Generation ────────────────────────────────────────

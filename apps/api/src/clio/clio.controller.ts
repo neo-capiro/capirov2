@@ -1,4 +1,20 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { IsIn, IsObject, IsOptional, IsString, IsUUID, Length, ValidateIf } from 'class-validator';
 import type { Request, Response } from 'express';
 import type { TenantContext } from '@capiro/shared';
@@ -213,6 +229,18 @@ export class ClioController {
     @Body() body: { rating?: unknown; note?: unknown },
   ) {
     return this.service.recordMessageFeedback(ctx, id, body);
+  }
+
+  // ── Multimodal / document input (P2-7) ──
+
+  @Post('attachments')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAttachment(
+    @UploadedFile()
+    file: { buffer: Buffer; mimetype: string; originalname: string; size: number } | undefined,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    return this.service.extractAttachmentText(file.buffer, file.mimetype, file.originalname);
   }
 
   // ── Learned-memory surface (Clio learned X + one-click undo) ──
