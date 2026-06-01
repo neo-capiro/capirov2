@@ -42,6 +42,20 @@ const SOURCES = [
   { key: 'marcorsyscom_marines', url: 'https://www.marcorsyscom.marines.mil/About-Us/Leaders/' },
   { key: 'ssc_space_force', url: 'https://www.ssc.spaceforce.mil/About-Us/Leadership' },
   { key: 'darpa_people', url: 'https://www.darpa.mil/about-us/people' },
+  // --- Added (Step: org-chart sources). URLs verified live 2026-05; the original
+  // asaalt.army.mil host is DEAD and defense.gov/leaders moved to war.gov under the
+  // Department of War rebrand. All but navair/darpa are WAF-blocked to direct fetch,
+  // so Firecrawl is required. These use the generic leadership-card extractor until
+  // a page-specific template is added (kept low/medium confidence accordingly).
+  { key: 'navair_navy', url: 'https://www.navair.navy.mil/organization/NAVAIR' },
+  { key: 'navsea_navy', url: 'https://www.navsea.navy.mil/Home/Leadership/' },
+  { key: 'navwar_peo_digital', url: 'https://www.navwar.navy.mil/Organization/PEO-Digital/' },
+  { key: 'aflcmc_af', url: 'https://www.aflcmc.af.mil/About-Us/Biographies/' },
+  { key: 'asa_alt_army', url: 'https://api.army.mil/' },
+  { key: 'osd_leadership', url: 'https://www.war.gov/About/Leadership-Bios/' },
+  { key: 'cpe_ground_army', url: 'https://cpeground.army.mil/About' },
+  { key: 'cpe_c2in_army', url: 'https://cpec2in.army.mil/Careers/About-CPE-C2IN' },
+  { key: 'cpe_es2_army', url: 'https://www.army.mil/enterprise' },
 ] as const;
 
 type SourceKey = (typeof SOURCES)[number]['key'];
@@ -209,9 +223,74 @@ function extractPersonnel(source: SourceKey, sourceUrl: string, markdown: string
   if (source === 'marcorsyscom_marines') return extractMarcorLeadership(source, sourceUrl, markdown);
   if (source === 'ssc_space_force') return extractSscLeadership(source, sourceUrl, markdown);
 
+  // Newly-added Navy/AF/OSD/CPE sources: their .mil CMS pages vary in structure, so
+  // use a generic leadership-card extractor (bold name + adjacent title line). Kept
+  // medium-confidence until a page-specific template proves higher precision. A
+  // future LLM-cleanup pass (Claude via the LLM client) can replace this per source.
+  const GENERIC_SOURCES: SourceKey[] = [
+    'navair_navy', 'navsea_navy', 'navwar_peo_digital', 'aflcmc_af',
+    'asa_alt_army', 'osd_leadership', 'cpe_ground_army', 'cpe_c2in_army', 'cpe_es2_army',
+  ];
+  if (GENERIC_SOURCES.includes(source)) return extractGenericLeadership(source, sourceUrl, markdown);
+
   // peo_stri and peo_soldier are currently noisy with minimal structured leadership cards.
   // Keep strict until we add dedicated page templates for those domains.
   return [];
+}
+
+/**
+ * Generic DoD leadership-card extractor. Matches a bold name (**First Last**) that
+ * is immediately followed (same or next non-empty line) by a recognizable title
+ * (Director / Commander / PEO / Program Executive Officer / Deputy / etc.). Works
+ * across the common .mil CMS card layouts without a page-specific template.
+ */
+function extractGenericLeadership(source: SourceKey, sourceUrl: string, markdown: string): CandidatePersonnel[] {
+  const out: CandidatePersonnel[] = [];
+  const TITLE_RE = /(Program Executive Officer|PEO\b|Commander|Director|Deputy|Chief|Executive Director|Technical Director|Assistant Secretary|Program Manager|Vice Commander)/i;
+  // Bold-name pattern: **First Last** optionally followed by a title on the same
+  // line (after a comma/dash) or the next line.
+  const NAME_RE = /\*\*([A-Z][A-Za-z.'-]+(?:\s+(?:[A-Z]\.|[A-Z][A-Za-z.'-]+)){1,3})\*\*([^\n]*)/g;
+
+  const lines = markdown.split('\n');
+  let match: RegExpExecArray | null = null;
+  while ((match = NAME_RE.exec(markdown)) !== null) {
+    const fullName = normalizeWhitespace(match[1] ?? '');
+    if (!isLikelyName(fullName)) continue;
+
+    // Title candidate: trailing text on the bold line, else scan the next few lines.
+    let title: string | null = null;
+    const trailing = normalizeWhitespace((match[2] ?? '').replace(/^[\s,\\/|-]+/, ''));
+    if (trailing && TITLE_RE.test(trailing)) {
+      title = cleanTitle(trailing);
+    } else {
+      // Find this name's line index, look ahead up to 3 non-empty lines for a title.
+      const idx = lines.findIndex((l) => l.includes(`**${match![1]}**`));
+      if (idx >= 0) {
+        for (let j = idx + 1, seen = 0; j < lines.length && seen < 3; j += 1) {
+          const ln = normalizeWhitespace(lines[j] ?? '');
+          if (!ln) continue;
+          seen += 1;
+          if (TITLE_RE.test(ln) && !isLikelyName(ln)) {
+            title = cleanTitle(ln);
+            break;
+          }
+        }
+      }
+    }
+
+    if (!title) continue; // require first+last name AND a non-empty title (validation)
+    out.push({
+      source,
+      sourceUrl,
+      fullName,
+      title,
+      confidence: 'medium',
+      headshotUrl: null,
+      snippet: `${source} leadership card | ${title}`.slice(0, 500),
+    });
+  }
+
+  return dedupePersonnel(out);
 }
 
 function extractDarpaPeople(source: SourceKey, sourceUrl: string, markdown: string): CandidatePersonnel[] {
