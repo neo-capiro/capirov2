@@ -136,6 +136,14 @@ export function setChatMessageVerification(id: string, verification: ClioVerific
   notify();
 }
 
+/** Drop every message after the one with `id` (used by regenerate / edit-and-resend). */
+export function truncateMessagesAfter(id: string): void {
+  const idx = state.messages.findIndex((m) => m.id === id);
+  if (idx < 0) return;
+  state = { ...state, messages: state.messages.slice(0, idx + 1) };
+  notify();
+}
+
 export function setStreaming(streaming: boolean): void {
   state = { ...state, isStreaming: streaming };
   notify();

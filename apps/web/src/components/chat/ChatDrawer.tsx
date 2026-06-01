@@ -28,6 +28,7 @@ import {
   setStreaming,
   toggleChat,
   toggleSessionRail,
+  truncateMessagesAfter,
   updateChatMessage,
   upsertConversation,
   useChatStore,
@@ -72,6 +73,16 @@ type ResearchSseEvent =
 function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
+
+// Subtle inline action button (Regenerate / Edit / Save / Cancel).
+const turnActionStyle = {
+  background: 'none',
+  border: 'none',
+  color: '#1677ff',
+  cursor: 'pointer',
+  fontSize: 12,
+  padding: '2px 4px',
+} as const;
 
 function contextLabelFor(pathname: string): string {
   const draft = getActiveDraft();
@@ -510,25 +521,33 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     [authHeaders, executeResearchRun, isStreaming],
   );
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, opts?: { mode?: 'regenerate' | 'resend' }) => {
     if (isStreaming) return;
 
-    // Deep Research mode is handled by a dedicated multi-phase flow.
-    if (researchMode) {
+    const mode = opts?.mode;
+
+    // Deep Research mode is handled by a dedicated multi-phase flow (new turns only).
+    if (researchMode && !mode) {
       await runResearch(content);
       return;
     }
 
     const writePrefix = 'write on this page:';
-    const outgoing = writeMode ? `${writePrefix} ${content}` : content;
+    const outgoing = mode ? content : writeMode ? `${writePrefix} ${content}` : content;
 
     // Ensure we have a session ID (create one if missing)
     let sid = sessionId;
     if (!sid) {
       sid = await doCreateSession();
     }
+    if (!sid) return;
 
-    appendChatMessage({ id: generateId(), role: 'user', content, createdAt: new Date() });
+    // A new turn appends the user message. For regenerate/edit-and-resend the
+    // caller has already trimmed (and for resend, edited) the local messages,
+    // and the server re-runs the last user turn (P0-4).
+    if (!mode) {
+      appendChatMessage({ id: generateId(), role: 'user', content, createdAt: new Date() });
+    }
 
     const assistantId = generateId();
     appendChatMessage({ id: assistantId, role: 'assistant', content: '', createdAt: new Date() });
@@ -541,7 +560,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
       const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${sid}/stream`, {
         method: 'POST',
         headers: await authHeaders(),
-        body: JSON.stringify({ body: outgoing }),
+        body: JSON.stringify(mode ? { body: outgoing, mode } : { body: outgoing }),
         signal: controller.signal,
       });
 
@@ -687,6 +706,34 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     abortRef.current?.abort();
     setStreaming(false);
   }, []);
+
+  // Regenerate the last assistant answer, or edit-and-resend the last user
+  // message (P0-4). Both trim the local thread, then re-run via sendMessage.
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingText, setEditingText] = useState('');
+
+  const handleRegenerate = useCallback(() => {
+    if (isStreaming) return;
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    if (!lastUser) return;
+    truncateMessagesAfter(lastUser.id);
+    void sendMessage(lastUser.content, { mode: 'regenerate' });
+  }, [isStreaming, messages, sendMessage]);
+
+  const handleEditResend = useCallback(() => {
+    const text = editingText.trim();
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    if (!text || !lastUser || isStreaming) return;
+    updateChatMessage(lastUser.id, text);
+    truncateMessagesAfter(lastUser.id);
+    setEditingMessageId(null);
+    void sendMessage(text, { mode: 'resend' });
+  }, [editingText, isStreaming, messages, sendMessage]);
+
+  const lastUserMessageId = useMemo(
+    () => [...messages].reverse().find((m) => m.role === 'user')?.id ?? null,
+    [messages],
+  );
 
   const fetchLearnedMemories = useCallback(async () => {
     try {
@@ -970,6 +1017,63 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     msg.content !== ''
                   }
                 />
+                {isLastAssistant && !isStreaming && !researchReports[msg.id] && (
+                  <div style={{ marginLeft: 40, marginTop: 2 }}>
+                    <button
+                      type="button"
+                      onClick={handleRegenerate}
+                      aria-label="Regenerate response"
+                      style={turnActionStyle}
+                    >
+                      ↻ Regenerate
+                    </button>
+                  </div>
+                )}
+                {msg.role === 'user' &&
+                  msg.id === lastUserMessageId &&
+                  !isStreaming &&
+                  (editingMessageId === msg.id ? (
+                    <div style={{ marginTop: 4 }}>
+                      <textarea
+                        value={editingText}
+                        onChange={(e) => setEditingText(e.target.value)}
+                        rows={3}
+                        aria-label="Edit message"
+                        style={{
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          font: 'inherit',
+                          padding: 6,
+                        }}
+                      />
+                      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                        <button type="button" onClick={handleEditResend} style={turnActionStyle}>
+                          Save &amp; resend
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditingMessageId(null)}
+                          style={turnActionStyle}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 2 }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingMessageId(msg.id);
+                          setEditingText(msg.content);
+                        }}
+                        aria-label="Edit and resend"
+                        style={turnActionStyle}
+                      >
+                        ✎ Edit
+                      </button>
+                    </div>
+                  ))}
                 {researchReports[msg.id] && (
                   <div className="chat-research-actions">
                     <button
