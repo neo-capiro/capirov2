@@ -10,12 +10,27 @@ export interface ClioCitation {
   tool: string;
 }
 
+export interface VerifiedClaim {
+  claim: string;
+  supported: boolean;
+  sourceIds: number[];
+}
+
+export interface ClioVerification {
+  claims: VerifiedClaim[];
+  totalCount: number;
+  unsupportedCount: number;
+  unsupportedRatio: number;
+  lowConfidence: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   createdAt: Date;
   citations?: ClioCitation[];
+  verification?: ClioVerification;
 }
 
 export interface ActiveDraftContext {
@@ -111,6 +126,12 @@ export function updateChatMessage(id: string, content: string): void {
 
 export function setChatMessageCitations(id: string, citations: ClioCitation[]): void {
   const messages = state.messages.map((m) => (m.id === id ? { ...m, citations } : m));
+  state = { ...state, messages };
+  notify();
+}
+
+export function setChatMessageVerification(id: string, verification: ClioVerification): void {
+  const messages = state.messages.map((m) => (m.id === id ? { ...m, verification } : m));
   state = { ...state, messages };
   notify();
 }

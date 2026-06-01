@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, test } from 'vitest';
 import { ChatMessage } from './ChatMessage.js';
-import type { ClioCitation } from './chat-store.js';
+import type { ClioCitation, ClioVerification } from './chat-store.js';
 
 const citations: ClioCitation[] = [
   {
@@ -54,5 +54,53 @@ describe('ChatMessage citations', () => {
     render(<ChatMessage role="user" content="What about bill [1]?" citations={citations} />);
     expect(screen.queryByRole('button', { name: '[1]' })).toBeNull();
     expect(screen.getByText('What about bill [1]?')).toBeTruthy();
+  });
+});
+
+const lowConfidenceVerification: ClioVerification = {
+  claims: [
+    { claim: 'HR1 cleared committee', supported: true, sourceIds: [1] },
+    { claim: 'HR1 will pass the floor next week', supported: false, sourceIds: [] },
+    { claim: 'The sponsor is retiring', supported: false, sourceIds: [] },
+  ],
+  totalCount: 3,
+  unsupportedCount: 2,
+  unsupportedRatio: 2 / 3,
+  lowConfidence: true,
+};
+
+describe('ChatMessage verification gate', () => {
+  test('shows a low-confidence banner and lists the unsupported claims', () => {
+    render(
+      <ChatMessage
+        role="assistant"
+        content="Here is the briefing."
+        verification={lowConfidenceVerification}
+      />,
+    );
+    expect(screen.getByText(/Low confidence/i)).toBeTruthy();
+    expect(screen.getByText('HR1 will pass the floor next week')).toBeTruthy();
+    expect(screen.getByText('The sponsor is retiring')).toBeTruthy();
+    // supported claims are not listed as flagged
+    expect(screen.queryByText('HR1 cleared committee')).toBeNull();
+  });
+
+  test('shows a grounded confirmation when all claims are supported', () => {
+    const allSupported: ClioVerification = {
+      claims: [{ claim: 'x', supported: true, sourceIds: [1] }],
+      totalCount: 1,
+      unsupportedCount: 0,
+      unsupportedRatio: 0,
+      lowConfidence: false,
+    };
+    render(<ChatMessage role="assistant" content="ok" verification={allSupported} />);
+    expect(screen.getByText(/checked against sources/i)).toBeTruthy();
+    expect(screen.queryByText(/Low confidence/i)).toBeNull();
+  });
+
+  test('renders nothing extra when there is no verification', () => {
+    render(<ChatMessage role="assistant" content="plain answer" />);
+    expect(screen.queryByText(/Low confidence/i)).toBeNull();
+    expect(screen.queryByText(/checked against sources/i)).toBeNull();
   });
 });
