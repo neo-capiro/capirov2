@@ -26,6 +26,7 @@ import {
   setChatMessageCitations,
   setChatMessageVerification,
   setChatMessageSuggestions,
+  setChatMessageFeedback,
   setStreaming,
   toggleChat,
   toggleSessionRail,
@@ -719,6 +720,22 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
   // Stop: abort the in-flight stream. The server-side handler cancels the model
   // call on disconnect (P0-4); the partial answer streamed so far is kept.
+  const submitFeedback = useCallback(
+    async (messageId: string, rating: 'up' | 'down' | null) => {
+      setChatMessageFeedback(messageId, rating); // optimistic
+      try {
+        await fetch(`${config.apiBaseUrl}/api/clio/messages/${messageId}/feedback`, {
+          method: 'POST',
+          headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rating }),
+        });
+      } catch {
+        /* keep optimistic UI; feedback is best-effort */
+      }
+    },
+    [authHeaders],
+  );
+
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
     setStreaming(false);
@@ -1035,6 +1052,46 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     msg.content !== ''
                   }
                 />
+                {msg.role === 'assistant' &&
+                  msg.content !== '' &&
+                  !(isStreaming && i === messages.length - 1) && (
+                    <div style={{ marginLeft: 40, marginTop: 2, display: 'flex', gap: 4 }}>
+                      <button
+                        type="button"
+                        aria-label="Helpful"
+                        title="Helpful"
+                        onClick={() => submitFeedback(msg.id, msg.feedback === 'up' ? null : 'up')}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontSize: 13,
+                          padding: 2,
+                          opacity: msg.feedback === 'up' ? 1 : 0.45,
+                        }}
+                      >
+                        👍
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Not helpful"
+                        title="Not helpful"
+                        onClick={() =>
+                          submitFeedback(msg.id, msg.feedback === 'down' ? null : 'down')
+                        }
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontSize: 13,
+                          padding: 2,
+                          opacity: msg.feedback === 'down' ? 1 : 0.45,
+                        }}
+                      >
+                        👎
+                      </button>
+                    </div>
+                  )}
                 {isLastAssistant && !isStreaming && !researchReports[msg.id] && (
                   <div style={{ marginLeft: 40, marginTop: 2 }}>
                     <button

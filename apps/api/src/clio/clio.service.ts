@@ -31,6 +31,7 @@ import { buildPlanSteps } from './clio-plan.helpers.js';
 import { ToolCircuitBreaker, CircuitOpenError } from './clio-circuit-breaker.js';
 import { loopBudgetExceeded, type LoopStopReason } from './clio-budget.helpers.js';
 import { parseSuggestions } from './clio-suggestions.helpers.js';
+import { normalizeFeedback, type NormalizedFeedback } from './clio-feedback.helpers.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -1641,6 +1642,41 @@ export class ClioService {
         },
       }),
     );
+  }
+
+  // ── Message feedback (P1-2) ───────────────────────────────────────────
+
+  /**
+   * Record thumbs up/down (+ optional note) on an assistant message, stored in
+   * clio_message.metadata.feedback. Tenant-scoped; passing a non-up/down rating
+   * clears the feedback.
+   */
+  async recordMessageFeedback(
+    ctx: TenantContext,
+    messageId: string,
+    input: { rating?: unknown; note?: unknown },
+  ): Promise<NormalizedFeedback> {
+    const feedback = normalizeFeedback(input);
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const msg = await tx.clioMessage.findFirst({
+        where: { id: messageId, tenantId: ctx.tenantId },
+      });
+      if (!msg) throw new NotFoundException('Message not found');
+      const metadata =
+        msg.metadata && typeof msg.metadata === 'object' && !Array.isArray(msg.metadata)
+          ? (msg.metadata as Record<string, unknown>)
+          : {};
+      await tx.clioMessage.update({
+        where: { id: messageId },
+        data: {
+          metadata: {
+            ...metadata,
+            feedback: { ...feedback, userId: ctx.userId, at: new Date().toISOString() },
+          } as unknown as Prisma.InputJsonValue,
+        },
+      });
+      return feedback;
+    });
   }
 
   // ── Proactive Alert Generation ────────────────────────────────────────

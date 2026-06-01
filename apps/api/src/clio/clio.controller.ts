@@ -204,6 +204,17 @@ export class ClioController {
     return this.service.createArtifactVersion(ctx, id, body.bodyText);
   }
 
+  // ── Message feedback (P1-2) ──
+
+  @Post('messages/:id/feedback')
+  async recordMessageFeedback(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: { rating?: unknown; note?: unknown },
+  ) {
+    return this.service.recordMessageFeedback(ctx, id, body);
+  }
+
   // ── Learned-memory surface (Clio learned X + one-click undo) ──
 
   @Get('memory/recent')
