@@ -116,6 +116,10 @@ case "${1:-serve}" in
     echo "Running generate-briefings"
     exec ./node_modules/.bin/tsx scripts/generate-briefings.ts
     ;;
+  generate-meeting-briefings)
+    echo "Running generate-meeting-briefings (P2-8 scheduled proactive briefings)"
+    exec ./node_modules/.bin/tsx scripts/generate-meeting-briefings.ts
+    ;;
   compute-health-scores)
     echo "Running compute-health-scores"
     exec ./node_modules/.bin/tsx scripts/compute-health-scores.ts
