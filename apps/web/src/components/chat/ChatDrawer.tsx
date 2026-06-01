@@ -786,6 +786,26 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     } catch { /* ignore */ }
   }, [authHeaders]);
 
+  const submitMemoryEdit = useCallback(
+    async (id: string, currentValue: string) => {
+      const next = window.prompt('Edit what Clio remembers:', currentValue);
+      if (next == null) return; // cancelled
+      const trimmed = next.trim();
+      if (!trimmed || trimmed === currentValue) return;
+      setLearnedMemories((prev) => prev.map((m) => (m.id === id ? { ...m, value: trimmed } : m)));
+      try {
+        await fetch(`${config.apiBaseUrl}/api/clio/memory/${id}`, {
+          method: 'PATCH',
+          headers: { ...(await authHeaders()), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ value: trimmed }),
+        });
+      } catch {
+        void fetchLearnedMemories(); // resync on failure
+      }
+    },
+    [authHeaders, fetchLearnedMemories],
+  );
+
   const forgetMemory = useCallback(async (id: string) => {
     setLearnedMemories((prev) => prev.filter((m) => m.id !== id)); // optimistic
     try {
@@ -986,6 +1006,15 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                   title={mem.value}
                 >
                   Clio learned: {mem.value.length > 80 ? `${mem.value.slice(0, 77)}…` : mem.value}
+                  <button
+                    type="button"
+                    className="chat-learned-undo"
+                    aria-label="Edit this memory"
+                    title="Edit"
+                    onClick={() => void submitMemoryEdit(mem.id, mem.value)}
+                  >
+                    edit
+                  </button>
                   <button
                     type="button"
                     className="chat-learned-undo"

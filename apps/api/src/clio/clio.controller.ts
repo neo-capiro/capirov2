@@ -230,6 +230,20 @@ export class ClioController {
     return this.service.forgetMemory(ctx, id);
   }
 
+  @Get('memory')
+  async listMemories(@CurrentTenant() ctx: TenantContext, @Query('limit') limit?: string) {
+    return this.service.listMemories(ctx, limit ? parseInt(limit, 10) : 100);
+  }
+
+  @Patch('memory/:id')
+  async updateMemory(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: { value?: unknown },
+  ) {
+    return this.service.updateMemory(ctx, id, body.value);
+  }
+
   // ── Deep Research ──
   // Flow: POST /research (create) → POST /research/:id/plan/stream (SSE: plan +
   // clarifying questions) → POST /research/:id/clarify (answers) →

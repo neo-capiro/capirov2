@@ -1908,6 +1908,72 @@ export class ClioService {
     );
     return { ok: true, id: memoryId };
   }
+
+  /**
+   * All memories visible to this user (firm-scope + this user's private), for the
+   * inspect/edit panel (P2-6). Not limited to auto-created entries.
+   */
+  async listMemories(ctx: TenantContext, limit = 100) {
+    const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMemory.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          OR: [{ scope: 'firm' }, { scope: 'user_private', ownerUserId: ctx.userId }],
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: Math.min(Math.max(limit, 1), 200),
+        select: { id: true, key: true, value: true, scope: true, metadata: true, updatedAt: true },
+      }),
+    );
+    return rows.map((row) => {
+      const meta = (row.metadata ?? {}) as Record<string, unknown>;
+      return {
+        id: row.id,
+        key: row.key,
+        value: row.value,
+        scope: row.scope,
+        confidence: typeof meta.confidence === 'number' ? meta.confidence : null,
+        learnedAt: row.updatedAt,
+      };
+    });
+  }
+
+  /**
+   * Edit a memory's value (P2-6). Same scope access control as forgetMemory: a
+   * user_private memory is only editable by its owner. Marks it user-edited.
+   */
+  async updateMemory(ctx: TenantContext, memoryId: string, value: unknown) {
+    const next = (typeof value === 'string' ? value.trim() : '').slice(0, 4000);
+    if (!next) throw new BadRequestException('Memory value must be a non-empty string');
+    const row = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMemory.findFirst({
+        where: { id: memoryId, tenantId: ctx.tenantId },
+        select: { id: true, scope: true, ownerUserId: true, metadata: true },
+      }),
+    );
+    if (!row) throw new NotFoundException('Memory not found');
+    if (row.scope === 'user_private' && row.ownerUserId !== ctx.userId) {
+      throw new NotFoundException('Memory not found');
+    }
+    const meta =
+      row.metadata && typeof row.metadata === 'object' && !Array.isArray(row.metadata)
+        ? (row.metadata as Record<string, unknown>)
+        : {};
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMemory.updateMany({
+        where: { id: memoryId, tenantId: ctx.tenantId },
+        data: {
+          value: next,
+          metadata: {
+            ...meta,
+            updatedBy: 'user',
+            editedByUserId: ctx.userId,
+          } as unknown as Prisma.InputJsonValue,
+        },
+      }),
+    );
+    return { ok: true, id: memoryId, value: next };
+  }
 }
 
 function summarizeJsonForPrompt(value: unknown, maxChars = 5000): string {
