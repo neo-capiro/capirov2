@@ -34,8 +34,8 @@ function formatDate(value: string): string {
 }
 
 export interface DowDirectoryTabCapability {
-  // Only peCode is required by this tab; capabilities carry other fields we ignore.
-  peCode?: string | null;
+  // Only the Program Element number is used by this tab; capabilities carry other fields we ignore.
+  peNumber?: string | null;
 }
 
 export interface DowDirectoryTabProps {
@@ -58,7 +58,7 @@ export function DowDirectoryTab({ client, capabilities, onSelectPerson }: DowDir
       Array.from(
         new Set(
           capabilities
-            .map((c) => (c.peCode ?? '').trim().toUpperCase())
+            .map((c) => (c.peNumber ?? '').trim().toUpperCase())
             .filter((code) => code.length > 0),
         ),
       ).sort(),
