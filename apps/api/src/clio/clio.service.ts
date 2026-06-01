@@ -26,6 +26,7 @@ import {
   type ClioCitation,
 } from './clio-citations.helpers.js';
 import { matchSkill } from './skills/skill-registry.js';
+import { summarizeTurnTrace, traceLogLine, type ClioRoundTrace } from './clio-trace.helpers.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -447,6 +448,8 @@ export class ClioService {
     let finalCitations: ClioCitation[] = [];
     let pageWritePayload: { subject?: string; body?: string } | null = null;
     let aborted = false;
+    const turnStartMs = Date.now();
+    const traceRounds: ClioRoundTrace[] = [];
 
     try {
       const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
@@ -484,6 +487,7 @@ export class ClioService {
         const toolUseById = new Map<number, { id: string; name: string; jsonParts: string[] }>();
         const roundUsage = emptyUsage();
         let stopReason: string | null = null;
+        const roundStartMs = Date.now();
 
         try {
           const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -561,6 +565,13 @@ export class ClioService {
 
         // If the model did not request tools, the turn is complete.
         if (stopReason !== 'tool_use' || toolUseById.size === 0) {
+          traceRounds.push({
+            round,
+            durationMs: Date.now() - roundStartMs,
+            usage: roundUsage,
+            stopReason,
+            tools: [],
+          });
           break;
         }
 
@@ -662,6 +673,16 @@ export class ClioService {
           });
         }
         messages.push({ role: 'user', content: toolResultBlocks });
+        traceRounds.push({
+          round,
+          durationMs: Date.now() - roundStartMs,
+          usage: roundUsage,
+          stopReason,
+          tools: preparedTools.map((item) => ({
+            name: item.tool.name,
+            ok: outcomes[item.index]?.ok ?? false,
+          })),
+        });
         // Loop again so the model can read tool results and answer (or call more tools).
       }
     } catch (err) {
@@ -718,6 +739,22 @@ export class ClioService {
       sse.write(`data: ${JSON.stringify({ type: 'page_write', target: 'outreach_draft', subject: pageWritePayload.subject, body: pageWritePayload.body })}\n\n`);
     }
 
+    // Execution trace (P1-3): aggregate per-round timings/usage + tool outcomes
+    // for observability; persisted to metadata.trace and logged. Streamed to the
+    // client only when the user opted into the trace view (#trace).
+    const turnTrace = summarizeTurnTrace({
+      intent,
+      skill: this.skillsEnabled() ? (matchSkill(intent)?.id ?? null) : null,
+      rounds: traceRounds,
+      totalUsage: usageTotals,
+      totalDurationMs: Date.now() - turnStartMs,
+      lowConfidence: verification ? verification.lowConfidence : null,
+    });
+    this.logger.log(traceLogLine(turnTrace));
+    if (streamControl.traceEnabled) {
+      sse.write(`data: ${JSON.stringify({ type: 'exec_trace', trace: turnTrace })}\n\n`);
+    }
+
     // Persist assistant response (+ any artifacts produced by tools).
     await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const message = await tx.clioMessage.create({
@@ -738,6 +775,7 @@ export class ClioService {
             citations: finalCitations as unknown as Prisma.InputJsonValue,
             finishReason: aborted ? 'aborted' : 'stop',
             verification: verification as unknown as Prisma.InputJsonValue,
+            trace: turnTrace as unknown as Prisma.InputJsonValue,
           },
         },
       });
