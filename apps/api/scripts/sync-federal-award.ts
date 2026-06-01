@@ -21,7 +21,6 @@ import { AwardPeExtractorService } from '../src/program-element/extractors/award
 dotenvConfig();
 
 const USASPENDING = 'https://api.usaspending.gov/api/v2/search/spending_by_award/';
-const DOD_TOPTIER = '097'; // Department of Defense toptier agency code
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
@@ -54,12 +53,16 @@ async function fetchPage(startDate: string, endDate: string, page: number): Prom
   const body = {
     filters: {
       time_period: [{ start_date: startDate, end_date: endDate, date_type: 'action_date' }],
-      agencies: [{ type: 'awarding', tier: 'toptier', toptier_code: DOD_TOPTIER }],
+      // USAspending spending_by_award requires the agency by NAME (toptier_code is
+      // rejected here with a misleading "filters required" 422).
+      agencies: [{ type: 'awarding', tier: 'toptier', name: 'Department of Defense' }],
       award_type_codes: ['A', 'B', 'C', 'D'], // contract award types
     },
+    // Only request fields the endpoint actually returns for contracts. 'Action Date'
+    // is requested but often null; fall back to 'Last Modified Date' for awarded_at.
     fields: [
-      'Award ID', 'Recipient Name', 'Recipient UEI', 'Award Amount',
-      'Description', 'Awarding Agency', 'Awarding Sub Agency', 'Action Date', 'generated_internal_id',
+      'Award ID', 'Recipient Name', 'Award Amount',
+      'Description', 'Awarding Agency', 'Awarding Sub Agency', 'Action Date', 'Last Modified Date',
     ],
     page,
     limit: 100,
@@ -74,16 +77,17 @@ async function fetchPage(startDate: string, endDate: string, page: number): Prom
   if (!res.ok) throw new Error(`USAspending ${res.status}: ${await res.text().catch(() => '')}`);
   const json = (await res.json()) as { results?: Record<string, unknown>[]; page_metadata?: { hasNext?: boolean } };
   const results: AwardResult[] = (json.results ?? []).map((r) => ({
-    generatedInternalId: String(r.generated_internal_id ?? r['generated_internal_id'] ?? ''),
+    // generated_internal_id is the stable idempotency key; internal_id is a fallback.
+    generatedInternalId: String(r.generated_internal_id ?? r.internal_id ?? ''),
     piid: (r['Award ID'] as string) ?? null,
     fain: null,
     recipientName: (r['Recipient Name'] as string) ?? null,
-    recipientUei: (r['Recipient UEI'] as string) ?? null,
+    recipientUei: null,
     amount: r['Award Amount'] != null ? Number(r['Award Amount']) : null,
     description: (r['Description'] as string) ?? null,
     awardingAgency: (r['Awarding Agency'] as string) ?? null,
     awardingSubTier: (r['Awarding Sub Agency'] as string) ?? null,
-    actionDate: (r['Action Date'] as string) ?? null,
+    actionDate: (r['Action Date'] as string) ?? (r['Last Modified Date'] as string) ?? null,
   }));
   return { results, hasNext: Boolean(json.page_metadata?.hasNext) };
 }
