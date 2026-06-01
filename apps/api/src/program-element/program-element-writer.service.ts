@@ -3,6 +3,7 @@ import { Prisma, ProgramElementMilestone, ProgramElementYear } from '@prisma/cli
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProgramElementMetricsService } from './program-element-metrics.service.js';
 import { FieldDelta, PeMilestoneInput, PeRecordInput, PeYearInput, SOURCE_PRIORITY } from './types.js';
+import { ReconciliationService, RECONCILE_FIELDS, type ReconcileField } from './reconciliation/reconciliation.service.js';
 import { isValidPeCode } from './jbook/jbook-extract.js';
 
 const MARK_FIELDS = new Set(['hascMark', 'sascMark', 'hacDMark', 'sacDMark', 'conference', 'enacted']);
@@ -56,12 +57,18 @@ const NOOP_METRICS: Pick<
 export class ProgramElementWriterService {
   private readonly logger = new Logger(ProgramElementWriterService.name);
   private readonly metrics: Pick<ProgramElementMetricsService, 'emitCount' | 'emitSeconds' | 'emitGauge'>;
+  private readonly reconciliation: ReconciliationService;
 
   constructor(
     private readonly prisma: PrismaService,
     metrics?: ProgramElementMetricsService,
+    reconciliation?: ReconciliationService,
   ) {
     this.metrics = metrics ?? NOOP_METRICS;
+    // Reconciliation is non-optional behavior; default-construct it so the many
+    // script call sites that do `new ProgramElementWriterService(prisma)` keep
+    // working without wiring changes.
+    this.reconciliation = reconciliation ?? new ReconciliationService(prisma);
   }
 
   async upsertProgramElement(
@@ -148,6 +155,10 @@ export class ProgramElementWriterService {
     });
 
     const normalized = this.normalizeYearInput(record);
+
+    // Cross-source reconciliation (Step 29): log per-source values + queue
+    // over-threshold conflicts on every observed write, before canonical changes.
+    await this.runReconciliation(record, source);
 
     if (!existing) {
       await this.prisma.programElementYear.create({
@@ -320,6 +331,28 @@ export class ProgramElementWriterService {
   private getSourceRank(source: string): number {
     const idx = SOURCE_PRIORITY.indexOf(source as (typeof SOURCE_PRIORITY)[number]);
     return idx === -1 ? SOURCE_PRIORITY.length : idx;
+  }
+
+  /**
+   * Run cross-source reconciliation (Step 29 §4.1) for the numeric fields this
+   * write actually set. Logs per-source values and queues review entries for
+   * over-threshold conflicts. Never throws into the write path.
+   */
+  private async runReconciliation(record: PeYearInput, source: string): Promise<void> {
+    const values: Partial<Record<ReconcileField, number | null>> = {};
+    for (const field of RECONCILE_FIELDS) {
+      const raw = (record as unknown as Record<string, unknown>)[field];
+      const num = this.toNumber(raw);
+      if (num !== null) values[field] = num;
+    }
+    if (Object.keys(values).length === 0) return;
+    try {
+      // Use the base source key (strip _fy<NN>) for priority-aligned comparison.
+      const baseSource = source.replace(/_fy\d+$/i, '');
+      await this.reconciliation.reconcile({ peCode: record.peCode, fy: record.fy, source: baseSource, values });
+    } catch (err) {
+      this.logger.warn(`Reconciliation failed for ${record.peCode} FY${record.fy}: ${String(err)}`);
+    }
   }
 
   private normalizeYearInput(

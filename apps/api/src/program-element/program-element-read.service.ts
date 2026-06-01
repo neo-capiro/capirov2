@@ -448,4 +448,25 @@ export class ProgramElementReadService {
       return { peCode, watching: false };
     });
   }
+
+  /**
+   * Cross-source reconciliation review queue (Step 29 §4.1). Global table —
+   * capiro_admin only (gated at the controller). Not tenant-scoped: it reflects
+   * intel-data conflicts, not tenant data.
+   */
+  async listReconciliationQueue(status = 'open', page = 1, limit = 50) {
+    const take = Math.min(Math.max(limit, 1), 200);
+    const skip = (Math.max(page, 1) - 1) * take;
+    const where = status === 'all' ? {} : { status };
+    const [rows, total] = await Promise.all([
+      this.prisma.reconciliationReviewQueue.findMany({
+        where,
+        orderBy: { queuedAt: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.reconciliationReviewQueue.count({ where }),
+    ]);
+    return { data: rows, total, page: Math.max(page, 1), limit: take };
+  }
 }

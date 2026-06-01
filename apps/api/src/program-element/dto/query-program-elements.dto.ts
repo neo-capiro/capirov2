@@ -36,4 +36,10 @@ export class QueryProgramElementsDto {
   @Type(() => Number)
   @Min(0)
   divergence_threshold?: number;
+
+  // Reconciliation queue status filter (Step 29): open | resolved | all.
+  @IsOptional()
+  @IsString()
+  @IsIn(['open', 'resolved', 'dismissed', 'all'])
+  status?: string;
 }

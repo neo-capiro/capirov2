@@ -1923,20 +1923,49 @@ model ProgramElementQuarantine {
 }
 
 model ProgramElementYearSourceValue {
-  id         String   @id @default(uuid()) @db.Uuid
-  peCode     String   @map("pe_code") @db.VarChar(16)
-  fy         Int
-  fieldName  String   @map("field_name")
-  source     String
-  valueJsonb Json     @default("null") @map("value_jsonb")
-  isWinner   Boolean  @default(false) @map("is_winner")
-  recordedAt DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  id           String   @id @default(uuid()) @db.Uuid
+  peCode       String   @map("pe_code") @db.VarChar(16)
+  fy           Int
+  fieldName    String   @map("field_name")
+  source       String
+  valueJsonb   Json     @default("null") @map("value_jsonb")
+  // Per-field reconciliation values (Step 29 §4.1). value_decimal for numeric
+  // marks/dollars, value_text for narrative fields. written_at mirrors recordedAt
+  // for the reconciliation queue's naming.
+  valueDecimal Decimal? @map("value_decimal") @db.Decimal(18, 2)
+  valueText    String?  @map("value_text") @db.Text
+  writtenAt    DateTime @default(now()) @map("written_at") @db.Timestamptz(6)
+  isWinner     Boolean  @default(false) @map("is_winner")
+  recordedAt   DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
 
   programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
 
   @@index([peCode, fy, fieldName], map: "program_element_year_source_value_lookup_idx")
   @@index([peCode, fy, fieldName, isWinner], map: "program_element_year_source_value_winner_idx")
   @@map("program_element_year_source_value")
+}
+
+/// Cross-source reconciliation review queue (Step 29 §4.1). An entry is queued when
+/// a lower-priority source conflicts with the canonical value by > 10% (non-enacted
+/// fields) or by ANY amount on the enacted field. capiro_admin resolves entries.
+model ReconciliationReviewQueue {
+  id                String    @id @default(uuid()) @db.Uuid
+  peCode            String    @map("pe_code") @db.VarChar(16)
+  fy                Int
+  fieldName         String    @map("field_name")
+  currentValue      String?   @map("current_value")
+  conflictingSource String    @map("conflicting_source")
+  conflictingValue  String?   @map("conflicting_value")
+  deltaPct          Float?    @map("delta_pct")
+  queuedAt          DateTime  @default(now()) @map("queued_at") @db.Timestamptz(6)
+  status            String    @default("open") @db.VarChar(20)
+  resolvedByUserId  String?   @map("resolved_by_user_id") @db.Uuid
+  resolvedAt        DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolutionNotes   String?   @map("resolution_notes") @db.Text
+
+  @@index([status, queuedAt(sort: Desc)], map: "reconciliation_review_queue_status_idx")
+  @@index([peCode, fy], map: "reconciliation_review_queue_pe_fy_idx")
+  @@map("reconciliation_review_queue")
 }
 
 model ProgramElementWatch {
@@ -2599,6 +2628,14 @@ model FederalAward {
   amount          Decimal?  @db.Decimal(18, 2)
   description     String?   @db.Text
   peCode          String?   @map("pe_code") @db.VarChar(8)
+  // Place of performance (where the work happens) — primary signal for district
+  // nexus. Recipient location (where the company is HQ'd) kept as a fallback.
+  // Two-letter state + congressional-district number as text ('02', 'AL'); null
+  // when USAspending omits it. Populated by sync-federal-award location fields.
+  popState                       String?   @map("pop_state")
+  popCongressionalDistrict       String?   @map("pop_congressional_district")
+  recipientState                 String?   @map("recipient_state")
+  recipientCongressionalDistrict String?   @map("recipient_congressional_district")
   actionDate      DateTime? @map("action_date") @db.Date
   awardedAt       DateTime? @map("awarded_at") @db.Timestamptz(6)
   raw             Json      @default("{}") @map("raw_jsonb")
@@ -2606,6 +2643,7 @@ model FederalAward {
 
   @@index([peCode], map: "federal_award_pe_code_idx")
   @@index([contractorName], map: "federal_award_contractor_name_idx")
+  @@index([popState, popCongressionalDistrict], map: "federal_award_pop_district_idx")
   @@index([awardedAt], map: "federal_award_awarded_at_idx")
   @@index([actionDate], map: "federal_award_action_date_idx")
   @@map("federal_award")

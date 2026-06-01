@@ -13,6 +13,14 @@ import { ProgramElementReadService } from './program-element-read.service.js';
 export class ProgramElementController {
   constructor(private readonly service: ProgramElementReadService) {}
 
+  // Static admin route declared before the ':peCode' dynamic route so 'admin' is
+  // not captured as a peCode. capiro_admin only (Step 29 reconciliation queue).
+  @Get('admin/reconciliation-queue')
+  @Roles('capiro_admin')
+  reconciliationQueue(@Query() query: QueryProgramElementsDto) {
+    return this.service.listReconciliationQueue(query.status ?? 'open', query.page, query.limit);
+  }
+
   @Get()
   list(@CurrentTenant() ctx: TenantContext, @Query() query: QueryProgramElementsDto) {
     return this.service.listProgramElements(

@@ -55,6 +55,12 @@ const PersonCandidatesPage = lazy(async () =>
   })),
 );
 
+const PeReconciliationPage = lazy(async () =>
+  import('./pages/admin/PeReconciliationPage.js').then((m) => ({
+    default: m.PeReconciliationPage,
+  })),
+);
+
 export function App() {
   const { isLoaded, isSignedIn } = useAuth();
 
@@ -127,6 +133,14 @@ export function App() {
           element={
             <Suspense fallback={<PlaceholderPage title="Loading program element" description="Please wait..." />}>
               <ProgramElementWatchPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/admin/program-element/reconciliation"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading reconciliation queue" description="Please wait..." />}>
+              <PeReconciliationPage />
             </Suspense>
           }
         />
