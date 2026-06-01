@@ -99,8 +99,18 @@ describe('DowDirectoryTab', () => {
     expect(screen.getByText('Bob Jones')).toBeInTheDocument();
 
     // Open the role Select and choose KO -> only Bob (role KO) remains.
-    fireEvent.mouseDown(screen.getByText('All roles'));
-    fireEvent.click(await screen.findByText('KO'));
+    // antd Select renders options in a portal; drive it via the combobox role
+    // and click the actual option node (matched by title) rather than bare
+    // text, which is timing-flaky under jsdom. The role Select is the 2nd
+    // combobox (after the service Select).
+    const comboboxes = screen.getAllByRole('combobox');
+    const roleCombobox = comboboxes[1] ?? comboboxes[0];
+    expect(roleCombobox).toBeDefined();
+    fireEvent.mouseDown(roleCombobox as HTMLElement);
+
+    const koOption = await screen.findByTitle('KO');
+    fireEvent.click(koOption);
+
     await waitFor(() => {
       expect(screen.queryByText('Jane Smith')).not.toBeInTheDocument();
     });
