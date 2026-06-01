@@ -48,6 +48,7 @@ import type { Capability } from './CapabilityDrawer.js';
 import { CapabilityDrawer } from './CapabilityDrawer.js';
 import type { Client, ClientAttachment, ClientFormSubmit } from './clientTypes.js';
 import { IntelligenceTab } from './IntelligenceTab.js';
+import { DowDirectoryTab } from './DowDirectoryTab.js';
 
 interface WorkflowInstance {
   id: string;
@@ -70,7 +71,7 @@ interface ClientPerson {
   createdAt: string;
 }
 
-type ProfileTab = 'overview' | 'capabilities' | 'people' | 'workflows' | 'documents' | 'intelligence';
+type ProfileTab = 'overview' | 'capabilities' | 'people' | 'workflows' | 'documents' | 'intelligence' | 'dow-directory';
 
 const STATUS_COLOR: Record<string, string> = {
   active: '#52c41a',
@@ -311,7 +312,7 @@ export function ClientProfilePage({
 
       {/* Tab nav */}
       <div className="cp-tabs">
-        {(['overview', 'capabilities', 'people', 'workflows', 'documents', 'intelligence'] as ProfileTab[]).map((tab) => {
+        {(['overview', 'capabilities', 'people', 'workflows', 'documents', 'intelligence', 'dow-directory'] as ProfileTab[]).map((tab) => {
           const badge =
             tab === 'capabilities'
               ? capabilities.data?.length
@@ -340,7 +341,9 @@ export function ClientProfilePage({
                         ? 'Workflows'
                         : tab === 'documents'
                           ? 'Documents'
-                          : 'Intelligence'}
+                          : tab === 'intelligence'
+                            ? 'Intelligence'
+                            : 'DoW Directory'}
               </span>
               {badge != null && badge > 0 ? (
                 <span className="cp-tab-badge num">{badge}</span>
@@ -421,6 +424,9 @@ export function ClientProfilePage({
           )}
           {activeTab === 'intelligence' && (
             <IntelligenceTab clientId={client.id} clientName={client.name} />
+          )}
+          {activeTab === 'dow-directory' && (
+            <DowDirectoryTab client={{ id: client.id }} capabilities={capabilities.data ?? []} />
           )}
         </div>
 

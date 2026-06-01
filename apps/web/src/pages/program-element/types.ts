@@ -166,3 +166,56 @@ export interface PersonCandidateListResponse {
   page: number;
   limit: number;
 }
+
+// ── DoW Directory (AcquisitionPersonnel list/detail) ──────────────────────────
+// Backed by GET /api/acquisition-personnel (+ /:id). Reuses ProgramTeamPerson as
+// the list-item shape (identical fields).
+export type AcquisitionPersonnelListItem = ProgramTeamPerson;
+
+export interface AcquisitionPersonnelListResponse {
+  data: AcquisitionPersonnelListItem[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface AcquisitionPersonnelSourceMention {
+  id: string;
+  source: string;
+  sourceUrl: string | null;
+  snippet: string | null;
+  observedAt: string;
+  confidence: number;
+  metadata: unknown;
+}
+
+export interface AcquisitionPersonnelDetail {
+  id: string;
+  fullName: string;
+  nameKey: string;
+  service: string | null;
+  organization: string | null;
+  title: string | null;
+  role: string | null;
+  programOfRecord: string | null;
+  pePrimary: string | null;
+  peSecondary: string[];
+  emailDomain: string | null;
+  publicProfileUrl: string | null;
+  confidence: number;
+  status: string;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  metadata: unknown;
+  sources: AcquisitionPersonnelSourceMention[];
+}
+
+export interface AcquisitionPersonnelListParams {
+  service?: string;
+  organization?: string;
+  role?: string;
+  pe_code?: string;
+  q?: string;
+  page?: number;
+  limit?: number;
+}

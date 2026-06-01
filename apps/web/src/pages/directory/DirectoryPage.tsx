@@ -36,6 +36,9 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { useApi } from '../../lib/use-api.js';
+import { getAcquisitionPersonnel, getAcquisitionPersonnelDetail } from '../program-element/api.js';
+import type { AcquisitionPersonnelDetail } from '../program-element/types.js';
+import { DowDirectoryResults, DowPersonDrawer } from './DowDirectoryResults.js';
 import {
   type DirectoryApiResponse,
   type DirectoryContactNote,
@@ -166,7 +169,7 @@ export function DirectoryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [searchText, setSearchText] = useState('');
-  const [mode, setMode] = useState<'members' | 'staffers'>('members');
+  const [mode, setMode] = useState<'members' | 'staffers' | 'dow'>('members');
   const [stafferPage, setStafferPage] = useState(1);
   const [query, setQuery] = useState('');
   const [freshman, setFreshman] = useState<FreshmanFilter>('All');
@@ -188,6 +191,7 @@ export function DirectoryPage() {
       setQuery(searchText);
       setPage(1);
       setStafferPage(1);
+      setDowPage(1);
     }, SEARCH_DEBOUNCE_MS);
 
     return () => window.clearTimeout(handle);
@@ -259,6 +263,36 @@ export function DirectoryPage() {
   const stafferTotal = staffersQuery.data?.total ?? 0;
   const stafferPageCurrent = staffersQuery.data?.page ?? stafferPage;
   const staffersLoading = staffersQuery.isLoading && !staffersQuery.data;
+
+  // ── DoW Directory (AcquisitionPersonnel) browse mode ────────────────────────
+  const DOW_PAGE_SIZE = PAGE_SIZE;
+  const [dowPage, setDowPage] = useState(1);
+  const [selectedDowPersonId, setSelectedDowPersonId] = useState<string | null>(null);
+
+  const dowQuery = useQuery({
+    queryKey: ['dow-directory', query, dowPage],
+    queryFn: async () =>
+      getAcquisitionPersonnel(api, {
+        q: query || undefined,
+        page: dowPage,
+        limit: DOW_PAGE_SIZE,
+      }),
+    enabled: mode === 'dow',
+    staleTime: 5 * 60_000,
+    placeholderData: (previous) => previous,
+    retry: 1,
+  });
+  const dowPersons = dowQuery.data?.data ?? [];
+  const dowTotal = dowQuery.data?.total ?? 0;
+  const dowPageCurrent = dowQuery.data?.page ?? dowPage;
+  const dowLoading = dowQuery.isLoading && !dowQuery.data;
+
+  const dowDetailQuery = useQuery({
+    queryKey: ['dow-directory-detail', selectedDowPersonId],
+    queryFn: async (): Promise<AcquisitionPersonnelDetail> =>
+      getAcquisitionPersonnelDetail(api, selectedDowPersonId as string),
+    enabled: selectedDowPersonId !== null,
+  });
 
   const entries = directoryQuery.data?.contacts ?? [];
   const totalFiltered = directoryQuery.data?.total ?? 0;
@@ -356,7 +390,11 @@ export function DirectoryPage() {
         </div>
       </header>
 
-      <DirectoryStatsRow totals={totals} loading={initialLoading || directoryUnavailable} />
+      <DirectoryStatsRow
+        totals={totals}
+        dowTotal={dowTotal}
+        loading={initialLoading || directoryUnavailable}
+      />
 
       <div className="directory-filter-bar" aria-label="Directory filters">
         <FilterPill
@@ -563,7 +601,7 @@ export function DirectoryPage() {
         <Segmented
           value={mode}
           disabled={initialLoading}
-          onChange={(value) => setMode(value as 'members' | 'staffers')}
+          onChange={(value) => setMode(value as 'members' | 'staffers' | 'dow')}
           options={[
             {
               label: `Members${totals.all ? ` · ${totals.all.toLocaleString()}` : ''}`,
@@ -572,6 +610,10 @@ export function DirectoryPage() {
             {
               label: `Staffers${totals.staff ? ` · ${totals.staff.toLocaleString()}` : ''}`,
               value: 'staffers',
+            },
+            {
+              label: `DoW Directory${dowTotal ? ` · ${dowTotal.toLocaleString()}` : ''}`,
+              value: 'dow',
             },
           ]}
         />
@@ -591,21 +633,38 @@ export function DirectoryPage() {
             setQuery(searchText);
             setPage(1);
             setStafferPage(1);
+            setDowPage(1);
           }}
           placeholder={
             mode === 'staffers'
               ? 'Search staffers by name, title, role, issue area, or member'
-              : 'Search by name, office, committee, staff, phone, or email'
+              : mode === 'dow'
+                ? 'Search DoW directory by name'
+                : 'Search by name, office, committee, staff, phone, or email'
           }
         />
         <Typography.Text className="directory-result-count" type="secondary">
           {mode === 'staffers'
             ? resultCountText(stafferTotal, stafferPageCurrent)
-            : resultCountText(totalFiltered, currentPage)}
+            : mode === 'dow'
+              ? resultCountText(dowTotal, dowPageCurrent)
+              : resultCountText(totalFiltered, currentPage)}
         </Typography.Text>
       </div>
 
-      {mode === 'staffers' ? (
+      {mode === 'dow' ? (
+        <DowDirectoryResults
+          persons={dowPersons}
+          loading={dowLoading}
+          total={dowTotal}
+          page={dowPageCurrent}
+          pageSize={DOW_PAGE_SIZE}
+          isError={dowQuery.isError}
+          onPage={setDowPage}
+          onSelectPerson={setSelectedDowPersonId}
+          onRetry={() => dowQuery.refetch()}
+        />
+      ) : mode === 'staffers' ? (
         <StafferResults
           staffers={staffers}
           loading={staffersLoading}
@@ -971,15 +1030,24 @@ export function DirectoryPage() {
           </>
         ) : null}
       </Modal>
+
+      <DowPersonDrawer
+        open={selectedDowPersonId !== null}
+        person={dowDetailQuery.data ?? null}
+        loading={dowDetailQuery.isLoading}
+        onClose={() => setSelectedDowPersonId(null)}
+      />
     </div>
   );
 }
 
 function DirectoryStatsRow({
   totals,
+  dowTotal,
   loading,
 }: {
   totals: DirectoryApiResponse['totals'];
+  dowTotal: number;
   loading: boolean;
 }) {
   const stats: Array<{
@@ -992,6 +1060,7 @@ function DirectoryStatsRow({
     { label: 'House', value: totals.house, tone: 'info', icon: <HomeOutlined /> },
     { label: 'Senate', value: totals.senate, tone: 'notable', icon: <BankOutlined /> },
     { label: 'Staffers', value: totals.staff, tone: 'muted', icon: <TeamOutlined /> },
+    { label: 'DoW Directory', value: dowTotal, tone: 'info', icon: <BankOutlined /> },
   ];
 
   return (

@@ -7,6 +7,9 @@ import type {
   ProgramElementMarkupMonitorResponse,
   ProgramTeamPerson,
   PersonCandidateListResponse,
+  AcquisitionPersonnelListResponse,
+  AcquisitionPersonnelListParams,
+  AcquisitionPersonnelDetail,
 } from './types.js';
 
 export async function getProgramElementDetail(
@@ -125,5 +128,25 @@ export async function suggestPersonForPe(
       `/api/program-elements/${encodeURIComponent(peCode)}/suggest-person`,
       body,
     )
+  ).data;
+}
+
+// ── DoW Directory (AcquisitionPersonnel) ──────────────────────────────────────
+
+/** List acquisition personnel with optional filters + pagination. */
+export async function getAcquisitionPersonnel(
+  api: AxiosInstance,
+  params: AcquisitionPersonnelListParams = {},
+): Promise<AcquisitionPersonnelListResponse> {
+  return (await api.get<AcquisitionPersonnelListResponse>('/api/acquisition-personnel', { params })).data;
+}
+
+/** Full record for one person, including all source mentions. */
+export async function getAcquisitionPersonnelDetail(
+  api: AxiosInstance,
+  id: string,
+): Promise<AcquisitionPersonnelDetail> {
+  return (
+    await api.get<AcquisitionPersonnelDetail>(`/api/acquisition-personnel/${encodeURIComponent(id)}`)
   ).data;
 }
