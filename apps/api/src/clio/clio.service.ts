@@ -31,6 +31,7 @@ import {
   summarizeVerification,
   type VerificationResult,
 } from './clio-verifier.helpers.js';
+import { planTurnRerun } from './clio-turn.helpers.js';
 
 interface CreateConversationInput {
   clientId?: string;
@@ -315,26 +316,66 @@ export class ClioService {
 
   // ── SSE Streaming (Phase 1: Unified brain) ──
 
-  async streamMessage(ctx: TenantContext, conversationId: string, body: string, sse: { write: (data: string) => void }, clientSignal?: AbortSignal) {
+  async streamMessage(
+    ctx: TenantContext,
+    conversationId: string,
+    body: string,
+    sse: { write: (data: string) => void },
+    clientSignal?: AbortSignal,
+    mode: 'new' | 'regenerate' | 'resend' = 'new',
+  ) {
     const conversation = await this.ensureConversation(ctx, conversationId);
     const streamControl = this.extractStreamControl(body);
-    const content = streamControl.cleanContent.trim();
-    if (!content) throw new BadRequestException('Message body is empty');
 
-    // Persist user message
-    await this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.clioMessage.create({
-        data: {
-          tenantId: ctx.tenantId,
-          userId: ctx.userId,
-          clientId: conversation.clientId ?? null,
-          conversationId,
-          role: 'user',
-          body: content,
-          metadata: {},
-        },
-      }),
-    );
+    let content: string;
+    if (mode === 'new') {
+      content = streamControl.cleanContent.trim();
+      if (!content) throw new BadRequestException('Message body is empty');
+      // Persist the new user message.
+      await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.clioMessage.create({
+          data: {
+            tenantId: ctx.tenantId,
+            userId: ctx.userId,
+            clientId: conversation.clientId ?? null,
+            conversationId,
+            role: 'user',
+            body: content,
+            metadata: {},
+          },
+        }),
+      );
+    } else {
+      // Regenerate / edit-and-resend (P0-4): re-run the last user turn, discarding
+      // the assistant turn(s) after it. No new user message is persisted; for
+      // 'resend' the last user message body is replaced with the edited text.
+      const prior = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.clioMessage.findMany({
+          where: { conversationId, role: { in: ['user', 'assistant'] } },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, role: true, body: true },
+        }),
+      );
+      const editedBody = mode === 'resend' ? streamControl.cleanContent.trim() : undefined;
+      const plan = planTurnRerun(prior, mode, editedBody);
+      if (!plan || !plan.contentToUse.trim()) {
+        throw new BadRequestException('No previous user message to re-run');
+      }
+      content = plan.contentToUse;
+      await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+        if (plan.updateUserMessageId) {
+          await tx.clioMessage.update({
+            where: { id: plan.updateUserMessageId },
+            data: { body: content },
+          });
+        }
+        if (plan.deleteMessageIds.length) {
+          await tx.clioMessage.deleteMany({
+            where: { id: { in: plan.deleteMessageIds }, conversationId },
+          });
+        }
+      });
+    }
 
     // Load recent history
     const history = await this.prisma.withTenant(ctx.tenantId, (tx) =>
