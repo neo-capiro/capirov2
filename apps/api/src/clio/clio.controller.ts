@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
-import { IsObject, IsOptional, IsString, IsUUID, Length, ValidateIf } from 'class-validator';
+import { IsIn, IsObject, IsOptional, IsString, IsUUID, Length, ValidateIf } from 'class-validator';
 import type { Request, Response } from 'express';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
@@ -22,9 +22,17 @@ class CreateClioConversationDto {
 }
 
 class SendClioMessageDto {
+  // Length 0 allowed: 'regenerate' re-runs the last user turn with an empty body.
+  // The service rejects an empty body for a 'new' message.
   @IsString()
-  @Length(1, 24_000)
+  @Length(0, 24_000)
   body!: string;
+
+  // Omitted = a new message. 'regenerate' re-runs the last user turn; 'resend'
+  // edits the last user message (with `body`) and re-runs, discarding what follows.
+  @IsOptional()
+  @IsIn(['regenerate', 'resend'])
+  mode?: 'regenerate' | 'resend';
 }
 
 class UpdateClioConversationDto {
@@ -119,14 +127,19 @@ export class ClioController {
     @CurrentTenant() ctx: TenantContext,
     @Param('id') id: string,
     @Body() body: SendClioMessageDto,
-    @Req() _req: Request,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
-    await this.service.streamMessage(ctx, id, body.body, res);
+    // Cancel the model stream when the client disconnects or hits Stop, so we
+    // stop burning tokens for an answer no one is reading (P0-4).
+    const abort = new AbortController();
+    req.on('close', () => abort.abort());
+    res.on('error', () => { /* swallow socket errors on client disconnect */ });
+    await this.service.streamMessage(ctx, id, body.body, res, abort.signal, body.mode ?? 'new');
     res.end();
   }
 

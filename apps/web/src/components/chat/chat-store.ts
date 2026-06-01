@@ -1,10 +1,36 @@
 import { useEffect, useState } from 'react';
 
+export interface ClioCitation {
+  n: number;
+  type: string;
+  id: string;
+  title: string;
+  url: string | null;
+  snippet: string | null;
+  tool: string;
+}
+
+export interface VerifiedClaim {
+  claim: string;
+  supported: boolean;
+  sourceIds: number[];
+}
+
+export interface ClioVerification {
+  claims: VerifiedClaim[];
+  totalCount: number;
+  unsupportedCount: number;
+  unsupportedRatio: number;
+  lowConfidence: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
   content: string;
   createdAt: Date;
+  citations?: ClioCitation[];
+  verification?: ClioVerification;
 }
 
 export interface ActiveDraftContext {
@@ -95,6 +121,26 @@ export function appendChatMessage(message: ChatMessage): void {
 export function updateChatMessage(id: string, content: string): void {
   const messages = state.messages.map((m) => (m.id === id ? { ...m, content } : m));
   state = { ...state, messages };
+  notify();
+}
+
+export function setChatMessageCitations(id: string, citations: ClioCitation[]): void {
+  const messages = state.messages.map((m) => (m.id === id ? { ...m, citations } : m));
+  state = { ...state, messages };
+  notify();
+}
+
+export function setChatMessageVerification(id: string, verification: ClioVerification): void {
+  const messages = state.messages.map((m) => (m.id === id ? { ...m, verification } : m));
+  state = { ...state, messages };
+  notify();
+}
+
+/** Drop every message after the one with `id` (used by regenerate / edit-and-resend). */
+export function truncateMessagesAfter(id: string): void {
+  const idx = state.messages.findIndex((m) => m.id === id);
+  if (idx < 0) return;
+  state = { ...state, messages: state.messages.slice(0, idx + 1) };
   notify();
 }
 

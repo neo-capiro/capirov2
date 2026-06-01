@@ -15,6 +15,7 @@ import { LdaIntelService } from '../lda-intel/lda-intel.service.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
 import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { buildSavedMemoryRecord } from './clio-memory.helpers.js';
 
 const PRODUCT_NAME = 'Clio';
 
@@ -107,9 +108,27 @@ const TOOL_DEFINITIONS = [
     name: 'reply_email',
     description: 'Reply to an email thread via the tenant\'s connected Microsoft 365 account on behalf of Clio.',
   },
+  {
+    name: 'save_memory',
+    description: 'Persist a durable fact or preference the user shares (a nickname, reporting style, ongoing priority, etc.) to Clio\'s long-term memory so it is recalled in future conversations. Use this whenever the user asks you to remember something.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
+
+/**
+ * Side-effecting (write) tools. These are serialized within a single agentic
+ * round so two mutations never race; every other (read-only) tool may run
+ * concurrently (P0-2).
+ */
+const SIDE_EFFECTING_TOOLS: ReadonlySet<string> = new Set<string>([
+  'create_meeting_brief',
+  'draft_policy_memo',
+  'save_note',
+  'send_email',
+  'reply_email',
+  'save_memory',
+]);
 
 interface ToolArtifactInput {
   conversationId?: string | null;
@@ -287,6 +306,11 @@ export class ClioToolsService {
         body: str('Reply body'),
         clientId: str('Optional client UUID'),
       }, ['threadId', 'body']),
+      save_memory: obj({
+        content: str('The fact to remember, as a concise self-contained statement (e.g., "The user prefers to be called Ninja").'),
+        key: str('Optional short topic/key, e.g. "nickname" or "reporting-style".'),
+        scope: str('"personal" (default — this user only) or "firm" (shared across the firm).'),
+      }, ['content']),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -294,6 +318,14 @@ export class ClioToolsService {
       description: tool.description,
       input_schema: schemas[tool.name] ?? obj({}),
     }));
+  }
+
+  /**
+   * Whether a tool may run concurrently with others in the same agentic round.
+   * Read-only tools are safe; side-effecting writes are serialized (P0-2).
+   */
+  isConcurrencySafe(name: string): boolean {
+    return !SIDE_EFFECTING_TOOLS.has(name);
   }
 
   executeFromAuthenticatedUser(ctx: TenantContext, rawName: string, rawInput: unknown) {
@@ -346,9 +378,104 @@ export class ClioToolsService {
         return this.listEmails(ctx, input);
       case 'reply_email':
         return this.replyEmail(ctx, input);
+      case 'save_memory':
+        return this.saveMemory(ctx, input);
       default:
         assertNever(name);
     }
+  }
+
+  private async saveMemory(ctx: TenantContext, input: Record<string, unknown>) {
+    const content = requiredString(input, 'content', 4000);
+    const key = optionalString(input, 'key', 120);
+    const scope = optionalString(input, 'scope', 20);
+    const record = buildSavedMemoryRecord({ content, key, scope, userId: ctx.userId });
+    if (!record) throw new BadRequestException('save_memory requires non-empty content');
+
+    const metadata = {
+      tool: 'save_memory',
+      createdBy: 'user-requested',
+      userId: ctx.userId,
+      visibility: record.scope,
+    };
+
+    // Upsert on the (tenant, scope, owner, key) unique constraint so repeated
+    // "remember this" requests update in place instead of erroring/duplicating.
+    const existing = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMemory.findFirst({
+        where: {
+          tenantId: ctx.tenantId,
+          scope: record.scope,
+          ownerUserId: record.ownerUserId,
+          key: record.key,
+        },
+        select: { id: true },
+      }),
+    );
+
+    if (existing) {
+      await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.clioMemory.update({
+          where: { id: existing.id },
+          data: { value: record.value, source: record.source, metadata },
+        }),
+      );
+    } else {
+      await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.clioMemory.create({
+          data: {
+            tenantId: ctx.tenantId,
+            scope: record.scope,
+            ownerUserId: record.ownerUserId,
+            key: record.key,
+            value: record.value,
+            source: record.source,
+            metadata,
+          },
+        }),
+      );
+    }
+
+    // Embed for semantic recall (best-effort; never blocks the tool result).
+    void this.embedMemory(ctx.tenantId, record.key, record.value).catch(() => {});
+
+    this.logger.log(
+      `save_memory: stored ${record.scope} memory "${record.key}" for tenant ${ctx.tenantId}`,
+    );
+    return {
+      saved: true,
+      scope: record.scope === 'user_private' ? 'personal' : 'firm',
+      key: record.key,
+      value: record.value,
+      message: 'Saved to long-term memory; I will recall this in future conversations.',
+    };
+  }
+
+  /**
+   * Embed a memory value (OpenAI text-embedding-3-small, 1536-dim) into pgvector
+   * so it is retrievable by semantic search. Best-effort; mirrors
+   * ClioService.embedAndStoreMemory. No-op without OPENAI_API_KEY. The UPDATE is
+   * tenant-scoped and the key is tenant-unique, so it targets exactly one row.
+   */
+  private async embedMemory(tenantId: string, key: string, value: string): Promise<void> {
+    const openaiKey = this.config.get('OPENAI_API_KEY', { infer: true });
+    if (!openaiKey) return;
+    const res = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'text-embedding-3-small', input: `${key}: ${value}` }),
+    });
+    if (!res.ok) return;
+    const json = (await res.json()) as { data?: Array<{ embedding?: number[] }> };
+    const embedding = json.data?.[0]?.embedding;
+    if (!embedding || embedding.length !== 1536) return;
+    const vecStr = `[${embedding.join(',')}]`;
+    await this.prisma.$executeRawUnsafe(
+      `UPDATE clio_memory SET embedding = $1::vector WHERE tenant_id = $2 AND key = $3`,
+      vecStr,
+      tenantId,
+      key,
+    );
   }
 
   private async getClientContext(ctx: TenantContext, input: Record<string, unknown>) {
