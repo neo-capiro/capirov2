@@ -19,6 +19,12 @@ import {
   type SystemTextBlock,
 } from './clio-prompt.helpers.js';
 import { runToolsConcurrently } from './clio-tool-exec.helpers.js';
+import {
+  extractCitationsFromToolResult,
+  formatCitationsForPrompt,
+  validateCitationMarkers,
+  type ClioCitation,
+} from './clio-citations.helpers.js';
 
 interface CreateConversationInput {
   clientId?: string;
@@ -340,6 +346,7 @@ export class ClioService {
 
     const orchestration = await this.orchestrateContext(ctx, conversation.clientId, intent, content);
     const promptCacheEnabled = this.config.get('CLIO_PROMPT_CACHE_ENABLED', { infer: true });
+    const citationsEnabled = this.config.get('CLIO_CITATIONS_ENABLED', { infer: true });
     const systemBlocks = this.buildSystemBlocks(
       intent,
       orchestration.context,
@@ -389,6 +396,8 @@ export class ClioService {
     }> = [];
     const toolsUsed: string[] = [];
     const usageTotals = emptyUsage();
+    const citations: ClioCitation[] = [];
+    let finalCitations: ClioCitation[] = [];
     let pageWritePayload: { subject?: string; body?: string } | null = null;
 
     try {
@@ -560,6 +569,17 @@ export class ClioService {
             isError = true;
             resultPayload = { error: outcome?.error ?? 'Tool execution failed' };
           }
+          // Extract numbered citation candidates from successful results so the
+          // model can cite them as [N]; prepend the numbered list to the
+          // tool_result content fed back to the model (P0-3).
+          let toolContent = summarizeJsonForPrompt(resultPayload, 12_000);
+          if (citationsEnabled && !isError) {
+            const cites = extractCitationsFromToolResult(t.name, resultPayload, citations.length + 1);
+            if (cites.length) {
+              citations.push(...cites);
+              toolContent = `${formatCitationsForPrompt(cites)}\n\n${toolContent}`;
+            }
+          }
           // Emit a real source with a human detail (counts / sample titles) so
           // the trust panel can show actual citations, not just a tool name.
           const { count, detail } = summarizeToolResultForTrust(resultPayload);
@@ -579,7 +599,7 @@ export class ClioService {
             type: 'tool_result',
             tool_use_id: t.id,
             is_error: isError,
-            content: summarizeJsonForPrompt(resultPayload, 12_000),
+            content: toolContent,
           });
         }
         messages.push({ role: 'user', content: toolResultBlocks });
@@ -596,6 +616,20 @@ export class ClioService {
         `cacheRead=${usageTotals.cacheReadInputTokens} cacheCreate=${usageTotals.cacheCreationInputTokens}`,
     );
     sse.write(`data: ${JSON.stringify({ type: 'usage', usage: usageTotals })}\n\n`);
+
+    // Validate citation markers against the numbered sources collected this turn:
+    // keep real [N], strip hallucinated ones, surface the used citations (P0-3).
+    if (citationsEnabled) {
+      const { used, dropped, cleanedText } = validateCitationMarkers(assistantContent, citations);
+      finalCitations = used;
+      assistantContent = cleanedText;
+      if (dropped.length) {
+        this.logger.warn(`Clio dropped ${dropped.length} unmatched citation marker(s): [${dropped.join('], [')}]`);
+      }
+      if (used.length) {
+        sse.write(`data: ${JSON.stringify({ type: 'citations', citations: used })}\n\n`);
+      }
+    }
 
     // If page-write mode produced concrete content, emit the real event the
     // frontend listens for (previously only a static "enabled" note was sent).
@@ -620,6 +654,7 @@ export class ClioService {
             preWarmSources: orchestration.sources.map((source) => source.tool),
             toolsUsed,
             usage: { ...usageTotals },
+            citations: finalCitations as unknown as Prisma.InputJsonValue,
           },
         },
       });
@@ -905,6 +940,7 @@ export class ClioService {
       'USE THESE TOOLS rather than guessing. When a question concerns specific bills, filings, spending, clients, meetings, or emails, call the relevant tool and ground your answer in the result. Prefer Capiro internal tools first; use public-web tools only to corroborate.',
       'Any context pre-loaded below is a convenience snapshot, not a substitute for calling a tool when you need current or specific data.',
       'Do not fabricate facts. If uncertain, state uncertainty and propose the fastest verification path.',
+      'Citations: when you state a fact drawn from a retrieved source, cite it inline with the bracketed number shown for that source in the tool results (e.g. [1], [2]). Only cite numbers that appear in the provided sources; never invent citation numbers.',
     ].join('\n');
 
     const intentGuidance: Record<string, string> = {

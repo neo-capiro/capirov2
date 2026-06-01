@@ -55,6 +55,14 @@ export const configSchema = z.object({
   // by this timeout. On timeout the model receives an error tool_result and the
   // turn proceeds (the tool is not hard-aborted).
   CLIO_TOOL_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  // Inline citations (P0-3). When enabled, numbered sources are injected into
+  // tool results and the model cites them as [N]; hallucinated markers are
+  // stripped post-hoc and the used citations are emitted (SSE) + persisted to
+  // clio_message.metadata.citations. Set false/0/no/off to disable.
+  CLIO_CITATIONS_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
 
   // Clio Deep Research (a heavier, multi-round agentic research run that produces
   // a long, cited report artifact). Separate budgets from the chat drawer because
