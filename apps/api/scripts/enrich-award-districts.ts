@@ -42,24 +42,43 @@ async function fetchDetail(awardId: string): Promise<{
   recipientState: string | null;
   recipientDistrict: string | null;
 } | null> {
-  try {
-    const res = await fetch(`${DETAIL_URL}/${encodeURIComponent(awardId)}/`);
-    if (!res.ok) return null;
-    const d = (await res.json()) as {
-      place_of_performance?: DetailLoc | null;
-      recipient?: { location?: DetailLoc | null } | null;
-    };
-    const pop = d.place_of_performance ?? {};
-    const rl = d.recipient?.location ?? {};
-    return {
-      popState: pop.state_code ?? null,
-      popDistrict: pop.congressional_code ?? null,
-      recipientState: rl.state_code ?? null,
-      recipientDistrict: rl.congressional_code ?? null,
-    };
-  } catch {
-    return null;
+  // Retry with backoff on throttling (429) / transient 5xx. USAspending throttles
+  // bursts, so a single run hitting it hard sees waves of failures; backoff lets the
+  // run ride them out instead of dropping ~1k awards to retry later.
+  const MAX_ATTEMPTS = 4;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const res = await fetch(`${DETAIL_URL}/${encodeURIComponent(awardId)}/`);
+      if (res.status === 429 || res.status >= 500) {
+        if (attempt < MAX_ATTEMPTS) {
+          // Exponential backoff: 1s, 2s, 4s (+ jitter).
+          await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1) + Math.random() * 250));
+          continue;
+        }
+        return null;
+      }
+      if (!res.ok) return null;
+      const d = (await res.json()) as {
+        place_of_performance?: DetailLoc | null;
+        recipient?: { location?: DetailLoc | null } | null;
+      };
+      const pop = d.place_of_performance ?? {};
+      const rl = d.recipient?.location ?? {};
+      return {
+        popState: pop.state_code ?? null,
+        popDistrict: pop.congressional_code ?? null,
+        recipientState: rl.state_code ?? null,
+        recipientDistrict: rl.congressional_code ?? null,
+      };
+    } catch {
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise((r) => setTimeout(r, 1000 * 2 ** (attempt - 1)));
+        continue;
+      }
+      return null;
+    }
   }
+  return null;
 }
 
 async function main(): Promise<void> {
