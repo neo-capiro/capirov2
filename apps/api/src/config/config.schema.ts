@@ -76,6 +76,14 @@ export const configSchema = z.object({
     .string()
     .default('true')
     .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  // Grounding/verifier gate (P0-6). When enabled, deliverables (briefings/memos)
+  // get a cheap second pass (CLIO_INTENT_MODEL) that flags claims unsupported by
+  // retrieved sources; >20% unsupported marks the output low-confidence. Never
+  // gates raw chat. Fail-open. Set false/0/no/off to disable.
+  CLIO_VERIFIER_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
 
   // Clio Deep Research (a heavier, multi-round agentic research run that produces
   // a long, cited report artifact). Separate budgets from the chat drawer because

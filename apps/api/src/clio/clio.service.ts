@@ -26,6 +26,11 @@ import {
   type ClioCitation,
 } from './clio-citations.helpers.js';
 import { matchSkill } from './skills/skill-registry.js';
+import {
+  parseVerifierClaims,
+  summarizeVerification,
+  type VerificationResult,
+} from './clio-verifier.helpers.js';
 
 interface CreateConversationInput {
   clientId?: string;
@@ -650,6 +655,22 @@ export class ClioService {
       }
     }
 
+    // Grounding/verifier gate (P0-6): for deliverables (briefings/memos) only —
+    // never raw chat — run a cheap second pass that flags claims unsupported by
+    // the retrieved sources. Fail-open (null on disable/error); >20% unsupported
+    // marks the deliverable low-confidence for the UI banner.
+    let verification: VerificationResult | null = null;
+    const deliverable = producedArtifacts.find((a) => a.bodyText && a.bodyText.trim().length > 0);
+    if (deliverable?.bodyText) {
+      verification = await this.verifyDeliverable(
+        deliverable.bodyText,
+        finalCitations.map((c) => ({ n: c.n, title: c.title, snippet: c.snippet })),
+      );
+      if (verification) {
+        sse.write(`data: ${JSON.stringify({ type: 'verification', title: deliverable.title, verification })}\n\n`);
+      }
+    }
+
     // If page-write mode produced concrete content, emit the real event the
     // frontend listens for (previously only a static "enabled" note was sent).
     if (streamControl.pageWriteEnabled && pageWritePayload) {
@@ -675,6 +696,7 @@ export class ClioService {
             usage: { ...usageTotals },
             citations: finalCitations as unknown as Prisma.InputJsonValue,
             finishReason: aborted ? 'aborted' : 'stop',
+            verification: verification as unknown as Prisma.InputJsonValue,
           },
         },
       });
@@ -917,6 +939,57 @@ export class ClioService {
       }
     } catch { /* fallback */ }
     return 'general_question';
+  }
+
+  /**
+   * Grounding/verifier gate (P0-6). A cheap second pass extracts the
+   * deliverable's factual claims and marks each supported/unsupported against
+   * the retrieved sources. Fail-open: returns null when disabled, unkeyed, or on
+   * any error, so verification never blocks the deliverable itself.
+   */
+  private async verifyDeliverable(
+    output: string,
+    sources: Array<{ n: number; title: string; snippet: string | null }>,
+  ): Promise<VerificationResult | null> {
+    if (!this.config.get('CLIO_VERIFIER_ENABLED', { infer: true })) return null;
+    const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
+    if (!anthropicKey || !output.trim()) return null;
+    try {
+      const sourceList = sources.length
+        ? sources.map((s) => `[${s.n}] ${s.title}${s.snippet ? ` — ${s.snippet}` : ''}`).join('\n')
+        : '(no sources were retrieved)';
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.config.get('CLIO_INTENT_MODEL', { infer: true }),
+          max_tokens: 1500,
+          system:
+            'You are a strict grounding verifier for a government-affairs assistant. Given SOURCES and a DOCUMENT, extract the document\'s distinct factual claims (skip headings, opinions, and generic advice). For each claim decide whether the SOURCES substantiate it. Return ONLY JSON: {"claims":[{"claim":"<short paraphrase>","supported":true|false,"sourceIds":[<source numbers>]}]}. Mark supported=true only when a listed source backs the claim, and list those source numbers. Be conservative: if unsure, use supported=false with sourceIds [].',
+          messages: [
+            {
+              role: 'user',
+              content: `SOURCES:\n${sourceList}\n\nDOCUMENT:\n${output.slice(0, 12_000)}`,
+            },
+          ],
+        }),
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as Record<string, unknown>;
+      const text = Array.isArray(json.content)
+        ? (json.content[0] as Record<string, unknown>)?.text
+        : '';
+      if (typeof text !== 'string') return null;
+      const claims = parseVerifierClaims(text);
+      if (!claims.length) return null;
+      return summarizeVerification(claims);
+    } catch {
+      return null;
+    }
   }
 
   /**
