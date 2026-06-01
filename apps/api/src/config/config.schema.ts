@@ -91,6 +91,12 @@ export const configSchema = z.object({
     .string()
     .default('true')
     .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  // Suggested next actions (P2-4): after an answer, a cheap intent-model pass
+  // proposes 2-3 follow-up prompts rendered as clickable chips. Fail-open.
+  CLIO_SUGGESTIONS_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
 
   // Clio Deep Research (a heavier, multi-round agentic research run that produces
   // a long, cited report artifact). Separate budgets from the chat drawer because

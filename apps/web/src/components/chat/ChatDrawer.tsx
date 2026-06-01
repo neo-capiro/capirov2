@@ -25,6 +25,7 @@ import {
   setChatSession,
   setChatMessageCitations,
   setChatMessageVerification,
+  setChatMessageSuggestions,
   setStreaming,
   toggleChat,
   toggleSessionRail,
@@ -45,6 +46,7 @@ type SseEvent =
   | { type: 'start'; intent: string; tier?: 'fast' | 'deep' }
   | { type: 'trace'; trace?: Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>; policy?: { tier?: 'fast' | 'deep' } }
   | { type: 'plan'; steps?: string[] }
+  | { type: 'suggestions'; suggestions?: string[] }
   | { type: 'tool_call'; tool: string; label?: string; input?: Record<string, unknown> }
   | { type: 'template'; template?: { heading: string; sections: string[] } }
   | { type: 'conflict'; conflict?: { title: string; detail: string } }
@@ -653,6 +655,11 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             setChatMessageCitations(assistantId, Array.isArray(event.citations) ? event.citations : []);
           } else if (event.type === 'verification') {
             if (event.verification) setChatMessageVerification(assistantId, event.verification);
+          } else if (event.type === 'suggestions') {
+            setChatMessageSuggestions(
+              assistantId,
+              Array.isArray(event.suggestions) ? event.suggestions : [],
+            );
           } else if (event.type === 'done') {
             break outer;
           } else if (event.type === 'error') {
@@ -1033,6 +1040,38 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     >
                       ↻ Regenerate
                     </button>
+                  </div>
+                )}
+                {isLastAssistant && !isStreaming && msg.suggestions && msg.suggestions.length > 0 && (
+                  <div
+                    style={{
+                      marginLeft: 40,
+                      marginTop: 6,
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 6,
+                    }}
+                  >
+                    {msg.suggestions.map((s, si) => (
+                      <button
+                        key={si}
+                        type="button"
+                        onClick={() => sendMessage(s)}
+                        aria-label={`Ask: ${s}`}
+                        style={{
+                          font: 'inherit',
+                          fontSize: 12,
+                          padding: '4px 10px',
+                          border: '1px solid #d9d9d9',
+                          borderRadius: 14,
+                          background: '#fafafa',
+                          color: '#1677ff',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {s}
+                      </button>
+                    ))}
                   </div>
                 )}
                 {msg.role === 'user' &&

@@ -30,6 +30,7 @@ import { summarizeTurnTrace, traceLogLine, type ClioRoundTrace } from './clio-tr
 import { buildPlanSteps } from './clio-plan.helpers.js';
 import { ToolCircuitBreaker, CircuitOpenError } from './clio-circuit-breaker.js';
 import { loopBudgetExceeded, type LoopStopReason } from './clio-budget.helpers.js';
+import { parseSuggestions } from './clio-suggestions.helpers.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -818,6 +819,16 @@ export class ClioService {
       sse.write(`data: ${JSON.stringify({ type: 'exec_trace', trace: turnTrace })}\n\n`);
     }
 
+    // Suggested next actions (P2-4): a cheap pass proposes 2-3 follow-up prompts,
+    // streamed as chips. Skipped on abort / trivial answers; fail-open.
+    let suggestions: string[] = [];
+    if (this.suggestionsEnabled() && !aborted && assistantContent.trim().length > 40) {
+      suggestions = await this.generateSuggestions(streamControl.cleanContent, assistantContent);
+      if (suggestions.length) {
+        sse.write(`data: ${JSON.stringify({ type: 'suggestions', suggestions })}\n\n`);
+      }
+    }
+
     // Persist assistant response (+ any artifacts produced by tools).
     await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const message = await tx.clioMessage.create({
@@ -839,6 +850,7 @@ export class ClioService {
             finishReason: aborted ? 'aborted' : (loopStopReason ?? 'stop'),
             verification: verification as unknown as Prisma.InputJsonValue,
             trace: turnTrace as unknown as Prisma.InputJsonValue,
+            suggestions,
           },
         },
       });
@@ -1261,6 +1273,52 @@ export class ClioService {
   /** Whether the filesystem-driven skill registry (P0-5) is active. */
   private skillsEnabled(): boolean {
     return this.config.get('CLIO_SKILLS_ENABLED', { infer: true });
+  }
+
+  private suggestionsEnabled(): boolean {
+    return this.config.get('CLIO_SUGGESTIONS_ENABLED', { infer: true });
+  }
+
+  /**
+   * Cheap follow-up suggestion pass (P2-4): asks the intent model for 2-3 likely
+   * next prompts. Fail-open — returns [] on any error so it never blocks a turn.
+   */
+  private async generateSuggestions(userMessage: string, answer: string): Promise<string[]> {
+    try {
+      const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
+      if (!anthropicKey) return [];
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.config.get('CLIO_INTENT_MODEL', { infer: true }),
+          max_tokens: 200,
+          system:
+            "You propose the user's likely next prompts for a U.S. federal government-affairs assistant. " +
+            'Output ONLY a JSON array of 2-3 short, specific follow-ups (max ~10 words each), phrased as the user would type them. No prose.',
+          messages: [
+            {
+              role: 'user',
+              content: `User asked:\n${userMessage}\n\nAssistant answered:\n${answer.slice(0, 4000)}\n\nReturn a JSON array of 2-3 next prompts.`,
+            },
+          ],
+        }),
+      });
+      if (!res.ok) return [];
+      const data = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
+      const text = (data.content ?? [])
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text ?? '')
+        .join('\n');
+      return parseSuggestions(text);
+    } catch (err) {
+      this.logger.warn(`Clio suggestion generation failed: ${(err as Error).message}`);
+      return [];
+    }
   }
 
   private templateForIntent(intent: string): { heading: string; sections: string[] } | null {
