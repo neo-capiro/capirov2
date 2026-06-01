@@ -43,8 +43,11 @@ export const configSchema = z.object({
   // beyond this budget are dropped (oldest-first) to avoid silent context-limit
   // 400s on long sessions.
   CLIO_HISTORY_CHAR_BUDGET: z.coerce.number().int().positive().default(24_000),
-  // Max agentic tool-use rounds per message before forcing a final answer.
-  CLIO_MAX_TOOL_ROUNDS: z.coerce.number().int().positive().default(5),
+  // Max agentic tool-use rounds per message before forcing a final answer (P2-3).
+  CLIO_MAX_TOOL_ROUNDS: z.coerce.number().int().positive().default(8),
+  // Wall-clock budget for a whole turn across all rounds (P2-3). When exceeded the
+  // loop stops and wraps up gracefully. <= 0 disables. Keep <= the request timeout.
+  CLIO_TURN_BUDGET_MS: z.coerce.number().int().min(0).default(90_000),
   // Anthropic prompt caching (P0-1). When enabled, cache breakpoints are placed
   // on the static system base and the tool-schema block, so repeated turns within
   // the ~5-minute cache TTL reuse that prefix (response usage reports

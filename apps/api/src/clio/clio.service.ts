@@ -29,6 +29,7 @@ import { matchSkill } from './skills/skill-registry.js';
 import { summarizeTurnTrace, traceLogLine, type ClioRoundTrace } from './clio-trace.helpers.js';
 import { buildPlanSteps } from './clio-plan.helpers.js';
 import { ToolCircuitBreaker, CircuitOpenError } from './clio-circuit-breaker.js';
+import { loopBudgetExceeded, type LoopStopReason } from './clio-budget.helpers.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -461,6 +462,7 @@ export class ClioService {
     let aborted = false;
     const turnStartMs = Date.now();
     const traceRounds: ClioRoundTrace[] = [];
+    let loopStopReason: LoopStopReason | null = null;
 
     try {
       const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
@@ -470,6 +472,7 @@ export class ClioService {
       const maxTokens = this.config.get('CLIO_MAX_TOKENS', { infer: true });
       const timeoutMs = this.config.get('CLIO_REQUEST_TIMEOUT_MS', { infer: true });
       const maxRounds = this.config.get('CLIO_MAX_TOOL_ROUNDS', { infer: true });
+      const turnBudgetMs = this.config.get('CLIO_TURN_BUDGET_MS', { infer: true });
       const toolTimeoutMs = this.config.get('CLIO_TOOL_TIMEOUT_MS', { infer: true });
       const toolRetries = this.config.get('CLIO_TOOL_RETRIES', { infer: true });
       const toolSchemas = applyToolCacheControl(this.tools.anthropicToolSchemas(), promptCacheEnabled);
@@ -481,7 +484,29 @@ export class ClioService {
         content: m.body,
       }));
 
-      for (let round = 0; round < maxRounds; round += 1) {
+      for (let round = 0; ; round += 1) {
+        // Raised round cap + wall-clock turn budget (P2-3): stop and wrap up
+        // gracefully rather than letting a single turn run away.
+        const budgetStop = loopBudgetExceeded({
+          round,
+          maxRounds,
+          elapsedMs: Date.now() - turnStartMs,
+          budgetMs: turnBudgetMs,
+        });
+        if (budgetStop) {
+          loopStopReason = budgetStop;
+          if (!assistantContent.trim()) {
+            const note =
+              'I gathered information but reached this turn’s limit before composing a full answer — ask again and I’ll continue.';
+            assistantContent = note;
+            sse.write(`data: ${JSON.stringify({ type: 'text', text: note })}\n\n`);
+          } else if (budgetStop === 'time_budget') {
+            const note = '\n\n_(Reached this turn’s time budget — wrapping up.)_';
+            assistantContent += note;
+            sse.write(`data: ${JSON.stringify({ type: 'text', text: note })}\n\n`);
+          }
+          break;
+        }
         if (clientSignal?.aborted) {
           aborted = true;
           break;
@@ -811,7 +836,7 @@ export class ClioService {
             toolsUsed,
             usage: { ...usageTotals },
             citations: finalCitations as unknown as Prisma.InputJsonValue,
-            finishReason: aborted ? 'aborted' : 'stop',
+            finishReason: aborted ? 'aborted' : (loopStopReason ?? 'stop'),
             verification: verification as unknown as Prisma.InputJsonValue,
             trace: turnTrace as unknown as Prisma.InputJsonValue,
           },
