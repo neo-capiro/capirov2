@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   App as AntApp,
@@ -51,8 +52,14 @@ export function IntelligenceMappingsPage() {
   const api = useApi();
   const qc = useQueryClient();
   const { notification } = AntApp.useApp();
+  const [searchParams] = useSearchParams();
   const [clientSearch, setClientSearch] = useState('');
-  const [sourceFilter, setSourceFilter] = useState<string | undefined>();
+  // Seed the source filter from the URL (?source=fec_employer) so deep links
+  // from the intel profile panels (e.g. the FEC "Map an FEC employer →" CTA)
+  // land the user directly on the rows they need to confirm.
+  const [sourceFilter, setSourceFilter] = useState<string | undefined>(
+    searchParams.get('source') ?? undefined,
+  );
   const [confirmedFilter, setConfirmedFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
 
   const mappingsQuery = useQuery<ClientIntelMapping[]>({

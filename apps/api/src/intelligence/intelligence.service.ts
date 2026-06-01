@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { EngagementTaskStatus } from '@prisma/client';
 import {
   AGENCY_SECTOR_MAP,
@@ -312,13 +312,18 @@ export class IntelligenceService {
         }),
       ),
       mappingRowsPromise,
+      // Real USAspending spend-by-district (the data-driven path). Appended at the
+      // end of the array so the existing positional settle() indices are unchanged.
+      // Drives the Financial Footprint district panel's job/spend bars; the
+      // free-text getDistrictNexus (index 3) remains as a fallback / capability list.
+      this.getDistrictNexusSpend(clientId, tenantId),
     ]);
 
     const settledSourceLabels = [
       'profile', 'lobbyingRoi', 'fecMoneyFlow', 'districtNexus', 'trackedBills',
       'billRegulationLinks', 'knowledgeGraph', 'engagementHealth', 'exStaffers',
       'commentAlerts', 'changes', 'hearings', 'meetings', 'mailThreads',
-      'doneTasks', 'debriefs', 'outreachRecords', 'mappingRows',
+      'doneTasks', 'debriefs', 'outreachRecords', 'mappingRows', 'districtNexusSpend',
     ] as const;
 
     const settle = <T,>(index: number, fallback: T): T => {
@@ -355,6 +360,15 @@ export class IntelligenceService {
     const debriefs = settle(15, [] as Array<{ createdAt: Date }>);
     const outreachRows = settle(16, [] as Array<{ sentAt: Date }>);
     const mappingRows = settle(17, [] as Array<{ source: string; confirmed: boolean; externalId: string | null }>);
+    const districtSpend = settle(18, {
+      linked: false as const,
+      reason: 'no_confirmed_contracting_mapping',
+      contractorNames: [] as string[],
+      totalAwards: 0,
+      totalAmount: 0,
+      districts: [] as Array<{ district: string; state: string; districtNumber: string; awardCount: number; totalAmount: number; demographics: unknown }>,
+      unmappedAmount: 0,
+    } as unknown as Awaited<ReturnType<typeof this.getDistrictNexusSpend>>);
 
     // Freshness + unresolved metadata derived from the tenant-scoped mapping query.
     // mappingRows is fetched via withTenant, clientId is guaranteed to belong to tenantId.
@@ -576,6 +590,7 @@ export class IntelligenceService {
         latestActionDate: Date | null;
         latestActionText: string | null;
         probability: number;
+        isManual: boolean;
       }>;
     }> = [
       { id: 'introduced', label: 'Introduced', count: 0, bills: [] },
@@ -595,10 +610,16 @@ export class IntelligenceService {
         latestActionDate: bill.latestActionDate ? new Date(bill.latestActionDate) : null,
         latestActionText: bill.latestActionText,
         probability: passageProbability(bill.latestActionText),
+        isManual: (bill as { isManual?: boolean }).isManual ?? false,
       });
     }
     for (const col of kanbanColumns) {
-      col.bills.sort((a, b) => b.probability - a.probability);
+      // Manually pinned bills sort to the top of each column, then by passage
+      // probability — a deliberate pin should never be buried below auto matches.
+      col.bills.sort((a, b) => {
+        if (a.isManual !== b.isManual) return a.isManual ? -1 : 1;
+        return b.probability - a.probability;
+      });
       col.bills = col.bills.slice(0, 12);
     }
 
@@ -670,17 +691,47 @@ export class IntelligenceService {
       };
     });
 
-    const districtRows = district.capabilities
+    // District rows for the Financial Footprint panel. Prefer the REAL
+    // USAspending spend-by-district path (getDistrictNexusSpend, index 18): when
+    // the client has a confirmed contracting mapping and enriched awards, those
+    // districts carry actual contract dollars + award counts. Fall back to the
+    // free-text capability/districtNexus parse (index 3) only when spend produced
+    // no district rows, so a client without enriched awards still shows whatever
+    // capability nexus text we have rather than a blank panel.
+    const spendDistrictRows =
+      districtSpend.linked && Array.isArray(districtSpend.districts)
+        ? districtSpend.districts
+            .filter((d) => d.totalAmount > 0)
+            .sort((a, b) => b.totalAmount - a.totalAmount)
+            .slice(0, 5)
+            .map((d) => ({
+              district: d.district,
+              jobs: 0,
+              spend: d.totalAmount,
+              awardCount: d.awardCount,
+              capability: 'Federal contract spend',
+              dataYear:
+                d.demographics && typeof d.demographics === 'object' && 'dataYear' in (d.demographics as Record<string, unknown>)
+                  ? Number((d.demographics as Record<string, unknown>).dataYear) || 0
+                  : 0,
+            }))
+        : [];
+
+    const capabilityDistrictRows = district.capabilities
       .flatMap((cap) =>
         cap.districts.map((d) => ({
           district: `${d.state}-${d.district}`,
           jobs: cap.totalSupportedJobs ?? 0,
+          spend: 0,
+          awardCount: 0,
           capability: cap.capabilityName,
           dataYear: d.dataYear,
         })),
       )
       .sort((a, b) => b.jobs - a.jobs)
       .slice(0, 5);
+
+    const districtRows = spendDistrictRows.length ? spendDistrictRows : capabilityDistrictRows;
 
     const sponsorMembers = new Map<string, { name: string; billCount: number; exStaffer: boolean }>();
     for (const bill of trackedBills.bills) {
@@ -2261,6 +2312,11 @@ export class IntelligenceService {
       where: { clientId, source: 'lda', confirmed: true },
     });
 
+    // Manually pinned bills (explicit human picks) — always included regardless
+    // of embedding similarity, and flagged so the UI can mark them. Tenant-scoped.
+    const manualBillIds = tenantId ? await this.getManualTrackedBillIds(clientId, tenantId) : [];
+    const manualSet = new Set(manualBillIds);
+
     let issueCodes: string[] = [];
     let issueNames: string[] = [];
 
@@ -2306,23 +2362,158 @@ export class IntelligenceService {
     const allTerms = [...issueNames, ...capKeywords]
       .map((n) => (typeof n === 'string' ? n.trim() : ''))
       .filter((n) => n.length > 0);
-    if (!allTerms.length) return { total: 0, bills: [], issueCodes };
+
+    // Merge auto-matched bills with manually pinned ones. Manual picks are
+    // ALWAYS included (even with no terms / no embedding match) and flagged
+    // isManual so the UI can mark + pin them. Auto matches that are also
+    // manually tracked get isManual:true too.
+    const mergeManual = async (auto: {
+      total: number;
+      bills: Array<{
+        identifier: string;
+        title: string;
+        latestActionDate: Date | null;
+        latestActionText: string | null;
+        sponsorName: string | null;
+        sponsorParty: string | null;
+        subjectNames: string[];
+        isManual?: boolean;
+      }>;
+    }) => {
+      const flagged = auto.bills.map((b) => ({ ...b, isManual: manualSet.has(b.identifier) }));
+      const presentIds = new Set(flagged.map((b) => b.identifier));
+      const missingManual = manualBillIds.filter((id) => !presentIds.has(id));
+      const manualBills = missingManual.length ? await this.fetchBillsByIds(missingManual) : [];
+      const merged = [...manualBills.map((b) => ({ ...b, isManual: true })), ...flagged];
+      // total counts the distinct universe of tracked bills (auto + manual).
+      return { total: merged.length, issueCodes, bills: merged };
+    };
+
+    if (!allTerms.length) {
+      // No relevance signal, but manual picks may still exist — surface them.
+      return mergeManual({ total: 0, bills: [] });
+    }
 
     const embedded = await this.findTrackedBillsByEmbeddings(allTerms);
     if (embedded) {
-      return {
-        total: embedded.total,
-        issueCodes,
-        bills: embedded.bills,
-      };
+      return mergeManual(embedded);
     }
 
     const keyword = await this.findTrackedBillsByKeyword(allTerms);
-    return {
-      total: keyword.total,
-      issueCodes,
-      bills: keyword.bills,
-    };
+    return mergeManual(keyword);
+  }
+
+  // ── Manual bill tracking (user-pinned) ────────────────────────────────────
+
+  /** Confirmed-tracked bill ids for a client (tenant-scoped). */
+  private async getManualTrackedBillIds(clientId: string, tenantId: string): Promise<string[]> {
+    const rows = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.trackedBill.findMany({ where: { clientId }, select: { billId: true } }),
+    );
+    return rows.map((r) => r.billId);
+  }
+
+  /** Fetch congress_bill rows by id, shaped like the tracked-bill list entries. */
+  private async fetchBillsByIds(ids: string[]): Promise<
+    Array<{
+      identifier: string;
+      title: string;
+      latestActionDate: Date | null;
+      latestActionText: string | null;
+      sponsorName: string | null;
+      sponsorParty: string | null;
+      subjectNames: string[];
+    }>
+  > {
+    if (!ids.length) return [];
+    const bills = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        title: string;
+        latest_action_date: Date | null;
+        latest_action_text: string | null;
+        sponsor_name: string | null;
+        sponsor_party: string | null;
+        subjects: string[];
+      }>
+    >`
+      SELECT cb.id, cb.title, cb.latest_action_date, cb.latest_action_text,
+             cb.sponsor_name, cb.sponsor_party, cb.subjects
+      FROM congress_bill cb
+      WHERE cb.id = ANY(${ids}::text[])
+      ORDER BY cb.latest_action_date DESC NULLS LAST
+    `;
+    return bills.map((b) => ({
+      identifier: b.id,
+      title: b.title,
+      latestActionDate: b.latest_action_date,
+      latestActionText: b.latest_action_text,
+      sponsorName: b.sponsor_name,
+      sponsorParty: b.sponsor_party,
+      subjectNames: b.subjects ?? [],
+    }));
+  }
+
+  /** List a client's manually tracked bills with full bill detail. */
+  async listTrackedBills(clientId: string, tenantId: string) {
+    const tracked = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.trackedBill.findMany({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+    const billIds = tracked.map((t) => t.billId);
+    const bills = await this.fetchBillsByIds(billIds);
+    const billById = new Map(bills.map((b) => [b.identifier, b]));
+    return tracked.map((t) => ({
+      id: t.id,
+      billId: t.billId,
+      note: t.note,
+      createdAt: t.createdAt,
+      bill: billById.get(t.billId) ?? null,
+    }));
+  }
+
+  /** Pin a bill for a client (idempotent on clientId+billId). */
+  async addTrackedBill(
+    clientId: string,
+    tenantId: string,
+    billId: string,
+    note?: string,
+    createdBy?: string,
+  ) {
+    const trimmedId = billId.trim();
+    if (!trimmedId) {
+      throw new BadRequestException('billId is required');
+    }
+    // Verify the bill exists (global table) and the client belongs to the tenant.
+    const [billExists] = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      SELECT id FROM congress_bill WHERE id = ${trimmedId} LIMIT 1
+    `;
+    if (!billExists) {
+      throw new NotFoundException(`Bill ${trimmedId} not found`);
+    }
+    const client = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({ where: { id: clientId }, select: { id: true } }),
+    );
+    if (!client) {
+      throw new NotFoundException(`Client ${clientId} not found`);
+    }
+    return this.prisma.withTenant(tenantId, (tx) =>
+      tx.trackedBill.upsert({
+        where: { clientId_billId: { clientId, billId: trimmedId } },
+        update: { note: note ?? undefined },
+        create: { tenantId, clientId, billId: trimmedId, note: note ?? null, createdBy: createdBy ?? null },
+      }),
+    );
+  }
+
+  /** Unpin a tracked bill. No-op if it wasn't tracked. */
+  async removeTrackedBill(clientId: string, tenantId: string, billId: string) {
+    await this.prisma.withTenant(tenantId, (tx) =>
+      tx.trackedBill.deleteMany({ where: { clientId, billId: billId.trim() } }),
+    );
+    return { removed: true };
   }
 
   private async findTrackedBillsByEmbeddings(

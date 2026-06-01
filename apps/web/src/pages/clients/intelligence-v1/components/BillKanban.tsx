@@ -30,6 +30,8 @@ export interface BillKanbanCard {
   /** CSS color value, e.g. "var(--success)" */
   probColor?: string;
   clioTag?: string;
+  /** True when the user has explicitly pinned this bill (manual tracking). */
+  isManual?: boolean;
 }
 
 export interface BillKanbanColumn {
@@ -49,6 +51,14 @@ interface BillKanbanProps {
    *   /explorer?foo=bar   → /explorer?foo=bar&bill=HR+7702
    */
   billDrillHref: string;
+  /**
+   * Optional manual-tracking toggle. When provided, each card shows a
+   * star button to pin/unpin the bill. `tracked` reflects the card's current
+   * isManual state so the handler knows whether to add or remove.
+   */
+  onToggleTrack?: (billId: string, tracked: boolean) => void;
+  /** Bill ids with an in-flight track/untrack mutation (disables the button). */
+  pendingTrackIds?: Set<string>;
 }
 
 /** Safe fallback destination when no bill-detail route is configured. */
@@ -69,7 +79,7 @@ function buildBillHref(base: string, identifier: string): string {
   return rawBase.includes('?') ? `${rawBase}&bill=${encoded}` : `${rawBase}?bill=${encoded}`;
 }
 
-export function BillKanban({ columns, billDrillHref }: BillKanbanProps) {
+export function BillKanban({ columns, billDrillHref, onToggleTrack, pendingTrackIds }: BillKanbanProps) {
   return (
     <div className="iv1-kanban">
       {columns.map((col) => {
@@ -88,26 +98,35 @@ export function BillKanban({ columns, billDrillHref }: BillKanbanProps) {
               // Composite key: bill identifiers can repeat (House/Senate
               // companions, duplicate rows), so `card.num` alone is not unique.
               const cardKey = `${col.stage}-${cardIdx}-${card.num}`;
+              const isPending = pendingTrackIds?.has(card.num) ?? false;
 
-              if (!href) {
-                return (
-                  <div key={cardKey} className="iv1-bill-card" aria-disabled="true">
-                    <div className="iv1-bill-num mono">{card.num}</div>
-                    <div className="iv1-bill-title">{card.title}</div>
-                    <PassageProbabilityBar score={card.pct} color={card.probColor} />
-                    {card.clioTag && (
-                      <div className="iv1-clio-tag">
-                        <span className="iv1-clio-tag-dot" />
-                        {card.clioTag}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
+              // Star toggle for manual tracking. Rendered as a sibling of the
+              // card anchor (NOT nested inside it) so clicking the star never
+              // triggers the drill-out navigation.
+              const trackButton = onToggleTrack ? (
+                <button
+                  type="button"
+                  className={`iv1-bill-track${card.isManual ? ' is-tracked' : ''}`}
+                  aria-pressed={card.isManual ? true : false}
+                  aria-label={card.isManual ? `Untrack ${card.num}` : `Track ${card.num}`}
+                  title={card.isManual ? 'Tracked — click to untrack' : 'Track this bill'}
+                  disabled={isPending}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onToggleTrack(card.num, Boolean(card.isManual));
+                  }}
+                >
+                  {card.isManual ? '★' : '☆'}
+                </button>
+              ) : null;
 
               const cardInner = (
                 <>
-                  <div className="iv1-bill-num mono">{card.num}</div>
+                  <div className="iv1-bill-num mono">
+                    {card.num}
+                    {card.isManual && <span className="iv1-bill-tracked-badge" title="Manually tracked"> ★</span>}
+                  </div>
                   <div className="iv1-bill-title">{card.title}</div>
                   <PassageProbabilityBar score={card.pct} color={card.probColor} />
                   {card.clioTag && (
@@ -119,16 +138,28 @@ export function BillKanban({ columns, billDrillHref }: BillKanbanProps) {
                 </>
               );
 
-              // Internal routes navigate via react-router (no full reload);
-              // external/absolute URLs fall back to a plain anchor.
-              return isInternalHref(href) ? (
-                <Link key={cardKey} to={href} className="iv1-bill-card">
-                  {cardInner}
-                </Link>
-              ) : (
-                <a key={cardKey} href={href} className="iv1-bill-card">
-                  {cardInner}
-                </a>
+              const cardEl =
+                href && isInternalHref(href) ? (
+                  <Link to={href} className="iv1-bill-card">
+                    {cardInner}
+                  </Link>
+                ) : href ? (
+                  <a href={href} className="iv1-bill-card">
+                    {cardInner}
+                  </a>
+                ) : (
+                  <div className="iv1-bill-card" aria-disabled="true">
+                    {cardInner}
+                  </div>
+                );
+
+              // Wrapper positions the track button over the card without
+              // nesting interactive elements inside the anchor.
+              return (
+                <div key={cardKey} className="iv1-bill-card-wrap">
+                  {cardEl}
+                  {trackButton}
+                </div>
               );
             })}
 

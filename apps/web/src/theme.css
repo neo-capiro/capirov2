@@ -15997,6 +15997,42 @@ body {
   border-color: color-mix(in srgb, var(--accent) 30%, var(--border-1));
 }
 
+/* Manual bill tracking: card wrapper positions the star toggle top-right
+   without nesting an interactive button inside the card anchor. */
+.iv1-bill-card-wrap {
+  position: relative;
+}
+.iv1-bill-track {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px;
+  color: var(--ink-3);
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s;
+}
+.iv1-bill-card-wrap:hover .iv1-bill-track,
+.iv1-bill-track.is-tracked,
+.iv1-bill-track:focus-visible {
+  opacity: 1;
+}
+.iv1-bill-track.is-tracked {
+  color: var(--accent);
+}
+.iv1-bill-track:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.iv1-bill-tracked-badge {
+  color: var(--accent);
+  font-size: 10px;
+}
+
 .iv1-bill-num {
   font-size: 10.5px;
   font-weight: 600;

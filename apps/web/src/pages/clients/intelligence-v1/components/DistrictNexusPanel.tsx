@@ -40,8 +40,22 @@ function formatJobs(jobs: number): string {
   return `${Math.round(jobs)}`;
 }
 
+/** Compact USD formatter for district contract spend (e.g. $4.2M, $850k). */
+function formatSpend(amount: number): string {
+  if (!Number.isFinite(amount) || amount <= 0) return '$0';
+  if (amount >= 1_000_000_000) return `$${(amount / 1_000_000_000).toFixed(1)}B`;
+  if (amount >= 1_000_000) return `$${(amount / 1_000_000).toFixed(1)}M`;
+  if (amount >= 1_000) return `$${Math.round(amount / 1_000)}k`;
+  return `$${Math.round(amount)}`;
+}
+
 export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexusPanelProps) {
   const sourceRows = districtNexus?.topDistricts ?? [];
+  // Spend-driven rows (real USAspending place-of-performance dollars) take
+  // precedence over the free-text job estimates: if ANY row carries a spend
+  // figure the panel renders contract dollars; otherwise it falls back to the
+  // capability-derived job counts.
+  const isSpend = sourceRows.some((r) => (r.spend ?? 0) > 0);
   // Only treat capabilities as a fallback when they carry an actual
   // district-nexus narrative. Listing capabilities that have no CD detail
   // reads as irrelevant noise under a "District nexus" heading, so those
@@ -50,18 +64,22 @@ export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexus
     (c) => (c.districtNexus ?? '').trim().length > 0,
   );
 
-  // Sort descending by jobs, take top 5, normalise bar widths.
+  // Sort descending by the active metric (spend $ or jobs), take top 5,
+  // normalise bar widths against the leader.
+  const metric = (r: { jobs: number; spend?: number }) => (isSpend ? (r.spend ?? 0) : r.jobs);
   const rows = [...sourceRows]
-    .sort((a, b) => b.jobs - a.jobs)
+    .sort((a, b) => metric(b) - metric(a))
     .slice(0, 5)
     .map((row, idx, arr) => {
-      const baseline = Math.max(arr[0]?.jobs ?? 1, 1);
-      const pct = Math.max(6, Math.min(100, Math.round((row.jobs / baseline) * 100)));
+      const baseline = Math.max(metric(arr[0] ?? { jobs: 0 }) || 1, 1);
+      const pct = Math.max(6, Math.min(100, Math.round((metric(row) / baseline) * 100)));
       return {
         key: `${row.district}-${idx}`,
         district: row.district,
         capability: row.capability,
         jobs: row.jobs,
+        spend: row.spend ?? 0,
+        awardCount: row.awardCount ?? 0,
         pct,
       };
     });
@@ -70,7 +88,7 @@ export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexus
     <div className="iv1-surface iv1-district-panel">
       <div className="iv1-surface-head">
         <h3>District nexus</h3>
-        <span className="iv1-surface-sub">jobs &amp; ops by CD</span>
+        <span className="iv1-surface-sub">{isSpend ? 'contract spend by CD' : 'jobs & ops by CD'}</span>
       </div>
 
       {rows.length > 0 ? (
@@ -80,22 +98,34 @@ export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexus
               <div key={row.key} className="iv1-district-row">
                 <div className="iv1-district-meta">
                   <strong className="iv1-district-code">{row.district}</strong>
-                  <span className="iv1-district-cap">({row.capability})</span>
+                  <span className="iv1-district-cap">
+                    {isSpend
+                      ? `(${row.awardCount} award${row.awardCount === 1 ? '' : 's'})`
+                      : `(${row.capability})`}
+                  </span>
                 </div>
                 <div className="iv1-district-bar-track">
                   <div className="iv1-district-bar-fill" style={{ width: `${row.pct}%` }} />
                 </div>
-                <span className="iv1-district-jobs num">{formatJobs(row.jobs)}</span>
+                <span className="iv1-district-jobs num">
+                  {isSpend ? formatSpend(row.spend) : formatJobs(row.jobs)}
+                </span>
               </div>
             ))}
           </div>
 
           <div className="iv1-district-foot">
-            Inferred from capability/district nexus text.{' '}
-            <SmartLink href={supportHref} className="iv1-link">
-              Add to capability tags →
-            </SmartLink>{' '}
-            for confirmed counts.
+            {isSpend ? (
+              <>Federal contract spend (USAspending) by place-of-performance district.</>
+            ) : (
+              <>
+                Inferred from capability/district nexus text.{' '}
+                <SmartLink href={supportHref} className="iv1-link">
+                  Add to capability tags →
+                </SmartLink>{' '}
+                for confirmed counts.
+              </>
+            )}
           </div>
         </>
       ) : capsWithNexus.length > 0 ? (

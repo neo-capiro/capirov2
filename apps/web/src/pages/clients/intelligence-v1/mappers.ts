@@ -199,7 +199,7 @@ export interface ClientProfileV1 {
         disclaimer?: string;
       };
       districtNexus: {
-        topDistricts: Array<{ district: string; jobs: number; capability: string; dataYear: number }>;
+        topDistricts: Array<{ district: string; jobs: number; capability: string; dataYear: number; spend?: number; awardCount?: number }>;
         capabilities?: Array<{
           capabilityId: string;
           capabilityName: string;
@@ -225,6 +225,7 @@ export interface ClientProfileV1 {
             latestActionDate: string | Date | null;
             latestActionText: string | null;
             probability?: number | null;
+            isManual?: boolean;
           }>;
         }>;
       };

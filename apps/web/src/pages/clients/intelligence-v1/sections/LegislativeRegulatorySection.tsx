@@ -6,6 +6,9 @@
 
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { App as AntApp } from 'antd';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useApi } from '../../../../lib/use-api.js';
 import type { ClientProfileV1 } from '../mappers.js';
 import { BillKanban, type BillKanbanCard, type BillKanbanColumn } from '../components/BillKanban.js';
 import {
@@ -17,6 +20,8 @@ import { HearingsMarkupList } from '../components/HearingsMarkupList.js';
 
 interface LegislativeRegulatorySectionProps {
   aggregate?: ClientProfileV1;
+  /** Client whose bills are shown — required for manual bill tracking. */
+  clientId: string;
   billDrillHref: string;
   syncCalendarHref: string;
   setAlertsHref: string;
@@ -104,14 +109,54 @@ function applyKanbanControls(columns: BillKanbanColumn[], controls: KanbanContro
 
 export function LegislativeRegulatorySection({
   aggregate,
+  clientId,
   billDrillHref,
   syncCalendarHref,
   setAlertsHref,
 }: LegislativeRegulatorySectionProps) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const { message } = AntApp.useApp();
   const dynamicKanban = aggregate?.sections.legislativeRegulatory.kanban.columns;
   const regulatoryLifecycle = aggregate?.sections.legislativeRegulatory.regulatoryLifecycle;
   const dynamicRegs = regulatoryLifecycle?.rails;
   const dynamicHearings = aggregate?.sections.legislativeRegulatory.hearingsAndMarkups;
+
+  // Manual bill tracking: pin/unpin a specific bill for this client. On
+  // success we invalidate the v1 aggregate so the kanban reflects the new
+  // isManual state (pinned bills sort to the top of their column).
+  const [pendingTrackIds, setPendingTrackIds] = useState<Set<string>>(new Set());
+  const trackMutation = useMutation({
+    mutationFn: async ({ billId, tracked }: { billId: string; tracked: boolean }) => {
+      if (tracked) {
+        await api.delete(`/api/intelligence/clients/${clientId}/tracked-bills/${encodeURIComponent(billId)}`);
+      } else {
+        await api.post(`/api/intelligence/clients/${clientId}/tracked-bills`, { billId });
+      }
+    },
+    onMutate: ({ billId }) => {
+      setPendingTrackIds((prev) => new Set(prev).add(billId));
+    },
+    onSuccess: (_data, { tracked }) => {
+      message.success(tracked ? 'Bill untracked' : 'Bill tracked');
+      void qc.invalidateQueries({ queryKey: ['client-intel-v1-profile', clientId] });
+    },
+    onError: () => {
+      message.error('Could not update bill tracking');
+    },
+    onSettled: (_data, _err, { billId }) => {
+      setPendingTrackIds((prev) => {
+        const next = new Set(prev);
+        next.delete(billId);
+        return next;
+      });
+    },
+  });
+
+  const handleToggleTrack = (billId: string, tracked: boolean) => {
+    if (!clientId) return;
+    trackMutation.mutate({ billId, tracked });
+  };
 
   const [controls, setControls] = useState<KanbanControlsValue>(loadKanbanControls);
   const handleControlsChange = (next: KanbanControlsValue) => {
@@ -128,6 +173,7 @@ export function LegislativeRegulatorySection({
       cards: col.bills.map((b) => ({
         num: b.identifier,
         title: b.title,
+        isManual: b.isManual ?? false,
         pct: b.probability == null ? null : Math.round(b.probability * 100),
         probColor:
           b.probability == null
@@ -247,7 +293,12 @@ export function LegislativeRegulatorySection({
             </Link>
           </div>
         ) : (
-          <BillKanban columns={kanbanData} billDrillHref={billDrillHref} />
+          <BillKanban
+            columns={kanbanData}
+            billDrillHref={billDrillHref}
+            onToggleTrack={handleToggleTrack}
+            pendingTrackIds={pendingTrackIds}
+          />
         )}
       </div>
 

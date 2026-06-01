@@ -217,6 +217,7 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
 
             <LegislativeRegulatorySection
               aggregate={profileV1Query.data ?? undefined}
+              clientId={clientId}
               billDrillHref={profileV1Query.data?.links.billDetailBase ?? '/explorer'}
               syncCalendarHref={engagementHref}
               setAlertsHref={

@@ -4,6 +4,7 @@ import {
   Param,
   Patch,
   Post,
+  Delete,
   Query,
   Body,
   UseGuards,
@@ -343,5 +344,33 @@ export class IntelligenceController {
     @Param('clientId') clientId: string,
   ) {
     return this.service.getBillResearchAttachments(clientId, ctx.tenantId);
+  }
+
+  // ─── Manual bill tracking (user-pinned legislation per client) ─────────
+
+  @Get('clients/:clientId/tracked-bills/manual')
+  listManualTrackedBills(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.listTrackedBills(clientId, ctx.tenantId);
+  }
+
+  @Post('clients/:clientId/tracked-bills')
+  addManualTrackedBill(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Body() body: { billId: string; note?: string },
+  ) {
+    return this.service.addTrackedBill(clientId, ctx.tenantId, body.billId, body.note, ctx.userId);
+  }
+
+  @Delete('clients/:clientId/tracked-bills/:billId')
+  removeManualTrackedBill(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Param('billId') billId: string,
+  ) {
+    return this.service.removeTrackedBill(clientId, ctx.tenantId, billId);
   }
 }

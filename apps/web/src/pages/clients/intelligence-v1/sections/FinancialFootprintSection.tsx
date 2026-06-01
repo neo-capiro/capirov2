@@ -28,7 +28,12 @@ export function FinancialFootprintSection({
 
   // C5: ensure every visible CTA in this section is intentional + functional.
   const mappingsHref = aggregate?.links.mappingsAdmin ?? '/settings/intelligence-mappings';
-  const effectiveFecHref = aggregate?.links.mappingsAdmin ?? (runFecHref || '/settings/intelligence-mappings');
+  // Deep-link the FEC CTA straight to the FEC-employer rows in the mappings
+  // admin so "Map an FEC employer →" lands on the rows to confirm, rather than
+  // the unfiltered list. Entity resolution already produces fec_employer +
+  // fec_committee mappings; the user just needs to confirm them.
+  const fecMapHref = `${mappingsHref}${mappingsHref.includes('?') ? '&' : '?'}source=fec_employer`;
+  const effectiveFecHref = fecMapHref || (runFecHref || '/settings/intelligence-mappings');
   const effectiveFecEnabled = runFecEnabled || Boolean(effectiveFecHref);
   const districtSupportHref = mappingsHref;
 
