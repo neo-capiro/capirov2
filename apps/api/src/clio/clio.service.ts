@@ -18,6 +18,7 @@ import {
   emptyUsage,
   type SystemTextBlock,
 } from './clio-prompt.helpers.js';
+import { runToolsConcurrently } from './clio-tool-exec.helpers.js';
 
 interface CreateConversationInput {
   clientId?: string;
@@ -398,6 +399,7 @@ export class ClioService {
       const maxTokens = this.config.get('CLIO_MAX_TOKENS', { infer: true });
       const timeoutMs = this.config.get('CLIO_REQUEST_TIMEOUT_MS', { infer: true });
       const maxRounds = this.config.get('CLIO_MAX_TOOL_ROUNDS', { infer: true });
+      const toolTimeoutMs = this.config.get('CLIO_TOOL_TIMEOUT_MS', { infer: true });
       const toolSchemas = applyToolCacheControl(this.tools.anthropicToolSchemas(), promptCacheEnabled);
 
       // Anthropic message turns. content can be a string (history) or an array
@@ -512,8 +514,10 @@ export class ClioService {
         }
         messages.push({ role: 'assistant', content: assistantTurn });
 
-        const toolResultBlocks: Array<Record<string, unknown>> = [];
-        for (const t of orderedTools) {
+        // Phase 1: parse each tool's input and emit its tool_call event up front,
+        // in deterministic order, so the trust timeline shows the full plan before
+        // results stream back. (Not gated on #trace — the user always sees calls.)
+        const preparedTools = orderedTools.map((t, index) => {
           let parsedInput: Record<string, unknown> = {};
           const raw = t.jsonParts.join('');
           if (raw.trim()) {
@@ -524,13 +528,27 @@ export class ClioService {
             parsedInput.clientId = conversation.clientId;
           }
           toolsUsed.push(t.name);
-          // Always emit the tool call to the trust timeline (not gated on
-          // #trace) so the user always sees what Clio is doing.
           sse.write(`data: ${JSON.stringify({ type: 'tool_call', tool: t.name, label: humanToolLabel(t.name), input: redactToolInput(parsedInput) })}\n\n`);
+          return { index, tool: t, parsedInput, concurrencySafe: this.tools.isConcurrencySafe(t.name) };
+        });
+
+        // Phase 2: execute concurrently — read-only tools in parallel, side-effecting
+        // tools serialized — with a per-tool timeout, preserving result order (P0-2).
+        const outcomes = await runToolsConcurrently(
+          preparedTools,
+          (item) => this.tools.execute(ctx, item.tool.name as never, item.parsedInput),
+          { timeoutMs: toolTimeoutMs },
+        );
+
+        // Phase 3: surface each source + assemble tool_result blocks in tool_use order.
+        const toolResultBlocks: Array<Record<string, unknown>> = [];
+        for (const item of preparedTools) {
+          const t = item.tool;
+          const outcome = outcomes[item.index];
           let resultPayload: unknown;
           let isError = false;
-          try {
-            resultPayload = await this.tools.execute(ctx, t.name as never, parsedInput);
+          if (outcome && outcome.ok) {
+            resultPayload = outcome.result;
             // Capture any artifacts the tool persisted so the artifact panel sees them.
             for (const art of extractToolArtifacts(resultPayload)) producedArtifacts.push(art);
             // If a draft/email tool ran in page-write mode, capture body for the page-write event.
@@ -538,9 +556,9 @@ export class ClioService {
               const art = producedArtifacts[producedArtifacts.length - 1];
               if (art?.bodyText) pageWritePayload = { subject: art.title, body: art.bodyText };
             }
-          } catch (err) {
+          } else {
             isError = true;
-            resultPayload = { error: err instanceof Error ? err.message : 'Tool execution failed' };
+            resultPayload = { error: outcome?.error ?? 'Tool execution failed' };
           }
           // Emit a real source with a human detail (counts / sample titles) so
           // the trust panel can show actual citations, not just a tool name.

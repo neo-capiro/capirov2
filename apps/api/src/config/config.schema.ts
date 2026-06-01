@@ -50,6 +50,11 @@ export const configSchema = z.object({
     .string()
     .default('true')
     .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  // Per-tool execution timeout (P0-2). Within an agentic round, read-only tools
+  // run concurrently and side-effecting tools serially; each tool call is bounded
+  // by this timeout. On timeout the model receives an error tool_result and the
+  // turn proceeds (the tool is not hard-aborted).
+  CLIO_TOOL_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
 
   // Clio Deep Research (a heavier, multi-round agentic research run that produces
   // a long, cited report artifact). Separate budgets from the chat drawer because
