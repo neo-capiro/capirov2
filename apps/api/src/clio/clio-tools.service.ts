@@ -111,6 +111,19 @@ const TOOL_DEFINITIONS = [
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
 
+/**
+ * Side-effecting (write) tools. These are serialized within a single agentic
+ * round so two mutations never race; every other (read-only) tool may run
+ * concurrently (P0-2).
+ */
+const SIDE_EFFECTING_TOOLS: ReadonlySet<string> = new Set<string>([
+  'create_meeting_brief',
+  'draft_policy_memo',
+  'save_note',
+  'send_email',
+  'reply_email',
+]);
+
 interface ToolArtifactInput {
   conversationId?: string | null;
   clientId?: string | null;
@@ -294,6 +307,14 @@ export class ClioToolsService {
       description: tool.description,
       input_schema: schemas[tool.name] ?? obj({}),
     }));
+  }
+
+  /**
+   * Whether a tool may run concurrently with others in the same agentic round.
+   * Read-only tools are safe; side-effecting writes are serialized (P0-2).
+   */
+  isConcurrencySafe(name: string): boolean {
+    return !SIDE_EFFECTING_TOOLS.has(name);
   }
 
   executeFromAuthenticatedUser(ctx: TenantContext, rawName: string, rawInput: unknown) {

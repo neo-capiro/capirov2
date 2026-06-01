@@ -119,14 +119,19 @@ export class ClioController {
     @CurrentTenant() ctx: TenantContext,
     @Param('id') id: string,
     @Body() body: SendClioMessageDto,
-    @Req() _req: Request,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
-    await this.service.streamMessage(ctx, id, body.body, res);
+    // Cancel the model stream when the client disconnects or hits Stop, so we
+    // stop burning tokens for an answer no one is reading (P0-4).
+    const abort = new AbortController();
+    req.on('close', () => abort.abort());
+    res.on('error', () => { /* swallow socket errors on client disconnect */ });
+    await this.service.streamMessage(ctx, id, body.body, res, abort.signal);
     res.end();
   }
 

@@ -15,12 +15,14 @@ import {
   appendChatMessage,
   clearChatSession,
   ClioSourceAttribution,
+  type ClioCitation,
   getActiveDraft,
   removeConversation,
   setAlerts,
   setActiveConversation,
   setChatOpen,
   setChatSession,
+  setChatMessageCitations,
   setStreaming,
   toggleChat,
   toggleSessionRail,
@@ -43,6 +45,7 @@ type SseEvent =
   | { type: 'template'; template?: { heading: string; sections: string[] } }
   | { type: 'conflict'; conflict?: { title: string; detail: string } }
   | { type: 'sources'; sources?: Array<ClioSourceAttribution & { label?: string }> }
+  | { type: 'citations'; citations?: ClioCitation[] }
   | { type: 'text'; text: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
@@ -619,6 +622,8 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                 return next;
               });
             }
+          } else if (event.type === 'citations') {
+            setChatMessageCitations(assistantId, Array.isArray(event.citations) ? event.citations : []);
           } else if (event.type === 'done') {
             break outer;
           } else if (event.type === 'error') {
@@ -670,6 +675,13 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   }, [isStreaming, sessionId, doCreateSession, authHeaders, selectedClientId, selectedClientName, location.pathname, researchMode, writeMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleClose = () => setChatOpen(false);
+
+  // Stop: abort the in-flight stream. The server-side handler cancels the model
+  // call on disconnect (P0-4); the partial answer streamed so far is kept.
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+    setStreaming(false);
+  }, []);
 
   const fetchLearnedMemories = useCallback(async () => {
     try {
@@ -944,6 +956,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                 <ChatMessage
                   role={msg.role}
                   content={msg.content}
+                  citations={msg.citations}
                   isStreaming={
                     isStreaming &&
                     i === messages.length - 1 &&
@@ -993,6 +1006,26 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         </div>
 
         <div className="chat-input-area">
+          {isStreaming && (
+            <button
+              type="button"
+              onClick={handleStop}
+              aria-label="Stop generating"
+              style={{
+                alignSelf: 'center',
+                marginBottom: 8,
+                padding: '4px 16px',
+                borderRadius: 14,
+                border: '1px solid #d9d9d9',
+                background: '#fff',
+                cursor: 'pointer',
+                fontSize: 13,
+                color: '#cf1322',
+              }}
+            >
+              ■ Stop
+            </button>
+          )}
           <ChatInput
             disabled={isStreaming}
             onSend={(c) => void sendMessage(c)}

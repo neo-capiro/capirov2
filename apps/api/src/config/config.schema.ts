@@ -45,6 +45,28 @@ export const configSchema = z.object({
   CLIO_HISTORY_CHAR_BUDGET: z.coerce.number().int().positive().default(24_000),
   // Max agentic tool-use rounds per message before forcing a final answer.
   CLIO_MAX_TOOL_ROUNDS: z.coerce.number().int().positive().default(5),
+  // Anthropic prompt caching (P0-1). When enabled, cache breakpoints are placed
+  // on the static system base and the tool-schema block, so repeated turns within
+  // the ~5-minute cache TTL reuse that prefix (response usage reports
+  // cache_read_input_tokens > 0). Only the static prefix is cached; per-turn
+  // context and messages are never cached. Set false/0/no/off to disable.
+  CLIO_PROMPT_CACHE_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  // Per-tool execution timeout (P0-2). Within an agentic round, read-only tools
+  // run concurrently and side-effecting tools serially; each tool call is bounded
+  // by this timeout. On timeout the model receives an error tool_result and the
+  // turn proceeds (the tool is not hard-aborted).
+  CLIO_TOOL_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  // Inline citations (P0-3). When enabled, numbered sources are injected into
+  // tool results and the model cites them as [N]; hallucinated markers are
+  // stripped post-hoc and the used citations are emitted (SSE) + persisted to
+  // clio_message.metadata.citations. Set false/0/no/off to disable.
+  CLIO_CITATIONS_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
 
   // Clio Deep Research (a heavier, multi-round agentic research run that produces
   // a long, cited report artifact). Separate budgets from the chat drawer because

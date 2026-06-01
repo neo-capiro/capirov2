@@ -10,6 +10,21 @@ import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ClioToolsService } from './clio-tools.service.js';
+import {
+  addUsage,
+  applyRoundUsageEvent,
+  applyToolCacheControl,
+  buildClioSystemBlocks,
+  emptyUsage,
+  type SystemTextBlock,
+} from './clio-prompt.helpers.js';
+import { runToolsConcurrently } from './clio-tool-exec.helpers.js';
+import {
+  extractCitationsFromToolResult,
+  formatCitationsForPrompt,
+  validateCitationMarkers,
+  type ClioCitation,
+} from './clio-citations.helpers.js';
 
 interface CreateConversationInput {
   clientId?: string;
@@ -294,7 +309,7 @@ export class ClioService {
 
   // ── SSE Streaming (Phase 1: Unified brain) ──
 
-  async streamMessage(ctx: TenantContext, conversationId: string, body: string, sse: { write: (data: string) => void }) {
+  async streamMessage(ctx: TenantContext, conversationId: string, body: string, sse: { write: (data: string) => void }, clientSignal?: AbortSignal) {
     const conversation = await this.ensureConversation(ctx, conversationId);
     const streamControl = this.extractStreamControl(body);
     const content = streamControl.cleanContent.trim();
@@ -330,7 +345,14 @@ export class ClioService {
     this.logger.debug(`Stream intent: ${intent}`);
 
     const orchestration = await this.orchestrateContext(ctx, conversation.clientId, intent, content);
-    const unifiedSystemPrompt = this.buildUnifiedSystemPrompt(intent, orchestration.context, orchestration.template);
+    const promptCacheEnabled = this.config.get('CLIO_PROMPT_CACHE_ENABLED', { infer: true });
+    const citationsEnabled = this.config.get('CLIO_CITATIONS_ENABLED', { infer: true });
+    const systemBlocks = this.buildSystemBlocks(
+      intent,
+      orchestration.context,
+      orchestration.template,
+      promptCacheEnabled,
+    );
 
     sse.write(`data: ${JSON.stringify({ type: 'start', intent, tier: orchestration.policy.tier })}\n\n`);
     if (streamControl.pageWriteEnabled) {
@@ -373,7 +395,11 @@ export class ClioService {
       metadata: Prisma.InputJsonValue;
     }> = [];
     const toolsUsed: string[] = [];
+    const usageTotals = emptyUsage();
+    const citations: ClioCitation[] = [];
+    let finalCitations: ClioCitation[] = [];
     let pageWritePayload: { subject?: string; body?: string } | null = null;
+    let aborted = false;
 
     try {
       const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
@@ -383,7 +409,8 @@ export class ClioService {
       const maxTokens = this.config.get('CLIO_MAX_TOKENS', { infer: true });
       const timeoutMs = this.config.get('CLIO_REQUEST_TIMEOUT_MS', { infer: true });
       const maxRounds = this.config.get('CLIO_MAX_TOOL_ROUNDS', { infer: true });
-      const toolSchemas = this.tools.anthropicToolSchemas();
+      const toolTimeoutMs = this.config.get('CLIO_TOOL_TIMEOUT_MS', { infer: true });
+      const toolSchemas = applyToolCacheControl(this.tools.anthropicToolSchemas(), promptCacheEnabled);
 
       // Anthropic message turns. content can be a string (history) or an array
       // of blocks (assistant tool_use / user tool_result) during the agentic loop.
@@ -393,11 +420,22 @@ export class ClioService {
       }));
 
       for (let round = 0; round < maxRounds; round += 1) {
+        if (clientSignal?.aborted) {
+          aborted = true;
+          break;
+        }
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
+        // Cancel the in-flight model stream if the client disconnects / hits Stop.
+        const onClientAbort = () => controller.abort();
+        if (clientSignal) {
+          if (clientSignal.aborted) controller.abort();
+          else clientSignal.addEventListener('abort', onClientAbort);
+        }
 
         // Accumulators for this round's assistant turn.
         const toolUseById = new Map<number, { id: string; name: string; jsonParts: string[] }>();
+        const roundUsage = emptyUsage();
         let stopReason: string | null = null;
 
         try {
@@ -412,7 +450,7 @@ export class ClioService {
               model,
               max_tokens: maxTokens,
               stream: true,
-              system: unifiedSystemPrompt,
+              system: systemBlocks,
               tools: toolSchemas,
               messages,
             }),
@@ -439,6 +477,7 @@ export class ClioService {
               if (!payload || payload === '[DONE]') continue;
               try {
                 const evt = JSON.parse(payload);
+                applyRoundUsageEvent(roundUsage, evt);
                 if (evt.type === 'content_block_start') {
                   const block = evt.content_block ?? {};
                   if (block.type === 'tool_use') {
@@ -464,7 +503,14 @@ export class ClioService {
           }
         } finally {
           clearTimeout(timer);
+          clientSignal?.removeEventListener('abort', onClientAbort);
         }
+
+        addUsage(usageTotals, roundUsage);
+        this.logger.debug(
+          `Clio usage [round ${round}] in=${roundUsage.inputTokens} out=${roundUsage.outputTokens} ` +
+            `cacheRead=${roundUsage.cacheReadInputTokens} cacheCreate=${roundUsage.cacheCreationInputTokens}`,
+        );
 
         // If the model did not request tools, the turn is complete.
         if (stopReason !== 'tool_use' || toolUseById.size === 0) {
@@ -489,8 +535,10 @@ export class ClioService {
         }
         messages.push({ role: 'assistant', content: assistantTurn });
 
-        const toolResultBlocks: Array<Record<string, unknown>> = [];
-        for (const t of orderedTools) {
+        // Phase 1: parse each tool's input and emit its tool_call event up front,
+        // in deterministic order, so the trust timeline shows the full plan before
+        // results stream back. (Not gated on #trace — the user always sees calls.)
+        const preparedTools = orderedTools.map((t, index) => {
           let parsedInput: Record<string, unknown> = {};
           const raw = t.jsonParts.join('');
           if (raw.trim()) {
@@ -501,13 +549,27 @@ export class ClioService {
             parsedInput.clientId = conversation.clientId;
           }
           toolsUsed.push(t.name);
-          // Always emit the tool call to the trust timeline (not gated on
-          // #trace) so the user always sees what Clio is doing.
           sse.write(`data: ${JSON.stringify({ type: 'tool_call', tool: t.name, label: humanToolLabel(t.name), input: redactToolInput(parsedInput) })}\n\n`);
+          return { index, tool: t, parsedInput, concurrencySafe: this.tools.isConcurrencySafe(t.name) };
+        });
+
+        // Phase 2: execute concurrently — read-only tools in parallel, side-effecting
+        // tools serialized — with a per-tool timeout, preserving result order (P0-2).
+        const outcomes = await runToolsConcurrently(
+          preparedTools,
+          (item) => this.tools.execute(ctx, item.tool.name as never, item.parsedInput),
+          { timeoutMs: toolTimeoutMs },
+        );
+
+        // Phase 3: surface each source + assemble tool_result blocks in tool_use order.
+        const toolResultBlocks: Array<Record<string, unknown>> = [];
+        for (const item of preparedTools) {
+          const t = item.tool;
+          const outcome = outcomes[item.index];
           let resultPayload: unknown;
           let isError = false;
-          try {
-            resultPayload = await this.tools.execute(ctx, t.name as never, parsedInput);
+          if (outcome && outcome.ok) {
+            resultPayload = outcome.result;
             // Capture any artifacts the tool persisted so the artifact panel sees them.
             for (const art of extractToolArtifacts(resultPayload)) producedArtifacts.push(art);
             // If a draft/email tool ran in page-write mode, capture body for the page-write event.
@@ -515,9 +577,20 @@ export class ClioService {
               const art = producedArtifacts[producedArtifacts.length - 1];
               if (art?.bodyText) pageWritePayload = { subject: art.title, body: art.bodyText };
             }
-          } catch (err) {
+          } else {
             isError = true;
-            resultPayload = { error: err instanceof Error ? err.message : 'Tool execution failed' };
+            resultPayload = { error: outcome?.error ?? 'Tool execution failed' };
+          }
+          // Extract numbered citation candidates from successful results so the
+          // model can cite them as [N]; prepend the numbered list to the
+          // tool_result content fed back to the model (P0-3).
+          let toolContent = summarizeJsonForPrompt(resultPayload, 12_000);
+          if (citationsEnabled && !isError) {
+            const cites = extractCitationsFromToolResult(t.name, resultPayload, citations.length + 1);
+            if (cites.length) {
+              citations.push(...cites);
+              toolContent = `${formatCitationsForPrompt(cites)}\n\n${toolContent}`;
+            }
           }
           // Emit a real source with a human detail (counts / sample titles) so
           // the trust panel can show actual citations, not just a tool name.
@@ -538,16 +611,42 @@ export class ClioService {
             type: 'tool_result',
             tool_use_id: t.id,
             is_error: isError,
-            content: summarizeJsonForPrompt(resultPayload, 12_000),
+            content: toolContent,
           });
         }
         messages.push({ role: 'user', content: toolResultBlocks });
         // Loop again so the model can read tool results and answer (or call more tools).
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'AI generation failed';
-      sse.write(`data: ${JSON.stringify({ type: 'error', message: msg })}\n\n`);
-      if (!assistantContent) assistantContent = `Error: ${msg}`;
+      if (clientSignal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+        // Client disconnected / hit Stop: keep the partial answer, surface no error.
+        aborted = true;
+        this.logger.log(`Clio turn aborted by client [conv ${conversationId}]`);
+      } else {
+        const msg = err instanceof Error ? err.message : 'AI generation failed';
+        sse.write(`data: ${JSON.stringify({ type: 'error', message: msg })}\n\n`);
+        if (!assistantContent) assistantContent = `Error: ${msg}`;
+      }
+    }
+
+    this.logger.log(
+      `Clio total usage [conv ${conversationId}] in=${usageTotals.inputTokens} out=${usageTotals.outputTokens} ` +
+        `cacheRead=${usageTotals.cacheReadInputTokens} cacheCreate=${usageTotals.cacheCreationInputTokens}`,
+    );
+    sse.write(`data: ${JSON.stringify({ type: 'usage', usage: usageTotals })}\n\n`);
+
+    // Validate citation markers against the numbered sources collected this turn:
+    // keep real [N], strip hallucinated ones, surface the used citations (P0-3).
+    if (citationsEnabled) {
+      const { used, dropped, cleanedText } = validateCitationMarkers(assistantContent, citations);
+      finalCitations = used;
+      assistantContent = cleanedText;
+      if (dropped.length) {
+        this.logger.warn(`Clio dropped ${dropped.length} unmatched citation marker(s): [${dropped.join('], [')}]`);
+      }
+      if (used.length) {
+        sse.write(`data: ${JSON.stringify({ type: 'citations', citations: used })}\n\n`);
+      }
     }
 
     // If page-write mode produced concrete content, emit the real event the
@@ -572,6 +671,9 @@ export class ClioService {
             tier: orchestration.policy.tier,
             preWarmSources: orchestration.sources.map((source) => source.tool),
             toolsUsed,
+            usage: { ...usageTotals },
+            citations: finalCitations as unknown as Prisma.InputJsonValue,
+            finishReason: aborted ? 'aborted' : 'stop',
           },
         },
       });
@@ -816,11 +918,18 @@ export class ClioService {
     return 'general_question';
   }
 
-  private buildUnifiedSystemPrompt(
+  /**
+   * Split the Clio system prompt into a static `base` (identical on every turn,
+   * so it can be cached) and a per-turn `dynamic` tail (intent guidance + output
+   * template + pre-loaded context snapshot, which varies and must NOT be cached).
+   * The base text is unchanged from the previous single-string prompt so model
+   * behavior is unaffected; only the delivery is split for prompt caching (P0-1).
+   */
+  private composeSystemParts(
     intent: string,
     context: string,
     template: { heading: string; sections: string[] } | null,
-  ): string {
+  ): { base: string; dynamic: string } {
     const base = [
       'You are Clio, an elite AI chief of staff designed exclusively for government affairs professionals.',
       'Your purpose is to maximize a lobbyist\'s efficiency, preparation, and strategic leverage.',
@@ -850,6 +959,7 @@ export class ClioService {
       'USE THESE TOOLS rather than guessing. When a question concerns specific bills, filings, spending, clients, meetings, or emails, call the relevant tool and ground your answer in the result. Prefer Capiro internal tools first; use public-web tools only to corroborate.',
       'Any context pre-loaded below is a convenience snapshot, not a substitute for calling a tool when you need current or specific data.',
       'Do not fabricate facts. If uncertain, state uncertainty and propose the fastest verification path.',
+      'Citations: when you state a fact drawn from a retrieved source, cite it inline with the bracketed number shown for that source in the tool results (e.g. [1], [2]). Only cite numbers that appear in the provided sources; never invent citation numbers.',
     ].join('\n');
 
     const intentGuidance: Record<string, string> = {
@@ -862,14 +972,28 @@ export class ClioService {
       general_question: 'Answer helpfully about lobbying, government affairs, or the Capiro platform.',
     };
 
-    const parts = [base];
-    if (intentGuidance[intent]) parts.push(`\n${intentGuidance[intent]}`);
+    const tail: string[] = [];
+    if (intentGuidance[intent]) tail.push(intentGuidance[intent]);
     if (template) {
-      parts.push(`\nOutput template: ${template.heading}`);
-      parts.push(`Required sections: ${template.sections.join(' | ')}`);
+      tail.push(`Output template: ${template.heading}`);
+      tail.push(`Required sections: ${template.sections.join(' | ')}`);
     }
-    if (context) parts.push(`\nContext:\n${context}`);
-    return parts.join('\n');
+    if (context) tail.push(`Context:\n${context}`);
+    return { base, dynamic: tail.join('\n\n') };
+  }
+
+  /**
+   * Assemble the Anthropic `system` field as content blocks, placing the prompt
+   * cache breakpoint on the static base (see clio-prompt.helpers).
+   */
+  private buildSystemBlocks(
+    intent: string,
+    context: string,
+    template: { heading: string; sections: string[] } | null,
+    cacheEnabled: boolean,
+  ): SystemTextBlock[] {
+    const { base, dynamic } = this.composeSystemParts(intent, context, template);
+    return buildClioSystemBlocks({ base, dynamic, cacheEnabled });
   }
 
   private extractStreamControl(rawBody: string): StreamControl {
