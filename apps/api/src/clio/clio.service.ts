@@ -309,7 +309,7 @@ export class ClioService {
 
   // ── SSE Streaming (Phase 1: Unified brain) ──
 
-  async streamMessage(ctx: TenantContext, conversationId: string, body: string, sse: { write: (data: string) => void }) {
+  async streamMessage(ctx: TenantContext, conversationId: string, body: string, sse: { write: (data: string) => void }, clientSignal?: AbortSignal) {
     const conversation = await this.ensureConversation(ctx, conversationId);
     const streamControl = this.extractStreamControl(body);
     const content = streamControl.cleanContent.trim();
@@ -399,6 +399,7 @@ export class ClioService {
     const citations: ClioCitation[] = [];
     let finalCitations: ClioCitation[] = [];
     let pageWritePayload: { subject?: string; body?: string } | null = null;
+    let aborted = false;
 
     try {
       const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
@@ -419,8 +420,18 @@ export class ClioService {
       }));
 
       for (let round = 0; round < maxRounds; round += 1) {
+        if (clientSignal?.aborted) {
+          aborted = true;
+          break;
+        }
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
+        // Cancel the in-flight model stream if the client disconnects / hits Stop.
+        const onClientAbort = () => controller.abort();
+        if (clientSignal) {
+          if (clientSignal.aborted) controller.abort();
+          else clientSignal.addEventListener('abort', onClientAbort);
+        }
 
         // Accumulators for this round's assistant turn.
         const toolUseById = new Map<number, { id: string; name: string; jsonParts: string[] }>();
@@ -492,6 +503,7 @@ export class ClioService {
           }
         } finally {
           clearTimeout(timer);
+          clientSignal?.removeEventListener('abort', onClientAbort);
         }
 
         addUsage(usageTotals, roundUsage);
@@ -606,9 +618,15 @@ export class ClioService {
         // Loop again so the model can read tool results and answer (or call more tools).
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'AI generation failed';
-      sse.write(`data: ${JSON.stringify({ type: 'error', message: msg })}\n\n`);
-      if (!assistantContent) assistantContent = `Error: ${msg}`;
+      if (clientSignal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+        // Client disconnected / hit Stop: keep the partial answer, surface no error.
+        aborted = true;
+        this.logger.log(`Clio turn aborted by client [conv ${conversationId}]`);
+      } else {
+        const msg = err instanceof Error ? err.message : 'AI generation failed';
+        sse.write(`data: ${JSON.stringify({ type: 'error', message: msg })}\n\n`);
+        if (!assistantContent) assistantContent = `Error: ${msg}`;
+      }
     }
 
     this.logger.log(
@@ -655,6 +673,7 @@ export class ClioService {
             toolsUsed,
             usage: { ...usageTotals },
             citations: finalCitations as unknown as Prisma.InputJsonValue,
+            finishReason: aborted ? 'aborted' : 'stop',
           },
         },
       });

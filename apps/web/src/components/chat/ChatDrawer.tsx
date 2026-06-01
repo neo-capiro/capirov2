@@ -676,6 +676,13 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
   const handleClose = () => setChatOpen(false);
 
+  // Stop: abort the in-flight stream. The server-side handler cancels the model
+  // call on disconnect (P0-4); the partial answer streamed so far is kept.
+  const handleStop = useCallback(() => {
+    abortRef.current?.abort();
+    setStreaming(false);
+  }, []);
+
   const fetchLearnedMemories = useCallback(async () => {
     try {
       const res = await fetch(`${config.apiBaseUrl}/api/clio/memory/recent?limit=5`, {
@@ -999,6 +1006,26 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         </div>
 
         <div className="chat-input-area">
+          {isStreaming && (
+            <button
+              type="button"
+              onClick={handleStop}
+              aria-label="Stop generating"
+              style={{
+                alignSelf: 'center',
+                marginBottom: 8,
+                padding: '4px 16px',
+                borderRadius: 14,
+                border: '1px solid #d9d9d9',
+                background: '#fff',
+                cursor: 'pointer',
+                fontSize: 13,
+                color: '#cf1322',
+              }}
+            >
+              ■ Stop
+            </button>
+          )}
           <ChatInput
             disabled={isStreaming}
             onSend={(c) => void sendMessage(c)}
