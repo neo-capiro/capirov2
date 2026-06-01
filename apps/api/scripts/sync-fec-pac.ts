@@ -10,6 +10,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 dotenvConfig();
 
 const FEC_BASE = 'https://api.open.fec.gov/v1';
@@ -49,11 +50,12 @@ async function fetchFec<T>(path: string, params: Record<string, string> = {}): P
 
 async function main() {
   const prisma = new PrismaClient();
-  const t0 = Date.now();
   console.log('[fec-pac-sync] starting');
   if (!FEC_KEY) throw new Error('FEC_API_KEY env var is required');
 
   try {
+    await runWithSyncRun(prisma as any, 'sync-fec-pac', async () => {
+    const t0 = Date.now();
     // Only sync committees that are CONFIRMED-linked to a client. external_id holds
     // the FEC committee_id (e.g. C00835926) for source='fec_committee' mappings.
     const mappings = await prisma.clientIntelMapping.findMany({
@@ -64,7 +66,7 @@ async function main() {
 
     if (committeeIds.length === 0) {
       console.log('[fec-pac-sync] no confirmed fec_committee mappings — nothing to sync');
-      return;
+      return { inserted: 0, updated: 0, skipped: 0, errors: 0 };
     }
     console.log(`[fec-pac-sync] ${committeeIds.length} mapped committee(s): ${committeeIds.join(', ')}`);
 
@@ -134,6 +136,8 @@ async function main() {
 
     console.log(`[fec-pac-sync] total: ${totalRows} PAC disbursements`);
     console.log(`[fec-pac-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      return { inserted: totalRows, updated: 0, skipped: 0, errors: 0 };
+    });
   } finally {
     await prisma.$disconnect();
   }

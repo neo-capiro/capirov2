@@ -6,6 +6,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 dotenvConfig();
 
 const FEC_BASE = 'https://api.open.fec.gov/v1';
@@ -30,13 +31,14 @@ async function fetchFec<T>(path: string, params: Record<string, string> = {}): P
 
 async function main() {
   const prisma = new PrismaClient();
-  const t0 = Date.now();
   console.log('[fec-sync] starting');
   if (!FEC_KEY) throw new Error('FEC_API_KEY env var is required');
 
   try {
-    // Fetch top committees by receipts for each cycle
-    let totalComms = 0;
+    await runWithSyncRun(prisma as any, 'sync-fec', async () => {
+      const t0 = Date.now();
+      // Fetch top committees by receipts for each cycle
+      let totalComms = 0;
     for (const cycle of CYCLES) {
     for (let page = 1; page <= 10; page++) {
       await new Promise((r) => setTimeout(r, DELAY_MS));
@@ -124,6 +126,8 @@ async function main() {
 
     console.log(`[fec-sync] total: ${totalComms} committees, ${totalContribs} contributions`);
     console.log(`[fec-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      return { inserted: totalContribs, updated: totalComms, skipped: 0, errors: 0 };
+    });
   } finally { await prisma.$disconnect(); }
 }
 
