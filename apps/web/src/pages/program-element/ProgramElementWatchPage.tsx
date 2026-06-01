@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Col,
+  Empty,
   Flex,
   Row,
   Skeleton,
@@ -216,8 +217,10 @@ export function ProgramElementWatchPage() {
   }
 
   const detail = detailQuery.data;
-  const latest = latestYear(detail.years);
-  const historyRows = toHistoryRows(detail.years);
+  const years = detail.years ?? [];
+  const latest = latestYear(years);
+  const historyRows = toHistoryRows(years);
+  const hasBudgetData = years.length > 0;
   const bills: ProgramElementBill[] = billsQuery.data ?? [];
   const contractors: ProgramElementContractorsResponse = contractorsQuery.data ?? {
     data: [],
@@ -263,9 +266,10 @@ export function ProgramElementWatchPage() {
           <Card>
             <Statistic
               title="Latest Request"
-              value={latest?.request != null ? Number(latest.request) : 0}
+              value={latest?.request != null ? Number(latest.request) : undefined}
               precision={2}
               prefix={<NumberOutlined />}
+              valueRender={latest?.request != null ? undefined : () => <Text type="secondary">—</Text>}
             />
           </Card>
         </Col>
@@ -273,9 +277,10 @@ export function ProgramElementWatchPage() {
           <Card>
             <Statistic
               title="Latest Conference"
-              value={latest?.conference != null ? Number(latest.conference) : 0}
+              value={latest?.conference != null ? Number(latest.conference) : undefined}
               precision={2}
               prefix={<FileSearchOutlined />}
+              valueRender={latest?.conference != null ? undefined : () => <Text type="secondary">—</Text>}
             />
           </Card>
         </Col>
@@ -283,9 +288,10 @@ export function ProgramElementWatchPage() {
           <Card>
             <Statistic
               title="Latest Enacted"
-              value={latest?.enacted != null ? Number(latest.enacted) : 0}
+              value={latest?.enacted != null ? Number(latest.enacted) : undefined}
               precision={2}
               prefix={<ScheduleOutlined />}
+              valueRender={latest?.enacted != null ? undefined : () => <Text type="secondary">—</Text>}
             />
           </Card>
         </Col>
@@ -305,17 +311,23 @@ export function ProgramElementWatchPage() {
         </Col>
       </Row>
 
-      <Suspense fallback={<Card title="Timeline"><Skeleton active paragraph={{ rows: 6 }} /></Card>}>
-        <LazyFyHistoryChart
-          rows={historyRows}
-          loading={detailQuery.isLoading}
-          onFyClick={(fy) => {
-            setSelectedFy(fy);
-            setDrawerOpen(true);
-            message.info(`Selected FY ${fy}`);
-          }}
-        />
-      </Suspense>
+      {hasBudgetData ? (
+        <Suspense fallback={<Card title="Timeline"><Skeleton active paragraph={{ rows: 6 }} /></Card>}>
+          <LazyFyHistoryChart
+            rows={historyRows}
+            loading={detailQuery.isLoading}
+            onFyClick={(fy) => {
+              setSelectedFy(fy);
+              setDrawerOpen(true);
+              message.info(`Selected FY ${fy}`);
+            }}
+          />
+        </Suspense>
+      ) : (
+        <Card title="Budget timeline">
+          <Empty description="No budget-year data has been synced for this Program Element yet." />
+        </Card>
+      )}
 
       <Row gutter={[16, 16]}>
         <Col xs={24} span={12}>
@@ -355,7 +367,7 @@ export function ProgramElementWatchPage() {
         onClose={() => setDrawerOpen(false)}
         peCode={detail.peCode}
         selectedFy={selectedFy}
-        timeline={detail.years}
+        timeline={years}
       />
     </Space>
   );

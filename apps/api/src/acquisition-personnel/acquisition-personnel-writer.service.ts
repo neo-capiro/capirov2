@@ -183,10 +183,68 @@ export class AcquisitionPersonnelWriterService {
     });
   }
 
+  /**
+   * Mark a person departed (departure heuristic, Step 30/36). When the status
+   * actually transitions active -> departed, emit a `person_departed`
+   * IntelligenceChange so the change feed surfaces it. related_client_ids are
+   * the clients whose engagement_contacts link to this person; severity is
+   * `notable` for senior roles (PEO / PM / Director / Senior / Chief / SES),
+   * else `info`. Re-marking an already-departed person is a no-op (no duplicate
+   * event).
+   */
   async markDeparted(personId: string, asOfDate: Date): Promise<void> {
-    await this.prisma.acquisitionPersonnel.update({
+    const person = await this.prisma.acquisitionPersonnel.findUnique({
       where: { id: personId },
-      data: { status: 'departed', lastSeenAt: asOfDate },
+      select: { id: true, fullName: true, organization: true, role: true, title: true, status: true },
+    });
+    if (!person) return;
+    // Only fire on a genuine active -> departed transition.
+    if (person.status === 'departed') return;
+
+    // Clients whose CRM contacts are linked to this person (GLOBAL engagement_contacts
+    // carry tenant_id; this read is intentionally cross-tenant because the personnel
+    // table is global and the departure is a global signal — each affected client id
+    // is still tenant-scoped downstream when the change feed is read).
+    const linkedContacts = await this.prisma.engagementContact.findMany({
+      where: { acquisitionPersonnelId: personId, clientId: { not: null } },
+      select: { clientId: true },
+    });
+    const relatedClientIds = Array.from(
+      new Set(linkedContacts.map((c) => c.clientId).filter((id): id is string => Boolean(id))),
+    );
+
+    const roleText = `${person.role ?? ''} ${person.title ?? ''}`.toLowerCase();
+    const isSenior = /\b(peo|program executive|pm\b|program manager|director|senior|chief|ses|deputy)\b/.test(roleText);
+    const severity = isSenior ? 'notable' : 'info';
+
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await tx.acquisitionPersonnel.update({
+        where: { id: personId },
+        data: { status: 'departed', lastSeenAt: asOfDate },
+      });
+
+      await tx.intelligenceChange.create({
+        data: {
+          source: 'acquisition_personnel',
+          changeType: 'person_departed',
+          severity,
+          title: `Departure: ${person.fullName}${person.organization ? ` (${person.organization})` : ''}`,
+          description: `${person.fullName}${person.title ? `, ${person.title}` : ''}${
+            person.organization ? ` at ${person.organization}` : ''
+          } appears to have departed (no longer present as of ${asOfDate.toISOString().slice(0, 10)}).`,
+          relatedClientIds,
+          relatedIssues: ['personnel_departure'],
+          relatedPeCodes: [],
+          data: {
+            personId,
+            role: person.role ?? null,
+            title: person.title ?? null,
+            organization: person.organization ?? null,
+            asOf: asOfDate.toISOString(),
+            senior: isSenior,
+          },
+        },
+      });
     });
   }
 
