@@ -46,6 +46,10 @@ interface AwardResult {
   awardingAgency: string | null;
   awardingSubTier: string | null;
   actionDate: string | null;
+  popState: string | null;
+  popCongressionalDistrict: string | null;
+  recipientState: string | null;
+  recipientCongressionalDistrict: string | null;
 }
 
 /** Fetch one page of DoD awards in [startDate, endDate] (action_date). */
@@ -63,6 +67,9 @@ async function fetchPage(startDate: string, endDate: string, page: number): Prom
     fields: [
       'Award ID', 'Recipient Name', 'Award Amount',
       'Description', 'Awarding Agency', 'Awarding Sub Agency', 'Action Date', 'Last Modified Date',
+      // Location fields for district nexus. USAspending returns these for contracts.
+      'Place of Performance State Code', 'Place of Performance Congressional District',
+      'Recipient Location State Code', 'Recipient Location Congressional District',
     ],
     page,
     limit: 100,
@@ -88,6 +95,10 @@ async function fetchPage(startDate: string, endDate: string, page: number): Prom
     awardingAgency: (r['Awarding Agency'] as string) ?? null,
     awardingSubTier: (r['Awarding Sub Agency'] as string) ?? null,
     actionDate: (r['Action Date'] as string) ?? (r['Last Modified Date'] as string) ?? null,
+    popState: (r['Place of Performance State Code'] as string) ?? null,
+    popCongressionalDistrict: (r['Place of Performance Congressional District'] as string) ?? null,
+    recipientState: (r['Recipient Location State Code'] as string) ?? null,
+    recipientCongressionalDistrict: (r['Recipient Location Congressional District'] as string) ?? null,
   }));
   return { results, hasNext: Boolean(json.page_metadata?.hasNext) };
 }
@@ -143,6 +154,10 @@ async function main(): Promise<void> {
           amount: a.amount,
           description: a.description,
           peCode,
+          popState: a.popState,
+          popCongressionalDistrict: a.popCongressionalDistrict,
+          recipientState: a.recipientState,
+          recipientCongressionalDistrict: a.recipientCongressionalDistrict,
           actionDate: a.actionDate ? new Date(a.actionDate) : null,
           awardedAt: a.actionDate ? new Date(a.actionDate) : null,
           raw: a as object,
