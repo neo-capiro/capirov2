@@ -10,6 +10,14 @@ import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ClioToolsService } from './clio-tools.service.js';
+import {
+  addUsage,
+  applyRoundUsageEvent,
+  applyToolCacheControl,
+  buildClioSystemBlocks,
+  emptyUsage,
+  type SystemTextBlock,
+} from './clio-prompt.helpers.js';
 
 interface CreateConversationInput {
   clientId?: string;
@@ -330,7 +338,13 @@ export class ClioService {
     this.logger.debug(`Stream intent: ${intent}`);
 
     const orchestration = await this.orchestrateContext(ctx, conversation.clientId, intent, content);
-    const unifiedSystemPrompt = this.buildUnifiedSystemPrompt(intent, orchestration.context, orchestration.template);
+    const promptCacheEnabled = this.config.get('CLIO_PROMPT_CACHE_ENABLED', { infer: true });
+    const systemBlocks = this.buildSystemBlocks(
+      intent,
+      orchestration.context,
+      orchestration.template,
+      promptCacheEnabled,
+    );
 
     sse.write(`data: ${JSON.stringify({ type: 'start', intent, tier: orchestration.policy.tier })}\n\n`);
     if (streamControl.pageWriteEnabled) {
@@ -373,6 +387,7 @@ export class ClioService {
       metadata: Prisma.InputJsonValue;
     }> = [];
     const toolsUsed: string[] = [];
+    const usageTotals = emptyUsage();
     let pageWritePayload: { subject?: string; body?: string } | null = null;
 
     try {
@@ -383,7 +398,7 @@ export class ClioService {
       const maxTokens = this.config.get('CLIO_MAX_TOKENS', { infer: true });
       const timeoutMs = this.config.get('CLIO_REQUEST_TIMEOUT_MS', { infer: true });
       const maxRounds = this.config.get('CLIO_MAX_TOOL_ROUNDS', { infer: true });
-      const toolSchemas = this.tools.anthropicToolSchemas();
+      const toolSchemas = applyToolCacheControl(this.tools.anthropicToolSchemas(), promptCacheEnabled);
 
       // Anthropic message turns. content can be a string (history) or an array
       // of blocks (assistant tool_use / user tool_result) during the agentic loop.
@@ -398,6 +413,7 @@ export class ClioService {
 
         // Accumulators for this round's assistant turn.
         const toolUseById = new Map<number, { id: string; name: string; jsonParts: string[] }>();
+        const roundUsage = emptyUsage();
         let stopReason: string | null = null;
 
         try {
@@ -412,7 +428,7 @@ export class ClioService {
               model,
               max_tokens: maxTokens,
               stream: true,
-              system: unifiedSystemPrompt,
+              system: systemBlocks,
               tools: toolSchemas,
               messages,
             }),
@@ -439,6 +455,7 @@ export class ClioService {
               if (!payload || payload === '[DONE]') continue;
               try {
                 const evt = JSON.parse(payload);
+                applyRoundUsageEvent(roundUsage, evt);
                 if (evt.type === 'content_block_start') {
                   const block = evt.content_block ?? {};
                   if (block.type === 'tool_use') {
@@ -465,6 +482,12 @@ export class ClioService {
         } finally {
           clearTimeout(timer);
         }
+
+        addUsage(usageTotals, roundUsage);
+        this.logger.debug(
+          `Clio usage [round ${round}] in=${roundUsage.inputTokens} out=${roundUsage.outputTokens} ` +
+            `cacheRead=${roundUsage.cacheReadInputTokens} cacheCreate=${roundUsage.cacheCreationInputTokens}`,
+        );
 
         // If the model did not request tools, the turn is complete.
         if (stopReason !== 'tool_use' || toolUseById.size === 0) {
@@ -550,6 +573,12 @@ export class ClioService {
       if (!assistantContent) assistantContent = `Error: ${msg}`;
     }
 
+    this.logger.log(
+      `Clio total usage [conv ${conversationId}] in=${usageTotals.inputTokens} out=${usageTotals.outputTokens} ` +
+        `cacheRead=${usageTotals.cacheReadInputTokens} cacheCreate=${usageTotals.cacheCreationInputTokens}`,
+    );
+    sse.write(`data: ${JSON.stringify({ type: 'usage', usage: usageTotals })}\n\n`);
+
     // If page-write mode produced concrete content, emit the real event the
     // frontend listens for (previously only a static "enabled" note was sent).
     if (streamControl.pageWriteEnabled && pageWritePayload) {
@@ -572,6 +601,7 @@ export class ClioService {
             tier: orchestration.policy.tier,
             preWarmSources: orchestration.sources.map((source) => source.tool),
             toolsUsed,
+            usage: { ...usageTotals },
           },
         },
       });
@@ -816,11 +846,18 @@ export class ClioService {
     return 'general_question';
   }
 
-  private buildUnifiedSystemPrompt(
+  /**
+   * Split the Clio system prompt into a static `base` (identical on every turn,
+   * so it can be cached) and a per-turn `dynamic` tail (intent guidance + output
+   * template + pre-loaded context snapshot, which varies and must NOT be cached).
+   * The base text is unchanged from the previous single-string prompt so model
+   * behavior is unaffected; only the delivery is split for prompt caching (P0-1).
+   */
+  private composeSystemParts(
     intent: string,
     context: string,
     template: { heading: string; sections: string[] } | null,
-  ): string {
+  ): { base: string; dynamic: string } {
     const base = [
       'You are Clio, an elite AI chief of staff designed exclusively for government affairs professionals.',
       'Your purpose is to maximize a lobbyist\'s efficiency, preparation, and strategic leverage.',
@@ -862,14 +899,28 @@ export class ClioService {
       general_question: 'Answer helpfully about lobbying, government affairs, or the Capiro platform.',
     };
 
-    const parts = [base];
-    if (intentGuidance[intent]) parts.push(`\n${intentGuidance[intent]}`);
+    const tail: string[] = [];
+    if (intentGuidance[intent]) tail.push(intentGuidance[intent]);
     if (template) {
-      parts.push(`\nOutput template: ${template.heading}`);
-      parts.push(`Required sections: ${template.sections.join(' | ')}`);
+      tail.push(`Output template: ${template.heading}`);
+      tail.push(`Required sections: ${template.sections.join(' | ')}`);
     }
-    if (context) parts.push(`\nContext:\n${context}`);
-    return parts.join('\n');
+    if (context) tail.push(`Context:\n${context}`);
+    return { base, dynamic: tail.join('\n\n') };
+  }
+
+  /**
+   * Assemble the Anthropic `system` field as content blocks, placing the prompt
+   * cache breakpoint on the static base (see clio-prompt.helpers).
+   */
+  private buildSystemBlocks(
+    intent: string,
+    context: string,
+    template: { heading: string; sections: string[] } | null,
+    cacheEnabled: boolean,
+  ): SystemTextBlock[] {
+    const { base, dynamic } = this.composeSystemParts(intent, context, template);
+    return buildClioSystemBlocks({ base, dynamic, cacheEnabled });
   }
 
   private extractStreamControl(rawBody: string): StreamControl {
