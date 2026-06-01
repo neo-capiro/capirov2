@@ -15,6 +15,7 @@ import {
   IdcardOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  QuestionCircleOutlined,
   ScheduleOutlined,
   SearchOutlined,
   SettingOutlined,
@@ -67,6 +68,7 @@ type AppSection =
   | 'collaborators'
   | 'portal'
   | 'settings'
+  | 'help'
   | 'not-found';
 
 interface PageConfig {
@@ -460,6 +462,19 @@ export function AppShell() {
               <SettingOutlined />
               <span>Settings</span>
             </Link>
+
+            <Link
+              to="/help"
+              className={`app-bottom-nav-item${selectedKey === 'help' ? ' is-active' : ''}`}
+              onClick={(event) => {
+                if (!workflowLocked) return;
+                event.preventDefault();
+                message.info('Cancel or complete the outreach workflow before navigating away.');
+              }}
+            >
+              <QuestionCircleOutlined />
+              <span>Help</span>
+            </Link>
           </div>
         </nav>
       </Sider>
@@ -811,6 +826,7 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname.startsWith('/directory')) return 'directory';
   if (pathname.startsWith('/portal')) return 'portal';
   if (pathname.startsWith('/settings')) return 'settings';
+  if (pathname.startsWith('/help')) return 'help';
   return 'not-found';
 }
 
@@ -829,6 +845,7 @@ function pageConfigFor(pathname: string): PageConfig {
     collaborators: 'Collaborators',
     portal: 'Client Portal',
     settings: 'Settings',
+    help: 'Help',
     'not-found': 'Not found',
   };
   const showClientDropdown =

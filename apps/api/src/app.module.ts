@@ -14,6 +14,7 @@ import { CapiroAdminModule } from './capiro-admin/capiro-admin.module.js';
 import { TenantAdminModule } from './tenant-admin/tenant-admin.module.js';
 import { ClientsModule } from './clients/clients.module.js';
 import { BrandingModule } from './branding/branding.module.js';
+import { HelpModule } from './help/help.module.js';
 import { DirectoryModule } from './directory/directory.module.js';
 import { EngagementModule } from './engagement/engagement.module.js';
 import { DemoRequestsModule } from './demo-requests/demo-requests.module.js';
@@ -73,6 +74,7 @@ import { ApiLatencyMiddleware } from './observability/api-latency.middleware.js'
     IntelligenceModule,
     ExplorerModule,
     ChatModule,
+    HelpModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
