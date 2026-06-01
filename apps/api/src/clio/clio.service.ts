@@ -830,6 +830,8 @@ export class ClioService {
     }
 
     // Persist assistant response (+ any artifacts produced by tools).
+    const createdDeliverables: Array<{ id: string; title: string; kind: string; bodyText: string }> =
+      [];
     await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const message = await tx.clioMessage.create({
         data: {
@@ -855,7 +857,7 @@ export class ClioService {
         },
       });
       for (const art of producedArtifacts) {
-        await tx.clioArtifact.create({
+        const createdArtifact = await tx.clioArtifact.create({
           data: {
             tenantId: ctx.tenantId,
             userId: ctx.userId,
@@ -865,8 +867,22 @@ export class ClioService {
             ...art,
           },
         });
+        if (art.bodyText && art.bodyText.trim()) {
+          createdDeliverables.push({
+            id: createdArtifact.id,
+            title: art.title,
+            kind: art.kind,
+            bodyText: art.bodyText,
+          });
+        }
       }
     });
+
+    // Artifacts / Canvas (P1-4): stream produced deliverables so the client can
+    // open them in the side canvas (copy / download / version).
+    for (const deliverable of createdDeliverables) {
+      sse.write(`data: ${JSON.stringify({ type: 'artifact', artifact: deliverable })}\n\n`);
+    }
 
     // Auto-summarize for memory (if substantial)
     if (assistantContent.length > 200) {

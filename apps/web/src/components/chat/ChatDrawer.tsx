@@ -38,6 +38,7 @@ import { ChatInput } from './ChatInput.js';
 import { ChatMessage } from './ChatMessage.js';
 import { SessionRail } from './SessionRail.js';
 import { ThoughtProcess, type TrustStep } from './ThoughtProcess.js';
+import { ClioCanvas, type CanvasArtifact } from './ClioCanvas.js';
 import { ResearchClarifyForm } from './ResearchClarifyForm.js';
 import clioBubbleImage from '../../assets/chat/clio-bubble.png';
 import './chat.css';
@@ -47,6 +48,7 @@ type SseEvent =
   | { type: 'trace'; trace?: Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>; policy?: { tier?: 'fast' | 'deep' } }
   | { type: 'plan'; steps?: string[] }
   | { type: 'suggestions'; suggestions?: string[] }
+  | { type: 'artifact'; artifact?: { id?: string; title?: string; kind?: string; bodyText?: string } }
   | { type: 'tool_call'; tool: string; label?: string; input?: Record<string, unknown> }
   | { type: 'template'; template?: { heading: string; sections: string[] } }
   | { type: 'conflict'; conflict?: { title: string; detail: string } }
@@ -127,6 +129,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const [orchestratorIntent, setOrchestratorIntent] = useState<string | null>(null);
   const [trustSteps, setTrustSteps] = useState<TrustStep[]>([]);
   const [planSteps, setPlanSteps] = useState<string[]>([]);
+  const [activeArtifact, setActiveArtifact] = useState<CanvasArtifact | null>(null);
   const [orchestratorConflict, setOrchestratorConflict] = useState<{ title: string; detail: string } | null>(null);
   const [orchestratorTemplate, setOrchestratorTemplate] = useState<{ heading: string; sections: string[] } | null>(null);
   const [isSavingMeta, setIsSavingMeta] = useState(false);
@@ -660,6 +663,8 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
               assistantId,
               Array.isArray(event.suggestions) ? event.suggestions : [],
             );
+          } else if (event.type === 'artifact') {
+            if (event.artifact?.bodyText) setActiveArtifact(event.artifact);
           } else if (event.type === 'done') {
             break outer;
           } else if (event.type === 'error') {
@@ -1159,6 +1164,10 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
           <div ref={messagesEndRef} />
         </div>
+
+        {activeArtifact && (
+          <ClioCanvas artifact={activeArtifact} onClose={() => setActiveArtifact(null)} />
+        )}
 
         <div className="chat-input-area">
           {isStreaming && (
