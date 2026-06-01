@@ -224,6 +224,10 @@ case "${1:-serve}" in
   sync-dod-press-personnel) shift; exec ./node_modules/.bin/tsx scripts/sync-dod-press-personnel.ts "$@" ;;
   sync-cpe-roster) shift; exec ./node_modules/.bin/tsx scripts/sync-cpe-roster.ts "$@" ;;
   recompute-conference-probability) shift; exec ./node_modules/.bin/tsx scripts/recompute-conference-probability.ts "$@" ;;
+  # One-time ordered backfill + pre-flight key check (Production Ingestion plan,
+  # Phase 3). preflight exits non-zero if a REQUIRED key is missing.
+  preflight-ingestion) shift; exec ./node_modules/.bin/tsx scripts/preflight-ingestion.ts "$@" ;;
+  backfill-all) shift; exec ./node_modules/.bin/tsx scripts/backfill-all.ts "$@" ;;
   serve)
     echo "Starting Capiro API"
     exec node dist/main.js
