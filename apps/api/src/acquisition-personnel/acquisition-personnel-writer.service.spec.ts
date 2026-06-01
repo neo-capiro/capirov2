@@ -6,6 +6,8 @@ function createService(matchScore = 0) {
   const sources: Array<Record<string, unknown>> = [];
   const quarantineRows: Array<Record<string, unknown>> = [];
   const mergeCandidates: Array<Record<string, unknown>> = [];
+  const engagementContacts: Array<{ acquisitionPersonnelId: string | null; clientId: string | null }> = [];
+  const changes: Array<Record<string, unknown>> = [];
 
   let seq = 0;
   const nextId = () => `person-${++seq}`;
@@ -30,6 +32,12 @@ function createService(matchScore = 0) {
     };
     acquisitionPersonnelQuarantine: {
       create: ({ data }: { data: Record<string, unknown> }) => Promise<void>;
+    };
+    engagementContact: {
+      findMany: ({ where }: { where: Record<string, unknown> }) => Promise<Array<{ clientId: string | null }>>;
+    };
+    intelligenceChange: {
+      create: ({ data }: { data: Record<string, unknown> }) => Promise<Record<string, unknown>>;
     };
     $transaction: (fn: (tx: typeof prisma) => Promise<void>) => Promise<void>;
   } = {
@@ -88,6 +96,18 @@ function createService(matchScore = 0) {
         quarantineRows.push(data);
       },
     },
+    engagementContact: {
+      findMany: async ({ where }: { where: Record<string, unknown> }) =>
+        engagementContacts.filter(
+          (c) => c.acquisitionPersonnelId === (where as { acquisitionPersonnelId?: string }).acquisitionPersonnelId,
+        ),
+    },
+    intelligenceChange: {
+      create: async ({ data }: { data: Record<string, unknown> }) => {
+        changes.push(data);
+        return data;
+      },
+    },
     $transaction: async (fn: (tx: typeof prisma) => Promise<void>) => {
       await fn(prisma);
     },
@@ -114,7 +134,7 @@ function createService(matchScore = 0) {
   };
 
   const svc = new AcquisitionPersonnelWriterService(prisma as never, matchScorer as never);
-  return { svc, personnel, sources, quarantineRows, mergeCandidates };
+  return { svc, personnel, sources, quarantineRows, mergeCandidates, engagementContacts, changes };
 }
 
 describe('AcquisitionPersonnelWriterService', () => {
@@ -168,5 +188,71 @@ describe('AcquisitionPersonnelWriterService', () => {
     const rows = Array.from(personnel.values()) as Array<Record<string, unknown>>;
     const second = rows.find((r) => r.fullName === 'John Invalid');
     expect(second?.emailDomain ?? null).toBeNull();
+  });
+
+  test('markDeparted emits person_departed change with linked client ids + senior severity', async () => {
+    const { svc, personnel, engagementContacts, changes } = createService();
+    personnel.set('p-1', {
+      id: 'p-1',
+      fullName: 'Col. Jane Doe',
+      organization: 'PEO Aviation',
+      role: 'Program Manager',
+      title: 'PM, FLRAA',
+      status: 'active',
+    });
+    // Two CRM contacts (two clients) link to this person; one is null clientId.
+    engagementContacts.push({ acquisitionPersonnelId: 'p-1', clientId: 'client-a' });
+    engagementContacts.push({ acquisitionPersonnelId: 'p-1', clientId: 'client-b' });
+    engagementContacts.push({ acquisitionPersonnelId: 'p-1', clientId: null });
+
+    await svc.markDeparted('p-1', new Date('2026-03-01T00:00:00Z'));
+
+    expect((personnel.get('p-1') as Record<string, unknown>).status).toBe('departed');
+    expect(changes).toHaveLength(1);
+    const ev = changes[0] as Record<string, unknown>;
+    expect(ev.source).toBe('acquisition_personnel');
+    expect(ev.changeType).toBe('person_departed');
+    expect(ev.severity).toBe('notable'); // PM is senior
+    expect(ev.relatedClientIds).toEqual(['client-a', 'client-b']);
+  });
+
+  test('markDeparted uses info severity for a non-senior role', async () => {
+    const { svc, personnel, changes } = createService();
+    personnel.set('p-2', {
+      id: 'p-2',
+      fullName: 'John Analyst',
+      organization: 'Army Contracting',
+      role: 'Contract Specialist',
+      title: 'Analyst',
+      status: 'active',
+    });
+
+    await svc.markDeparted('p-2', new Date('2026-03-01T00:00:00Z'));
+
+    expect(changes).toHaveLength(1);
+    expect((changes[0] as Record<string, unknown>).severity).toBe('info');
+    expect((changes[0] as Record<string, unknown>).relatedClientIds).toEqual([]);
+  });
+
+  test('markDeparted is a no-op (no duplicate event) when already departed', async () => {
+    const { svc, personnel, changes } = createService();
+    personnel.set('p-3', {
+      id: 'p-3',
+      fullName: 'Already Gone',
+      organization: 'Navy',
+      role: 'Director',
+      title: 'PEO',
+      status: 'departed',
+    });
+
+    await svc.markDeparted('p-3', new Date('2026-03-01T00:00:00Z'));
+
+    expect(changes).toHaveLength(0);
+  });
+
+  test('markDeparted is a no-op when the person does not exist', async () => {
+    const { svc, changes } = createService();
+    await svc.markDeparted('missing-id', new Date('2026-03-01T00:00:00Z'));
+    expect(changes).toHaveLength(0);
   });
 });

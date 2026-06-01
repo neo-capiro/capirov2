@@ -1,5 +1,20 @@
 import { useState } from 'react';
-import { App, Button, Form, Input, Modal, Popconfirm, Space, Table, Tag, Typography } from 'antd';
+import type { ReactNode } from 'react';
+import {
+  App,
+  Button,
+  Card,
+  Empty,
+  Form,
+  Input,
+  Modal,
+  Popconfirm,
+  Space,
+  Table,
+  Tabs,
+  Tag,
+  Typography,
+} from 'antd';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../lib/use-api.js';
@@ -23,6 +38,25 @@ interface CreateTenantInput {
 }
 
 export function CapiroAdminPage() {
+  return (
+    <>
+      <Typography.Title level={3} style={{ marginTop: 0, marginBottom: 16 }}>
+        Capiro Admin
+      </Typography.Title>
+      <Tabs
+        defaultActiveKey="tenants"
+        items={[
+          { key: 'tenants', label: 'Tenants', children: <TenantsTab /> },
+          { key: 'personnel-merge', label: 'Personnel Merge Queue', children: <PersonnelMergeTab /> },
+        ]}
+      />
+    </>
+  );
+}
+
+// ── Tab 1: Tenants (existing functionality) ─────────────────────────────────
+
+function TenantsTab() {
   const api = useApi();
   const qc = useQueryClient();
   const { message } = App.useApp();
@@ -72,8 +106,8 @@ export function CapiroAdminPage() {
   return (
     <>
       <Space style={{ marginBottom: 16, justifyContent: 'space-between', width: '100%' }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>
-          Capiro Admin · Tenants
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Tenants
         </Typography.Title>
         <Button type="primary" onClick={() => setOpen(true)}>
           Create tenant
@@ -186,6 +220,216 @@ export function CapiroAdminPage() {
           </Form.Item>
         </Form>
       </Modal>
+    </>
+  );
+}
+
+// ── Tab 2: Personnel merge queue (Step 36) ──────────────────────────────────
+
+interface MergePersonDetail {
+  id: string;
+  fullName: string;
+  organization: string | null;
+  title: string | null;
+  role: string | null;
+  service: string | null;
+  status: string;
+  confidence: number;
+  sources: Array<{ source: string; sourceUrl: string | null; observedAt: string }>;
+}
+
+interface MergeCandidate {
+  id: string;
+  primaryPersonId: string;
+  secondaryPersonId: string;
+  similarityScore: number;
+  status: string;
+  createdAt: string;
+  primaryPerson: MergePersonDetail | null;
+  secondaryPerson: MergePersonDetail | null;
+}
+
+interface MergeQueueResponse {
+  data: MergeCandidate[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+type MergeDecision = 'merge' | 'keep_separate' | 'reject_a' | 'reject_b';
+
+function PersonRow({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, fontSize: 13, marginBottom: 4 }}>
+      <Typography.Text type="secondary" style={{ minWidth: 96 }}>
+        {label}
+      </Typography.Text>
+      <span>{value ?? <Typography.Text type="secondary">—</Typography.Text>}</span>
+    </div>
+  );
+}
+
+function PersonCard({ person, side }: { person: MergePersonDetail | null; side: string }) {
+  if (!person) {
+    return (
+      <Card size="small" title={`${side} (missing)`}>
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Person record not found" />
+      </Card>
+    );
+  }
+  return (
+    <Card size="small" title={`${side} · ${person.fullName}`}>
+      <PersonRow label="Organization" value={person.organization} />
+      <PersonRow label="Title" value={person.title} />
+      <PersonRow label="Role" value={person.role} />
+      <PersonRow label="Service" value={person.service} />
+      <PersonRow
+        label="Status"
+        value={<Tag color={person.status === 'active' ? 'green' : 'default'}>{person.status}</Tag>}
+      />
+      <PersonRow label="Confidence" value={`${Math.round(person.confidence * 100)}%`} />
+      <PersonRow
+        label="Sources"
+        value={
+          person.sources.length === 0 ? (
+            '—'
+          ) : (
+            <Space size={4} wrap>
+              {person.sources.map((s, i) => (
+                <Tag key={`${s.source}-${i}`}>{s.source}</Tag>
+              ))}
+            </Space>
+          )
+        }
+      />
+    </Card>
+  );
+}
+
+function PersonnelMergeTab() {
+  const api = useApi();
+  const qc = useQueryClient();
+  const { message } = App.useApp();
+  const [pending, setPending] = useState<{ id: string; decision: MergeDecision } | null>(null);
+
+  const queue = useQuery<MergeQueueResponse>({
+    queryKey: ['capiro-admin', 'personnel-merge-queue', 'open'],
+    queryFn: async () =>
+      (
+        await api.get<MergeQueueResponse>('/api/admin/acquisition-personnel/merge-queue', {
+          params: { status: 'open' },
+        })
+      ).data,
+  });
+
+  const resolve = useMutation({
+    mutationFn: async (input: { id: string; decision: MergeDecision }) =>
+      (
+        await api.post(`/api/admin/acquisition-personnel/merge-queue/${input.id}/resolve`, {
+          decision: input.decision,
+        })
+      ).data,
+    onMutate: (input) => setPending(input),
+    onSuccess: (_data, input) => {
+      const label =
+        input.decision === 'merge'
+          ? 'Merged'
+          : input.decision === 'keep_separate'
+            ? 'Kept separate'
+            : 'Rejected';
+      message.success(`${label}`);
+      void qc.invalidateQueries({ queryKey: ['capiro-admin', 'personnel-merge-queue'] });
+    },
+    onError: (err) => message.error((err as Error).message),
+    onSettled: () => setPending(null),
+  });
+
+  const candidates = queue.data?.data ?? [];
+  const isPending = (id: string, decision: MergeDecision) =>
+    resolve.isPending && pending?.id === id && pending?.decision === decision;
+  const anyPendingFor = (id: string) => resolve.isPending && pending?.id === id;
+
+  return (
+    <>
+      <Space style={{ marginBottom: 12, justifyContent: 'space-between', width: '100%' }}>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Personnel Merge Queue
+        </Typography.Title>
+        <Button size="small" onClick={() => queue.refetch()} loading={queue.isFetching}>
+          Refresh
+        </Button>
+      </Space>
+      <Typography.Paragraph type="secondary">
+        Near-duplicate acquisition personnel flagged by the writer (name match with a differing
+        organization, or 0.70–0.92 trigram similarity). Review each side-by-side and decide: merge
+        into one record, keep them separate, or mark one as the wrong record.
+      </Typography.Paragraph>
+
+      {queue.isLoading ? (
+        <Card loading />
+      ) : candidates.length === 0 ? (
+        <Empty description="No open merge candidates." />
+      ) : (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {candidates.map((c) => (
+            <Card
+              key={c.id}
+              size="small"
+              title={
+                <Space>
+                  <span>Similarity</span>
+                  <Tag color={c.similarityScore >= 0.85 ? 'volcano' : 'gold'}>
+                    {(c.similarityScore * 100).toFixed(0)}%
+                  </Tag>
+                  <Typography.Text type="secondary" style={{ fontWeight: 400, fontSize: 12 }}>
+                    queued {new Date(c.createdAt).toLocaleString()}
+                  </Typography.Text>
+                </Space>
+              }
+            >
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <PersonCard person={c.primaryPerson} side="Record A (primary)" />
+                <PersonCard person={c.secondaryPerson} side="Record B (secondary)" />
+              </div>
+              <Space wrap>
+                <Popconfirm
+                  title="Merge these into one record?"
+                  description="Record B will be consolidated into Record A and deleted."
+                  okText="Merge"
+                  onConfirm={() => resolve.mutate({ id: c.id, decision: 'merge' })}
+                >
+                  <Button type="primary" loading={isPending(c.id, 'merge')} disabled={anyPendingFor(c.id)}>
+                    Merge
+                  </Button>
+                </Popconfirm>
+                <Button
+                  loading={isPending(c.id, 'keep_separate')}
+                  disabled={anyPendingFor(c.id)}
+                  onClick={() => resolve.mutate({ id: c.id, decision: 'keep_separate' })}
+                >
+                  Keep separate
+                </Button>
+                <Button
+                  danger
+                  loading={isPending(c.id, 'reject_a')}
+                  disabled={anyPendingFor(c.id)}
+                  onClick={() => resolve.mutate({ id: c.id, decision: 'reject_a' })}
+                >
+                  Mark A wrong
+                </Button>
+                <Button
+                  danger
+                  loading={isPending(c.id, 'reject_b')}
+                  disabled={anyPendingFor(c.id)}
+                  onClick={() => resolve.mutate({ id: c.id, decision: 'reject_b' })}
+                >
+                  Mark B wrong
+                </Button>
+              </Space>
+            </Card>
+          ))}
+        </Space>
+      )}
     </>
   );
 }
