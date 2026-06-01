@@ -67,6 +67,15 @@ export const configSchema = z.object({
     .string()
     .default('true')
     .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  // Skill registry (P0-5). When enabled, migrated intents resolve their guidance
+  // + output template from clio/skills/*; un-migrated intents fall back to the
+  // legacy inline maps. Migrated skills are byte-identical to the legacy entries,
+  // so toggling this never changes output. Set false/0/no/off to force the
+  // legacy path.
+  CLIO_SKILLS_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
 
   // Clio Deep Research (a heavier, multi-round agentic research run that produces
   // a long, cited report artifact). Separate budgets from the chat drawer because

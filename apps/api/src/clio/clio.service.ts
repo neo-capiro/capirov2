@@ -25,6 +25,7 @@ import {
   validateCitationMarkers,
   type ClioCitation,
 } from './clio-citations.helpers.js';
+import { matchSkill } from './skills/skill-registry.js';
 
 interface CreateConversationInput {
   clientId?: string;
@@ -973,8 +974,15 @@ export class ClioService {
       general_question: 'Answer helpfully about lobbying, government affairs, or the Capiro platform.',
     };
 
+    // Skill registry (P0-5) is the source of truth for migrated intents; fall
+    // back to the legacy inline guidance for the rest. The migrated skills are
+    // byte-identical to these entries (skill-registry.spec.ts), so this never
+    // changes output regardless of the CLIO_SKILLS_ENABLED toggle.
+    const skill = this.skillsEnabled() ? matchSkill(intent) : null;
+    const guidance = skill?.systemAddendum ?? intentGuidance[intent];
+
     const tail: string[] = [];
-    if (intentGuidance[intent]) tail.push(intentGuidance[intent]);
+    if (guidance) tail.push(guidance);
     if (template) {
       tail.push(`Output template: ${template.heading}`);
       tail.push(`Required sections: ${template.sections.join(' | ')}`);
@@ -1035,7 +1043,17 @@ export class ClioService {
     };
   }
 
+  /** Whether the filesystem-driven skill registry (P0-5) is active. */
+  private skillsEnabled(): boolean {
+    return this.config.get('CLIO_SKILLS_ENABLED', { infer: true });
+  }
+
   private templateForIntent(intent: string): { heading: string; sections: string[] } | null {
+    // Prefer the skill registry's template for migrated intents (P0-5).
+    if (this.skillsEnabled()) {
+      const skill = matchSkill(intent);
+      if (skill) return skill.template;
+    }
     if (intent === 'generate_briefing') {
       return {
         heading: 'Government Affairs Briefing',
