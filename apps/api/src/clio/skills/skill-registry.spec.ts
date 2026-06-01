@@ -36,7 +36,8 @@ describe('matchSkill', () => {
 });
 
 describe('migrated skills are byte-identical to the legacy inline definitions', () => {
-  for (const skill of CLIO_SKILLS) {
+  const migrated = CLIO_SKILLS.filter((s) => s.triggers[0]! in LEGACY_INTENT_GUIDANCE);
+  for (const skill of migrated) {
     const intent = skill.triggers[0]!;
     it(`${skill.id}: systemAddendum matches legacy intentGuidance[${intent}]`, () => {
       expect(skill.systemAddendum).toBe(LEGACY_INTENT_GUIDANCE[intent]);
@@ -44,8 +45,30 @@ describe('migrated skills are byte-identical to the legacy inline definitions', 
     it(`${skill.id}: template matches legacy templateForIntent('${intent}')`, () => {
       expect(skill.template).toEqual(LEGACY_TEMPLATES[intent]);
     });
-    it(`${skill.id}: declares the tools it relies on`, () => {
+  }
+});
+
+describe('all registered skills are well-formed', () => {
+  for (const skill of CLIO_SKILLS) {
+    it(`${skill.id}: has an id, trigger(s) and required tools`, () => {
+      expect(skill.id).toBeTruthy();
+      expect(skill.triggers.length).toBeGreaterThan(0);
       expect(skill.requiredTools.length).toBeGreaterThan(0);
     });
   }
+});
+
+describe('lobbying skills library (P1-8)', () => {
+  it('registers each new skill on its intent', () => {
+    expect(matchSkill('analyze_bill')?.id).toBe('bill_analysis');
+    expect(matchSkill('prep_hearing')?.id).toBe('hearing_prep');
+    expect(matchSkill('draft_coalition_letter')?.id).toBe('coalition_letter');
+    expect(matchSkill('track_amendment')?.id).toBe('amendment_tracker');
+  });
+  it('each new skill has a structured output template', () => {
+    for (const id of ['bill_analysis', 'hearing_prep', 'coalition_letter', 'amendment_tracker']) {
+      const skill = CLIO_SKILLS.find((s) => s.id === id)!;
+      expect(skill.template?.sections.length).toBeGreaterThan(0);
+    }
+  });
 });

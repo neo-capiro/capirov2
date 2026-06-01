@@ -1125,7 +1125,10 @@ export class ClioService {
         body: JSON.stringify({
           model: this.config.get('CLIO_INTENT_MODEL', { infer: true }),
           max_tokens: 50,
-          system: 'You classify user intent for a lobbying AI. Return only JSON: {"intent":"<intent>"}. Valid: query_intelligence, query_clients, query_engagement, query_workflow, edit_draft, edit_workflow_field, generate_draft, generate_briefing, navigate, general_question',
+          system:
+            'You classify user intent for a lobbying AI. Return only JSON: {"intent":"<intent>"}. ' +
+            'Valid: query_intelligence, query_clients, query_engagement, query_workflow, edit_draft, edit_workflow_field, generate_draft, generate_briefing, analyze_bill, prep_hearing, draft_coalition_letter, track_amendment, navigate, general_question. ' +
+            'Use analyze_bill for section-by-section bill analysis, prep_hearing for hearing preparation, draft_coalition_letter for sign-on/coalition letters, track_amendment for amendment status/whip questions.',
           messages: [{ role: 'user', content: message }],
         }),
       });

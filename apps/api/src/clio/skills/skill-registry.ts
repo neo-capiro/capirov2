@@ -1,6 +1,7 @@
 import type { ClioSkill } from './skill.types.js';
 import { briefingSkill } from './briefing.skill.js';
 import { draftSkill } from './draft.skill.js';
+import { LOBBYING_SKILLS } from './lobbying-skills.js';
 
 /**
  * Registered Clio skills (filesystem-driven for v1 — add a module and import it
@@ -10,7 +11,7 @@ import { draftSkill } from './draft.skill.js';
  * v1 migrates two skills as proof; the remaining intents still resolve via the
  * legacy inline maps in clio.service.ts (behind CLIO_SKILLS_ENABLED).
  */
-export const CLIO_SKILLS: readonly ClioSkill[] = [briefingSkill, draftSkill];
+export const CLIO_SKILLS: readonly ClioSkill[] = [briefingSkill, draftSkill, ...LOBBYING_SKILLS];
 
 /** The skill activated by a classified intent, or null if none match. */
 export function matchSkill(
