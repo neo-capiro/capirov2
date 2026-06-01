@@ -52,6 +52,18 @@ interface HearingDetail {
   jacketNumber?: number | null;
   number?: number | null;
   updateDate?: string | null;
+  // The hearing endpoint exposes no witnesses; witnesses live on the associated
+  // committee-meeting record, reached via this eventID. May be absent for older /
+  // transcript-only hearings.
+  associatedMeeting?: { eventID?: string | null } | null;
+}
+
+interface CommitteeMeetingDetail {
+  witnesses?: Array<{
+    name?: string | null;
+    position?: string | null;
+    organization?: string | null;
+  }> | null;
 }
 
 async function fetchJson<T>(url: string): Promise<T | null> {
@@ -76,6 +88,33 @@ function safeDate(v: string | null | undefined): Date | null {
 function withAuth(rawUrl: string): string {
   const sep = rawUrl.includes('?') ? '&' : '?';
   return `${rawUrl}${sep}api_key=${API_KEY}&format=json`;
+}
+
+/**
+ * Fetch witnesses for a hearing via its associated committee-meeting record.
+ * The /hearing endpoint carries no witnesses; the /committee-meeting/{congress}/
+ * {chamber}/{eventId} record does (name / position / organization). Returns formatted
+ * "Name, Position, Organization" strings (the shape the Step 34 hearing extractor
+ * parses). Returns [] when there is no associated meeting or no witnesses — many
+ * older / transcript-only hearings have none, which is expected.
+ */
+async function fetchWitnesses(
+  congress: number,
+  chamber: string,
+  eventId: string | null | undefined,
+): Promise<string[]> {
+  if (!eventId) return [];
+  const chamberSlug = chamber.toLowerCase(); // "house" | "senate"
+  const url = `${CONGRESS_BASE}/committee-meeting/${congress}/${chamberSlug}/${eventId}?api_key=${API_KEY}&format=json`;
+  const resp = await fetchJson<{ committeeMeeting: CommitteeMeetingDetail }>(url);
+  const witnesses = resp?.committeeMeeting?.witnesses ?? [];
+  return witnesses
+    .map((w) =>
+      [w.name?.trim(), w.position?.trim(), w.organization?.trim()]
+        .filter((p): p is string => !!p)
+        .join(', '),
+    )
+    .filter((s) => s.length > 0);
 }
 
 async function main() {
@@ -141,6 +180,16 @@ async function main() {
             continue;
           }
 
+          // Witnesses are hearing-level (fetched from the associated committee-meeting
+          // record, since /hearing has none). Fetch once per hearing, reuse across the
+          // per-date rows. Extra rate-limit delay for the third API call.
+          await new Promise((r) => setTimeout(r, DELAY_MS));
+          const witnesses = await fetchWitnesses(
+            congress,
+            normalizedChamber,
+            detail.associatedMeeting?.eventID,
+          );
+
           // One row per date so multi-day hearings each appear in the
           // calendar widget. Composite id keeps the upsert idempotent.
           for (const date of dates) {
@@ -155,6 +204,7 @@ async function main() {
                 committeeCode,
                 date,
                 type: 'hearing',
+                witnesses,
                 url,
                 syncedAt: new Date(),
               },
@@ -166,6 +216,7 @@ async function main() {
                 committeeCode,
                 date,
                 type: 'hearing',
+                witnesses,
                 url,
               },
             });
