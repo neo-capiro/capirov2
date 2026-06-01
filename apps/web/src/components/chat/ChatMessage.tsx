@@ -21,6 +21,12 @@ export function ChatMessage({
 }: ChatMessageProps) {
   const isUser = role === 'user';
   const [activeCitation, setActiveCitation] = useState<ClioCitation | null>(null);
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    void navigator.clipboard?.writeText(content);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  };
 
   const citationMap = useMemo(() => {
     const map = new Map<number, ClioCitation>();
@@ -57,6 +63,26 @@ export function ChatMessage({
             // eslint-disable-next-line react/no-danger
             dangerouslySetInnerHTML={{ __html: html }}
           />
+        )}
+        {!isUser && content !== '' && !isStreaming && (
+          <button
+            type="button"
+            className="chat-msg-copy"
+            aria-label="Copy message"
+            onClick={handleCopy}
+            style={{
+              marginTop: 6,
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: 12,
+              color: '#1677ff',
+              padding: 0,
+              opacity: 0.7,
+            }}
+          >
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
         )}
         {!isUser && verification && verification.totalCount > 0 && (
           <div className="chat-msg-verification" style={{ marginTop: 8 }}>
