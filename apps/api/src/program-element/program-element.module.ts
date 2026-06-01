@@ -4,6 +4,7 @@ import { ProgramElementReadService } from './program-element-read.service.js';
 import { ProgramElementWriterService } from './program-element-writer.service.js';
 import { ConferenceProbabilityService } from './models/conference-probability.service.js';
 import { ProgramElementMetricsService } from './program-element-metrics.service.js';
+import { ReconciliationService } from './reconciliation/reconciliation.service.js';
 
 @Module({
   controllers: [ProgramElementController],
@@ -12,6 +13,7 @@ import { ProgramElementMetricsService } from './program-element-metrics.service.
     ProgramElementWriterService,
     ConferenceProbabilityService,
     ProgramElementMetricsService,
+    ReconciliationService,
   ],
   exports: [ProgramElementWriterService, ProgramElementReadService, ConferenceProbabilityService],
 })
