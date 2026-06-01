@@ -44,6 +44,7 @@ import './chat.css';
 type SseEvent =
   | { type: 'start'; intent: string; tier?: 'fast' | 'deep' }
   | { type: 'trace'; trace?: Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>; policy?: { tier?: 'fast' | 'deep' } }
+  | { type: 'plan'; steps?: string[] }
   | { type: 'tool_call'; tool: string; label?: string; input?: Record<string, unknown> }
   | { type: 'template'; template?: { heading: string; sections: string[] } }
   | { type: 'conflict'; conflict?: { title: string; detail: string } }
@@ -123,6 +124,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const [orchestratorTier, setOrchestratorTier] = useState<'fast' | 'deep' | null>(null);
   const [orchestratorIntent, setOrchestratorIntent] = useState<string | null>(null);
   const [trustSteps, setTrustSteps] = useState<TrustStep[]>([]);
+  const [planSteps, setPlanSteps] = useState<string[]>([]);
   const [orchestratorConflict, setOrchestratorConflict] = useState<{ title: string; detail: string } | null>(null);
   const [orchestratorTemplate, setOrchestratorTemplate] = useState<{ heading: string; sections: string[] } | null>(null);
   const [isSavingMeta, setIsSavingMeta] = useState(false);
@@ -603,8 +605,11 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             setOrchestratorTier(event.tier ?? null);
             setOrchestratorIntent(event.intent ?? null);
             setTrustSteps([]);
+            setPlanSteps([]);
           } else if (event.type === 'trace') {
             if (event.policy?.tier) setOrchestratorTier(event.policy.tier);
+          } else if (event.type === 'plan') {
+            setPlanSteps(Array.isArray(event.steps) ? event.steps : []);
           } else if (event.type === 'tool_call') {
             // Live agentic tool call — push a "running" step into the trust
             // timeline; the matching `sources` event flips it to done/error.
@@ -1002,6 +1007,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     intent={orchestratorIntent}
                     tier={orchestratorTier}
                     steps={trustSteps}
+                    planSteps={planSteps}
                     isStreaming={isStreaming}
                   />
                 )}

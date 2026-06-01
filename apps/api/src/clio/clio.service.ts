@@ -27,6 +27,7 @@ import {
 } from './clio-citations.helpers.js';
 import { matchSkill } from './skills/skill-registry.js';
 import { summarizeTurnTrace, traceLogLine, type ClioRoundTrace } from './clio-trace.helpers.js';
+import { buildPlanSteps } from './clio-plan.helpers.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -403,6 +404,11 @@ export class ClioService {
     );
 
     sse.write(`data: ${JSON.stringify({ type: 'start', intent, tier: orchestration.policy.tier })}\n\n`);
+    // Stream the plan up front (P2-1): a short "here's what I'll do" derived from
+    // the orchestration's selected context sources, shown before tokens stream.
+    sse.write(
+      `data: ${JSON.stringify({ type: 'plan', steps: buildPlanSteps(orchestration.trace, intent) })}\n\n`,
+    );
     if (streamControl.pageWriteEnabled) {
       sse.write(
         `data: ${JSON.stringify({
