@@ -1,4 +1,6 @@
 import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
@@ -7,36 +9,86 @@ import { AcquisitionPersonnelWriterService } from './acquisition-personnel-write
 import { AcquisitionPersonnelReadService } from './acquisition-personnel-read.service.js';
 import { ListPersonnelDto } from './dto/list-personnel.dto.js';
 
+// NOTE: the global ValidationPipe runs whitelist + forbidNonWhitelisted, so every
+// DTO field MUST carry a class-validator decorator — otherwise it's treated as a
+// non-whitelisted property and the whole request is rejected with 400
+// ("property X should not exist"). page/limit arrive as query strings, so @Type
+// coerces them to numbers (transformOptions has enableImplicitConversion: false).
 class LinkCrmContactDto {
+  @IsString()
+  @IsNotEmpty()
   engagementContactId!: string;
 }
 
 class MergeQueueQueryDto {
+  @IsOptional()
+  @IsString()
   status?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   limit?: number;
 }
 
 class ResolveMergeQueueDto {
+  @IsIn(['merge', 'keep_separate', 'reject_a', 'reject_b'])
   decision!: 'merge' | 'keep_separate' | 'reject_a' | 'reject_b';
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }
 
 class PersonCandidateQueryDto {
+  @IsOptional()
+  @IsString()
   status?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   limit?: number;
 }
 
 class ResolvePersonCandidateDto {
+  @IsIn(['confirm', 'reject'])
   decision!: 'confirm' | 'reject';
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }
 
 class SuggestPersonDto {
+  @IsString()
+  @IsNotEmpty()
   fullName!: string;
+
+  @IsOptional()
+  @IsString()
   roleTitle?: string;
+
+  @IsOptional()
+  @IsString()
   organization?: string;
+
+  @IsOptional()
+  @IsString()
   notes?: string;
 }
 

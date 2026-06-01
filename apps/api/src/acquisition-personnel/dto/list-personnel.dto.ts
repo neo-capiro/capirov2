@@ -1,10 +1,39 @@
+import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+
+// The global ValidationPipe runs whitelist + forbidNonWhitelisted, so every query
+// field needs a class-validator decorator or the request is rejected with 400.
 export class ListPersonnelDto {
+  @IsOptional()
+  @IsString()
   service?: string;
+
+  @IsOptional()
+  @IsString()
   organization?: string;
+
+  @IsOptional()
+  @IsString()
   role?: string;
+
+  @IsOptional()
+  @IsString()
   pe_code?: string;
+
+  @IsOptional()
+  @IsString()
   q?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
   limit?: number;
 }
 
