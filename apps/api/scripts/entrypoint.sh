@@ -150,6 +150,7 @@ case "${1:-serve}" in
   # --backfill --since YYYY-MM-DD for the separate backfill.
   sync-federal-award)     shift; exec ./node_modules/.bin/tsx scripts/sync-federal-award.ts "$@" ;;
   sync-fec-pac)           exec ./node_modules/.bin/tsx scripts/sync-fec-pac.ts ;;
+  sync-entity-resolution) shift; exec ./node_modules/.bin/tsx scripts/sync-entity-resolution.ts "$@" ;;
   sync-fara)              exec ./node_modules/.bin/tsx scripts/sync-fara.ts ;;
   sync-sec-edgar)         exec ./node_modules/.bin/tsx scripts/sync-sec-edgar.ts ;;
   sync-rss-intel)         exec ./node_modules/.bin/tsx scripts/sync-rss-intel.ts ;;

@@ -109,6 +109,7 @@ export class IntelligenceController {
   }
 
   @Post('resolve-all')
+  @Roles('user_admin')
   resolveAll(@CurrentTenant() ctx: TenantContext) {
     return this.entityResolution.resolveAllForTenant(ctx.tenantId);
   }

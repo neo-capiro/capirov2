@@ -29,6 +29,13 @@ export interface ResolutionSummary {
 const SUFFIX_RE =
   /\b(inc|llc|corp|ltd|co|lp|llp|pa|pc|pllc|group|holdings|international|associates|partners|consulting|services|solutions|technologies|enterprises)\b\.?/gi;
 
+// Minimum confidence required to persist a candidate mapping. The per-source SQL
+// uses a loose similarity > 0.3 to cast a wide net, but writing everything above
+// that floods the review queue with generic-string noise (e.g. employer
+// "services" fuzzy-matching dozens of clients). Only candidates clearing this
+// floor are written; the rest are dropped before they reach the review queue.
+const MIN_WRITE_CONFIDENCE = 0.4;
+
 @Injectable()
 export class EntityResolutionService {
   private readonly logger = new Logger(EntityResolutionService.name);
@@ -250,6 +257,9 @@ export class EntityResolutionService {
       // never auto-confirm fec_committee — always route to human review.
       const autoConfirm = candidate.source !== 'fec_committee' && candidate.confidence >= 0.85;
 
+      // Drop low-confidence candidates before they reach the review queue.
+      if (candidate.confidence < MIN_WRITE_CONFIDENCE && !autoConfirm) continue;
+
       const updateData: {
         externalName: string;
         confidence: number;
@@ -321,6 +331,9 @@ export class EntityResolutionService {
           // PAC committee attribution is compliance-sensitive: never auto-confirm,
           // always route to human review regardless of score.
           const autoConfirm = source !== 'fec_committee' && confidence >= 0.85;
+
+          // Drop low-confidence candidates before they reach the review queue.
+          if (confidence < MIN_WRITE_CONFIDENCE && !autoConfirm) continue;
 
           const updateData: {
             externalName: string;
