@@ -124,9 +124,36 @@ MSYS_NO_PATHCONV=1 aws iam put-role-policy \
 ================================================================
 ## STEP 3 — Create the schedules (one per job, cadence = schedule matrix)
 ================================================================
-Driver script: loops the matrix and creates an EventBridge Scheduler schedule per
-job. `scripts/create-ingestion-schedules.sh` (generate from ingestion-schedule.ts).
-Example for one job — replicate for all 39 (+ embeddings):
+Use the generator — it emits all 39 `aws scheduler create-schedule` calls
+straight from `infra/cdk/lib/ingestion-schedule.ts` so the out-of-band schedules
+can never drift from the (future) CDK ones:
+
+```bash
+cd infra/cdk
+# generate (tsx via the pnpm store binary):
+TSXCLI=$(ls ../../node_modules/.pnpm/tsx@*/node_modules/tsx/dist/cli.mjs | head -1)
+node "$TSXCLI" scripts/gen-ingestion-schedules.ts > /tmp/create-ingestion-schedules.sh
+
+# review the crons first (no AWS calls):
+CLUSTER_ARN=x TD_ARN=x SCHED_ROLE_ARN=x SUBNETS='[]' SG='[]' DRY_RUN=1 \
+  bash /tmp/create-ingestion-schedules.sh
+
+# then create them for real (fill in the real ARNs/subnets/SG from pre-flight):
+export CLUSTER_ARN=arn:aws:ecs:us-east-1:967807252336:cluster/capiro-dev
+export TD_ARN=arn:aws:ecs:us-east-1:967807252336:task-definition/capiro-dev-api-sync:1
+export SCHED_ROLE_ARN=arn:aws:iam::967807252336:role/capiro-dev-ingestion-scheduler
+export SUBNETS='["<subnet-a>","<subnet-b>"]'   # PRIVATE_WITH_EGRESS, from pre-flight
+export SG='["<sg>"]'                            # the API service security group
+bash /tmp/create-ingestion-schedules.sh
+```
+The generator mirrors the CDK construct's cron-field resolution exactly (daily
+`cron(min hr * * ? *)`, weekly `cron(min hr ? * MON *)`, monthly
+`cron(min hr 1 * ? *)`), so the out-of-band and future CDK schedules are
+identical. embed-backfill (`--source all`, 13:00 UTC) is created separately —
+add one more `create_sched embed-backfill-daily 'cron(0 13 * * ? *)'
+'["embed-backfill","--source","all"]' '...'` or run the CDK embed rule later.
+
+Manual single-job form (if you prefer not to use the generator):
 
 ```bash
 SUBNETS='["<subnet-a>","<subnet-b>"]'; SG='["<sg>"]'
@@ -155,19 +182,13 @@ create_sched () {  # $1=name  $2=cron  $3=command-json-array
 # DAILY (UTC) — cron fields: min hr day-of-month month day-of-week year
 create_sched sync-congress         "0 6 * * ? *"  '\"sync-congress\"'
 create_sched sync-federal-register "15 6 * * ? *" '\"sync-federal-register\"'
-create_sched sync-regulations      "30 6 * * ? *" '\"sync-regulations\"'
-create_sched sync-hearings         "45 6 * * ? *" '\"sync-hearings\"'
-create_sched sync-fec              "0 7 * * ? *"  '\"sync-fec\"'
-create_sched sync-fec-pac          "20 7 * * ? *" '\"sync-fec-pac\"'
-create_sched sync-federal-award    "40 7 * * ? *" '\"sync-federal-award\"'
-create_sched enrich-award-districts "0 8 * * ? *" '\"enrich-award-districts\"'
-# ... emitters 10:00-11:00, embeddings 13:00, weekly Mon/Tue, monthly day 1 —
-# full list mirrors docs/plans/2026-06-01-...-schedule-matrix.md
+# ... full list lives in infra/cdk/lib/ingestion-schedule.ts (use the generator)
 ```
 
 > The exact cron + command for all 39 jobs is the source of truth in
-> `infra/cdk/lib/ingestion-schedule.ts`. Generate the create_sched calls from it
-> so the out-of-band schedules and the future CDK schedules never drift.
+> `infra/cdk/lib/ingestion-schedule.ts`. The generator
+> `infra/cdk/scripts/gen-ingestion-schedules.ts` reads it directly so the
+> out-of-band schedules and the future CDK schedules never drift.
 
 ================================================================
 ## STEP 4 — First backfill (optional, for IMMEDIATE data)
