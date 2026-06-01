@@ -302,8 +302,43 @@ export class AcquisitionPersonnelReadService {
       return { total: count, rows: items };
     });
 
+    // Hydrate each candidate with both persons' detail (name, organization,
+    // title, role, status, sources) so the admin merge UI can render a
+    // side-by-side comparison. AcquisitionPersonnel is a GLOBAL table, so this
+    // read uses the base client (no tenant scoping).
+    const personIds = Array.from(
+      new Set(rows.flatMap((r) => [r.primaryPersonId, r.secondaryPersonId])),
+    );
+    const persons = personIds.length
+      ? await this.prisma.acquisitionPersonnel.findMany({
+          where: { id: { in: personIds } },
+          select: {
+            id: true,
+            fullName: true,
+            organization: true,
+            title: true,
+            role: true,
+            service: true,
+            status: true,
+            confidence: true,
+            sources: {
+              select: { source: true, sourceUrl: true, observedAt: true },
+              orderBy: { observedAt: 'desc' },
+              take: 10,
+            },
+          },
+        })
+      : [];
+    const personById = new Map(persons.map((p) => [p.id, p]));
+
+    const data = rows.map((r) => ({
+      ...r,
+      primaryPerson: personById.get(r.primaryPersonId) ?? null,
+      secondaryPerson: personById.get(r.secondaryPersonId) ?? null,
+    }));
+
     return {
-      data: rows,
+      data,
       total,
       page,
       limit,
