@@ -47,8 +47,10 @@ async function main() {
     for (let page = 1; page <= 10; page++) {
       await new Promise((r) => setTimeout(r, DELAY_MS));
       const data = await fetchFec<{ results: any[] }>('/committees/', {
-        cycle: String(cycle), sort: '-receipts', page: String(page),
+        cycle: String(cycle), page: String(page),
         committee_type: ctype, // single value — FEC rejects comma-joined lists (422)
+        // NOTE: FEC /committees/ rejects sort=-receipts ("Cannot sort on receipts
+        // when parameter 'q' is not set", 422). Default ordering is fine.
       });
       if (!data?.results?.length) break;
 
