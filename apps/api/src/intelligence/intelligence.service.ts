@@ -627,10 +627,12 @@ export class IntelligenceService {
       string,
       {
         documentNumber: string;
+        type: string;
         title: string;
         agencyNames: string[];
         publicationDate: Date;
         commentEndDate: Date | null;
+        effectiveDate: Date | null;
         linkedBills: string[];
       }
     >();
@@ -645,14 +647,58 @@ export class IntelligenceService {
         }
         regDocByNumber.set(reg.documentNumber, {
           documentNumber: reg.documentNumber,
+          type: (reg as { type?: string }).type ?? '',
           title: reg.title,
           agencyNames: reg.agencyNames,
           publicationDate: new Date(reg.publicationDate),
           commentEndDate: reg.commentEndDate ? new Date(reg.commentEndDate) : null,
+          effectiveDate: (reg as { effectiveDate?: Date | string | null }).effectiveDate
+            ? new Date((reg as { effectiveDate: Date | string }).effectiveDate)
+            : null,
           linkedBills: [link.bill.identifier],
         });
       }
     }
+    // The rulemaking lifecycle rail tracks ONE Federal Register document's
+    // position through the standard FR pipeline. `federal_register_document.type`
+    // is one of RULE / PROPOSED_RULE / NOTICE / PRESIDENTIAL_DOCUMENT (see the
+    // sync normalizer + schema), which — together with the comment/effective
+    // dates — tells us the real stage. Previously `currentStage` was hardcoded
+    // to 'NPRM' for every regulation regardless of its actual type.
+    const REG_LIFECYCLE_STAGES = [
+      { key: 'notice', label: 'Notice' },
+      { key: 'nprm', label: 'NPRM' },
+      { key: 'comment_closed', label: 'Comment closed' },
+      { key: 'final', label: 'Final rule' },
+      { key: 'effective', label: 'Effective' },
+    ] as const;
+
+    const deriveRegStage = (reg: {
+      type: string;
+      commentEndDate: Date | null;
+      effectiveDate: Date | null;
+    }): string => {
+      const type = (reg.type ?? '').toUpperCase();
+      const commentClosed = reg.commentEndDate != null && reg.commentEndDate.getTime() < now.getTime();
+      const isEffective = reg.effectiveDate != null && reg.effectiveDate.getTime() <= now.getTime();
+
+      switch (type) {
+        case 'PROPOSED_RULE':
+          // NPRM: open comment period unless the comment deadline has passed.
+          return commentClosed ? 'comment_closed' : 'nprm';
+        case 'RULE':
+        case 'PRESIDENTIAL_DOCUMENT':
+          // A final rule (or a presidential directive, which is self-executing):
+          // 'effective' once its effective date has arrived, otherwise 'final'.
+          return isEffective ? 'effective' : 'final';
+        case 'NOTICE':
+        default:
+          // Notices (incl. ANPRMs / requests for comment) and any unknown type
+          // sit at the pre-proposal notice stage.
+          return 'notice';
+      }
+    };
+
     const regulatoryRails = Array.from(regDocByNumber.values())
       .sort((a, b) => b.publicationDate.getTime() - a.publicationDate.getTime())
       .slice(0, 8)
@@ -661,35 +707,108 @@ export class IntelligenceService {
         title: reg.title,
         agencyNames: reg.agencyNames,
         linkedBills: reg.linkedBills,
-        currentStage: 'NPRM',
-        deadline: reg.commentEndDate,
-        stages: [
-          { key: 'bill', label: 'Bill' },
-          { key: 'anprm', label: 'ANPRM' },
-          { key: 'nprm', label: 'NPRM' },
-          { key: 'final', label: 'Final' },
-          { key: 'effective', label: 'Effective' },
-        ],
+        currentStage: deriveRegStage(reg),
+        // For an open NPRM the actionable deadline is the comment close date.
+        // Once the rule is final/effective there is no open comment deadline.
+        deadline: deriveRegStage(reg) === 'nprm' ? reg.commentEndDate : null,
+        stages: REG_LIFECYCLE_STAGES.map((s) => ({ key: s.key, label: s.label })),
       }));
 
-    const trackedBillIds = new Set(trackedBills.bills.map((b) => b.identifier.toLowerCase()));
-    const hearingsList = hearings.map((h) => {
-      const titleLower = h.title.toLowerCase();
-      const linked = trackedBills.bills
-        .filter((b) => titleLower.includes(b.identifier.toLowerCase()))
-        .map((b) => b.identifier);
-      return {
-        id: h.id,
-        committeeName: h.committeeName,
-        chamber: h.chamber,
-        title: h.title,
-        date: h.date,
-        time: h.time,
-        type: h.type,
-        linkedBills: linked,
-        isTracked: linked.length > 0 || Array.from(trackedBillIds).some((id) => titleLower.includes(id)),
-      };
+    // ── Hearings & markups: CLIENT-SCOPED (accuracy-critical) ──────────────
+    // `hearings` (settled index 11) is the GLOBAL congressional calendar for the
+    // next 21 days. Surfacing it raw shows every committee's schedule, not this
+    // client's. A hearing is relevant to THIS client only when either:
+    //   (a) it is held by a committee that has jurisdiction over one of the
+    //       client's tracked bills (congress_bill_committee join), or
+    //   (b) its title references a tracked-bill number (e.g. "H.R. 1234").
+    // Everything else (the global calendar) is dropped.
+
+    // Human-readable bill-number variants per tracked bill, derived from the
+    // "119-hr-1234" slug → "hr 1234" / "h.r. 1234" / "hr1234". Hearing titles
+    // cite bills in these human forms, never the internal slug, so matching the
+    // raw slug (as the old code did) effectively never hit.
+    const billTitleVariants = trackedBills.bills.map((b) => {
+      const parts = b.identifier.split('-');
+      const variants: string[] = [];
+      if (parts.length === 3 && parts[1] && parts[2]) {
+        const chamber = parts[1].toLowerCase(); // hr, s, hres, sres, hjres…
+        const num = parts[2];
+        variants.push(`${chamber} ${num}`);
+        variants.push(`${chamber}${num}`);
+        // Dotted long form for the common House/Senate prefixes.
+        if (chamber === 'hr') variants.push(`h.r. ${num}`);
+        if (chamber === 's') variants.push(`s. ${num}`);
+      }
+      return { identifier: b.identifier, variants };
     });
+
+    // Committee names/codes with jurisdiction over the client's tracked bills.
+    // Same join the office-recommender uses (cbc.bill_id == bill identifier).
+    const jurisdictionCommitteeNames = new Set<string>();
+    const jurisdictionCommitteeCodes = new Set<string>();
+    const trackedBillIdList = trackedBills.bills
+      .map((b) => b.identifier)
+      .filter((v): v is string => typeof v === 'string' && v.length > 0);
+    const normalizeCommittee = (value: string | null | undefined): string =>
+      (value ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (trackedBillIdList.length > 0) {
+      try {
+        const committeeRows = await this.prisma.$queryRaw<
+          Array<{ committee_name: string; committee_code: string | null }>
+        >`
+          SELECT DISTINCT cbc.committee_name, cbc.committee_code
+          FROM congress_bill_committee cbc
+          WHERE cbc.bill_id = ANY(${trackedBillIdList}::text[])
+            AND cbc.committee_name IS NOT NULL
+            AND cbc.committee_name <> ''
+        `;
+        for (const row of committeeRows) {
+          const name = normalizeCommittee(row.committee_name);
+          if (name) jurisdictionCommitteeNames.add(name);
+          if (row.committee_code) jurisdictionCommitteeCodes.add(row.committee_code.toLowerCase());
+        }
+      } catch (err) {
+        this.logger.warn(
+          `hearings client-scoping committee join failed for client ${clientId}: ${(err as Error).message}`,
+        );
+      }
+    }
+
+    const jurisdictionNameList = Array.from(jurisdictionCommitteeNames);
+    const hearingsList = hearings
+      .map((h) => {
+        const titleLower = h.title.toLowerCase();
+        const linked = billTitleVariants
+          .filter((b) => b.variants.some((v) => titleLower.includes(v)))
+          .map((b) => b.identifier);
+        const hearingCommittee = normalizeCommittee(h.committeeName);
+        const hearingCode = (h.committeeCode ?? '').toLowerCase();
+        // Committee-of-jurisdiction match: exact normalized name, OR committee
+        // code, OR one name being a substring of the other (handles "Committee
+        // on Armed Services" vs "Armed Services" / chamber-prefixed variants).
+        const committeeMatch =
+          (hearingCommittee.length > 0 &&
+            (jurisdictionCommitteeNames.has(hearingCommittee) ||
+              jurisdictionNameList.some(
+                (j) => j.includes(hearingCommittee) || hearingCommittee.includes(j),
+              ))) ||
+          (hearingCode.length > 0 && jurisdictionCommitteeCodes.has(hearingCode));
+        return {
+          id: h.id,
+          committeeName: h.committeeName,
+          chamber: h.chamber,
+          title: h.title,
+          date: h.date,
+          time: h.time,
+          type: h.type,
+          linkedBills: linked,
+          isTracked: linked.length > 0 || committeeMatch,
+        };
+      })
+      // Drop the global (non-client-relevant) calendar entries: a hearing is
+      // kept only when it cites a tracked bill (linkedBills) or is held by a
+      // committee with jurisdiction over a tracked bill (isTracked).
+      .filter((h) => h.isTracked);
 
     // District rows for the Financial Footprint panel. Prefer the REAL
     // USAspending spend-by-district path (getDistrictNexusSpend, index 18): when
@@ -3761,12 +3880,13 @@ export class IntelligenceService {
         topics: string[];
         comment_end_date: Date | null;
         publication_date: Date;
+        effective_date: Date | null;
         significant_rule: boolean;
         html_url: string | null;
       }>
     >`
       SELECT id, document_number, type, title, agency_names, topics,
-             comment_end_date, publication_date, significant_rule, html_url
+             comment_end_date, publication_date, effective_date, significant_rule, html_url
       FROM federal_register_document
       WHERE topics && ${subjects}::text[]
          OR title ILIKE ANY(${identifierTerms}::text[])
@@ -3805,6 +3925,7 @@ export class IntelligenceService {
           agencyNames: r.agency_names,
           publicationDate: r.publication_date,
           commentEndDate: r.comment_end_date,
+          effectiveDate: r.effective_date,
           significantRule: r.significant_rule,
           htmlUrl: r.html_url,
           matchedTopics: r.topics.filter((t) => billSubjects.has(t)),

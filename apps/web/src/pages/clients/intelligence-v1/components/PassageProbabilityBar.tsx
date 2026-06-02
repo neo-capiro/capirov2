@@ -27,9 +27,10 @@ export function PassageProbabilityBar({
   }
 
   const pct = clamp(score, 0, 100);
+  const help = `Passage likelihood ${Math.round(pct)}% — derived from the bill's latest legislative action.`;
 
   return (
-    <div className="iv1-ppb">
+    <div className="iv1-ppb" title={help} aria-label={help}>
       <div className="iv1-ppb-track">
         <div
           className="iv1-ppb-fill"

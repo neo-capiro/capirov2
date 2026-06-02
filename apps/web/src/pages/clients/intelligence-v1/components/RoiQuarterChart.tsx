@@ -47,13 +47,29 @@ export function RoiQuarterChart({ series }: RoiQuarterChartProps) {
           const obligPct = (p.obligations / maxY) * 100;
           const ratio = ratioPoints[idx] ?? 0;
           const ratioPct = (ratio / maxRatio) * 100;
+          const isLatest = idx === points.length - 1;
 
           return (
-            <div key={`${p.label}-${idx}`} className="iv1-qchart-col">
+            <div
+              key={`${p.label}-${idx}`}
+              className={`iv1-qchart-col${isLatest ? ' is-latest' : ''}`}
+            >
               <div className="iv1-qchart-bars">
-                <div className="iv1-qchart-bar lobbying" style={{ height: `${lobbyPct}%` }} />
-                <div className="iv1-qchart-bar obligations" style={{ height: `${obligPct}%` }} />
-                <div className="iv1-qchart-ratio-dot" style={{ bottom: `${ratioPct}%` }} title={`${ratio.toFixed(2)}×`} />
+                <div
+                  className="iv1-qchart-bar lobbying"
+                  style={{ height: `${lobbyPct}%` }}
+                  title={`${p.label} · Lobbying ${formatCompact(p.lobbying)}`}
+                />
+                <div
+                  className="iv1-qchart-bar obligations"
+                  style={{ height: `${obligPct}%` }}
+                  title={`${p.label} · Obligations ${formatCompact(p.obligations)}`}
+                />
+                <div
+                  className="iv1-qchart-ratio-dot"
+                  style={{ bottom: `${ratioPct}%` }}
+                  title={`${p.label} · Return ${ratio.toFixed(2)}×`}
+                />
               </div>
               <div className="iv1-qchart-ratio-label">{ratio.toFixed(1)}×</div>
               <div className="iv1-qchart-xlabel">{p.label}</div>
@@ -63,7 +79,10 @@ export function RoiQuarterChart({ series }: RoiQuarterChartProps) {
       </div>
 
       <div className="iv1-qchart-footnote">
-        Latest quarter, Lobbying {formatCompact(points[points.length - 1]?.lobbying ?? 0)} · Obligations {formatCompact(points[points.length - 1]?.obligations ?? 0)}
+        <span className="iv1-qchart-foot-key">Latest quarter</span>
+        Lobbying {formatCompact(points[points.length - 1]?.lobbying ?? 0)} · Obligations{' '}
+        {formatCompact(points[points.length - 1]?.obligations ?? 0)} · Return{' '}
+        {(ratioPoints[ratioPoints.length - 1] ?? 0).toFixed(2)}×
       </div>
     </div>
   );

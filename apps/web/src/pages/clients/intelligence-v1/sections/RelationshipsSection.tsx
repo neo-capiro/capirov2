@@ -1,9 +1,9 @@
 /**
  * Section 4, Relationships
- * Resolution graph (inline SVG) + office recommender ranked list.
+ * Office recommender ranked list — who to call / brief / who already touched this.
  *
- * The knowledge graph is rendered inline within this section, not as a
- * standalone tab. Ex-staffer data surfaces in the office recommender tags.
+ * The resolution graph and full knowledge graph were removed (they did not
+ * work reliably); ex-staffer data still surfaces in the office recommender tags.
  *
  * Issue leaderboard link: /intelligence/issues/:code when a code is present;
  * disabled intentionally when no code is available.
@@ -11,8 +11,6 @@
 
 import type { ClientProfileV1 } from '../mappers.js';
 import { OfficeRecommenderList, type OfficeRecommenderRow } from '../components/OfficeRecommenderList.js';
-import { ResolutionGraphCard } from '../components/ResolutionGraphCard.js';
-import { KnowledgeGraphView } from '../../../intelligence/KnowledgeGraphPage.js';
 
 interface RelationshipsSectionProps {
   aggregate?: ClientProfileV1;
@@ -26,7 +24,7 @@ interface RelationshipsSectionProps {
   expandEnabled: boolean;
 }
 
-export function RelationshipsSection({ aggregate, clientId, issueHref, expandEnabled }: RelationshipsSectionProps) {
+export function RelationshipsSection({ aggregate, issueHref }: RelationshipsSectionProps) {
   const offices: OfficeRecommenderRow[] =
     aggregate?.sections.relationships.officeRecommender?.length
       ? aggregate.sections.relationships.officeRecommender.map((o, idx) => {
@@ -44,13 +42,7 @@ export function RelationshipsSection({ aggregate, clientId, issueHref, expandEna
         })
       : [];
 
-  const relationships = aggregate?.sections.relationships;
-  const summary = relationships?.scopedGraph;
-  const exStafferCount = relationships?.exStafferCount ?? offices.filter((office) =>
-    office.tags.some((tag) => tag.label === 'ex-staffer')
-  ).length;
   const issueLeaderboardHref = issueHref?.trim() || '';
-  const nodeDrillBase = issueLeaderboardHref;
 
   return (
     <section id="relationships" className="iv1-section">
@@ -61,44 +53,22 @@ export function RelationshipsSection({ aggregate, clientId, issueHref, expandEna
         <span className="iv1-sec-sub">Who to call · who to brief · who already touched this</span>
       </div>
 
-      <div className="iv1-rel-layout">
-        {/* Resolution graph */}
-        <ResolutionGraphCard
-          scopedGraph={summary}
-          canExpand={expandEnabled}
-          exStafferCount={exStafferCount}
-          nodeDrillHrefBuilder={
-            nodeDrillBase
-              ? (node) => {
-                  const separator = nodeDrillBase.includes('?') ? '&' : '?';
-                  return `${nodeDrillBase}${separator}node=${encodeURIComponent(node.id)}`;
+      {/* Office recommender */}
+      <div className="iv1-surface">
+        <OfficeRecommenderList
+          rows={offices}
+          allCount={offices.length}
+          allHref={issueLeaderboardHref || undefined}
+          rowHrefBuilder={
+            issueLeaderboardHref
+              ? (row) => {
+                  const base = issueLeaderboardHref;
+                  const separator = base.includes('?') ? '&' : '?';
+                  return `${base}${separator}office=${encodeURIComponent(row.name)}`;
                 }
               : undefined
           }
         />
-
-        {/* Office recommender */}
-        <div className="iv1-surface">
-          <OfficeRecommenderList
-            rows={offices}
-            allCount={offices.length}
-            allHref={issueLeaderboardHref || undefined}
-            rowHrefBuilder={
-              issueLeaderboardHref
-                ? (row) => {
-                    const base = issueLeaderboardHref;
-                    const separator = base.includes('?') ? '&' : '?';
-                    return `${base}${separator}office=${encodeURIComponent(row.name)}`;
-                  }
-                : undefined
-            }
-          />
-        </div>
-      </div>
-
-      {/* Full knowledge graph (ReactFlow) */}
-      <div className="iv1-surface" style={{ marginTop: 16, padding: 16 }}>
-        <KnowledgeGraphView clientId={clientId} />
       </div>
     </section>
   );

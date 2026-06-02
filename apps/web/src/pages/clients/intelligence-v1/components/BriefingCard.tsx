@@ -79,13 +79,12 @@ export function BriefingCard({ briefing, fallbackSummary, ctaHref }: BriefingCar
     <div className="iv1-briefing-wrap">
       <span
         className="iv1-clio-avatar"
-        style={{ width: 28, height: 28, flexShrink: 0, marginTop: 2 }}
         title="Clio"
         aria-label="Clio"
       >
         <svg
-          width="14"
-          height="14"
+          width="16"
+          height="16"
           viewBox="0 0 24 24"
           fill="none"
           stroke="#fff"
@@ -95,37 +94,36 @@ export function BriefingCard({ briefing, fallbackSummary, ctaHref }: BriefingCar
           <path d="M12 3v3M12 18v3M3 12h3M18 12h3M6 6l2.2 2.2M15.8 15.8 18 18M6 18l2.2-2.2M15.8 8.2 18 6" />
         </svg>
       </span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+      <div className="iv1-briefing-body">
+        <div className="iv1-briefing-titlebar">
           <span className="iv1-clio-badge">Clio briefing</span>
           {generatedAt ? (
-            <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-              {formatDate(generatedAt)}
-            </span>
+            <span className="iv1-briefing-date">{formatDate(generatedAt)}</span>
           ) : null}
         </div>
 
-        <div className="iv1-briefing-highlights">
-          {highlights.map((h, idx) => (
-            <span key={`${h.label}-${idx}`} className={`iv1-highlight-pill ${toneClass[h.tone]}`}>
-              <span className="iv1-highlight-pill-label">{h.label}</span>
-              {h.value != null && h.value !== '' ? <b>{String(h.value)}</b> : null}
-            </span>
-          ))}
-        </div>
+        {highlights.length > 0 && (
+          <div className="iv1-briefing-highlights">
+            {highlights.map((h, idx) => (
+              <span key={`${h.label}-${idx}`} className={`iv1-highlight-pill ${toneClass[h.tone]}`}>
+                <span className="iv1-highlight-pill-label">{h.label}</span>
+                {h.value != null && h.value !== '' ? <b>{String(h.value)}</b> : null}
+              </span>
+            ))}
+          </div>
+        )}
 
-        <div className="iv1-briefing-text">
+        <p className="iv1-briefing-text">
           {summary || fallbackSummary}
           {!summary && summarizeHighlights(highlights)}
-        </div>
+        </p>
 
         <div className="iv1-briefing-meta">
-          <span>
+          <span className="iv1-briefing-eventcount">
             {eventCount != null
               ? `${eventCount} event${eventCount === 1 ? '' : 's'} synthesized`
               : 'No events synthesized'}
           </span>
-          <span>·</span>
           {isInternalHref(targetHref) ? (
             <Link className="iv1-link" to={targetHref}>
               See all changes →

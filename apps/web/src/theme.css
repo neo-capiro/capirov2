@@ -14500,17 +14500,21 @@ body {
 }
 
 .iv1-briefing-wrap {
-  background: var(--bg-surface-2);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 4%, var(--bg-surface)), var(--bg-surface));
   border: 1px solid var(--border-1);
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 12px;
+  padding: 14px 16px;
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
 }
 
 .iv1-clio-avatar {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  margin-top: 1px;
   border-radius: 999px;
   background: linear-gradient(135deg, #5966ff, #4aa9ff);
   display: inline-flex;
@@ -14519,25 +14523,42 @@ body {
   box-shadow: 0 6px 18px rgba(77, 107, 255, 0.28);
 }
 
+.iv1-briefing-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.iv1-briefing-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.iv1-briefing-date {
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
 .iv1-clio-badge {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--border-1);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border-1));
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 2px 9px;
   font-size: 10.5px;
   font-weight: 650;
-  color: var(--ink-2);
-  background: var(--bg-surface);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-surface));
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 
 .iv1-briefing-highlights {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 
 .iv1-highlight-pill {
@@ -14545,11 +14566,16 @@ body {
   align-items: center;
   gap: 6px;
   border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 11px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
   border: 1px solid var(--border-1);
   background: var(--bg-surface);
-  color: var(--ink-2);
+  color: var(--ink-1);
+}
+
+.iv1-highlight-pill b {
+  font-weight: 700;
 }
 
 .iv1-highlight-pill-label {
@@ -14557,11 +14583,16 @@ body {
   letter-spacing: 0.03em;
   color: var(--ink-3);
   font-size: 10px;
+  font-weight: 600;
 }
 
 .iv1-highlight-pill.is-critical {
   border-color: color-mix(in srgb, var(--critical) 35%, var(--border-1));
   background: color-mix(in srgb, var(--critical) 12%, var(--bg-surface));
+}
+.iv1-highlight-pill.is-critical .iv1-highlight-pill-label,
+.iv1-highlight-pill.is-critical b {
+  color: var(--critical);
 }
 
 .iv1-highlight-pill.is-notable {
@@ -14574,19 +14605,32 @@ body {
   background: color-mix(in srgb, var(--info) 12%, var(--bg-surface));
 }
 
+.iv1-highlight-pill.is-neutral {
+  border-color: var(--border-1);
+  background: var(--bg-surface);
+}
+
 .iv1-briefing-text {
-  font-size: 12.5px;
+  margin: 0;
+  font-size: 13px;
   color: var(--ink-2);
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .iv1-briefing-meta {
-  margin-top: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-1);
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--ink-3);
+}
+
+.iv1-briefing-eventcount {
+  font-variant-numeric: tabular-nums;
 }
 
 .iv1-alert-row {
@@ -14818,26 +14862,41 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  padding: 4px 2px 2px;
+  border-radius: 8px;
+}
+
+/* Subtle emphasis on the most recent quarter so the eye lands on "now". */
+.iv1-qchart-col.is-latest {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.iv1-qchart-col.is-latest .iv1-qchart-xlabel {
+  color: var(--ink-1);
+  font-weight: 600;
 }
 
 .iv1-qchart-bars {
   position: relative;
   width: 100%;
-  height: 96px;
+  height: 100px;
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  gap: 4px;
+  gap: 5px;
   background: linear-gradient(to top, color-mix(in srgb, var(--bg-sunken) 60%, #fff) 1px, transparent 1px);
-  background-size: 100% 24px;
+  background-size: 100% 25px;
   border-radius: 6px;
 }
 
 .iv1-qchart-bar {
-  width: 34%;
+  width: 32%;
   min-height: 2px;
   border-radius: 4px 4px 0 0;
+  transition: opacity 0.12s ease;
+}
+.iv1-qchart-bar:hover {
+  opacity: 0.82;
 }
 
 .iv1-qchart-bar.lobbying {
@@ -14850,30 +14909,53 @@ body {
 
 .iv1-qchart-ratio-dot {
   position: absolute;
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 999px;
   background: var(--ink-1);
-  border: 1px solid #fff;
+  border: 2px solid var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--ink-3);
   left: 50%;
   transform: translate(-50%, 50%);
+  z-index: 1;
 }
 
 .iv1-qchart-ratio-label {
   font-size: 10px;
   color: var(--ink-2);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .iv1-qchart-xlabel {
   font-size: 10px;
   color: var(--ink-3);
+  white-space: nowrap;
 }
 
 .iv1-qchart-footnote {
-  margin-top: 8px;
-  font-size: 11px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-1);
+  font-size: 11.5px;
   color: var(--ink-3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.iv1-qchart-foot-key {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink-2);
+  background: var(--bg-sunken);
+  border-radius: 999px;
+  padding: 2px 8px;
 }
 
 @media (max-width: 980px) {
@@ -15844,12 +15926,36 @@ body {
   font-weight: 500;
   white-space: nowrap;
 }
-.iv1-lifecycle-step.past    { background: var(--bg-sunken); color: var(--ink-2); }
-.iv1-lifecycle-step.current { background: rgba(28, 100, 242, 0.1); color: var(--accent); border-color: rgba(28, 100, 242, 0.25); font-weight: 600; }
-.iv1-lifecycle-step.future  { background: transparent; color: var(--ink-4); border-style: dashed; }
+/* States emitted by RegLifecycleRail: done / current / pending. (Legacy
+   past/future aliases kept so any other caller keeps working.) */
+.iv1-lifecycle-step.done,
+.iv1-lifecycle-step.past {
+  background: color-mix(in srgb, var(--success) 12%, var(--bg-surface));
+  border-color: color-mix(in srgb, var(--success) 30%, var(--border-1));
+  color: color-mix(in srgb, var(--success) 70%, var(--ink-1));
+}
+.iv1-lifecycle-step.current {
+  background: rgba(28, 100, 242, 0.1);
+  color: var(--accent);
+  border-color: rgba(28, 100, 242, 0.25);
+  font-weight: 650;
+  box-shadow: 0 0 0 2px rgba(28, 100, 242, 0.08);
+}
+.iv1-lifecycle-step.pending,
+.iv1-lifecycle-step.future {
+  background: transparent;
+  color: var(--ink-4);
+  border-style: dashed;
+}
+.iv1-lifecycle-check {
+  font-weight: 700;
+}
 .iv1-lifecycle-arrow {
   color: var(--ink-4);
   font-size: 11px;
+}
+.iv1-lifecycle-arrow.is-done {
+  color: color-mix(in srgb, var(--success) 55%, var(--ink-4));
 }
 .iv1-reg-deadline {
   display: inline-flex;
@@ -15867,7 +15973,93 @@ body {
 .iv1-reg-deadline.warn { color: var(--notable); }
 .iv1-reg-deadline.crit { color: var(--critical); font-weight: 500; }
 
+/* ── Hearings & markups list (client-scoped) ──────────────────────────── */
+.iv1-hearing-row {
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 16px;
+  border-top: 1px solid var(--border-1);
+  transition: background 0.12s ease;
+}
+.iv1-hearing-row:first-child {
+  border-top: none;
+}
+.iv1-hearing-row:hover {
+  background: var(--bg-surface-2);
+}
+.iv1-hearing-row--selected {
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg-surface));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.iv1-hearing-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.iv1-hearing-date {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-1);
+  border-radius: 8px;
+  padding: 4px 0;
+  background: var(--bg-surface-2);
+  line-height: 1.1;
+}
+.iv1-hearing-date .m {
+  font-size: 9.5px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--critical);
+}
+.iv1-hearing-date .d {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink-1);
+}
+.iv1-hearing-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink-1);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.iv1-hearing-sub {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 2px;
+}
+.iv1-hearing-time {
+  font-size: 11px;
+  color: var(--ink-2);
+  text-align: right;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
 /* ── D-001 BillKanban ─────────────────────────────────────────────────── */
+
+/* Explainer strip above the board: documents columns / % / star affordances. */
+.iv1-kanban-legend {
+  padding: 8px 16px 0;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--ink-3);
+}
+.iv1-kanban-legend strong {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+.iv1-kanban-legend-star {
+  color: var(--accent);
+  font-weight: 700;
+}
 
 .iv1-kanban {
   display: grid;
