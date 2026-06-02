@@ -129,9 +129,15 @@ export function loadConfig(app: cdk.App): EnvConfig {
           }
         : {
             // Dev/prod account: 967807252336  region: us-east-1
-            appHost: 'app-dev.capiro.ai',
-            wildcardHost: '*.app-dev.capiro.ai',
-            rootDomain: 'app-dev.capiro.ai',
+            // Aligned to live production reality (see infra/cdk/DRIFT-FINDINGS.md).
+            // The env=dev stacks ARE prod and serve app.capiro.ai / capiro.ai —
+            // NOT app-dev.*. appHost + wildcardHost feed WEB_ORIGIN and the
+            // invitation redirect (tenant-admin uses WEB_ORIGIN.split(',')[0]);
+            // leaving these as app-dev produced invitation links to a dead host,
+            // so invited users could never complete sign-up. cdk diff before deploy.
+            appHost: 'app.capiro.ai',
+            wildcardHost: '*.app.capiro.ai',
+            rootDomain: 'capiro.ai',
             // Single replicas for dev, no HA needed.
             apiDesiredCount: 1,
             apiMaxCount: 2,
