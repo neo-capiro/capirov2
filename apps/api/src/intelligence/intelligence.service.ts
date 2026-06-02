@@ -1648,6 +1648,7 @@ export class IntelligenceService {
     since?: string,
     clientId?: string,
     source?: string,
+    consumed?: boolean,
   ) {
     const tenantClientIds = await this.prisma.withTenant(tenantId, (tx) =>
       tx.client.findMany({ where: { status: { not: 'archived' } }, select: { id: true } }),
@@ -1662,6 +1663,11 @@ export class IntelligenceService {
     const where: Record<string, unknown> = {};
     if (since) where.detectedAt = { gte: new Date(since) };
     if (source) where.source = source;
+    // Optional read/unread filter. The Changes Inbox passes consumed=false so a
+    // change a user has cleared stays cleared across reloads (true inbox
+    // semantics). Dashboard surfaces (Needs Attention, greeting count) omit the
+    // param and still receive every change.
+    if (typeof consumed === 'boolean') where.consumed = consumed;
 
     if (clientId) {
       where.relatedClientIds = { has: clientId };

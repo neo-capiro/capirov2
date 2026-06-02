@@ -60,6 +60,10 @@ export function ChangesInboxPage() {
       (
         await api.get<IntelligenceChange[]>('/api/intelligence/changes', {
           params: {
+            // Inbox semantics: only show changes the user hasn't cleared. A
+            // mark-read PATCH persists consumed=true, so cleared rows stay gone
+            // across reloads instead of resurfacing.
+            consumed: false,
             ...(selectedSource ? { source: selectedSource } : {}),
             ...(dateRange[0] ? { since: dateRange[0] } : {}),
           },
@@ -84,13 +88,30 @@ export function ChangesInboxPage() {
     mutationFn: async (id: string) => {
       await api.patch(`/api/intelligence/changes/${id}`, { consumed: true });
     },
-    onSuccess: (_data, id) => {
+    // Optimistically flag the row read so the UI responds instantly, but treat
+    // the server PATCH as the source of truth: roll the optimistic flag back on
+    // failure and tell the user, so "I cleared it but it came back" can never be
+    // a silent lie. The persisted `consumed` column is what survives reloads.
+    onMutate: (id: string) => {
       setReadIds((prev) => new Set([...prev, id]));
+      return { id };
+    },
+    onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['intel-changes-inbox'] });
       void qc.invalidateQueries({ queryKey: ['intel-changes-unread'] });
     },
-    onError: () => {
-      /* silently ignore, backend endpoint may not exist yet */
+    onError: (_err, _id, context) => {
+      if (context?.id) {
+        setReadIds((prev) => {
+          const next = new Set(prev);
+          next.delete(context.id);
+          return next;
+        });
+      }
+      notifApi.error({
+        message: "Couldn't mark as read",
+        description: 'The change was reopened. Check your connection and try again.',
+      });
     },
   });
 

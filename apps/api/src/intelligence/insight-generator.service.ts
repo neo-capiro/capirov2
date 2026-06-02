@@ -9,7 +9,7 @@ import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
 import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
-import { addDateInZone, dateBoundsInZone } from './time-bounds.js';
+import { addDateInZone, dateBoundsInZone, dayBoundsInZone } from './time-bounds.js';
 
 const AI_TIMEOUT_MS = 90_000;
 
@@ -788,21 +788,24 @@ If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] onl
   }
 
   /**
-   * Tenant-wide Clio Brief for the home dashboard. Pulls today's calendar
-   * (hearings, comment deadlines) + recent high-severity intel changes
-   * touching this tenant's clients and asks the LLM for a 3-4 sentence
-   * narrative pointing to today's highest-leverage moves.
+   * Tenant-wide Clio Brief for the home dashboard. Pulls upcoming hearings/
+   * markups (next 7 days), the firm's own meetings scheduled for today, and
+   * recent high-severity intel changes touching this tenant's clients, then
+   * asks the LLM for a 3-4 sentence narrative pointing to today's
+   * highest-leverage moves. Comment-period deadlines deliberately live in the
+   * dashboard's Needs Attention surface, not here.
    */
   async generateDailyBrief(tenantId: string) {
     const now = new Date();
-    // Use UTC-midnight bounds for @db.Date columns (committee_hearing.date,
-    // federal_register_document.comment_end_date, both come back at UTC
-    // midnight regardless of intended timezone). setHours(0,0,0,0) resolves
-    // in server-local time, which works on UTC prod but skews 4-5h on ET dev
-    // and excludes today's rows from the calendar query.
+    // committee_hearing.date is a `@db.Date` column — Prisma returns it at UTC
+    // midnight regardless of intended timezone, so it must be filtered with
+    // UTC-midnight bounds (dateBoundsInZone), not ET-instant bounds, or
+    // boundary-day rows get excluded.
     const { start: startOfDay } = dateBoundsInZone(now, 'America/New_York');
     const sevenDaysOut = addDateInZone(now, 7, 'America/New_York');
-    const fourteenDaysOut = addDateInZone(now, 14, 'America/New_York');
+    // meeting.startsAt is `@db.Timestamptz` — use true ET-instant day bounds so
+    // evening meetings (after 19:00 ET / 00:00 UTC) aren't dropped.
+    const { start: todayStartEt, end: todayEndEt } = dayBoundsInZone(now, 'America/New_York');
     const last48h = new Date(now.getTime() - 48 * 60 * 60 * 1000);
 
     const clients = await this.prisma.withTenant(tenantId, (tx) =>
@@ -828,20 +831,33 @@ If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] onl
           .join(', ')
       : '(none on file)';
 
-    const [hearings, deadlines, changes] = await Promise.all([
+    const [hearings, meetings, changes] = await Promise.all([
       this.prisma.committeeHearing.findMany({
         where: { date: { gte: startOfDay, lte: sevenDaysOut } },
         orderBy: { date: 'asc' },
         take: 12,
       }),
-      this.prisma.federalRegisterDocument.findMany({
-        where: {
-          type: { in: ['PROPOSED_RULE', 'RULE'] },
-          commentEndDate: { gte: startOfDay, lte: fourteenDaysOut },
-        },
-        orderBy: { commentEndDate: 'asc' },
-        take: 10,
-      }),
+      // Today's meetings on the firm's own calendar (tenant-scoped via RLS).
+      // Replaces the comment-period block: the brief now leads with what the
+      // team is actually doing on the Hill today, not regulatory deadlines
+      // (those live in Needs Attention).
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.meeting.findMany({
+          where: {
+            startsAt: { gte: todayStartEt, lte: todayEndEt },
+            status: { not: 'cancelled' },
+          },
+          orderBy: { startsAt: 'asc' },
+          take: 12,
+          select: {
+            subject: true,
+            startsAt: true,
+            location: true,
+            organizerName: true,
+            clientId: true,
+          },
+        }),
+      ),
       this.prisma.intelligenceChange.findMany({
         where: {
           detectedAt: { gte: last48h },
@@ -867,15 +883,27 @@ If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] onl
       })
       .join('\n') || '(none on schedule)';
 
-    const deadlinesBlock = deadlines
-      .slice(0, 6)
-      .map((d) => {
-        const days = d.commentEndDate
-          ? Math.max(0, Math.ceil((d.commentEndDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
-          : 0;
-        return `- ${days}d: ${d.agencyNames.slice(0, 2).join('/')}, ${d.title.slice(0, 110)}`;
+    const meetingsBlock = meetings
+      .slice(0, 8)
+      .map((m) => {
+        let timeLabel = '';
+        try {
+          timeLabel = m.startsAt.toLocaleTimeString('en-US', {
+            hour: 'numeric',
+            minute: '2-digit',
+            timeZone: 'America/New_York',
+          });
+        } catch {
+          timeLabel = '';
+        }
+        const clientHint = m.clientId && clientNameById.has(m.clientId)
+          ? ` [client: ${clientNameById.get(m.clientId)}]`
+          : '';
+        const where = m.location ? ` @ ${m.location}` : '';
+        const who = m.organizerName ? ` (${m.organizerName})` : '';
+        return `- ${timeLabel} ${m.subject}${who}${where}${clientHint}`;
       })
-      .join('\n') || '(no comment-period deadlines in next 14 days)';
+      .join('\n') || '(no meetings on the calendar today)';
 
     const changesBlock = tenantChanges
       .slice(0, 10)
@@ -888,9 +916,9 @@ If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] onl
       })
       .join('\n') || '(no high-severity changes detected in last 48h)';
 
-    if (!hearings.length && !deadlines.length && !tenantChanges.length) {
+    if (!hearings.length && !meetings.length && !tenantChanges.length) {
       return {
-        brief: `${todayLabel}, quiet day on the federal calendar. No hearings, no comment deadlines closing, no high-severity changes in the last 48 hours. Use the window to advance long-running outreach.`,
+        brief: `${todayLabel}, quiet day. No hearings on the calendar, no client meetings booked, no high-severity changes in the last 48 hours. Use the window to advance long-running outreach.`,
         generatedAt: now.toISOString(),
         provider: null as string | null,
         model: null as string | null,
@@ -898,7 +926,7 @@ If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] onl
       };
     }
 
-    const prompt = `You are writing today's leverage brief for a federal lobbying firm. Write 3-5 sentences in a punchy, voice-of-Capiro-Clio tone, concrete, specific, name names, and point to the single highest-leverage action for today. Do not list everything; pick the 1-2 things that actually matter. Reference the firm's active clients by name when the data supports it. Avoid hedging.
+    const prompt = `You are writing today's leverage brief for a federal lobbying firm. Write 3-5 sentences in a punchy, voice-of-Capiro-Clio tone, concrete, specific, name names, and point to the single highest-leverage action for today. Do not list everything; pick the 1-2 things that actually matter. Reference the firm's active clients by name when the data supports it. Tie today's meetings to the intel where it makes sense (e.g. a client whose program just moved is on the calendar). Avoid hedging.
 
 TODAY: ${todayLabel}
 ACTIVE CLIENTS: ${tenantClientList || '(no active clients)'}
@@ -907,8 +935,8 @@ ACTIVE SUBMISSION TRACKS: ${tracksBlock}
 UPCOMING HEARINGS / MARKUPS (next 7 days):
 ${hearingsBlock}
 
-COMMENT-PERIOD DEADLINES (next 14 days):
-${deadlinesBlock}
+TODAY'S MEETINGS (firm calendar):
+${meetingsBlock}
 
 HIGH-SEVERITY CHANGES (last 48h, tenant-relevant):
 ${changesBlock}
@@ -927,7 +955,7 @@ Write the brief now. Start with "Today's leverage is" or similar. Do not include
     } catch (err) {
       this.logger.warn(`Daily brief generation failed: ${(err as Error).message}`);
       return {
-        brief: `${todayLabel}, ${hearings.length} hearing(s), ${deadlines.length} comment deadline(s), ${tenantChanges.length} high-severity change(s) in the last 48 hours. AI brief unavailable; review the timeline.`,
+        brief: `${todayLabel}, ${hearings.length} hearing(s), ${meetings.length} meeting(s) on the calendar, ${tenantChanges.length} high-severity change(s) in the last 48 hours. AI brief unavailable; review the timeline.`,
         generatedAt: now.toISOString(),
         provider: null as string | null,
         model: null as string | null,

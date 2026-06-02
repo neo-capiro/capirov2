@@ -209,3 +209,114 @@ describe('InsightGeneratorService.generateClientBriefing PE section', () => {
     expect(callArgs[4]).toBe('gpt-4o-mini');
   });
 });
+
+describe('InsightGeneratorService.generateDailyBrief', () => {
+  const tenantId = '00000000-0000-0000-0000-000000000001';
+  const clientId = '00000000-0000-0000-0000-000000000010';
+
+  function makeDailyBriefService(opts?: {
+    meetings?: Array<{ subject: string; startsAt: Date; location?: string | null; organizerName?: string | null; clientId?: string | null }>;
+    hearings?: unknown[];
+    changes?: unknown[];
+  }) {
+    const meetings = opts?.meetings ?? [];
+    const hearings = opts?.hearings ?? [];
+    const changes = opts?.changes ?? [];
+
+    // Spy on the comment-period source so we can assert the daily brief no
+    // longer queries it. If this ever fires, the regression has returned.
+    const fedRegFindMany = jest.fn(async () => []);
+
+    const prisma: any = {
+      withTenant: jest.fn(async (_tenantId: string, run: (tx: any) => Promise<any>) =>
+        run({
+          client: {
+            findMany: jest.fn(async () => [
+              { id: clientId, name: 'Acme Defense', sectorTag: 'defense', submissionTracks: ['NDAA'] },
+            ]),
+          },
+          meeting: {
+            findMany: jest.fn(async (args: any) => {
+              // Honour the date filter so the timezone-bounds assertion is real:
+              // only return meetings whose startsAt falls within the queried window.
+              const gte = args?.where?.startsAt?.gte as Date | undefined;
+              const lte = args?.where?.startsAt?.lte as Date | undefined;
+              return meetings.filter(
+                (m) => (!gte || m.startsAt >= gte) && (!lte || m.startsAt <= lte),
+              );
+            }),
+          },
+        }),
+      ),
+      committeeHearing: { findMany: jest.fn(async () => hearings) },
+      federalRegisterDocument: { findMany: fedRegFindMany },
+      intelligenceChange: { findMany: jest.fn(async () => changes) },
+    };
+
+    const config: any = {
+      get: jest.fn((key: string) => {
+        if (key === 'OPENAI_API_KEY') return 'test-openai-key';
+        if (key === 'AI_PROVIDER') return 'openai';
+        if (key === 'OPENAI_MODEL') return 'gpt-4.1-mini';
+        if (key === 'ANTHROPIC_MODEL') return 'claude-sonnet-4-20250514';
+        return undefined;
+      }),
+    };
+    const lobbyIntel: any = { getAiContext: jest.fn(async () => null) };
+    const federalSpending: any = { getAiContext: jest.fn(async () => null) };
+
+    const service = new InsightGeneratorService(config, prisma, lobbyIntel, federalSpending);
+    // Echo the prompt back as the brief text so we can assert on context blocks.
+    const freeText = jest
+      .spyOn(service as any, 'generateFreeText')
+      .mockImplementation(async (...args: unknown[]) => `BRIEF::${args[0] as string}`);
+
+    return { service, prisma, fedRegFindMany, freeText };
+  }
+
+  test('does NOT query the federal register (comment-period) source', async () => {
+    const { service, fedRegFindMany } = makeDailyBriefService({
+      hearings: [{ date: new Date(), time: '10:00', chamber: 'House', committeeName: 'HASC', title: 'Markup' }],
+    });
+    await service.generateDailyBrief(tenantId);
+    expect(fedRegFindMany).not.toHaveBeenCalled();
+  });
+
+  test('includes a late-evening ET meeting in the brief (timezone bounds correct)', async () => {
+    // 9:00pm ET on the current ET date == next-day UTC. dateBoundsInZone would
+    // have excluded this; dayBoundsInZone includes it.
+    const now = new Date();
+    const etDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/New_York',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+    // Build a 9pm ET instant for today by getting the ET offset for `now`.
+    const offRaw =
+      new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', timeZoneName: 'longOffset' })
+        .formatToParts(now)
+        .find((p) => p.type === 'timeZoneName')?.value ?? 'GMT-05:00';
+    const m = offRaw.match(/GMT([+-])(\d{2}):?(\d{2})?/);
+    const off = m ? `${m[1]}${m[2]}:${m[3] ?? '00'}` : '-05:00';
+    const eveningMeeting = new Date(`${etDate}T21:00:00${off}`);
+
+    const { service } = makeDailyBriefService({
+      meetings: [
+        { subject: 'Evening strategy w/ Acme', startsAt: eveningMeeting, location: 'Rayburn', organizerName: 'Jordan', clientId },
+      ],
+    });
+    const result = await service.generateDailyBrief(tenantId);
+    expect(result.brief).toContain("TODAY'S MEETINGS");
+    expect(result.brief).toContain('Evening strategy w/ Acme');
+    expect(result.brief).toContain('[client: Acme Defense]');
+  });
+
+  test('empty day (no hearings, meetings, changes) returns the quiet-day brief without an LLM call', async () => {
+    const { service, freeText } = makeDailyBriefService();
+    const result = await service.generateDailyBrief(tenantId);
+    expect(result.empty).toBe(true);
+    expect(result.brief).toContain('quiet day');
+    expect(freeText).not.toHaveBeenCalled();
+  });
+});
