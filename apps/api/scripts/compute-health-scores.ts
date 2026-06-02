@@ -6,6 +6,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 dotenvConfig();
 
 const prisma = new PrismaClient();
@@ -72,6 +73,7 @@ async function main() {
 
   console.log(`[compute-health-scores] starting at ${startedAt.toISOString()}`);
 
+  await runWithSyncRun(prisma as any, 'compute-health-scores', async () => {
   const tenants = await prisma.$queryRaw<Array<{ id: string; slug: string }>>`
     SELECT id, slug FROM tenants WHERE status = 'active'
   `;
@@ -138,6 +140,8 @@ async function main() {
   }
 
   console.log(`[compute-health-scores] done. Computed ${computed} scores, ${lowEngagementEmitted} low-engagement alerts, ${errors} errors. Elapsed: ${Date.now() - startedAt.getTime()}ms`);
+    return { inserted: 0, updated: computed, skipped: 0, errors };
+  });
 }
 
 main()
