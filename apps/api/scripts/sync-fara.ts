@@ -11,6 +11,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 
 dotenvConfig();
 
@@ -72,12 +73,13 @@ async function main() {
   console.log('[fara-sync] starting');
 
   try {
+    await runWithSyncRun(prisma as any, 'sync-fara', async () => {
     const records = await tryFetchJson();
 
     if (records.length === 0) {
       console.warn('[fara-sync] all FARA API sources are offline, skipping. FARA eFiling API has been down since early 2026.');
       console.log('[fara-sync] DONE (no data sources available) in ' + ((Date.now() - t0) / 1000).toFixed(1) + 's');
-      return;
+      return { inserted: 0, updated: 0, skipped: 0, errors: 0 };
     }
 
     console.log(`[fara-sync] found ${records.length} active registrations`);
@@ -121,6 +123,8 @@ async function main() {
     console.log(`[fara-sync] total: ${total}`);
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(`[fara-sync] DONE in ${elapsed}s`);
+      return { inserted: 0, updated: total, skipped: 0, errors: 0 };
+    });
   } finally {
     await prisma.$disconnect();
   }

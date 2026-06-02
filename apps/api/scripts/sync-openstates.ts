@@ -6,6 +6,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 dotenvConfig();
 
 const OS_BASE = 'https://v3.openstates.org';
@@ -63,6 +64,7 @@ async function main() {
   if (!OS_KEY) throw new Error('OPENSTATES_API_KEY env var is required');
 
   try {
+    await runWithSyncRun(prisma as any, 'sync-openstates', async () => {
     let totalBills = 0;
     let totalPeople = 0;
 
@@ -141,6 +143,8 @@ async function main() {
 
     console.log(`[openstates-sync] total: ${totalBills} bills, ${totalPeople} legislators`);
     console.log(`[openstates-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      return { inserted: totalBills + totalPeople, updated: 0, skipped: 0, errors: 0 };
+    });
   } finally { await prisma.$disconnect(); }
 }
 

@@ -14,6 +14,7 @@
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 import { buildLdaText, embedAndUpsert } from '../src/embeddings/embedder.js';
 
 dotenvConfig();
@@ -224,6 +225,7 @@ async function main() {
   console.log(`[lda-sync] starting (mode=${incremental ? 'incremental' : 'full'})`);
 
   try {
+    await runWithSyncRun(prisma as any, 'sync-lda', async () => {
     // ── 1. Reference data: issue codes ──────────────────────────────────────
     console.log('[lda-sync] fetching issue codes');
     const issueCodesRaw = await ldaFetch<{ value: string; name: string }[]>(
@@ -768,6 +770,8 @@ async function main() {
 
     const elapsed = ((Date.now() - t0) / 1000 / 60).toFixed(1);
     console.log(`[lda-sync] DONE in ${elapsed}m`);
+      return { inserted: totalFilings + totalContributions, updated: 0, skipped: 0, errors: 0 };
+    });
   } finally {
     await prisma.$disconnect();
   }
