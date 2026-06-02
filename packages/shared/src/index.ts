@@ -208,17 +208,19 @@ export const SUBMISSION_TRACKS = [
   'APPROPRIATIONS',
   'CDS',
   'AUTHORIZATION',
+  'FARM_BILL',
   'ADVOCACY',
 ] as const;
 
 export type SubmissionTrack = (typeof SUBMISSION_TRACKS)[number];
 
 export const SUBMISSION_TRACK_LABELS: Record<SubmissionTrack, string> = {
-  NDAA: 'NDAA',
-  APPROPRIATIONS: 'Appropriations',
-  CDS: 'Congressionally Directed Spending',
-  AUTHORIZATION: 'Authorization',
-  ADVOCACY: 'Advocacy',
+  NDAA: 'NDAA Authorization Request',
+  APPROPRIATIONS: 'Appropriations Plus-Up',
+  CDS: 'CDS / Earmark Request',
+  AUTHORIZATION: 'Authorization (non-NDAA)',
+  FARM_BILL: 'Farm Bill Provision',
+  ADVOCACY: 'Advocacy / Dear Colleague',
 };
 
 // ---------------------------------------------------------------------------
