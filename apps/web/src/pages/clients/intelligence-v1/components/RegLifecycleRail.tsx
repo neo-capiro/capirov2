@@ -38,8 +38,27 @@ export function RegLifecycleRail({ rails }: RegLifecycleRailProps) {
           <div className="iv1-lifecycle-rail">
             {reg.steps.map((step, i) => (
               <div key={`${reg.docket}-${step.label}`} style={{ display: 'contents' }}>
-                <div className={`iv1-lifecycle-step ${step.state}`}>{step.label}</div>
-                {i < reg.steps.length - 1 && <span className="iv1-lifecycle-arrow">→</span>}
+                <div
+                  className={`iv1-lifecycle-step ${step.state}`}
+                  title={
+                    step.state === 'done'
+                      ? `${step.label} — completed`
+                      : step.state === 'current'
+                        ? `${step.label} — current stage`
+                        : `${step.label} — upcoming`
+                  }
+                >
+                  {step.state === 'done' && <span className="iv1-lifecycle-check" aria-hidden>✓ </span>}
+                  {step.label}
+                </div>
+                {i < reg.steps.length - 1 && (
+                  <span
+                    className={`iv1-lifecycle-arrow${step.state === 'done' ? ' is-done' : ''}`}
+                    aria-hidden
+                  >
+                    →
+                  </span>
+                )}
               </div>
             ))}
           </div>

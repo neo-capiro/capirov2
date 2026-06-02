@@ -49,6 +49,11 @@ interface RegBlock {
 const KANBAN_STORAGE_KEY = 'capiro:intel-v1:kanban-controls';
 const DEFAULT_CONTROLS: KanbanControlsValue = { filter: 'all', sort: 'probability' };
 
+// Default view hides bills below this passage likelihood so the board leads
+// with legislation that actually has momentum. A "show all" toggle reveals the
+// long tail (introduced/early-committee bills) on demand.
+const PROBABILITY_FLOOR = 60;
+
 function loadKanbanControls(): KanbanControlsValue {
   try {
     if (typeof window === 'undefined') return DEFAULT_CONTROLS;
@@ -107,6 +112,20 @@ function applyKanbanControls(columns: BillKanbanColumn[], controls: KanbanContro
   });
 }
 
+/**
+ * Hide cards below the passage-likelihood floor. Cards with no probability
+ * (pct == null) are treated as below the floor — an unknown likelihood is not
+ * "momentum". When applied, the column count is reset to the number of cards
+ * that survive the floor, so the "+N more" overflow never implies hidden
+ * high-probability bills the user can't reach.
+ */
+function applyProbabilityFloor(columns: BillKanbanColumn[]): BillKanbanColumn[] {
+  return columns.map((col) => {
+    const cards = col.cards.filter((c) => c.pct != null && c.pct >= PROBABILITY_FLOOR);
+    return { ...col, cards, count: cards.length };
+  });
+}
+
 export function LegislativeRegulatorySection({
   aggregate,
   clientId,
@@ -139,7 +158,11 @@ export function LegislativeRegulatorySection({
     },
     onSuccess: (_data, { tracked }) => {
       message.success(tracked ? 'Bill untracked' : 'Bill tracked');
-      void qc.invalidateQueries({ queryKey: ['client-intel-v1-profile', clientId] });
+      // The kanban board is fed by the v1 AGGREGATE query, not the legacy
+      // client-intel-v1-profile query — invalidating the latter left the board
+      // stale after starring/unstarring. Invalidate the aggregate so the
+      // pipeline (and its pinned-bill ordering) refreshes immediately.
+      void qc.invalidateQueries({ queryKey: ['client-intel-v1-aggregate', clientId] });
     },
     onError: () => {
       message.error('Could not update bill tracking');
@@ -163,6 +186,10 @@ export function LegislativeRegulatorySection({
     setControls(next);
     saveKanbanControls(next);
   };
+
+  // Passage-likelihood floor: default ON (hide < 60%). "Show all" reveals the
+  // lower-probability long tail.
+  const [showAllProbabilities, setShowAllProbabilities] = useState(false);
 
   const baseKanban = useMemo<BillKanbanColumn[]>(() => {
     if (!dynamicKanban?.length) return EMPTY_KANBAN;
@@ -188,7 +215,36 @@ export function LegislativeRegulatorySection({
     }));
   }, [dynamicKanban]);
 
-  const kanbanData = useMemo(() => applyKanbanControls(baseKanban, controls), [baseKanban, controls]);
+  const controlledKanban = useMemo(
+    () => applyKanbanControls(baseKanban, controls),
+    [baseKanban, controls],
+  );
+  const kanbanData = useMemo(
+    () => (showAllProbabilities ? controlledKanban : applyProbabilityFloor(controlledKanban)),
+    [controlledKanban, showAllProbabilities],
+  );
+
+  // How many of the currently-visible-after-controls cards fall below the
+  // floor — drives the "show all (N)" toggle label. Counts only what the
+  // active filter/sort would otherwise show, so the number is honest.
+  const hiddenLowProbCount = useMemo(
+    () =>
+      controlledKanban.reduce(
+        (sum, col) =>
+          sum + col.cards.filter((c) => c.pct == null || c.pct < PROBABILITY_FLOOR).length,
+        0,
+      ),
+    [controlledKanban],
+  );
+
+  // Distinguish "the client genuinely has no matched bills" (server totals all
+  // zero → mapping CTA) from "every visible bill is below the probability floor"
+  // (bills exist, just hidden → offer to reveal them). Without this split, a
+  // client whose bills are all early-stage would see the misleading "No
+  // relevant bills" mapping CTA the moment the default floor kicked in.
+  const hasAnyBills = baseKanban.some((c) => c.count > 0);
+  const visibleCardCount = kanbanData.reduce((sum, col) => sum + col.cards.length, 0);
+  const allHiddenByFloor = hasAnyBills && !showAllProbabilities && visibleCardCount === 0;
 
   const regsData: RegBlock[] = dynamicRegs?.length
     ? dynamicRegs.map((r) => {
@@ -262,16 +318,48 @@ export function LegislativeRegulatorySection({
       <div className="iv1-surface">
         <div className="iv1-surface-head">
           <h3>Bill pipeline</h3>
-          <span className="iv1-surface-sub">matched via embeddings · Issue-Bill Linker</span>
+          <span
+            className="iv1-surface-sub"
+            title="Bills are matched to this client's confirmed LDA issue codes and capability text by the Issue-Bill Linker (vector embeddings)."
+          >
+            matched via embeddings · Issue-Bill Linker
+          </span>
+          {hasAnyBills && (
+            <button
+              type="button"
+              className="iv1-btn iv1-btn-sm"
+              style={{ marginLeft: 8 }}
+              aria-pressed={showAllProbabilities}
+              onClick={() => setShowAllProbabilities((v) => !v)}
+              title={`Passage likelihood is derived from each bill's latest action. The default view hides bills below ${PROBABILITY_FLOOR}%.`}
+            >
+              {showAllProbabilities
+                ? `Hide < ${PROBABILITY_FLOOR}%`
+                : `Show all${hiddenLowProbCount > 0 ? ` (${hiddenLowProbCount})` : ''}`}
+            </button>
+          )}
           <BillKanbanControls value={controls} onChange={handleControlsChange} />
         </div>
-        {/* Empty state when the API returned zero tracked bills across all
-            stages, typically a client that hasn't had its LDA issue codes
-            confirmed yet, or one whose capability text doesn't have enough
-            signal to match embedded bills. Rendering the 4 empty columns
-            was confusing ("the kanban looks broken") so we replace it
-            with a single CTA pointing at the mapping settings. */}
-        {kanbanData.every((c) => c.count === 0) ? (
+
+        {/* Explainer strip: what the columns / % / star mean. Concise, always
+            visible above the board so the affordances are self-documenting. */}
+        {hasAnyBills && (
+          <div className="iv1-kanban-legend">
+            Columns track each bill through{' '}
+            <strong>Introduced → In committee → Passed chamber → Enacted</strong>. The{' '}
+            <strong>%</strong> is the passage likelihood derived from the bill's latest action.
+            Tap the <span className="iv1-kanban-legend-star">☆</span> to add or remove a bill from
+            this client's tracked bills. Click a card to open its full detail.
+          </div>
+        )}
+
+        {/* Three states:
+            1. No matched bills at all → mapping CTA (mapping not confirmed /
+               capability text too thin to match embedded bills).
+            2. Bills exist but all sit below the default probability floor →
+               offer to reveal them rather than implying there are none.
+            3. Otherwise → render the board. */}
+        {!hasAnyBills ? (
           <div
             style={{
               padding: '28px 18px',
@@ -291,6 +379,31 @@ export function LegislativeRegulatorySection({
             <Link className="iv1-link" to="/settings/intelligence-mappings">
               Manage source mappings →
             </Link>
+          </div>
+        ) : allHiddenByFloor ? (
+          <div
+            style={{
+              padding: '28px 18px',
+              textAlign: 'center',
+              color: 'var(--ink-3)',
+              fontSize: 13,
+              lineHeight: 1.55,
+            }}
+          >
+            <div style={{ fontWeight: 600, color: 'var(--ink-2)', marginBottom: 6 }}>
+              No high-probability bills right now
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              Every matched bill is below the {PROBABILITY_FLOOR}% passage-likelihood
+              threshold (mostly newly introduced or early-committee legislation).
+            </div>
+            <button
+              type="button"
+              className="iv1-btn iv1-btn-sm"
+              onClick={() => setShowAllProbabilities(true)}
+            >
+              Show all {hiddenLowProbCount} bills
+            </button>
           </div>
         ) : (
           <BillKanban

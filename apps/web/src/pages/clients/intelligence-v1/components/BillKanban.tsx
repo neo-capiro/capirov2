@@ -16,6 +16,14 @@ import { PassageProbabilityBar } from './PassageProbabilityBar.js';
 
 const MAX_VISIBLE = 5;
 
+/** Per-stage explainer copy, surfaced as a column-header tooltip. */
+const STAGE_HELP: Record<BillKanbanColumn['stage'], string> = {
+  introduced: 'Introduced — the bill has been formally introduced but not yet acted on. Lowest passage likelihood.',
+  committee: 'In committee — referred to, or being marked up by, a committee of jurisdiction.',
+  passed: 'Passed chamber — agreed to by at least one chamber; awaiting the other chamber or the President.',
+  enacted: 'Enacted — signed into law (or became law). Highest passage likelihood.',
+};
+
 /** True for app-internal SPA routes that should navigate without a full reload. */
 function isInternalHref(href: string): boolean {
   return href.startsWith('/') && !href.startsWith('//');
@@ -87,10 +95,15 @@ export function BillKanban({ columns, billDrillHref, onToggleTrack, pendingTrack
         const overflow = col.count - visible.length;
         return (
           <div key={col.stage} className="iv1-bill-col" data-st={col.stage}>
-            <div className="iv1-bill-col-head">
+            <div className="iv1-bill-col-head" title={STAGE_HELP[col.stage]}>
               <span className="iv1-bill-col-dot" />
               <span className="iv1-bill-col-title">{col.label}</span>
-              <span className="iv1-bill-col-count">{col.count}</span>
+              <span
+                className="iv1-bill-col-count"
+                title={`${col.count} bill${col.count === 1 ? '' : 's'} in this stage`}
+              >
+                {col.count}
+              </span>
             </div>
 
             {visible.map((card, cardIdx) => {

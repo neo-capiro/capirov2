@@ -103,12 +103,19 @@ export function DataExplorerPage() {
   // ?source=<key> deep-links to a specific tab. Dashboard's "Needs Attention"
   // Comments tile uses this to land users directly on comment-deadlines.
   const [searchParams, setSearchParams] = useSearchParams();
+  // ?bill=<congressBillId> deep-links straight to a Congress bill's detail
+  // drawer (used by the Client Intelligence bill-pipeline cards). It implies
+  // the "bills" tab even when ?source= is absent or different.
+  const billParam = searchParams.get('bill');
   const initialSource = (() => {
     const fromUrl = searchParams.get('source') as SourceKey | null;
+    if (billParam) return 'bills';
     return fromUrl && SOURCES.some((s) => s.key === fromUrl) ? fromUrl : 'lda';
   })();
   const [source, setSource] = useState<SourceKey>(initialSource);
-  const [drillIn, setDrillIn] = useState<DrillIn>(null);
+  const [drillIn, setDrillIn] = useState<DrillIn>(
+    billParam ? { source: 'bills', id: billParam, rowSummary: billParam } : null,
+  );
 
   // Keep ?source= in sync if the user changes tab manually. Replace (not push)
   // so the back button still leaves the page as a whole, not tab-by-tab.
@@ -123,6 +130,19 @@ export function DataExplorerPage() {
     // user-driven `source` change. Including searchParams loops with itself.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [source]);
+
+  // React to ?bill= changing while already on the page (e.g. clicking a
+  // different bill card from a deep-linked Explorer view): switch to the
+  // bills tab and open that bill's detail drawer.
+  useEffect(() => {
+    if (!billParam) return;
+    setSource('bills');
+    setDrillIn((prev) =>
+      prev && prev.source === 'bills' && prev.id === billParam
+        ? prev
+        : { source: 'bills', id: billParam, rowSummary: billParam },
+    );
+  }, [billParam]);
 
   return (
     <section className="explorer-page redesign">

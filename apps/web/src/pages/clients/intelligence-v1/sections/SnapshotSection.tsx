@@ -4,7 +4,6 @@
  * Renders: hero metrics, Clio briefing, top alerts, 90-day activity strip.
  */
 import { useMemo, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Skeleton } from 'antd';
 import { useApi } from '../../../../lib/use-api.js';
@@ -22,7 +21,6 @@ interface SnapshotSectionProps {
 
 export function SnapshotSection({ clientId, clientName, profile: profileFromParent, aggregate }: SnapshotSectionProps) {
   const api = useApi();
-  const navigate = useNavigate();
 
   const profile = profileFromParent ?? null;
 
@@ -129,26 +127,21 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
   const activityOutreach = activityRows
     ? activityRows.reduce((sum, d) => sum + (d.outreach ?? 0), 0)
     : 0;
-  const activityTasks = activityRows
-    ? activityRows.reduce((sum, d) => sum + d.tasks, 0)
-    : 0;
   // Bars are scaled to the largest single category so the visual emphasis
   // is "which kind of activity dominates", not the absolute totals.
   const activityMax = Math.max(
     activityMeetings,
     activityOutreach,
-    activityTasks,
     trackedTotal,
     criticalAlerts.length,
     1,
   );
   // Whether there is any CRM activity at all in the window. When everything is
-  // zero we render a compact empty state instead of five flat zero-bars, which
+  // zero we render a compact empty state instead of flat zero-bars, which
   // read as a broken/empty chart.
   const hasActivity =
     activityMeetings > 0 ||
     activityOutreach > 0 ||
-    activityTasks > 0 ||
     trackedTotal > 0 ||
     criticalAlerts.length > 0;
   return (
@@ -216,12 +209,6 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
                   color={activityOutreach === 0 ? 'var(--ink-4)' : 'var(--info)'}
                 />
                 <ActivityBar
-                  label="Tasks done"
-                  value={activityTasks}
-                  max={activityMax}
-                  color={activityTasks === 0 ? 'var(--ink-4)' : 'var(--success)'}
-                />
-                <ActivityBar
                   label="Bills tracked"
                   value={trackedTotal}
                   max={Math.max(trackedTotal, activityMax, 1)}
@@ -240,40 +227,9 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
                 style={{ padding: '20px 8px 16px', textAlign: 'center' }}
               >
                 <b>No activity in the last 14 days</b>
-                <span>Logged meetings, outreach, tasks, and tracked bills will appear here.</span>
+                <span>Logged meetings, outreach, and tracked bills will appear here.</span>
               </div>
             )}
-            <div
-              style={{
-                marginTop: hasActivity ? 12 : 4,
-                paddingTop: 12,
-                borderTop: '1px solid var(--border-1)',
-                display: 'flex',
-                gap: 8,
-              }}
-            >
-              <button
-                type="button"
-                className="iv1-btn-primary iv1-btn-sm"
-                style={{ flex: 1, textAlign: 'center' }}
-                onClick={() =>
-                  navigate(
-                    aggregate?.links.changesInbox ??
-                      `/intelligence/changes?clientId=${encodeURIComponent(clientId)}`,
-                  )
-                }
-              >
-                Changes inbox
-              </button>
-              <button
-                type="button"
-                className="iv1-btn iv1-btn-sm"
-                style={{ flex: 1, textAlign: 'center' }}
-                onClick={() => navigate('/explorer')}
-              >
-                Explorer
-              </button>
-            </div>
           </div>
         </div>
       </div>
