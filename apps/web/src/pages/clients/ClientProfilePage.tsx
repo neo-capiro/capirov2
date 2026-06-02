@@ -71,7 +71,14 @@ interface ClientPerson {
   createdAt: string;
 }
 
-type ProfileTab = 'overview' | 'capabilities' | 'people' | 'workflows' | 'documents' | 'intelligence' | 'dow-directory';
+type ProfileTab =
+  | 'overview'
+  | 'capabilities'
+  | 'people'
+  | 'workflows'
+  | 'documents'
+  | 'intelligence'
+  | 'dow-directory';
 
 const STATUS_COLOR: Record<string, string> = {
   active: '#52c41a',
@@ -125,8 +132,7 @@ export function ClientProfilePage({
 
   const people = useQuery<ClientPerson[]>({
     queryKey: ['client-people', client.id],
-    queryFn: async () =>
-      (await api.get<ClientPerson[]>(`/api/clients/${client.id}/people`)).data,
+    queryFn: async () => (await api.get<ClientPerson[]>(`/api/clients/${client.id}/people`)).data,
     // Eager-load for tab badge counts; cheap query and lets the tab strip
     // show "(N)" without waiting for the user to click in.
   });
@@ -201,7 +207,13 @@ export function ClientProfilePage({
   return (
     <div
       className="redesign"
-      style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--bg-canvas)' }}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1,
+        overflow: 'hidden',
+        background: 'var(--bg-canvas)',
+      }}
     >
       <h1 className="cp-page-title">Portfolio</h1>
 
@@ -212,11 +224,7 @@ export function ClientProfilePage({
         </button>
 
         <div className="cp-logo">
-          {client.logoUrl ? (
-            <img src={client.logoUrl} alt={client.name} />
-          ) : (
-            initials(client.name)
-          )}
+          {client.logoUrl ? <img src={client.logoUrl} alt={client.name} /> : initials(client.name)}
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -312,7 +320,17 @@ export function ClientProfilePage({
 
       {/* Tab nav */}
       <div className="cp-tabs">
-        {(['overview', 'capabilities', 'people', 'workflows', 'documents', 'intelligence', 'dow-directory'] as ProfileTab[]).map((tab) => {
+        {(
+          [
+            'overview',
+            'capabilities',
+            'people',
+            'workflows',
+            'documents',
+            'intelligence',
+            'dow-directory',
+          ] as ProfileTab[]
+        ).map((tab) => {
           const badge =
             tab === 'capabilities'
               ? capabilities.data?.length
@@ -517,13 +535,42 @@ function OverviewTab({
       return next;
     });
 
+  // Gov't registration (Company Info v3 field set).
   const cageCode = readText(intake, ['cageCode', 'cage_code']);
   const uei = readText(intake, ['uei']);
-  const primaryNaics = readText(intake, ['primaryNaics', 'primary_naics', 'naics']);
   const samStatus = readText(intake, ['samStatus', 'sam_status']);
+  const samExpirationDate = readText(intake, ['samExpirationDate', 'sam_expiration_date']);
+  const primaryNaics = readText(intake, ['primaryNaics', 'primary_naics', 'naics']);
+  const additionalNaics = readText(intake, ['additionalNaics', 'additional_naics']);
+  const ldaRegistrantName = readText(intake, ['ldaRegistrantName', 'lda_registrant_name']);
+  const ein = readText(intake, ['ein']);
   const existingContracts = readText(intake, ['existingContracts', 'existing_contracts']);
+  const hasGovReg =
+    cageCode ||
+    uei ||
+    primaryNaics ||
+    additionalNaics ||
+    samStatus ||
+    samExpirationDate ||
+    ldaRegistrantName ||
+    ein ||
+    existingContracts;
 
-  const sectorLabel = sectorLabelFor(client) ?? readText(intake, ['sector']);
+  // Company-info fields.
+  const dba = readText(intake, ['dba']);
+  const location = formatLocation(intake);
+  const sbClassLabels = sbClassificationLabels(intake);
+  const engagementStart = readText(intake, ['engagementStartDate', 'engagement_start_date']);
+
+  // Sector tags: prefer the stored multi-select list (intakeData.sectors),
+  // rendered via controlled labels; fall back to the single primary sector.
+  const sectorTagsList = readList(intake, ['sectors']);
+  const sectorLabels = sectorTagsList.length
+    ? sectorTagsList.map((s) => SECTOR_LABELS[s as SectorTag] ?? s)
+    : (() => {
+        const single = sectorLabelFor(client) ?? readText(intake, ['sector']);
+        return single ? [single] : [];
+      })();
   const submissionTracks = (client.submissionTracks ?? []).map(
     (t) => SUBMISSION_TRACK_LABELS[t as SubmissionTrack] ?? t,
   );
@@ -537,7 +584,11 @@ function OverviewTab({
             <h3>Company information</h3>
           </header>
           <div className="info-table">
-            <InfoRow label="Name" value={<span style={{ fontWeight: 600 }}>{client.name}</span>} />
+            <InfoRow
+              label="Legal name"
+              value={<span style={{ fontWeight: 600 }}>{client.name}</span>}
+            />
+            <InfoRow label="DBA / trade name" value={dba} />
             <InfoRow
               label="Website"
               value={
@@ -554,22 +605,44 @@ function OverviewTab({
               }
             />
             <InfoRow label="Description" value={client.description} />
+            <InfoRow label="Location" value={location} />
             <InfoRow
-              label="Sector"
+              label="Small Business Classification"
               value={
-                sectorLabel ? (
+                sbClassLabels.length ? (
+                  <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {sbClassLabels.map((c) => (
+                      <span key={c} className="tag-chip">
+                        {c}
+                      </span>
+                    ))}
+                  </span>
+                ) : null
+              }
+            />
+            <InfoRow
+              label="Sector tags"
+              value={
+                sectorLabels.length ? (
                   <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span
-                      className="tag-chip"
-                      style={{
-                        background: 'var(--accent-soft)',
-                        color: 'var(--accent-ink)',
-                        borderColor: 'transparent',
-                        fontWeight: 600,
-                      }}
-                    >
-                      {sectorLabel}
-                    </span>
+                    {sectorLabels.map((label, i) => (
+                      <span
+                        key={label}
+                        className="tag-chip"
+                        style={
+                          i === 0
+                            ? {
+                                background: 'var(--accent-soft)',
+                                color: 'var(--accent-ink)',
+                                borderColor: 'transparent',
+                                fontWeight: 600,
+                              }
+                            : undefined
+                        }
+                      >
+                        {label}
+                      </span>
+                    ))}
                   </span>
                 ) : null
               }
@@ -588,12 +661,17 @@ function OverviewTab({
                 ) : null
               }
             />
-            <InfoRow label="Product / Service" value={client.productDescription} />
+            <InfoRow
+              label="Engagement start"
+              value={engagementStart ? formatDate(engagementStart) : null}
+            />
             <InfoRow
               label="Engagement"
               value={
                 <span>
-                  <span style={{ color: STATUS_COLOR[client.status] ?? '#8c8c8c', fontWeight: 600 }}>
+                  <span
+                    style={{ color: STATUS_COLOR[client.status] ?? '#8c8c8c', fontWeight: 600 }}
+                  >
                     {titleCase(client.status)}
                   </span>
                   {' · since '}
@@ -604,8 +682,46 @@ function OverviewTab({
           </div>
         </section>
 
+        {/* Contact, only show if any company-level contact field is populated */}
+        {client.primaryContactName || client.primaryContactEmail || client.primaryContactPhone ? (
+          <section className="surface" style={{ marginTop: 14 }}>
+            <header className="surface-head">
+              <h3>Contact</h3>
+            </header>
+            <div className="info-table">
+              <InfoRow label="Primary POC" value={client.primaryContactName} />
+              <InfoRow
+                label="Company email"
+                value={
+                  client.primaryContactEmail ? (
+                    <a
+                      href={`mailto:${client.primaryContactEmail}`}
+                      style={{ color: 'var(--info)' }}
+                    >
+                      {client.primaryContactEmail}
+                    </a>
+                  ) : null
+                }
+              />
+              <InfoRow
+                label="Company phone"
+                value={
+                  client.primaryContactPhone ? (
+                    <a
+                      href={`tel:${client.primaryContactPhone.replace(/[^\d+]/g, '')}`}
+                      style={{ color: 'var(--info)' }}
+                    >
+                      {client.primaryContactPhone}
+                    </a>
+                  ) : null
+                }
+              />
+            </div>
+          </section>
+        ) : null}
+
         {/* Government Registration, only show if any field is populated */}
-        {cageCode || uei || primaryNaics || samStatus || existingContracts ? (
+        {hasGovReg ? (
           <section className="surface" style={{ marginTop: 14 }}>
             <header className="surface-head">
               <h3>Government registration</h3>
@@ -613,8 +729,15 @@ function OverviewTab({
             <div className="info-table">
               <InfoRow label="CAGE Code" value={cageCode} />
               <InfoRow label="UEI (SAM)" value={uei} />
-              <InfoRow label="Primary NAICS" value={primaryNaics} />
               <InfoRow label="SAM Status" value={samStatus} />
+              <InfoRow
+                label="SAM Expiration"
+                value={samExpirationDate ? formatDate(samExpirationDate) : null}
+              />
+              <InfoRow label="Primary NAICS" value={primaryNaics} />
+              <InfoRow label="Additional NAICS" value={additionalNaics} />
+              <InfoRow label="LDA Registrant" value={ldaRegistrantName} />
+              <InfoRow label="EIN" value={ein} />
               <InfoRow label="Existing Contracts" value={existingContracts} />
             </div>
           </section>
@@ -686,7 +809,11 @@ function OverviewTab({
                   ))
                 )}
               </div>
-              <button className="she-add-btn" onClick={onAddCap} style={{ margin: '4px 14px 14px' }}>
+              <button
+                className="she-add-btn"
+                onClick={onAddCap}
+                style={{ margin: '4px 14px 14px' }}
+              >
                 <PlusOutlined /> Add capability
               </button>
             </>
@@ -714,7 +841,10 @@ function OverviewTab({
             ) : (
               people.slice(0, 3).map((p) => (
                 <div key={p.id} className="overview-person-row">
-                  <span className="overview-person-avatar" style={{ background: avatarColor(p.id) }}>
+                  <span
+                    className="overview-person-avatar"
+                    style={{ background: avatarColor(p.id) }}
+                  >
                     {personInitials(p.name)}
                   </span>
                   <span className="overview-person-text">
@@ -745,7 +875,11 @@ function InfoRow({ label, value }: { label: string; value: ReactNode }) {
 function PersonRoleTag({ role }: { role: string }) {
   const lower = role.toLowerCase();
   const isPoc = lower.includes('primary') || lower.includes('poc');
-  const isExec = lower.includes('exec') || lower.includes('ceo') || lower.includes('cfo') || lower.includes('president');
+  const isExec =
+    lower.includes('exec') ||
+    lower.includes('ceo') ||
+    lower.includes('cfo') ||
+    lower.includes('president');
   const bg = isPoc ? 'var(--accent-soft)' : isExec ? 'var(--notable-soft)' : 'var(--bg-sunken)';
   const color = isPoc ? 'var(--accent-ink)' : isExec ? 'var(--notable)' : 'var(--ink-2)';
   return (
@@ -775,7 +909,15 @@ function personInitials(name: string | null | undefined): string {
   return `${parts[0]?.[0] ?? ''}${parts[1]?.[0] ?? ''}`.toUpperCase();
 }
 
-const AVATAR_PALETTE = ['#5e7ce2', '#7a3fb5', '#c98a1d', '#2e6b43', '#b5301b', '#1a3f9f', '#3a7a4d'];
+const AVATAR_PALETTE = [
+  '#5e7ce2',
+  '#7a3fb5',
+  '#c98a1d',
+  '#2e6b43',
+  '#b5301b',
+  '#1a3f9f',
+  '#3a7a4d',
+];
 function avatarColor(seed: string): string {
   let h = 0;
   for (const ch of seed) h = (h * 31 + ch.charCodeAt(0)) & 0xffff;
@@ -885,8 +1027,8 @@ function PeopleTab({
         <div>
           <h3 className="cp-tab-h3">People</h3>
           <p className="cp-tab-dek">
-            Key contacts at this client, executives, government affairs, compliance, and
-            operational POCs.
+            Key contacts at this client, executives, government affairs, compliance, and operational
+            POCs.
           </p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} size="small" onClick={onAddPerson}>
@@ -897,7 +1039,11 @@ function PeopleTab({
       {people.length ? (
         <div className="cp-people-grid">
           {people.map((person) => (
-            <PersonCard key={person.id} person={person} onDelete={() => onDeletePerson(person.id)} />
+            <PersonCard
+              key={person.id}
+              person={person}
+              onDelete={() => onDeletePerson(person.id)}
+            />
           ))}
         </div>
       ) : (
@@ -914,24 +1060,23 @@ function PeopleTab({
 
 /* ── Workflows Tab ──────────────────────────────────────────────────────── */
 
-function WorkflowsTab({
-  workflows,
-  loading,
-}: {
-  workflows: WorkflowInstance[];
-  loading: boolean;
-}) {
+function WorkflowsTab({ workflows, loading }: { workflows: WorkflowInstance[]; loading: boolean }) {
   if (loading) return <Skeleton active paragraph={{ rows: 6 }} />;
 
   // Group workflow statuses into 3 spec columns. The backend has more granular
   // statuses (triage, in_progress, review, submitted, complete, cancelled);
   // we collapse review+submitted into "In Progress" and complete+cancelled
   // into "Done" so the column count matches the spec.
-  const cols: Array<{ key: 'triage' | 'in-progress' | 'done'; title: string; statuses: string[] }> = [
-    { key: 'triage', title: 'Triage', statuses: ['triage'] },
-    { key: 'in-progress', title: 'In Progress', statuses: ['in_progress', 'review', 'submitted'] },
-    { key: 'done', title: 'Done', statuses: ['complete', 'cancelled'] },
-  ];
+  const cols: Array<{ key: 'triage' | 'in-progress' | 'done'; title: string; statuses: string[] }> =
+    [
+      { key: 'triage', title: 'Triage', statuses: ['triage'] },
+      {
+        key: 'in-progress',
+        title: 'In Progress',
+        statuses: ['in_progress', 'review', 'submitted'],
+      },
+      { key: 'done', title: 'Done', statuses: ['complete', 'cancelled'] },
+    ];
 
   const grouped = new Map<string, WorkflowInstance[]>();
   for (const c of cols) grouped.set(c.key, []);
@@ -1023,8 +1168,7 @@ function DocumentsTab({
   });
 
   const deleteDoc = useMutation({
-    mutationFn: async (id: string) =>
-      (await api.delete(`/api/engagement/attachments/${id}`)).data,
+    mutationFn: async (id: string) => (await api.delete(`/api/engagement/attachments/${id}`)).data,
     onSuccess: () => {
       message.success('Document removed');
       qc.invalidateQueries({ queryKey: ['client-attachments', client.id] });
@@ -1195,7 +1339,10 @@ function DocumentsTab({
           })}
         </div>
       ) : (
-        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 20, fontSize: 13 }}>
+        <Typography.Text
+          type="secondary"
+          style={{ display: 'block', marginBottom: 20, fontSize: 13 }}
+        >
           No documents yet. Upload files above.
         </Typography.Text>
       )}
@@ -1309,7 +1456,10 @@ function CapabilityCard({
           {large && cap.description ? <p className="cap-desc">{cap.description}</p> : null}
           {!large && (cap.trl != null || cap.mrl != null) ? (
             <div className="cap-trl">
-              {[cap.trl != null ? `TRL ${cap.trl}` : null, cap.mrl != null ? `MRL ${cap.mrl}` : null]
+              {[
+                cap.trl != null ? `TRL ${cap.trl}` : null,
+                cap.mrl != null ? `MRL ${cap.mrl}` : null,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </div>
@@ -1331,14 +1481,18 @@ function CapabilityCard({
           <div className="cap-trl-row">
             <span className="cap-trl-key">TRL</span>
             <div className="cap-trl-bar">
-              <span style={{ width: `${((cap.trl ?? 0) / 9) * 100}%`, background: 'var(--accent)' }} />
+              <span
+                style={{ width: `${((cap.trl ?? 0) / 9) * 100}%`, background: 'var(--accent)' }}
+              />
             </div>
             <span className="cap-trl-val num">{cap.trl ?? '-'}/9</span>
           </div>
           <div className="cap-trl-row">
             <span className="cap-trl-key">MRL</span>
             <div className="cap-trl-bar">
-              <span style={{ width: `${((cap.mrl ?? 0) / 10) * 100}%`, background: 'var(--notable)' }} />
+              <span
+                style={{ width: `${((cap.mrl ?? 0) / 10) * 100}%`, background: 'var(--notable)' }}
+              />
             </div>
             <span className="cap-trl-val num">{cap.mrl ?? '-'}/10</span>
           </div>
@@ -1350,7 +1504,10 @@ function CapabilityCard({
               </span>
             </div>
           ) : null}
-          <div className="cap-trl-foot" style={{ borderTop: '1px solid var(--border-1)', paddingTop: 10 }}>
+          <div
+            className="cap-trl-foot"
+            style={{ borderTop: '1px solid var(--border-1)', paddingTop: 10 }}
+          >
             <span className="cap-trl-owner-avatar">{ownerInitial}</span>
             <span style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>Capability owner</span>
           </div>
@@ -1362,10 +1519,17 @@ function CapabilityCard({
 
 function PersonCard({ person, onDelete }: { person: ClientPerson; onDelete: () => void }) {
   const AVATAR_COLORS = [
-    '#1a5276', '#1b4fd8', '#6b21a8', '#166534',
-    '#0369a1', '#b45309', '#9d174d', '#1d4ed8',
+    '#1a5276',
+    '#1b4fd8',
+    '#6b21a8',
+    '#166534',
+    '#0369a1',
+    '#b45309',
+    '#9d174d',
+    '#1d4ed8',
   ];
-  const idx = person.name.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % AVATAR_COLORS.length;
+  const idx =
+    person.name.split('').reduce((acc, ch) => acc + ch.charCodeAt(0), 0) % AVATAR_COLORS.length;
   const avatarColor = AVATAR_COLORS[idx] ?? '#1a5276';
 
   return (
@@ -1430,11 +1594,7 @@ function ProfileField({ label, value }: { label: string; value?: ReactNode | str
     <div className="ps-field">
       <span className="ps-key">{label}</span>
       <span className="ps-val">
-        {value == null || value === '' ? (
-          <span className="ps-val-empty">Not provided</span>
-        ) : (
-          value
-        )}
+        {value == null || value === '' ? <span className="ps-val-empty">Not provided</span> : value}
       </span>
     </div>
   );
@@ -1458,7 +1618,10 @@ function AddCapabilityModal({
     <Modal
       title="Add Capability"
       open={open}
-      onCancel={() => { form.resetFields(); onCancel(); }}
+      onCancel={() => {
+        form.resetFields();
+        onCancel();
+      }}
       onOk={() => form.submit()}
       confirmLoading={submitting}
       okText="Add Capability"
@@ -1547,7 +1710,8 @@ function CapabilityIssueCodesField({ form }: { form: ReturnType<typeof Form.useF
   const api = useApi();
   const issuesQuery = useQuery<Array<{ code: string; name: string }>>({
     queryKey: ['lda-issues-options', 'add-capability-modal'],
-    queryFn: async () => (await api.get<Array<{ code: string; name: string }>>('/api/lda-intel/issues')).data,
+    queryFn: async () =>
+      (await api.get<Array<{ code: string; name: string }>>('/api/lda-intel/issues')).data,
     staleTime: 30 * 60 * 1000,
   });
 
@@ -1590,7 +1754,10 @@ function AddPersonModal({
     <Modal
       title="Add Person"
       open={open}
-      onCancel={() => { form.resetFields(); onCancel(); }}
+      onCancel={() => {
+        form.resetFields();
+        onCancel();
+      }}
       onOk={() => form.submit()}
       confirmLoading={submitting}
       okText="Add Person"
@@ -1688,6 +1855,52 @@ function readText(record: Record<string, unknown>, keys: string[]): string | und
   return undefined;
 }
 
+/** Read a string[] from the first matching key; accepts comma strings too. */
+function readList(record: Record<string, unknown>, keys: string[]): string[] {
+  const raw = readFirst(record, keys);
+  if (Array.isArray(raw)) {
+    return raw.map((item) => String(item ?? '').trim()).filter(Boolean);
+  }
+  const text = readText(record, keys);
+  return text
+    ? text
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
+}
+
+/** Compose "City, ST, Country" from the address fields in intakeData. */
+function formatLocation(intake: Record<string, unknown>): string | undefined {
+  const city = readText(intake, ['city']);
+  const state = readText(intake, ['state']);
+  const country = readText(intake, ['country']);
+  const parts = [
+    [city, state].filter(Boolean).join(', '),
+    // Only show country if it isn't the default USA, to keep the row tidy.
+    country && country.toUpperCase() !== 'USA' ? country : undefined,
+  ].filter(Boolean);
+  return parts.length ? parts.join(' · ') : undefined;
+}
+
+/** Human-readable labels for the checked Small Business Classification flags. */
+const SB_CLASS_LABELS: Array<[string, string]> = [
+  ['sb', 'Small Business'],
+  ['wosb', 'WOSB'],
+  ['sdvosb', 'SDVOSB'],
+  ['hubzone', 'HUBZone'],
+  ['eightA', '8(a)'],
+  ['large', 'Large Business'],
+  ['foreignOwned', 'Foreign-owned'],
+];
+
+function sbClassificationLabels(intake: Record<string, unknown>): string[] {
+  const sb = toRecord(readFirst(intake, ['sbClassification']));
+  return SB_CLASS_LABELS.filter(([key]) => sb[key] === true || sb[key] === 'true').map(
+    ([, label]) => label,
+  );
+}
+
 function readFirst(record: Record<string, unknown>, keys: string[]): unknown {
   for (const key of keys) {
     if (key in record) return record[key];
@@ -1717,7 +1930,11 @@ function externalUrl(value: string): string {
 function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(date);
+  return new Intl.DateTimeFormat(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(date);
 }
 
 function titleCase(value: string): string {
