@@ -778,8 +778,13 @@ class OutreachSelectedContextItemDto {
   @IsString()
   id!: string;
 
-  @IsIn(['bill', 'intel', 'email', 'meeting', 'note', 'document'])
-  kind!: 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document';
+  // MUST stay in sync with the frontend ContextKind union
+  // (apps/web/src/pages/engagement/outreach/v2/types.ts). Saved meeting
+  // debriefs are a selectable context source that sends kind:'debrief'; a kind
+  // missing here makes forbidNonWhitelisted 400 the whole generate-batch and
+  // the wizard silently falls back to placeholder drafts.
+  @IsIn(['bill', 'intel', 'email', 'meeting', 'note', 'document', 'debrief'])
+  kind!: 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document' | 'debrief';
 
   @IsString()
   title!: string;

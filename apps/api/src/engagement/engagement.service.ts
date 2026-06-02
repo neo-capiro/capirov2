@@ -219,7 +219,7 @@ export interface UpdateAiTemplateInput {
 /** v2 wizard's per-item scoped context object. */
 export interface OutreachSelectedContextItemInput {
   id: string;
-  kind: 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document';
+  kind: 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document' | 'debrief';
   title: string;
   body?: string;
   /** 'all' = shared across every recipient; else recipient-key string. */
