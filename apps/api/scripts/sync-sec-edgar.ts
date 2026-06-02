@@ -11,6 +11,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 
 dotenvConfig();
 
@@ -244,6 +245,7 @@ async function main() {
   console.log(`[sec-sync] ${uniqueCiks.length} unique CIKs after dedup`);
 
   try {
+    await runWithSyncRun(prisma as any, 'sync-sec-edgar', async () => {
     let total = 0;
 
     for (const target of uniqueCiks) {
@@ -319,6 +321,8 @@ async function main() {
     console.log(`[sec-sync] total: ${total} filings`);
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(`[sec-sync] DONE in ${elapsed}s`);
+      return { inserted: total, updated: 0, skipped: 0, errors: 0 };
+    });
   } finally {
     await prisma.$disconnect();
   }

@@ -6,6 +6,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun } from '../src/ingestion/sync-run.helper.js';
 dotenvConfig();
 
 const GRANTS_BASE = 'https://api.grants.gov/v1/api/search2';
@@ -25,6 +26,7 @@ async function main() {
   console.log('[grants-sync] starting');
 
   try {
+    await runWithSyncRun(prisma as any, 'sync-grants', async () => {
     let total = 0;
     for (let page = 0; page < MAX_PAGES; page++) {
       await new Promise((r) => setTimeout(r, DELAY_MS));
@@ -92,6 +94,8 @@ async function main() {
 
     console.log(`[grants-sync] total: ${total}`);
     console.log(`[grants-sync] DONE in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      return { inserted: total, updated: 0, skipped: 0, errors: 0 };
+    });
   } finally { await prisma.$disconnect(); }
 }
 
