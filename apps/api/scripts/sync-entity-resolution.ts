@@ -17,11 +17,35 @@ import { config as dotenvConfig } from 'dotenv';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from '@nestjs/common';
 import { parseArgs } from 'node:util';
-import { AppModule } from '../src/app.module.js';
-import { EntityResolutionService } from '../src/intelligence/entity-resolution.service.js';
-import { PrismaService } from '../src/prisma/prisma.service.js';
 
 dotenvConfig();
+
+// Load the Nest graph from the COMPILED dist (tsc-emitted decorator metadata).
+// Running this script via tsx re-transpiles imports with esbuild, which does NOT
+// emit reliable decorator metadata -> NestJS DI fails (ConfigService undefined in
+// ClerkService). Importing the already-compiled dist/*.js avoids that. Falls back
+// to src for local dev where dist may be absent.
+async function loadNest(): Promise<{
+  AppModule: any;
+  EntityResolutionService: any;
+  PrismaService: any;
+}> {
+  for (const base of ['../dist', '../src']) {
+    try {
+      const app = await import(`${base}/app.module.js`);
+      const ers = await import(`${base}/intelligence/entity-resolution.service.js`);
+      const prisma = await import(`${base}/prisma/prisma.service.js`);
+      return {
+        AppModule: app.AppModule,
+        EntityResolutionService: ers.EntityResolutionService,
+        PrismaService: prisma.PrismaService,
+      };
+    } catch {
+      // try next base
+    }
+  }
+  throw new Error('Could not load AppModule from dist or src');
+}
 
 const { values: args } = parseArgs({
   options: { tenant: { type: 'string' } },
@@ -29,6 +53,7 @@ const { values: args } = parseArgs({
 
 async function main(): Promise<void> {
   const logger = new Logger('sync-entity-resolution');
+  const { AppModule, EntityResolutionService, PrismaService } = await loadNest();
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: ['error', 'warn', 'log'],
   });
