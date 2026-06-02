@@ -260,6 +260,8 @@ export interface SendBatchEmailInput {
   drafts: SendBatchDraftInput[];
   /** When true, send a single test copy to the logged-in user instead. */
   testMode?: boolean;
+  /** EngagementAttachment ids to attach to every sent email. */
+  attachmentIds?: string[];
 }
 
 export interface CreateOutreachRecordInput {
@@ -545,7 +547,10 @@ export class EngagementService {
     );
   }
 
-  listMeetings(ctx: TenantContext, query: { clientId?: string; from?: string; to?: string }) {
+  listMeetings(
+    ctx: TenantContext,
+    query: { clientId?: string; from?: string; to?: string; recipientEmails?: string[] },
+  ) {
     const { from, to } = toDateWindow(query);
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const baseWhere: Prisma.MeetingWhereInput = {
@@ -566,6 +571,7 @@ export class EngagementService {
         tx,
         ctx.tenantId,
         query.clientId,
+        query.recipientEmails ?? [],
       );
       const where: Prisma.MeetingWhereInput = { AND: [baseWhere, clientAssociationWhere] };
 
@@ -691,7 +697,7 @@ export class EngagementService {
     });
   }
 
-  listMailThreads(ctx: TenantContext, query: { clientId?: string }) {
+  listMailThreads(ctx: TenantContext, query: { clientId?: string; recipientEmails?: string[] }) {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const baseWhere: Prisma.MailThreadWhereInput = {
         tenantId: ctx.tenantId,
@@ -701,7 +707,12 @@ export class EngagementService {
         ? {
             AND: [
               baseWhere,
-              await this.clientMailThreadAssociationWhere(tx, ctx.tenantId, query.clientId),
+              await this.clientMailThreadAssociationWhere(
+                tx,
+                ctx.tenantId,
+                query.clientId,
+                query.recipientEmails ?? [],
+              ),
             ],
           }
         : baseWhere;
@@ -1716,6 +1727,40 @@ export class EngagementService {
 
     const connection = await this.findCampaignSendConnection(ctx);
 
+    // Resolve attachments once (same set for every recipient). Files above the
+    // Graph simple-send inline limit (~3MB) are skipped and reported back; larger
+    // files would need a Graph upload session on a draft message.
+    const GRAPH_INLINE_ATTACHMENT_MAX = 3 * 1024 * 1024;
+    const skippedAttachments: string[] = [];
+    const graphAttachments: Array<{ name: string; contentType: string; contentBytes: string }> = [];
+    if (input.attachmentIds?.length) {
+      const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.engagementAttachment.findMany({
+          where: { tenantId: ctx.tenantId, id: { in: input.attachmentIds! } },
+        }),
+      );
+      for (const row of rows) {
+        // Skip without downloading when the stored size is known to be too big;
+        // otherwise verify the actual byte length after fetching (byteSize can
+        // be null if S3 HeadObject didn't report a length at confirm time).
+        if (row.byteSize != null && row.byteSize > GRAPH_INLINE_ATTACHMENT_MAX) {
+          skippedAttachments.push(row.fileName);
+          continue;
+        }
+        const bytes = await this.readAttachmentBytes(row.s3Key);
+        if (bytes.length > GRAPH_INLINE_ATTACHMENT_MAX) {
+          skippedAttachments.push(row.fileName);
+          continue;
+        }
+        graphAttachments.push({
+          name: row.fileName,
+          contentType: row.contentType,
+          contentBytes: bytes.toString('base64'),
+        });
+      }
+    }
+    const attachmentsForSend = graphAttachments.length ? graphAttachments : undefined;
+
     // Test mode: one copy to the logged-in user, no real recipients touched.
     if (testMode) {
       const user = await this.prisma.withTenant(ctx.tenantId, (tx) =>
@@ -1730,8 +1775,16 @@ export class EngagementService {
         subject: `[TEST] ${sample.subject || 'Outreach preview'}`,
         body: sample.body || '(empty draft)',
         toRecipients: [{ email: user.email, name: user.firstName ?? null }],
+        attachments: attachmentsForSend,
       });
-      return { test: true, sentTo: user.email, sent: 1, failed: 0, errors: [] as Array<{ email: string; message: string }> };
+      return {
+        test: true,
+        sentTo: user.email,
+        sent: 1,
+        failed: 0,
+        errors: [] as Array<{ email: string; message: string }>,
+        skippedAttachments,
+      };
     }
 
     // Match each recipient to its draft using the same id fallback chain the
@@ -1771,6 +1824,7 @@ export class EngagementService {
           bccRecipients: (recipient.bcc ?? [])
             .filter((e) => e?.trim())
             .map((email) => ({ email: email.trim() })),
+          attachments: attachmentsForSend,
         });
         sent.push({
           email: recipient.email,
@@ -1782,7 +1836,14 @@ export class EngagementService {
       }
     }
 
-    return { test: false, sent: sent.length, failed: errors.length, errors, sentRecipients: sent };
+    return {
+      test: false,
+      sent: sent.length,
+      failed: errors.length,
+      errors,
+      sentRecipients: sent,
+      skippedAttachments,
+    };
   }
 
   async deleteOutreachRecord(ctx: TenantContext, id: string) {
@@ -2636,6 +2697,52 @@ export class EngagementService {
     });
   }
 
+  /**
+   * List a client's meeting debriefs (newest first) for the Outreach context
+   * builder. Matches the denormalized clientId OR the parent meeting's client,
+   * decrypts bodies the caller may read, and access-filters the rest.
+   */
+  async listClientDebriefs(ctx: TenantContext, clientId: string) {
+    const debriefs = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.meetingDebrief.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          OR: [{ clientId }, { meeting: { clientId } }],
+        },
+        include: {
+          author: { select: { id: true, email: true, firstName: true, lastName: true } },
+          meeting: { select: { id: true, subject: true, startsAt: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 25,
+      }),
+    );
+
+    return debriefs.map((debrief) => {
+      const canReadBody = canReadEncryptedEntry(ctx, debrief);
+      return {
+        id: debrief.id,
+        meetingId: debrief.meetingId,
+        meeting: debrief.meeting,
+        clientId: debrief.clientId,
+        body: canReadBody
+          ? this.notesCrypto.decrypt({
+              bodyCiphertext: debrief.bodyCiphertext,
+              iv: debrief.iv,
+              authTag: debrief.authTag,
+            })
+          : null,
+        confidential: debrief.confidential,
+        accessLevel: debrief.accessLevel,
+        authorUserId: debrief.authorUserId,
+        author: debrief.author,
+        createdAt: debrief.createdAt,
+        updatedAt: debrief.updatedAt,
+        restricted: !canReadBody,
+      };
+    });
+  }
+
   async generateMeetingPrep(ctx: TenantContext, meetingId: string, additionalContext?: string) {
     const context = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const meeting = await tx.meeting.findFirst({
@@ -3423,14 +3530,21 @@ export class EngagementService {
     tx: Prisma.TransactionClient,
     tenantId: string,
     clientId: string,
+    extraEmails: string[] = [],
   ): Promise<Prisma.MeetingWhereInput> {
-    const clientProfileEmails = await this.clientProfileEmails(tx, tenantId, clientId);
+    const profileEmails = await this.clientProfileEmails(tx, tenantId, clientId);
+    const emails = Array.from(
+      new Set([
+        ...profileEmails,
+        ...extraEmails.map((e) => e.trim().toLowerCase()).filter(Boolean),
+      ]),
+    );
     const or: Prisma.MeetingWhereInput[] = [{ clientId }];
 
-    if (clientProfileEmails.length) {
+    if (emails.length) {
       or.push(
-        { organizerEmail: { in: clientProfileEmails } },
-        { attendees: { some: { email: { in: clientProfileEmails } } } },
+        { organizerEmail: { in: emails } },
+        { attendees: { some: { email: { in: emails } } } },
       );
     }
 
@@ -3441,29 +3555,37 @@ export class EngagementService {
     tx: Prisma.TransactionClient,
     tenantId: string,
     clientId: string,
+    extraEmails: string[] = [],
   ): Promise<Prisma.MailThreadWhereInput> {
-    const clientProfileEmails = await this.clientProfileEmails(tx, tenantId, clientId);
+    const profileEmails = await this.clientProfileEmails(tx, tenantId, clientId);
+    const emails = Array.from(
+      new Set([
+        ...profileEmails,
+        ...extraEmails.map((e) => e.trim().toLowerCase()).filter(Boolean),
+      ]),
+    );
     const or: Prisma.MailThreadWhereInput[] = [{ clientId }];
 
-    if (clientProfileEmails.length) {
-      // A thread belongs to the client if any of the client's people appear as
-      // the sender, in To, or in Cc on any message (case-insensitive). The
-      // recipient lists are JSONB arrays of {email,name}, which Prisma can't
-      // filter with `in`, so resolve matching thread ids via a raw query.
+    if (emails.length) {
+      // A thread belongs to the client if any of the client's people — or the
+      // selected outreach recipients — appear as the sender, in To, or in Cc on
+      // any message (case-insensitive). The recipient lists are JSONB arrays of
+      // {email,name}, which Prisma can't filter with `in`, so resolve matching
+      // thread ids via a raw query.
       const rows = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT DISTINCT mt.id
         FROM mail_threads mt
         JOIN mail_messages mm ON mm.thread_id = mt.id
         WHERE mt.tenant_id = ${tenantId}::uuid
           AND (
-            lower(mm.from_email) = ANY(${clientProfileEmails})
+            lower(mm.from_email) = ANY(${emails})
             OR EXISTS (
               SELECT 1 FROM jsonb_array_elements(mm.to_recipients_jsonb) e
-              WHERE lower(e->>'email') = ANY(${clientProfileEmails})
+              WHERE lower(e->>'email') = ANY(${emails})
             )
             OR EXISTS (
               SELECT 1 FROM jsonb_array_elements(mm.cc_recipients_jsonb) e
-              WHERE lower(e->>'email') = ANY(${clientProfileEmails})
+              WHERE lower(e->>'email') = ANY(${emails})
             )
           )
       `);
@@ -3472,7 +3594,7 @@ export class EngagementService {
       } else {
         // Fallback so the OR still has a sender match if the raw query yielded
         // nothing (e.g. recipient lists empty): keep the original behavior.
-        or.push({ messages: { some: { fromEmail: { in: clientProfileEmails } } } });
+        or.push({ messages: { some: { fromEmail: { in: emails } } } });
       }
     }
 

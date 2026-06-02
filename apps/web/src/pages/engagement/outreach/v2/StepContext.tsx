@@ -25,6 +25,7 @@ import {
   PlusOutlined,
   SearchOutlined,
   RobotOutlined,
+  SolutionOutlined,
 } from '@ant-design/icons';
 import { useApi } from '../../../../lib/use-api.js';
 import type { OutreachRecipient } from '../../OutreachView.js';
@@ -58,6 +59,7 @@ const TABS: Array<{ id: ContextKind; label: string; Icon: typeof FileTextOutline
   { id: 'bill', label: 'Bills', Icon: FileTextOutlined },
   { id: 'email', label: 'Past emails', Icon: MailOutlined },
   { id: 'meeting', label: 'Past meetings', Icon: CalendarOutlined },
+  { id: 'debrief', label: 'Debriefs', Icon: SolutionOutlined },
   { id: 'document', label: 'Docs & Notes', Icon: PaperClipOutlined },
   { id: 'note', label: 'Custom note', Icon: PlusOutlined },
 ];
@@ -67,6 +69,7 @@ const KIND_LABEL: Record<ContextKind, string> = {
   intel: 'Intel',
   email: 'Past email',
   meeting: 'Meeting',
+  debrief: 'Debrief',
   note: 'Note',
   document: 'Doc/Note',
 };

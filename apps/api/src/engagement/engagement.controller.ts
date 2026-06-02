@@ -869,6 +869,12 @@ class SendBatchEmailDto {
   @IsOptional()
   @IsBoolean()
   testMode?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(25)
+  @IsUUID('4', { each: true })
+  attachmentIds?: string[];
 }
 
 class CreateOutreachRecordDto {
@@ -1042,8 +1048,16 @@ export class EngagementController {
     @Query('clientId') clientId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('recipientEmails') recipientEmails?: string,
   ) {
-    return this.service.listMeetings(ctx, { clientId, from, to });
+    return this.service.listMeetings(ctx, {
+      clientId,
+      from,
+      to,
+      recipientEmails: recipientEmails
+        ? recipientEmails.split(',').map((s) => s.trim()).filter(Boolean)
+        : undefined,
+    });
   }
 
   @Get('meetings/:id')
@@ -1146,8 +1160,22 @@ export class EngagementController {
   }
 
   @Get('mail-threads')
-  mailThreads(@CurrentTenant() ctx: TenantContext, @Query('clientId') clientId?: string) {
-    return this.service.listMailThreads(ctx, { clientId });
+  mailThreads(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('clientId') clientId?: string,
+    @Query('recipientEmails') recipientEmails?: string,
+  ) {
+    return this.service.listMailThreads(ctx, {
+      clientId,
+      recipientEmails: recipientEmails
+        ? recipientEmails.split(',').map((s) => s.trim()).filter(Boolean)
+        : undefined,
+    });
+  }
+
+  @Get('debriefs')
+  clientDebriefs(@CurrentTenant() ctx: TenantContext, @Query('clientId') clientId: string) {
+    return this.service.listClientDebriefs(ctx, clientId);
   }
 
   @Get('outreach')
