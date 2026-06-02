@@ -10,7 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { IsArray, IsBoolean, IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import type { TenantContext } from '@capiro/shared';
@@ -32,6 +32,16 @@ class ChangesQueryDto {
   @IsOptional()
   @IsString()
   source?: string;
+
+  // Read/unread filter for the Changes Inbox. Accepts ?consumed=false to hide
+  // already-cleared changes. Transformed from the query string ('true'/'false')
+  // to a real boolean; absent => undefined => no filter (dashboard behaviour).
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) =>
+    value === undefined ? undefined : value === 'true' || value === true,
+  )
+  consumed?: boolean;
 }
 
 class ConfirmMappingDto {
@@ -130,7 +140,7 @@ export class IntelligenceController {
 
   @Get('changes')
   getChanges(@CurrentTenant() ctx: TenantContext, @Query() q: ChangesQueryDto) {
-    return this.service.getChanges(ctx.tenantId, q.since, q.clientId, q.source);
+    return this.service.getChanges(ctx.tenantId, q.since, q.clientId, q.source, q.consumed);
   }
 
   @Get('clients/:clientId/lobbying-roi')

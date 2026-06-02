@@ -181,8 +181,7 @@ export function HomePage() {
         <OpenWorkflows workflows={workflows.data ?? []} loading={workflows.isLoading} />
         <UpcomingDeadlines
           workflows={workflows.data ?? []}
-          alerts={commentAlerts.data?.alerts ?? []}
-          loading={workflows.isLoading || commentAlerts.isLoading}
+          loading={workflows.isLoading}
         />
       </div>
     </section>
@@ -719,7 +718,7 @@ function WorkflowProgress({ status }: { status: WorkflowStatus }) {
 
 interface DeadlineItem {
   id: string;
-  kind: 'Submission' | 'Comment';
+  kind: 'Submission';
   title: string;
   client: string;
   due: Date;
@@ -728,18 +727,19 @@ interface DeadlineItem {
 
 function UpcomingDeadlines({
   workflows,
-  alerts,
   loading,
 }: {
   workflows: WorkflowInstance[];
-  alerts: CommentAlertItem[];
   loading: boolean;
 }) {
   const items = useMemo<DeadlineItem[]>(() => {
     const out: DeadlineItem[] = [];
 
-    // Workflow submission deadlines (obligations the team owes), excluding
-    // already-submitted/complete work.
+    // Submission deadlines the team OWES (filings, drafts, deliverables),
+    // excluding already-submitted/complete work. Regulatory comment-period
+    // closings are intentionally NOT shown here — those are external events and
+    // live in Needs Attention so this panel stays a clean "what I owe and when"
+    // list rather than duplicating comment alerts across three surfaces.
     for (const w of workflows) {
       if (!w.submissionDeadline) continue;
       if (w.status === 'submitted' || w.status === 'complete') continue;
@@ -755,26 +755,12 @@ function UpcomingDeadlines({
       });
     }
 
-    // Regulatory comment-period deadlines.
-    for (const a of alerts) {
-      const due = new Date(a.commentEndDate);
-      if (Number.isNaN(due.getTime())) continue;
-      out.push({
-        id: `cm-${a.documentId}`,
-        kind: 'Comment',
-        title: a.title,
-        client: a.clientName || 'Unmapped',
-        due,
-        href: COMMENTS_LINK,
-      });
-    }
-
     // Hide anything more than a day past due; soonest first; cap at 10.
     return out
       .filter((d) => dayDiff(d.due.toISOString()) >= -1)
       .sort((a, b) => a.due.getTime() - b.due.getTime())
       .slice(0, 10);
-  }, [workflows, alerts]);
+  }, [workflows]);
 
   return (
     <div className="home-panel home-panel--fixed">
