@@ -1,0 +1,587 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Capiro Mockups — Lobbyist Action System</title>
+  <style>
+    :root{
+      --bg:#f6f8fb;
+      --panel:#ffffff;
+      --ink:#102033;
+      --muted:#65758b;
+      --line:#d8e0ea;
+      --brand:#2447ff;
+      --brand-soft:#eef1ff;
+      --green:#167a4a;
+      --green-soft:#eaf7f1;
+      --orange:#a45106;
+      --orange-soft:#fff3e6;
+      --red:#b42318;
+      --red-soft:#fff0ef;
+      --purple:#6941c6;
+      --purple-soft:#f3edff;
+      --slate:#344054;
+      --shadow:0 18px 55px rgba(16,32,51,.10);
+      --radius:18px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:linear-gradient(180deg,#eef2ff 0,#f6f8fb 360px);font-family:var(--sans);color:var(--ink);line-height:1.35}
+    .page{max-width:1440px;margin:0 auto;padding:34px 26px 70px}
+    .hero{display:grid;grid-template-columns:1.1fr .9fr;gap:24px;align-items:stretch;margin-bottom:28px}
+    .hero-card{background:rgba(255,255,255,.86);border:1px solid rgba(216,224,234,.9);border-radius:28px;box-shadow:var(--shadow);padding:32px;backdrop-filter:blur(8px)}
+    h1{font-size:42px;line-height:1.02;margin:0 0 12px;letter-spacing:-.04em}
+    h2{font-size:25px;margin:0 0 14px;letter-spacing:-.02em}
+    h3{font-size:17px;margin:0 0 12px;letter-spacing:-.01em}
+    p{margin:0 0 12px;color:var(--muted)}
+    .eyebrow{text-transform:uppercase;letter-spacing:.14em;font-weight:800;font-size:12px;color:var(--brand);margin-bottom:12px}
+    .tag-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+    .tag{font-size:12px;font-weight:700;color:#24334a;background:#eef2f7;border:1px solid #dbe3ed;border-radius:999px;padding:7px 10px;white-space:nowrap}
+    .hero-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+    .hero-stat{background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px}
+    .hero-stat b{display:block;font-size:26px;letter-spacing:-.04em;margin-bottom:4px}
+    .hero-stat span{font-size:12px;font-weight:700;color:var(--muted)}
+    .toc{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
+    .toc a{display:block;text-decoration:none;color:var(--ink);background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 16px;box-shadow:0 8px 22px rgba(16,32,51,.05);font-weight:800;font-size:13px}
+    .toc a span{display:block;color:var(--muted);font-weight:650;font-size:12px;margin-top:4px}
+    .screen{background:#fff;border:1px solid var(--line);border-radius:28px;box-shadow:var(--shadow);margin:26px 0;overflow:hidden}
+    .screen-header{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;border-bottom:1px solid var(--line);padding:22px 24px;background:linear-gradient(180deg,#fff,#fbfcff)}
+    .screen-title{display:flex;gap:13px;align-items:flex-start}
+    .screen-num{display:grid;place-items:center;width:36px;height:36px;background:var(--brand);color:#fff;border-radius:12px;font-weight:900}
+    .screen-header small{display:block;color:var(--muted);font-weight:700;margin-top:3px}
+    .screen-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .pill{border:1px solid var(--line);background:#fff;border-radius:999px;padding:8px 11px;font-size:12px;color:var(--slate);font-weight:800}
+    .pill.red{background:var(--red-soft);border-color:#ffd3cf;color:var(--red)}
+    .pill.green{background:var(--green-soft);border-color:#c7ead9;color:var(--green)}
+    .pill.orange{background:var(--orange-soft);border-color:#ffdcad;color:var(--orange)}
+    .pill.blue{background:var(--brand-soft);border-color:#d7dcff;color:var(--brand)}
+    .pill.purple{background:var(--purple-soft);border-color:#dfd3ff;color:var(--purple)}
+    .wire{background:#f8fafc;padding:22px}
+    .app-shell{display:grid;grid-template-columns:220px 1fr;min-height:650px;border:1px solid #ccd6e2;border-radius:22px;overflow:hidden;background:#fff}
+    .side{background:#111827;color:#d1d5db;padding:20px 16px}
+    .brandmark{font-weight:900;color:#fff;font-size:18px;margin-bottom:22px;display:flex;align-items:center;gap:8px}
+    .branddot{width:14px;height:14px;border-radius:5px;background:#7886ff;display:inline-block}
+    .nav-item{display:flex;align-items:center;justify-content:space-between;border-radius:12px;padding:11px 10px;margin:4px 0;font-weight:800;font-size:13px;color:#d1d5db}
+    .nav-item.active{background:#26324a;color:#fff}
+    .badge{font-size:11px;padding:3px 7px;border-radius:999px;background:#38445e;color:#fff;font-weight:900}
+    .main{background:#f3f6fb;min-width:0}
+    .topbar{height:64px;background:#fff;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 22px;gap:20px}
+    .search{height:38px;border:1px solid var(--line);background:#f8fafc;border-radius:999px;padding:0 14px;display:flex;align-items:center;color:var(--muted);font-weight:700;min-width:310px;font-size:13px}
+    .userchip{display:flex;gap:8px;align-items:center;font-size:13px;color:var(--muted);font-weight:800}
+    .avatar{width:32px;height:32px;border-radius:50%;background:#dbe3ff;display:grid;place-items:center;color:var(--brand);font-weight:900}
+    .content{padding:22px}
+    .dash-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:18px}
+    .dash-head h2{font-size:28px;margin:0 0 4px}
+    .client-filter{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+    .metric-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+    .metric{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px}
+    .metric label{display:block;color:var(--muted);font-size:12px;font-weight:800;margin-bottom:6px}
+    .metric b{font-size:24px;letter-spacing:-.03em}
+    .board{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+    .column{background:#edf2f7;border:1px solid var(--line);border-radius:18px;padding:12px;min-height:420px}
+    .column-head{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:900;color:#1f2a3d;margin:2px 2px 10px}
+    .action-card{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px;box-shadow:0 8px 18px rgba(16,32,51,.05)}
+    .card-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:10px}
+    .client{font-weight:950;font-size:15px}
+    .issue{font-size:12px;font-weight:850;color:var(--brand);margin-top:2px}
+    .deadline{font-size:11px;font-weight:900;padding:5px 7px;border-radius:9px;background:var(--red-soft);color:var(--red);white-space:nowrap}
+    .deadline.ok{background:var(--green-soft);color:var(--green)}
+    .deadline.warn{background:var(--orange-soft);color:var(--orange)}
+    .rowlabel{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:900;margin:9px 0 3px}
+    .cardtext{font-size:12.8px;color:#344054;font-weight:650}
+    .scorebar{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:12px}
+    .mini-score{height:7px;background:#edf2f7;border-radius:999px;overflow:hidden}
+    .mini-score i{display:block;height:100%;background:#2447ff;border-radius:999px}
+    .proofs{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+    .proof{font-size:10.5px;background:#f8fafc;border:1px solid #e4eaf2;border-radius:999px;padding:5px 7px;color:#667085;font-weight:800}
+    .detail-grid{display:grid;grid-template-columns:275px 1fr 320px;gap:14px}
+    .panel{background:#fff;border:1px solid var(--line);border-radius:18px;padding:16px;min-width:0}
+    .timeline{position:relative;padding-left:14px}
+    .timeline:before{content:"";position:absolute;left:4px;top:3px;bottom:3px;width:2px;background:#d8e0ea}
+    .event{position:relative;margin-bottom:16px;padding-left:12px}
+    .event:before{content:"";position:absolute;left:-15px;top:3px;width:10px;height:10px;background:#fff;border:3px solid var(--brand);border-radius:50%}
+    .event strong{display:block;font-size:13px;margin-bottom:2px}
+    .event span{display:block;font-size:12px;color:var(--muted);font-weight:650}
+    .decision-box{background:#f8fafc;border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px}
+    .decision-box strong{display:block;font-size:14px;margin-bottom:4px}
+    .split2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .draft{border:1px dashed #b9c4d3;background:#fff;border-radius:14px;padding:13px;font-size:13px;color:#344054}
+    .source-list{display:grid;gap:8px}
+    .source-item{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;background:#f8fafc;border:1px solid #e5ebf3;border-radius:12px;padding:10px}
+    .source-icon{font-size:11px;font-weight:950;color:#fff;background:#475467;border-radius:8px;width:34px;height:28px;display:grid;place-items:center}
+    .source-item b{font-size:12px}
+    .source-item span{display:block;font-size:11px;color:var(--muted);font-weight:700;margin-top:2px}
+    .budget-grid{display:grid;grid-template-columns:1fr 320px;gap:14px}
+    table{border-collapse:collapse;width:100%;font-size:12.5px}
+    th,td{border-bottom:1px solid #e6edf5;text-align:left;padding:10px 8px;vertical-align:top}
+    th{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#667085;background:#f8fafc;font-weight:950}
+    td strong{font-weight:900}
+    .delta-up{color:var(--green);font-weight:950}
+    .delta-down{color:var(--red);font-weight:950}
+    .delta-flat{color:#667085;font-weight:950}
+    .program-title{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}
+    .program-title h3{font-size:21px;margin:0 0 4px}
+    .kpi-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+    .kpi{background:#f8fafc;border:1px solid #e5ebf3;border-radius:14px;padding:12px}
+    .kpi b{font-size:20px;display:block;margin-bottom:2px}
+    .kpi span{font-size:11px;color:var(--muted);font-weight:850}
+    .network-wrap{display:grid;grid-template-columns:1fr 360px;gap:14px}
+    .network{position:relative;height:520px;background:radial-gradient(circle at center,#fff 0,#f4f7fb 62%,#eef2f7 100%);border:1px solid var(--line);border-radius:18px;overflow:hidden}
+    .line{position:absolute;height:2px;background:#bcc8d8;transform-origin:left center;opacity:.7}
+    .node{position:absolute;display:grid;place-items:center;text-align:center;border:2px solid #fff;box-shadow:0 10px 18px rgba(16,32,51,.12);font-size:12px;font-weight:950;color:#fff;padding:8px;border-radius:18px}
+    .node.client{width:128px;height:70px;background:#2447ff;left:45%;top:41%;transform:translate(-50%,-50%)}
+    .node.committee{width:116px;height:62px;background:#6941c6;left:12%;top:15%}
+    .node.office{width:114px;height:62px;background:#167a4a;left:67%;top:16%}
+    .node.agency{width:110px;height:58px;background:#a45106;left:16%;top:70%}
+    .node.program{width:118px;height:62px;background:#475467;left:69%;top:66%}
+    .node.district{width:110px;height:58px;background:#0e7490;left:38%;top:78%}
+    .node.reg{width:108px;height:58px;background:#b42318;left:42%;top:8%}
+    .coverage-card{display:grid;grid-template-columns:1fr auto;gap:10px;padding:11px;border:1px solid #e5ebf3;border-radius:14px;margin-bottom:9px;background:#fff}
+    .coverage-card b{font-size:13px}
+    .coverage-card span{font-size:11px;color:var(--muted);font-weight:700;display:block;margin-top:2px}
+    .strength{font-size:11px;font-weight:950;border-radius:999px;padding:5px 8px;align-self:start}
+    .weak{background:var(--red-soft);color:var(--red)}
+    .medium{background:var(--orange-soft);color:var(--orange)}
+    .strong{background:var(--green-soft);color:var(--green)}
+    .reg-grid{display:grid;grid-template-columns:1.1fr .9fr;gap:14px}
+    .cluster{border:1px solid #e5ebf3;border-radius:16px;padding:13px;margin-bottom:10px;background:#fff}
+    .cluster-top{display:flex;justify-content:space-between;gap:12px;margin-bottom:8px}
+    .cluster b{font-size:14px}
+    .bar{height:8px;background:#edf2f7;border-radius:999px;overflow:hidden;margin-top:8px}
+    .bar i{display:block;height:100%;background:#2447ff;border-radius:999px}
+    .pipeline{display:grid;grid-template-columns:repeat(6,1fr);gap:10px}
+    .pipe-step{position:relative;background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px;min-height:210px}
+    .pipe-step:not(:last-child):after{content:"→";position:absolute;right:-14px;top:48%;font-size:22px;color:#98a2b3;font-weight:900;z-index:2}
+    .pipe-step .num{display:grid;place-items:center;width:30px;height:30px;background:#111827;color:#fff;border-radius:10px;font-size:12px;font-weight:950;margin-bottom:12px}
+    .pipe-step b{display:block;font-size:13.5px;margin-bottom:7px}
+    .pipe-step span{font-size:12px;color:var(--muted);font-weight:650}
+    .district-grid{display:grid;grid-template-columns:360px 1fr;gap:14px}
+    .mapbox{height:420px;border-radius:18px;border:1px solid var(--line);background:linear-gradient(135deg,#dfe7f2,#fff);position:relative;overflow:hidden}
+    .mapshape{position:absolute;border:2px solid #9aa8bd;background:rgba(36,71,255,.08);border-radius:30% 70% 50% 40%;width:240px;height:280px;left:60px;top:60px;transform:rotate(-12deg)}
+    .pin{position:absolute;width:18px;height:18px;background:#2447ff;border:3px solid #fff;border-radius:50%;box-shadow:0 8px 18px rgba(0,0,0,.25)}
+    .pin.one{left:144px;top:120px}.pin.two{left:212px;top:214px}.pin.three{left:116px;top:274px}
+    .onepager{background:#fff;border:1px solid var(--line);border-radius:18px;padding:18px}
+    .onepager h3{font-size:22px;margin:0 0 8px}
+    .fact-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:16px 0}
+    .fact{background:#f8fafc;border:1px solid #e5ebf3;border-radius:14px;padding:12px}
+    .fact b{font-size:19px;display:block}.fact span{font-size:11px;color:var(--muted);font-weight:850}
+    .compliance-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+    .checkitem{display:flex;gap:10px;align-items:flex-start;border:1px solid #e5ebf3;border-radius:14px;padding:11px;margin-bottom:9px;background:#fff}
+    .check{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:var(--green-soft);color:var(--green);font-weight:950;flex:0 0 auto}
+    .check.warn{background:var(--orange-soft);color:var(--orange)}
+    .check.red{background:var(--red-soft);color:var(--red)}
+    .checkitem b{font-size:13px}.checkitem span{font-size:11px;color:var(--muted);display:block;margin-top:2px;font-weight:700}
+    .source-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+    .priority{border-radius:20px;border:1px solid var(--line);background:#fff;overflow:hidden}
+    .priority h3{padding:15px 16px;margin:0;border-bottom:1px solid var(--line);background:#f8fafc}
+    .priority .pbody{padding:14px}
+    .rec{border:1px solid #e5ebf3;border-radius:14px;padding:12px;margin-bottom:10px;background:#fff}
+    .rec b{display:block;font-size:13px;margin-bottom:3px}.rec span{font-size:11.5px;color:var(--muted);font-weight:700}
+    .model-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+    .schema{font-family:var(--mono);font-size:12px;white-space:pre-wrap;background:#111827;color:#e5e7eb;border-radius:18px;padding:18px;overflow:auto;min-height:360px}
+    .field-list{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .field{background:#f8fafc;border:1px solid #e5ebf3;border-radius:12px;padding:10px;font-size:12px;font-weight:800;color:#344054}
+    .footer-note{font-size:12px;color:#667085;margin-top:18px;padding:14px;border:1px solid #e5ebf3;border-radius:16px;background:#fff}
+    @media (max-width:1200px){.hero,.detail-grid,.budget-grid,.network-wrap,.reg-grid,.district-grid,.model-grid{grid-template-columns:1fr}.pipeline{grid-template-columns:1fr 1fr 1fr}.pipe-step:after{display:none}.app-shell{grid-template-columns:1fr}.side{display:none}.toc{grid-template-columns:1fr 1fr}.source-grid,.compliance-grid{grid-template-columns:1fr}.board{grid-template-columns:1fr}.metric-row{grid-template-columns:1fr 1fr}}
+    @media (max-width:720px){.page{padding:18px 12px}.hero-card{padding:22px}.toc{grid-template-columns:1fr}.pipeline{grid-template-columns:1fr}.metric-row,.fact-row,.hero-stat-grid{grid-template-columns:1fr}.screen-header{display:block}.screen-actions{margin-top:12px;justify-content:flex-start}.content{padding:14px}.wire{padding:12px}.topbar{display:none}}
+  </style>
+</head>
+<body>
+  <div class="page">
+    <section class="hero">
+      <div class="hero-card">
+        <div class="eyebrow">Mockup pack</div>
+        <h1>Capiro as a Lobbyist Action System</h1>
+        <p>These mockups visualize the listed data sources as an operating system for public-affairs teams: what changed, why it matters, who to contact, what to say, by when, what proves it, and what remains uncertain.</p>
+        <div class="tag-row">
+          <span class="tag">LDA + FEC</span><span class="tag">Congress + OpenStates</span><span class="tag">Federal Register + dockets</span><span class="tag">Defense J-books</span><span class="tag">SEC + FARA</span><span class="tag">USAspending + grants</span><span class="tag">BLS + ACS + BEA</span><span class="tag">News RSS</span><span class="tag">PEO / PM people</span>
+        </div>
+      </div>
+      <div class="hero-card">
+        <div class="eyebrow">Design thesis</div>
+        <h2>Replace “insight catalog” with “action board.”</h2>
+        <p>The central UI should suppress noisy feed items and promote client-specific actions with deadlines, source proof, confidence, and owner assignment.</p>
+        <div class="hero-stat-grid">
+          <div class="hero-stat"><b>4</b><span>scores: materiality, urgency, actionability, confidence</span></div>
+          <div class="hero-stat"><b>8</b><span>screens covering daily workflow to compliance</span></div>
+          <div class="hero-stat"><b>1</b><span>proof pack per recommendation</span></div>
+          <div class="hero-stat"><b>0</b><span>uncited actions surfaced as final outputs</span></div>
+        </div>
+      </div>
+    </section>
+
+    <nav class="toc">
+      <a href="#today">1. Today’s Lobbying Moves <span>Daily action board</span></a>
+      <a href="#issue">2. Issue Command Center <span>Recommendation + proof</span></a>
+      <a href="#defense">3. Defense Budget Intel <span>PE / project / milestone deltas</span></a>
+      <a href="#stakeholders">4. Stakeholder Graph <span>Coverage gaps + reasons</span></a>
+      <a href="#regulatory">5. Comment Intelligence <span>Arguments, coalitions, deadlines</span></a>
+      <a href="#procurement">6. Procurement Pipeline <span>Budget → opportunity → action</span></a>
+      <a href="#district">7. District Advocacy Pack <span>One-pagers + local proof</span></a>
+      <a href="#compliance">8. Disclosure Workflow <span>LD-2 / LD-203 readiness</span></a>
+    </nav>
+
+    <section class="screen" id="today">
+      <div class="screen-header">
+        <div class="screen-title">
+          <div class="screen-num">1</div>
+          <div><h2>Today’s Lobbying Moves</h2><small>Primary home page: only material unresolved actions, not every raw update.</small></div>
+        </div>
+        <div class="screen-actions"><span class="pill red">7 needs attention</span><span class="pill orange">3 deadlines this week</span><span class="pill green">12 proof packs ready</span></div>
+      </div>
+      <div class="wire">
+        <div class="app-shell">
+          <aside class="side">
+            <div class="brandmark"><span class="branddot"></span>Capiro</div>
+            <div class="nav-item active">Today’s Moves <span class="badge">7</span></div>
+            <div class="nav-item">Clients</div>
+            <div class="nav-item">Defense Budget</div>
+            <div class="nav-item">Regulatory</div>
+            <div class="nav-item">Stakeholders</div>
+            <div class="nav-item">Artifacts</div>
+            <div class="nav-item">Compliance</div>
+            <div class="tag-row" style="margin-top:28px"><span class="tag" style="background:#26324a;color:#d1d5db;border-color:#3a4762">Evidence-first</span><span class="tag" style="background:#26324a;color:#d1d5db;border-color:#3a4762">Quarantine-aware</span></div>
+          </aside>
+          <main class="main">
+            <div class="topbar"><div class="search">Search clients, PE codes, dockets, bills, offices…</div><div class="userchip"><span class="avatar">AL</span> Alex Lee · Federal Affairs</div></div>
+            <div class="content">
+              <div class="dash-head">
+                <div><h2>Today’s Lobbying Moves</h2><p>May 31, 2026 · ranked by materiality, urgency, actionability, confidence</p></div>
+                <div class="client-filter"><span class="pill blue">All clients</span><span class="pill">Defense</span><span class="pill">Health</span><span class="pill">Energy</span></div>
+              </div>
+              <div class="metric-row">
+                <div class="metric"><label>Material unresolved actions</label><b>7</b></div>
+                <div class="metric"><label>Nearest deadline</label><b>3 days</b></div>
+                <div class="metric"><label>Draft artifacts ready</label><b>11</b></div>
+                <div class="metric"><label>Quarantined mappings</label><b>4</b></div>
+              </div>
+              <div class="board">
+                <div class="column">
+                  <div class="column-head">Do now <span>3</span></div>
+                  <div class="action-card">
+                    <div class="card-top"><div><div class="client">AeroTech Systems</div><div class="issue">FY27 defense appropriations</div></div><div class="deadline">3 days</div></div>
+                    <div class="rowlabel">Change</div><div class="cardtext">PE 0604XXX increased in HASC mark; SASC detail has no matching project language.</div>
+                    <div class="rowlabel">Why it matters</div><div class="cardtext">Client product maps to project description; two facilities sit in members’ districts.</div>
+                    <div class="rowlabel">Recommended action</div><div class="cardtext">Contact HASC professional staff to preserve language; prep SASC outreach before subcommittee markup.</div>
+                    <div class="proofs"><span class="proof">J-book p. 248</span><span class="proof">HASC mark</span><span class="proof">ACS district facts</span></div>
+                    <div class="scorebar"><div class="mini-score"><i style="width:94%"></i></div><div class="mini-score"><i style="width:88%"></i></div><div class="mini-score"><i style="width:92%"></i></div><div class="mini-score"><i style="width:81%"></i></div></div>
+                  </div>
+                  <div class="action-card">
+                    <div class="card-top"><div><div class="client">HealthWorks Coalition</div><div class="issue">CMS proposed rule</div></div><div class="deadline">5 days</div></div>
+                    <div class="rowlabel">Change</div><div class="cardtext">Comment cluster from competitors focuses on reimbursement methodology; client’s prior argument is underrepresented.</div>
+                    <div class="rowlabel">Recommended action</div><div class="cardtext">Submit differentiated comment; brief two committee staffers who issued prior oversight letters.</div>
+                    <div class="proofs"><span class="proof">FR notice</span><span class="proof">Reg docket</span><span class="proof">GAO report</span></div>
+                  </div>
+                </div>
+                <div class="column">
+                  <div class="column-head">This week <span>4</span></div>
+                  <div class="action-card">
+                    <div class="card-top"><div><div class="client">GridWorks Inc.</div><div class="issue">DOE procurement + grants</div></div><div class="deadline warn">8 days</div></div>
+                    <div class="rowlabel">Change</div><div class="cardtext">New sources-sought notice aligns with grant-funded demonstration site and prior award geography.</div>
+                    <div class="rowlabel">Recommended action</div><div class="cardtext">Coordinate policy + BD response; build agency contact brief and district impact memo.</div>
+                    <div class="proofs"><span class="proof">SAM.gov</span><span class="proof">USAspending</span><span class="proof">Grants.gov</span></div>
+                  </div>
+                  <div class="action-card">
+                    <div class="card-top"><div><div class="client">NorthStar Materials</div><div class="issue">State bill tracking</div></div><div class="deadline warn">12 days</div></div>
+                    <div class="rowlabel">Change</div><div class="cardtext">State committee substitute added procurement preference language affecting client eligibility.</div>
+                    <div class="rowlabel">Recommended action</div><div class="cardtext">Ask state lobbyist to seek clarification before committee vote; prepare amendment text.</div>
+                    <div class="proofs"><span class="proof">OpenStates</span><span class="proof">committee agenda</span></div>
+                  </div>
+                </div>
+                <div class="column">
+                  <div class="column-head">Monitor <span>9</span></div>
+                  <div class="action-card">
+                    <div class="card-top"><div><div class="client">Atlas Biosecurity</div><div class="issue">Foreign influence / FARA</div></div><div class="deadline ok">watch</div></div>
+                    <div class="rowlabel">Signal</div><div class="cardtext">Competitor’s foreign-principal registration updated; issue tags overlap with pending export-control docket.</div>
+                    <div class="rowlabel">Next trigger</div><div class="cardtext">Escalate if committee letter, agency meeting notice, or related filing appears.</div>
+                    <div class="proofs"><span class="proof">FARA</span><span class="proof">Federal Register</span><span class="proof">SEC 8-K</span></div>
+                  </div>
+                  <div class="action-card">
+                    <div class="card-top"><div><div class="client">CivicCloud</div><div class="issue">AI procurement policy</div></div><div class="deadline ok">watch</div></div>
+                    <div class="rowlabel">Signal</div><div class="cardtext">Member press language matches client issue but no bill text or solicitation yet.</div>
+                    <div class="rowlabel">Uncertainty</div><div class="cardtext">Entity match is low confidence; wait for official committee or agency action.</div>
+                    <div class="proofs"><span class="proof">news RSS</span><span class="proof">committee feed</span><span class="proof">quarantine</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="issue">
+      <div class="screen-header">
+        <div class="screen-title"><div class="screen-num">2</div><div><h2>Issue Command Center</h2><small>Turns one signal into a recommended action, draft artifact, and proof pack.</small></div></div>
+        <div class="screen-actions"><span class="pill blue">Actionable</span><span class="pill purple">Draftable</span><span class="pill orange">2 uncertainties</span></div>
+      </div>
+      <div class="wire">
+        <div class="detail-grid">
+          <div class="panel">
+            <h3>Source timeline</h3>
+            <div class="timeline">
+              <div class="event"><strong>R-2A detail updated</strong><span>DoD Comptroller J-book · page-level extraction</span></div>
+              <div class="event"><strong>HASC mark added funding</strong><span>Committee action · authorization delta</span></div>
+              <div class="event"><strong>SASC detail missing match</strong><span>Cross-chamber comparison</span></div>
+              <div class="event"><strong>District nexus confirmed</strong><span>Facility + ACS + USAspending award place of performance</span></div>
+              <div class="event"><strong>Staff coverage gap</strong><span>No contact logged in 91 days</span></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="program-title"><div><h3>AeroTech Systems · FY27 defense appropriations</h3><p>PE 0604XXX / Project: Advanced Sensor Integration</p></div><span class="pill red">deadline: 3 days</span></div>
+            <div class="split2">
+              <div class="decision-box"><strong>What happened?</strong><p>HASC mark increased project funding; SASC text does not include matching project language.</p></div>
+              <div class="decision-box"><strong>Why does it matter?</strong><p>Client’s product and two facilities map to the project and member districts.</p></div>
+            </div>
+            <div class="decision-box"><strong>Who should I contact?</strong><p>HASC professional staff; SASC defense subcommittee staff; two member offices with facility footprint.</p></div>
+            <div class="decision-box"><strong>What should I say?</strong><p>Protect project language, clarify transition milestone, and use district jobs + prior award history as proof.</p></div>
+            <div class="split2">
+              <div class="draft"><strong>Draft email opener</strong><br><br>“Wanted to flag a narrow project-language issue in PE 0604XXX. The HASC mark appears to support the transition milestone, but the SASC detail does not yet reflect the same language…”</div>
+              <div class="draft"><strong>One-page memo outline</strong><br><br>1. Program delta<br>2. Local economic footprint<br>3. Acquisition milestone risk<br>4. Requested language<br>5. Source appendix</div>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>Proof + uncertainty</h3>
+            <div class="source-list">
+              <div class="source-item"><div class="source-icon">PDF</div><div><b>J-book R-2A page 248</b><span>Program/project value with extraction provenance</span></div></div>
+              <div class="source-item"><div class="source-icon">BILL</div><div><b>HASC mark section 42X</b><span>Funding increase and report language</span></div></div>
+              <div class="source-item"><div class="source-icon">SPND</div><div><b>Prior award history</b><span>Recipient + place of performance + PSC/NAICS</span></div></div>
+              <div class="source-item"><div class="source-icon">ACS</div><div><b>District facts</b><span>Employment, income, sector footprint</span></div></div>
+            </div>
+            <div class="decision-box" style="margin-top:12px;background:var(--orange-soft);border-color:#ffdcad"><strong>Uncertain</strong><p>One project-to-client mapping is fuzzy; route to merge-candidate review before sending external memo.</p></div>
+            <div class="decision-box" style="background:var(--brand-soft);border-color:#d7dcff"><strong>Confidence</strong><p>High on funding delta; medium on contact recommendation; low on one contractor alias.</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="defense">
+      <div class="screen-header">
+        <div class="screen-title"><div class="screen-num">3</div><div><h2>Defense Budget Intelligence</h2><small>Flagship workflow for PE-to-client mapping, J-book provenance, deltas, projects, milestones, and quarantine.</small></div></div>
+        <div class="screen-actions"><span class="pill green">page-level provenance</span><span class="pill blue">R-1 / P-1 / R-2 / R-2A</span></div>
+      </div>
+      <div class="wire">
+        <div class="budget-grid">
+          <div class="panel">
+            <div class="program-title"><div><h3>PE 0604XXX · Advanced Sensor Integration</h3><p>Client match: AeroTech Systems · Confidence 81% · 2 candidate aliases quarantined</p></div><span class="pill orange">FY27 cycle</span></div>
+            <div class="kpi-row"><div class="kpi"><b>+$42M</b><span>HASC vs President’s Budget</span></div><div class="kpi"><b>0</b><span>SASC matching language</span></div><div class="kpi"><b>3</b><span>member districts with footprint</span></div></div>
+            <table>
+              <thead><tr><th>Source</th><th>FY26</th><th>FY27 PB</th><th>HASC</th><th>SASC</th><th>Delta / implication</th></tr></thead>
+              <tbody>
+                <tr><td><strong>R-1 master</strong><br>line item</td><td>$188M</td><td>$204M</td><td>$246M</td><td>$204M</td><td><span class="delta-up">+21%</span> in HASC; missing Senate support</td></tr>
+                <tr><td><strong>R-2 narrative</strong><br>mission need</td><td>v2</td><td>v3</td><td>v3 + transition text</td><td>v3</td><td>Protect transition language</td></tr>
+                <tr><td><strong>R-2A project</strong><br>prototype milestone</td><td>Q3</td><td>Q4</td><td>Q4 + field demo</td><td>Q4</td><td><span class="delta-up">new demo</span> maps to client facility</td></tr>
+                <tr><td><strong>Contractor linkage</strong><br>awards + SEC aliases</td><td>medium</td><td>high</td><td>high</td><td>high</td><td>One subsidiary alias in review</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="panel">
+            <h3>Recommended appropriations play</h3>
+            <div class="decision-box"><strong>Protect</strong><p>HASC report language tying PE 0604XXX to field-demo milestone.</p></div>
+            <div class="decision-box"><strong>Add</strong><p>SASC clarifying language that keeps transition milestone synchronized with HASC.</p></div>
+            <div class="decision-box"><strong>Oppose</strong><p>Any project consolidation that removes traceability from client-relevant subproject.</p></div>
+            <h3>Artifacts</h3>
+            <div class="checkitem"><div class="check">✓</div><div><b>Committee staff memo</b><span>Source appendix included</span></div></div>
+            <div class="checkitem"><div class="check warn">!</div><div><b>District one-pager</b><span>Needs facility headcount confirmation</span></div></div>
+            <div class="checkitem"><div class="check red">?</div><div><b>Competitor map</b><span>One award recipient alias unresolved</span></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="stakeholders">
+      <div class="screen-header">
+        <div class="screen-title"><div class="screen-num">4</div><div><h2>Stakeholder Graph + Coverage Gaps</h2><small>Explains why an office matters and whether the team has relationship coverage.</small></div></div>
+        <div class="screen-actions"><span class="pill purple">graph reasoning</span><span class="pill orange">coverage gaps</span></div>
+      </div>
+      <div class="wire">
+        <div class="network-wrap">
+          <div class="network">
+            <div class="line" style="left:47%;top:46%;width:300px;transform:rotate(-35deg)"></div>
+            <div class="line" style="left:48%;top:45%;width:250px;transform:rotate(38deg)"></div>
+            <div class="line" style="left:18%;top:22%;width:410px;transform:rotate(28deg)"></div>
+            <div class="line" style="left:20%;top:75%;width:400px;transform:rotate(-36deg)"></div>
+            <div class="line" style="left:43%;top:14%;width:180px;transform:rotate(88deg)"></div>
+            <div class="line" style="left:42%;top:80%;width:145px;transform:rotate(-68deg)"></div>
+            <div class="node client">Client<br>AeroTech</div>
+            <div class="node committee">HASC / SASC<br>staff</div>
+            <div class="node office">Member<br>office</div>
+            <div class="node agency">Agency<br>program</div>
+            <div class="node program">PE / project<br>milestone</div>
+            <div class="node district">District<br>footprint</div>
+            <div class="node reg">Related<br>docket</div>
+          </div>
+          <div class="panel">
+            <h3>Relationship coverage gaps</h3>
+            <div class="coverage-card"><div><b>HASC majority staff</b><span>Last contact: 12 days · Reason: language protection</span></div><span class="strength strong">strong</span></div>
+            <div class="coverage-card"><div><b>SAC-D minority staff</b><span>Last contact: 147 days · Reason: Senate appropriations path</span></div><span class="strength weak">weak</span></div>
+            <div class="coverage-card"><div><b>Member office · TX-17</b><span>No logged contact · Reason: 180 jobs + prior award</span></div><span class="strength weak">none</span></div>
+            <div class="coverage-card"><div><b>Agency PM shop</b><span>Last contact: 44 days · Reason: milestone alignment</span></div><span class="strength medium">medium</span></div>
+            <div class="decision-box" style="margin-top:14px"><strong>Next best contact</strong><p>TX-17 legislative director; office matters because client has facility jobs, member sits on relevant subcommittee, and no outreach is logged.</p></div>
+            <div class="decision-box"><strong>Suggested ask</strong><p>“Support transition language that preserves field-demo milestone and keeps funding aligned with the HASC mark.”</p></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="regulatory">
+      <div class="screen-header">
+        <div class="screen-title"><div class="screen-num">5</div><div><h2>Regulatory Comment Intelligence</h2><small>Treats comments as intelligence: who is active, what arguments cluster, what the client should say differently.</small></div></div>
+        <div class="screen-actions"><span class="pill red">comment close: 5 days</span><span class="pill blue">418 comments analyzed</span></div>
+      </div>
+      <div class="wire">
+        <div class="reg-grid">
+          <div class="panel">
+            <div class="program-title"><div><h3>Docket CMS-2026-00XX · Payment Methodology Rule</h3><p>Client: HealthWorks Coalition · Agency: CMS · Comment close: June 5, 2026</p></div><span class="pill red">urgent</span></div>
+            <div class="cluster"><div class="cluster-top"><b>Argument cluster A: “Methodology overstates utilization”</b><span class="pill blue">44%</span></div><p>Dominant competitor and trade-association argument. Several comments share similar language.</p><div class="bar"><i style="width:44%"></i></div></div>
+            <div class="cluster"><div class="cluster-top"><b>Argument cluster B: “Rural access harm”</b><span class="pill green">29%</span></div><p>Strongest member-office narrative; maps to client facilities in rural districts.</p><div class="bar"><i style="width:29%"></i></div></div>
+            <div class="cluster"><div class="cluster-top"><b>Argument cluster C: “Data-quality concerns”</b><span class="pill orange">18%</span></div><p>Underdeveloped; opportunity for differentiated comment with evidence from GAO / CRS / claims data.</p><div class="bar"><i style="width:18%"></i></div></div>
+            <table>
+              <thead><tr><th>Commenter</th><th>Role</th><th>Position</th><th>Action</th></tr></thead>
+              <tbody>
+                <tr><td>Trade Assoc. A</td><td>Coalition</td><td>Oppose methodology</td><td>Consider joining letter</td></tr>
+                <tr><td>Competitor B</td><td>Competitor</td><td>Oppose with utilization argument</td><td>Differentiate on access/data quality</td></tr>
+                <tr><td>Patient Group C</td><td>Ally</td><td>Rural access concern</td><td>Reach out for support quote</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="panel">
+            <h3>What should the client say?</h3>
+            <div class="decision-box"><strong>Recommended position</strong><p>Do not repeat the dominant utilization critique. Lead with rural access and data-quality issues, then tie to prior agency response language.</p></div>
+            <div class="decision-box"><strong>Who to contact</strong><p>CMS rule team, House committee health staff, rural-district offices with affected providers.</p></div>
+            <div class="draft"><strong>Draft comment structure</strong><br><br>1. Concrete harm to access<br>2. Data-quality flaw with appendix<br>3. Proposed alternative formula<br>4. Response to agency’s prior reasoning<br>5. Facility / beneficiary examples</div>
+            <h3 style="margin-top:16px">Proof pack</h3>
+            <div class="source-list"><div class="source-item"><div class="source-icon">FR</div><div><b>Federal Register notice</b><span>Rule text + comment period</span></div></div><div class="source-item"><div class="source-icon">REG</div><div><b>Regulations.gov comments</b><span>Commenters, attachments, argument clusters</span></div></div><div class="source-item"><div class="source-icon">GAO</div><div><b>Oversight report</b><span>Prior agency concern and evaluation findings</span></div></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="procurement">
+      <div class="screen-header">
+        <div class="screen-title"><div class="screen-num">6</div><div><h2>Procurement-to-Policy Pipeline</h2><small>Connects appropriations, agency programs, opportunities, awards, competitors, and recommended BD/policy action.</small></div></div>
+        <div class="screen-actions"><span class="pill green">revenue intelligence</span><span class="pill blue">policy + BD</span></div>
+      </div>
+      <div class="wire">
+        <div class="pipeline">
+          <div class="pipe-step"><div class="num">1</div><b>Budget line change</b><span>PE or agency account changes in President’s Budget / committee marks.</span><div class="proofs"><span class="proof">J-book</span><span class="proof">govinfo</span></div></div>
+          <div class="pipe-step"><div class="num">2</div><b>Agency program</b><span>Map to bureau, office, program manager, milestones, and policy owners.</span><div class="proofs"><span class="proof">agency docs</span><span class="proof">PEO / PM</span></div></div>
+          <div class="pipe-step"><div class="num">3</div><b>SAM opportunity</b><span>Find sources sought, pre-solicitations, solicitations, awards, and special notices.</span><div class="proofs"><span class="proof">SAM.gov</span></div></div>
+          <div class="pipe-step"><div class="num">4</div><b>Award history</b><span>Prior recipients, geographies, NAICS / PSC, contract vehicles, and agencies.</span><div class="proofs"><span class="proof">USAspending</span><span class="proof">FPDS</span></div></div>
+          <div class="pipe-step"><div class="num">5</div><b>Client fit</b><span>Eligibility, past performance, facilities, partner / competitor overlap.</span><div class="proofs"><span class="proof">CRM</span><span class="proof">SEC</span></div></div>
+          <div class="pipe-step"><div class="num">6</div><b>Action</b><span>BD response, agency outreach, Hill ask, comment, or coalition strategy.</span><div class="proofs"><span class="proof">draft packet</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="district">
+      <div class="screen-header">
+        <div class="screen-title"><div class="screen-num">7</div><div><h2>District Advocacy Pack</h2><small>Converts district nexus into ready-to-use member-specific advocacy material.</small></div></div>
+        <div class="screen-actions"><span class="pill blue">one-pager ready</span><span class="pill orange">headcount needs verification</span></div>
+      </div>
+      <div class="wire">
+        <div class="district-grid">
+          <div class="panel">
+            <h3>TX-17 facility footprint</h3>
+            <div class="mapbox"><div class="mapshape"></div><div class="pin one"></div><div class="pin two"></div><div class="pin three"></div></div>
+          </div>
+          <div class="onepager">
+            <h3>Member one-pager · Why this office should care</h3>
+            <p>Prepared for: Rep. Example · Issue: PE 0604XXX transition language · Client: AeroTech Systems</p>
+            <div class="fact-row"><div class="fact"><b>180</b><span>direct jobs</span></div><div class="fact"><b>$27M</b><span>prior awards</span></div><div class="fact"><b>14</b><span>local suppliers</span></div><div class="fact"><b>2</b><span>active facilities</span></div></div>
+            <div class="decision-box"><strong>Local economic narrative</strong><p>AeroTech supports high-skill manufacturing and engineering jobs in the district, with prior federal awards tied to advanced sensor integration and supplier activity across nearby counties.</p></div>
+            <div class="decision-box"><strong>Suggested member ask</strong><p>Support report language that preserves the field-demo milestone and keeps PE 0604XXX funding aligned with the House mark.</p></div>
+            <div class="split2"><div class="draft"><strong>Talking point</strong><br><br>“This is a narrow transition-risk issue with direct district jobs and an existing federal investment.”</div><div class="draft"><strong>Source appendix</strong><br><br>Facility record · USAspending awards · ACS labor stats · J-book page · committee mark</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="compliance">
+      <div class="screen-header">
+        <div class="screen-title"><div class="screen-num">8</div><div><h2>Disclosure + Compliance Workflow</h2><small>Recurring value for lobbying firms: LD-2 prep, issue-code activity, contribution review, and anomaly detection.</small></div></div>
+        <div class="screen-actions"><span class="pill green">recurring workflow</span><span class="pill red">2 review flags</span></div>
+      </div>
+      <div class="wire">
+        <div class="compliance-grid">
+          <div class="panel"><h3>Quarterly LD-2 prep</h3><div class="checkitem"><div class="check">✓</div><div><b>Client list reconciled</b><span>All active matters have client IDs</span></div></div><div class="checkitem"><div class="check warn">!</div><div><b>Issue code mismatch</b><span>Defense budget work tagged DEF and BUD inconsistently</span></div></div><div class="checkitem"><div class="check red">?</div><div><b>Missing activity note</b><span>Contact logged without issue code</span></div></div></div>
+          <div class="panel"><h3>LD-203 review</h3><div class="checkitem"><div class="check">✓</div><div><b>Contribution imports complete</b><span>FEC committee match reviewed</span></div></div><div class="checkitem"><div class="check warn">!</div><div><b>Event contribution needs review</b><span>Lobbyist and PAC names are similar</span></div></div><div class="checkitem"><div class="check">✓</div><div><b>No duplicate filings</b><span>Registrant / lobbyist deduped</span></div></div></div>
+          <div class="panel"><h3>What changed since last quarter?</h3><div class="decision-box"><strong>New issue</strong><p>AI procurement policy added for CivicCloud; likely issue code TEC.</p></div><div class="decision-box"><strong>New lobbyist</strong><p>One acquisition specialist added; confirm effective date.</p></div><div class="decision-box"><strong>Audit trail</strong><p>Each suggested disclosure entry links to source activity and user approval.</p></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="sources">
+      <div class="screen-header">
+        <div class="screen-title"><div class="screen-num">9</div><div><h2>Data Source Prioritization</h2><small>Add sources only when they improve actionability, proof, deadlines, or relationship context.</small></div></div>
+        <div class="screen-actions"><span class="pill blue">recommended roadmap</span></div>
+      </div>
+      <div class="wire">
+        <div class="source-grid">
+          <div class="priority"><h3>P0 · Add or strengthen now</h3><div class="pbody">
+            <div class="rec"><b>SAM.gov contract opportunities</b><span>Turns policy signals into revenue actions: sources sought, pre-solicitations, solicitations, awards, special notices.</span></div>
+            <div class="rec"><b>GovInfo report language</b><span>Appropriations / authorization reports, committee reports, conference reports; stronger proof for defense-budget plays.</span></div>
+            <div class="rec"><b>Congress.gov committee meetings</b><span>Hearing / markup / cancellation / reschedule triggers for deadlines and procedural gates.</span></div>
+            <div class="rec"><b>Regulations.gov comments</b><span>Commenter, coalition, competitor, and argument intelligence—not just docket deadlines.</span></div>
+            <div class="rec"><b>Private CRM / calendar / email</b><span>Relationship strength, last contact, owner assignment, and outreach history.</span></div>
+          </div></div>
+          <div class="priority"><h3>P1 · Add next</h3><div class="pbody">
+            <div class="rec"><b>Member / committee / agency press releases</b><span>Useful only when mapped to client issues and offices; otherwise noisy.</span></div>
+            <div class="rec"><b>FPDS / contract vehicle detail</b><span>Complements USAspending with procurement mechanics and vehicle context.</span></div>
+            <div class="rec"><b>CRS products via Congress.gov</b><span>Background, appropriations status, and issue framing for client memos.</span></div>
+            <div class="rec"><b>GAO reports + bid protest decisions</b><span>Oversight hooks, agency risk, acquisition context, and compliance narratives.</span></div>
+            <div class="rec"><b>Federal Register public inspection</b><span>Early warning before publication for rules, notices, and comment windows.</span></div>
+          </div></div>
+          <div class="priority"><h3>P2 · Conditional / segment-specific</h3><div class="pbody">
+            <div class="rec"><b>State procurement + state regs</b><span>Add if state lobbying is a target segment; pair with OpenStates bills.</span></div>
+            <div class="rec"><b>Trade association rosters</b><span>Coalition mapping, if licensing and data rights are clean.</span></div>
+            <div class="rec"><b>Court / litigation signals</b><span>Useful for regulated industries where lawsuits shift agency policy.</span></div>
+            <div class="rec"><b>International sanctions / export controls</b><span>Segment-specific value for defense, tech, energy, and foreign-principal work.</span></div>
+            <div class="rec"><b>Local news / local economic data</b><span>Useful for district narratives when linked to facilities and awards.</span></div>
+          </div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen" id="model">
+      <div class="screen-header">
+        <div class="screen-title"><div class="screen-num">10</div><div><h2>Behind-the-Screen Action Object</h2><small>Use a single normalized object so every screen can answer the same lobbyist questions.</small></div></div>
+      </div>
+      <div class="wire">
+        <div class="model-grid">
+          <div class="schema">{
+  "action_id": "act_2026_05_31_0007",
+  "client": "AeroTech Systems",
+  "issue": "FY27 defense appropriations",
+  "change": "HASC funding increase; missing SASC match",
+  "client_consequence": "Transition milestone risk",
+  "recommended_action": "Contact HASC/SASC staff + district offices",
+  "suggested_artifact": ["staff memo", "district one-pager"],
+  "deadline": "2026-06-03",
+  "targets": ["committee_staff", "member_office", "agency_pm"],
+  "proof": [
+    {"source": "J-book R-2A", "page": 248},
+    {"source": "committee mark", "section": "42X"},
+    {"source": "USAspending", "award_ids": ["... "]}
+  ],
+  "uncertainty": ["subsidiary alias in review"],
+  "scores": {
+    "materiality": 94,
+    "urgency": 88,
+    "actionability": 92,
+    "confidence": 81
+  },
+  "owner": "Federal Affairs Lead",
+  "status": "needs_attention"
+}</div>
+          <div class="panel"><h3>Required fields for every surfaced recommendation</h3><div class="field-list">
+            <div class="field">What happened?</div><div class="field">Why it matters?</div><div class="field">Who to contact?</div><div class="field">What to say?</div><div class="field">By when?</div><div class="field">What proves it?</div><div class="field">What is uncertain?</div><div class="field">Who owns it?</div><div class="field">Which artifact?</div><div class="field">Which score drove surfacing?</div>
+          </div><div class="footer-note">Implementation rule: do not show an item on the main board unless it has a specific client, source proof, a proposed action, and either a deadline or a clear next procedural gate.</div></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

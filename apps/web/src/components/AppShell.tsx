@@ -20,7 +20,6 @@ import {
   SearchOutlined,
   SettingOutlined,
   SyncOutlined,
-  TeamOutlined,
   UserOutlined,
   UsergroupAddOutlined,
 } from '@ant-design/icons';
@@ -125,7 +124,7 @@ const NAV: NavItem[] = [
   {
     key: 'intelligence',
     label: 'Intelligence Center',
-    path: '/explorer',
+    path: '/intelligence-center',
     icon: <BulbOutlined />,
   },
   {
@@ -136,13 +135,6 @@ const NAV: NavItem[] = [
   },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
-  {
-    key: 'stakeholders',
-    label: 'Stakeholders',
-    path: '/stakeholders',
-    icon: <TeamOutlined />,
-    disabled: true,
-  },
   {
     key: 'collaborators',
     label: 'Collaborators',

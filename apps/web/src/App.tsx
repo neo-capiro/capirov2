@@ -26,7 +26,7 @@ import { StrategiesList } from './pages/workspace/StrategiesList.js';
 import { StrategyWizard } from './pages/workspace/StrategyWizard.js';
 import { StrategyDashboard } from './pages/workspace/StrategyDashboard.js';
 import { WhitePaperEditorPage } from './pages/workspace/WhitePaperEditorPage.js';
-import { IntelligenceCenterPage } from './pages/intelligence/IntelligenceCenterPage.js';
+import { ComingSoonIntelligence } from './pages/intelligence/ComingSoonIntelligence.js';
 import { ChangesInboxPage } from './pages/intelligence/ChangesInboxPage.js';
 import { IntelligenceMappingsPage } from './pages/settings/IntelligenceMappingsPage.js';
 import { IssueLeaderboardPage } from './pages/intelligence/IssueLeaderboardPage.js';
@@ -155,7 +155,7 @@ export function App() {
         <Route path="/intelligence/client/:clientId" element={<Navigate to="/clients" replace />} />
         <Route path="/intelligence/client/:clientId/graph" element={<Navigate to="/clients" replace />} />
         <Route path="/intelligence/*" element={<Navigate to="/explorer" replace />} />
-        <Route path="/intelligence-center" element={<IntelligenceCenterPage />} />
+        <Route path="/intelligence-center" element={<ComingSoonIntelligence />} />
         <Route path="/directory" element={<DirectoryPage />} />
         <Route path="/help" element={<HelpPage />} />
         <Route path="/portal/*" element={<Navigate to="/clients" replace />} />
