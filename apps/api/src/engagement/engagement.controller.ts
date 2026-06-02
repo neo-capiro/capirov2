@@ -621,6 +621,15 @@ class OutreachRecipientDto {
   @Length(1, 240)
   relevanceReason?: string;
 
+  // The wizard tags each recipient with its provenance (e.g. "District nexus",
+  // "Directory"). Display-only, but it IS sent in the generate/send payload, so
+  // it must be whitelisted — otherwise forbidNonWhitelisted 400s the whole batch
+  // and the wizard silently falls back to placeholder drafts. Allow empty too.
+  @IsOptional()
+  @IsString()
+  @Length(0, 240)
+  sourceLabel?: string;
+
   @IsOptional()
   @IsString()
   @Length(1, 500)
