@@ -87,6 +87,13 @@ COPY --chown=capiro:capiro --from=build /workspace/apps/api/package.json /app/ap
 # resolves at runtime — the compiled dist/ alone does not satisfy those imports.
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/scripts /app/apps/api/scripts
 COPY --chown=capiro:capiro --from=build /workspace/apps/api/src /app/apps/api/src
+# tsx (used by entrypoint.sh for sync-entity-resolution, which boots the full
+# NestJS AppModule) needs a tsconfig with experimentalDecorators/emitDecoratorMetadata
+# at runtime; without it esbuild fails NestJS controllers with
+# "Parameter decorators only work when experimental decorators are enabled".
+# Copy the api tsconfig + the base it extends so tsx auto-discovers them.
+COPY --chown=capiro:capiro --from=build /workspace/tsconfig.base.json /app/tsconfig.base.json
+COPY --chown=capiro:capiro --from=build /workspace/apps/api/tsconfig.json /app/apps/api/tsconfig.json
 COPY --chown=capiro:capiro apps/api/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 
