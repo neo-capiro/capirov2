@@ -10,7 +10,7 @@ import type { OutreachRecipient } from '../../OutreachView.js';
 
 export type WizardDirection = 'on-behalf' | 'to-clients';
 
-export type ContextKind = 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document';
+export type ContextKind = 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document' | 'debrief';
 
 export interface ContextPoolItem {
   id: string;
@@ -42,6 +42,8 @@ export interface WizardV2State {
   tone: 'Professional' | 'Friendly' | 'Formal' | 'Concise';
   generatedEmails: Record<string, { subject: string; body: string; status: 'pending' | 'ready' | 'edited' | 'error' }>;
   selectedRecipientIdx: number;
+  /** EngagementAttachment ids to attach to the generated emails on send. */
+  attachmentIds: string[];
 }
 
 export const INITIAL_V2_STATE: WizardV2State = {
@@ -54,6 +56,7 @@ export const INITIAL_V2_STATE: WizardV2State = {
   tone: 'Professional',
   generatedEmails: {},
   selectedRecipientIdx: 0,
+  attachmentIds: [],
 };
 
 export const WIZARD_STEPS = [

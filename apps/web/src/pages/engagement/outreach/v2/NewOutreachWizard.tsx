@@ -11,12 +11,26 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
-import { App, Button, Form, Input, Modal, Select, Skeleton, Space, Tag, Typography } from 'antd';
+import {
+  App,
+  Button,
+  Checkbox,
+  Form,
+  Input,
+  Modal,
+  Select,
+  Skeleton,
+  Space,
+  Tag,
+  Typography,
+  Upload,
+} from 'antd';
 import {
   ArrowRightOutlined,
   CheckCircleFilled,
   CheckOutlined,
   EyeOutlined,
+  PaperClipOutlined,
   PlusOutlined,
   SaveOutlined,
   SendOutlined,
@@ -100,6 +114,16 @@ interface AttachmentsResponse {
   items: AttachmentItem[];
 }
 
+interface DebriefItem {
+  id: string;
+  meetingId: string | null;
+  clientId: string | null;
+  body: string | null;
+  restricted?: boolean;
+  createdAt?: string;
+  meeting?: { id: string; subject: string | null; startsAt: string | null } | null;
+}
+
 interface DirectoryNoteItem {
   id: string;
   directoryContactId: string;
@@ -175,32 +199,58 @@ export function NewOutreachWizard({
     retry: false,
   });
 
+  // Emails of the chosen recipients. Passed to the meetings/mail queries so the
+  // context pool also surfaces past interactions with the people being
+  // contacted — not just the client's stored contacts, which are often sparse.
+  const recipientEmailsParam = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          state.recipients
+            .map((r) => r.email?.trim().toLowerCase())
+            .filter((e): e is string => Boolean(e)),
+        ),
+      ).join(','),
+    [state.recipients],
+  );
+
   const meetingsQuery = useQuery<MeetingsResponse>({
     enabled: step.id === 'context',
-    queryKey: ['outreach-pool-meetings', state.clientId],
+    queryKey: ['outreach-pool-meetings', state.clientId, recipientEmailsParam],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (state.clientId) params.set('clientId', state.clientId);
-      // Last 30 days of the client's meetings.
-      params.set('from', new Date(Date.now() - 30 * 86400_000).toISOString());
-      const res = await api.get<MeetingsResponse | { items?: never[] }>(
+      // Last 90 days of meetings. Send an explicit `to` — without it the API's
+      // toDateWindow defaults `to` to from+1day, collapsing the range to a
+      // single day 90 days ago (the bug that left the Past meetings tab empty).
+      params.set('from', new Date(Date.now() - 90 * 86400_000).toISOString());
+      params.set('to', new Date().toISOString());
+      if (recipientEmailsParam) params.set('recipientEmails', recipientEmailsParam);
+      // The API returns a bare Meeting[] (every other caller reads it as an
+      // array). The v2 pool reads `.items`, so wrap it — reading `.items` off
+      // the bare array, as this query did before, always gave undefined, which
+      // is the real reason the Past meetings tab was empty.
+      const res = await api.get<NonNullable<MeetingsResponse['items']>>(
         `/api/engagement/meetings?${params}`,
       );
-      return res.data as MeetingsResponse;
+      return { items: res.data };
     },
     retry: false,
   });
 
   const mailQuery = useQuery<MailThreadsResponse>({
     enabled: step.id === 'context',
-    queryKey: ['outreach-pool-mail', state.clientId],
+    queryKey: ['outreach-pool-mail', state.clientId, recipientEmailsParam],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (state.clientId) params.set('clientId', state.clientId);
-      // Last 30 days of the client's email threads.
-      params.set('from', new Date(Date.now() - 30 * 86400_000).toISOString());
-      const res = await api.get<MailThreadsResponse>(`/api/engagement/mail-threads?${params}`);
-      return res.data;
+      if (recipientEmailsParam) params.set('recipientEmails', recipientEmailsParam);
+      // Bare MailThread[] from the API → wrap so the pool's `.items` read works
+      // (same empty-tab bug as meetings).
+      const res = await api.get<NonNullable<MailThreadsResponse['items']>>(
+        `/api/engagement/mail-threads?${params}`,
+      );
+      return { items: res.data };
     },
     retry: false,
   });
@@ -208,13 +258,27 @@ export function NewOutreachWizard({
   // Client documents (uploaded files) for the Docs & Notes tab. Text is
   // extracted lazily when an item is selected (see StepContext).
   const docsQuery = useQuery<AttachmentsResponse>({
-    enabled: step.id === 'context' && !!state.clientId,
+    enabled: (step.id === 'context' || step.id === 'generate') && !!state.clientId,
     queryKey: ['outreach-pool-docs', state.clientId],
     queryFn: async () => {
       const res = await api.get<AttachmentItem[]>('/api/engagement/attachments', {
         params: { clientId: state.clientId },
       });
       return { items: res.data };
+    },
+    retry: false,
+  });
+
+  // Saved meeting debriefs for this client (newest first). Bodies are
+  // access-filtered server-side; restricted ones come back with body=null.
+  const debriefQuery = useQuery<DebriefItem[]>({
+    enabled: step.id === 'context' && !!state.clientId,
+    queryKey: ['outreach-pool-debriefs', state.clientId],
+    queryFn: async () => {
+      const res = await api.get<DebriefItem[]>('/api/engagement/debriefs', {
+        params: { clientId: state.clientId },
+      });
+      return res.data;
     },
     retry: false,
   });
@@ -252,6 +316,7 @@ export function NewOutreachWizard({
       meeting: [],
       note: [],
       document: [],
+      debrief: [],
     };
 
     // ---- Docs & Notes: client profile notes + client documents + member notes ----
@@ -402,6 +467,23 @@ export function NewOutreachWizard({
       });
     }
 
+    // Saved debriefs: routable to the client and the debrief's meeting.
+    for (const d of debriefQuery.data ?? []) {
+      out.debrief.push({
+        id: `debrief-${d.id}`,
+        kind: 'debrief',
+        title: d.meeting?.subject ? `Debrief: ${d.meeting.subject}` : 'Meeting debrief',
+        body: d.body ?? undefined,
+        sub: d.meeting?.startsAt
+          ? new Date(d.meeting.startsAt).toLocaleDateString()
+          : d.createdAt
+            ? new Date(d.createdAt).toLocaleDateString()
+            : undefined,
+        tag: d.restricted ? 'Restricted' : 'Debrief',
+        matches: [d.clientId, d.meetingId].filter((s): s is string => Boolean(s)),
+      });
+    }
+
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -409,6 +491,7 @@ export function NewOutreachWizard({
     meetingsQuery.data,
     mailQuery.data,
     docsQuery.data,
+    debriefQuery.data,
     memberNotesQueries,
     clients,
     state.clientId,
@@ -416,7 +499,11 @@ export function NewOutreachWizard({
   ]);
 
   const poolLoading =
-    insightsQuery.isLoading || meetingsQuery.isLoading || mailQuery.isLoading || docsQuery.isLoading;
+    insightsQuery.isLoading ||
+    meetingsQuery.isLoading ||
+    mailQuery.isLoading ||
+    docsQuery.isLoading ||
+    debriefQuery.isLoading;
 
   // ---- Gating ----
   const canAdvance = (): boolean => {
@@ -526,16 +613,23 @@ export function NewOutreachWizard({
         failed: number;
         errors: Array<{ email: string; message: string }>;
         sentTo?: string;
+        skippedAttachments?: string[];
       }>('/api/engagement/outreach/send-batch', {
         clientId: state.clientId ?? undefined,
         recipients: state.recipients,
         drafts: buildDrafts(),
         direction: state.direction ?? undefined,
         testMode: vars?.testMode ?? false,
+        attachmentIds: state.attachmentIds,
       });
       return res.data;
     },
     onSuccess: (data) => {
+      if (data.skippedAttachments?.length) {
+        message.warning(
+          `Skipped ${data.skippedAttachments.length} attachment(s) over 3MB: ${data.skippedAttachments.join(', ')}`,
+        );
+      }
       if (data.test) {
         message.success(`Test email sent to ${data.sentTo ?? 'your inbox'}`);
         return;
@@ -599,6 +693,54 @@ export function NewOutreachWizard({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step.id]);
+
+  // ---- Attachments: pick stored client docs or upload a file to send with the emails ----
+  const toggleAttachment = (id: string) =>
+    setState((p) => ({
+      ...p,
+      attachmentIds: p.attachmentIds.includes(id)
+        ? p.attachmentIds.filter((a) => a !== id)
+        : [...p.attachmentIds, id],
+    }));
+
+  const uploadAttachment = async (file: File) => {
+    if (!state.clientId) {
+      message.error('Select a client before uploading attachments');
+      return;
+    }
+    try {
+      const contentType = file.type || 'application/octet-stream';
+      // 1) presigned S3 POST, 2) upload the bytes straight to S3, 3) confirm so
+      // a row is created and the file appears in the client's documents.
+      const { data: presigned } = await api.post<{
+        url: string;
+        fields: Record<string, string>;
+        s3Key: string;
+      }>('/api/engagement/attachments/upload-url', {
+        clientId: state.clientId,
+        fileName: file.name,
+        contentType,
+        contentLength: file.size,
+      });
+      const form = new FormData();
+      Object.entries(presigned.fields).forEach(([k, v]) => form.append(k, v));
+      form.append('file', file); // file must be the last field for S3 POST
+      const s3Res = await fetch(presigned.url, { method: 'POST', body: form });
+      if (!s3Res.ok) throw new Error(`S3 upload failed (${s3Res.status})`);
+      const { data: created } = await api.post<{ id: string }>(
+        '/api/engagement/attachments/confirm',
+        { clientId: state.clientId, fileName: file.name, contentType, s3Key: presigned.s3Key },
+      );
+      setState((p) => ({
+        ...p,
+        attachmentIds: Array.from(new Set([...p.attachmentIds, created.id])),
+      }));
+      await docsQuery.refetch();
+      message.success(`Attached ${file.name}`);
+    } catch (err) {
+      message.error(apiErrorMessage(err) || 'Could not upload attachment');
+    }
+  };
 
   // Inline edits to a generated draft mark it 'edited' so the user can see
   // their changes are captured; edits persist in wizard state immediately.
@@ -709,6 +851,45 @@ export function NewOutreachWizard({
               regenerating={generateMutation.isPending}
               generatingKey={generatingKey}
             />
+          )}
+
+          {step.id === 'generate' && (
+            <div className="ov2-attachments" style={{ marginTop: 16 }}>
+              <Typography.Title level={5} style={{ marginBottom: 4 }}>
+                Attachments
+              </Typography.Title>
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                Files added here are attached to every email on send (max 3MB each).
+              </Typography.Paragraph>
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                {(docsQuery.data?.items ?? []).map((d) => (
+                  <Checkbox
+                    key={d.id}
+                    checked={state.attachmentIds.includes(d.id)}
+                    onChange={() => toggleAttachment(d.id)}
+                  >
+                    {d.fileName}
+                  </Checkbox>
+                ))}
+                {(docsQuery.data?.items ?? []).length === 0 && (
+                  <Typography.Text type="secondary">
+                    No stored documents for this client yet.
+                  </Typography.Text>
+                )}
+                <Upload
+                  multiple
+                  showUploadList={false}
+                  beforeUpload={(file) => {
+                    void uploadAttachment(file as File);
+                    return false; // handle the upload ourselves; skip AntD's default
+                  }}
+                >
+                  <Button size="small" icon={<PaperClipOutlined />}>
+                    Upload a file
+                  </Button>
+                </Upload>
+              </Space>
+            </div>
           )}
 
           {step.id === 'send' && (

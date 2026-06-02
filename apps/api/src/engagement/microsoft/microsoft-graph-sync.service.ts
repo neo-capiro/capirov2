@@ -171,6 +171,8 @@ export interface MicrosoftGraphSendMailInput {
   toRecipients: Array<{ email: string; name?: string | null }>;
   ccRecipients?: Array<{ email: string; name?: string | null }>;
   bccRecipients?: Array<{ email: string; name?: string | null }>;
+  /** Inline file attachments (base64 contentBytes), sent as Graph fileAttachments. */
+  attachments?: Array<{ name: string; contentType: string; contentBytes: string }>;
 }
 
 @Injectable()
@@ -356,6 +358,16 @@ export class MicrosoftGraphSyncService {
           : {}),
         ...(input.bccRecipients?.length
           ? { bccRecipients: toGraphRecipients(input.bccRecipients) }
+          : {}),
+        ...(input.attachments?.length
+          ? {
+              attachments: input.attachments.map((a) => ({
+                '@odata.type': '#microsoft.graph.fileAttachment',
+                name: a.name,
+                contentType: a.contentType,
+                contentBytes: a.contentBytes,
+              })),
+            }
           : {}),
       },
       saveToSentItems: true,
