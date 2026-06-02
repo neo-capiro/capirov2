@@ -99,11 +99,21 @@ export class AssetsStack extends cdk.Stack {
         resources: [`${this.bucket.bucketArn}/tenants/*`],
       }),
     );
+    // Product-wide Help center library (help/manifest.json + help/videos/**,
+    // help/guides/**, help/thumbnails/**). Read-only; not tenant-scoped. The API
+    // reads the manifest, lists help/videos/ for auto-discovery, and presigns
+    // GETs — so it needs GetObject on help/* and ListBucket on the help/ prefix.
+    grantee.grantPrincipal.addToPrincipalPolicy(
+      new iam.PolicyStatement({
+        actions: ['s3:GetObject', 's3:GetObjectVersion'],
+        resources: [`${this.bucket.bucketArn}/help/*`],
+      }),
+    );
     grantee.grantPrincipal.addToPrincipalPolicy(
       new iam.PolicyStatement({
         actions: ['s3:ListBucket'],
         resources: [this.bucket.bucketArn],
-        conditions: { StringLike: { 's3:prefix': ['tenants/*'] } },
+        conditions: { StringLike: { 's3:prefix': ['tenants/*', 'help/*'] } },
       }),
     );
     grantee.grantPrincipal.addToPrincipalPolicy(
