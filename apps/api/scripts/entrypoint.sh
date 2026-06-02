@@ -162,7 +162,7 @@ case "${1:-serve}" in
   # Step 34B: DoD personnel named in recent GAO reports (LLM NER over metadata).
   extract-gao-interviewees)  shift; exec ./node_modules/.bin/tsx scripts/extract-gao-interviewees.ts "$@" ;;
   sync-fec-pac)           exec ./node_modules/.bin/tsx scripts/sync-fec-pac.ts ;;
-  sync-entity-resolution) shift; exec ./node_modules/.bin/tsx scripts/sync-entity-resolution.ts "$@" ;;
+  sync-entity-resolution) shift; exec ./node_modules/.bin/tsx --tsconfig tsconfig.json scripts/sync-entity-resolution.ts "$@" ;;
   enrich-award-districts) shift; exec ./node_modules/.bin/tsx scripts/enrich-award-districts.ts "$@" ;;
   sync-fara)              exec ./node_modules/.bin/tsx scripts/sync-fara.ts ;;
   sync-sec-edgar)         exec ./node_modules/.bin/tsx scripts/sync-sec-edgar.ts ;;
