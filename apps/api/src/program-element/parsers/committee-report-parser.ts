@@ -167,6 +167,17 @@ export abstract class CommitteeReportParserBase {
         continue;
       }
 
+      // Ensure the parent program_element row exists before writing a year row
+      // (FK: program_element_year.pe_code -> program_element.pe_code). Committee
+      // reports can reference PEs the J-book catalog hasn't ingested yet (e.g. new
+      // FY programs); create a low-confidence stub so the mark still lands. J-book
+      // syncs later enrich it via source-priority. Title from the table line text.
+      await this.writer.upsertProgramElement(
+        { peCode: rec.peCode, title: rec.explanation ?? rec.peCode, firstSeenFy: rec.fy, raw: rec },
+        source,
+        0.3,
+      );
+
       const result = await this.writer.upsertProgramElementYear(
         {
           peCode: rec.peCode,

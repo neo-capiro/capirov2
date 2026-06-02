@@ -65,6 +65,12 @@ def extract_rows(pdf_path, fy):
                     request, mark = amts[-2], amts[-1]
                 else:
                     request, mark = None, amts[-1]
+                # NDAA funding tables are printed "In Thousands of Dollars"; the
+                # canonical program_element_year store is in DOLLARS. Scale up.
+                if request is not None:
+                    request *= 1000
+                if mark is not None:
+                    mark *= 1000
                 # program name = text before the first money token
                 name = MONEY_RE.split(rest)[0]
                 name = re.sub(r"[.\s]+$", "", name).strip(" .") or None
