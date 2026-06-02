@@ -56,7 +56,7 @@ updates from this state.
   This is the proximate cause of the failed update.
 
 ### 3. The repo `dev` config was authored for a DIFFERENT account + domain scheme
-Introduced by commit **`9f9cfc6` "Wire dev environment for account 262252232571"**.
+Introduced by commit **`9f9cfc6` "Wire dev environment for the wrong AWS account"**.
 The repo's `dev` override block (`infra/cdk/lib/config.ts`) currently sets:
 | Setting | Repo (config.ts dev block) | Live reality |
 |---|---|---|
@@ -67,8 +67,9 @@ The repo's `dev` override block (`infra/cdk/lib/config.ts`) currently sets:
 | auroraMaxAcu | `2` | `4` |
 
 A `cdk diff` against the live account therefore shows these as **requires-replacement**
-(ACM cert + DNS) and **shrink** (Aurora) changes. Account `262252232571` is the
-**wrong** account (GHA OIDC also points there — see MEMORY); the live cluster is in
+(ACM cert + DNS) and **shrink** (Aurora) changes. That commit targeted a
+**wrong/legacy** account (the GHA OIDC role ARNs previously pointed there too —
+now corrected to `967807252336`); the live cluster is in
 **`967807252336`**. So even after unsticking the stack, deploying the current repo
 config would try to swap the cert/domain (**breaking `app.capiro.ai`**) and shrink Aurora.
 
@@ -142,7 +143,7 @@ Edit `infra/cdk/lib/config.ts` dev override block so a future diff is a no-op on
 - `auroraBackupRetentionDays: 35`
 - `auroraMaxAcu: 4`
 Also confirm the **account** the dev env deploys to is `967807252336`, not
-`262252232571` (the 9f9cfc6 leftover). Pass `--context account=967807252336` or fix
+the wrong/legacy account from the 9f9cfc6 commit. Pass `--context account=967807252336` or fix
 the account resolution.
 
 ### Step B — Reconcile the ALB (the hard part)
