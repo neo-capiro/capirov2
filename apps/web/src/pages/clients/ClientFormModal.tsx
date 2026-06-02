@@ -1,34 +1,28 @@
 import { useEffect, useState } from 'react';
 import { UploadOutlined } from '@ant-design/icons';
-import { Button, Col, Divider, Form, Input, Modal, Row, Select, Upload, type UploadFile } from 'antd';
 import {
-  PROFILE_STATUSES,
-  PROFILE_TYPES,
+  Button,
+  Checkbox,
+  Col,
+  Divider,
+  Form,
+  Input,
+  Modal,
+  Row,
+  Select,
+  Steps,
+  Typography,
+  Upload,
+  type UploadFile,
+} from 'antd';
+import {
   SECTOR_LABELS,
   SECTOR_TAGS,
   SUBMISSION_TRACKS,
   SUBMISSION_TRACK_LABELS,
   normalizeSector,
 } from '@capiro/shared';
-
-const PROFILE_TYPE_LABELS: Record<(typeof PROFILE_TYPES)[number], string> = {
-  CLIENT: 'Client',
-  PROGRAM: 'Program',
-};
-
-const PROFILE_STATUS_LABELS: Record<(typeof PROFILE_STATUSES)[number], string> = {
-  ACTIVE: 'Active',
-  PAUSED: 'Paused',
-  MONITORING: 'Monitoring',
-  ARCHIVED: 'Archived',
-};
-import type {
-  Client,
-  ClientDocument,
-  ClientFormSubmit,
-  ClientFormValues,
-  ClientPayload,
-} from './clientTypes.js';
+import type { Client, ClientFormSubmit, ClientFormValues, ClientPayload } from './clientTypes.js';
 
 interface ClientFormModalProps {
   open: boolean;
@@ -38,6 +32,58 @@ interface ClientFormModalProps {
   onCancel: () => void;
   onSubmit: (submission: ClientFormSubmit) => void;
 }
+
+// The 4 wizard steps. Each step gates a subset of the company-info fields; the
+// final step submits. Logo + documents live below the steps and are NOT part
+// of the company-info field set — they're a separate wired upload feature.
+const STEP_ITEMS = [
+  { title: 'Company Info' },
+  { title: 'Contact & Social' },
+  { title: "Gov't Registration" },
+  { title: 'Sector & Tracks' },
+];
+
+// Field names owned by each step, used to scope per-step validation so Next
+// only validates the fields the user has actually seen.
+const STEP_FIELDS: Array<Array<keyof ClientFormValues>> = [
+  [
+    'name',
+    'dba',
+    'website',
+    'description',
+    'city',
+    'state',
+    'country',
+    'address1',
+    'zip',
+    'sbSb',
+    'sbWosb',
+    'sbSdvosb',
+    'sbHubzone',
+    'sbEightA',
+    'sbLarge',
+    'sbForeignOwned',
+  ],
+  ['primaryContactEmail', 'primaryContactPhone'],
+  [
+    'cageCode',
+    'uei',
+    'samStatus',
+    'samExpirationDate',
+    'primaryNaics',
+    'additionalNaics',
+    'ldaRegistrantName',
+    'ein',
+  ],
+  ['sectors', 'submissionTracks', 'engagementStartDate', 'primaryContactName', 'internalNotes'],
+];
+
+const SAM_STATUS_OPTIONS = [
+  { label: 'Active', value: 'Active' },
+  { label: 'Expired', value: 'Expired' },
+  { label: 'Not registered', value: 'Not registered' },
+  { label: 'Pending', value: 'Pending' },
+];
 
 export function ClientFormModal({
   open,
@@ -50,6 +96,7 @@ export function ClientFormModal({
   const [form] = Form.useForm<ClientFormValues>();
   const [documentFiles, setDocumentFiles] = useState<UploadFile[]>([]);
   const [logoFiles, setLogoFiles] = useState<UploadFile[]>([]);
+  const [currentStep, setCurrentStep] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -57,259 +104,88 @@ export function ClientFormModal({
     form.setFieldsValue(clientToFormValues(client ?? undefined));
     setDocumentFiles([]);
     setLogoFiles([]);
+    setCurrentStep(0);
   }, [client, form, open]);
+
+  const isLastStep = currentStep === STEP_ITEMS.length - 1;
+
+  async function handleNext() {
+    try {
+      await form.validateFields(STEP_FIELDS[currentStep] as string[]);
+      setCurrentStep((s) => Math.min(s + 1, STEP_ITEMS.length - 1));
+    } catch {
+      // validateFields rejects with the list of invalid fields; AntD already
+      // renders the inline messages, so nothing to do here.
+    }
+  }
+
+  function handleBack() {
+    setCurrentStep((s) => Math.max(s - 1, 0));
+  }
+
+  function handleSubmit(values: ClientFormValues) {
+    onSubmit({
+      // Pass the existing client (edit mode) so intakeData merges over the
+      // current blob instead of overwriting it — preserves wired keys the
+      // wizard doesn't render (peNumber, profileNotes, governmentHistory…).
+      payload: formValuesToClientPayload(values, client ?? undefined),
+      documents: documentFiles.map(uploadFileToFile).filter((file): file is File => Boolean(file)),
+      logo: uploadFileToFile(logoFiles[0]),
+    });
+  }
 
   return (
     <Modal
       title={mode === 'create' ? 'Add client' : 'Edit client'}
       open={open}
       onCancel={onCancel}
-      onOk={() => form.submit()}
-      confirmLoading={submitting}
-      okText={mode === 'create' ? 'Add client' : 'Save changes'}
       width={760}
+      footer={[
+        <Button key="cancel" onClick={onCancel}>
+          Cancel
+        </Button>,
+        currentStep > 0 ? (
+          <Button key="back" onClick={handleBack}>
+            Back
+          </Button>
+        ) : null,
+        !isLastStep ? (
+          <Button key="next" type="primary" onClick={handleNext}>
+            Next
+          </Button>
+        ) : (
+          <Button key="submit" type="primary" loading={submitting} onClick={() => form.submit()}>
+            {mode === 'create' ? 'Add client' : 'Save changes'}
+          </Button>
+        ),
+      ]}
     >
-      <Form
-        form={form}
-        layout="vertical"
-        onFinish={(values) =>
-          onSubmit({
-            payload: formValuesToClientPayload(values),
-            documents: documentFiles
-              .map(uploadFileToFile)
-              .filter((file): file is File => Boolean(file)),
-            logo: uploadFileToFile(logoFiles[0]),
-          })
-        }
-      >
-        <Row gutter={16}>
-          <Col xs={24} md={12}>
-            <Form.Item name="name" label="Company name" rules={[{ required: true, min: 1 }]}>
-              <Input />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item name="website" label="Website">
-              <Input placeholder="example.com" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item name="primaryContactName" label="Primary contact name">
-              <Input />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item
-              name="primaryContactEmail"
-              label="Primary contact email"
-              rules={[{ type: 'email' }]}
-            >
-              <Input />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item name="primaryContactPhone" label="Primary contact phone">
-              <Input
-                placeholder="+1 202-555-0142"
-                onBlur={(event) =>
-                  form.setFieldValue('primaryContactPhone', formatPhone(event.target.value))
-                }
-              />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item
-              name="sectorTag"
-              label="Sector"
-              tooltip="Controlled vocabulary. Drives sector-adaptive intelligence panels and comment-period alerts."
-            >
-              <Select
-                allowClear
-                placeholder="Pick a sector"
-                options={SECTOR_TAGS.map((t) => ({ label: SECTOR_LABELS[t], value: t }))}
-              />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item
-              name="submissionTracks"
-              label="Submission tracks"
-              tooltip="Which legislative/advocacy vehicles this client uses."
-            >
-              <Select
-                mode="multiple"
-                allowClear
-                placeholder="Pick one or more"
-                options={SUBMISSION_TRACKS.map((t) => ({ label: SUBMISSION_TRACK_LABELS[t], value: t }))}
-              />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item
-              name="profileType"
-              label="Profile type"
-              tooltip="Client = an external organization you represent. Program = an internal advocacy program."
-            >
-              <Select
-                allowClear
-                placeholder="Client"
-                options={PROFILE_TYPES.map((t) => ({ label: PROFILE_TYPE_LABELS[t], value: t }))}
-              />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item
-              name="profileStatus"
-              label="Profile status"
-              tooltip="Drives which clients surface in proactive alerts and the active portfolio view."
-            >
-              <Select
-                allowClear
-                placeholder="Active"
-                options={PROFILE_STATUSES.map((s) => ({ label: PROFILE_STATUS_LABELS[s], value: s }))}
-              />
-            </Form.Item>
-          </Col>
-        </Row>
+      <Steps size="small" current={currentStep} items={STEP_ITEMS} style={{ marginBottom: 24 }} />
 
-        <Row gutter={16}>
-          <Col xs={24} md={8}>
-            <Form.Item name="trl" label="TRL">
-              <Input placeholder="6" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={8}>
-            <Form.Item name="fundingAsk" label="Funding ask">
-              <Input
-                placeholder="$15,000.00"
-                onBlur={(event) =>
-                  form.setFieldValue('fundingAsk', formatMoney(event.target.value))
-                }
-              />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={8}>
-            <Form.Item name="requestType" label="Request type">
-              <Input placeholder="NDAA language - Approps" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={8}>
-            <Form.Item name="peNumber" label="PE number">
-              <Input placeholder="0603286F" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={16}>
-            <Form.Item name="engagement" label="Engagement">
-              <Input placeholder="Active since Jan 2025" />
-            </Form.Item>
-          </Col>
-        </Row>
+      {/*
+        One Form spans all steps; we mount every step but hide the inactive ones
+        with `display: none` rather than unmounting, so field values + validation
+        state survive Back/Next without re-initialising the controls.
+      */}
+      <Form form={form} layout="vertical" onFinish={handleSubmit}>
+        <div style={{ display: currentStep === 0 ? 'block' : 'none' }}>
+          <CompanyInfoStep />
+        </div>
+        <div style={{ display: currentStep === 1 ? 'block' : 'none' }}>
+          <ContactSocialStep form={form} />
+        </div>
+        <div style={{ display: currentStep === 2 ? 'block' : 'none' }}>
+          <GovRegistrationStep form={form} />
+        </div>
+        <div style={{ display: currentStep === 3 ? 'block' : 'none' }}>
+          <SectorTracksStep />
+        </div>
 
-        <Form.Item name="portfolioText" label="Portfolio tags">
-          <Input placeholder="Hypersonics, AI/ML, FY26 NDAA" />
-        </Form.Item>
-
-        <Form.Item name="description" label="Description">
-          <Input.TextArea rows={3} maxLength={600} showCount />
-        </Form.Item>
-        <Form.Item name="productDescription" label="Product / service description">
-          <Input.TextArea rows={3} maxLength={600} showCount />
-        </Form.Item>
-
+        {/* Logo + documents — separate wired upload feature, shown on every
+            step so they can be attached regardless of where the user is. */}
         <Divider orientation="left" plain>
-          Supporting details
+          Logo &amp; documents
         </Divider>
-        <Row gutter={16}>
-          <Col xs={24} md={12}>
-            <Form.Item name="priorContracts" label="Prior contracts">
-              <Input placeholder="SBIR Phase II, 2023" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item name="grants" label="Grants">
-              <Input placeholder="DoE ARPA-E, 2022" />
-            </Form.Item>
-          </Col>
-          <Col xs={24}>
-            <Form.Item name="priorEngagement" label="Prior engagement">
-              <Input placeholder="HASC outreach, 2024" />
-            </Form.Item>
-          </Col>
-        </Row>
-
-        <Divider orientation="left" plain>
-          Address &amp; Contact
-        </Divider>
-        <Row gutter={16}>
-          <Col xs={24}>
-            <Form.Item name="address1" label="Street address">
-              <Input placeholder="123 Main St" />
-            </Form.Item>
-          </Col>
-          <Col xs={24}>
-            <Form.Item name="address2" label="Suite / floor">
-              <Input placeholder="Suite 400" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={10}>
-            <Form.Item name="city" label="City">
-              <Input />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={7}>
-            <Form.Item name="state" label="State">
-              <Input placeholder="VA" maxLength={2} />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={7}>
-            <Form.Item name="zip" label="ZIP">
-              <Input placeholder="22201" maxLength={10} />
-            </Form.Item>
-          </Col>
-        </Row>
-
-        <Divider orientation="left" plain>
-          Point of Contact
-        </Divider>
-        <Row gutter={16}>
-          <Col xs={24} md={12}>
-            <Form.Item name="pocName" label="POC name">
-              <Input />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item name="pocTitle" label="POC title">
-              <Input />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item name="pocPhone" label="POC phone">
-              <Input placeholder="+1 202-555-0142" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item name="pocEmail" label="POC email" rules={[{ type: 'email' }]}>
-              <Input />
-            </Form.Item>
-          </Col>
-        </Row>
-
-        <Divider orientation="left" plain>
-          Head of Organization
-        </Divider>
-        <Row gutter={16}>
-          <Col xs={24} md={12}>
-            <Form.Item name="headName" label="Name">
-              <Input />
-            </Form.Item>
-          </Col>
-          <Col xs={24} md={12}>
-            <Form.Item name="headTitle" label="Title">
-              <Input />
-            </Form.Item>
-          </Col>
-        </Row>
-
         <Row gutter={16}>
           <Col xs={24}>
             <Form.Item label="Client logo">
@@ -352,50 +228,323 @@ export function ClientFormModal({
   );
 }
 
-export function formValuesToClientPayload(values: ClientFormValues): ClientPayload {
-  const governmentHistory = compactObject({
-    priorContracts: optionalText(values.priorContracts),
-    grants: optionalText(values.grants),
-    priorEngagement: optionalText(values.priorEngagement),
+/* ── Step 1: Company Info ────────────────────────────────────────────────── */
+
+function CompanyInfoStep() {
+  return (
+    <>
+      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+        Company Information
+      </Typography.Text>
+      <Row gutter={16}>
+        <Col xs={24} md={12}>
+          <Form.Item name="name" label="Legal name" rules={[{ required: true, min: 1 }]}>
+            <Input placeholder="Acme Defense Systems, Inc." />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={12}>
+          <Form.Item name="dba" label="DBA / trade name">
+            <Input placeholder="Acme Defense" />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={12}>
+          <Form.Item name="website" label="Website" rules={[{ required: true }]}>
+            <Input placeholder="example.com" />
+          </Form.Item>
+        </Col>
+        <Col xs={24}>
+          <Form.Item
+            name="description"
+            label="Company description"
+            rules={[{ required: true, min: 1 }]}
+          >
+            <Input.TextArea rows={3} maxLength={600} showCount />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={10}>
+          <Form.Item name="city" label="City">
+            <Input />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={7}>
+          <Form.Item name="state" label="State">
+            <Input placeholder="VA" maxLength={2} />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={7}>
+          <Form.Item name="country" label="Country" initialValue="USA">
+            <Input placeholder="USA" />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={17}>
+          <Form.Item name="address1" label="Street address">
+            <Input placeholder="123 Main St" />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={7}>
+          <Form.Item name="zip" label="ZIP">
+            <Input placeholder="22201" maxLength={10} />
+          </Form.Item>
+        </Col>
+      </Row>
+
+      <Divider orientation="left" plain>
+        Small Business Classification
+      </Divider>
+      <Row gutter={[16, 4]}>
+        <Col xs={12} md={8}>
+          <Form.Item name="sbSb" valuePropName="checked" noStyle>
+            <Checkbox>Small Business (SB)</Checkbox>
+          </Form.Item>
+        </Col>
+        <Col xs={12} md={8}>
+          <Form.Item name="sbWosb" valuePropName="checked" noStyle>
+            <Checkbox>WOSB</Checkbox>
+          </Form.Item>
+        </Col>
+        <Col xs={12} md={8}>
+          <Form.Item name="sbSdvosb" valuePropName="checked" noStyle>
+            <Checkbox>SDVOSB</Checkbox>
+          </Form.Item>
+        </Col>
+        <Col xs={12} md={8}>
+          <Form.Item name="sbHubzone" valuePropName="checked" noStyle>
+            <Checkbox>HUBZone</Checkbox>
+          </Form.Item>
+        </Col>
+        <Col xs={12} md={8}>
+          <Form.Item name="sbEightA" valuePropName="checked" noStyle>
+            <Checkbox>8(a)</Checkbox>
+          </Form.Item>
+        </Col>
+        <Col xs={12} md={8}>
+          <Form.Item name="sbLarge" valuePropName="checked" noStyle>
+            <Checkbox>Large Business</Checkbox>
+          </Form.Item>
+        </Col>
+        <Col xs={12} md={8}>
+          <Form.Item name="sbForeignOwned" valuePropName="checked" noStyle>
+            <Checkbox>Foreign-owned</Checkbox>
+          </Form.Item>
+        </Col>
+      </Row>
+    </>
+  );
+}
+
+/* ── Step 2: Contact & Social ────────────────────────────────────────────── */
+
+function ContactSocialStep({
+  form,
+}: {
+  form: ReturnType<typeof Form.useForm<ClientFormValues>>[0];
+}) {
+  return (
+    <Row gutter={16}>
+      <Col xs={24} md={12}>
+        <Form.Item
+          name="primaryContactEmail"
+          label="Main company email"
+          rules={[{ type: 'email' }]}
+        >
+          <Input placeholder="info@example.com" />
+        </Form.Item>
+      </Col>
+      <Col xs={24} md={12}>
+        <Form.Item name="primaryContactPhone" label="Main company phone">
+          <Input
+            placeholder="+1 202-555-0142"
+            onBlur={(event) =>
+              form.setFieldValue('primaryContactPhone', formatPhone(event.target.value))
+            }
+          />
+        </Form.Item>
+      </Col>
+    </Row>
+  );
+}
+
+/* ── Step 3: Gov't Registration ──────────────────────────────────────────── */
+
+function GovRegistrationStep({
+  form,
+}: {
+  form: ReturnType<typeof Form.useForm<ClientFormValues>>[0];
+}) {
+  return (
+    <Row gutter={16}>
+      <Col xs={24} md={12}>
+        <Form.Item name="cageCode" label="CAGE Code">
+          <Input
+            placeholder="1ABC2"
+            maxLength={5}
+            onChange={(event) => form.setFieldValue('cageCode', event.target.value.toUpperCase())}
+          />
+        </Form.Item>
+      </Col>
+      <Col xs={24} md={12}>
+        <Form.Item name="uei" label="UEI">
+          <Input
+            placeholder="ABC123DEF456"
+            maxLength={12}
+            onChange={(event) => form.setFieldValue('uei', event.target.value.toUpperCase())}
+          />
+        </Form.Item>
+      </Col>
+      <Col xs={24} md={12}>
+        <Form.Item name="samStatus" label="SAM.gov status">
+          <Select allowClear placeholder="Select status" options={SAM_STATUS_OPTIONS} />
+        </Form.Item>
+      </Col>
+      <Col xs={24} md={12}>
+        <Form.Item name="samExpirationDate" label="SAM.gov expiration date">
+          <Input type="date" />
+        </Form.Item>
+      </Col>
+      <Col xs={24} md={12}>
+        <Form.Item name="primaryNaics" label="Primary NAICS">
+          <Input placeholder="541330" maxLength={6} />
+        </Form.Item>
+      </Col>
+      <Col xs={24} md={12}>
+        <Form.Item name="additionalNaics" label="Additional NAICS">
+          <Input placeholder="541512, 541715" />
+        </Form.Item>
+      </Col>
+      <Col xs={24} md={12}>
+        <Form.Item name="ldaRegistrantName" label="LDA registrant name">
+          <Input placeholder="Registrant on LDA filings" />
+        </Form.Item>
+      </Col>
+      <Col xs={24} md={12}>
+        <Form.Item name="ein" label="EIN">
+          <Input placeholder="12-3456789" />
+        </Form.Item>
+      </Col>
+    </Row>
+  );
+}
+
+/* ── Step 4: Sector & Tracks ─────────────────────────────────────────────── */
+
+function SectorTracksStep() {
+  return (
+    <>
+      <Form.Item
+        name="sectors"
+        label="Sector tags"
+        tooltip="Multi-select. The first sector chosen becomes the primary sector that drives sector-adaptive intelligence panels and comment-period alerts."
+      >
+        <Checkbox.Group options={SECTOR_TAGS.map((t) => ({ label: SECTOR_LABELS[t], value: t }))} />
+      </Form.Item>
+
+      <Form.Item
+        name="submissionTracks"
+        label="Active submission tracks"
+        tooltip="Which legislative / advocacy vehicles this client uses. Drives the insight generator."
+      >
+        <Checkbox.Group
+          options={SUBMISSION_TRACKS.map((t) => ({
+            label: SUBMISSION_TRACK_LABELS[t],
+            value: t,
+          }))}
+        />
+      </Form.Item>
+
+      <Row gutter={16}>
+        <Col xs={24} md={12}>
+          <Form.Item name="engagementStartDate" label="Engagement start date">
+            <Input type="date" />
+          </Form.Item>
+        </Col>
+        <Col xs={24} md={12}>
+          <Form.Item name="primaryContactName" label="Primary POC at client">
+            <Input placeholder="Jane Smith" />
+          </Form.Item>
+        </Col>
+      </Row>
+
+      <Form.Item name="internalNotes" label="Internal notes">
+        <Input.TextArea rows={3} maxLength={2000} showCount />
+      </Form.Item>
+    </>
+  );
+}
+
+/* ── Form ⇄ payload mapping ──────────────────────────────────────────────── */
+
+export function formValuesToClientPayload(
+  values: ClientFormValues,
+  existing?: Client,
+): ClientPayload {
+  // Small Business Classification: store only the flags that are checked.
+  const sbClassification = compactBooleans({
+    sb: values.sbSb,
+    wosb: values.sbWosb,
+    sdvosb: values.sbSdvosb,
+    hubzone: values.sbHubzone,
+    eightA: values.sbEightA,
+    large: values.sbLarge,
+    foreignOwned: values.sbForeignOwned,
   });
 
-  const intakeData = compactObject({
-    // Legacy free-text sector is no longer collected; sectorTag is now the source
-    // of truth at the top level. Preserve the field name during transition so
-    // older intake reads still work.
-    trl: optionalText(values.trl),
-    fundingAsk: formatMoney(values.fundingAsk),
-    requestType: optionalText(values.requestType),
-    peNumber: optionalText(values.peNumber),
-    engagement: optionalText(values.engagement),
-    portfolio: parseCommaList(values.portfolioText),
-    governmentHistory,
+  // Sectors multi-select stores the full list; the FIRST selected sector is
+  // mirrored to the top-level controlled Client.sectorTag so the wired
+  // intelligence engine keeps working.
+  const sectors = Array.isArray(values.sectors) ? values.sectors.filter(Boolean) : [];
+  const primarySector = sectors[0];
+
+  // The wizard-owned intakeData keys. Compute their new values; an undefined
+  // value means "clear this key". Everything NOT in this set (peNumber,
+  // profileNotes, governmentHistory, documents, …) is preserved from the
+  // existing blob below so editing through the wizard never wipes wired data.
+  const wizardIntake: Record<string, unknown> = {
+    dba: optionalText(values.dba),
     address1: optionalText(values.address1),
     address2: optionalText(values.address2),
     city: optionalText(values.city),
     state: optionalText(values.state),
+    country: optionalText(values.country),
     zip: optionalText(values.zip),
-    pocName: optionalText(values.pocName),
-    pocTitle: optionalText(values.pocTitle),
-    pocPhone: optionalText(values.pocPhone),
-    pocEmail: optionalText(values.pocEmail),
-    headName: optionalText(values.headName),
-    headTitle: optionalText(values.headTitle),
-  });
+    sbClassification: Object.keys(sbClassification).length ? sbClassification : undefined,
+    cageCode: optionalText(values.cageCode)?.toUpperCase(),
+    uei: optionalText(values.uei)?.toUpperCase(),
+    samStatus: optionalText(values.samStatus),
+    samExpirationDate: optionalText(values.samExpirationDate),
+    primaryNaics: optionalText(values.primaryNaics),
+    additionalNaics: optionalText(values.additionalNaics),
+    ldaRegistrantName: optionalText(values.ldaRegistrantName),
+    ein: optionalText(values.ein),
+    sectors: sectors.length ? sectors : undefined,
+    engagementStartDate: optionalText(values.engagementStartDate),
+    internalNotes: optionalText(values.internalNotes),
+  };
+
+  // Merge: existing blob first, then apply each wizard-owned key (set or
+  // delete). Non-wizard keys ride through untouched.
+  const intakeData: Record<string, unknown> = { ...toRecord(existing?.intakeData) };
+  for (const [key, value] of Object.entries(wizardIntake)) {
+    if (value === undefined) delete intakeData[key];
+    else intakeData[key] = value;
+  }
 
   const payload: ClientPayload = {
     name: optionalText(values.name) ?? '',
     ...compactObject({
       website: optionalText(values.website),
       description: optionalText(values.description),
-      productDescription: optionalText(values.productDescription),
       primaryContactName: optionalText(values.primaryContactName),
       primaryContactEmail: optionalText(values.primaryContactEmail),
       primaryContactPhone: formatPhone(values.primaryContactPhone),
     }),
   };
   payload.intakeData = intakeData;
-  if (values.sectorTag) payload.sectorTag = values.sectorTag;
+  // Mirror primary sector → controlled top-level tag. Map the chosen label/value
+  // to a controlled SECTOR_TAG; SECTOR_TAGS values pass through normalizeSector
+  // (which uppercases + matches), so a free label like "Other" still resolves.
+  if (primarySector) {
+    payload.sectorTag = normalizeSector(primarySector) ?? primarySector;
+  }
   if (values.submissionTracks?.length) payload.submissionTracks = values.submissionTracks;
   if (values.profileType) payload.profileType = values.profileType;
   if (values.profileStatus) payload.profileStatus = values.profileStatus;
@@ -405,40 +554,64 @@ export function formValuesToClientPayload(values: ClientFormValues): ClientPaylo
 export function clientToFormValues(client?: Client): ClientFormValues {
   if (!client) return {};
   const intake = toRecord(client.intakeData);
-  const governmentHistory = toRecord(
-    readFirst(intake, ['governmentHistory', 'government_history']),
-  );
+  const sb = toRecord(readFirst(intake, ['sbClassification']));
+
+  // Sectors: prefer the stored multi-select list; otherwise seed from the
+  // controlled top-level sectorTag (or legacy free-text sector) so edit mode
+  // pre-fills at least the primary sector for clients created before v3.
+  const storedSectors = readList(intake, ['sectors']);
+  const seedSector =
+    (client.sectorTag ?? undefined) || (normalizeSector(readText(intake, ['sector'])) ?? undefined);
+  const sectors = storedSectors.length ? storedSectors : seedSector ? [seedSector] : [];
 
   return {
     name: client.name,
+    dba: readText(intake, ['dba']),
     website: client.website ?? undefined,
     description: client.description ?? undefined,
     productDescription: client.productDescription ?? undefined,
     primaryContactName: client.primaryContactName ?? undefined,
     primaryContactEmail: client.primaryContactEmail ?? undefined,
     primaryContactPhone: client.primaryContactPhone ?? undefined,
-    // Prefer top-level controlled sectorTag; fall back to normalized legacy
-    // intake.sector string for clients created before Portfolio v2.
-    sectorTag:
-      (client.sectorTag ?? undefined) ||
-      (normalizeSector(readText(intake, ['sector'])) ?? undefined),
+    sectors,
     submissionTracks: client.submissionTracks ?? [],
     profileType: client.profileType ?? undefined,
     profileStatus: client.profileStatus ?? undefined,
+    // Address
+    address1: readText(intake, ['address1']),
+    address2: readText(intake, ['address2']),
+    city: readText(intake, ['city']),
+    state: readText(intake, ['state']),
+    country: readText(intake, ['country']) ?? 'USA',
+    zip: readText(intake, ['zip']),
+    // Small Business Classification flags
+    sbSb: readBool(sb, ['sb']),
+    sbWosb: readBool(sb, ['wosb']),
+    sbSdvosb: readBool(sb, ['sdvosb']),
+    sbHubzone: readBool(sb, ['hubzone']),
+    sbEightA: readBool(sb, ['eightA', 'eight_a', '8a']),
+    sbLarge: readBool(sb, ['large']),
+    sbForeignOwned: readBool(sb, ['foreignOwned', 'foreign_owned']),
+    // Gov't registration
+    cageCode: readText(intake, ['cageCode', 'cage_code']),
+    uei: readText(intake, ['uei']),
+    samStatus: readText(intake, ['samStatus', 'sam_status']),
+    samExpirationDate: readDate(intake, ['samExpirationDate', 'sam_expiration_date']),
+    primaryNaics: readText(intake, ['primaryNaics', 'primary_naics', 'naics']),
+    additionalNaics: readText(intake, ['additionalNaics', 'additional_naics']),
+    ldaRegistrantName: readText(intake, ['ldaRegistrantName', 'lda_registrant_name']),
+    ein: readText(intake, ['ein']),
+    // Sector & tracks
+    engagementStartDate: readDate(intake, ['engagementStartDate', 'engagement_start_date']),
+    internalNotes: readText(intake, ['internalNotes', 'internal_notes']),
+    // ── Legacy reads retained so older intakeData round-trips even though the
+    //    wizard no longer renders these fields. ──
     trl: readText(intake, ['trl']),
     fundingAsk: readText(intake, ['fundingAsk', 'funding_ask', 'funding ask']),
     requestType: readText(intake, ['requestType', 'request_type', 'request type']),
     peNumber: readText(intake, ['peNumber', 'pe_number', 'PE number']),
     engagement: readText(intake, ['engagement']),
     portfolioText: readList(intake, ['portfolio', 'tags']).join(', '),
-    priorContracts: readText(governmentHistory, ['priorContracts', 'prior_contracts']),
-    grants: readText(governmentHistory, ['grants']),
-    priorEngagement: readText(governmentHistory, ['priorEngagement', 'prior_engagement']),
-    address1: readText(intake, ['address1']),
-    address2: readText(intake, ['address2']),
-    city: readText(intake, ['city']),
-    state: readText(intake, ['state']),
-    zip: readText(intake, ['zip']),
     pocName: readText(intake, ['pocName', 'poc_name']),
     pocTitle: readText(intake, ['pocTitle', 'poc_title']),
     pocPhone: readText(intake, ['pocPhone', 'poc_phone']),
@@ -457,21 +630,6 @@ function uploadFileToFile(file?: UploadFile): File | undefined {
   return (file?.originFileObj as File | undefined) ?? (file as unknown as File | undefined);
 }
 
-function formatMoney(value: unknown): string | undefined {
-  const text = optionalText(value);
-  if (!text) return undefined;
-  const compact = text.replace(/[$,\s]/g, '').toLowerCase();
-  const multiplier = compact.endsWith('k') ? 1_000 : compact.endsWith('m') ? 1_000_000 : 1;
-  const numeric = Number(compact.replace(/[km]$/, '')) * multiplier;
-  if (!Number.isFinite(numeric)) return text;
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(numeric);
-}
-
 function formatPhone(value: unknown): string | undefined {
   const text = optionalText(value);
   if (!text) return undefined;
@@ -481,51 +639,17 @@ function formatPhone(value: unknown): string | undefined {
   return `+1 ${normalized.slice(0, 3)}-${normalized.slice(3, 6)}-${normalized.slice(6)}`;
 }
 
-function parseCommaList(value: unknown): string[] {
-  const text = optionalText(value);
-  if (!text) return [];
-  return text
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
+function readBool(record: Record<string, unknown>, keys: string[]): boolean {
+  const raw = readFirst(record, keys);
+  return raw === true || raw === 'true' || raw === 1 || raw === '1';
 }
 
-function parseDocumentLines(value: unknown): ClientDocument[] {
-  const text = optionalText(value);
-  if (!text) return [];
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((name) => ({ name, type: documentType(name) }));
-}
-
-function documentType(name: string): string {
-  const ext = name.split('.').pop()?.toLowerCase();
-  if (!ext || ext === name.toLowerCase()) return 'DOC';
-  return ext.slice(0, 3).toUpperCase();
-}
-
-function documentsToText(documents: ClientDocument[]): string {
-  return documents.map((doc) => doc.name).join('\n');
-}
-
-function readDocuments(intake: Record<string, unknown>): ClientDocument[] {
-  const raw = readFirst(intake, ['documents', 'docs']);
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item): ClientDocument | null => {
-      if (typeof item === 'string') return { name: item, type: documentType(item) };
-      const record = toRecord(item);
-      const name = readText(record, ['name', 'title', 'filename']);
-      if (!name) return null;
-      return {
-        name,
-        type: readText(record, ['type']) ?? documentType(name),
-        date: readText(record, ['date']),
-      };
-    })
-    .filter((item): item is ClientDocument => Boolean(item));
+/** Keep only the boolean flags that are truthy. */
+function compactBooleans(value: Record<string, boolean | undefined>): Record<string, boolean> {
+  return Object.fromEntries(Object.entries(value).filter(([, on]) => on === true)) as Record<
+    string,
+    boolean
+  >;
 }
 
 function readList(record: Record<string, unknown>, keys: string[]): string[] {
@@ -534,11 +658,27 @@ function readList(record: Record<string, unknown>, keys: string[]): string[] {
     return raw.map((item) => optionalText(item)).filter((item): item is string => Boolean(item));
   }
   const text = optionalText(raw);
-  return text ? parseCommaList(text) : [];
+  return text
+    ? text
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
 }
 
 function readText(record: Record<string, unknown>, keys: string[]): string | undefined {
   return optionalText(readFirst(record, keys));
+}
+
+/**
+ * Read a date value as a YYYY-MM-DD string suitable for <input type="date">.
+ * Truncates any full-ISO timestamp (legacy values) to the date portion.
+ */
+function readDate(record: Record<string, unknown>, keys: string[]): string | undefined {
+  const text = readText(record, keys);
+  if (!text) return undefined;
+  const match = /^\d{4}-\d{2}-\d{2}/.exec(text);
+  return match ? match[0] : text;
 }
 
 function readFirst(record: Record<string, unknown>, keys: string[]): unknown {

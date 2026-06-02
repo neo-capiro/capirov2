@@ -26,39 +26,95 @@ import { useApi } from '../../lib/use-api.js';
 
 // Header fields the server accepts. The keys are CSV column labels we
 // auto-detect (case-insensitive, space/underscore-flexible); the values
-// are the CreateClientInput field names that go to the API.
+// are the target field names. Top-level fields map to CreateClientInput
+// columns; `intake.*` targets are nested into intakeData by buildRowPayload
+// (no Prisma migration — the new Company-Info fields ride in the JSON blob).
 const FIELD_MAP: Record<string, string> = {
   name: 'name',
+  'legal name': 'name',
   client: 'name',
   'client name': 'name',
+  dba: 'intake.dba',
+  'trade name': 'intake.dba',
   website: 'website',
   url: 'website',
   description: 'description',
+  'company description': 'description',
   'product description': 'productDescription',
+  // Main company email/phone keep the engagement-wiring columns.
   'primary contact name': 'primaryContactName',
+  'primary poc': 'primaryContactName',
   contact: 'primaryContactName',
   'primary contact email': 'primaryContactEmail',
+  'company email': 'primaryContactEmail',
   email: 'primaryContactEmail',
   'primary contact phone': 'primaryContactPhone',
+  'company phone': 'primaryContactPhone',
   phone: 'primaryContactPhone',
+  // Sector: `sectors` (multi, pipe-separated) mirrors first → sectorTag;
+  // `sector`/`sector tag` remains a single controlled value.
   sector: 'sectorTag',
   'sector tag': 'sectorTag',
+  sectors: 'sectors',
+  'sector tags': 'sectors',
   'submission tracks': 'submissionTracks',
   tracks: 'submissionTracks',
   'profile type': 'profileType',
+  // Address → intakeData
+  city: 'intake.city',
+  state: 'intake.state',
+  country: 'intake.country',
+  'street address': 'intake.address1',
+  address: 'intake.address1',
+  zip: 'intake.zip',
+  // Gov't registration → intakeData
+  'cage code': 'intake.cageCode',
+  cage: 'intake.cageCode',
+  uei: 'intake.uei',
+  'sam status': 'intake.samStatus',
+  'sam gov status': 'intake.samStatus',
+  'sam expiration date': 'intake.samExpirationDate',
+  'sam expiration': 'intake.samExpirationDate',
+  'primary naics': 'intake.primaryNaics',
+  naics: 'intake.primaryNaics',
+  'additional naics': 'intake.additionalNaics',
+  'lda registrant name': 'intake.ldaRegistrantName',
+  'lda registrant': 'intake.ldaRegistrantName',
+  ein: 'intake.ein',
+  // Sector & tracks extras → intakeData
+  'engagement start date': 'intake.engagementStartDate',
+  'engagement start': 'intake.engagementStartDate',
+  'internal notes': 'intake.internalNotes',
 };
 
 const TARGET_FIELDS = [
   { value: '__skip__', label: '- Skip column -' },
-  { value: 'name', label: 'Name (required)' },
+  { value: 'name', label: 'Legal name (required)' },
+  { value: 'intake.dba', label: 'DBA / trade name' },
   { value: 'website', label: 'Website' },
-  { value: 'description', label: 'Description' },
+  { value: 'description', label: 'Company description' },
   { value: 'productDescription', label: 'Product description' },
-  { value: 'primaryContactName', label: 'Primary contact name' },
-  { value: 'primaryContactEmail', label: 'Primary contact email' },
-  { value: 'primaryContactPhone', label: 'Primary contact phone' },
-  { value: 'sectorTag', label: 'Sector tag' },
+  { value: 'primaryContactName', label: 'Primary POC / contact name' },
+  { value: 'primaryContactEmail', label: 'Company email' },
+  { value: 'primaryContactPhone', label: 'Company phone' },
+  { value: 'intake.city', label: 'City' },
+  { value: 'intake.state', label: 'State' },
+  { value: 'intake.country', label: 'Country' },
+  { value: 'intake.address1', label: 'Street address' },
+  { value: 'intake.zip', label: 'ZIP' },
+  { value: 'intake.cageCode', label: 'CAGE Code' },
+  { value: 'intake.uei', label: 'UEI' },
+  { value: 'intake.samStatus', label: 'SAM.gov status' },
+  { value: 'intake.samExpirationDate', label: 'SAM.gov expiration date' },
+  { value: 'intake.primaryNaics', label: 'Primary NAICS' },
+  { value: 'intake.additionalNaics', label: 'Additional NAICS' },
+  { value: 'intake.ldaRegistrantName', label: 'LDA registrant name' },
+  { value: 'intake.ein', label: 'EIN' },
+  { value: 'sectorTag', label: 'Sector tag (single)' },
+  { value: 'sectors', label: 'Sector tags (pipe-separated, multi)' },
   { value: 'submissionTracks', label: 'Submission tracks (pipe-separated)' },
+  { value: 'intake.engagementStartDate', label: 'Engagement start date' },
+  { value: 'intake.internalNotes', label: 'Internal notes' },
   { value: 'profileType', label: 'Profile type' },
 ];
 
@@ -77,11 +133,7 @@ interface ImportResult {
   items: Array<{ id: string; name: string }>;
 }
 
-export function BulkImportClientsModal({
-  open,
-  onClose,
-  onImported,
-}: BulkImportClientsModalProps) {
+export function BulkImportClientsModal({ open, onClose, onImported }: BulkImportClientsModalProps) {
   const api = useApi();
   const qc = useQueryClient();
   const { message } = App.useApp();
@@ -107,11 +159,7 @@ export function BulkImportClientsModal({
   function autoDetectMapping(headers: string[]): Record<number, string> {
     const mapping: Record<number, string> = {};
     for (let i = 0; i < headers.length; i++) {
-      const key = headers[i]!
-        .trim()
-        .toLowerCase()
-        .replace(/_/g, ' ')
-        .replace(/\s+/g, ' ');
+      const key = headers[i]!.trim().toLowerCase().replace(/_/g, ' ').replace(/\s+/g, ' ');
       mapping[i] = FIELD_MAP[key] ?? '__skip__';
     }
     return mapping;
@@ -134,7 +182,7 @@ export function BulkImportClientsModal({
   }
 
   const importMutation = useMutation({
-    mutationFn: async (rowsPayload: Record<string, string>[]) => {
+    mutationFn: async (rowsPayload: RowPayload[]) => {
       const res = await api.post<ImportResult>('/api/clients/bulk-import', { rows: rowsPayload });
       return res.data;
     },
@@ -163,7 +211,7 @@ export function BulkImportClientsModal({
   function submit() {
     const payload = rows
       .map((row) => buildRowPayload(row, columnMapping))
-      .filter((r): r is Record<string, string> => r !== null);
+      .filter((r): r is RowPayload => r !== null);
 
     if (!payload.length) {
       message.error('No rows to import. Check that the Name column is mapped correctly.');
@@ -174,9 +222,9 @@ export function BulkImportClientsModal({
 
   function downloadTemplate() {
     const sample = [
-      'name,website,description,primary contact name,primary contact email,sector,submission tracks',
-      'ACME Defense,acmedefense.com,"Critical infrastructure & cyber",Jane Smith,jane@acme.com,Defense,NDAA|FY27',
-      'Helix Labs,helixlabs.io,"Synthetic bio R&D",Tom Park,tom@helix.io,Health,Grants',
+      'legal name,dba,website,company description,company email,city,state,cage code,uei,primary naics,sectors,submission tracks',
+      'ACME Defense Systems Inc,ACME Defense,acmedefense.com,"Critical infrastructure & cyber",info@acme.com,Arlington,VA,1ABC2,ABC123DEF456,541330,DEFENSE|HOMELAND_SECURITY,NDAA|APPROPRIATIONS',
+      'Helix Labs,,helixlabs.io,"Synthetic bio R&D",hello@helix.io,Cambridge,MA,,,,HEALTH,FARM_BILL',
     ].join('\n');
     const blob = new Blob([sample], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -198,9 +246,8 @@ export function BulkImportClientsModal({
   }, [rows]);
 
   const previewColumns = useMemo(() => {
-    const cols: Array<{ title: React.ReactNode; dataIndex: string; key: string; width?: number }> = [
-      { title: '#', dataIndex: '__row', key: '__row', width: 50 },
-    ];
+    const cols: Array<{ title: React.ReactNode; dataIndex: string; key: string; width?: number }> =
+      [{ title: '#', dataIndex: '__row', key: '__row', width: 50 }];
     rawHeaders.forEach((h, i) => {
       const mapped = columnMapping[i] ?? '__skip__';
       cols.push({
@@ -313,7 +360,9 @@ export function BulkImportClientsModal({
       {stage === 'result' && result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Alert
-            type={result.errors.length === 0 ? 'success' : result.created === 0 ? 'error' : 'warning'}
+            type={
+              result.errors.length === 0 ? 'success' : result.created === 0 ? 'error' : 'warning'
+            }
             showIcon
             message={
               result.errors.length === 0
@@ -349,38 +398,76 @@ export function BulkImportClientsModal({
 }
 
 /**
+ * Shape POSTed to /api/clients/bulk-import per row. Top-level keys map to
+ * CreateClientInput columns; the new Company-Info fields are nested under
+ * `intakeData` (no Prisma migration — they ride in the JSON blob).
+ */
+type RowPayload = {
+  name: string;
+  intakeData?: Record<string, unknown>;
+} & Record<string, unknown>;
+
+/** Force CAGE + UEI uppercase on import, matching the wizard's input behavior. */
+const UPPERCASE_INTAKE_KEYS = new Set(['cageCode', 'uei']);
+
+/** Split a pipe/semicolon-separated CSV cell into a trimmed, non-empty list. */
+function splitList(cell: string): string[] {
+  // CSV cells holding lists can't use commas (they'd be re-parsed as column
+  // boundaries), so accept | or ; as a separator.
+  return cell
+    .split(/[|;]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+/**
  * Build the API payload for one CSV row. Returns null if the row has no
  * mapped name value, we drop those rather than error so the user can
  * leave trailing blank rows in their CSV without it counting.
+ *
+ * `intake.<key>` targets are nested into intakeData; `sectors` (multi) is
+ * stored in intakeData.sectors and its first entry is mirrored to the
+ * top-level controlled sectorTag so the intelligence engine keeps working.
  */
-function buildRowPayload(
-  row: string[],
-  mapping: Record<number, string>,
-): Record<string, string> | null {
-  const out: Record<string, string> = {};
+function buildRowPayload(row: string[], mapping: Record<number, string>): RowPayload | null {
+  const out: Record<string, unknown> = {};
+  const intake: Record<string, unknown> = {};
+
   for (const [idx, field] of Object.entries(mapping)) {
     if (field === '__skip__') continue;
     const cell = row[Number(idx)]?.trim();
     if (!cell) continue;
-    if (field === 'submissionTracks') {
-      // CSV cells holding lists can't use commas (they'd be re-parsed as
-      // column boundaries), accept | or ; as a separator. Filter empty
-      // entries so trailing separators don't produce blank tracks.
-      const tracks = cell
-        .split(/[|;]/)
-        .map((t) => t.trim())
-        .filter(Boolean);
-      // class-validator expects an array of strings, encode as JSON so the
-      // axios JSON body keeps it array-shaped. (axios serializes objects
-      // automatically, this is just to make sure submissionTracks is
-      // typed as an array, not a string.)
-      (out as Record<string, unknown>)[field] = tracks;
+
+    if (field.startsWith('intake.')) {
+      const key = field.slice('intake.'.length);
+      intake[key] = UPPERCASE_INTAKE_KEYS.has(key) ? cell.toUpperCase() : cell;
       continue;
     }
+
+    if (field === 'submissionTracks') {
+      // class-validator expects an array of strings; keep it array-shaped so
+      // axios serializes it as a JSON array, not a string.
+      out[field] = splitList(cell);
+      continue;
+    }
+
+    if (field === 'sectors') {
+      const sectors = splitList(cell);
+      if (sectors.length) {
+        intake.sectors = sectors;
+        // Mirror the primary (first) sector to the controlled top-level tag,
+        // unless a dedicated sector-tag column already set it.
+        if (out.sectorTag == null) out.sectorTag = sectors[0];
+      }
+      continue;
+    }
+
     out[field] = cell;
   }
-  if (!out.name) return null;
-  return out;
+
+  if (Object.keys(intake).length) out.intakeData = intake;
+  if (typeof out.name !== 'string' || !out.name) return null;
+  return out as RowPayload;
 }
 
 /**
