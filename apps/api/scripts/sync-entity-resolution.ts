@@ -64,10 +64,14 @@ async function main(): Promise<void> {
 
     const tenants = args.tenant
       ? [{ id: args.tenant, slug: args.tenant }]
-      : await prisma.tenant.findMany({
-          where: { status: 'active' },
-          select: { id: true, slug: true },
-        });
+      : await prisma.withSystem((tx: any) =>
+          // RLS hides tenants from a context-less query; this is trusted
+          // cross-tenant admin tooling, so bypass RLS to enumerate them.
+          tx.tenant.findMany({
+            where: { status: 'active' },
+            select: { id: true, slug: true },
+          }),
+        );
 
     logger.log(`resolving ${tenants.length} tenant(s)`);
 
