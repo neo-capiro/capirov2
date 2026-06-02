@@ -39,6 +39,17 @@ export interface ClientPerson {
   lastContact?: string;
 }
 
+/** Small Business Classification flags (Company Info wizard step 1). */
+export interface SbClassification {
+  sb?: boolean;
+  wosb?: boolean;
+  sdvosb?: boolean;
+  hubzone?: boolean;
+  eightA?: boolean;
+  large?: boolean;
+  foreignOwned?: boolean;
+}
+
 export interface ClientIntakeData extends Record<string, unknown> {
   sector?: string;
   trl?: string | number;
@@ -54,6 +65,7 @@ export interface ClientIntakeData extends Record<string, unknown> {
   address2?: string;
   city?: string;
   state?: string;
+  country?: string;
   zip?: string;
   pocName?: string;
   pocTitle?: string;
@@ -68,6 +80,19 @@ export interface ClientIntakeData extends Record<string, unknown> {
   existingContracts?: string;
   capabilities?: Capability[];
   people?: ClientPerson[];
+  // Company Info wizard additions (Company Info v3). These ride in the existing
+  // intakeData JSON blob; no Prisma migration. See ClientFormModal for the form.
+  dba?: string;
+  sbClassification?: SbClassification;
+  samExpirationDate?: string;
+  additionalNaics?: string;
+  ldaRegistrantName?: string;
+  ein?: string;
+  /** All selected sector labels (multi-select). The primary (first) is mirrored to Client.sectorTag. */
+  sectors?: string[];
+  engagementStartDate?: string;
+  /** Internal notes — distinct from the Quick Log `profileNotes` append feature. */
+  internalNotes?: string;
 }
 
 export interface ClientDocument {
@@ -130,20 +155,56 @@ export interface ClientAttachment {
 
 export interface ClientFormValues {
   name?: string;
+  /** DBA / trade name → intakeData.dba */
+  dba?: string;
   website?: string;
   description?: string;
   productDescription?: string;
   primaryContactName?: string;
   primaryContactEmail?: string;
   primaryContactPhone?: string;
-  /** Controlled SectorTag, see SECTOR_TAGS in @capiro/shared. */
-  sectorTag?: string;
+  /**
+   * Multi-select sector labels. Stored in intakeData.sectors; the first
+   * selected is mapped to the controlled Client.sectorTag for the intelligence
+   * engine. See SECTOR_TAGS in @capiro/shared.
+   */
+  sectors?: string[];
   /** Controlled SubmissionTrack[], see SUBMISSION_TRACKS in @capiro/shared. */
   submissionTracks?: string[];
   /** Controlled ProfileType, see PROFILE_TYPES in @capiro/shared. */
   profileType?: string;
   /** Controlled ProfileStatus, see PROFILE_STATUSES in @capiro/shared. */
   profileStatus?: string;
+  // Address (step 1)
+  address1?: string;
+  address2?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  zip?: string;
+  // Small Business Classification flags (step 1)
+  sbSb?: boolean;
+  sbWosb?: boolean;
+  sbSdvosb?: boolean;
+  sbHubzone?: boolean;
+  sbEightA?: boolean;
+  sbLarge?: boolean;
+  sbForeignOwned?: boolean;
+  // Gov't registration (step 3)
+  cageCode?: string;
+  uei?: string;
+  samStatus?: string;
+  samExpirationDate?: string;
+  primaryNaics?: string;
+  additionalNaics?: string;
+  ldaRegistrantName?: string;
+  ein?: string;
+  // Sector & tracks (step 4)
+  engagementStartDate?: string;
+  internalNotes?: string;
+  // ── Legacy fields retained for back-compat reads in clientToFormValues.
+  //    No longer collected by the wizard but preserved so existing intakeData
+  //    keys round-trip. ──
   trl?: string;
   fundingAsk?: string;
   requestType?: string;
@@ -153,11 +214,6 @@ export interface ClientFormValues {
   priorContracts?: string;
   grants?: string;
   priorEngagement?: string;
-  address1?: string;
-  address2?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
   pocName?: string;
   pocTitle?: string;
   pocPhone?: string;
