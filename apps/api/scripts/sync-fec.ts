@@ -13,6 +13,9 @@ const FEC_BASE = 'https://api.open.fec.gov/v1';
 const FEC_KEY = process.env.FEC_API_KEY ?? '';
 const DELAY_MS = 500;
 const CYCLES = [2022, 2024, 2026];
+// FEC /committees/ validates committee_type as a SINGLE value per request
+// (comma-joined 'H,S,P' returns HTTP 422). Iterate each type with its own call.
+const COMMITTEE_TYPES = ['H', 'S', 'P'];
 
 async function fetchFec<T>(path: string, params: Record<string, string> = {}): Promise<T | null> {
   const url = new URL(`${FEC_BASE}${path}`);
@@ -40,11 +43,12 @@ async function main() {
       // Fetch top committees by receipts for each cycle
       let totalComms = 0;
     for (const cycle of CYCLES) {
+    for (const ctype of COMMITTEE_TYPES) {
     for (let page = 1; page <= 10; page++) {
       await new Promise((r) => setTimeout(r, DELAY_MS));
       const data = await fetchFec<{ results: any[] }>('/committees/', {
         cycle: String(cycle), sort: '-receipts', page: String(page),
-        committee_type: 'H,S,P', // House, Senate, Presidential
+        committee_type: ctype, // single value — FEC rejects comma-joined lists (422)
       });
       if (!data?.results?.length) break;
 
@@ -73,8 +77,9 @@ async function main() {
         });
         totalComms++;
       }
-      console.log(`[fec-sync] committees page ${page} cycle ${cycle}: ${data.results.length}`);
+      console.log(`[fec-sync] committees page ${page} cycle ${cycle} type ${ctype}: ${data.results.length}`);
     }
+    } // end committee-type loop
     } // end cycles loop
 
     // Fetch recent individual contributions (top by amount) across cycles
