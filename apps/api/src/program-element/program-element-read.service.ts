@@ -198,7 +198,6 @@ export class ProgramElementReadService {
 
   async getProgramElement(peCode: string, ctx: TenantContext) {
     const cacheKey = peCode.toUpperCase();
-    const cached = this.detailCache.get(cacheKey);
 
     const watch = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -210,6 +209,7 @@ export class ProgramElementReadService {
       `),
     );
 
+    const cached = this.detailCache.get(cacheKey);
     if (cached) {
       return {
         ...cached,
@@ -217,64 +217,16 @@ export class ProgramElementReadService {
       };
     }
 
-    type ProgramElementDetailMvRow = {
-      peCode: string;
-      title: string;
-      service: string | null;
-      budgetActivity: string | null;
-      acatLevel: string | null;
-      status: string | null;
-      latestYear: Prisma.JsonValue | null;
-      billCount: number;
-    };
-
-    const mvRows = await this.prisma.$queryRaw<ProgramElementDetailMvRow[]>(Prisma.sql`
-      SELECT
-        pe_code AS "peCode",
-        title,
-        service,
-        budget_activity AS "budgetActivity",
-        acat_level AS "acatLevel",
-        status,
-        latest_year AS "latestYear",
-        bill_count::int AS "billCount"
-      FROM program_element_detail_mv
-      WHERE pe_code = ${peCode}
-      LIMIT 1
-    `).catch(() => []);
-
-    if (mvRows.length) {
-      const mv = mvRows[0]!;
-      const latestYear =
-        mv.latestYear && typeof mv.latestYear === 'object' && !Array.isArray(mv.latestYear)
-          ? (mv.latestYear as Record<string, unknown>)
-          : null;
-
-      const detail: Record<string, unknown> = {
-        peCode: mv.peCode,
-        title: mv.title,
-        service: mv.service,
-        budgetActivity: mv.budgetActivity,
-        acatLevel: mv.acatLevel,
-        status: mv.status,
-        years: latestYear ? [latestYear] : [],
-        billCount: mv.billCount,
-      };
-
-      this.detailCache.set(cacheKey, detail);
-
-      return {
-        ...detail,
-        currentUserIsWatching: Boolean(watch[0]),
-      };
-    }
-
+    // The base Program Element row is authoritative for every field the detail
+    // view renders — appropriation type, status, first-seen FY — AND it carries
+    // the COMPLETE budget-year history. The FY timeline chart, the per-FY mark
+    // drawer, and the win-rate calc all need every year, not just the latest, so
+    // we always hydrate the full `years` relation here (ascending by FY).
     const programElement = await this.prisma.programElement.findUnique({
       where: { peCode },
       include: {
         years: {
-          orderBy: { fy: 'desc' },
-          take: 1,
+          orderBy: { fy: 'asc' },
         },
       },
     });
@@ -283,8 +235,24 @@ export class ProgramElementReadService {
       throw new NotFoundException(`Program element ${peCode} not found`);
     }
 
+    // Best-effort enrichment from the detail materialized view: it precomputes
+    // the (expensive) count of bills touching this PE. The MV can be absent or
+    // stale on a fresh database, so a miss is non-fatal — the detail above still
+    // renders fully from the authoritative base row.
+    const mvRows = await this.prisma
+      .$queryRaw<Array<{ billCount: number | null }>>(
+        Prisma.sql`
+        SELECT bill_count::int AS "billCount"
+        FROM program_element_detail_mv
+        WHERE pe_code = ${peCode}
+        LIMIT 1
+      `,
+      )
+      .catch(() => [] as Array<{ billCount: number | null }>);
+
     const detail: Record<string, unknown> = {
       ...programElement,
+      billCount: mvRows[0]?.billCount ?? null,
     };
 
     this.detailCache.set(cacheKey, detail);
@@ -334,10 +302,13 @@ export class ProgramElementReadService {
   }
 
   async getBills(peCode: string) {
-    const exists = await this.prisma.programElement.findUnique({ where: { peCode }, select: { peCode: true } });
+    const exists = await this.prisma.programElement.findUnique({
+      where: { peCode },
+      select: { peCode: true },
+    });
     if (!exists) throw new NotFoundException(`Program element ${peCode} not found`);
 
-    return this.prisma.congressBill.findMany({
+    const bills = await this.prisma.congressBill.findMany({
       where: { peCodes: { has: peCode } },
       orderBy: [{ latestActionDate: 'desc' }, { introducedDate: 'desc' }],
       take: 100,
@@ -351,12 +322,31 @@ export class ProgramElementReadService {
         latestActionText: true,
         latestActionDate: true,
         url: true,
+        sponsorName: true,
+        committeeRefs: {
+          select: { committeeName: true },
+          take: 1,
+        },
       },
     });
+
+    // Flatten the sponsor + lead committee onto each bill so the "Bills touching
+    // this PE" panel can show real attribution instead of "N/A". passageProbability
+    // is intentionally omitted — Congress.gov gives us no such signal, so the UI
+    // shows honest metadata (sponsor, committee, latest action) rather than a
+    // fabricated score.
+    return bills.map(({ committeeRefs, sponsorName, ...bill }) => ({
+      ...bill,
+      sponsor: sponsorName,
+      committee: committeeRefs[0]?.committeeName ?? null,
+    }));
   }
 
   async getContractors(peCode: string) {
-    const exists = await this.prisma.programElement.findUnique({ where: { peCode }, select: { peCode: true } });
+    const exists = await this.prisma.programElement.findUnique({
+      where: { peCode },
+      select: { peCode: true },
+    });
     if (!exists) throw new NotFoundException(`Program element ${peCode} not found`);
 
     const tableExists = await this.prisma.$queryRaw<Array<{ exists: boolean }>>(Prisma.sql`
@@ -376,14 +366,20 @@ export class ProgramElementReadService {
     }
 
     type ContractorRow = { contractorName: string; amount: number; awards: number };
+    // federal_award.amount is stored in raw obligated DOLLARS, but the UI renders
+    // contractor totals in millions ($X.XM / $X.XB) — divide by 1e6 here so the
+    // panel shows the right magnitude. The 24-month window keys off the action
+    // date with awarded_at as a fallback, because USAspending often leaves
+    // awarded_at null while action_date is always populated.
     const rows = await this.prisma.$queryRaw<ContractorRow[]>(Prisma.sql`
       SELECT
         contractor_name AS "contractorName",
-        COALESCE(SUM(amount), 0)::double precision AS amount,
+        (COALESCE(SUM(amount), 0) / 1e6)::double precision AS amount,
         COUNT(*)::int AS awards
       FROM federal_award
       WHERE pe_code = ${peCode}
-        AND awarded_at >= NOW() - INTERVAL '24 months'
+        AND contractor_name IS NOT NULL
+        AND COALESCE(action_date, awarded_at::date) >= (NOW() - INTERVAL '24 months')::date
       GROUP BY contractor_name
       ORDER BY amount DESC
       LIMIT 10
@@ -396,7 +392,10 @@ export class ProgramElementReadService {
   }
 
   async setWatching(peCode: string, watching: boolean, ctx: TenantContext) {
-    const programElement = await this.prisma.programElement.findUnique({ where: { peCode }, select: { peCode: true } });
+    const programElement = await this.prisma.programElement.findUnique({
+      where: { peCode },
+      select: { peCode: true },
+    });
     if (!programElement) throw new NotFoundException(`Program element ${peCode} not found`);
 
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {

@@ -1033,6 +1033,19 @@ class GenerateOutreachDraftDto {
   metadata?: Record<string, unknown>;
 }
 
+class ListContactsQueryDto {
+  @IsOptional()
+  @IsString()
+  q?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}
+
 @Controller('engagement')
 @UseGuards(RolesGuard)
 @Roles('standard_user')
@@ -1042,6 +1055,15 @@ export class EngagementController {
   @Get('capabilities')
   capabilities() {
     return this.service.capabilities();
+  }
+
+  // Tenant-wide CRM contact list for link pickers (e.g. linking an
+  // acquisition-personnel record to a known contact from the Program Element
+  // page). Declared as a static segment so it never collides with the dynamic
+  // ':id' meeting/contact routes below.
+  @Get('contacts')
+  listContacts(@CurrentTenant() ctx: TenantContext, @Query() query: ListContactsQueryDto) {
+    return this.service.listContacts(ctx, query);
   }
 
   @Get('integrations')

@@ -8,6 +8,7 @@ export interface ProgramElementYearPoint {
   sacDMark?: string | number | null;
   conference: string | number | null;
   enacted: string | number | null;
+  notes?: string | null;
   raw?: unknown;
 }
 
@@ -116,7 +117,9 @@ export type ProgramElementSourceField =
   | 'conference'
   | 'enacted';
 
-export type ProgramElementYearSourceAttribution = Partial<Record<ProgramElementSourceField, string>>;
+export type ProgramElementYearSourceAttribution = Partial<
+  Record<ProgramElementSourceField, string>
+>;
 
 export interface ProgramElementHistoryRow {
   id: string;
@@ -218,4 +221,14 @@ export interface AcquisitionPersonnelListParams {
   q?: string;
   page?: number;
   limit?: number;
+}
+
+// ── CRM contact picker (link an acquisition-personnel record to a contact) ────
+export interface EngagementContactListItem {
+  id: string;
+  fullName: string | null;
+  email: string | null;
+  organization: string | null;
+  title: string | null;
+  clientId: string | null;
 }

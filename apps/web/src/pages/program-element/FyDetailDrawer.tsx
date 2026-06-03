@@ -4,7 +4,14 @@ import type { ProgramElementYearPoint } from './types.js';
 
 const { Text, Title, Paragraph, Link } = Typography;
 
-type MarkField = 'request' | 'hascMark' | 'sascMark' | 'hacDMark' | 'sacDMark' | 'conference' | 'enacted';
+type MarkField =
+  | 'request'
+  | 'hascMark'
+  | 'sascMark'
+  | 'hacDMark'
+  | 'sacDMark'
+  | 'conference'
+  | 'enacted';
 
 interface MarkRow {
   key: MarkField;
@@ -91,7 +98,8 @@ function toLinkedBills(raw: unknown): LinkedBill[] {
     .map((item) => {
       if (!item || typeof item !== 'object') return null;
       const obj = item as Record<string, unknown>;
-      const id = typeof obj.id === 'string' ? obj.id : typeof obj.billId === 'string' ? obj.billId : null;
+      const id =
+        typeof obj.id === 'string' ? obj.id : typeof obj.billId === 'string' ? obj.billId : null;
       const title = typeof obj.title === 'string' ? obj.title : null;
       if (!id || !title) return null;
       return { id, title };
@@ -167,10 +175,29 @@ const columns: ColumnsType<MarkRow> = [
   },
 ];
 
-export function FyDetailDrawer({ open, onClose, peCode, selectedFy, timeline }: FyDetailDrawerProps) {
+export function FyDetailDrawer({
+  open,
+  onClose,
+  peCode,
+  selectedFy,
+  timeline,
+}: FyDetailDrawerProps) {
   const selected = timeline.find((item) => item.fy === selectedFy);
   const marks = buildMarkRows(selected);
-  const notes = getRawString(selected?.raw && typeof selected.raw === 'object' ? (selected.raw as Record<string, unknown>) : {}, 'notes');
+  // Prefer the dedicated notes column (where the sync writes conference report
+  // narrative); fall back to a notes string embedded in the raw payload.
+  const columnNotes =
+    typeof selected?.notes === 'string' && selected.notes.trim().length > 0
+      ? selected.notes.trim()
+      : null;
+  const notes =
+    columnNotes ??
+    getRawString(
+      selected?.raw && typeof selected.raw === 'object'
+        ? (selected.raw as Record<string, unknown>)
+        : {},
+      'notes',
+    );
   const linkedBills = toLinkedBills(selected?.raw);
   const linkedRules = toLinkedRules(selected?.raw);
   const headerFy = selectedFy != null ? `FY${String(selectedFy).slice(-2)}` : 'FY--';
@@ -190,13 +217,23 @@ export function FyDetailDrawer({ open, onClose, peCode, selectedFy, timeline }: 
           {marks.length === 0 ? (
             <Empty description="No mark data for this FY" />
           ) : (
-            <Table<MarkRow> rowKey="key" columns={columns} dataSource={marks} size="small" pagination={false} />
+            <Table<MarkRow>
+              rowKey="key"
+              columns={columns}
+              dataSource={marks}
+              size="small"
+              pagination={false}
+            />
           )}
         </section>
 
         <section>
           <Title level={5}>2. Conference report excerpt</Title>
-          {notes ? <Paragraph>{notes}</Paragraph> : <Empty description="No conference notes for this FY" />}
+          {notes ? (
+            <Paragraph>{notes}</Paragraph>
+          ) : (
+            <Empty description="No conference notes for this FY" />
+          )}
         </section>
 
         <section>

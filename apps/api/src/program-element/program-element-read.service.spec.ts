@@ -16,7 +16,10 @@ describe('ProgramElementReadService', () => {
       const prisma = makePrisma({
         queryRawQueue: [],
       });
-      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+      );
 
       const result = await service.listProgramElements({ mode: 'markup-monitor' });
 
@@ -42,7 +45,10 @@ describe('ProgramElementReadService', () => {
           ],
         ],
       });
-      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+      );
 
       const result = await service.listProgramElements(
         { mode: 'markup-monitor', service: 'Army', divergenceThreshold: 10 },
@@ -62,7 +68,10 @@ describe('ProgramElementReadService', () => {
         queryRawQueue: [[], []],
         mvRows: [],
       });
-      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+      );
 
       await service.getProgramElement('0603270A', ctx);
       await service.getProgramElement('0603270A', ctx);
@@ -77,14 +86,19 @@ describe('ProgramElementReadService', () => {
         queryRawQueue: [[]],
         mvRows: [],
       });
-      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+      );
 
-      const cache = (service as unknown as {
-        detailCache: {
-          clear: () => void;
-          set: (key: string, value: Record<string, unknown>, options?: { ttl?: number }) => void;
-        };
-      }).detailCache;
+      const cache = (
+        service as unknown as {
+          detailCache: {
+            clear: () => void;
+            set: (key: string, value: Record<string, unknown>, options?: { ttl?: number }) => void;
+          };
+        }
+      ).detailCache;
 
       cache.clear();
       cache.set('0603270A', { peCode: '0603270A', title: 'STALE' }, { ttl: 1 });
@@ -97,73 +111,53 @@ describe('ProgramElementReadService', () => {
       expect(prisma.__mock.programElementFindUniqueCalls).toBe(1);
     });
 
-    test('MV hit returns detail without live join', async () => {
+    test('enriches detail with billCount from the detail MV', async () => {
+      // The base PE row is authoritative for header fields + the full year
+      // history; the MV is queried only for the precomputed bill_count.
       const prisma = makePrisma({
         queryRawQueue: [[]],
-        mvRows: [
-          {
-            peCode: '0603270A',
-            title: 'Electronic Warfare Advanced Payloads',
-            service: 'Army',
-            budgetActivity: 'BA3',
-            acatLevel: 'ACAT II',
-            status: 'active',
-            latestYear: { fy: 2027, request: 278.5 },
-            billCount: 9,
-          },
-        ],
+        mvRows: [{ billCount: 9 }],
       });
-      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+      );
 
       const result = await service.getProgramElement('0603270A', ctx);
-      const detail = result as { title?: string; billCount?: number };
+      const detail = result as { title?: string; billCount?: number; appropriationType?: string };
 
       expect(detail.title).toBe('Electronic Warfare Advanced Payloads');
+      // appropriation type comes from the base row — the old MV path dropped it.
+      expect(detail.appropriationType).toBe('RDT&E');
       expect(detail.billCount).toBe(9);
       expect(prisma.__mock.mvQueryRawCalls).toBe(1);
-      expect(prisma.__mock.programElementFindUniqueCalls).toBe(0);
+      expect(prisma.__mock.programElementFindUniqueCalls).toBe(1);
     });
 
-    test('MV refresh propagates after cache clear', async () => {
+    test('billCount refresh propagates after cache clear', async () => {
       const prisma = makePrisma({
         queryRawQueue: [[], []],
-        mvRows: [
-          {
-            peCode: '0603270A',
-            title: 'Old Title',
-            service: 'Army',
-            budgetActivity: 'BA3',
-            acatLevel: 'ACAT II',
-            status: 'active',
-            latestYear: { fy: 2027, request: 278.5 },
-            billCount: 2,
-          },
-        ],
+        mvRows: [{ billCount: 2 }],
       });
-      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+      );
 
       const first = await service.getProgramElement('0603270A', ctx);
-      expect((first as { title?: string }).title).toBe('Old Title');
+      expect((first as { title?: string; billCount?: number }).title).toBe(
+        'Electronic Warfare Advanced Payloads',
+      );
+      expect((first as { billCount?: number }).billCount).toBe(2);
 
-      prisma.$queryRaw.mockResolvedValueOnce([
-        {
-          peCode: '0603270A',
-          title: 'New Title',
-          service: 'Army',
-          budgetActivity: 'BA3',
-          acatLevel: 'ACAT II',
-          status: 'active',
-          latestYear: { fy: 2027, request: 278.5 },
-          billCount: 5,
-        },
-      ]);
+      prisma.$queryRaw.mockResolvedValueOnce([{ billCount: 5 }]);
 
       const cache = (service as unknown as { detailCache: { clear: () => void } }).detailCache;
       cache.clear();
 
       const second = await service.getProgramElement('0603270A', ctx);
       const detail = second as { title?: string; billCount?: number };
-      expect(detail.title).toBe('New Title');
+      expect(detail.title).toBe('Electronic Warfare Advanced Payloads');
       expect(detail.billCount).toBe(5);
     });
 
@@ -171,7 +165,10 @@ describe('ProgramElementReadService', () => {
       const prisma = makePrisma({
         queryRawQueue: [[]],
       });
-      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+      );
 
       const result = await service.getProgramElement('0603270A', ctx);
 
@@ -182,7 +179,10 @@ describe('ProgramElementReadService', () => {
       const prisma = makePrisma({
         queryRawQueue: [[{ id: 'watch-1' }]],
       });
-      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+      );
 
       const result = await service.getProgramElement('0603270A', ctx);
 
@@ -194,7 +194,10 @@ describe('ProgramElementReadService', () => {
         missingPe: true,
         queryRawQueue: [[]],
       });
-      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+      );
 
       await expect(service.getProgramElement('BAD', ctx)).rejects.toBeInstanceOf(NotFoundException);
     });
@@ -205,7 +208,10 @@ describe('ProgramElementReadService', () => {
       const prisma = makePrisma({
         queryRawQueue: [[{ id: 'watch-created' }], [{ id: 'watch-created' }]],
       });
-      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+      );
 
       const watched = await service.setWatching('0603270A', true, ctx);
       const unwatched = await service.setWatching('0603270A', false, ctx);
@@ -221,7 +227,10 @@ describe('ProgramElementReadService', () => {
         missingPe: true,
         queryRawQueue: [[]],
       });
-      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+      );
 
       await expect(service.setWatching('BAD', true, ctx)).rejects.toBeInstanceOf(NotFoundException);
     });
@@ -238,7 +247,10 @@ describe('ProgramElementReadService', () => {
         ciHigh: 255.3,
         confidence: 0.66,
       });
-      const service = new ProgramElementReadService(prisma as never, conferenceProbabilityService as never);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        conferenceProbabilityService as never,
+      );
 
       const result = await service.getTimeline('0603270A');
 
@@ -252,7 +264,14 @@ describe('ProgramElementReadService', () => {
   });
 });
 
-function makeConferenceProbabilityService(prediction: { predicted: number; ciLow: number; ciHigh: number; confidence: number } | null = null) {
+function makeConferenceProbabilityService(
+  prediction: {
+    predicted: number;
+    ciLow: number;
+    ciHigh: number;
+    confidence: number;
+  } | null = null,
+) {
   return {
     predict: jest.fn(async () => prediction),
   };
@@ -319,19 +338,24 @@ function makePrisma(options: {
     programElementMilestone: {
       findMany: jest.fn(async () => []),
     },
-    withTenant: jest.fn(async (_tenantId: string, fn: (tx: { $queryRaw: jest.Mock; auditLog: { create: jest.Mock } }) => Promise<unknown>) => {
-      return fn({
-        $queryRaw: jest.fn(async () => {
-          mock.queryRawCalls += 1;
-          return queue.shift() ?? [];
-        }),
-        auditLog: {
-          create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
-            mock.auditLogCalls.push(data);
-            return data;
+    withTenant: jest.fn(
+      async (
+        _tenantId: string,
+        fn: (tx: { $queryRaw: jest.Mock; auditLog: { create: jest.Mock } }) => Promise<unknown>,
+      ) => {
+        return fn({
+          $queryRaw: jest.fn(async () => {
+            mock.queryRawCalls += 1;
+            return queue.shift() ?? [];
           }),
-        },
-      });
-    }),
+          auditLog: {
+            create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+              mock.auditLogCalls.push(data);
+              return data;
+            }),
+          },
+        });
+      },
+    ),
   };
 }
