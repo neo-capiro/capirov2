@@ -259,7 +259,10 @@ export class ProgramElementWriterService {
   async refreshProgramElementDetailMaterializedView(source = 'all'): Promise<void> {
     const startedAt = Date.now();
     try {
-      await this.prisma.$executeRawUnsafe('REFRESH MATERIALIZED VIEW CONCURRENTLY program_element_detail_mv');
+      // capiro_app is not the MV owner and cannot run REFRESH directly; call the
+      // SECURITY DEFINER function (owned by master) which performs the refresh
+      // with owner privileges. See migration 20260602160000_pe_detail_mv_refresh_fn.
+      await this.prisma.$executeRawUnsafe('SELECT refresh_program_element_detail_mv()');
       await this.metrics.emitSeconds('pe_sync.duration_seconds', (Date.now() - startedAt) / 1000, source);
       await this.metrics.emitCount('pe_sync.error_count', 0, source);
     } catch (error: unknown) {
