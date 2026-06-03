@@ -77,8 +77,24 @@ function toHistoryRows(years: ProgramElementYearPoint[]): ProgramElementHistoryR
   return [...years].sort((a, b) => a.fy - b.fy).map(toHistoryRow);
 }
 
-function latestYear(years: ProgramElementYearPoint[]): ProgramElementYearPoint | undefined {
-  return [...years].sort((a, b) => b.fy - a.fy)[0];
+/**
+ * Most recent FY where a given metric actually has a meaningful value (non-null
+ * and non-zero). Many PEs carry only a single real FY of data with 0/null in
+ * later years; keying stat cards off the highest FY alone shows "$0 / —" and
+ * makes the page look empty. This finds the latest FY that actually has data for
+ * the requested field so the cards surface the real number.
+ */
+function latestMeaningful(
+  years: ProgramElementYearPoint[],
+  field: 'request' | 'enacted' | 'conference',
+): { fy: number; value: number } | undefined {
+  for (const y of [...years].sort((a, b) => b.fy - a.fy)) {
+    const raw = y[field];
+    if (raw == null) continue;
+    const num = Number(raw);
+    if (Number.isFinite(num) && num !== 0) return { fy: y.fy, value: num };
+  }
+  return undefined;
 }
 
 const LazyFyHistoryChart = lazy(async () => ({ default: FyHistoryChart }));
@@ -206,7 +222,9 @@ export function ProgramElementWatchPage() {
 
   const detail = detailQuery.data;
   const years = detail.years ?? [];
-  const latest = latestYear(years);
+  const latestRequest = latestMeaningful(years, 'request');
+  const latestEnacted = latestMeaningful(years, 'enacted');
+  const latestConference = latestMeaningful(years, 'conference');
   const historyRows = toHistoryRows(years);
   const hasBudgetData = years.length > 0;
   const bills: ProgramElementBill[] = billsQuery.data ?? [];
@@ -271,44 +289,36 @@ export function ProgramElementWatchPage() {
         <Col xs={24} md={12} xl={6}>
           <Card>
             <Statistic
-              title={latest ? `Latest Request · FY${latest.fy}` : 'Latest Request'}
-              value={latest?.request != null ? Number(latest.request) : undefined}
+              title={latestRequest ? `Latest Request · FY${latestRequest.fy}` : 'Latest Request'}
+              value={latestRequest ? latestRequest.value : undefined}
               precision={2}
               prefix="$"
               suffix="m"
-              valueRender={
-                latest?.request != null ? undefined : () => <Text type="secondary">—</Text>
-              }
+              valueRender={latestRequest ? undefined : () => <Text type="secondary">—</Text>}
             />
           </Card>
         </Col>
         <Col xs={24} md={12} xl={6}>
           <Card>
             <Statistic
-              title="Latest Conference"
-              value={latest?.conference != null ? Number(latest.conference) : undefined}
+              title={latestConference ? `Latest Conference · FY${latestConference.fy}` : 'Latest Conference'}
+              value={latestConference ? latestConference.value : undefined}
               precision={2}
               prefix="$"
               suffix="m"
-              valueRender={
-                latest?.conference != null ? undefined : () => <Text type="secondary">—</Text>
-              }
+              valueRender={latestConference ? undefined : () => <Text type="secondary">—</Text>}
             />
           </Card>
         </Col>
         <Col xs={24} md={12} xl={6}>
           <Card>
             <Statistic
-              title={
-                latest && latest.enacted == null ? 'Latest Enacted · Projected' : 'Latest Enacted'
-              }
-              value={latest?.enacted != null ? Number(latest.enacted) : undefined}
+              title={latestEnacted ? `Latest Enacted · FY${latestEnacted.fy}` : 'Latest Enacted'}
+              value={latestEnacted ? latestEnacted.value : undefined}
               precision={2}
               prefix="$"
               suffix="m"
-              valueRender={
-                latest?.enacted != null ? undefined : () => <Text type="secondary">—</Text>
-              }
+              valueRender={latestEnacted ? undefined : () => <Text type="secondary">—</Text>}
             />
           </Card>
         </Col>
