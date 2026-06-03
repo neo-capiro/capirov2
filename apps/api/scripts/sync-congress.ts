@@ -96,6 +96,10 @@ interface CongressBillSummary {
     party?: string | null;
     state?: string | null;
   } | null;
+  // Congress.gov returns the PRIMARY sponsor inside a `sponsors` ARRAY ([0] is
+  // primary); the old code read a singular `sponsor` the API never sends, so
+  // sponsor_name was always null. Read the array (singular kept as a fallback).
+  sponsors?: Array<{ fullName?: string | null; party?: string | null; state?: string | null }> | null;
   policyArea?: { name: string } | null;
   cosponsors?: { count?: number } | null;
 }
@@ -108,6 +112,7 @@ interface CongressBillDetail {
     title: string;
     introducedDate?: string | null;
     sponsor?: CongressBillSummary['sponsor'];
+    sponsors?: CongressBillSummary['sponsors'];
     latestAction?: CongressBillSummary['latestAction'];
     policyArea?: { name: string } | null;
     subjects?: {
@@ -334,7 +339,8 @@ async function main() {
               }
             }
 
-            const sponsor = billData.sponsor ?? bill.sponsor ?? null;
+            const sponsor =
+              billData.sponsors?.[0] ?? bill.sponsors?.[0] ?? billData.sponsor ?? bill.sponsor ?? null;
             const latestAction = billData.latestAction ?? bill.latestAction ?? null;
 
             await prisma.congressBill.upsert({

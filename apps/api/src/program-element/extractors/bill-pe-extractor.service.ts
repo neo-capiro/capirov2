@@ -58,8 +58,17 @@ export class BillPeExtractorService {
     private readonly govInfo: GovInfoService,
   ) {}
 
-  /** Process every CongressBill. Returns per-bill results. */
-  async run(opts: { fetchFullText?: boolean } = {}): Promise<ProcessResult[]> {
+  /**
+   * Process every CongressBill. Returns per-bill results.
+   *
+   * peBearingOnly (default true): only fetch GovInfo full text for bills that can
+   * carry PE-code funding tables (defense-authorization + appropriations). Local
+   * metadata is still scanned for EVERY bill; only the rate-limited GovInfo fetch
+   * is scoped — the difference between a minutes-long run over ~dozens of bills and
+   * a multi-day full-corpus scan that exhausts the shared api.data.gov quota. Pass
+   * peBearingOnly:false to force the old fetch-everything behavior.
+   */
+  async run(opts: { fetchFullText?: boolean; peBearingOnly?: boolean } = {}): Promise<ProcessResult[]> {
     const bills = await this.prisma.congressBill.findMany({
       select: {
         id: true,
@@ -72,15 +81,29 @@ export class BillPeExtractorService {
       },
     });
 
+    const wantFullText = opts.fetchFullText ?? true;
+    const peBearingOnly = opts.peBearingOnly ?? true;
+
     const results: ProcessResult[] = [];
     for (const bill of bills) {
+      const fetchFullText = wantFullText && (!peBearingOnly || this.isPeBearingCandidate(bill));
       try {
-        results.push(await this.processBill(bill, opts));
+        results.push(await this.processBill(bill, { fetchFullText }));
       } catch (err) {
         this.logger.warn(`Bill ${bill.id} extraction failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     return results;
+  }
+
+  /**
+   * PE-code funding tables only appear in the full text of defense-authorization
+   * (NDAA) and appropriations bills. Title-match those so we don't burn a GovInfo
+   * fetch on the ~99% of bills that can't carry PE codes.
+   */
+  isPeBearingCandidate(bill: { title: string | null }): boolean {
+    const title = (bill.title ?? '').toLowerCase();
+    return /national defense authorization|defense appropriation|department of defense and|military construction|consolidated appropriations|making appropriations|continuing appropriations|further (consolidated |additional )?appropriations|intelligence authorization/.test(title);
   }
 
   /**

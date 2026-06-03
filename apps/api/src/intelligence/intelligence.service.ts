@@ -592,12 +592,22 @@ export class IntelligenceService {
       if (/committee|referred|reported|markup/.test(txt)) return 'committee';
       return 'introduced';
     };
-    const passageProbability = (latestActionText: string | null | undefined): number => {
-      const stage = billStage(latestActionText);
-      if (stage === 'enacted') return 0.98;
-      if (stage === 'passed') return 0.72;
-      if (stage === 'committee') return 0.46;
-      return 0.24;
+    // Estimated passage likelihood. NOT a trained model, but a calibrated heuristic
+    // over real per-bill signals so it varies bill-to-bill instead of one flat number
+    // per stage: stage base rate (rough real-world odds of becoming law), a boost for
+    // must-pass vehicles (NDAA / appropriations), and momentum (recent action vs stalled).
+    const passageProbability = (bill: { latestActionText: string | null; title?: string | null; latestActionDate?: Date | null }): number => {
+      const stage = billStage(bill.latestActionText);
+      if (stage === 'enacted') return 0.99;
+      const mustPass = /national defense authorization|consolidated appropriations|making appropriations|defense appropriation|continuing appropriations|further (consolidated |additional )?appropriations/i.test(bill.title ?? '');
+      let p = stage === 'passed' ? (mustPass ? 0.85 : 0.4) : stage === 'committee' ? (mustPass ? 0.55 : 0.12) : mustPass ? 0.3 : 0.04;
+      const actionMs = bill.latestActionDate ? bill.latestActionDate.getTime() : null;
+      if (actionMs != null) {
+        const days = (Date.now() - actionMs) / 86_400_000;
+        if (days > 270) p *= 0.6; // stalled ~9+ months
+        else if (days < 45) p = Math.min(0.95, p * 1.15); // fresh momentum
+      }
+      return Math.max(0.02, Math.min(0.97, p));
     };
 
     const kanbanColumns: Array<{
@@ -629,7 +639,7 @@ export class IntelligenceService {
         title: bill.title,
         latestActionDate: bill.latestActionDate ? new Date(bill.latestActionDate) : null,
         latestActionText: bill.latestActionText,
-        probability: passageProbability(bill.latestActionText),
+        probability: passageProbability(bill),
         isManual: (bill as { isManual?: boolean }).isManual ?? false,
       });
     }
