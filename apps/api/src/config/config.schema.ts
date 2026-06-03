@@ -105,6 +105,12 @@ export const configSchema = z.object({
   CLIO_RESEARCH_PLAN_MODEL: z.string().default('claude-haiku-4-5-20251001'),
   CLIO_RESEARCH_MAX_TOKENS: z.coerce.number().int().positive().default(8000),
   CLIO_RESEARCH_MAX_TOOL_ROUNDS: z.coerce.number().int().positive().default(10),
+  // Per-request timeout for the deep-research model calls. A single research
+  // turn legitimately runs minutes (gathering across many tools, then streaming
+  // an 8k-token report), so the 120s interactive chat timeout
+  // (CLIO_REQUEST_TIMEOUT_MS) is far too short — it was aborting research runs
+  // before the report was written, leaving only the "Sources consulted" list.
+  CLIO_RESEARCH_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
 
   // 32-byte base64 or hex key used for AES-256-GCM encrypted meeting notes.
   NOTES_ENCRYPTION_KEY: z.string().optional(),
