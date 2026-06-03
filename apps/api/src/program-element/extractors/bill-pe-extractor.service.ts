@@ -139,38 +139,58 @@ export class BillPeExtractorService {
     const cached = await this.prisma.billText.findUnique({ where: { billId: bill.id } });
     if (cached) return cached.textContent;
 
-    const packageId = this.govInfoPackageId(bill);
-    if (!packageId) return null;
-
-    try {
-      const { xml } = await this.govInfo.getBillText(packageId);
-      if (!xml) return null;
-      await this.prisma.billText.upsert({
-        where: { billId: bill.id },
-        create: {
-          billId: bill.id,
-          sourceUrl: `https://www.govinfo.gov/app/details/${packageId}`,
-          textContent: xml,
-        },
-        update: { textContent: xml, fetchedAt: new Date() },
-      });
-      return xml;
-    } catch (err) {
-      this.logger.debug(`No GovInfo full text for ${bill.id} (${packageId}): ${err instanceof Error ? err.message : String(err)}`);
-      return null;
+    // GovInfo package ids carry a version suffix the bill row doesn't store. The
+    // version that carries itemized Program-Element funding tables is the
+    // ENROLLED text (enr) for NDAA/appropriations; engrossed/reported come next;
+    // the introduced print (ih/is) almost never has PE tables. Try in priority
+    // order and cache the first that returns text. (Earlier code only tried
+    // ih/is, so e.g. the FY26 NDAA — 706 PE codes in its enrolled text — linked
+    // to zero PEs.)
+    const candidates = this.govInfoPackageIds(bill);
+    for (const packageId of candidates) {
+      try {
+        const { xml } = await this.govInfo.getBillText(packageId);
+        if (!xml) continue;
+        await this.prisma.billText.upsert({
+          where: { billId: bill.id },
+          create: {
+            billId: bill.id,
+            sourceUrl: `https://www.govinfo.gov/app/details/${packageId}`,
+            textContent: xml,
+          },
+          update: { textContent: xml, fetchedAt: new Date() },
+        });
+        return xml;
+      } catch (err) {
+        this.logger.debug(`No GovInfo full text for ${bill.id} (${packageId}): ${err instanceof Error ? err.message : String(err)}`);
+        // try the next version
+      }
     }
+    return null;
   }
 
   /**
-   * Build a GovInfo BILLS package id from a bill's identity. GovInfo package ids
-   * carry a version suffix (e.g. BILLS-118hr3935ih) that CongressBill does not
-   * store; we request the introduced ("ih"/"is") print, which is the version
-   * present for essentially every bill. Returns null when identity is incomplete.
+   * Build candidate GovInfo BILLS package ids for a bill, ordered most- to
+   * least-likely to carry PE funding tables. enr (enrolled) first because that's
+   * the final text with the itemized authorization/appropriation tables; then
+   * engrossed (es/eh) and reported (rs/rh); introduced (is/ih) last. Returns []
+   * when identity is incomplete.
    */
-  private govInfoPackageId(bill: BillForExtraction): string | null {
-    if (!bill.congress || !bill.billType || !bill.billNumber) return null;
-    const chamberVersion = bill.billType.toLowerCase().startsWith('s') ? 'is' : 'ih';
-    return `BILLS-${bill.congress}${bill.billType.toLowerCase()}${bill.billNumber}${chamberVersion}`;
+  private govInfoPackageIds(bill: BillForExtraction): string[] {
+    if (!bill.congress || !bill.billType || !bill.billNumber) return [];
+    const bt = bill.billType.toLowerCase();
+    // Only substantive legislation (bills + joint resolutions) ever carries
+    // itemized PE funding tables. Simple/concurrent resolutions (hres, sres,
+    // hconres, sconres) never do — skip them so we don't burn 6 GovInfo lookups
+    // per resolution chasing text that has no PE codes.
+    const PE_BEARING_TYPES = new Set(['hr', 's', 'hjres', 'sjres']);
+    if (!PE_BEARING_TYPES.has(bt)) return [];
+    const stem = `BILLS-${bill.congress}${bt}${bill.billNumber}`;
+    const isSenate = bt.startsWith('s');
+    const versions = isSenate
+      ? ['enr', 'es', 'rs', 'pcs', 'cps', 'is']
+      : ['enr', 'eh', 'rh', 'pch', 'cph', 'ih'];
+    return versions.map((v) => `${stem}${v}`);
   }
 
   /**
