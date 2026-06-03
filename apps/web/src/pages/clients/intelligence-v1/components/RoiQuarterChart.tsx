@@ -1,4 +1,4 @@
-import { formatCompact } from '../mappers.js';
+import { formatCompact, formatRatio } from '../mappers.js';
 
 export interface QuarterPoint {
   label: string;
@@ -30,6 +30,19 @@ export function RoiQuarterChart({ series }: RoiQuarterChartProps) {
   });
   const maxRatio = Math.max(...ratioPoints, 1);
 
+  // The most recent quarter often has no data yet (obligations/lobbying lag a
+  // quarter or two), so the literal last bucket reads "$0 · $0 · 0.00×". Anchor
+  // the highlight + footnote to the latest quarter that actually has activity.
+  const latestActiveIdx = (() => {
+    for (let i = points.length - 1; i >= 0; i--) {
+      const p = points[i];
+      if (p && (p.lobbying > 0 || p.obligations > 0)) return i;
+    }
+    return points.length - 1;
+  })();
+  const latest = points[latestActiveIdx];
+  const latestRatio = ratioPoints[latestActiveIdx] ?? 0;
+
   return (
     <div className="iv1-qchart-wrap">
       <div className="iv1-qchart-head">
@@ -43,11 +56,14 @@ export function RoiQuarterChart({ series }: RoiQuarterChartProps) {
 
       <div className="iv1-qchart-grid">
         {points.map((p, idx) => {
-          const lobbyPct = (p.lobbying / maxY) * 100;
-          const obligPct = (p.obligations / maxY) * 100;
+          // Give any non-zero value a visible floor so a tiny lobbying bar
+          // ($510K) doesn't vanish next to billions in obligations.
+          const lobbyPct = p.lobbying > 0 ? Math.max((p.lobbying / maxY) * 100, 2) : 0;
+          const obligPct = p.obligations > 0 ? Math.max((p.obligations / maxY) * 100, 2) : 0;
           const ratio = ratioPoints[idx] ?? 0;
           const ratioPct = (ratio / maxRatio) * 100;
-          const isLatest = idx === points.length - 1;
+          const hasData = p.lobbying > 0 || p.obligations > 0;
+          const isLatest = idx === latestActiveIdx;
 
           return (
             <div
@@ -71,7 +87,7 @@ export function RoiQuarterChart({ series }: RoiQuarterChartProps) {
                   title={`${p.label} · Return ${ratio.toFixed(2)}×`}
                 />
               </div>
-              <div className="iv1-qchart-ratio-label">{ratio.toFixed(1)}×</div>
+              <div className="iv1-qchart-ratio-label">{hasData ? formatRatio(ratio) : '–'}</div>
               <div className="iv1-qchart-xlabel">{p.label}</div>
             </div>
           );
@@ -79,10 +95,9 @@ export function RoiQuarterChart({ series }: RoiQuarterChartProps) {
       </div>
 
       <div className="iv1-qchart-footnote">
-        <span className="iv1-qchart-foot-key">Latest quarter</span>
-        Lobbying {formatCompact(points[points.length - 1]?.lobbying ?? 0)} · Obligations{' '}
-        {formatCompact(points[points.length - 1]?.obligations ?? 0)} · Return{' '}
-        {(ratioPoints[ratioPoints.length - 1] ?? 0).toFixed(2)}×
+        <span className="iv1-qchart-foot-key">{latest?.label ?? 'Latest quarter'}</span>
+        Lobbying {formatCompact(latest?.lobbying ?? 0)} · Obligations{' '}
+        {formatCompact(latest?.obligations ?? 0)} · Return {formatRatio(latestRatio)}
       </div>
     </div>
   );

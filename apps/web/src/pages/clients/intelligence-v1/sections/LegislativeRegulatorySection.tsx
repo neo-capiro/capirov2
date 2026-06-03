@@ -9,7 +9,7 @@ import { Link } from 'react-router-dom';
 import { App as AntApp } from 'antd';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../../../lib/use-api.js';
-import type { ClientProfileV1 } from '../mappers.js';
+import { formatBillIdentifier, type ClientProfileV1 } from '../mappers.js';
 import { BillKanban, type BillKanbanCard, type BillKanbanColumn } from '../components/BillKanban.js';
 import {
   BillKanbanControls,
@@ -199,6 +199,7 @@ export function LegislativeRegulatorySection({
       count: col.count,
       cards: col.bills.map((b) => ({
         num: b.identifier,
+        displayNum: formatBillIdentifier(b.identifier),
         title: b.title,
         isManual: b.isManual ?? false,
         pct: b.probability == null ? null : Math.round(b.probability * 100),
@@ -281,7 +282,10 @@ export function LegislativeRegulatorySection({
 
         return {
           title: r.title,
-          source: r.agencyNames.join(' / ') || 'Federal Register',
+          // Dedupe agency names: the API can repeat an agency (e.g. a parent
+          // department listed alongside its sub-agency), which rendered as
+          // "Transportation Department / Transportation Department / …".
+          source: [...new Set(r.agencyNames.map((a) => a.trim()).filter(Boolean))].join(' / ') || 'Federal Register',
           docket: r.documentNumber,
           steps,
           deadline: deadlineText,

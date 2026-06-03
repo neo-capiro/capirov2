@@ -1,4 +1,4 @@
-import { formatCompact } from '../mappers.js';
+import { formatCompact, formatRatio } from '../mappers.js';
 
 type HeroTruthState = 'normal' | 'zero_obligation' | 'no_activity';
 
@@ -33,10 +33,13 @@ export function RoiHeroPanel({ hero }: RoiHeroPanelProps) {
 
   const ratioLabel =
     ratio != null
-      ? `${ratio.toFixed(1)}×`
+      ? formatRatio(ratio)
       : state === 'zero_obligation'
         ? '0.0×'
         : '-';
+  // Large ratios are rounded for display; expose the exact figure on hover.
+  const ratioTitle =
+    ratio != null ? `${ratio.toFixed(2)}× — federal obligations ÷ lobbying spend (TTM)` : undefined;
 
   const ratioSubcopy =
     state === 'zero_obligation'
@@ -69,7 +72,10 @@ export function RoiHeroPanel({ hero }: RoiHeroPanelProps) {
 
         <div className={`iv1-roi-cell emphasis-secondary ${state === 'zero_obligation' ? 'truth-zero' : ''}`}>
           <div className="iv1-roi-label">Return ratio</div>
-          <div className={`iv1-roi-val num ${state === 'zero_obligation' ? 'critical' : ratio != null ? 'positive' : ''}`}>
+          <div
+            className={`iv1-roi-val num ${state === 'zero_obligation' ? 'critical' : ratio != null ? 'positive' : ''}`}
+            title={ratioTitle}
+          >
             {ratioLabel}
           </div>
           <div className={`iv1-roi-delta ${state === 'zero_obligation' ? 'warn' : ''}`}>{ratioSubcopy}</div>

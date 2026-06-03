@@ -292,6 +292,52 @@ export function formatCompact(value: number | null | undefined): string {
   return `$${Math.round(value)}`;
 }
 
+/**
+ * Humanize a congress.gov bill id slug for display.
+ *
+ * The backend `identifier` is the raw congress_bill.id, formatted
+ * `{congress}-{billType}-{number}` (e.g. "119-hr-1742"). That slug is what the
+ * drill-through href and the tracked-bill API expect, so callers must keep it
+ * verbatim for those purposes — this helper is for DISPLAY ONLY (e.g.
+ * "H.R. 1742"). The current congress prefix is dropped to keep the chip compact;
+ * unknown formats are returned unchanged rather than mangled.
+ */
+const BILL_TYPE_LABELS: Record<string, string> = {
+  hr: 'H.R.',
+  s: 'S.',
+  hres: 'H.Res.',
+  sres: 'S.Res.',
+  hjres: 'H.J.Res.',
+  sjres: 'S.J.Res.',
+  hconres: 'H.Con.Res.',
+  sconres: 'S.Con.Res.',
+};
+
+export function formatBillIdentifier(identifier: string | null | undefined): string {
+  const raw = (identifier ?? '').trim();
+  const match = /^(\d+)-([a-z]+)-(\d+)$/i.exec(raw);
+  if (!match) return raw;
+  const [, , type, number] = match;
+  const label = BILL_TYPE_LABELS[type!.toLowerCase()];
+  return label ? `${label} ${number}` : raw;
+}
+
+/**
+ * Format a return ratio (federal obligations ÷ lobbying spend) for display.
+ *
+ * The underlying ratio is unbounded: a defense prime with billions in
+ * obligations against a few hundred thousand in LDA-mapped lobbying yields
+ * five-figure ratios (e.g. 14275.9×). Rendering raw decimals on a number that
+ * large reads as false precision, so we round and add thousands separators at
+ * scale while keeping one decimal for small, meaningful ratios.
+ */
+export function formatRatio(ratio: number | null | undefined): string {
+  if (ratio == null || !Number.isFinite(ratio)) return '-';
+  const abs = Math.abs(ratio);
+  if (abs >= 100) return `${Math.round(ratio).toLocaleString('en-US')}×`;
+  return `${ratio.toFixed(1)}×`;
+}
+
 /** Short human date, "May 26, 2026" */
 export function formatDate(value: string | null | undefined): string {
   if (!value) return '-';

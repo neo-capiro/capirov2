@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { formatDate } from '../mappers.js';
+import { formatCompact, formatDate } from '../mappers.js';
 
 /** True for app-internal SPA routes that should navigate without a full reload. */
 function isInternalHref(href: string): boolean {
@@ -36,6 +36,18 @@ const toneClass: Record<BriefingTone, string> = {
   neutral: 'is-neutral',
 };
 
+// Highlight values arrive as raw numbers for counts ("Bills tracked": 50) AND
+// for money ("Lobbying TTM": 510000). Money labels get compact-dollar
+// formatting so the pill reads "$510K" instead of "510000"; counts pass through
+// untouched. Pre-formatted strings (e.g. "3 due ≤7d") are returned as-is.
+const CURRENCY_HIGHLIGHT = /lobby|spend|ttm|obligation|funding|contribution|\$/i;
+
+function formatHighlightValue(label: string, value: string | number | null): string {
+  if (value == null || value === '') return '';
+  if (typeof value === 'number' && CURRENCY_HIGHLIGHT.test(label)) return formatCompact(value);
+  return String(value);
+}
+
 function summarizeHighlights(highlights: BriefingHighlight[]): ReactNode {
   if (!highlights.length) return null;
 
@@ -57,7 +69,10 @@ function summarizeHighlights(highlights: BriefingHighlight[]): ReactNode {
       {ranked.map((h, idx) => (
         <span key={`${h.label}-${idx}`}>
           <mark className={h.tone === 'critical' ? 'crit' : undefined}>
-            {h.value != null && h.value !== '' ? `${h.value} ${h.label}` : h.label}
+            {(() => {
+              const v = formatHighlightValue(h.label, h.value);
+              return v ? `${v} ${h.label}` : h.label;
+            })()}
           </mark>
           {idx < ranked.length - 1 ? ' · ' : ''}
         </span>
@@ -104,12 +119,15 @@ export function BriefingCard({ briefing, fallbackSummary, ctaHref }: BriefingCar
 
         {highlights.length > 0 && (
           <div className="iv1-briefing-highlights">
-            {highlights.map((h, idx) => (
-              <span key={`${h.label}-${idx}`} className={`iv1-highlight-pill ${toneClass[h.tone]}`}>
-                <span className="iv1-highlight-pill-label">{h.label}</span>
-                {h.value != null && h.value !== '' ? <b>{String(h.value)}</b> : null}
-              </span>
-            ))}
+            {highlights.map((h, idx) => {
+              const display = formatHighlightValue(h.label, h.value);
+              return (
+                <span key={`${h.label}-${idx}`} className={`iv1-highlight-pill ${toneClass[h.tone]}`}>
+                  <span className="iv1-highlight-pill-label">{h.label}</span>
+                  {display ? <b>{display}</b> : null}
+                </span>
+              );
+            })}
           </div>
         )}
 

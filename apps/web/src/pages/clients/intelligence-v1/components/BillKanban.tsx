@@ -30,8 +30,14 @@ function isInternalHref(href: string): boolean {
 }
 
 export interface BillKanbanCard {
-  /** e.g. "HR 7702" */
+  /**
+   * Raw congress bill id slug, e.g. "119-hr-7702". Used verbatim for the
+   * drill-through href, the tracked-bill API, and React keys — do NOT humanize
+   * this. Use `displayNum` for what the user sees.
+   */
   num: string;
+  /** Humanized label for display, e.g. "H.R. 7702". Falls back to `num`. */
+  displayNum?: string;
   title: string;
   /** Nullable score; missing values render safe neutral UI. */
   pct?: number | null;
@@ -112,6 +118,8 @@ export function BillKanban({ columns, billDrillHref, onToggleTrack, pendingTrack
               // companions, duplicate rows), so `card.num` alone is not unique.
               const cardKey = `${col.stage}-${cardIdx}-${card.num}`;
               const isPending = pendingTrackIds?.has(card.num) ?? false;
+              // Display label is humanized ("H.R. 1742"); functional id stays raw.
+              const label = card.displayNum ?? card.num;
 
               // Star toggle for manual tracking. Rendered as a sibling of the
               // card anchor (NOT nested inside it) so clicking the star never
@@ -121,7 +129,7 @@ export function BillKanban({ columns, billDrillHref, onToggleTrack, pendingTrack
                   type="button"
                   className={`iv1-bill-track${card.isManual ? ' is-tracked' : ''}`}
                   aria-pressed={card.isManual ? true : false}
-                  aria-label={card.isManual ? `Untrack ${card.num}` : `Track ${card.num}`}
+                  aria-label={card.isManual ? `Untrack ${label}` : `Track ${label}`}
                   title={card.isManual ? 'Tracked — click to untrack' : 'Track this bill'}
                   disabled={isPending}
                   onClick={(e) => {
@@ -137,7 +145,7 @@ export function BillKanban({ columns, billDrillHref, onToggleTrack, pendingTrack
               const cardInner = (
                 <>
                   <div className="iv1-bill-num mono">
-                    {card.num}
+                    {label}
                     {card.isManual && <span className="iv1-bill-tracked-badge" title="Manually tracked"> ★</span>}
                   </div>
                   <div className="iv1-bill-title">{card.title}</div>

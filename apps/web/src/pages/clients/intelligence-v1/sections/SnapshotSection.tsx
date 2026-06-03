@@ -97,7 +97,6 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
     staleTime: 60_000,
   });
 
-  const health = healthQuery.data ?? null;
   const fallbackAlerts = (alertsQuery.data?.alerts ?? []).filter((a) => a.clientId === clientId);
   const clientAlerts = aggregate?.sections.snapshot.topAlerts?.length
     ? aggregate.sections.snapshot.topAlerts.map((a, idx) => ({
@@ -117,7 +116,6 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
   const changes = changesQuery.data ?? [];
   const meetings = meetingsQuery.data ?? [];
   const trackedTotal = aggregate?.sections.legislativeRegulatory.kanban.total ?? profile?.relevantBills?.total ?? 0;
-  const healthScore = aggregate?.sections.snapshot.health?.score ?? health?.score ?? null;
   const activityRows = aggregate?.sections.snapshot.activity14d ?? null;
   const activityMeetings = activityRows ? activityRows.reduce((sum, d) => sum + d.meetings, 0) : meetings.length;
   // Aggregate the 14-day breakdown into 5 totals the mockup specifies:
@@ -238,88 +236,6 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
 }
 
 /* ── Sub-components ──────────────────────────────────────────────── */
-
-function HealthGauge({ score }: { score: number | null }) {
-  const pct = Math.max(0, Math.min(100, score ?? 0));
-  const color =
-    pct < 30 ? 'var(--critical)' : pct < 70 ? 'var(--notable)' : 'var(--success)';
-
-  // SVG semi-circle gauge using stroke-dasharray. The track is a half-circle
-  // path (left→right across the top); the colored arc is the same path with
-  // its dash length set to `pct`% of the arc, so it fills left→right and is
-  // geometrically correct at every score (the old rotated-clipped-div
-  // approach pointed the arc the wrong way at low scores).
-  //
-  // Path: semicircle of radius R centered at (W/2, R+stroke/2), drawn from the
-  // left end to the right end over the top.
-  const W = 70;
-  const STROKE = 7;
-  const R = (W - STROKE) / 2; // 31.5
-  const CX = W / 2;
-  const CY = R + STROKE / 2; // baseline of the semicircle
-  const arcLength = Math.PI * R; // length of a half-circle arc
-  const dash = (pct / 100) * arcLength;
-  // Start at left (CX-R, CY), sweep over the top to right (CX+R, CY).
-  const d = `M ${CX - R} ${CY} A ${R} ${R} 0 0 1 ${CX + R} ${CY}`;
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-      <svg
-        width={W}
-        height={CY + STROKE / 2}
-        viewBox={`0 0 ${W} ${CY + STROKE / 2}`}
-        style={{ flexShrink: 0, display: 'block' }}
-        role="img"
-        aria-label={score == null ? 'No health score' : `Engagement health ${pct} of 100`}
-      >
-        {/* Background track */}
-        <path
-          d={d}
-          fill="none"
-          stroke="var(--bg-sunken)"
-          strokeWidth={STROKE}
-          strokeLinecap="round"
-        />
-        {/* Filled arc */}
-        {pct > 0 && (
-          <path
-            d={d}
-            fill="none"
-            stroke={color}
-            strokeWidth={STROKE}
-            strokeLinecap="round"
-            strokeDasharray={`${dash} ${arcLength}`}
-            style={{ transition: 'stroke-dasharray 0.6s ease' }}
-          />
-        )}
-      </svg>
-      <div>
-        <div
-          className="num"
-          style={{ fontSize: 24, fontWeight: 600, color, lineHeight: 1 }}
-        >
-          {score ?? '-'}
-          <span style={{ fontSize: 12, color: 'var(--ink-3)', fontWeight: 400 }}>/100</span>
-        </div>
-        <div
-          className="iv1-snap-delta"
-          style={{
-            marginTop: 2,
-            color: score != null && score < 30 ? 'var(--critical)' : 'var(--ink-3)',
-          }}
-        >
-          {score == null
-            ? 'No data'
-            : score < 30
-              ? '↓ needs activity'
-              : score < 70
-                ? 'at risk'
-                : '✓ healthy'}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /**
  * Tiny inline-SVG sparkline above the Activity row list.

@@ -22,7 +22,7 @@ export function SectionNav({
   return (
     <nav className="iv1-section-nav" aria-label="Client intelligence sections">
       <div className="iv1-section-nav__label">Client profile</div>
-      <h2 className="iv1-section-nav__title">Intel tab v1</h2>
+      <h2 className="iv1-section-nav__title">Sections</h2>
 
       <div className="iv1-section-nav__list">
         {sections.map((section) => {
