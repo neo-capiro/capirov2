@@ -222,7 +222,7 @@ export class IntelligenceController {
 
   @Get('daily-brief')
   getDailyBrief(@CurrentTenant() ctx: TenantContext) {
-    return this.insights.generateDailyBrief(ctx.tenantId);
+    return this.insights.generateDailyBrief(ctx.tenantId, ctx.userId);
   }
 
   @Get('mappings')

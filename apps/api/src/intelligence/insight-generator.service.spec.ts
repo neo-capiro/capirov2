@@ -307,7 +307,7 @@ describe('InsightGeneratorService.generateDailyBrief', () => {
       ],
     });
     const result = await service.generateDailyBrief(tenantId);
-    expect(result.brief).toContain("TODAY'S MEETINGS");
+    expect(result.brief).toContain('YOUR MEETINGS TODAY');
     expect(result.brief).toContain('Evening strategy w/ Acme');
     expect(result.brief).toContain('[client: Acme Defense]');
   });

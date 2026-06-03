@@ -795,7 +795,7 @@ If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] onl
    * highest-leverage moves. Comment-period deadlines deliberately live in the
    * dashboard's Needs Attention surface, not here.
    */
-  async generateDailyBrief(tenantId: string) {
+  async generateDailyBrief(tenantId: string, userId?: string) {
     const now = new Date();
     // committee_hearing.date is a `@db.Date` column — Prisma returns it at UTC
     // midnight regardless of intended timezone, so it must be filtered with
@@ -837,15 +837,18 @@ If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] onl
         orderBy: { date: 'asc' },
         take: 12,
       }),
-      // Today's meetings on the firm's own calendar (tenant-scoped via RLS).
-      // Replaces the comment-period block: the brief now leads with what the
-      // team is actually doing on the Hill today, not regulatory deadlines
-      // (those live in Needs Attention).
+      // Today's meetings — scoped to the CURRENT USER (meetings they created or
+      // that came from a calendar connection they own), NOT the whole firm. The
+      // dashboard brief is a personal leverage brief; mirrors ownMeetingWhere()
+      // used by the engagement meetings endpoint. Tenant-scoped via RLS as well.
       this.prisma.withTenant(tenantId, (tx) =>
         tx.meeting.findMany({
           where: {
             startsAt: { gte: todayStartEt, lte: todayEndEt },
             status: { not: 'cancelled' },
+            ...(userId
+              ? { OR: [{ createdByUserId: userId }, { connection: { createdByUserId: userId } }] }
+              : {}),
           },
           orderBy: { startsAt: 'asc' },
           take: 12,
@@ -926,7 +929,7 @@ If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] onl
       };
     }
 
-    const prompt = `You are writing today's leverage brief for a federal lobbying firm. Write 3-5 sentences in a punchy, voice-of-Capiro-Clio tone, concrete, specific, name names, and point to the single highest-leverage action for today. Do not list everything; pick the 1-2 things that actually matter. Reference the firm's active clients by name when the data supports it. Tie today's meetings to the intel where it makes sense (e.g. a client whose program just moved is on the calendar). Avoid hedging.
+    const prompt = `You are writing today's personal leverage brief for a federal lobbyist at a lobbying firm. Write 3-5 sentences in a punchy, voice-of-Capiro-Clio tone, concrete, specific, name names, and point to the single highest-leverage action for today. The meetings listed are THIS USER's own meetings, not the whole firm's — frame the day around what they personally have on. Do not list everything; pick the 1-2 things that actually matter. Reference active clients by name when the data supports it. Tie the user's meetings to the intel where it makes sense (e.g. a client whose program just moved is on their calendar). Avoid hedging.
 
 TODAY: ${todayLabel}
 ACTIVE CLIENTS: ${tenantClientList || '(no active clients)'}
@@ -935,7 +938,7 @@ ACTIVE SUBMISSION TRACKS: ${tracksBlock}
 UPCOMING HEARINGS / MARKUPS (next 7 days):
 ${hearingsBlock}
 
-TODAY'S MEETINGS (firm calendar):
+YOUR MEETINGS TODAY:
 ${meetingsBlock}
 
 HIGH-SEVERITY CHANGES (last 48h, tenant-relevant):
