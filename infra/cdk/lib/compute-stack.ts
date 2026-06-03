@@ -122,10 +122,15 @@ export class ComputeStack extends cdk.Stack {
       'ImportedClerkPubKey',
       secretsStack.clerkPublishableKey.secretArn,
     );
-    const govInfoApiKeyImported = secretsmanager.Secret.fromSecretCompleteArn(
+    // Wire the REAL, operator-populated GovInfo key: capiro/<env>/govinfo_api_key
+    // (default-KMS). NOTE: SecretsStack also defines a separate placeholder
+    // (/capiro/<env>/govinfo/api-key = "REPLACE_ME", CMK-encrypted) that was never
+    // populated — wiring that one in hands the containers a bogus key, so we
+    // deliberately import the populated secret by name instead of secretsStack.govInfoApiKey.
+    const govInfoApiKeyImported = secretsmanager.Secret.fromSecretNameV2(
       this,
       'ImportedGovInfoApiKey',
-      secretsStack.govInfoApiKey.secretArn,
+      `capiro/${cfg.envName}/govinfo_api_key`,
     );
 
     // Microsoft 365 Graph OAuth + token-at-rest crypto. These secrets are
@@ -321,10 +326,6 @@ export class ComputeStack extends cdk.Stack {
     });
     // Web only needs to log + (if we add /healthz pinging) the basics.
 
-
-
-
-
     // ------------------------------------------------------------------ Task secret bundles
     // The API runs as `capiro_app` (least-privilege, no DDL). Migrations
     // continue to run as the master role because Prisma needs DDL.
@@ -442,9 +443,9 @@ export class ComputeStack extends cdk.Stack {
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/notes-encryption-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
-      // GovInfo key is created in the SecretsStack with a leading-slash name
-      // (/capiro/<env>/govinfo/api-key); match its versioned ARN form.
-      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:/capiro/${cfg.envName}/govinfo/api-key*`,
+      // GovInfo key: the operator-populated secret is capiro/<env>/govinfo_api_key
+      // (default-KMS). Match its versioned ARN form so the exec role can read it.
+      `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/govinfo_api_key*`,
       // SAM.gov key provisioned out-of-band (capiro/<env>/sam-gov-api-key).
       `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/sam-gov-api-key*`,
     ];
@@ -502,7 +503,6 @@ export class ComputeStack extends cdk.Stack {
       scaleInCooldown: cdk.Duration.seconds(60),
       scaleOutCooldown: cdk.Duration.seconds(30),
     });
-
 
     // ------------------------------------------------------------------ Web task definition + service
     const webTaskDef = new ecs.FargateTaskDefinition(this, 'WebTaskDef', {
@@ -975,9 +975,7 @@ export class ComputeStack extends cdk.Stack {
     if (cfg.rootDomain !== cfg.appHost) {
       httpsListener.addAction('Marketing', {
         priority: 5,
-        conditions: [
-          elb.ListenerCondition.hostHeaders([cfg.rootDomain, `www.${cfg.rootDomain}`]),
-        ],
+        conditions: [elb.ListenerCondition.hostHeaders([cfg.rootDomain, `www.${cfg.rootDomain}`])],
         action: elb.ListenerAction.forward([this.marketingTargetGroup]),
       });
     }

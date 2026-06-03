@@ -117,14 +117,23 @@ export class ClioResearchService {
           topic,
           status: 'plan',
         },
-        select: { id: true, title: true, topic: true, status: true, clientId: true, createdAt: true },
+        select: {
+          id: true,
+          title: true,
+          topic: true,
+          status: true,
+          clientId: true,
+          createdAt: true,
+        },
       }),
     );
   }
 
   async deleteSession(ctx: TenantContext, id: string) {
     await this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.clioResearchSession.deleteMany({ where: { id, tenantId: ctx.tenantId, userId: ctx.userId } }),
+      tx.clioResearchSession.deleteMany({
+        where: { id, tenantId: ctx.tenantId, userId: ctx.userId },
+      }),
     );
     return { ok: true };
   }
@@ -133,7 +142,10 @@ export class ClioResearchService {
    * Fetch the completed report's markdown for a session (for export). Throws if
    * the session has no report yet.
    */
-  async getReportMarkdown(ctx: TenantContext, id: string): Promise<{ title: string; markdown: string }> {
+  async getReportMarkdown(
+    ctx: TenantContext,
+    id: string,
+  ): Promise<{ title: string; markdown: string }> {
     const session = await this.ensureSession(ctx, id);
     if (!session.reportArtifactId) {
       throw new BadRequestException('This research session has no report yet');
@@ -149,11 +161,7 @@ export class ClioResearchService {
   }
 
   /** Persist the lobbyist's answers to the clarifying questions. */
-  async answerClarifications(
-    ctx: TenantContext,
-    id: string,
-    answers: Record<string, string>,
-  ) {
+  async answerClarifications(ctx: TenantContext, id: string, answers: Record<string, string>) {
     const session = await this.ensureSession(ctx, id);
     const clean: Record<string, string> = {};
     for (const [k, v] of Object.entries(answers ?? {})) {
@@ -243,7 +251,9 @@ export class ClioResearchService {
 
     const model = this.config.get('CLIO_RESEARCH_MODEL', { infer: true });
     const maxTokens = this.config.get('CLIO_RESEARCH_MAX_TOKENS', { infer: true });
-    const timeoutMs = this.config.get('CLIO_REQUEST_TIMEOUT_MS', { infer: true });
+    // Deep research uses its OWN (much longer) per-request timeout, not the
+    // short interactive-chat one — a single gather/synthesis turn runs minutes.
+    const timeoutMs = this.config.get('CLIO_RESEARCH_TIMEOUT_MS', { infer: true });
     const maxRounds = this.config.get('CLIO_RESEARCH_MAX_TOOL_ROUNDS', { infer: true });
     const toolSchemas = this.tools.anthropicToolSchemas();
     const system = buildResearchSystemPrompt(PRODUCT_NAME);
@@ -265,6 +275,11 @@ export class ClioResearchService {
     const sources: SourceAttribution[] = [];
     const toolsUsed: string[] = [];
     let synthesizing = false;
+    // True only when the agentic loop ended because the model stopped calling
+    // tools and wrote its report. If it ends any other way (tool-round budget
+    // exhausted, or a round aborted on timeout) the report was never written, so
+    // the forced-synthesis pass below MUST run.
+    let endedCleanly = false;
 
     try {
       for (let round = 0; round < maxRounds; round += 1) {
@@ -294,7 +309,9 @@ export class ClioResearchService {
 
           if (!response.ok || !response.body) {
             const errText = await response.text().catch(() => '');
-            throw new Error(`Anthropic HTTP ${response.status}${errText ? `: ${errText.slice(0, 300)}` : ''}`);
+            throw new Error(
+              `Anthropic HTTP ${response.status}${errText ? `: ${errText.slice(0, 300)}` : ''}`,
+            );
           }
 
           const decoder = new TextDecoder();
@@ -331,7 +348,10 @@ export class ClioResearchService {
                     }
                     reportBody += delta.text;
                     sse.write(sseEvent({ type: 'text', text: delta.text }));
-                  } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
+                  } else if (
+                    delta.type === 'input_json_delta' &&
+                    typeof delta.partial_json === 'string'
+                  ) {
                     toolUseById.get(evt.index)?.jsonParts.push(delta.partial_json);
                   }
                 } else if (evt.type === 'message_delta') {
@@ -342,14 +362,29 @@ export class ClioResearchService {
               }
             }
           }
+        } catch (roundErr) {
+          // A per-round abort means this model turn exceeded the (long) research
+          // timeout. Don't let it kill the whole run — stop gathering and fall
+          // through to the forced-synthesis pass so we still write a report
+          // rather than persisting only the sources gathered so far.
+          if (isAbortError(roundErr)) {
+            this.logger.warn(`Research gather round ${round} timed out; forcing synthesis`);
+            break;
+          }
+          throw roundErr;
         } finally {
           clearTimeout(timer);
         }
 
-        // If the model did not request tools, the report is complete.
-        if (stopReason !== 'tool_use' || toolUseById.size === 0) break;
+        // If the model did not request tools, it wrote its final report.
+        if (stopReason !== 'tool_use' || toolUseById.size === 0) {
+          endedCleanly = true;
+          break;
+        }
 
-        const orderedTools = [...toolUseById.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
+        const orderedTools = [...toolUseById.entries()]
+          .sort((a, b) => a[0] - b[0])
+          .map(([, v]) => v);
 
         const assistantTurn: Array<Record<string, unknown>> = [];
         for (const t of orderedTools) {
@@ -382,9 +417,7 @@ export class ClioResearchService {
             parsedInput.clientId = session.clientId;
           }
           toolsUsed.push(t.name);
-          sse.write(
-            sseEvent({ type: 'step', tool: t.name, label: humanToolLabel(t.name) }),
-          );
+          sse.write(sseEvent({ type: 'step', tool: t.name, label: humanToolLabel(t.name) }));
 
           let resultPayload: unknown;
           let isError = false;
@@ -420,12 +453,18 @@ export class ClioResearchService {
         messages.push({ role: 'user', content: toolResultBlocks });
       }
 
-      // FORCED SYNTHESIS: the agentic loop above can exhaust all rounds while
-      // still calling tools (gathering) and never emit the report prose, which
-      // is exactly the "it only tells me what it searched" symptom. If no report
-      // text was streamed, make one final call with NO tools and an explicit
-      // "write the report now" instruction so the model must produce prose.
-      if (!reportBody.trim()) {
+      // FORCED SYNTHESIS. The agentic loop can end WITHOUT the model ever
+      // writing its report — it exhausted the tool-round budget while still
+      // gathering, or a round hit the research timeout (endedCleanly === false).
+      // In those cases any text streamed so far is gather-phase narration ("I'll
+      // search X, then Y…"), NOT the report — exactly the "it only tells me what
+      // it searched / only sources" symptom. Also force a pass if the loop ended
+      // cleanly but produced no prose. Make one final NO-TOOLS call so the model
+      // must produce the report from the evidence it already gathered.
+      if (!endedCleanly || !reportBody.trim()) {
+        // Discard gather-phase narration so the forced pass writes a clean
+        // report instead of appending it to the narration.
+        if (!endedCleanly) reportBody = '';
         messages.push({
           role: 'user',
           content:
@@ -455,7 +494,9 @@ export class ClioResearchService {
           });
           if (!response.ok || !response.body) {
             const errText = await response.text().catch(() => '');
-            throw new Error(`Anthropic HTTP ${response.status}${errText ? `: ${errText.slice(0, 300)}` : ''}`);
+            throw new Error(
+              `Anthropic HTTP ${response.status}${errText ? `: ${errText.slice(0, 300)}` : ''}`,
+            );
           }
           if (!synthesizing) {
             synthesizing = true;
@@ -487,6 +528,14 @@ export class ClioResearchService {
               }
             }
           }
+        } catch (synthErr) {
+          // Keep whatever prose streamed before an abort rather than discarding
+          // it — a partial report is still more useful than sources alone.
+          if (isAbortError(synthErr)) {
+            this.logger.warn('Forced research synthesis timed out; keeping partial report');
+          } else {
+            throw synthErr;
+          }
         } finally {
           clearTimeout(timer);
         }
@@ -512,9 +561,10 @@ export class ClioResearchService {
       // research session needs a lightweight backing conversation to anchor its
       // report artifact (this also surfaces the report in the existing artifact
       // panel). One backing conversation per session, created on first report.
-      const existing = (session.metadata && typeof session.metadata === 'object' && !Array.isArray(session.metadata)
-        ? (session.metadata as Record<string, unknown>).backingConversationId
-        : undefined);
+      const existing =
+        session.metadata && typeof session.metadata === 'object' && !Array.isArray(session.metadata)
+          ? (session.metadata as Record<string, unknown>).backingConversationId
+          : undefined;
       let conversationId = typeof existing === 'string' ? existing : null;
       if (!conversationId) {
         const conversation = await tx.clioConversation.create({
@@ -628,7 +678,9 @@ export class ClioResearchService {
       });
       if (!response.ok) {
         const errText = await response.text().catch(() => '');
-        throw new Error(`Anthropic HTTP ${response.status}${errText ? `: ${errText.slice(0, 300)}` : ''}`);
+        throw new Error(
+          `Anthropic HTTP ${response.status}${errText ? `: ${errText.slice(0, 300)}` : ''}`,
+        );
       }
       const json = (await response.json()) as { content?: Array<{ type: string; text?: string }> };
       return (json.content ?? [])
@@ -645,6 +697,16 @@ export class ClioResearchService {
 
 function sseEvent(payload: Record<string, unknown>): string {
   return `data: ${JSON.stringify(payload)}\n\n`;
+}
+
+/**
+ * True for an AbortController-driven timeout. fetch/undici surface these as a
+ * DOMException/Error named 'AbortError' (and sometimes the message "This
+ * operation was aborted"), so match on either.
+ */
+function isAbortError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  return err.name === 'AbortError' || /abort/i.test(err.message);
 }
 
 function asStringArray(value: Prisma.JsonValue | null | undefined): string[] {

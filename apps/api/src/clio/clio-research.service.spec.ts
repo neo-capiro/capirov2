@@ -55,7 +55,11 @@ function toolOnlyRound(toolName: string, index = 0): Array<Record<string, unknow
       index,
       content_block: { type: 'tool_use', id: `tool_${index}_${toolName}`, name: toolName },
     },
-    { type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: '{"q":"x"}' } },
+    {
+      type: 'content_block_delta',
+      index,
+      delta: { type: 'input_json_delta', partial_json: '{"q":"x"}' },
+    },
     { type: 'content_block_stop', index },
     { type: 'message_delta', delta: { stop_reason: 'tool_use' } },
     { type: 'message_stop' },
@@ -69,7 +73,11 @@ function proseRound(text: string): Array<Record<string, unknown>> {
   return [
     { type: 'message_start', message: { role: 'assistant' } },
     { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
-    ...parts.map((t) => ({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: t } })),
+    ...parts.map((t) => ({
+      type: 'content_block_delta',
+      index: 0,
+      delta: { type: 'text_delta', text: t },
+    })),
     { type: 'content_block_stop', index: 0 },
     { type: 'message_delta', delta: { stop_reason: 'end_turn' } },
     { type: 'message_stop' },
@@ -116,6 +124,7 @@ function makeConfig(overrides: Record<string, unknown> = {}) {
     CLIO_RESEARCH_MODEL: 'claude-test',
     CLIO_RESEARCH_MAX_TOKENS: 8000,
     CLIO_REQUEST_TIMEOUT_MS: 60_000,
+    CLIO_RESEARCH_TIMEOUT_MS: 60_000, // research uses its own (longer) per-call timeout
     CLIO_RESEARCH_MAX_TOOL_ROUNDS: 2, // small cap so the loop exhausts fast
     ...overrides,
   };
@@ -243,7 +252,9 @@ describe('ClioResearchService — forced synthesis', () => {
 
     // 4. A single `report` event with a non-empty body fired, before `done`.
     const reportIdx = events.findIndex((e) => e.type === 'report');
-    const doneIdx = events.findIndex((e) => e.type === 'done' && reportIdx >= 0 && events.indexOf(e) > reportIdx);
+    const doneIdx = events.findIndex(
+      (e) => e.type === 'done' && reportIdx >= 0 && events.indexOf(e) > reportIdx,
+    );
     expect(reportIdx).toBeGreaterThanOrEqual(0);
     const reportEvt = events[reportIdx] ?? {};
     expect(String(reportEvt.body ?? '')).toContain('Executive Summary');
@@ -252,6 +263,55 @@ describe('ClioResearchService — forced synthesis', () => {
 
     // 5. A synthesize phase was announced.
     expect(events.some((e) => e.type === 'phase' && e.phase === 'synthesize')).toBe(true);
+  });
+
+  it('forces synthesis (never sources-only) when a gather round times out', async () => {
+    // Regression guard for the production "only the research sources" bug: a
+    // gather round exceeded CLIO_RESEARCH_TIMEOUT_MS, the AbortController fired,
+    // and the old code let that abort kill the whole run — persisting just the
+    // sources. Now an aborted round must fall through to forced synthesis.
+    const REPORT = '# Executive Summary\n\nForced after a gather-round timeout. [searchBills]';
+
+    fetchMock = jest.fn(async (_url: string, init?: RequestInit) => {
+      captureBody(init);
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      if (body.tools) {
+        // Simulate the per-round AbortController firing on the research timeout.
+        const err = new Error('This operation was aborted');
+        err.name = 'AbortError';
+        throw err;
+      }
+      // The no-tools forced-synthesis call writes the report.
+      return okResponse(sseBody(proseRound(REPORT)));
+    }) as unknown as jest.Mock;
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const svc = new ClioResearchService(makePrisma(), makeConfig(), makeTools());
+    const events: Array<Record<string, unknown>> = [];
+    const sse = {
+      write: (data: string) => {
+        const line = data.split('\n').find((l) => l.startsWith('data: '));
+        if (line) {
+          try {
+            events.push(JSON.parse(line.slice(6)));
+          } catch {
+            /* ignore */
+          }
+        }
+      },
+    };
+
+    await svc.streamResearch(CTX, 'sess-1', sse);
+
+    // The aborted tool round did NOT end the run on sources alone — a single
+    // forced (no-tools) synthesis call ran and produced the report.
+    const toolless = fetchBodies.filter((b) => !('tools' in b) || !b.tools);
+    expect(toolless).toHaveLength(1);
+    const report = events.find((e) => e.type === 'report');
+    expect(report).toBeTruthy();
+    expect(String(report?.body ?? '')).toContain('Executive Summary');
+    const textEvents = events.filter((e) => e.type === 'text');
+    expect(textEvents.length).toBeGreaterThan(0);
   });
 
   it('does NOT make a forced-synthesis call when the model already wrote prose', async () => {
