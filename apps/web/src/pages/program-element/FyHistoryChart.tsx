@@ -140,8 +140,8 @@ export function FyHistoryChart({ rows, loading = false, onFyClick }: FyHistoryCh
 
   return (
     <Card title="Timeline">
-      <div style={{ width: '100%', height: 420 }}>
-        <ResponsiveContainer width="100%" height="100%" aspect={2} minWidth={320} minHeight={160}>
+      <div style={{ width: '100%', height: 420, minWidth: 320 }}>
+        <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 20, right: 20, left: 20, bottom: 20 }}>
             <CartesianGrid strokeDasharray="3 3" />
             <XAxis dataKey="fy" tickFormatter={(v) => `FY ${v}`} />
