@@ -23,24 +23,27 @@ const columns: ColumnsType<ProgramElementContractor> = [
     key: 'contractorName',
     render: (name: string, row) => (
       <span>
-        {name}{' '}
-        {row.contractorIsCrmClient ? <Tag color="blue">CRM Client</Tag> : null}
+        {name} {row.contractorIsCrmClient ? <Tag color="blue">CRM Client</Tag> : null}
         {row.isNewEntrant ? <Tag color="warning">New</Tag> : null}
       </span>
     ),
   },
   {
-    title: '$ obligated',
+    title: '$ obligated (24 mo)',
     dataIndex: 'amount',
     key: 'amount',
     align: 'right',
+    sorter: (a, b) => a.amount - b.amount,
+    defaultSortOrder: 'descend',
     render: (value: number) => dollarsCompact(value),
   },
   {
-    title: 'Contract type',
-    dataIndex: 'contractType',
-    key: 'contractType',
-    render: (value: string | null | undefined) => value ?? 'N/A',
+    title: 'Awards',
+    dataIndex: 'awards',
+    key: 'awards',
+    align: 'right',
+    render: (value: number | null | undefined) =>
+      typeof value === 'number' ? value.toLocaleString() : '—',
   },
 ];
 

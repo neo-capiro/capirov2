@@ -10,20 +10,25 @@ import type {
   AcquisitionPersonnelListResponse,
   AcquisitionPersonnelListParams,
   AcquisitionPersonnelDetail,
+  EngagementContactListItem,
 } from './types.js';
 
 export async function getProgramElementDetail(
   api: AxiosInstance,
   peCode: string,
 ): Promise<ProgramElementDetail> {
-  return (await api.get<ProgramElementDetail>(`/api/program-elements/${encodeURIComponent(peCode)}`)).data;
+  return (
+    await api.get<ProgramElementDetail>(`/api/program-elements/${encodeURIComponent(peCode)}`)
+  ).data;
 }
 
 export async function getProgramElementBills(
   api: AxiosInstance,
   peCode: string,
 ): Promise<ProgramElementBill[]> {
-  return (await api.get<ProgramElementBill[]>(`/api/program-elements/${encodeURIComponent(peCode)}/bills`)).data;
+  return (
+    await api.get<ProgramElementBill[]>(`/api/program-elements/${encodeURIComponent(peCode)}/bills`)
+  ).data;
 }
 
 export async function getProgramElementContractors(
@@ -41,7 +46,11 @@ export async function getProgramElementPersonnel(
   api: AxiosInstance,
   peCode: string,
 ): Promise<ProgramTeamPerson[]> {
-  return (await api.get<ProgramTeamPerson[]>(`/api/program-elements/${encodeURIComponent(peCode)}/personnel`)).data;
+  return (
+    await api.get<ProgramTeamPerson[]>(
+      `/api/program-elements/${encodeURIComponent(peCode)}/personnel`,
+    )
+  ).data;
 }
 
 export async function linkProgramElementPersonToCrm(
@@ -50,10 +59,21 @@ export async function linkProgramElementPersonToCrm(
   engagementContactId: string,
 ): Promise<{ linked: true }> {
   return (
-    await api.post<{ linked: true }>(`/api/acquisition-personnel/${encodeURIComponent(personId)}/link-crm-contact`, {
-      engagementContactId,
-    })
+    await api.post<{ linked: true }>(
+      `/api/acquisition-personnel/${encodeURIComponent(personId)}/link-crm-contact`,
+      {
+        engagementContactId,
+      },
+    )
   ).data;
+}
+
+/** Tenant CRM contacts, used by the "link to CRM" picker on the PE program team. */
+export async function getEngagementContacts(
+  api: AxiosInstance,
+  params: { q?: string; limit?: number } = {},
+): Promise<EngagementContactListItem[]> {
+  return (await api.get<EngagementContactListItem[]>('/api/engagement/contacts', { params })).data;
 }
 
 export async function getProgramElementsList(
@@ -98,7 +118,9 @@ export async function getPersonCandidates(
   params: { status?: string; page?: number; limit?: number } = {},
 ): Promise<PersonCandidateListResponse> {
   return (
-    await api.get<PersonCandidateListResponse>('/api/admin/program-elements/person-candidates', { params })
+    await api.get<PersonCandidateListResponse>('/api/admin/program-elements/person-candidates', {
+      params,
+    })
   ).data;
 }
 
@@ -138,7 +160,8 @@ export async function getAcquisitionPersonnel(
   api: AxiosInstance,
   params: AcquisitionPersonnelListParams = {},
 ): Promise<AcquisitionPersonnelListResponse> {
-  return (await api.get<AcquisitionPersonnelListResponse>('/api/acquisition-personnel', { params })).data;
+  return (await api.get<AcquisitionPersonnelListResponse>('/api/acquisition-personnel', { params }))
+    .data;
 }
 
 /** Full record for one person, including all source mentions. */
@@ -147,6 +170,8 @@ export async function getAcquisitionPersonnelDetail(
   id: string,
 ): Promise<AcquisitionPersonnelDetail> {
   return (
-    await api.get<AcquisitionPersonnelDetail>(`/api/acquisition-personnel/${encodeURIComponent(id)}`)
+    await api.get<AcquisitionPersonnelDetail>(
+      `/api/acquisition-personnel/${encodeURIComponent(id)}`,
+    )
   ).data;
 }

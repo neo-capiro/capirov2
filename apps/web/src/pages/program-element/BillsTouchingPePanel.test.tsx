@@ -48,7 +48,8 @@ describe('BillsTouchingPePanel', () => {
               congress: 119,
               billType: 'HR',
               billNumber: '123',
-              title: 'A very long bill title that should be truncated because it is over sixty characters long for rendering checks',
+              title:
+                'A very long bill title that should be truncated because it is over sixty characters long for rendering checks',
               policyArea: null,
               latestActionText: null,
               latestActionDate: null,
@@ -91,7 +92,7 @@ describe('BillsTouchingPePanel', () => {
     );
 
     expect(screen.getByText(/Bills touching this PE/i)).toBeInTheDocument();
-    expect(screen.getByText(/HR-123/i)).toBeInTheDocument();
+    expect(screen.getByText(/H\.R\. 123/i)).toBeInTheDocument();
     expect(screen.getByText(/Rep. Doe • Armed Services/i)).toBeInTheDocument();
 
     expect(billProbabilityColor(0.75)).toBe('green');
@@ -133,7 +134,7 @@ describe('BillsTouchingPePanel', () => {
       </MemoryRouter>,
     );
 
-    fireEvent.click(screen.getByText(/HR-123/i));
-    expect(navigateMock).toHaveBeenCalledWith('/bills/HR-123');
+    fireEvent.click(screen.getByText(/H\.R\. 123/i));
+    expect(navigateMock).toHaveBeenCalledWith('/intelligence/bills/HR-123');
   });
 });

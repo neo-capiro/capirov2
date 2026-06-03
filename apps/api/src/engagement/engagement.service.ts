@@ -486,6 +486,44 @@ export class EngagementService {
     this.s3 = new S3Client({ region: config.get('AWS_REGION_DEFAULT', { infer: true }) });
   }
 
+  /**
+   * Tenant-wide list of CRM engagement contacts, used by pickers that link an
+   * external record (e.g. an acquisition-personnel profile on the Program
+   * Element page) to a known contact. Tenant-scoped via RLS; optional fuzzy
+   * search over name / email / organization. Lightweight projection only.
+   */
+  async listContacts(ctx: TenantContext, query: { q?: string; limit?: number } = {}) {
+    const term = query.q?.trim();
+    const take = Math.min(Math.max(query.limit ?? 50, 1), 100);
+
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.engagementContact.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          ...(term
+            ? {
+                OR: [
+                  { fullName: { contains: term, mode: 'insensitive' } },
+                  { email: { contains: term } },
+                  { organization: { contains: term, mode: 'insensitive' } },
+                ],
+              }
+            : {}),
+        },
+        orderBy: [{ updatedAt: 'desc' }],
+        take,
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          organization: true,
+          title: true,
+          clientId: true,
+        },
+      }),
+    );
+  }
+
   capabilities() {
     return {
       ai: this.ai.capabilities(),

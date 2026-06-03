@@ -16,28 +16,20 @@ import {
   Typography,
   message,
 } from 'antd';
-import {
-  BellFilled,
-  BellOutlined,
-  EyeOutlined,
-  FileSearchOutlined,
-  NumberOutlined,
-  ScheduleOutlined,
-} from '@ant-design/icons';
+import { BellFilled, BellOutlined, FileSearchOutlined } from '@ant-design/icons';
 import { useApi } from '../../lib/use-api.js';
 import {
   getProgramElementBills,
   getProgramElementContractors,
   getProgramElementDetail,
   getProgramElementPersonnel,
-  getProgramElementsList,
-  linkProgramElementPersonToCrm,
   setProgramElementWatching,
 } from './api.js';
 import { FyHistoryChart } from './FyHistoryChart.js';
 import { BillsTouchingPePanel } from './BillsTouchingPePanel.js';
 import { ContractorsPanel } from './ContractorsPanel.js';
 import { FyDetailDrawer } from './FyDetailDrawer.js';
+import { LinkCrmContactModal } from './LinkCrmContactModal.js';
 import { ProgramTeamPanel } from './ProgramTeamPanel.js';
 import type {
   ProgramElementBill,
@@ -94,6 +86,19 @@ const LazyBillsTouchingPePanel = lazy(async () => ({ default: BillsTouchingPePan
 const LazyContractorsPanel = lazy(async () => ({ default: ContractorsPanel }));
 const LazyProgramTeamPanel = lazy(async () => ({ default: ProgramTeamPanel }));
 
+function formatSyncedDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function statusColor(status: string): string {
+  const normalized = status.toLowerCase();
+  if (normalized.includes('active') || normalized.includes('enacted')) return 'green';
+  if (normalized.includes('terminat') || normalized.includes('cancel')) return 'red';
+  return 'default';
+}
+
 const { Title, Text } = Typography;
 
 export function ProgramElementWatchPage() {
@@ -104,6 +109,7 @@ export function ProgramElementWatchPage() {
   const queryClient = useQueryClient();
   const [selectedFy, setSelectedFy] = useState<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [linkTarget, setLinkTarget] = useState<{ id: string; name: string } | null>(null);
 
   const watchMutation = useMutation({
     mutationFn: (watching: boolean) => setProgramElementWatching(api, normalizedPeCode, watching),
@@ -145,13 +151,6 @@ export function ProgramElementWatchPage() {
     enabled: normalizedPeCode.length > 0,
   });
 
-  useQuery({
-    queryKey: ['program-element-list', normalizedPeCode],
-    queryFn: () => getProgramElementsList(api, { q: normalizedPeCode, limit: 25, page: 1 }),
-    staleTime: 60 * 1000,
-    enabled: normalizedPeCode.length > 0,
-  });
-
   const billsQuery = useQuery({
     queryKey: ['program-element-bills', normalizedPeCode],
     queryFn: () => getProgramElementBills(api, normalizedPeCode),
@@ -171,17 +170,6 @@ export function ProgramElementWatchPage() {
     queryFn: () => getProgramElementPersonnel(api, normalizedPeCode),
     staleTime: 60 * 1000,
     enabled: normalizedPeCode.length > 0,
-  });
-
-  const linkPersonMutation = useMutation({
-    mutationFn: ({ personId, engagementContactId }: { personId: string; engagementContactId: string }) =>
-      linkProgramElementPersonToCrm(api, personId, engagementContactId),
-    onSuccess: () => {
-      message.success('Linked to CRM contact');
-    },
-    onError: () => {
-      message.error('Unable to link CRM contact');
-    },
   });
 
   if (!normalizedPeCode) {
@@ -238,12 +226,20 @@ export function ProgramElementWatchPage() {
               <Title level={2} style={{ margin: 0 }}>
                 {detail.peCode} · {detail.title}
               </Title>
-              <Text type="secondary">{detail.appropriationType ?? 'Appropriation N/A'}</Text>
+              <Space size={8} wrap style={{ marginTop: 4 }}>
+                <Text type="secondary">{detail.appropriationType ?? 'Appropriation N/A'}</Text>
+                {detail.budgetActivity ? <Tag>{detail.budgetActivity}</Tag> : null}
+                {detail.firstSeenFy ? (
+                  <Text type="secondary">Tracked since FY{detail.firstSeenFy}</Text>
+                ) : null}
+              </Space>
             </div>
             <Flex vertical align="flex-end" gap={8}>
               <Space>
                 <Button onClick={() => navigate('/program-elements')}>Find Program</Button>
-                <Button onClick={() => navigate('/program-elements/mark-up-monitor')}>Mark-up Monitor</Button>
+                <Button onClick={() => navigate('/program-elements/mark-up-monitor')}>
+                  Mark-up Monitor
+                </Button>
               </Space>
               <Button
                 type={detail.currentUserIsWatching ? 'primary' : 'default'}
@@ -253,9 +249,19 @@ export function ProgramElementWatchPage() {
               >
                 {detail.currentUserIsWatching ? 'Watching' : 'Watch this PE'}
               </Button>
-              <Tag color="blue" data-testid="pe-sector-tag">
-                {detail.service ?? 'Service N/A'}
-              </Tag>
+              <Space size={8}>
+                <Tag color="blue" data-testid="pe-sector-tag">
+                  {detail.service ?? 'Service N/A'}
+                </Tag>
+                {detail.status ? (
+                  <Tag color={statusColor(detail.status)}>{detail.status}</Tag>
+                ) : null}
+              </Space>
+              {detail.lastSyncedAt ? (
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  Last synced {formatSyncedDate(detail.lastSyncedAt)}
+                </Text>
+              ) : null}
             </Flex>
           </Flex>
         </Flex>
@@ -265,11 +271,14 @@ export function ProgramElementWatchPage() {
         <Col xs={24} md={12} xl={6}>
           <Card>
             <Statistic
-              title="Latest Request"
+              title={latest ? `Latest Request · FY${latest.fy}` : 'Latest Request'}
               value={latest?.request != null ? Number(latest.request) : undefined}
               precision={2}
-              prefix={<NumberOutlined />}
-              valueRender={latest?.request != null ? undefined : () => <Text type="secondary">—</Text>}
+              prefix="$"
+              suffix="m"
+              valueRender={
+                latest?.request != null ? undefined : () => <Text type="secondary">—</Text>
+              }
             />
           </Card>
         </Col>
@@ -279,40 +288,49 @@ export function ProgramElementWatchPage() {
               title="Latest Conference"
               value={latest?.conference != null ? Number(latest.conference) : undefined}
               precision={2}
-              prefix={<FileSearchOutlined />}
-              valueRender={latest?.conference != null ? undefined : () => <Text type="secondary">—</Text>}
+              prefix="$"
+              suffix="m"
+              valueRender={
+                latest?.conference != null ? undefined : () => <Text type="secondary">—</Text>
+              }
             />
           </Card>
         </Col>
         <Col xs={24} md={12} xl={6}>
           <Card>
             <Statistic
-              title="Latest Enacted"
+              title={
+                latest && latest.enacted == null ? 'Latest Enacted · Projected' : 'Latest Enacted'
+              }
               value={latest?.enacted != null ? Number(latest.enacted) : undefined}
               precision={2}
-              prefix={<ScheduleOutlined />}
-              valueRender={latest?.enacted != null ? undefined : () => <Text type="secondary">—</Text>}
+              prefix="$"
+              suffix="m"
+              valueRender={
+                latest?.enacted != null ? undefined : () => <Text type="secondary">—</Text>
+              }
             />
           </Card>
         </Col>
         <Col xs={24} md={12} xl={6}>
           <Card>
             <Statistic
-              title="Watching"
-              value={detail.currentUserIsWatching ? 1 : 0}
-              valueRender={() => (
-                <Tag color={detail.currentUserIsWatching ? 'green' : 'default'}>
-                  {detail.currentUserIsWatching ? 'Watching' : 'Not Watching'}
-                </Tag>
-              )}
-              prefix={<EyeOutlined />}
+              title="Bills touching this PE"
+              value={bills.length}
+              prefix={<FileSearchOutlined />}
             />
           </Card>
         </Col>
       </Row>
 
       {hasBudgetData ? (
-        <Suspense fallback={<Card title="Timeline"><Skeleton active paragraph={{ rows: 6 }} /></Card>}>
+        <Suspense
+          fallback={
+            <Card title="Timeline">
+              <Skeleton active paragraph={{ rows: 6 }} />
+            </Card>
+          }
+        >
           <LazyFyHistoryChart
             rows={historyRows}
             loading={detailQuery.isLoading}
@@ -331,33 +349,44 @@ export function ProgramElementWatchPage() {
 
       <Row gutter={[16, 16]}>
         <Col xs={24} span={12}>
-          <Suspense fallback={<Card title="Bills touching this PE"><Skeleton active paragraph={{ rows: 4 }} /></Card>}>
+          <Suspense
+            fallback={
+              <Card title="Bills touching this PE">
+                <Skeleton active paragraph={{ rows: 4 }} />
+              </Card>
+            }
+          >
             <LazyBillsTouchingPePanel bills={bills} loading={billsQuery.isLoading} />
           </Suspense>
         </Col>
         <Col xs={24} span={12}>
           <Suspense
-            fallback={<Card title="Top contractors touching this PE"><Skeleton active paragraph={{ rows: 4 }} /></Card>}
+            fallback={
+              <Card title="Top contractors touching this PE">
+                <Skeleton active paragraph={{ rows: 4 }} />
+              </Card>
+            }
           >
             <LazyContractorsPanel contractors={contractors} loading={contractorsQuery.isLoading} />
           </Suspense>
         </Col>
       </Row>
 
-      <Suspense fallback={<Card title="Program team"><Skeleton active paragraph={{ rows: 5 }} /></Card>}>
+      <Suspense
+        fallback={
+          <Card title="Program team">
+            <Skeleton active paragraph={{ rows: 5 }} />
+          </Card>
+        }
+      >
         <LazyProgramTeamPanel
           personnel={programTeam}
           loading={programTeamQuery.isLoading}
           estimatedTotal={Math.max(programTeam.length, 6)}
-          onViewAllSources={() => {
-            message.info('Program team source viewer is not yet wired');
-          }}
+          onViewAllSources={() => navigate('/directory')}
           onLinkCrmContact={(personId) => {
-            if (linkPersonMutation.isPending) return;
-            linkPersonMutation.mutate({
-              personId,
-              engagementContactId: '00000000-0000-0000-0000-000000000001',
-            });
+            const person = programTeam.find((candidate) => candidate.id === personId);
+            setLinkTarget({ id: personId, name: person?.fullName ?? 'this person' });
           }}
         />
       </Suspense>
@@ -368,6 +397,13 @@ export function ProgramElementWatchPage() {
         peCode={detail.peCode}
         selectedFy={selectedFy}
         timeline={years}
+      />
+
+      <LinkCrmContactModal
+        open={linkTarget !== null}
+        personId={linkTarget?.id ?? null}
+        personName={linkTarget?.name ?? null}
+        onClose={() => setLinkTarget(null)}
       />
     </Space>
   );

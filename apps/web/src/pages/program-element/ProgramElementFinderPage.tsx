@@ -93,12 +93,15 @@ export function ProgramElementFinderPage() {
                 {me.data?.role === 'capiro_admin' ? 'Contact Review Queue' : 'Suggest a Contact'}
               </Button>
             )}
-            <Button onClick={() => navigate('/program-elements/mark-up-monitor')}>Mark-up Monitor</Button>
+            <Button onClick={() => navigate('/program-elements/mark-up-monitor')}>
+              Mark-up Monitor
+            </Button>
           </Space>
         }
       >
         <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-          Search by PE code or title, then open a Program Element to watch it and review its history.
+          Search by PE code or title, then open a Program Element to watch it and review its
+          history.
         </Typography.Paragraph>
 
         <Space wrap style={{ marginBottom: 16 }}>
@@ -117,12 +120,24 @@ export function ProgramElementFinderPage() {
           />
         </Space>
 
+        {!listQuery.isError && (listQuery.data?.total ?? 0) > 0 ? (
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+            {listQuery.data!.total.toLocaleString()} program element
+            {listQuery.data!.total === 1 ? '' : 's'}
+            {listQuery.data!.total > rows.length ? ` · showing first ${rows.length}` : ''}
+          </Typography.Text>
+        ) : null}
+
         {listQuery.isError ? (
           <Alert
             type="error"
             showIcon
             message="Unable to load program elements"
-            description={listQuery.error instanceof Error ? listQuery.error.message : 'Please retry in a moment.'}
+            description={
+              listQuery.error instanceof Error
+                ? listQuery.error.message
+                : 'Please retry in a moment.'
+            }
           />
         ) : (
           <Table<ProgramElementListItem>
