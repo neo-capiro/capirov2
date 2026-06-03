@@ -200,6 +200,10 @@ case "${1:-serve}" in
   # Step 21: scan CongressBill text for PE codes, filter to existing program_element,
   # upsert congress_bill.pe_codes, emit IntelligenceChange when a new PE is watched.
   extract-bill-pe-codes) exec ./node_modules/.bin/tsx scripts/extract-bill-pe-codes.ts ;;
+  # Backfill primary sponsor (sponsor_name/state/party + cosponsors) on existing
+  # CongressBill rows so the Office Recommender can rank by bill sponsor. Pass
+  # --congress / --limit through, e.g. `backfill-bill-sponsors --congress 119`.
+  backfill-bill-sponsors) shift; exec ./node_modules/.bin/tsx scripts/backfill-bill-sponsors.ts "$@" ;;
   # Step 22: load HASC/SASC committee-report PE marks from a committed rows artifact
   # (offline pdfplumber extraction) via the program-element writer. Pass the artifact
   # path as an extra arg; --chamber/--fy fall back to the artifact's own fields.
