@@ -12,6 +12,26 @@ import { classifyTrajectory } from './trajectory-classifier.model.js';
 import { addDateInZone, dateBoundsInZone, dayBoundsInZone } from './time-bounds.js';
 import { FEC_DISCLAIMER } from './fec-disclaimer.js';
 
+/**
+ * Cosine-similarity floors for tracked-bill embedding matches.
+ *
+ * DEFAULT is used when the client supplies sharp signal (capability keywords).
+ * THIN_SIGNAL is the tighter floor for clients with NO capabilities, whose
+ * query is just broad LDA issue-code names: at 0.65 those broad queries let
+ * semantically-adjacent but topically-wrong bills slip in (e.g. a baby-bottle
+ * "Equipment Screening" bill matching a defense client's screening/sensor
+ * semantics). Requiring a stronger match for thin-signal clients cuts those
+ * false positives, while clients that supply capability keywords keep the
+ * looser floor since their query is already specific.
+ */
+export const TRACKED_BILL_SIMILARITY_FLOOR = 0.65;
+export const THIN_SIGNAL_SIMILARITY_FLOOR = 0.75;
+
+/** Pick the embedding similarity floor based on whether the client has capability signal. */
+export function embeddingSimilarityFloor(hasCapabilitySignal: boolean): number {
+  return hasCapabilitySignal ? TRACKED_BILL_SIMILARITY_FLOOR : THIN_SIGNAL_SIMILARITY_FLOOR;
+}
+
 @Injectable()
 export class IntelligenceService {
   private readonly logger = new Logger(IntelligenceService.name);
@@ -2519,7 +2539,14 @@ export class IntelligenceService {
       return mergeManual({ total: 0, bills: [] });
     }
 
-    const embedded = await this.findTrackedBillsByEmbeddings(allTerms);
+    // Thin-signal guard: a client with no capability keywords matches on broad
+    // LDA issue-code names alone, which produces semantic false positives at the
+    // default floor. Require a tighter similarity for those clients.
+    const hasCapabilitySignal = capKeywords.length > 0;
+    const embedded = await this.findTrackedBillsByEmbeddings(
+      allTerms,
+      embeddingSimilarityFloor(hasCapabilitySignal),
+    );
     if (embedded) {
       return mergeManual(embedded);
     }
@@ -2643,6 +2670,7 @@ export class IntelligenceService {
 
   private async findTrackedBillsByEmbeddings(
     allTerms: string[],
+    similarityFloor: number = TRACKED_BILL_SIMILARITY_FLOOR,
   ): Promise<
     | {
         total: number;
@@ -2667,9 +2695,10 @@ export class IntelligenceService {
       // Relevance floor: cosine similarity (1 - distance) must clear this to count
       // as a tracked bill. Without it the vector search returns its top-N nearest
       // regardless of how weakly related, inflating the "tracked" count with noise.
-      // 0.65 keeps genuinely on-topic bills while dropping tangential matches;
-      // tune here if precision/recall needs shifting.
-      const SIMILARITY_FLOOR = 0.65;
+      // The floor is supplied by the caller (see embeddingSimilarityFloor): the
+      // default keeps genuinely on-topic bills while dropping tangential matches,
+      // and a tighter floor is used for thin-signal (no-capability) clients.
+      const SIMILARITY_FLOOR = similarityFloor;
       const candidateRows = await this.prisma.$queryRawUnsafe<Array<{ source_id: string; score: number }>>(
         `SELECT ce.source_id,
                 (1 - (ce.embedding <=> $1::vector))::float8 AS score
