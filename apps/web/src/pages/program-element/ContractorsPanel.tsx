@@ -1,4 +1,4 @@
-import { Card, Empty, Skeleton, Table, Tag, Typography } from 'antd';
+import { Card, Empty, Skeleton, Table, Tag, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { ProgramElementContractor, ProgramElementContractorsResponse } from './types.js';
 
@@ -25,6 +25,11 @@ const columns: ColumnsType<ProgramElementContractor> = [
       <span>
         {name} {row.contractorIsCrmClient ? <Tag color="blue">CRM Client</Tag> : null}
         {row.isNewEntrant ? <Tag color="warning">New</Tag> : null}
+        {row.source === 'program' ? (
+          <Tooltip title={row.attribution ?? 'Linked via DoD Acquisition Program (USAspending)'}>
+            <Tag color="geekblue">via Acq Program</Tag>
+          </Tooltip>
+        ) : null}
       </span>
     ),
   },
@@ -63,7 +68,7 @@ export function ContractorsPanel({ contractors, loading = false }: ContractorsPa
         <Empty
           description={
             contractors?.todo ??
-            'No contractor records yet. Capiro will surface awardees as USAspending and FPDS sync lands.'
+            'No contractors linked to this program element yet. Capiro links awards by DoD acquisition program; programs without a contract-level program code (services, support) will not appear here.'
           }
         />
       </Card>
@@ -71,6 +76,7 @@ export function ContractorsPanel({ contractors, loading = false }: ContractorsPa
   }
 
   const top10 = rows.slice(0, 10);
+  const hasProgramLinked = top10.some((r) => r.source === 'program');
 
   return (
     <Card className="pe-contractors-card" title="Top contractors touching this PE">
@@ -91,6 +97,13 @@ export function ContractorsPanel({ contractors, loading = false }: ContractorsPa
           return '';
         }}
       />
+      {hasProgramLinked ? (
+        <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
+          Rows tagged “via Acq Program” are linked through the contract’s DoD
+          acquisition program code (USAspending), not a direct program-element
+          attribution.
+        </Text>
+      ) : null}
     </Card>
   );
 }

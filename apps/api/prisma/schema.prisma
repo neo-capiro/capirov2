@@ -2706,6 +2706,21 @@ model FederalAward {
   amount          Decimal?  @db.Decimal(18, 2)
   description     String?   @db.Text
   peCode          String?   @map("pe_code") @db.VarChar(8)
+  // How pe_code was resolved, for provenance/auditing and honest UI labeling.
+  // Null when pe_code is null. Values: 'description_regex' (legacy text match),
+  // 'dod_acquisition_program' (linked via the contract's DoD acquisition / MDAP
+  // code through the reviewed program_element_acquisition_program map). Lets the
+  // contractor panel state HOW a contractor was tied to a PE rather than implying
+  // a precision the source does not have.
+  peCodeSource    String?   @map("pe_code_source")
+  // DoD Major Defense Acquisition Program (MDAP) attribution straight off the
+  // contract record (USAspending latest_transaction_contract_data). Always present
+  // on contracts; '000'/'NONE' for services & non-program awards. This is the
+  // zero-inference link between a contractor and a weapons program — e.g.
+  // '198'/'F-35', '516'/'SSN 774'. PE attribution is derived from these via the
+  // program_element_acquisition_program map, NOT fabricated.
+  dodAcqProgramCode String? @map("dod_acq_program_code")
+  dodAcqProgramName String? @map("dod_acq_program_name")
   // Place of performance (where the work happens) — primary signal for district
   // nexus. Recipient location (where the company is HQ'd) kept as a fallback.
   // Two-letter state + congressional-district number as text ('02', 'AL'); null
@@ -2724,5 +2739,36 @@ model FederalAward {
   @@index([popState, popCongressionalDistrict], map: "federal_award_pop_district_idx")
   @@index([awardedAt], map: "federal_award_awarded_at_idx")
   @@index([actionDate], map: "federal_award_action_date_idx")
+  @@index([dodAcqProgramCode], map: "federal_award_dod_acq_program_idx")
   @@map("federal_award")
+}
+
+/// Reviewed, EXPLICIT map from a DoD Major Defense Acquisition Program (MDAP)
+/// code — as it appears on USAspending contract records
+/// (latest_transaction_contract_data.dod_acquisition_program) — to a Program
+/// Element. This is the defensible bridge that lets the PE contractor panel show
+/// "who are the primes on this program" without inferring PE from coarse funding
+/// accounts. Entries are curated/seeded (not machine-derived), so attribution is
+/// auditable: e.g. ('198','F-35') -> the F-35-related PEs the program tracks.
+/// A program maps to one-or-more PEs and a PE may be reached by one-or-more
+/// program codes; the (acqProgramCode, peCode) pair is unique. Global table —
+/// no tenant_id, no RLS (federal reference data, same as federal_award).
+model ProgramElementAcquisitionProgram {
+  id             String   @id @default(uuid()) @db.Uuid
+  /// MDAP code exactly as USAspending emits it (e.g. '198', '516', 'SDN').
+  acqProgramCode String   @map("acq_program_code")
+  /// Human-readable program name for display/provenance (e.g. 'F-35').
+  acqProgramName String?  @map("acq_program_name")
+  peCode         String   @map("pe_code") @db.VarChar(16)
+  /// Where this mapping came from (e.g. 'seed_curated_v1') for auditing.
+  source         String   @default("seed_curated_v1")
+  /// 0..1 reviewer confidence; the read path can threshold on this if needed.
+  confidence     Float    @default(1.0)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSyncedAt   DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@unique([acqProgramCode, peCode], map: "pe_acq_program_code_pe_key")
+  @@index([peCode], map: "pe_acq_program_pe_code_idx")
+  @@index([acqProgramCode], map: "pe_acq_program_code_idx")
+  @@map("program_element_acquisition_program")
 }

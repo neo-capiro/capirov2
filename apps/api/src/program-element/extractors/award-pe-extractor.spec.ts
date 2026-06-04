@@ -43,3 +43,75 @@ describe('AwardPeExtractorService.extractPeCode', () => {
     expect(a).toBe('0603270A'); // first valid known match wins
   });
 });
+
+describe('AwardPeExtractorService.resolvePe (tiered, with provenance)', () => {
+  // '198' (F-35) maps to exactly one known PE → auto-resolves; '516' maps to two
+  // → ambiguous, NOT auto-resolved here (read path fans out instead).
+  const acqMap = new Map<string, Set<string>>([
+    ['198', new Set(['0603270A'])],
+    ['516', new Set(['0603250F', '0604201A'])],
+  ]);
+
+  test('explicit known PE → resolved with source=explicit', () => {
+    const r = svc.resolvePe({ programElement: '0603270a' }, known, acqMap);
+    expect(r).toEqual({ peCode: '0603270A', source: 'explicit' });
+  });
+
+  test('DoD acq program (1:1) with no PE in text → resolved via program map', () => {
+    const r = svc.resolvePe(
+      { description: 'F-35 production lot, no PE token', dodAcqProgramCode: '198' },
+      known,
+      acqMap,
+    );
+    expect(r).toEqual({ peCode: '0603270A', source: 'dod_acquisition_program' });
+  });
+
+  test('DoD acq program that maps to MULTIPLE PEs → not auto-resolved (ambiguous)', () => {
+    const r = svc.resolvePe({ description: 'no pe here', dodAcqProgramCode: '516' }, known, acqMap);
+    expect(r).toBeNull();
+  });
+
+  test("'000'/'NONE' acq codes are never linkable", () => {
+    expect(svc.resolvePe({ dodAcqProgramCode: '000' }, known, acqMap)).toBeNull();
+    expect(svc.resolvePe({ dodAcqProgramCode: 'NONE' }, known, acqMap)).toBeNull();
+    expect(svc.resolvePe({ dodAcqProgramCode: '' }, known, acqMap)).toBeNull();
+  });
+
+  test('acq program code not in the map → falls through to description regex', () => {
+    const r = svc.resolvePe(
+      { description: 'work under 0604201A', dodAcqProgramCode: '999' },
+      known,
+      acqMap,
+    );
+    expect(r).toEqual({ peCode: '0604201A', source: 'description_regex' });
+  });
+
+  test('explicit beats acq-program tier (precedence order)', () => {
+    const r = svc.resolvePe(
+      { programElement: '0604201A', dodAcqProgramCode: '198' },
+      known,
+      acqMap,
+    );
+    expect(r).toEqual({ peCode: '0604201A', source: 'explicit' });
+  });
+
+  test('nothing resolvable → null, even with a description', () => {
+    const r = svc.resolvePe(
+      { description: 'base ops support', dodAcqProgramCode: '000' },
+      known,
+      acqMap,
+    );
+    expect(r).toBeNull();
+  });
+
+  test('empty map (default) → behaves like description-only resolution', () => {
+    const r = svc.resolvePe({ description: 'under 0603250F', dodAcqProgramCode: '198' }, known);
+    expect(r).toEqual({ peCode: '0603250F', source: 'description_regex' });
+  });
+
+  test('program maps to a PE that is NOT in known set → not resolved', () => {
+    const m = new Map<string, Set<string>>([['198', new Set(['0609999Z'])]]);
+    const r = svc.resolvePe({ dodAcqProgramCode: '198' }, known, m);
+    expect(r).toBeNull();
+  });
+});

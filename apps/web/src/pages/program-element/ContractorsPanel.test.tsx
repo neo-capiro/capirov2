@@ -77,4 +77,42 @@ describe('ContractorsPanel', () => {
     expect(formatContractorDollars(2500)).toBe('$2.5B');
     expect(formatContractorDollars(12.34)).toBe('$12.3M');
   });
+
+  test('program-linked rows show the "via Acq Program" tag + provenance footnote', () => {
+    render(
+      <ContractorsPanel
+        contractors={{
+          data: [
+            {
+              contractorName: 'Lockheed Martin',
+              amount: 2200,
+              awards: 8,
+              source: 'program',
+              attribution: 'Linked via DoD Acquisition Program (USAspending)',
+            },
+          ],
+          todo: null,
+        }}
+      />,
+    );
+    expect(screen.getByText(/Lockheed Martin/i)).toBeInTheDocument();
+    // The tag text also appears in the tooltip title, so there can be >1 node.
+    expect(screen.getAllByText(/via Acq Program/i).length).toBeGreaterThanOrEqual(1);
+    expect(
+      screen.getByText(/linked through the contract.s DoD\s+acquisition program code/i),
+    ).toBeInTheDocument();
+  });
+
+  test('direct rows do NOT show the program tag or footnote', () => {
+    render(
+      <ContractorsPanel
+        contractors={{
+          data: [{ contractorName: 'Direct Co', amount: 10, awards: 1, source: 'direct' }],
+          todo: null,
+        }}
+      />,
+    );
+    expect(screen.getByText(/Direct Co/i)).toBeInTheDocument();
+    expect(screen.queryByText(/via Acq Program/i)).toBeNull();
+  });
 });
