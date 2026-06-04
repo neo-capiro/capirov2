@@ -66,6 +66,15 @@ export class IntelligenceService {
   >();
   private static readonly PORTFOLIO_ALERTS_TTL_MS = 2 * 60 * 1000;
 
+  // In-flight dedupe: concurrent callers with the same cache key share ONE
+  // computation instead of each launching their own N-client roll-up (which
+  // multiplied connection-pool pressure and caused tenant-wide 500s).
+  private readonly portfolioAlertsInflight = new Map<string, Promise<unknown>>();
+  // Process-wide serialization: only ONE portfolio roll-up computes at a time,
+  // regardless of tenant/user, so the heavy per-client aggregate fan-out can
+  // never saturate the pool and starve unrelated requests.
+  private portfolioAlertsGate: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly prisma: PrismaService) {}
 
   private asFinite(value: unknown, fallback = 0): number {
@@ -5074,89 +5083,140 @@ export class IntelligenceService {
     generatedAt: string;
   }> {
     const limit = Math.max(1, Math.min(opts?.limit ?? 12, 50));
-    const maxClients = Math.max(1, Math.min(opts?.maxClients ?? 60, 200));
+    // Cap the number of clients we will aggregate per roll-up. Each client runs
+    // the full profile-v1 fan-out, so this is the dominant cost. Kept modest by
+    // default; raise only with the cron-precompute path (see note below).
+    const maxClients = Math.max(1, Math.min(opts?.maxClients ?? 40, 200));
     const cacheKey = `${tenantId}:${userId ?? 'anon'}:${limit}:${maxClients}`;
+
     const cached = this.portfolioAlertsCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.value as Awaited<ReturnType<typeof this.getPortfolioAlerts>>;
     }
 
-    // Active (non-archived) clients for the tenant.
-    const clients = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.client.findMany({
-        where: { status: { not: 'archived' } },
-        select: { id: true, name: true },
-        orderBy: { name: 'asc' },
-        take: maxClients,
-      }),
-    );
-
-    // Run the per-client aggregate in small concurrency batches so we never
-    // saturate the connection pool (each profile-v1 itself fans out widely).
-    const BATCH = 4;
-    const tagged: Array<Record<string, unknown> & { clientId: string; clientName: string }> = [];
-    for (let i = 0; i < clients.length; i += BATCH) {
-      const slice = clients.slice(i, i + BATCH);
-      const results = await Promise.allSettled(
-        slice.map((c) => this.getClientProfileV1(c.id, tenantId, userId)),
-      );
-      results.forEach((res, idx) => {
-        const client = slice[idx];
-        if (!client) return;
-        if (res.status !== 'fulfilled') {
-          this.logger.warn(
-            `portfolio-alerts: profile-v1 failed for client ${client.id}: ${
-              res.reason instanceof Error ? res.reason.message : String(res.reason)
-            }`,
-          );
-          return;
-        }
-        const profile = res.value as {
-          sections?: { snapshot?: { topAlerts?: Array<Record<string, unknown>> } };
-        };
-        const topAlerts = profile?.sections?.snapshot?.topAlerts ?? [];
-        for (const alert of topAlerts) {
-          tagged.push({
-            ...alert,
-            // Namespace the id with the client so identical alert ids across
-            // clients (e.g. the same FedReg doc) stay distinct in the list.
-            id: `${client.id}:${String(alert.id ?? '')}`,
-            clientId: client.id,
-            clientName: client.name,
-          });
-        }
-      });
+    // Coalesce concurrent callers for the same key onto one in-flight promise —
+    // a dashboard reload (or several open tabs) must not each launch their own
+    // N-client roll-up. Whoever arrives first computes; everyone else awaits it.
+    const existing = this.portfolioAlertsInflight.get(cacheKey);
+    if (existing) {
+      return existing as unknown as Awaited<ReturnType<typeof this.getPortfolioAlerts>>;
     }
 
-    // Global re-rank: severity, then soonest deadline (countdownDays asc when
-    // present), then most-recent `when`. Mirrors the per-client ordering intent
-    // while making cross-client urgency comparable.
-    const sevRank = (s: unknown): number => {
-      const v = String(s ?? '').toLowerCase();
-      if (v === 'critical') return 0;
-      if (v === 'notable') return 1;
-      return 2;
-    };
-    tagged.sort((a, b) => {
-      const sev = sevRank(a.severity) - sevRank(b.severity);
-      if (sev !== 0) return sev;
-      const ad = typeof a.countdownDays === 'number' ? a.countdownDays : Number.POSITIVE_INFINITY;
-      const bd = typeof b.countdownDays === 'number' ? b.countdownDays : Number.POSITIVE_INFINITY;
-      if (ad !== bd) return ad - bd;
-      return String(b.when ?? '').localeCompare(String(a.when ?? ''));
-    });
+    const compute = this.computePortfolioAlerts(tenantId, userId, limit, maxClients)
+      .then((result) => {
+        this.portfolioAlertsCache.set(cacheKey, {
+          expiresAt: Date.now() + IntelligenceService.PORTFOLIO_ALERTS_TTL_MS,
+          value: result,
+        });
+        return result;
+      })
+      .finally(() => {
+        this.portfolioAlertsInflight.delete(cacheKey);
+      });
 
-    const result = {
-      alerts: tagged.slice(0, limit),
-      total: tagged.length,
-      clientCount: clients.length,
-      generatedAt: new Date().toISOString(),
+    this.portfolioAlertsInflight.set(cacheKey, compute);
+    return compute;
+  }
+
+  /**
+   * Internal worker for getPortfolioAlerts. Runs behind a PROCESS-WIDE gate so
+   * only one roll-up computes at a time across all tenants/users, and processes
+   * clients strictly SERIALLY (one profile-v1 at a time). This guarantees the
+   * heavy per-client fan-out can never saturate the Prisma connection pool and
+   * 500 unrelated requests (e.g. "Could not load your profile"), which is
+   * exactly what an earlier parallel-batch version did.
+   *
+   * NOTE: serial-per-client keeps the pool safe but makes a cold roll-up slow
+   * for large rosters. The intended follow-up is to precompute this on a cron
+   * into a table and have this endpoint read that table; until then the 2-min
+   * TTL cache + in-flight dedupe keep steady-state load cheap.
+   */
+  private computePortfolioAlerts(
+    tenantId: string,
+    userId: string | undefined,
+    limit: number,
+    maxClients: number,
+  ): Promise<{
+    alerts: Array<Record<string, unknown> & { clientId: string; clientName: string }>;
+    total: number;
+    clientCount: number;
+    generatedAt: string;
+  }> {
+    const run = async () => {
+      // Active (non-archived) clients for the tenant.
+      const clients = await this.prisma.withTenant(tenantId, (tx) =>
+        tx.client.findMany({
+          where: { status: { not: 'archived' } },
+          select: { id: true, name: true },
+          orderBy: { name: 'asc' },
+          take: maxClients,
+        }),
+      );
+
+      // SERIAL: one client aggregate at a time. Never parallelize here — the
+      // per-client profile-v1 already fans out widely; running several at once
+      // is what starved the pool.
+      const tagged: Array<Record<string, unknown> & { clientId: string; clientName: string }> = [];
+      for (const client of clients) {
+        try {
+          const profile = (await this.getClientProfileV1(client.id, tenantId, userId)) as {
+            sections?: { snapshot?: { topAlerts?: Array<Record<string, unknown>> } };
+          };
+          const topAlerts = profile?.sections?.snapshot?.topAlerts ?? [];
+          for (const alert of topAlerts) {
+            tagged.push({
+              ...alert,
+              // Namespace the id with the client so identical alert ids across
+              // clients (e.g. the same FedReg doc) stay distinct in the list.
+              id: `${client.id}:${String(alert.id ?? '')}`,
+              clientId: client.id,
+              clientName: client.name,
+            });
+          }
+        } catch (err) {
+          this.logger.warn(
+            `portfolio-alerts: profile-v1 failed for client ${client.id}: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+
+      // Global re-rank: severity, then soonest deadline (countdownDays asc when
+      // present), then most-recent `when`. Mirrors the per-client ordering
+      // intent while making cross-client urgency comparable.
+      const sevRank = (s: unknown): number => {
+        const v = String(s ?? '').toLowerCase();
+        if (v === 'critical') return 0;
+        if (v === 'notable') return 1;
+        return 2;
+      };
+      tagged.sort((a, b) => {
+        const sev = sevRank(a.severity) - sevRank(b.severity);
+        if (sev !== 0) return sev;
+        const ad = typeof a.countdownDays === 'number' ? a.countdownDays : Number.POSITIVE_INFINITY;
+        const bd = typeof b.countdownDays === 'number' ? b.countdownDays : Number.POSITIVE_INFINITY;
+        if (ad !== bd) return ad - bd;
+        return String(b.when ?? '').localeCompare(String(a.when ?? ''));
+      });
+
+      return {
+        alerts: tagged.slice(0, limit),
+        total: tagged.length,
+        clientCount: clients.length,
+        generatedAt: new Date().toISOString(),
+      };
     };
-    this.portfolioAlertsCache.set(cacheKey, {
-      expiresAt: Date.now() + IntelligenceService.PORTFOLIO_ALERTS_TTL_MS,
-      value: result,
-    });
-    return result;
+
+    // Chain onto the process-wide gate so roll-ups never overlap. We attach the
+    // next run regardless of whether the previous settled ok, and we keep the
+    // gate from rejecting (a failed run must not poison the chain).
+    const gated = this.portfolioAlertsGate.then(run, run);
+    this.portfolioAlertsGate = gated.then(
+      () => undefined,
+      () => undefined,
+    );
+    return gated;
   }
 
   /**
