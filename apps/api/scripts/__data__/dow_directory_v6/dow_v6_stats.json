@@ -1,0 +1,44 @@
+{
+  "source_pdf": "2026 DoW Directory Update 6.pdf",
+  "source_version": "dow_directory_update_6_2026_06",
+  "pdf_pages": 465,
+  "pages_with_people": 371,
+  "total_person_records": 5593,
+  "named_people": 5530,
+  "vacancies": 67,
+  "distinct_programs": 126,
+  "org_nodes": 9517,
+  "images_extracted": 86,
+  "by_service": {
+    "ARMY": 1520,
+    "NAVY": 1101,
+    "OSD": 1098,
+    "AF": 1004,
+    "USMC": 869,
+    "OTHER": 1
+  },
+  "by_role": {
+    "OTHER": 2222,
+    "DIRECTOR": 1827,
+    "PM": 576,
+    "DEP_DIRECTOR": 360,
+    "SECRETARY": 220,
+    "PEO": 133,
+    "DPM": 108,
+    "CE": 64,
+    "TD": 51,
+    "DPEO": 27,
+    "KO": 4,
+    "PCO": 1
+  },
+  "people_with_profile_url": 3710,
+  "profile_url_pct": 66.3,
+  "by_link_type": {
+    "gov_bio": 473,
+    "linkedin": 1554,
+    "social_other": 1,
+    "wikipedia": 3,
+    "other": 162,
+    "mil_bio": 1517
+  }
+}

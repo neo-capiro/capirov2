@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { describe, expect, test, vi, beforeAll } from 'vitest';
 import { DowDirectoryResults } from './DowDirectoryResults.js';
 import type { AcquisitionPersonnelListItem } from '../program-element/types.js';
@@ -67,6 +67,24 @@ describe('DowDirectoryResults', () => {
     expect(screen.getByText('PM')).toBeInTheDocument();
   });
 
+  test('shows PE alignment tag when person has pePrimary, and unaligned tag otherwise', () => {
+    render(
+      <DowDirectoryResults
+        persons={[
+          person({ id: 'aligned', pePrimary: '0604201A' }),
+          person({ id: 'unaligned', fullName: 'No Pe', pePrimary: null }),
+        ]}
+        total={2}
+        page={1}
+        pageSize={12}
+        onPage={vi.fn()}
+        onSelectPerson={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('PE 0604201A')).toBeInTheDocument();
+    expect(screen.getByText('PE: unaligned')).toBeInTheDocument();
+  });
+
   test('empty state', () => {
     render(
       <DowDirectoryResults
@@ -133,7 +151,7 @@ describe('DowDirectoryResults', () => {
 
   test('pagination renders when total > pageSize and fires onPage', () => {
     const onPage = vi.fn();
-    render(
+    const { container } = render(
       <DowDirectoryResults
         persons={[person()]}
         total={50}
@@ -143,9 +161,13 @@ describe('DowDirectoryResults', () => {
         onSelectPerson={vi.fn()}
       />,
     );
-    // AntD renders page-2 as a clickable item.
-    const page2 = screen.getByText('2');
+    // Scope to the pagination control so numeric text in cards can't be matched.
+    const pager = container.querySelector('.ant-pagination');
+    expect(pager).not.toBeNull();
+    const page2 = within(pager as HTMLElement).getByText('2');
     fireEvent.click(page2);
-    expect(onPage).toHaveBeenCalledWith(2);
+    // AntD Pagination.onChange fires (page, pageSize); assert the page arg.
+    expect(onPage).toHaveBeenCalledTimes(1);
+    expect(onPage.mock.calls[0]?.[0]).toBe(2);
   });
 });
