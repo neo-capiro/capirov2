@@ -15,6 +15,8 @@ import type {
   ComingUpResult,
   DailyBrief,
   IntelligenceChange,
+  PortfolioAlertItem,
+  PortfolioAlertsResponse,
 } from './intelligence/types.js';
 
 /* ── Local data shapes (lean projections of the API responses) ──────────── */
@@ -108,6 +110,24 @@ export function HomePage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Cross-client alert roll-up — same taxonomy as the client Intelligence tab's
+  // Top Alerts (comment deadlines/overdue, competitor filings, contract awards,
+  // hearings, bill movement), spanning every active client. Server-side cached
+  // (2-min TTL) since it runs the per-client aggregate for each client.
+  const portfolioAlerts = useQuery<PortfolioAlertsResponse>({
+    queryKey: ['portfolio-alerts'],
+    queryFn: async () => {
+      try {
+        return (await api.get<PortfolioAlertsResponse>('/api/intelligence/portfolio-alerts', {
+          params: { limit: 30 },
+        })).data;
+      } catch {
+        return { alerts: [], total: 0, clientCount: 0, generatedAt: new Date().toISOString() };
+      }
+    },
+    staleTime: 2 * 60 * 1000,
+  });
+
   // Active workflows across ALL clients (cross-client view).
   const workflows = useQuery<WorkflowInstance[]>({
     queryKey: ['workflow-instances'],
@@ -166,8 +186,9 @@ export function HomePage() {
         alerts={commentAlerts.data?.alerts ?? []}
         comingUp={comingUp.data?.items ?? []}
         changes={recentChanges.data ?? []}
+        portfolioAlerts={portfolioAlerts.data?.alerts ?? []}
         clientNameById={clientNameById}
-        loading={commentAlerts.isLoading || comingUp.isLoading}
+        loading={commentAlerts.isLoading || comingUp.isLoading || portfolioAlerts.isLoading}
       />
 
       <ClioBrief brief={brief.data} loading={brief.isLoading} isError={brief.isError} />
@@ -248,44 +269,73 @@ function NeedsAttention({
   alerts,
   comingUp,
   changes,
+  portfolioAlerts,
   clientNameById,
   loading,
 }: {
   alerts: CommentAlertItem[];
   comingUp: ComingUpItem[];
   changes: IntelligenceChange[];
+  portfolioAlerts: PortfolioAlertItem[];
   clientNameById: Map<string, string>;
   loading: boolean;
 }) {
   const items = useMemo<BannerItem[]>(() => {
     const out: BannerItem[] = [];
 
-    // 1. Comment-period deadlines
-    for (const a of alerts) {
+    // 0. Cross-client portfolio alerts (the shared taxonomy — same as the
+    // client Intelligence tab Top Alerts). Rendered FIRST and we suppress the
+    // legacy comment/hearing feeds below for categories this already covers, so
+    // the banner shows one consistent set of categories across all clients.
+    const hasPortfolio = portfolioAlerts.length > 0;
+    for (const a of portfolioAlerts) {
+      // Acknowledged alerts are de-emphasized (kept but ranked lower).
+      const sev: BannerItem['sev'] =
+        a.severity === 'critical' || a.severity === 'notable' ? a.severity : 'info';
       out.push({
-        id: `c-${a.documentId}`,
-        sev: commentSeverity(a.daysToDeadline),
-        eyebrow: `${prettySource(a.type || a.agencies[0] || 'FedReg')} · ${deadlineLabel(a.daysToDeadline)}`,
+        id: `pa-${a.id}`,
+        sev,
+        eyebrow: `${portfolioAlertCategoryLabel(a.type)}${a.countdownLabel ? ` · ${a.countdownLabel}` : ''}`,
         title: a.title,
         context: a.clientName || 'Unmapped',
-        href: COMMENTS_LINK,
-        rank: Math.max(0, a.daysToDeadline),
+        href: a.href ?? '/intelligence/changes',
+        // Soonest deadline first; alerts without a countdown sort by recency.
+        rank: typeof a.countdownDays === 'number' ? Math.max(0, a.countdownDays) : 50,
       });
     }
 
-    // 2. Hearings + markups in the next 7 days
-    for (const e of comingUp) {
-      if (e.kind !== 'hearing' && e.kind !== 'markup') continue;
-      const sev = e.severity === 'critical' || e.severity === 'notable' ? e.severity : 'info';
-      out.push({
-        id: `e-${e.id}`,
-        sev,
-        eyebrow: `${e.kind === 'markup' ? 'Markup' : 'Hearing'} · ${whenLabel(e.date, e.time)}`,
-        title: e.title,
-        context: e.label || e.detail || 'Capitol Hill',
-        href: e.href ?? '/intelligence',
-        rank: Math.max(0, dayDiff(e.date)),
-      });
+    // 1. Comment-period deadlines (legacy feed). Suppressed when portfolio
+    // alerts are present — portfolio already carries comment_deadline.
+    if (!hasPortfolio) {
+      for (const a of alerts) {
+        out.push({
+          id: `c-${a.documentId}`,
+          sev: commentSeverity(a.daysToDeadline),
+          eyebrow: `${prettySource(a.type || a.agencies[0] || 'FedReg')} · ${deadlineLabel(a.daysToDeadline)}`,
+          title: a.title,
+          context: a.clientName || 'Unmapped',
+          href: COMMENTS_LINK,
+          rank: Math.max(0, a.daysToDeadline),
+        });
+      }
+    }
+
+    // 2. Hearings + markups in the next 7 days (legacy feed). Suppressed when
+    // portfolio alerts are present — portfolio already carries hearing alerts.
+    if (!hasPortfolio) {
+      for (const e of comingUp) {
+        if (e.kind !== 'hearing' && e.kind !== 'markup') continue;
+        const sev = e.severity === 'critical' || e.severity === 'notable' ? e.severity : 'info';
+        out.push({
+          id: `e-${e.id}`,
+          sev,
+          eyebrow: `${e.kind === 'markup' ? 'Markup' : 'Hearing'} · ${whenLabel(e.date, e.time)}`,
+          title: e.title,
+          context: e.label || e.detail || 'Capitol Hill',
+          href: e.href ?? '/intelligence',
+          rank: Math.max(0, dayDiff(e.date)),
+        });
+      }
     }
 
     // 3. Program-element budget moves, per-bill stage alerts, high-sev reg/FEC
@@ -836,6 +886,27 @@ function commentSeverity(days: number): 'critical' | 'notable' | 'info' {
   if (days <= 1) return 'critical';
   if (days <= 7) return 'notable';
   return 'info';
+}
+
+/**
+ * Friendly eyebrow label for each portfolio-alert category. Mirrors the
+ * taxonomy emitted by the client Intelligence tab Top Alerts so the dashboard
+ * and the tab read identically.
+ */
+function portfolioAlertCategoryLabel(type: string): string {
+  const map: Record<string, string> = {
+    comment_deadline: 'Comment deadline',
+    comment_overdue: 'Comment closed',
+    competitor_filing: 'Competitor filing',
+    contract_award: 'Contract award',
+    hearing: 'Hearing',
+    bill_movement: 'Bill movement',
+    program_element: 'Budget move',
+    congress_bill: 'Bill',
+    federal_register_document: 'Regulation',
+    fec_contribution: 'FEC',
+  };
+  return map[type] ?? prettySource(type);
 }
 
 function deadlineLabel(days: number): string {

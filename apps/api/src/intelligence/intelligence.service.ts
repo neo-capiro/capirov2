@@ -54,6 +54,18 @@ export function embeddingSimilarityFloor(hasCapabilitySignal: boolean): number {
 export class IntelligenceService {
   private readonly logger = new Logger(IntelligenceService.name);
 
+  // Short-TTL in-memory cache for the cross-client portfolio alerts roll-up.
+  // The roll-up runs the full per-client profile-v1 aggregate for every active
+  // client, so it is expensive; the dashboard polls it on load. A 2-minute TTL
+  // keyed by tenant+user (worklist state is per-user) keeps repeat loads cheap
+  // without serving stale alerts for long. Process-local is fine: it is a
+  // best-effort read cache, not a source of truth.
+  private readonly portfolioAlertsCache = new Map<
+    string,
+    { expiresAt: number; value: unknown }
+  >();
+  private static readonly PORTFOLIO_ALERTS_TTL_MS = 2 * 60 * 1000;
+
   constructor(private readonly prisma: PrismaService) {}
 
   private asFinite(value: unknown, fallback = 0): number {
@@ -5034,6 +5046,117 @@ export class IntelligenceService {
       billsTracked: billsTrackedCount,
       activeRegulations: regulationsTracked,
     };
+  }
+
+  /**
+   * Cross-client "Needs Attention" roll-up for the dashboard.
+   *
+   * Surfaces the SAME alert taxonomy as the client Intelligence tab's Top
+   * Alerts (comment_deadline, comment_overdue, competitor_filing,
+   * contract_award, hearing, bill_movement, change events) but across EVERY
+   * active client, so the dashboard and the client tab stay in lockstep.
+   *
+   * Implementation reuses getClientProfileV1 per client (whose snapshot already
+   * assembles, applies per-user worklist state to, and ranks that client's
+   * alerts) then flattens + tags with clientId/clientName + re-ranks globally.
+   * That guarantees one taxonomy with zero duplicated assembly logic. It is
+   * expensive (full aggregate per client), so it is bounded-concurrency and
+   * wrapped in a short per-tenant+user TTL cache.
+   */
+  async getPortfolioAlerts(
+    tenantId: string,
+    userId: string | undefined,
+    opts?: { limit?: number; maxClients?: number },
+  ): Promise<{
+    alerts: Array<Record<string, unknown> & { clientId: string; clientName: string }>;
+    total: number;
+    clientCount: number;
+    generatedAt: string;
+  }> {
+    const limit = Math.max(1, Math.min(opts?.limit ?? 12, 50));
+    const maxClients = Math.max(1, Math.min(opts?.maxClients ?? 60, 200));
+    const cacheKey = `${tenantId}:${userId ?? 'anon'}:${limit}:${maxClients}`;
+    const cached = this.portfolioAlertsCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value as Awaited<ReturnType<typeof this.getPortfolioAlerts>>;
+    }
+
+    // Active (non-archived) clients for the tenant.
+    const clients = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findMany({
+        where: { status: { not: 'archived' } },
+        select: { id: true, name: true },
+        orderBy: { name: 'asc' },
+        take: maxClients,
+      }),
+    );
+
+    // Run the per-client aggregate in small concurrency batches so we never
+    // saturate the connection pool (each profile-v1 itself fans out widely).
+    const BATCH = 4;
+    const tagged: Array<Record<string, unknown> & { clientId: string; clientName: string }> = [];
+    for (let i = 0; i < clients.length; i += BATCH) {
+      const slice = clients.slice(i, i + BATCH);
+      const results = await Promise.allSettled(
+        slice.map((c) => this.getClientProfileV1(c.id, tenantId, userId)),
+      );
+      results.forEach((res, idx) => {
+        const client = slice[idx];
+        if (!client) return;
+        if (res.status !== 'fulfilled') {
+          this.logger.warn(
+            `portfolio-alerts: profile-v1 failed for client ${client.id}: ${
+              res.reason instanceof Error ? res.reason.message : String(res.reason)
+            }`,
+          );
+          return;
+        }
+        const profile = res.value as {
+          sections?: { snapshot?: { topAlerts?: Array<Record<string, unknown>> } };
+        };
+        const topAlerts = profile?.sections?.snapshot?.topAlerts ?? [];
+        for (const alert of topAlerts) {
+          tagged.push({
+            ...alert,
+            // Namespace the id with the client so identical alert ids across
+            // clients (e.g. the same FedReg doc) stay distinct in the list.
+            id: `${client.id}:${String(alert.id ?? '')}`,
+            clientId: client.id,
+            clientName: client.name,
+          });
+        }
+      });
+    }
+
+    // Global re-rank: severity, then soonest deadline (countdownDays asc when
+    // present), then most-recent `when`. Mirrors the per-client ordering intent
+    // while making cross-client urgency comparable.
+    const sevRank = (s: unknown): number => {
+      const v = String(s ?? '').toLowerCase();
+      if (v === 'critical') return 0;
+      if (v === 'notable') return 1;
+      return 2;
+    };
+    tagged.sort((a, b) => {
+      const sev = sevRank(a.severity) - sevRank(b.severity);
+      if (sev !== 0) return sev;
+      const ad = typeof a.countdownDays === 'number' ? a.countdownDays : Number.POSITIVE_INFINITY;
+      const bd = typeof b.countdownDays === 'number' ? b.countdownDays : Number.POSITIVE_INFINITY;
+      if (ad !== bd) return ad - bd;
+      return String(b.when ?? '').localeCompare(String(a.when ?? ''));
+    });
+
+    const result = {
+      alerts: tagged.slice(0, limit),
+      total: tagged.length,
+      clientCount: clients.length,
+      generatedAt: new Date().toISOString(),
+    };
+    this.portfolioAlertsCache.set(cacheKey, {
+      expiresAt: Date.now() + IntelligenceService.PORTFOLIO_ALERTS_TTL_MS,
+      value: result,
+    });
+    return result;
   }
 
   /**
