@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { TenantRole } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { mapClerkRoleToCapiro } from '../auth/clerk-role.util.js';
 
 interface ClerkUserPayload {
   id: string;
@@ -30,24 +30,6 @@ interface ClerkEvent {
 }
 
 type SystemTx = Parameters<Parameters<PrismaService['withSystem']>[0]>[0];
-
-/**
- * Reserved Clerk org slug for Capiro internal staff. Membership in this org
- * can grant the `capiro_admin` role (cross-tenant powers), but only when the
- * Clerk org role is admin; ordinary members remain `standard_user`.
- */
-const CAPIRO_INTERNAL_SLUG = 'capiro-internal';
-
-function mapClerkRoleToCapiro(orgSlug: string, clerkRole: string): TenantRole {
-  const normalizedRole = clerkRole.toLowerCase();
-  if (orgSlug === CAPIRO_INTERNAL_SLUG) {
-    return normalizedRole.includes('admin') ? 'capiro_admin' : 'standard_user';
-  }
-  // Clerk's default org roles are `org:admin` and `org:member`. Some
-  // instances customize them; we treat anything containing "admin" as
-  // user_admin and everything else as standard_user.
-  return normalizedRole.includes('admin') ? 'user_admin' : 'standard_user';
-}
 
 /**
  * Processes Clerk webhook events.
