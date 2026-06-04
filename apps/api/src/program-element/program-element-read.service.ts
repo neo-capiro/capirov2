@@ -365,28 +365,67 @@ export class ProgramElementReadService {
       };
     }
 
-    type ContractorRow = { contractorName: string; amount: number; awards: number };
+    type ContractorRow = { contractorName: string; amount: number; awards: number; source: string };
     // federal_award.amount is stored in raw obligated DOLLARS, but the UI renders
     // contractor totals in millions ($X.XM / $X.XB) — divide by 1e6 here so the
     // panel shows the right magnitude. The 24-month window keys off the action
     // date with awarded_at as a fallback, because USAspending often leaves
     // awarded_at null while action_date is always populated.
+    //
+    // Linkage is two-tier and labeled for honest provenance:
+    //   (a) direct: federal_award.pe_code = this PE (explicit/legacy resolution).
+    //   (b) program: awards whose DoD acquisition (MDAP) program code maps to this
+    //       PE via the reviewed program_element_acquisition_program table. This is
+    //       the production tier — USAspending carries no PE on contracts, but it
+    //       always carries the program code, and the PE link is curated, so the
+    //       attribution is defensible ("primes on this program") rather than empty
+    //       or fabricated.
+    // A contractor reached by BOTH tiers is counted once; an award is matched by
+    // pe_code OR program code (DISTINCT award id) so dollars are never double-added.
     const rows = await this.prisma.$queryRaw<ContractorRow[]>(Prisma.sql`
+      WITH linked_programs AS (
+        SELECT acq_program_code
+        FROM program_element_acquisition_program
+        WHERE pe_code = ${peCode}
+      ),
+      matched AS (
+        SELECT DISTINCT ON (fa.id)
+          fa.id,
+          fa.contractor_name,
+          fa.amount,
+          CASE WHEN fa.pe_code = ${peCode} THEN 'direct' ELSE 'program' END AS match_kind
+        FROM federal_award fa
+        WHERE fa.contractor_name IS NOT NULL
+          AND COALESCE(fa.action_date, fa.awarded_at::date) >= (NOW() - INTERVAL '24 months')::date
+          AND (
+            fa.pe_code = ${peCode}
+            OR fa.dod_acq_program_code IN (SELECT acq_program_code FROM linked_programs)
+          )
+      )
       SELECT
         contractor_name AS "contractorName",
         (COALESCE(SUM(amount), 0) / 1e6)::double precision AS amount,
-        COUNT(*)::int AS awards
-      FROM federal_award
-      WHERE pe_code = ${peCode}
-        AND contractor_name IS NOT NULL
-        AND COALESCE(action_date, awarded_at::date) >= (NOW() - INTERVAL '24 months')::date
+        COUNT(*)::int AS awards,
+        CASE WHEN bool_or(match_kind = 'direct') THEN 'direct' ELSE 'program' END AS source
+      FROM matched
       GROUP BY contractor_name
       ORDER BY amount DESC
       LIMIT 10
     `);
 
+    // Provenance the UI can render verbatim so users know HOW a contractor was
+    // tied to this PE. 'program' = linked via the contract's DoD acquisition
+    // program code; 'direct' = the award itself carried this PE code.
+    const data = rows.map((r) => ({
+      ...r,
+      attribution:
+        r.source === 'direct'
+          ? 'Award attributed to this program element'
+          : 'Linked via DoD Acquisition Program (USAspending)',
+    }));
+
     return {
-      data: rows,
+      data,
       todo: null,
     };
   }

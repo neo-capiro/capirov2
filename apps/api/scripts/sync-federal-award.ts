@@ -137,10 +137,13 @@ async function main(): Promise<void> {
           errors += 1;
           continue;
         }
-        const peCode = extractor.extractPeCode(
-          { description: a.description },
-          knownPeCodes,
-        );
+        // High-volume sync resolves PE from fields present on the search payload
+        // (explicit/description). The DoD-acquisition-program tier needs the
+        // per-award detail call, so it runs in the enrich-award-pe backfill task,
+        // not here. resolvePe still returns provenance so pe_code_source is set.
+        const resolved = extractor.resolvePe({ description: a.description }, knownPeCodes);
+        const peCode = resolved?.peCode ?? null;
+        const peCodeSource = resolved?.source ?? null;
         if (peCode) withPe += 1;
 
         const data = {
@@ -154,6 +157,7 @@ async function main(): Promise<void> {
           amount: a.amount,
           description: a.description,
           peCode,
+          peCodeSource,
           popState: a.popState,
           popCongressionalDistrict: a.popCongressionalDistrict,
           recipientState: a.recipientState,

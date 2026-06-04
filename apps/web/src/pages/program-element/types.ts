@@ -83,6 +83,12 @@ export interface ProgramElementContractor {
   contractType?: string | null;
   contractorIsCrmClient?: boolean;
   isNewEntrant?: boolean;
+  // How this contractor was linked to the PE: 'direct' = the award carried this
+  // PE code; 'program' = linked via the contract's DoD acquisition program code.
+  source?: 'direct' | 'program' | null;
+  // Human-readable provenance the panel shows so the link is never implied to be
+  // more precise than it is.
+  attribution?: string | null;
 }
 
 export interface ProgramElementContractorsResponse {
