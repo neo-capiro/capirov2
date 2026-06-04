@@ -190,6 +190,12 @@ case "${1:-serve}" in
   # dedup map from the DB by nameKey, re-runs add source mentions not duplicates).
   # Populates program_element + acquisition_personnel + person->PE links.
   import-dow-directory) exec ./node_modules/.bin/tsx scripts/import-stanford-dow-directory.ts ;;
+  # DoW Directory Rev 6 (June 2026) acquisition-personnel import. Reads the committed
+  # parsed artifact (scripts/__data__/dow_directory_v6/dow_v6_people.json) and upserts
+  # via the writer+dedup engine (idempotent: reloads nameKey map from DB each call, so
+  # re-runs add source mentions, never duplicate rows). Source: dow_directory_rev6_2026_06.
+  # Packs programs_mentioned + managing CPE into programOfRecord to feed the PE matcher.
+  import-dow-directory-v6) exec ./node_modules/.bin/tsx scripts/import-dow-directory-v6.ts ;;
   # Phase 1b: generate person->PE link CANDIDATES for human review (review queue
   # only; never auto-applies pe_primary). Deterministic org/title token overlap.
   generate-pe-person-candidates) exec ./node_modules/.bin/tsx scripts/generate-pe-person-candidates.ts --commit ;;
@@ -237,7 +243,7 @@ case "${1:-serve}" in
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-federal-award | extract-press-personnel | sync-sam-personnel | sync-fec-pac | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | generate-pe-person-candidates | sync-peo-rosters | sync-dod-orgcharts | sync-dod-press-personnel | sync-cpe-roster | recompute-conference-probability | extract-bill-pe-codes | extract-gao-interviewees | extract-hearing-witnesses | parse-hasc-report | parse-sasc-report | parse-hac-d-report | parse-sac-d-report | parse-ndaa-conference | parse-defense-approps-public-law | parse-pdoc)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-federal-award | extract-press-personnel | sync-sam-personnel | sync-fec-pac | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | import-dow-directory-v6 | generate-pe-person-candidates | sync-peo-rosters | sync-dod-orgcharts | sync-dod-press-personnel | sync-cpe-roster | recompute-conference-probability | extract-bill-pe-codes | extract-gao-interviewees | extract-hearing-witnesses | parse-hasc-report | parse-sasc-report | parse-hac-d-report | parse-sac-d-report | parse-ndaa-conference | parse-defense-approps-public-law | parse-pdoc)" >&2
     exit 1
     ;;
 esac
