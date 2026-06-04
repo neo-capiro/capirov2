@@ -103,6 +103,10 @@ case "${1:-serve}" in
     echo "Running diag-alert-coverage (read-only alert-precondition coverage report)"
     exec ./node_modules/.bin/tsx scripts/diag-alert-coverage.ts
     ;;
+  diag-ingestion-health)
+    echo "Running diag-ingestion-health (read-only ingestion counts + freshness report)"
+    exec ./node_modules/.bin/tsx scripts/diag-ingestion-health.ts
+    ;;
   emit-bill-alerts)
     echo "Running emit-bill-alerts (semantic per-bill stage alerts)"
     exec ./node_modules/.bin/tsx scripts/emit-bill-alerts.ts
