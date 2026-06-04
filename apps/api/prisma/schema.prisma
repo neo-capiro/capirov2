@@ -2195,6 +2195,59 @@ model TrackedBill {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
+// Per-user worklist state for client-profile "Top alerts".
+// TENANT-scoped with RLS (mirrors tracked_bill / engagement isolation).
+// State is keyed by (user, client, alertId) — alertId is the stable composite
+// the alerts builder emits ("comment:<docId>", "hearing:<id>", "bill:<billId>",
+// "change:<id>", "award:<id>", "competitor:<filingId>", "comment_overdue:<docId>").
+// Dismissed/snoozed alerts are filtered out server-side; acknowledged alerts are
+// kept but flagged so the UI de-emphasizes them. Compute-on-read alerts have no
+// durable row of their own, so this is the ONLY place their handled-state lives.
+// ─────────────────────────────────────────────────────────────────────────
+
+model AlertState {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  userId       String    @map("user_id") // clerk user id of whoever set the state
+  clientId     String    @map("client_id") @db.Uuid
+  alertId      String    @map("alert_id") // stable composite key from the alerts builder
+  // 'acknowledged' | 'dismissed' | 'snoozed'
+  state        String
+  snoozedUntil DateTime? @map("snoozed_until") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([userId, clientId, alertId])
+  @@index([tenantId])
+  @@index([clientId])
+  @@index([userId])
+  @@map("alert_state")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Saved "client brief" notes. A lobbyist can promote an alert (or write a
+// free-form note) into the client's brief; all briefs surface in the Outreach
+// wizard's context section. TENANT-scoped with RLS.
+// ─────────────────────────────────────────────────────────────────────────
+
+model ClientBrief {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  clientId      String   @map("client_id") @db.Uuid
+  createdBy     String?  @map("created_by") // clerk user id
+  sourceAlertId String?  @map("source_alert_id") // alertId it was promoted from, if any
+  sourceType    String?  @map("source_type") // 'comment_deadline' | 'change' | 'hearing' | 'manual' | ...
+  title         String
+  body          String   @db.Text
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId])
+  @@index([clientId])
+  @@map("client_brief")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
 // Cross-source change events (synthesis layer)
 // GLOBAL table, detected changes from sync scripts.
 // ─────────────────────────────────────────────────────────────────────────

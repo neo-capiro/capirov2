@@ -3,6 +3,7 @@ import { BulbOutlined, DollarOutlined, FileTextOutlined, RiseOutlined, Thunderbo
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useApi } from '../../../../lib/use-api.js';
+import { ClientBriefSection } from './ClientBriefSection.js';
 
 interface InsightCard {
   id: string;
@@ -290,6 +291,14 @@ export function IntelligenceInsights({
           )}
         </div>
       )}
+
+      {/* Client brief — all saved briefs (promoted alerts + manual notes) live here. */}
+      <ClientBriefSection
+        clientId={clientId}
+        onInject={(text) =>
+          onChange({ insightsNotes: insightsNotes ? `${insightsNotes}\n\n${text}` : text })
+        }
+      />
 
       <div style={{ marginTop: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>

@@ -118,7 +118,12 @@ export interface ClientProfileV1 {
         countdownDays?: number | null;
         countdownLabel?: string | null;
         href?: string | null;
+        // Per-user worklist state. 'acknowledged' rows stay visible but
+        // de-emphasized; dismissed/snoozed rows are filtered out server-side.
+        state?: 'acknowledged' | null;
       }>;
+      // How many MORE alerts exist beyond the top 5 shown on the card.
+      alertsHiddenCount?: number;
       dailyBriefing?: {
         summary: string | null;
         highlights: Array<{

@@ -16,15 +16,12 @@ import {
   type KanbanControlsValue,
 } from '../components/BillKanbanControls.js';
 import { RegLifecycleRail } from '../components/RegLifecycleRail.js';
-import { HearingsMarkupList } from '../components/HearingsMarkupList.js';
 
 interface LegislativeRegulatorySectionProps {
   aggregate?: ClientProfileV1;
   /** Client whose bills are shown — required for manual bill tracking. */
   clientId: string;
   billDrillHref: string;
-  syncCalendarHref: string;
-  setAlertsHref: string;
 }
 
 // Empty pipeline scaffold — the four stage columns with zero bills.
@@ -130,8 +127,6 @@ export function LegislativeRegulatorySection({
   aggregate,
   clientId,
   billDrillHref,
-  syncCalendarHref,
-  setAlertsHref,
 }: LegislativeRegulatorySectionProps) {
   const api = useApi();
   const qc = useQueryClient();
@@ -139,7 +134,6 @@ export function LegislativeRegulatorySection({
   const dynamicKanban = aggregate?.sections.legislativeRegulatory.kanban.columns;
   const regulatoryLifecycle = aggregate?.sections.legislativeRegulatory.regulatoryLifecycle;
   const dynamicRegs = regulatoryLifecycle?.rails;
-  const dynamicHearings = aggregate?.sections.legislativeRegulatory.hearingsAndMarkups;
 
   // Manual bill tracking: pin/unpin a specific bill for this client. On
   // success we invalidate the v1 aggregate so the kanban reflects the new
@@ -294,29 +288,12 @@ export function LegislativeRegulatorySection({
       })
     : [];
 
-  const hearingsData = dynamicHearings?.length
-    ? dynamicHearings.slice(0, 8).map((h) => {
-        const d = new Date(h.date);
-        return {
-          month: d.toLocaleDateString(undefined, { month: 'short' }),
-          day: d.toLocaleDateString(undefined, { day: '2-digit' }),
-          title: `${h.committeeName}, ${h.title}`,
-          sub: h.linkedBills.length > 0 ? `Tracked bills: ${h.linkedBills.slice(0, 3).join(', ')}` : `${h.chamber} ${h.type ?? 'hearing'}`,
-          time: h.time ?? 'TBD',
-          // The API exposes no room/location field, so render the chamber as
-          // the location (honest) rather than placing it in a slot that reads
-          // as a room number (e.g. "SR-366").
-          room: h.chamber || 'TBD',
-        };
-      })
-    : [];
-
   return (
     <section id="legislative-regulatory" className="iv1-section">
       <div className="iv1-sec-head">
         <span className="iv1-sec-num">3</span>
         <h2>Legislative &amp; Regulatory</h2>
-        <span className="iv1-sec-sub">Bill pipeline · regulation lifecycle rails · hearings</span>
+        <span className="iv1-sec-sub">Bill pipeline · regulation lifecycle rails</span>
       </div>
 
       <div className="iv1-surface">
@@ -436,25 +413,8 @@ export function LegislativeRegulatorySection({
             </div>
           )}
         </div>
-
-        <div className="iv1-surface">
-          <div className="iv1-surface-head">
-            <h3>Hearings &amp; markups</h3>
-            <span className="iv1-surface-sub">next 21 days</span>
-          </div>
-          {hearingsData.length > 0 ? (
-            <HearingsMarkupList
-              items={hearingsData}
-              syncCalendarHref={syncCalendarHref}
-              setAlertsHref={setAlertsHref}
-            />
-          ) : (
-            <div className="iv1-empty" style={{ padding: '24px 16px', textAlign: 'center' }}>
-              <b>No upcoming hearings</b>
-              <span>No hearings or markups touching this client's tracked bills in the next 21 days.</span>
-            </div>
-          )}
-        </div>
+        {/* Hearings & markups moved to the Snapshot "Top alerts" card — upcoming
+            hearings now surface as time-sensitive alert rows there. */}
       </div>
     </section>
   );

@@ -65,7 +65,7 @@ describe('IntelligenceController profile-v1 integration', () => {
 
     const result = await controller.getClientProfileV1(tenantContext, clientId);
 
-    expect(service.getClientProfileV1).toHaveBeenCalledWith(clientId, tenantContext.tenantId);
+    expect(service.getClientProfileV1).toHaveBeenCalledWith(clientId, tenantContext.tenantId, tenantContext.userId);
     expect(result.client.id).toBe(clientId);
     expect(result.sections.snapshot).toBeDefined();
     expect(result.sections.financialFootprint).toBeDefined();

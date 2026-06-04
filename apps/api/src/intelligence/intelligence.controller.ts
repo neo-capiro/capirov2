@@ -92,6 +92,42 @@ class OutreachContextQueryDto {
   recipientOffice?: string;
 }
 
+// Per-user alert worklist state. alertId is the stable composite the alerts
+// builder emits (carries ':' — kept in the body, never the path).
+class SetAlertStateDto {
+  @IsString()
+  alertId!: string;
+
+  @IsIn(['acknowledged', 'dismissed', 'snoozed'])
+  state!: 'acknowledged' | 'dismissed' | 'snoozed';
+
+  // ISO timestamp; only meaningful when state === 'snoozed'.
+  @IsOptional()
+  @IsString()
+  snoozedUntil?: string;
+}
+
+class ClearAlertStateDto {
+  @IsString()
+  alertId!: string;
+}
+
+class AddClientBriefDto {
+  @IsString()
+  title!: string;
+
+  @IsString()
+  body!: string;
+
+  @IsOptional()
+  @IsString()
+  sourceAlertId?: string;
+
+  @IsOptional()
+  @IsString()
+  sourceType?: string;
+}
+
 @Controller('intelligence')
 @UseGuards(RolesGuard)
 @Roles('standard_user')
@@ -116,7 +152,7 @@ export class IntelligenceController {
     @CurrentTenant() ctx: TenantContext,
     @Param('clientId') clientId: string,
   ) {
-    return this.service.getClientProfileV1(clientId, ctx.tenantId);
+    return this.service.getClientProfileV1(clientId, ctx.tenantId, ctx.userId);
   }
 
   @Post('resolve-all')
@@ -382,5 +418,69 @@ export class IntelligenceController {
     @Param('billId') billId: string,
   ) {
     return this.service.removeTrackedBill(clientId, ctx.tenantId, billId);
+  }
+
+  // ─── Alert worklist state (per-user ack / dismiss / snooze) ────────────────
+
+  @Post('clients/:clientId/alert-state')
+  setAlertState(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Body() body: SetAlertStateDto,
+  ) {
+    const snoozedUntil =
+      body.state === 'snoozed' && body.snoozedUntil ? new Date(body.snoozedUntil) : null;
+    return this.service.setAlertState(
+      ctx.tenantId,
+      ctx.userId,
+      clientId,
+      body.alertId,
+      body.state,
+      snoozedUntil,
+    );
+  }
+
+  // alertId carries ':' (e.g. "comment:<uuid>") which breaks path routing, so the
+  // undo takes it in the body on DELETE rather than as a path param.
+  @Delete('clients/:clientId/alert-state')
+  clearAlertState(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Body() body: ClearAlertStateDto,
+  ) {
+    return this.service.clearAlertState(ctx.tenantId, ctx.userId, clientId, body.alertId);
+  }
+
+  // ─── Client briefs (saved notes; surface in the Outreach wizard context) ───
+
+  @Get('clients/:clientId/briefs')
+  listClientBriefs(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.listClientBriefs(ctx.tenantId, clientId);
+  }
+
+  @Post('clients/:clientId/briefs')
+  addClientBrief(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Body() body: AddClientBriefDto,
+  ) {
+    return this.service.addClientBrief(ctx.tenantId, clientId, ctx.userId, {
+      title: body.title,
+      body: body.body,
+      sourceAlertId: body.sourceAlertId ?? null,
+      sourceType: body.sourceType ?? null,
+    });
+  }
+
+  @Delete('clients/:clientId/briefs/:briefId')
+  deleteClientBrief(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Param('briefId') briefId: string,
+  ) {
+    return this.service.deleteClientBrief(ctx.tenantId, clientId, briefId);
   }
 }

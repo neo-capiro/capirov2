@@ -172,6 +172,8 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
           aggregate={aggregate}
           fallbackAlerts={clientAlerts}
           loading={alertsQuery.isLoading}
+          clientId={clientId}
+          hiddenCount={aggregate?.sections.snapshot.alertsHiddenCount}
           links={{
             viewAllHref: aggregate?.links.changesInbox ?? '/intelligence/changes',
             mappingsHref: aggregate?.links.mappingsAdmin ?? '/settings/intelligence-mappings',
