@@ -1,22 +1,13 @@
 import { Suspense, lazy, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Alert, Button, Card, Col, Empty, Row, Skeleton, message } from 'antd';
 import {
-  Alert,
-  Button,
-  Card,
-  Col,
-  Empty,
-  Flex,
-  Row,
-  Skeleton,
-  Space,
-  Statistic,
-  Tag,
-  Typography,
-  message,
-} from 'antd';
-import { BellFilled, BellOutlined, FileSearchOutlined } from '@ant-design/icons';
+  BellFilled,
+  BellOutlined,
+  FileSearchOutlined,
+  ThunderboltOutlined,
+} from '@ant-design/icons';
 import { useApi } from '../../lib/use-api.js';
 import {
   getProgramElementBills,
@@ -108,14 +99,25 @@ function formatSyncedDate(value: string): string {
   return parsed.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function statusColor(status: string): string {
+function statusPillClass(status: string): string {
   const normalized = status.toLowerCase();
-  if (normalized.includes('active') || normalized.includes('enacted')) return 'green';
-  if (normalized.includes('terminat') || normalized.includes('cancel')) return 'red';
-  return 'default';
+  if (normalized.includes('active') || normalized.includes('enacted')) return 'success';
+  if (normalized.includes('terminat') || normalized.includes('cancel')) return 'critical';
+  return 'muted';
 }
 
-const { Title, Text } = Typography;
+/** Compact $m formatting for the KPI strip values, e.g. 297.74 -> "$297.7M". */
+function formatMillions(value: number): { whole: string; suffix: string } {
+  return { whole: `$${value.toFixed(1)}`, suffix: 'M' };
+}
+
+/** "PE 6.1" style short badge from a budget activity / appropriation hint. */
+function peBadge(detail: { budgetActivity: string | null; appropriationType: string | null }): string {
+  const ba = detail.budgetActivity ?? '';
+  const m = ba.match(/(\d(?:\.\d)?)/);
+  if (m) return `BA ${m[1]}`;
+  return detail.appropriationType ? detail.appropriationType.slice(0, 6) : 'PE';
+}
 
 export function ProgramElementWatchPage() {
   const { peCode = '' } = useParams<{ peCode: string }>();
@@ -194,7 +196,7 @@ export function ProgramElementWatchPage() {
 
   if (detailQuery.isLoading) {
     return (
-      <Space direction="vertical" size={16} style={{ width: '100%' }}>
+      <section className="pe-watch-page redesign">
         <Skeleton active paragraph={{ rows: 3 }} />
         <Row gutter={[16, 16]}>
           {[0, 1, 2, 3].map((idx) => (
@@ -205,7 +207,7 @@ export function ProgramElementWatchPage() {
             </Col>
           ))}
         </Row>
-      </Space>
+      </section>
     );
   }
 
@@ -234,109 +236,178 @@ export function ProgramElementWatchPage() {
   };
   const programTeam: ProgramTeamPerson[] = programTeamQuery.data ?? [];
 
-  return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Card>
-        <Flex vertical gap={8}>
-          <Text type="secondary">Program Element Watch</Text>
-          <Flex justify="space-between" align="flex-start" gap={16} wrap>
-            <div>
-              <Title level={2} style={{ margin: 0 }}>
-                {detail.peCode} · {detail.title}
-              </Title>
-              <Space size={8} wrap style={{ marginTop: 4 }}>
-                <Text type="secondary">{detail.appropriationType ?? 'Appropriation N/A'}</Text>
-                {detail.budgetActivity ? <Tag>{detail.budgetActivity}</Tag> : null}
-                {detail.firstSeenFy ? (
-                  <Text type="secondary">Tracked since FY{detail.firstSeenFy}</Text>
-                ) : null}
-              </Space>
-            </div>
-            <Flex vertical align="flex-end" gap={8}>
-              <Space>
-                <Button onClick={() => navigate('/program-elements')}>Find Program</Button>
-                <Button onClick={() => navigate('/program-elements/mark-up-monitor')}>
-                  Mark-up Monitor
-                </Button>
-              </Space>
-              <Button
-                type={detail.currentUserIsWatching ? 'primary' : 'default'}
-                icon={detail.currentUserIsWatching ? <BellFilled /> : <BellOutlined />}
-                loading={watchMutation.isPending}
-                onClick={() => watchMutation.mutate(!detail.currentUserIsWatching)}
-              >
-                {detail.currentUserIsWatching ? 'Watching' : 'Watch this PE'}
-              </Button>
-              <Space size={8}>
-                <Tag color="blue" data-testid="pe-sector-tag">
-                  {detail.service ?? 'Service N/A'}
-                </Tag>
-                {detail.status ? (
-                  <Tag color={statusColor(detail.status)}>{detail.status}</Tag>
-                ) : null}
-              </Space>
-              {detail.lastSyncedAt ? (
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  Last synced {formatSyncedDate(detail.lastSyncedAt)}
-                </Text>
-              ) : null}
-            </Flex>
-          </Flex>
-        </Flex>
-      </Card>
+  // Enacted-vs-request delta for the latest enacted FY (drives the green subtext).
+  const enactedDeltaPct = (() => {
+    if (!latestEnacted) return null;
+    const reqForFy = years.find((y) => y.fy === latestEnacted.fy)?.request;
+    const req = numberOrNull(reqForFy);
+    if (req == null || req === 0) return null;
+    return ((latestEnacted.value - req) / req) * 100;
+  })();
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} md={12} xl={6}>
-          <Card>
-            <Statistic
-              title={latestRequest ? `Latest Request · FY${latestRequest.fy}` : 'Latest Request'}
-              value={latestRequest ? latestRequest.value : undefined}
-              precision={2}
-              prefix="$"
-              suffix="m"
-              valueRender={latestRequest ? undefined : () => <Text type="secondary">—</Text>}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} md={12} xl={6}>
-          <Card>
-            <Statistic
-              title={latestConference ? `Latest Conference · FY${latestConference.fy}` : 'Latest Conference'}
-              value={latestConference ? latestConference.value : undefined}
-              precision={2}
-              prefix="$"
-              suffix="m"
-              valueRender={latestConference ? undefined : () => <Text type="secondary">—</Text>}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} md={12} xl={6}>
-          <Card>
-            <Statistic
-              title={latestEnacted ? `Latest Enacted · FY${latestEnacted.fy}` : 'Latest Enacted'}
-              value={latestEnacted ? latestEnacted.value : undefined}
-              precision={2}
-              prefix="$"
-              suffix="m"
-              valueRender={latestEnacted ? undefined : () => <Text type="secondary">—</Text>}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} md={12} xl={6}>
-          <Card>
-            <Statistic
-              title="Bills touching this PE"
-              value={bills.length}
-              prefix={<FileSearchOutlined />}
-            />
-          </Card>
-        </Col>
-      </Row>
+  const reqFmt = latestRequest ? formatMillions(latestRequest.value) : null;
+  const enactedFmt = latestEnacted ? formatMillions(latestEnacted.value) : null;
+  const confFmt = latestConference ? formatMillions(latestConference.value) : null;
+
+  return (
+    <section className="pe-watch-page redesign">
+      {/* ── Navy hero banner ──────────────────────────────────────────── */}
+      <header className="pe-hero">
+        <div className="pe-hero-main">
+          <div className="pe-hero-badge">{peBadge(detail)}</div>
+          <div className="pe-hero-body">
+            <div className="pe-hero-eyebrow">
+              <span className="pe-hero-kicker">Program Element Watch</span>
+              <span className="pe-hero-code">{detail.peCode}</span>
+            </div>
+            <h1 className="pe-hero-title">{detail.title}</h1>
+            <div className="pe-hero-meta">
+              {detail.appropriationType ? (
+                <span>
+                  Appropriation <b>{detail.appropriationType}</b>
+                </span>
+              ) : null}
+              <span>
+                Service <b data-testid="pe-sector-tag">{detail.service ?? 'N/A'}</b>
+              </span>
+              {detail.budgetActivity ? (
+                <span>
+                  Budget activity <b>{detail.budgetActivity}</b>
+                </span>
+              ) : null}
+            </div>
+            <div className="pe-hero-meta pe-hero-meta-2">
+              {detail.firstSeenFy ? (
+                <span>
+                  Tracked since <b>FY{detail.firstSeenFy}</b>
+                </span>
+              ) : null}
+              {detail.lastSyncedAt ? (
+                <span className="pe-hero-synced">
+                  <i className="dot success" />
+                  Last synced <b>{formatSyncedDate(detail.lastSyncedAt)}</b>
+                </span>
+              ) : null}
+            </div>
+            <div className="pe-hero-tags">
+              {detail.budgetActivity ? <span className="pe-tag">{detail.budgetActivity}</span> : null}
+              {detail.appropriationType ? (
+                <span className="pe-tag">{detail.appropriationType}</span>
+              ) : null}
+              {detail.status ? (
+                <span className={`pill ${statusPillClass(detail.status)}`}>{detail.status}</span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        <div className="pe-hero-actions">
+          <Button
+            className={`pe-watch-btn${detail.currentUserIsWatching ? ' is-watching' : ''}`}
+            type={detail.currentUserIsWatching ? 'primary' : 'default'}
+            icon={detail.currentUserIsWatching ? <BellFilled /> : <BellOutlined />}
+            loading={watchMutation.isPending}
+            onClick={() => watchMutation.mutate(!detail.currentUserIsWatching)}
+          >
+            {detail.currentUserIsWatching ? 'Watching this PE' : 'Watch this PE'}
+          </Button>
+          <Button
+            className="pe-hero-dark-btn"
+            icon={<FileSearchOutlined />}
+            onClick={() => navigate('/program-elements')}
+          >
+            Find program
+          </Button>
+          <Button
+            className="pe-hero-dark-btn"
+            icon={<ThunderboltOutlined />}
+            onClick={() => navigate('/program-elements/mark-up-monitor')}
+          >
+            Mark-up monitor
+          </Button>
+        </div>
+      </header>
+
+      {/* ── KPI strip (one card, four divided cells) ──────────────────── */}
+      <div className="pe-strip">
+        <div className="pe-strip-cell">
+          <div className="pe-strip-label">
+            Latest Request
+            {latestRequest ? <span className="pe-fy-pill">FY{latestRequest.fy}</span> : null}
+          </div>
+          <div className="pe-strip-value">
+            {reqFmt ? (
+              <>
+                {reqFmt.whole}
+                <small>{reqFmt.suffix}</small>
+              </>
+            ) : (
+              <span className="pe-strip-empty">—</span>
+            )}
+          </div>
+          <div className="pe-strip-sub">President&apos;s Budget submission</div>
+        </div>
+
+        <div className="pe-strip-cell">
+          <div className="pe-strip-label">
+            Latest Conference
+            {latestConference ? <span className="pe-fy-pill">FY{latestConference.fy}</span> : null}
+          </div>
+          <div className="pe-strip-value">
+            {confFmt ? (
+              <>
+                {confFmt.whole}
+                <small>{confFmt.suffix}</small>
+              </>
+            ) : (
+              <span className="pe-strip-empty">—</span>
+            )}
+          </div>
+          <div className="pe-strip-sub">
+            {confFmt ? 'Conference report' : 'Awaiting conference report'}
+          </div>
+        </div>
+
+        <div className="pe-strip-cell">
+          <div className="pe-strip-label">
+            Latest Enacted
+            {latestEnacted ? <span className="pe-fy-pill">FY{latestEnacted.fy}</span> : null}
+          </div>
+          <div className="pe-strip-value pe-strip-value-pos">
+            {enactedFmt ? (
+              <>
+                {enactedFmt.whole}
+                <small>{enactedFmt.suffix}</small>
+              </>
+            ) : (
+              <span className="pe-strip-empty">—</span>
+            )}
+          </div>
+          <div className="pe-strip-sub">
+            {enactedDeltaPct != null ? (
+              <>
+                <b className="pe-pos">
+                  {enactedDeltaPct >= 0 ? '+' : ''}
+                  {enactedDeltaPct.toFixed(1)}%
+                </b>{' '}
+                over that yr&apos;s request
+              </>
+            ) : (
+              'Enacted appropriation'
+            )}
+          </div>
+        </div>
+
+        <div className="pe-strip-cell">
+          <div className="pe-strip-label">Bills touching this PE</div>
+          <div className="pe-strip-value">{bills.length}</div>
+          <div className="pe-strip-sub">Linked legislation</div>
+        </div>
+      </div>
 
       {hasBudgetData ? (
         <Suspense
           fallback={
-            <Card title="Timeline">
+            <Card title="Funding timeline">
               <Skeleton active paragraph={{ rows: 6 }} />
             </Card>
           }
@@ -352,13 +423,13 @@ export function ProgramElementWatchPage() {
           />
         </Suspense>
       ) : (
-        <Card title="Budget timeline">
+        <Card title="Funding timeline">
           <Empty description="No budget-year data has been synced for this Program Element yet." />
         </Card>
       )}
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} span={12}>
+      <Row gutter={[16, 16]} className="pe-two-col">
+        <Col xs={24} xl={15}>
           <Suspense
             fallback={
               <Card title="Bills touching this PE">
@@ -369,7 +440,7 @@ export function ProgramElementWatchPage() {
             <LazyBillsTouchingPePanel bills={bills} loading={billsQuery.isLoading} />
           </Suspense>
         </Col>
-        <Col xs={24} span={12}>
+        <Col xs={24} xl={9}>
           <Suspense
             fallback={
               <Card title="Top contractors touching this PE">
@@ -415,6 +486,6 @@ export function ProgramElementWatchPage() {
         personName={linkTarget?.name ?? null}
         onClose={() => setLinkTarget(null)}
       />
-    </Space>
+    </section>
   );
 }

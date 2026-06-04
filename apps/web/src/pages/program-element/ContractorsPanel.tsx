@@ -59,8 +59,13 @@ export function ContractorsPanel({ contractors, loading = false }: ContractorsPa
   const rows = contractors?.data ?? [];
   if (rows.length === 0) {
     return (
-      <Card title="Top contractors touching this PE">
-        <Empty description={contractors?.todo ?? 'No contractor records yet'} />
+      <Card className="pe-contractors-card" title="Top contractors touching this PE">
+        <Empty
+          description={
+            contractors?.todo ??
+            'No contractor records yet. Capiro will surface awardees as USAspending and FPDS sync lands.'
+          }
+        />
       </Card>
     );
   }
@@ -68,7 +73,7 @@ export function ContractorsPanel({ contractors, loading = false }: ContractorsPa
   const top10 = rows.slice(0, 10);
 
   return (
-    <Card title="Top contractors touching this PE">
+    <Card className="pe-contractors-card" title="Top contractors touching this PE">
       {contractors?.todo ? (
         <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
           {contractors.todo}

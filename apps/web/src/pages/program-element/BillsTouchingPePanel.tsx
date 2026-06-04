@@ -1,4 +1,5 @@
-import { Card, Empty, List, Skeleton, Space, Tag, Typography } from 'antd';
+import { Card, Empty, List, Skeleton, Tag, Typography } from 'antd';
+import { FolderOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ProgramElementBill } from './types.js';
 
@@ -9,7 +10,7 @@ export interface BillsTouchingPePanelProps {
   loading?: boolean;
 }
 
-function truncate(value: string, max = 72): string {
+function truncate(value: string, max = 90): string {
   if (value.length <= max) return value;
   return `${value.slice(0, max - 1)}…`;
 }
@@ -29,6 +30,28 @@ const BILL_TYPE_LABELS: Record<string, string> = {
 function billLabel(bill: ProgramElementBill): string {
   const type = BILL_TYPE_LABELS[bill.billType?.toUpperCase()] ?? bill.billType ?? '';
   return `${type} ${bill.billNumber}`.trim() || bill.id;
+}
+
+// Chamber eyebrow derived from bill type (H* = House, S* = Senate).
+function chamberLabel(bill: ProgramElementBill): string {
+  const t = (bill.billType ?? '').toUpperCase();
+  if (t.startsWith('H')) return 'HOUSE';
+  if (t.startsWith('S')) return 'SENATE';
+  return 'CONGRESS';
+}
+
+// Status pill from the latest-action text. Honest: only label states we can
+// confidently infer from the action text; otherwise show nothing.
+function statusPill(bill: ProgramElementBill): { label: string; cls: string } | null {
+  const text = (bill.latestActionText ?? '').toLowerCase();
+  if (!text) return null;
+  if (text.includes('became public law') || text.includes('signed by president') || text.includes('became law')) {
+    return { label: 'BECAME LAW', cls: 'success' };
+  }
+  if (text.includes('reported')) return { label: 'REPORTED', cls: 'info' };
+  if (text.includes('passed')) return { label: 'PASSED', cls: 'info' };
+  if (text.includes('referred') || text.includes('introduced')) return { label: 'INTRODUCED', cls: 'muted' };
+  return null;
 }
 
 function formatActionDate(value: string | null): string | null {
@@ -71,10 +94,12 @@ export function BillsTouchingPePanel({ bills, loading = false }: BillsTouchingPe
 
   return (
     <Card
+      className="pe-bills-card"
       title="Bills touching this PE"
       extra={<Text type="secondary">{bills.length} linked</Text>}
     >
       <List
+        className="pe-bills-list"
         dataSource={bills}
         renderItem={(bill) => {
           // Honest action chip: show passage probability only when the model
@@ -82,39 +107,40 @@ export function BillsTouchingPePanel({ bills, loading = false }: BillsTouchingPe
           // real metadata, instead of a misleading "N/A" score.
           const hasProbability = typeof bill.passageProbability === 'number';
           const actionDate = formatActionDate(bill.latestActionDate);
+          const pill = statusPill(bill);
           const meta = [bill.sponsor ?? 'Sponsor N/A', bill.committee ?? 'Committee N/A'];
           if (actionDate) meta.push(`Last action ${actionDate}`);
 
           return (
             <List.Item
               key={bill.id}
+              className="pe-bill-row"
               onClick={() => navigate(`/intelligence/bills/${encodeURIComponent(bill.id)}`)}
               style={{ cursor: 'pointer' }}
-              actions={[
-                hasProbability ? (
-                  <Tag key="probability" color={probabilityColor(bill.passageProbability)}>
+            >
+              <div className="pe-bill-ident">
+                <span className="pe-bill-num">{billLabel(bill)}</span>
+                <span className="pe-bill-chamber">{chamberLabel(bill)}</span>
+              </div>
+              <div className="pe-bill-body">
+                <div className="pe-bill-title">{truncate(bill.title)}</div>
+                <div className="pe-bill-meta">{meta.join(' • ')}</div>
+                {bill.policyArea ? (
+                  <span className="pe-bill-policy">
+                    <FolderOutlined /> {bill.policyArea}
+                  </span>
+                ) : null}
+              </div>
+              <div className="pe-bill-status">
+                {pill ? <span className={`pill ${pill.cls}`}>{pill.label}</span> : null}
+                {hasProbability ? (
+                  <Tag color={probabilityColor(bill.passageProbability)}>
                     {probabilityLabel(bill.passageProbability)}
                   </Tag>
-                ) : bill.policyArea ? (
-                  <Tag key="policy" color="blue">
-                    {bill.policyArea}
-                  </Tag>
-                ) : (
-                  <Text key="congress" type="secondary">
-                    {bill.congress}th
-                  </Text>
-                ),
-              ]}
-            >
-              <List.Item.Meta
-                title={
-                  <Space direction="vertical" size={2}>
-                    <Text strong>{billLabel(bill)}</Text>
-                    <Text>{truncate(bill.title)}</Text>
-                  </Space>
-                }
-                description={<Text type="secondary">{meta.join(' • ')}</Text>}
-              />
+                ) : !pill ? (
+                  <Text type="secondary">{bill.congress}th</Text>
+                ) : null}
+              </div>
             </List.Item>
           );
         }}
