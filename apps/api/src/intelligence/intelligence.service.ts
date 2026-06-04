@@ -13,6 +13,24 @@ import { addDateInZone, dateBoundsInZone, dayBoundsInZone } from './time-bounds.
 import { FEC_DISCLAIMER } from './fec-disclaimer.js';
 
 /**
+ * Normalized internal shape every "Top alerts" source emits. `_urgencyScore` and
+ * `_typeRank` are sort-only and stripped before the payload leaves the service.
+ */
+type AlertRow = {
+  id: string;
+  type: string;
+  severity: string;
+  title: string;
+  subtitle: string;
+  when: string;
+  countdownDays: number | null;
+  countdownLabel: string | null;
+  href: string | null;
+  _urgencyScore: number;
+  _typeRank: number;
+};
+
+/**
  * Cosine-similarity floors for tracked-bill embedding matches.
  *
  * DEFAULT is used when the client supplies sharp signal (capability keywords).
@@ -72,8 +90,10 @@ export class IntelligenceService {
             ...a,
             when: this.asIsoOrNull(a.when),
             countdownDays: this.asFiniteOrNull(a.countdownDays),
+            state: a.state === 'acknowledged' ? 'acknowledged' : null,
           }))
         : [],
+      alertsHiddenCount: Math.max(0, Math.trunc(this.asFinite(sections.snapshot.alertsHiddenCount, 0))),
     };
 
     const financialFootprint = {
@@ -245,7 +265,7 @@ export class IntelligenceService {
    * Opinionated 4-section contract so the frontend can render a single
    * anchored surface without stitching 10+ calls client-side.
    */
-  async getClientProfileV1(clientId: string, tenantId: string) {
+  async getClientProfileV1(clientId: string, tenantId: string, userId?: string) {
     const client = await this.prisma.withTenant(tenantId, (tx) =>
       tx.client.findFirst({
         where: { id: clientId },
@@ -258,6 +278,8 @@ export class IntelligenceService {
     const day14 = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
     const day21 = new Date(now.getTime() + 21 * 24 * 60 * 60 * 1000);
     const day7 = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Look-back windows for the new compute-on-read alert types.
+    const day30 = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     const mappingRowsPromise = this.prisma.withTenant(tenantId, (tx) =>
       tx.clientIntelMapping.findMany({
@@ -337,6 +359,29 @@ export class IntelligenceService {
       // Drives the Financial Footprint district panel's job/spend bars; the
       // free-text getDistrictNexus (index 3) remains as a fallback / capability list.
       this.getDistrictNexusSpend(clientId, tenantId),
+      // ── New alert-source feeders (compute-on-read), appended at the END so the
+      // existing positional settle() indices (0–18) are unchanged. Each is wrapped
+      // so a failure degrades only its own alert type, never the aggregate. ──
+      // [19] Overdue comment deadlines: FedReg docs whose comment window JUST
+      // closed (last 7d) and that match this client — "did we file?" nudge.
+      this.getOverdueCommentAlerts(clientId, tenantId, now, day7),
+      // [20] New competitor LDA activity on the client's issue codes (last 30d).
+      this.getCompetitorLdaAlerts(clientId, tenantId, day30),
+      // [21] New federal contract awards relevant to the client (last 30d).
+      this.getContractAwardAlerts(clientId, tenantId, day30),
+      // [22] Per-user worklist state (ack/dismiss/snooze) for this client's alerts.
+      userId
+        ? this.prisma.withTenant(tenantId, (tx) =>
+            tx.alertState.findMany({
+              where: { userId, clientId },
+              select: { alertId: true, state: true, snoozedUntil: true },
+            }),
+          )
+        : Promise.resolve([] as Array<{ alertId: string; state: string; snoozedUntil: Date | null }>),
+      // [23] Upcoming hearings & markups matched to this client (next 21d). The
+      // legacy Hearings panel was removed from the UI; this surfaces the same
+      // signal as time-sensitive alert rows on the Top alerts card.
+      this.getHearingAlerts(clientId, tenantId, now, day21),
     ]);
 
     const settledSourceLabels = [
@@ -344,6 +389,7 @@ export class IntelligenceService {
       'billRegulationLinks', 'knowledgeGraph', 'engagementHealth', 'exStaffers',
       'commentAlerts', 'changes', 'hearings', 'meetings', 'mailThreads',
       'doneTasks', 'debriefs', 'outreachRecords', 'mappingRows', 'districtNexusSpend',
+      'overdueComments', 'competitorLda', 'contractAwards', 'alertStates', 'hearingAlerts',
     ] as const;
 
     const settle = <T,>(index: number, fallback: T): T => {
@@ -389,6 +435,14 @@ export class IntelligenceService {
       districts: [] as Array<{ district: string; state: string; districtNumber: string; awardCount: number; totalAmount: number; demographics: unknown }>,
       unmappedAmount: 0,
     } as unknown as Awaited<ReturnType<typeof this.getDistrictNexusSpend>>);
+
+    // New alert-source reads (indices 19–22). Each defaults to empty so a failed
+    // feeder simply omits its alert type rather than blanking the card.
+    const overdueCommentAlerts = settle(19, [] as Awaited<ReturnType<typeof this.getOverdueCommentAlerts>>);
+    const competitorLdaAlerts = settle(20, [] as Awaited<ReturnType<typeof this.getCompetitorLdaAlerts>>);
+    const contractAwardAlerts = settle(21, [] as Awaited<ReturnType<typeof this.getContractAwardAlerts>>);
+    const alertStateRows = settle(22, [] as Array<{ alertId: string; state: string; snoozedUntil: Date | null }>);
+    const hearingAlerts = settle(23, [] as Awaited<ReturnType<typeof this.getHearingAlerts>>);
 
     // Freshness + unresolved metadata derived from the tenant-scoped mapping query.
     // mappingRows is fetched via withTenant, clientId is guaranteed to belong to tenantId.
@@ -465,7 +519,41 @@ export class IntelligenceService {
 
     const commentAlertsForClient = commentAlerts.alerts.filter((a) => a.clientId === clientId);
 
-    const topAlerts = [
+    // Bill-movement alerts: a tracked bill (auto-matched OR manually pinned) whose
+    // latest recorded action landed within the last 14 days. "HR 1234 (you're
+    // tracking) just moved" is higher-signal than a generic sector change because
+    // the client/team already flagged the bill as relevant. Vote/floor/markup/
+    // passed/enacted language escalates to critical.
+    const billMovementAlerts = (trackedBills.bills ?? [])
+      .filter((b) => {
+        if (!b.latestActionDate) return false;
+        const d = new Date(b.latestActionDate);
+        return !Number.isNaN(d.getTime()) && d.getTime() >= day14.getTime() && d.getTime() <= now.getTime();
+      })
+      .map((b) => {
+        const actionText = (b.latestActionText ?? '').toLowerCase();
+        const isHot = /\b(vote|floor|passed|enacted|markup|reported|signed)\b/.test(actionText);
+        const whenIso = new Date(b.latestActionDate as Date).toISOString();
+        const daysAgo = Math.max(0, Math.floor((now.getTime() - new Date(whenIso).getTime()) / (1000 * 60 * 60 * 24)));
+        return {
+          id: `bill:${b.identifier}`,
+          type: 'bill_movement',
+          severity: isHot ? 'critical' : 'notable',
+          title: `${b.identifier.toUpperCase()} moved${b.isManual ? ' (tracked)' : ''}`,
+          subtitle: b.latestActionText ?? b.title,
+          when: whenIso,
+          countdownDays: null as number | null,
+          countdownLabel: recencyLabel(whenIso),
+          href: `/intelligence/bills/${encodeURIComponent(b.identifier)}?clientId=${encodeURIComponent(clientId)}`,
+          _urgencyScore: 45 - Math.min(daysAgo, 45),
+          _typeRank: 1,
+        };
+      });
+
+    // Merge ALL alert sources into one list, then filter by per-user worklist
+    // state, then sort. Each source already returns the normalized internal
+    // shape (with _urgencyScore/_typeRank that get stripped before returning).
+    const mergedAlerts = [
       ...commentAlertsForClient.map((a) => {
         const days = a.daysToDeadline ?? null;
         return {
@@ -498,7 +586,41 @@ export class IntelligenceService {
           _typeRank: 1,
         };
       }),
-    ]
+      ...hearingAlerts,
+      ...billMovementAlerts,
+      ...overdueCommentAlerts,
+      ...competitorLdaAlerts,
+      ...contractAwardAlerts,
+    ];
+
+    // Per-user worklist state. Dismissed alerts disappear; snoozed alerts hide
+    // until their snoozedUntil passes; acknowledged alerts stay but are flagged
+    // so the UI can de-emphasize them. State that no longer maps to a live alert
+    // is simply ignored (the alert aged out on its own).
+    const stateByAlertId = new Map<string, { state: string; snoozedUntil: Date | null }>();
+    for (const row of alertStateRows) {
+      stateByAlertId.set(row.alertId, { state: row.state, snoozedUntil: row.snoozedUntil });
+    }
+    const isHidden = (alertId: string): boolean => {
+      const st = stateByAlertId.get(alertId);
+      if (!st) return false;
+      if (st.state === 'dismissed') return true;
+      if (st.state === 'snoozed') {
+        // Snoozed with no/expired deadline → treat as hidden until snoozedUntil.
+        if (!st.snoozedUntil) return true;
+        return new Date(st.snoozedUntil).getTime() > now.getTime();
+      }
+      return false;
+    };
+
+    const visibleAlerts = mergedAlerts
+      .filter((a) => !isHidden(a.id))
+      .map((a) => ({
+        ...a,
+        // 'acknowledged' surfaces as a flag the UI uses to de-emphasize the row;
+        // it is NOT hidden. Any other state (or none) → null.
+        state: stateByAlertId.get(a.id)?.state === 'acknowledged' ? 'acknowledged' : null,
+      }))
       .sort((a, b) => {
         const sev = severityRank(b.severity) - severityRank(a.severity);
         if (sev !== 0) return sev;
@@ -507,9 +629,17 @@ export class IntelligenceService {
         const urgency = b._urgencyScore - a._urgencyScore;
         if (urgency !== 0) return urgency;
         return b.when.localeCompare(a.when);
-      })
-      .slice(0, 5)
+      });
+
+    // The card shows the top 5 by default; surface how many MORE are hidden below
+    // the fold so the lobbyist knows the list is truncated. The frontend owns the
+    // deadline-first re-sort + final slice, so we return up to 20 visible rows
+    // (top 5 shown + buffer for the toggle) and the hidden count off the full set.
+    const alertsHiddenCount = Math.max(0, visibleAlerts.length - 5);
+    const topAlerts = visibleAlerts
+      .slice(0, 20)
       .map(({ _urgencyScore, _typeRank, ...alert }) => alert);
+
 
     const criticalDeadlines = commentAlertsForClient.filter((a) => (a.daysToDeadline ?? 999) <= 7).length;
     const briefingHighlights: Array<{
@@ -1047,6 +1177,7 @@ export class IntelligenceService {
         health,
         dailyBriefing,
         topAlerts,
+        alertsHiddenCount,
         activity14d: Array.from(byDay.values()),
         changes7dCount: changes.length,
       },
@@ -3138,6 +3269,398 @@ export class IntelligenceService {
     alerts.sort((a, b) => a.daysToDeadline - b.daysToDeadline);
     return { alerts };
   }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Compute-on-read alert sources for the client-profile "Top alerts" card.
+  // Each returns the builder's normalized internal shape and NEVER throws —
+  // a failure inside profile-v1's allSettled simply omits that alert type.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** Internal alert row shape shared by every compute-on-read alert source. */
+  private alertCountdownLabel(days: number | null): string | null {
+    if (days == null) return null;
+    if (days < 0) return `Overdue ${Math.abs(days)}d`;
+    if (days === 0) return 'Due today';
+    if (days === 1) return '1d left';
+    return `${days}d left`;
+  }
+
+  /** Resolve a client's LDA issue codes (confirmed mapping) for competitor matching. */
+  private async getClientIssueCodes(clientId: string): Promise<string[]> {
+    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
+      where: { clientId, source: 'lda', confirmed: true },
+    });
+    if (!ldaMapping || !ldaMapping.externalId) return [];
+    const ext = Number(ldaMapping.externalId);
+    if (!Number.isFinite(ext)) return [];
+    const rows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`
+      SELECT COALESCE(issue_codes, '{}') AS issue_codes FROM lda_client WHERE id = ${ext}
+    `;
+    return rows[0]?.issue_codes ?? [];
+  }
+
+  /**
+   * Upcoming hearings & markups matched to a client (next `until` days). Mirrors
+   * the profile-v1 hearingsList committee/bill matching so the alert is genuinely
+   * client-relevant, not the global calendar. Countdown is days-UNTIL the hearing.
+   */
+  async getHearingAlerts(
+    clientId: string,
+    tenantId: string,
+    now: Date,
+    until: Date,
+  ): Promise<AlertRow[]> {
+    try {
+      // Tracked bills give us the bill identifiers + the committees of jurisdiction
+      // to match hearings against (same signal the removed Hearings panel used).
+      const tracked = await this.getTrackedBills(clientId, tenantId);
+      const billVariants = (tracked.bills ?? []).map((b) => ({
+        identifier: b.identifier,
+        // "hr-1234" / "hr 1234" / "h.r. 1234" style variants for title matching.
+        variants: [
+          b.identifier.toLowerCase(),
+          b.identifier.toLowerCase().replace(/-/g, ' '),
+          b.identifier.toLowerCase().replace(/-/g, '.'),
+        ],
+      }));
+      if (billVariants.length === 0) return [];
+
+      const hearings = await this.prisma.committeeHearing.findMany({
+        where: { date: { gte: now, lte: until } },
+        orderBy: [{ date: 'asc' }, { time: 'asc' }],
+        take: 40,
+      });
+
+      const out: AlertRow[] = [];
+      for (const h of hearings) {
+        const titleLower = h.title.toLowerCase();
+        const linked = billVariants
+          .filter((b) => b.variants.some((v) => titleLower.includes(v)))
+          .map((b) => b.identifier);
+        if (linked.length === 0) continue; // keep only client-relevant hearings
+        const d = new Date(h.date);
+        const days = Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const severity = days < 3 ? 'critical' : days <= 7 ? 'notable' : 'info';
+        out.push({
+          id: `hearing:${h.id}`,
+          type: 'hearing',
+          severity,
+          title: `${h.committeeName}: ${h.title}`.slice(0, 140),
+          subtitle: `${h.chamber} ${h.type ?? 'hearing'} · ${linked.slice(0, 3).join(', ')}`,
+          when: d.toISOString(),
+          countdownDays: days,
+          countdownLabel: this.alertCountdownLabel(days),
+          href: `/intelligence/bills/${encodeURIComponent(linked[0] ?? '')}?clientId=${encodeURIComponent(clientId)}`,
+          _urgencyScore: 100 - Math.max(-30, Math.min(days, 100)),
+          _typeRank: 2,
+        });
+      }
+      return out;
+    } catch (err) {
+      this.logger.warn(`getHearingAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
+  /**
+   * Comment deadlines that JUST closed (window [now-lookback, now)) and match the
+   * client — the "deadline closed, did we file?" nudge. Reuses the same relevance
+   * matching as getCommentPeriodAlerts but on the recently-expired window.
+   */
+  async getOverdueCommentAlerts(
+    clientId: string,
+    tenantId: string,
+    now: Date,
+    lookbackStart: Date,
+  ): Promise<AlertRow[]> {
+    try {
+      const client = await this.prisma.withTenant(tenantId, (tx) =>
+        tx.client.findFirst({
+          where: { id: clientId },
+          select: {
+            id: true,
+            name: true,
+            sectorTag: true,
+            capabilities: { select: { sector: true, tags: true, name: true } },
+          },
+        }),
+      );
+      if (!client) return [];
+
+      const docs = await this.prisma.federalRegisterDocument.findMany({
+        where: {
+          type: { in: ['PROPOSED_RULE', 'RULE'] },
+          commentEndDate: { gte: lookbackStart, lt: now },
+        },
+        orderBy: { commentEndDate: 'desc' },
+        take: 40,
+      });
+      if (!docs.length) return [];
+
+      const capKeywords = new Set<string>();
+      if (client.sectorTag) capKeywords.add(String(client.sectorTag).toLowerCase());
+      for (const cap of client.capabilities) {
+        if (cap.sector) capKeywords.add(cap.sector.toLowerCase());
+        if (cap.name) cap.name.split(/\s+/).filter((w) => w.length > 3).forEach((w) => capKeywords.add(w.toLowerCase()));
+        const tags = Array.isArray(cap.tags) ? (cap.tags as unknown[]) : [];
+        for (const t of tags) {
+          if (typeof t === 'string' && t.length > 3) capKeywords.add(t.toLowerCase());
+        }
+      }
+      const normalizedClientSector = normalizeSector(client.sectorTag);
+
+      const out: AlertRow[] = [];
+      for (const doc of docs) {
+        const agencies = (doc.agencyNames as string[]) ?? [];
+        const docSectors = new Set<SectorTag>();
+        for (const agency of agencies) {
+          for (const sector of AGENCY_SECTOR_MAP[agency] ?? []) docSectors.add(sector);
+        }
+        let relevant = false;
+        if (normalizedClientSector && docSectors.has(normalizedClientSector)) relevant = true;
+        if (!relevant) {
+          const topics = Array.isArray(doc.topics) ? (doc.topics as string[]) : [];
+          for (const topic of topics) {
+            const tl = topic.toLowerCase();
+            for (const kw of capKeywords) {
+              if (tl.includes(kw) || kw.includes(tl)) { relevant = true; break; }
+            }
+            if (relevant) break;
+          }
+        }
+        if (!relevant) continue;
+
+        const days = Math.ceil((doc.commentEndDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)); // negative
+        out.push({
+          id: `comment_overdue:${doc.id}`,
+          type: 'comment_overdue',
+          severity: 'notable',
+          title: `Deadline closed: ${doc.title}`.slice(0, 140),
+          subtitle: agencies.slice(0, 2).join(' / ') || 'Federal Register',
+          when: doc.commentEndDate!.toISOString(),
+          countdownDays: days,
+          countdownLabel: this.alertCountdownLabel(days),
+          href: `/intelligence/changes?clientId=${encodeURIComponent(clientId)}&source=comment_overdue`,
+          _urgencyScore: 30, // recently lapsed: notable but below live deadlines
+          _typeRank: 2,
+        });
+      }
+      return out.slice(0, 5);
+    } catch (err) {
+      this.logger.warn(`getOverdueCommentAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
+  /**
+   * New competitor LDA activity on the client's issue codes (last `since` window).
+   * A DIFFERENT registrant/client filing on the same issue codes the client
+   * lobbies on — the intelligence-edge alert. NOTE: LDA filings are quarterly, so
+   * this is necessarily a slower cadence than the deadline/hearing alerts.
+   */
+  async getCompetitorLdaAlerts(
+    clientId: string,
+    tenantId: string,
+    since: Date,
+  ): Promise<AlertRow[]> {
+    try {
+      const issueCodes = await this.getClientIssueCodes(clientId);
+      if (issueCodes.length === 0) return [];
+
+      // The client's own LDA client name(s) so we exclude their own filings.
+      const client = await this.prisma.withTenant(tenantId, (tx) =>
+        tx.client.findFirst({ where: { id: clientId }, select: { name: true } }),
+      );
+      const ownName = (client?.name ?? '').trim().toLowerCase();
+
+      const filings = await this.prisma.ldaFiling.findMany({
+        where: {
+          dtPosted: { gte: since },
+          issueCodes: { hasSome: issueCodes },
+        },
+        orderBy: { dtPosted: 'desc' },
+        take: 25,
+      });
+
+      const seenRegistrants = new Set<string>();
+      const out: AlertRow[] = [];
+      for (const f of filings) {
+        const registrant = (f.registrantName ?? '').trim();
+        const filingClient = (f.clientName ?? '').trim();
+        // Skip the client's own filings (match on client name) and dedupe per registrant.
+        if (ownName && filingClient.toLowerCase() === ownName) continue;
+        const dedupeKey = `${registrant.toLowerCase()}|${filingClient.toLowerCase()}`;
+        if (seenRegistrants.has(dedupeKey)) continue;
+        seenRegistrants.add(dedupeKey);
+        if (!f.dtPosted) continue;
+        const overlap = (f.issueCodes ?? []).filter((c) => issueCodes.includes(c));
+        out.push({
+          id: `competitor:${f.id}`,
+          type: 'competitor_filing',
+          severity: 'info',
+          title: `New lobbying filing: ${registrant || 'Unknown firm'}`,
+          subtitle: `${filingClient || 'Undisclosed client'} · issues ${overlap.slice(0, 3).join(', ')}`,
+          when: f.dtPosted.toISOString(),
+          countdownDays: null,
+          countdownLabel: null,
+          href: `/intelligence/issues/${encodeURIComponent(overlap[0] ?? issueCodes[0] ?? '')}?clientId=${encodeURIComponent(clientId)}`,
+          _urgencyScore: 10,
+          _typeRank: 1,
+        });
+        if (out.length >= 5) break;
+      }
+      return out;
+    } catch (err) {
+      this.logger.warn(`getCompetitorLdaAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
+  /**
+   * New federal contract awards relevant to the client (last `since` window).
+   * Matched on the client's confirmed contracting mapping (contractor name) so
+   * "a contract just landed" surfaces as an alert.
+   */
+  async getContractAwardAlerts(
+    clientId: string,
+    tenantId: string,
+    since: Date,
+  ): Promise<AlertRow[]> {
+    try {
+      const mapping = await this.prisma.clientIntelMapping.findFirst({
+        where: { clientId, source: 'contracting', confirmed: true },
+        select: { externalId: true },
+      });
+      const contractorName = mapping?.externalId?.trim();
+      if (!contractorName) return [];
+
+      const awards = await this.prisma.federalAward.findMany({
+        where: {
+          contractorName: { equals: contractorName, mode: 'insensitive' },
+          awardedAt: { gte: since },
+        },
+        orderBy: { awardedAt: 'desc' },
+        take: 10,
+      });
+
+      const out: AlertRow[] = [];
+      for (const a of awards) {
+        if (!a.awardedAt) continue;
+        const amount = a.amount ? Number(a.amount) : 0;
+        out.push({
+          id: `award:${a.id}`,
+          type: 'contract_award',
+          severity: 'notable',
+          title: `New federal award${amount > 0 ? `: $${Math.round(amount).toLocaleString('en-US')}` : ''}`,
+          subtitle: `${a.awardingAgency ?? 'Federal agency'}${a.description ? ` · ${a.description.slice(0, 60)}` : ''}`,
+          when: a.awardedAt.toISOString(),
+          countdownDays: null,
+          countdownLabel: null,
+          href: `/intelligence/changes?clientId=${encodeURIComponent(clientId)}&source=contract_award`,
+          _urgencyScore: 25,
+          _typeRank: 1,
+        });
+        if (out.length >= 5) break;
+      }
+      return out;
+    } catch (err) {
+      this.logger.warn(`getContractAwardAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Per-user alert worklist state (ack / dismiss / snooze) — tenant + user scoped.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** Upsert per-user state for a specific alert. snoozedUntil only meaningful for 'snoozed'. */
+  async setAlertState(
+    tenantId: string,
+    userId: string,
+    clientId: string,
+    alertId: string,
+    state: 'acknowledged' | 'dismissed' | 'snoozed',
+    snoozedUntil?: Date | null,
+  ) {
+    // Verify the client belongs to the tenant (RLS also enforces, but fail fast).
+    const client = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({ where: { id: clientId }, select: { id: true } }),
+    );
+    if (!client) throw new NotFoundException('Client not found');
+
+    const resolvedSnooze = state === 'snoozed' ? (snoozedUntil ?? null) : null;
+    return this.prisma.withTenant(tenantId, (tx) =>
+      tx.alertState.upsert({
+        where: { userId_clientId_alertId: { userId, clientId, alertId } },
+        create: { tenantId, userId, clientId, alertId, state, snoozedUntil: resolvedSnooze },
+        update: { state, snoozedUntil: resolvedSnooze },
+        select: { id: true, alertId: true, state: true, snoozedUntil: true },
+      }),
+    );
+  }
+
+  /** Clear per-user state for an alert (undo ack/dismiss/snooze). Idempotent. */
+  async clearAlertState(tenantId: string, userId: string, clientId: string, alertId: string) {
+    await this.prisma.withTenant(tenantId, (tx) =>
+      tx.alertState.deleteMany({ where: { userId, clientId, alertId } }),
+    );
+    return { ok: true };
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Client briefs — saved notes promoted from alerts (or free-form). Surface in
+  // the Outreach wizard context section. Tenant-scoped.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  async listClientBriefs(tenantId: string, clientId: string) {
+    return this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientBrief.findMany({
+        where: { clientId },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true, title: true, body: true, sourceAlertId: true,
+          sourceType: true, createdBy: true, createdAt: true, updatedAt: true,
+        },
+      }),
+    );
+  }
+
+  async addClientBrief(
+    tenantId: string,
+    clientId: string,
+    userId: string,
+    input: { title: string; body: string; sourceAlertId?: string | null; sourceType?: string | null },
+  ) {
+    const client = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({ where: { id: clientId }, select: { id: true } }),
+    );
+    if (!client) throw new NotFoundException('Client not found');
+    return this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientBrief.create({
+        data: {
+          tenantId,
+          clientId,
+          createdBy: userId,
+          title: input.title.trim().slice(0, 300),
+          body: input.body.trim(),
+          sourceAlertId: input.sourceAlertId ?? null,
+          sourceType: input.sourceType ?? 'manual',
+        },
+        select: {
+          id: true, title: true, body: true, sourceAlertId: true,
+          sourceType: true, createdBy: true, createdAt: true, updatedAt: true,
+        },
+      }),
+    );
+  }
+
+  async deleteClientBrief(tenantId: string, clientId: string, briefId: string) {
+    await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientBrief.deleteMany({ where: { id: briefId, clientId } }),
+    );
+    return { ok: true };
+  }
+
 
   /** Knowledge graph nodes + edges for hub-and-spoke visualization (powered by kg_walk view/function layer) */
   async getKnowledgeGraph(clientId: string, tenantId: string) {
