@@ -78,7 +78,7 @@ export async function getEngagementContacts(
 
 export async function getProgramElementsList(
   api: AxiosInstance,
-  params: { q?: string; service?: string; page?: number; limit?: number },
+  params: { q?: string; service?: string; page?: number; limit?: number; has_data?: 'true' | 'false' },
 ): Promise<ProgramElementListResponse> {
   return (await api.get<ProgramElementListResponse>('/api/program-elements', { params })).data;
 }

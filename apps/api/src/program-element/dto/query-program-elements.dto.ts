@@ -32,6 +32,15 @@ export class QueryProgramElementsDto {
   @IsIn(['markup-monitor'])
   mode?: 'markup-monitor';
 
+  // When 'true', restrict the list to PEs that have at least one underlying data
+  // signal (FY history row, PE-linked federal award, or a bill referencing the PE).
+  // Lets the finder hide sparse/empty PEs so users don't click into blank detail
+  // pages. Omitted/any other value = no filter (return all PEs).
+  @IsOptional()
+  @IsString()
+  @IsIn(['true', 'false'])
+  has_data?: string;
+
   @IsOptional()
   @Type(() => Number)
   @Min(0)

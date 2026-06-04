@@ -33,6 +33,9 @@ export interface ProgramElementListItem {
   appropriationType: string | null;
   status: string | null;
   lastSyncedAt: string;
+  // True when the PE has at least one FY history row, PE-linked federal award, or
+  // a bill referencing it. Lets the finder flag/hide PEs with empty detail panels.
+  hasData?: boolean;
 }
 
 export interface ProgramElementMarkupMonitorItem {

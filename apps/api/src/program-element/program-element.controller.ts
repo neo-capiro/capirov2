@@ -32,6 +32,7 @@ export class ProgramElementController {
         limit: query.limit,
         mode: query.mode,
         divergenceThreshold: query.divergence_threshold,
+        hasData: query.has_data,
       },
       ctx,
     );
