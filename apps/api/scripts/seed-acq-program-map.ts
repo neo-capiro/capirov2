@@ -47,6 +47,24 @@ const CURATED: CuratedEntry[] = [
   { code: '212', name: 'V-22', peCodes: ['0604262N', '0205456N'] },
   { code: '364', name: 'E-2D AHE', peCodes: ['0604234N', '0204114N'] },
   { code: '176', name: 'NSSL', peCodes: ['0603856F', '0305614F'] },
+  // ── Extended coverage (peCodes mined from committed J-book artifacts; every pair
+  // is validated against program_element at seed time, so unknown PEs are skipped,
+  // never invented). Drawn from report-award-pe-coverage topUnmappedPrograms.
+  { code: '178', name: 'TRIDENT II MISSILE', peCodes: ['0603595N', '0604503N', '0101224N'] },
+  { code: '220', name: 'C-130J', peCodes: ['0401132F'] },
+  { code: '185', name: 'AMRAAM', peCodes: ['0207163F', '0207163N'] },
+  { code: '555', name: 'JASSM', peCodes: ['0207325F'] },
+  { code: '260', name: 'GMLRS/GMLRS AW', peCodes: ['0205778A'] },
+  { code: '106', name: 'PATRIOT', peCodes: ['0607865A'] },
+  { code: '279', name: 'JLTV', peCodes: ['0605812A', '0605813M'] },
+  { code: '424', name: 'MQ-9 REAPER', peCodes: ['0205219F'] },
+  { code: '252', name: 'RQ-4A/B GLOBAL HAWK', peCodes: ['0305220F', '0305421N'] },
+  { code: '374', name: 'LCS', peCodes: ['0603581N', '0603596N'] },
+  { code: '378', name: 'EA-18G', peCodes: ['0604269N'] },
+  { code: '202', name: 'AH-64E REMANUFACTURE', peCodes: ['0607145A'] },
+  { code: '289', name: 'TACTOM', peCodes: ['0204229N'] },
+  { code: '197', name: 'DDG 1000', peCodes: ['0204202N'] },
+  { code: '474', name: 'F-22 INC 3.2B MOD', peCodes: ['0207138F'] },
 ];
 
 function hasFlag(name: string): boolean {
