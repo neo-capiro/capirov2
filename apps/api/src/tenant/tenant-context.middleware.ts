@@ -6,10 +6,15 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
+import type { Prisma } from '@prisma/client';
 import { TENANT_HEADER, type TenantContext, type TenantRole } from '@capiro/shared';
 import { ClerkService, type ClerkSessionClaims } from '../auth/clerk.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { mapClerkRoleToCapiro } from '../auth/clerk-role.util.js';
 import { TenantContextStore } from './tenant-context.store.js';
+
+type SystemTx = Prisma.TransactionClient;
+type MembershipWithTenant = Prisma.TenantMembershipGetPayload<{ include: { tenant: true } }>;
 
 /**
  * Resolves the tenant context for an authenticated request.
@@ -55,6 +60,7 @@ export class TenantContextMiddleware implements NestMiddleware {
     const originalUrl = req.originalUrl ?? req.url ?? '';
     const baseUrl = req.baseUrl ?? '';
     const bypassPaths = [
+      '/webhooks/clerk',
       '/api/v1/demo-requests',
       '/api/engagement/integrations/microsoft/callback',
       '/api/engagement/integrations/microsoft/notifications',
@@ -95,33 +101,30 @@ export class TenantContextMiddleware implements NestMiddleware {
     // tenant-scoped (we are still resolving the tenant), so it MUST run
     // through the system path.
     const ctx = await this.prisma.withSystem(async (tx) => {
-      const user = await tx.user.findUnique({ where: { clerkUserId: claims.sub } });
+      let user = await tx.user.findUnique({ where: { clerkUserId: claims.sub } });
       if (!user) {
-        // First-time authenticated request from this Clerk user. The webhook
-        // is the canonical source of users, but a slow webhook should not
-        // block sign-in, best-effort upsert keeps things flowing.
-        await tx.user.create({
+        // First-time authenticated request from this Clerk user. The webhook is
+        // the canonical source of users, but a slow (or, as in the 2026-05
+        // webhook-routing outage, undelivered) webhook must not block a user
+        // whose verified Clerk JWT already proves their identity. Create the
+        // row; the self-heal below attaches the membership from the JWT.
+        user = await tx.user.create({
           data: {
             clerkUserId: claims.sub,
             email: claims.email ?? `${claims.sub}@unknown.invalid`,
           },
         });
-        throw new ForbiddenException('User has no tenant memberships');
       }
 
-      const memberships = await tx.tenantMembership.findMany({
+      let memberships = await tx.tenantMembership.findMany({
         where: { userId: user.id, status: 'active' },
         include: { tenant: true },
       });
 
-      if (memberships.length === 0) {
-        throw new ForbiddenException('User has no active tenant memberships');
-      }
-
       // Match by every hint we have, in preference order. The JWT-claim
       // matches are the fast path: if the Clerk JWT template populated
       // capiro_tenant_id, we trust it (after the org_id cross-check below).
-      const chosen =
+      let chosen: MembershipWithTenant | undefined =
         memberships.find((m) => claimedTenantId && m.tenantId === claimedTenantId) ??
         memberships.find((m) => claimedOrgId && m.tenant.clerkOrgId === claimedOrgId) ??
         memberships.find(
@@ -136,6 +139,37 @@ export class TenantContextMiddleware implements NestMiddleware {
         !requestedSlug
           ? memberships[0]
           : undefined);
+
+      // Self-heal. The local tenant_memberships table is a MIRROR of Clerk org
+      // memberships, populated asynchronously by the Clerk webhook. If that
+      // mirror is missing the row but the cryptographically-verified Clerk JWT
+      // asserts an active org membership (org_id claim), provision the row from
+      // the trusted claims instead of locking the user out. This is the same
+      // trust model the webhook uses (Clerk is the source of truth for org
+      // membership); selfHealMembership() never grants access to a tenant the
+      // JWT does not already prove membership in, and it refuses to resurrect a
+      // membership that was explicitly removed/suspended.
+      if (!chosen && claimedOrgId) {
+        const healed = await this.selfHealMembership(tx, user.id, {
+          claimedOrgId,
+          claimedTenantId,
+          claimedTenantSlug,
+          orgRole: nonEmpty(claims.org_role) ?? nonEmpty(claims.capiro_org_role),
+        });
+        if (healed) {
+          memberships = [...memberships, healed];
+          chosen = healed;
+          this.logger.warn(
+            `Self-healed missing local membership for user ${user.id} in tenant ` +
+              `${healed.tenantId} (role ${healed.role}) from a verified Clerk JWT; ` +
+              `the webhook-populated mirror was stale.`,
+          );
+        }
+      }
+
+      if (memberships.length === 0) {
+        throw new ForbiddenException('User has no active tenant memberships');
+      }
 
       if (!chosen) {
         throw new ForbiddenException(
@@ -214,6 +248,72 @@ export class TenantContextMiddleware implements NestMiddleware {
     // for the @CurrentTenant() decorator and direct controller access.
     (req as Request & { tenantContext?: TenantContext }).tenantContext = ctx;
     this.store.run(ctx, () => next());
+  }
+
+  /**
+   * Provision a local tenant_membership from a verified Clerk JWT when the
+   * webhook-populated mirror is missing it. Returns the membership (with its
+   * tenant) to use, or null if it cannot / must not be provisioned.
+   *
+   * Safety rules (this is an authorization path — fail closed):
+   *   - The tenant is resolved by `clerk_org_id === org_id`, and org_id is a
+   *     verified JWT claim, so we only ever provision a tenant the JWT already
+   *     proves the user is a Clerk member of.
+   *   - If the JWT also carries capiro_tenant_id / capiro_tenant_slug, they
+   *     MUST agree with the resolved tenant (the same integrity checks the
+   *     caller applies post-resolution), otherwise we bail.
+   *   - The tenant must be active.
+   *   - A pre-existing non-active membership (removed/suspended) is NOT
+   *     resurrected: offboarding stays sticky and must be redone via the normal
+   *     invite flow.
+   */
+  private async selfHealMembership(
+    tx: SystemTx,
+    userId: string,
+    hints: {
+      claimedOrgId: string;
+      claimedTenantId?: string;
+      claimedTenantSlug?: string;
+      orgRole?: string;
+    },
+  ): Promise<MembershipWithTenant | null> {
+    const tenant = await tx.tenant.findUnique({ where: { clerkOrgId: hints.claimedOrgId } });
+    if (!tenant || tenant.status !== 'active') {
+      return null;
+    }
+    if (hints.claimedTenantId && tenant.id !== hints.claimedTenantId) {
+      return null;
+    }
+    if (
+      hints.claimedTenantSlug &&
+      tenant.slug.toLowerCase() !== hints.claimedTenantSlug.toLowerCase()
+    ) {
+      return null;
+    }
+
+    const existing = await tx.tenantMembership.findUnique({
+      where: { tenantId_userId: { tenantId: tenant.id, userId } },
+      include: { tenant: true },
+    });
+    if (existing) {
+      // A row exists but was not in the active set (removed/suspended). Do not
+      // silently re-grant access; require an explicit re-invite.
+      return existing.status === 'active' ? existing : null;
+    }
+
+    // Mirror the webhook's role derivation exactly, keyed on the DB tenant slug
+    // (authoritative) rather than the JWT's org_slug claim.
+    const role = mapClerkRoleToCapiro(tenant.slug, hints.orgRole ?? 'org:member');
+    return tx.tenantMembership.create({
+      data: {
+        tenantId: tenant.id,
+        userId,
+        role,
+        status: 'active',
+        joinedAt: new Date(),
+      },
+      include: { tenant: true },
+    });
   }
 
   private resolveRequestedTenantSlug(req: Request): string | undefined {
