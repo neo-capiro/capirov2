@@ -110,10 +110,14 @@ const fiveYears: ProgramElementHistoryRow[] = [
 describe('FyHistoryChart', () => {
   test('renders with 5 FYs', () => {
     render(<FyHistoryChart rows={fiveYears} />);
-    expect(screen.getByText(/Timeline/i)).toBeInTheDocument();
-    expect(screen.getByText(/Win rate this PE \(5y\):/i)).toBeInTheDocument();
-    expect(screen.getByText(/Request \(lighter\)/i)).toBeInTheDocument();
-    expect(screen.getByText(/Enacted \(darker\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/Funding timeline/i)).toBeInTheDocument();
+    // Win-rate label copy: "Win rate (5y) +X.X% over request" (split across nodes)
+    expect(screen.getByTestId('pe-win-rate-label')).toHaveTextContent(/Win rate \(5y\)/i);
+    expect(screen.getByTestId('pe-win-rate-label')).toHaveTextContent(/over request/i);
+    // Chart legend
+    expect(screen.getByText('Request')).toBeInTheDocument();
+    expect(screen.getByText('Enacted')).toBeInTheDocument();
+    expect(screen.getByText('Pending')).toBeInTheDocument();
   });
 
   test('empty state', () => {

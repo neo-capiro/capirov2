@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Button, Card, Empty, Skeleton, Space, Tag, Typography } from 'antd';
+import { Button, Card, Empty, Skeleton, Space, Typography } from 'antd';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -112,10 +112,9 @@ function WinRateLabel({ rows }: { rows: ProgramElementHistoryRow[] }) {
 
   const sign = pct >= 0 ? '+' : '';
   return (
-    <Text type="secondary" data-testid="pe-win-rate-label">
-      Win rate this PE (5y): {sign}
-      {pct.toFixed(1)}% over request
-    </Text>
+    <span className="pe-winrate" data-testid="pe-win-rate-label">
+      Win rate (5y) <b className={pct >= 0 ? 'pe-pos' : 'pe-neg'}>{sign}{pct.toFixed(1)}%</b> over request
+    </span>
   );
 }
 
@@ -132,24 +131,40 @@ export function FyHistoryChart({ rows, loading = false, onFyClick }: FyHistoryCh
 
   if (data.length === 0) {
     return (
-      <Card title="Timeline">
+      <Card title="Funding timeline">
         <Empty description="No FY history yet" />
       </Card>
     );
   }
 
   return (
-    <Card title="Timeline">
+    <Card
+      className="pe-chart-card"
+      title="Funding timeline"
+      extra={<WinRateLabel rows={rows} />}
+    >
       <div style={{ width: '100%', height: 420, minWidth: 320 }}>
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 20, right: 20, left: 20, bottom: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" />
-            <XAxis dataKey="fy" tickFormatter={(v) => `FY ${v}`} />
-            <YAxis tickFormatter={dollarsTick} />
-            <Tooltip content={<TooltipContent />} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#e6e1d6" vertical={false} />
+            <XAxis
+              dataKey="fy"
+              tickFormatter={(v) => `FY ${v}`}
+              tick={{ fill: '#8a8780', fontSize: 12 }}
+              axisLine={{ stroke: '#d8d2c4' }}
+              tickLine={false}
+            />
+            <YAxis
+              tickFormatter={dollarsTick}
+              tick={{ fill: '#8a8780', fontSize: 12 }}
+              axisLine={false}
+              tickLine={false}
+            />
+            <Tooltip content={<TooltipContent />} cursor={{ fill: 'rgba(42,87,206,0.06)' }} />
             <Bar
               dataKey="request"
-              fill="#91caff"
+              fill="#9db8ff"
+              radius={[3, 3, 0, 0]}
               name="Request"
               onClick={(state) => {
                 const entry = state as { fy?: number } | null;
@@ -160,7 +175,7 @@ export function FyHistoryChart({ rows, loading = false, onFyClick }: FyHistoryCh
             />
             <Bar
               dataKey="enacted"
-              fill="#1677ff"
+              fill="#2a57ce"
               name="Enacted"
               onClick={(state) => {
                 const entry = state as { fy?: number } | null;
@@ -187,50 +202,54 @@ export function FyHistoryChart({ rows, loading = false, onFyClick }: FyHistoryCh
                   return null;
                 }
                 const { x, y, width, height, payload } = candidate;
+                // Projected/pending years render as a low beige bar to match the
+                // mockup's "Pending" treatment instead of a faded blue.
+                const fill = payload.projected ? '#d8d2c4' : '#2a57ce';
                 return (
                   <g>
-                    <rect
-                      x={x}
-                      y={y}
-                      width={width}
-                      height={height}
-                      fill="#1677ff"
-                      opacity={payload.projected ? 0.4 : 1}
-                    />
+                    <rect x={x} y={y} width={width} height={height} rx={3} ry={3} fill={fill} />
                     {payload.projected ? (
                       <text
                         x={x + width / 2}
                         y={Math.max(y - 6, 12)}
                         textAnchor="middle"
                         fontSize={10}
-                        fill="#595959"
+                        fill="#8a8780"
                       >
-                        Projected
+                        Pending
                       </text>
                     ) : null}
                   </g>
                 );
               }}
             />
-            <ReferenceLine y={0} stroke="#d9d9d9" />
+            <ReferenceLine y={0} stroke="#d8d2c4" />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <Space style={{ marginTop: 8 }}>
-        <Tag color="blue">Request (lighter)</Tag>
-        <Tag color="processing">Enacted (darker)</Tag>
-      </Space>
-      <div style={{ marginTop: 8 }}>
-        <WinRateLabel rows={rows} />
+      <div className="pe-chart-foot">
+        <div className="pe-chart-legend">
+          <span className="pe-leg">
+            <i style={{ background: '#9db8ff' }} />
+            Request
+          </span>
+          <span className="pe-leg">
+            <i style={{ background: '#2a57ce' }} />
+            Enacted
+          </span>
+          <span className="pe-leg">
+            <i style={{ background: '#d8d2c4' }} />
+            Pending
+          </span>
+        </div>
+        <Button
+          className="pe-latest-fy-btn"
+          size="small"
+          onClick={() => onFyClick?.(data[data.length - 1]?.fy ?? 0)}
+        >
+          Select latest FY
+        </Button>
       </div>
-      <Button
-        type="link"
-        size="small"
-        onClick={() => onFyClick?.(data[data.length - 1]?.fy ?? 0)}
-        style={{ paddingInline: 0, marginTop: 6 }}
-      >
-        Select latest FY
-      </Button>
     </Card>
   );
 }
