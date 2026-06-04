@@ -99,6 +99,10 @@ case "${1:-serve}" in
     echo "Running emit-changes (post-sync IntelligenceChange emitter)"
     exec ./node_modules/.bin/tsx scripts/emit-changes.ts
     ;;
+  diag-alert-coverage)
+    echo "Running diag-alert-coverage (read-only alert-precondition coverage report)"
+    exec ./node_modules/.bin/tsx scripts/diag-alert-coverage.ts
+    ;;
   emit-bill-alerts)
     echo "Running emit-bill-alerts (semantic per-bill stage alerts)"
     exec ./node_modules/.bin/tsx scripts/emit-bill-alerts.ts
