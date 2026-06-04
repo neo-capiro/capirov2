@@ -9,7 +9,6 @@ import {
   Drawer,
   Empty,
   Select,
-  Skeleton,
   Space,
   Table,
   Tag,
@@ -21,7 +20,6 @@ import type { ColumnsType } from 'antd/es/table';
 import { AlertOutlined } from '@ant-design/icons';
 import { useApi } from '../../lib/use-api.js';
 import type {
-  CommentAlert,
   IntelligenceChange,
   PortfolioAlertsResponse,
 } from './types.js';
@@ -75,18 +73,6 @@ export function ChangesInboxPage() {
         })
       ).data,
     staleTime: 2 * 60 * 1000,
-  });
-
-  const commentAlertsQuery = useQuery<{ alerts: CommentAlert[] }>({
-    queryKey: ['comment-alerts'],
-    queryFn: async () => {
-      try {
-        return (await api.get<{ alerts: CommentAlert[] }>('/api/intelligence/comment-alerts')).data;
-      } catch {
-        return { alerts: [] };
-      }
-    },
-    staleTime: 5 * 60 * 1000,
   });
 
   // Cross-client alert roll-up — same taxonomy as the client Intelligence tab
@@ -187,20 +173,6 @@ export function ChangesInboxPage() {
     const curated = Object.keys(PORTFOLIO_ALERT_CATEGORY_LABELS);
     return [...new Set([...curated, ...allChanges.map((c) => c.source)])].sort();
   }, [allChanges]);
-
-  const groupedCommentAlerts = useMemo(() => {
-    const alerts = commentAlertsQuery.data?.alerts ?? [];
-    const groups = new Map<string, { alert: CommentAlert; clients: string[] }>();
-    for (const alert of alerts) {
-      const existing = groups.get(alert.documentId);
-      if (existing) {
-        if (!existing.clients.includes(alert.clientName)) existing.clients.push(alert.clientName);
-      } else {
-        groups.set(alert.documentId, { alert, clients: [alert.clientName] });
-      }
-    }
-    return Array.from(groups.values()).sort((a, b) => a.alert.daysToDeadline - b.alert.daysToDeadline);
-  }, [commentAlertsQuery.data]);
 
   const unreadCount = filteredChanges.filter(
     (c) => !readIds.has(c.id) && !(c as IntelligenceChange & { consumed?: boolean }).consumed,
@@ -305,77 +277,6 @@ export function ChangesInboxPage() {
           Resolve All Clients
         </Button>
       </div>
-
-      {/* Comment Period Alerts */}
-      {(groupedCommentAlerts.length > 0 || commentAlertsQuery.isLoading) && (
-        <Card
-          size="small"
-          title={
-            <Space>
-              <AlertOutlined style={{ color: '#ff4d4f' }} />
-              <span>Open Comment Periods</span>
-              {groupedCommentAlerts.length > 0 && (
-                <Badge count={groupedCommentAlerts.length} style={{ backgroundColor: '#ff4d4f' }} />
-              )}
-            </Space>
-          }
-          style={{ marginBottom: 16 }}
-        >
-          {commentAlertsQuery.isLoading ? (
-            <Skeleton active paragraph={{ rows: 2 }} />
-          ) : (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              {groupedCommentAlerts.map(({ alert, clients }) => {
-                const borderColor =
-                  alert.daysToDeadline < 3 ? '#ff4d4f'
-                    : alert.daysToDeadline <= 7 ? '#faad14'
-                    : '#1677ff';
-                const tagColor =
-                  alert.daysToDeadline < 3 ? 'red'
-                    : alert.daysToDeadline <= 7 ? 'gold'
-                    : 'blue';
-                return (
-                  <Card
-                    key={alert.documentId}
-                    size="small"
-                    style={{
-                      borderLeft: `4px solid ${borderColor}`,
-                      minWidth: 220,
-                      maxWidth: 340,
-                      flex: '1 1 220px',
-                      boxShadow: alert.daysToDeadline < 3 ? `0 0 10px ${borderColor}30` : undefined,
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                      <Tooltip title={alert.title}>
-                        <Text strong style={{ fontSize: 12, flex: 1 }}>
-                          {alert.title.length > 80 ? alert.title.slice(0, 80) + '…' : alert.title}
-                        </Text>
-                      </Tooltip>
-                      <Tag color={tagColor} style={{ flexShrink: 0 }}>{alert.daysToDeadline}d left</Tag>
-                    </div>
-                    <div style={{ marginTop: 4 }}>
-                      <Text type="secondary" style={{ fontSize: 11 }}>
-                        {alert.agencies.slice(0, 2).join(' / ')}
-                        {alert.agencies.length > 2 ? ` +${alert.agencies.length - 2}` : ''}
-                      </Text>
-                    </div>
-                    {clients.length > 0 && (
-                      <div style={{ marginTop: 6 }}>
-                        <Space wrap size={[2, 2]}>
-                          {clients.map((c) => (
-                            <Tag key={c} style={{ fontSize: 10 }}>{c}</Tag>
-                          ))}
-                        </Space>
-                      </div>
-                    )}
-                  </Card>
-                );
-              })}
-            </div>
-          )}
-        </Card>
-      )}
 
       {/* Filter bar */}
       <Card size="small" style={{ marginBottom: 16 }}>
