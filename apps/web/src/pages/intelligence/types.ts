@@ -266,6 +266,44 @@ export interface IntelligenceChange {
   consumed?: boolean;
 }
 
+/**
+ * Cross-client alert roll-up (GET /api/intelligence/portfolio-alerts). Same
+ * alert taxonomy as the client Intelligence tab Top Alerts, spanning every
+ * active client. Shared by the dashboard Needs-Attention banner and the
+ * Changes inbox so all three surfaces use one taxonomy.
+ */
+export interface PortfolioAlertItem {
+  id: string;
+  type: string;
+  severity: string;
+  title: string;
+  subtitle: string;
+  when: string;
+  countdownDays: number | null;
+  countdownLabel: string | null;
+  href: string | null;
+  clientId: string;
+  clientName: string;
+  state?: string | null;
+}
+
+export interface PortfolioAlertsResponse {
+  alerts: PortfolioAlertItem[];
+  total: number;
+  clientCount: number;
+  generatedAt: string;
+}
+
+/** Friendly labels for the portfolio-alert category taxonomy. */
+export const PORTFOLIO_ALERT_CATEGORY_LABELS: Record<string, string> = {
+  comment_deadline: 'Comment deadline',
+  comment_overdue: 'Comment closed',
+  competitor_filing: 'Competitor filing',
+  contract_award: 'Contract award',
+  hearing: 'Hearing',
+  bill_movement: 'Bill movement',
+};
+
 export interface CrmClient {
   id: string; name: string; status: string; description: string | null;
 }

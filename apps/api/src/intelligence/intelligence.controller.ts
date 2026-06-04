@@ -251,6 +251,17 @@ export class IntelligenceController {
     return this.service.getPortfolioSummary(ctx.tenantId);
   }
 
+  @Get('portfolio-alerts')
+  getPortfolioAlerts(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('limit') limit?: string,
+  ) {
+    const parsed = limit != null ? Number.parseInt(limit, 10) : undefined;
+    return this.service.getPortfolioAlerts(ctx.tenantId, ctx.userId, {
+      limit: Number.isFinite(parsed) ? parsed : undefined,
+    });
+  }
+
   @Get('live-ticker')
   getLiveTicker(@CurrentTenant() ctx: TenantContext) {
     return this.service.getLiveTicker(ctx.tenantId);

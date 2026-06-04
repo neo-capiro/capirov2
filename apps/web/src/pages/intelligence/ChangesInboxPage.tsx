@@ -20,7 +20,12 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import { AlertOutlined } from '@ant-design/icons';
 import { useApi } from '../../lib/use-api.js';
-import type { CommentAlert, IntelligenceChange } from './types.js';
+import type {
+  CommentAlert,
+  IntelligenceChange,
+  PortfolioAlertsResponse,
+} from './types.js';
+import { PORTFOLIO_ALERT_CATEGORY_LABELS } from './types.js';
 
 const { Text, Paragraph } = Typography;
 const { RangePicker } = DatePicker;
@@ -84,6 +89,25 @@ export function ChangesInboxPage() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Cross-client alert roll-up — same taxonomy as the client Intelligence tab
+  // Top Alerts and the dashboard Needs-Attention banner. These are
+  // compute-on-read alerts (NOT intelligence_change rows), so we merge them
+  // into the inbox as synthetic rows and expose their categories as source
+  // filters. Keeps the inbox in lockstep with the other two surfaces.
+  const portfolioAlertsQuery = useQuery<PortfolioAlertsResponse>({
+    queryKey: ['portfolio-alerts-inbox'],
+    queryFn: async () => {
+      try {
+        return (await api.get<PortfolioAlertsResponse>('/api/intelligence/portfolio-alerts', {
+          params: { limit: 50 },
+        })).data;
+      } catch {
+        return { alerts: [], total: 0, clientCount: 0, generatedAt: new Date().toISOString() };
+      }
+    },
+    staleTime: 2 * 60 * 1000,
+  });
+
   const markReadMutation = useMutation({
     mutationFn: async (id: string) => {
       await api.patch(`/api/intelligence/changes/${id}`, { consumed: true });
@@ -115,10 +139,37 @@ export function ChangesInboxPage() {
     },
   });
 
-  const allChanges = changesQuery.data ?? [];
+  // Convert the cross-client portfolio alerts into inbox rows so the inbox
+  // reflects the SAME alert categories as the dashboard + client tab. These are
+  // synthetic (compute-on-read) rows: the `source` is the alert category so the
+  // existing Source filter works, and `consumed` is left undefined (they can't
+  // be persistently cleared like real change rows, but they age out on their
+  // own as the underlying signal expires).
+  const portfolioAlertRows = useMemo<IntelligenceChange[]>(() => {
+    const alerts = portfolioAlertsQuery.data?.alerts ?? [];
+    return alerts.map((a) => ({
+      id: `pa-${a.id}`,
+      source: a.type,
+      changeType: a.type,
+      severity: a.severity === 'critical' || a.severity === 'notable' ? a.severity : 'info',
+      title: a.title,
+      description: [a.clientName, a.subtitle, a.countdownLabel].filter(Boolean).join(' · '),
+      relatedClientIds: a.clientId ? [a.clientId] : [],
+      relatedIssues: [],
+      data: { portfolioAlert: true, href: a.href ?? null, clientName: a.clientName },
+      detectedAt: a.when || new Date().toISOString(),
+      consumed: false,
+    }));
+  }, [portfolioAlertsQuery.data]);
+
+  const allChanges = useMemo(
+    () => [...(changesQuery.data ?? []), ...portfolioAlertRows],
+    [changesQuery.data, portfolioAlertRows],
+  );
 
   const filteredChanges = useMemo(() => {
     let data = allChanges;
+    if (selectedSource) data = data.filter((c) => c.source === selectedSource);
     if (selectedSeverity) data = data.filter((c) => c.severity === selectedSeverity);
     if (dateRange[1]) {
       const end = new Date(dateRange[1]).getTime();
@@ -127,12 +178,15 @@ export function ChangesInboxPage() {
     return [...data].sort(
       (a, b) => new Date(b.detectedAt).getTime() - new Date(a.detectedAt).getTime(),
     );
-  }, [allChanges, selectedSeverity, dateRange]);
+  }, [allChanges, selectedSource, selectedSeverity, dateRange]);
 
-  const distinctSources = useMemo(
-    () => [...new Set(allChanges.map((c) => c.source))].sort(),
-    [allChanges],
-  );
+  const distinctSources = useMemo(() => {
+    // Always offer the portfolio-alert categories as filter options (even when
+    // none are currently present) so the inbox advertises the full taxonomy,
+    // then union with whatever sources the live change/alert rows carry.
+    const curated = Object.keys(PORTFOLIO_ALERT_CATEGORY_LABELS);
+    return [...new Set([...curated, ...allChanges.map((c) => c.source)])].sort();
+  }, [allChanges]);
 
   const groupedCommentAlerts = useMemo(() => {
     const alerts = commentAlertsQuery.data?.alerts ?? [];
@@ -153,6 +207,19 @@ export function ChangesInboxPage() {
   ).length;
 
   function handleRowClick(record: IntelligenceChange) {
+    // Synthetic portfolio-alert rows (compute-on-read) aren't persisted change
+    // rows: don't PATCH mark-read (the id has no DB row). Navigate to the
+    // alert's deep link when present, otherwise just open the drawer.
+    const isPortfolioAlert = record.id.startsWith('pa-');
+    if (isPortfolioAlert) {
+      const href = (record.data as { href?: string | null } | undefined)?.href;
+      if (href) {
+        navigate(href);
+        return;
+      }
+      setDrawerRecord(record);
+      return;
+    }
     setDrawerRecord(record);
     if (!readIds.has(record.id)) {
       markReadMutation.mutate(record.id);
@@ -178,7 +245,7 @@ export function ChangesInboxPage() {
       title: 'Source',
       dataIndex: 'source',
       width: 140,
-      render: (src: string) => <Tag>{src}</Tag>,
+      render: (src: string) => <Tag>{PORTFOLIO_ALERT_CATEGORY_LABELS[src] ?? src}</Tag>,
     },
     {
       title: 'Title',
@@ -320,7 +387,10 @@ export function ChangesInboxPage() {
             style={{ minWidth: 200 }}
             value={selectedSource ? [selectedSource] : []}
             onChange={(vals: string[]) => setSelectedSource(vals[0])}
-            options={distinctSources.map((s) => ({ label: s, value: s }))}
+            options={distinctSources.map((s) => ({
+              label: PORTFOLIO_ALERT_CATEGORY_LABELS[s] ?? s,
+              value: s,
+            }))}
           />
           <Select
             allowClear
