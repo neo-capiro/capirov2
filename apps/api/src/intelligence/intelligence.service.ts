@@ -300,7 +300,21 @@ export class IntelligenceService {
       this.getDistrictNexus(clientId, tenantId),
       this.getTrackedBills(clientId, tenantId),
       this.getBillRegulationLinks(clientId, tenantId),
-      this.getKnowledgeGraph(clientId, tenantId),
+      // [6] Knowledge graph: REMOVED from the client Intelligence tab. The graph
+      // is being relocated to the Intelligence Center (it still has its own
+      // dedicated endpoint + getKnowledgeGraph() method, used by
+      // KnowledgeGraphPage). It was the single slowest source here — kg_walk()
+      // ran inside an interactive transaction and, under the 24-way fan-out,
+      // produced "Unable to start a transaction" pool-starvation errors plus
+      // 8–18s tail latency. We keep this positional slot (so every later index
+      // is unchanged) but resolve a static empty graph instead of touching the
+      // DB. scopedGraph is built from this empty shape; the Relationships
+      // section no longer renders the graph, so nothing downstream regresses.
+      Promise.resolve({
+        nodes: [] as Array<{ id: string; type: string; label: string }>,
+        edges: [] as Array<{ source: string; target: string; type: string }>,
+        resolutionQuality: { avgConfidence: 0, confirmedCount: 0, unconfirmedCount: 0 },
+      } as unknown as Awaited<ReturnType<typeof this.getKnowledgeGraph>>),
       this.computeEngagementHealth(clientId, tenantId),
       this.getExStaffers(clientId, tenantId),
       this.getCommentPeriodAlerts(tenantId),
