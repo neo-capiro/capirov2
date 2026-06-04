@@ -62,6 +62,39 @@ async function main(): Promise<void> {
       LIMIT 20
     `);
 
+    // Per mapped PE: how many contractors getContractors() would return, both in
+    // the live 24-month window (what the panel actually shows) AND all-time. If
+    // windowed=0 but allTime>0, the awards are simply older than 24 months — the
+    // panel is empty for a real (data-age) reason, not a linkage bug. Mirrors the
+    // getContractors query: match by direct pe_code OR linked acq program code.
+    const perPe = await prisma.$queryRaw<
+      Array<{ peCode: string; contractors24mo: number; contractorsAllTime: number; latestAward: Date | null }>
+    >(Prisma.sql`
+      WITH mapped AS (
+        SELECT DISTINCT pe_code, acq_program_code FROM program_element_acquisition_program
+      ),
+      awards AS (
+        SELECT DISTINCT ON (fa.id) fa.id, m.pe_code, fa.contractor_name, fa.action_date, fa.awarded_at
+        FROM mapped m
+        JOIN federal_award fa
+          ON (fa.pe_code = m.pe_code OR fa.dod_acq_program_code = m.acq_program_code)
+        WHERE fa.contractor_name IS NOT NULL
+      )
+      SELECT
+        pe_code AS "peCode",
+        COUNT(DISTINCT CASE
+          WHEN COALESCE(action_date, awarded_at::date) >= (NOW() - INTERVAL '24 months')::date
+          THEN contractor_name END)::int AS "contractors24mo",
+        COUNT(DISTINCT contractor_name)::int AS "contractorsAllTime",
+        MAX(COALESCE(action_date, awarded_at::date)) AS "latestAward"
+      FROM awards
+      GROUP BY pe_code
+      ORDER BY "contractors24mo" DESC, "contractorsAllTime" DESC
+    `);
+
+    const working = perPe.filter((p) => p.contractors24mo > 0);
+    const emptyButHasOlder = perPe.filter((p) => p.contractors24mo === 0 && p.contractorsAllTime > 0);
+
     console.log(
       JSON.stringify(
         {
@@ -71,6 +104,11 @@ async function main(): Promise<void> {
           peCodeBySource: bySource,
           curatedMapEntries: mapEntries,
           distinctMappedPeCodes: distinctMappedPes[0]?.n ?? 0,
+          // PANEL DIAGNOSTIC:
+          panelWorkingPeCount: working.length,
+          panelWorkingPes: working.slice(0, 15),
+          panelEmptyDueToAgePeCount: emptyButHasOlder.length,
+          panelEmptyDueToAgeSample: emptyButHasOlder.slice(0, 10),
           topUnmappedProgramsByAwardCount: unmappedTopPrograms,
         },
         null,
