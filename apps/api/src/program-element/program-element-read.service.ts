@@ -13,6 +13,8 @@ export interface ProgramElementListQuery {
   limit?: number;
   mode?: 'markup-monitor';
   divergenceThreshold?: number;
+  /** 'true' restricts to PEs with at least one data signal (year/award/bill). */
+  hasData?: string;
 }
 
 @Injectable()
@@ -38,6 +40,7 @@ export class ProgramElementReadService {
     const service = query.service?.trim();
     const budgetActivity = query.budgetActivity?.trim();
     const q = query.q?.trim();
+    const hasDataOnly = query.hasData === 'true';
 
     type ListRow = {
       peCode: string;
@@ -47,25 +50,37 @@ export class ProgramElementReadService {
       appropriationType: string | null;
       status: string | null;
       lastSyncedAt: Date;
+      hasData: boolean;
       totalCount: number;
     };
+
+    // A PE "has data" if it has at least one FY history row, a PE-linked federal
+    // award, or a bill that references it. Computed once per row via EXISTS so the
+    // finder can flag (and optionally hide) sparse PEs whose detail panels are empty.
+    const hasDataExpr = Prisma.sql`(
+      EXISTS (SELECT 1 FROM program_element_year y WHERE y.pe_code = pe.pe_code)
+      OR EXISTS (SELECT 1 FROM federal_award fa WHERE fa.pe_code = pe.pe_code)
+      OR EXISTS (SELECT 1 FROM congress_bill b WHERE pe.pe_code = ANY(b.pe_codes))
+    )`;
 
     const rows = await this.prisma.$queryRaw<ListRow[]>(Prisma.sql`
       WITH filtered AS (
         SELECT
-          pe_code,
-          title,
-          service,
-          budget_activity,
-          appropriation_type,
-          status,
-          last_synced_at,
-          CASE WHEN ${q ? 1 : 0} = 1 THEN GREATEST(similarity(title, ${q ?? ''}), 0) ELSE 0 END AS score
-        FROM program_element
-        WHERE (${service ? Prisma.sql`service ILIKE ${service}` : Prisma.sql`TRUE`})
-          AND (${budgetActivity ? Prisma.sql`budget_activity ILIKE ${budgetActivity}` : Prisma.sql`TRUE`})
+          pe.pe_code,
+          pe.title,
+          pe.service,
+          pe.budget_activity,
+          pe.appropriation_type,
+          pe.status,
+          pe.last_synced_at,
+          ${hasDataExpr} AS has_data,
+          CASE WHEN ${q ? 1 : 0} = 1 THEN GREATEST(similarity(pe.title, ${q ?? ''}), 0) ELSE 0 END AS score
+        FROM program_element pe
+        WHERE (${service ? Prisma.sql`pe.service ILIKE ${service}` : Prisma.sql`TRUE`})
+          AND (${budgetActivity ? Prisma.sql`pe.budget_activity ILIKE ${budgetActivity}` : Prisma.sql`TRUE`})
+          AND (${hasDataOnly ? hasDataExpr : Prisma.sql`TRUE`})
           AND (
-            ${q ? Prisma.sql`title ILIKE ${`%${q}%`} OR similarity(title, ${q}) > 0.2` : Prisma.sql`TRUE`}
+            ${q ? Prisma.sql`pe.title ILIKE ${`%${q}%`} OR similarity(pe.title, ${q}) > 0.2` : Prisma.sql`TRUE`}
           )
       )
       SELECT
@@ -76,6 +91,7 @@ export class ProgramElementReadService {
         appropriation_type AS "appropriationType",
         status,
         last_synced_at AS "lastSyncedAt",
+        has_data AS "hasData",
         COUNT(*) OVER()::int AS "totalCount"
       FROM filtered
       ORDER BY

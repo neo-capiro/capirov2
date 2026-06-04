@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Alert, Button, Card, Empty, Input, Select, Space, Table, Tag, Typography } from 'antd';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { Alert, Button, Card, Empty, Input, Select, Space, Switch, Table, Tag, Tooltip, Typography } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '../../lib/use-api.js';
@@ -17,26 +17,39 @@ const SERVICE_OPTIONS = [
   { label: 'DoD', value: 'DOD' },
 ];
 
+const PAGE_SIZE = 50;
+
 export function ProgramElementFinderPage() {
   const api = useApi();
   const navigate = useNavigate();
   const me = useMe();
   const [term, setTerm] = useState('');
   const [service, setService] = useState('');
+  const [hasDataOnly, setHasDataOnly] = useState(false);
+  const [page, setPage] = useState(1);
 
   const listQuery = useQuery({
-    queryKey: ['program-element-finder', term.trim(), service],
+    queryKey: ['program-element-finder', term.trim(), service, hasDataOnly, page],
     queryFn: () =>
       getProgramElementsList(api, {
         q: term.trim() || undefined,
         service: service || undefined,
-        page: 1,
-        limit: 50,
+        has_data: hasDataOnly ? 'true' : undefined,
+        page,
+        limit: PAGE_SIZE,
       }),
     staleTime: 60 * 1000,
+    placeholderData: keepPreviousData,
   });
 
   const rows = listQuery.data?.data ?? [];
+  const total = listQuery.data?.total ?? 0;
+
+  // Reset to page 1 whenever a filter changes so we never sit on an out-of-range page.
+  const onFilterChange = (fn: () => void) => {
+    fn();
+    setPage(1);
+  };
 
   const columns: ColumnsType<ProgramElementListItem> = useMemo(
     () => [
@@ -64,6 +77,19 @@ export function ProgramElementFinderPage() {
         key: 'budgetActivity',
         width: 150,
         render: (value: string | null) => (value ? <Tag color="blue">{value}</Tag> : '—'),
+      },
+      {
+        title: 'Data',
+        key: 'hasData',
+        width: 90,
+        render: (_value: unknown, row: ProgramElementListItem) =>
+          row.hasData === false ? (
+            <Tooltip title="No FY history, contract awards, or bills linked yet — detail panels will be empty.">
+              <Tag>none</Tag>
+            </Tooltip>
+          ) : (
+            <Tag color="green">data</Tag>
+          ),
       },
       {
         title: '',
@@ -107,24 +133,35 @@ export function ProgramElementFinderPage() {
         <Space wrap style={{ marginBottom: 16 }}>
           <Input
             value={term}
-            onChange={(event) => setTerm(event.target.value)}
+            onChange={(event) => onFilterChange(() => setTerm(event.target.value))}
             placeholder="Search code or title (e.g. 0603270A, electronic warfare)"
             style={{ width: 460 }}
             allowClear
           />
           <Select
             value={service}
-            onChange={(value) => setService(value)}
+            onChange={(value) => onFilterChange(() => setService(value))}
             options={SERVICE_OPTIONS}
             style={{ width: 180 }}
           />
+          <Space>
+            <Switch
+              checked={hasDataOnly}
+              onChange={(checked) => onFilterChange(() => setHasDataOnly(checked))}
+            />
+            <Tooltip title="Hide program elements that have no FY history, contract awards, or linked bills yet.">
+              <Typography.Text>Has data only</Typography.Text>
+            </Tooltip>
+          </Space>
         </Space>
 
-        {!listQuery.isError && (listQuery.data?.total ?? 0) > 0 ? (
+        {!listQuery.isError && total > 0 ? (
           <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-            {listQuery.data!.total.toLocaleString()} program element
-            {listQuery.data!.total === 1 ? '' : 's'}
-            {listQuery.data!.total > rows.length ? ` · showing first ${rows.length}` : ''}
+            {total.toLocaleString()} program element{total === 1 ? '' : 's'}
+            {hasDataOnly ? ' with data' : ''}
+            {total > PAGE_SIZE
+              ? ` · page ${page} of ${Math.ceil(total / PAGE_SIZE)}`
+              : ''}
           </Typography.Text>
         ) : null}
 
@@ -145,7 +182,14 @@ export function ProgramElementFinderPage() {
             loading={listQuery.isLoading}
             dataSource={rows}
             columns={columns}
-            pagination={false}
+            pagination={{
+              current: page,
+              pageSize: PAGE_SIZE,
+              total,
+              showSizeChanger: false,
+              onChange: (next) => setPage(next),
+              showTotal: (t, range) => `${range[0]}-${range[1]} of ${t.toLocaleString()}`,
+            }}
             locale={{
               emptyText: <Empty description="No program elements matched your search" />,
             }}
