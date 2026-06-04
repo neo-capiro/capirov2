@@ -101,6 +101,7 @@ export interface ProgramTeamPerson {
   peSecondary: string[];
   emailDomain: string | null;
   publicProfileUrl: string | null;
+  headshotUrl: string | null;
   confidence: number;
   status: string;
   firstSeenAt: string;
@@ -218,6 +219,8 @@ export interface AcquisitionPersonnelListParams {
   organization?: string;
   role?: string;
   pe_code?: string;
+  pe_aligned?: 'aligned' | 'unaligned';
+  sort?: 'pe_first' | 'confidence';
   q?: string;
   page?: number;
   limit?: number;

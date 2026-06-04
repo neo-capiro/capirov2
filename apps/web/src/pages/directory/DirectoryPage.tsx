@@ -13,6 +13,7 @@ import {
   Popover,
   Row,
   Segmented,
+  Select,
   Space,
   Spin,
   Tabs,
@@ -268,12 +269,20 @@ export function DirectoryPage() {
   const DOW_PAGE_SIZE = PAGE_SIZE;
   const [dowPage, setDowPage] = useState(1);
   const [selectedDowPersonId, setSelectedDowPersonId] = useState<string | null>(null);
+  // DoW filters. PE-aligned people surface first by default (sort: 'pe_first').
+  const [dowService, setDowService] = useState<string | undefined>(undefined);
+  const [dowRole, setDowRole] = useState<string | undefined>(undefined);
+  const [dowPeAligned, setDowPeAligned] = useState<'aligned' | 'unaligned' | undefined>(undefined);
 
   const dowQuery = useQuery({
-    queryKey: ['dow-directory', query, dowPage],
+    queryKey: ['dow-directory', query, dowPage, dowService, dowRole, dowPeAligned],
     queryFn: async () =>
       getAcquisitionPersonnel(api, {
         q: query || undefined,
+        service: dowService,
+        role: dowRole,
+        pe_aligned: dowPeAligned,
+        sort: 'pe_first',
         page: dowPage,
         limit: DOW_PAGE_SIZE,
       }),
@@ -651,6 +660,80 @@ export function DirectoryPage() {
               : resultCountText(totalFiltered, currentPage)}
         </Typography.Text>
       </div>
+
+      {mode === 'dow' ? (
+        <div className="dow-filter-bar" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+          <Select
+            allowClear
+            placeholder="PE alignment"
+            style={{ minWidth: 160 }}
+            value={dowPeAligned}
+            onChange={(v) => {
+              setDowPeAligned(v as 'aligned' | 'unaligned' | undefined);
+              setDowPage(1);
+            }}
+            options={[
+              { value: 'aligned', label: 'PE-aligned' },
+              { value: 'unaligned', label: 'Unaligned' },
+            ]}
+          />
+          <Select
+            allowClear
+            placeholder="Service"
+            style={{ minWidth: 150 }}
+            value={dowService}
+            onChange={(v) => {
+              setDowService(v as string | undefined);
+              setDowPage(1);
+            }}
+            options={[
+              { value: 'ARMY', label: 'Army' },
+              { value: 'NAVY', label: 'Navy' },
+              { value: 'AF', label: 'Air Force' },
+              { value: 'SF', label: 'Space Force' },
+              { value: 'USMC', label: 'Marine Corps' },
+              { value: 'OSD', label: 'OSD / Joint' },
+              { value: 'DARPA', label: 'DARPA' },
+              { value: 'CONGRESS', label: 'Congress' },
+            ]}
+          />
+          <Select
+            allowClear
+            placeholder="Role"
+            style={{ minWidth: 150 }}
+            value={dowRole}
+            onChange={(v) => {
+              setDowRole(v as string | undefined);
+              setDowPage(1);
+            }}
+            options={[
+              { value: 'PEO', label: 'PEO / CPE' },
+              { value: 'DPEO', label: 'Deputy PEO' },
+              { value: 'PM', label: 'Program/Product Mgr' },
+              { value: 'DPM', label: 'Deputy PM' },
+              { value: 'PCO', label: 'Procuring KO' },
+              { value: 'KO', label: 'Contracting Officer' },
+              { value: 'CE', label: 'Chief Engineer' },
+              { value: 'TD', label: 'Technical Director' },
+              { value: 'DIRECTOR', label: 'Director' },
+              { value: 'STAFFER', label: 'Staff' },
+            ]}
+          />
+          {(dowPeAligned || dowService || dowRole) ? (
+            <Button
+              type="text"
+              onClick={() => {
+                setDowPeAligned(undefined);
+                setDowService(undefined);
+                setDowRole(undefined);
+                setDowPage(1);
+              }}
+            >
+              Clear filters
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
 
       {mode === 'dow' ? (
         <DowDirectoryResults

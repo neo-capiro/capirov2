@@ -43,6 +43,7 @@ function person(over: Partial<AcquisitionPersonnelListItem> = {}): AcquisitionPe
     peSecondary: [],
     emailDomain: 'army.mil',
     publicProfileUrl: null,
+    headshotUrl: null,
     confidence: 0.97,
     status: 'active',
     firstSeenAt: '2026-01-01T00:00:00.000Z',

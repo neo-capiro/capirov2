@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 // The global ValidationPipe runs whitelist + forbidNonWhitelisted, so every query
@@ -24,6 +24,18 @@ export class ListPersonnelDto {
   @IsString()
   q?: string;
 
+  // Filter to PE-aligned ('aligned' = has pePrimary or peSecondary) or 'unaligned'.
+  // Omitted = all. Used by the DoW directory PE filter pill.
+  @IsOptional()
+  @IsIn(['aligned', 'unaligned'])
+  pe_aligned?: 'aligned' | 'unaligned';
+
+  // Result ordering. 'pe_first' (default for DoW) surfaces PE-aligned people first,
+  // then by confidence; 'confidence' keeps the legacy confidence-desc ordering.
+  @IsOptional()
+  @IsIn(['pe_first', 'confidence'])
+  sort?: 'pe_first' | 'confidence';
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -48,6 +60,7 @@ export interface PersonnelListItemDto {
   peSecondary: string[];
   emailDomain: string | null;
   publicProfileUrl: string | null;
+  headshotUrl: string | null;
   confidence: number;
   status: string;
   firstSeenAt: string;

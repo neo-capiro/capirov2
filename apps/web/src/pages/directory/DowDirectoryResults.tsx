@@ -47,6 +47,7 @@ type PersonMetadata = {
   linkType?: string | null;
   programs?: string[] | null;
   sourcePdfVersion?: string | null;
+  headshotUrl?: string | null;
 };
 
 function readMetadata(meta: unknown): PersonMetadata {
@@ -123,8 +124,8 @@ export function DowDirectoryResults({
               style={{ cursor: 'pointer' }}
             >
               <Flex gap={12} align="flex-start">
-                {/* Photo slot — falls back to initials until a headshot URL is wired. */}
-                <Avatar size={48} style={{ flexShrink: 0, backgroundColor: '#1f3a5f' }}>
+                {/* Photo: official DoD headshot when available, else initials. */}
+                <Avatar size={48} src={person.headshotUrl ?? undefined} style={{ flexShrink: 0, backgroundColor: '#1f3a5f' }}>
                   {initials(person.fullName)}
                 </Avatar>
                 <Space direction="vertical" size={2} style={{ flex: 1, minWidth: 0 }}>
@@ -216,7 +217,7 @@ export function DowPersonDrawer({ open, person, loading = false, onClose }: DowP
           <Flex gap={16} align="flex-start">
             <Avatar
               size={72}
-              src={undefined /* headshot URL slot — wired when asset pipeline lands */}
+              src={meta.headshotUrl ?? undefined}
               style={{ flexShrink: 0, backgroundColor: '#1f3a5f', fontSize: 24 }}
             >
               {initials(person.fullName)}

@@ -32,7 +32,21 @@ export class AcquisitionPersonnelReadService {
             OR: [{ pePrimary: query.pe_code }, { peSecondary: { has: query.pe_code } }],
           }
         : {}),
+      ...(query.pe_aligned === 'aligned'
+        ? { OR: [{ pePrimary: { not: null } }, { peSecondary: { isEmpty: false } }] }
+        : {}),
+      ...(query.pe_aligned === 'unaligned' ? { pePrimary: null, peSecondary: { isEmpty: true } } : {}),
     };
+
+    // PE-aligned-first ordering (default for the DoW directory): rows with a confirmed
+    // pePrimary sort ahead of unaligned ones. Postgres sorts NULLs last on ASC by
+    // default, but to be explicit and stable we sort by a computed flag via raw is-null
+    // ordering isn't expressible in Prisma orderBy, so we approximate with pePrimary
+    // desc (non-null strings sort before NULL under 'desc' nulls-last) then confidence.
+    const orderBy: Prisma.AcquisitionPersonnelOrderByWithRelationInput[] =
+      query.sort === 'confidence'
+        ? [{ confidence: 'desc' }, { updatedAt: 'desc' }]
+        : [{ pePrimary: { sort: 'desc', nulls: 'last' } }, { confidence: 'desc' }, { updatedAt: 'desc' }];
 
     const { total, people } = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const trgmIds = query.q?.trim()
@@ -61,7 +75,7 @@ export class AcquisitionPersonnelReadService {
                   select: { id: true },
                 },
               },
-              orderBy: [{ confidence: 'desc' }, { updatedAt: 'desc' }],
+              orderBy,
               skip: (page - 1) * limit,
               take: limit,
             }),
@@ -106,6 +120,10 @@ export class AcquisitionPersonnelReadService {
         peSecondary: p.peSecondary,
         emailDomain: p.emailDomain,
         publicProfileUrl: p.publicProfileUrl,
+        headshotUrl:
+          p.metadata && typeof p.metadata === 'object' && !Array.isArray(p.metadata)
+            ? ((p.metadata as Record<string, unknown>).headshotUrl as string | undefined) ?? null
+            : null,
         confidence: p.confidence,
         status: p.status,
         firstSeenAt: p.firstSeenAt.toISOString(),
@@ -217,6 +235,10 @@ export class AcquisitionPersonnelReadService {
       peSecondary: p.peSecondary,
       emailDomain: p.emailDomain,
       publicProfileUrl: p.publicProfileUrl,
+      headshotUrl:
+        p.metadata && typeof p.metadata === 'object' && !Array.isArray(p.metadata)
+          ? ((p.metadata as Record<string, unknown>).headshotUrl as string | undefined) ?? null
+          : null,
       confidence: p.confidence,
       status: p.status,
       firstSeenAt: p.firstSeenAt.toISOString(),
