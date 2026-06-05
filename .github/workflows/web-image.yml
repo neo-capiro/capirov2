@@ -59,6 +59,11 @@ jobs:
           tags: |
             ${{ steps.ecr.outputs.registry }}/capiro/${{ env.TARGET_ENV }}/web:${{ github.sha }}
             ${{ steps.ecr.outputs.registry }}/capiro/${{ env.TARGET_ENV }}/web:latest
+          # Restore deps from cache, but NEVER cache the build stage — that layer
+          # runs `vite build`, and a stale restore was freezing dist/ (the live
+          # SPA bundle never changed across merges). no-cache-filters forces the
+          # build stage to re-run every time so each image ships a fresh bundle.
+          no-cache-filters: build
           cache-from: type=gha,scope=web
           cache-to: type=gha,mode=max,scope=web
 
