@@ -117,7 +117,7 @@ describe('IntelligenceService.getClientProfileV1', () => {
     jest.spyOn(service as any, 'getExStaffers').mockResolvedValue({ total: 0, lobbyists: [] });
     jest.spyOn(service as any, 'getCommentPeriodAlerts').mockResolvedValue({ alerts: [] });
 
-    return { service, prisma };
+    return { service, prisma, tenantTx };
   };
 
   test('returns profile-v1 shape for mapped client without throwing', async () => {
@@ -131,6 +131,19 @@ describe('IntelligenceService.getClientProfileV1', () => {
     expect(payload.sections.financialFootprint).toBeDefined();
     expect(payload.sections.legislativeRegulatory).toBeDefined();
     expect(payload.sections.relationships).toBeDefined();
+  });
+
+  test('treats a soft-archived ("deleted") client as not-found', async () => {
+    const { service, tenantTx } = makeService();
+    // The guard query is the first client.findFirst call; archived → 404 so a
+    // deleted client's alerts can never surface (e.g. via a stale deep link).
+    tenantTx.client.findFirst.mockResolvedValueOnce({
+      id: clientId,
+      name: 'Acme Defense',
+      status: 'archived',
+    } as any);
+
+    await expect(service.getClientProfileV1(clientId, tenantId)).rejects.toThrow(NotFoundException);
   });
 
   test('returns safe defaults for partially mapped client payloads', async () => {

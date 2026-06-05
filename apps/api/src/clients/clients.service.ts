@@ -27,6 +27,12 @@ export type UpdateClientInput = Partial<CreateClientInput> & { status?: string }
 export interface ListClientsFilter {
   profileStatus?: string;
   sectorTag?: string;
+  /**
+   * Include soft-archived ("deleted") clients. Defaults to false so archived
+   * clients disappear from every operational surface (dashboards, pickers,
+   * intelligence). Management views that need to see them pass true.
+   */
+  includeArchived?: boolean;
 }
 
 const ALLOWED_LOGO_MIME = new Set(['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp']);
@@ -54,6 +60,9 @@ export class ClientsService {
     const where: Record<string, unknown> = {};
     if (filter.profileStatus) where.profileStatus = filter.profileStatus;
     if (filter.sectorTag) where.sectorTag = filter.sectorTag;
+    // Soft-archived ("deleted") clients are hidden by default everywhere; only
+    // explicit management views opt in via includeArchived.
+    if (!filter.includeArchived) where.status = { not: 'archived' };
 
     const clients = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.client.findMany({ where, orderBy: { createdAt: 'desc' } }),

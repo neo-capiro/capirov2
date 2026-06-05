@@ -11,9 +11,15 @@ export function ClientsPage() {
   const { message } = App.useApp();
   const [open, setOpen] = useState(false);
 
+  // The admin management table is the one surface that intentionally shows
+  // archived clients (note the Status column), so it opts in via
+  // includeArchived. A distinct query key avoids colliding with the
+  // active-only ['clients'] cache the rest of the app reads; invalidating
+  // ['clients'] still prefix-matches and refreshes this table.
   const list = useQuery<Client[]>({
-    queryKey: ['clients'],
-    queryFn: async () => (await api.get<Client[]>('/api/clients')).data,
+    queryKey: ['clients', 'all'],
+    queryFn: async () =>
+      (await api.get<Client[]>('/api/clients', { params: { includeArchived: true } })).data,
   });
 
   const create = useMutation({

@@ -381,7 +381,11 @@ function NeedsAttention({
 
     const sevRank = { critical: 0, notable: 1, info: 2 } as const;
     return out.sort((x, y) => sevRank[x.sev] - sevRank[y.sev] || x.rank - y.rank).slice(0, 10);
-  }, [alerts, comingUp, changes, clientNameById]);
+    // portfolioAlerts MUST be in the deps: it gates the legacy-feed suppression
+    // (hasPortfolio) and is the slowest input (serial per-client roll-up). Omit
+    // it and the banner freezes on the comment-only fallback computed before the
+    // roll-up resolves.
+  }, [alerts, comingUp, changes, clientNameById, portfolioAlerts]);
 
   return (
     <div className="home-attention">

@@ -150,6 +150,11 @@ class ListClientsQueryDto {
   @IsOptional()
   @IsString()
   sectorTag?: string;
+
+  // Query params arrive as strings; compared against 'true' in the handler.
+  @IsOptional()
+  @IsString()
+  includeArchived?: string;
 }
 
 class ClientLogoUploadUrlDto {
@@ -194,7 +199,11 @@ export class ClientsController {
 
   @Get()
   list(@CurrentTenant() ctx: TenantContext, @Query() query: ListClientsQueryDto) {
-    return this.service.list(ctx, { profileStatus: query.profileStatus, sectorTag: query.sectorTag });
+    return this.service.list(ctx, {
+      profileStatus: query.profileStatus,
+      sectorTag: query.sectorTag,
+      includeArchived: query.includeArchived === 'true',
+    });
   }
 
   @Get(':id')

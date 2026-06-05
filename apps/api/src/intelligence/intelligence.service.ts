@@ -179,7 +179,8 @@ export class IntelligenceService {
         include: { capabilities: true },
       }),
     );
-    if (!client) throw new NotFoundException('Client not found');
+    // Soft-archived ("deleted") clients are treated as not-found everywhere.
+    if (!client || client.status === 'archived') throw new NotFoundException('Client not found');
 
     const clientName = client.name;
     const capabilityRefs = (client.capabilities ?? []).map((c) => ({
@@ -290,10 +291,12 @@ export class IntelligenceService {
     const client = await this.prisma.withTenant(tenantId, (tx) =>
       tx.client.findFirst({
         where: { id: clientId },
-        select: { id: true, name: true },
+        select: { id: true, name: true, status: true },
       }),
     );
-    if (!client) throw new NotFoundException('Client not found');
+    // Treat soft-archived ("deleted") clients as not-found so their alerts can
+    // never surface here — including via a stale deep link to the Intel tab.
+    if (!client || client.status === 'archived') throw new NotFoundException('Client not found');
 
     const now = new Date();
     const day14 = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
@@ -3165,7 +3168,10 @@ export class IntelligenceService {
     const [clientsWithCaps, docs] = await Promise.all([
       this.prisma.withTenant(tenantId, (tx) =>
         tx.client.findMany({
-          where: { profileStatus: 'ACTIVE' },
+          // Exclude soft-archived ("deleted") clients: archiving sets
+          // status='archived' but leaves profileStatus untouched, so filtering
+          // on profileStatus alone would still surface a deleted client's alerts.
+          where: { status: { not: 'archived' }, profileStatus: 'ACTIVE' },
           select: {
             id: true,
             name: true,
@@ -4162,7 +4168,8 @@ export class IntelligenceService {
   /** Get all ClientIntelMappings for a tenant as a flat array with clientName included */
   async getAllMappingsForTenant(tenantId: string) {
     const clients = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.client.findMany({ select: { id: true, name: true } }),
+      // Exclude soft-archived ("deleted") clients from the mappings admin view.
+      tx.client.findMany({ where: { status: { not: 'archived' } }, select: { id: true, name: true } }),
     );
 
     const clientIds = clients.map((c) => c.id);
