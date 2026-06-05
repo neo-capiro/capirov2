@@ -95,6 +95,36 @@ async function main(): Promise<void> {
     const working = perPe.filter((p) => p.contractors24mo > 0);
     const emptyButHasOlder = perPe.filter((p) => p.contractors24mo === 0 && p.contractorsAllTime > 0);
 
+    // FY-history depth: how many program_element_year rows each PE has. Tells us
+    // whether the "timeline shows only 1 year" is a data-ingestion reality (only
+    // one FY row exists) vs a render bug (read path always returns all years).
+    const yearDepth = await prisma.$queryRaw<Array<{ yearsPerPe: number; peCount: number }>>(Prisma.sql`
+      SELECT yc AS "yearsPerPe", COUNT(*)::int AS "peCount"
+      FROM (
+        SELECT pe_code, COUNT(*)::int AS yc
+        FROM program_element_year
+        GROUP BY pe_code
+      ) t
+      GROUP BY yc
+      ORDER BY yc
+    `);
+    const distinctFys = await prisma.$queryRaw<Array<{ fy: number; rows: number }>>(Prisma.sql`
+      SELECT fy, COUNT(*)::int AS rows FROM program_element_year GROUP BY fy ORDER BY fy
+    `);
+    const pesWithAnyYear = await prisma.$queryRaw<Array<{ n: number }>>(Prisma.sql`
+      SELECT COUNT(DISTINCT pe_code)::int AS n FROM program_element_year
+    `);
+
+    // Team (acquisition-personnel) presence: how many PEs have at least one linked
+    // person (pe_primary or in pe_secondary).
+    const pesWithTeam = await prisma.$queryRaw<Array<{ n: number }>>(Prisma.sql`
+      SELECT COUNT(DISTINCT pe)::int AS n FROM (
+        SELECT pe_primary AS pe FROM acquisition_personnel WHERE pe_primary IS NOT NULL
+        UNION
+        SELECT UNNEST(pe_secondary) AS pe FROM acquisition_personnel
+      ) t
+    `);
+
     console.log(
       JSON.stringify(
         {
@@ -109,6 +139,13 @@ async function main(): Promise<void> {
           panelWorkingPes: working.slice(0, 15),
           panelEmptyDueToAgePeCount: emptyButHasOlder.length,
           panelEmptyDueToAgeSample: emptyButHasOlder.slice(0, 10),
+          // FY-HISTORY DIAGNOSTIC:
+          totalProgramElements: await prisma.programElement.count(),
+          pesWithAnyYearRow: pesWithAnyYear[0]?.n ?? 0,
+          fyRowsPerPeDistribution: yearDepth,
+          distinctFiscalYears: distinctFys,
+          // COVERAGE DIAGNOSTIC:
+          pesWithTeam: pesWithTeam[0]?.n ?? 0,
           topUnmappedProgramsByAwardCount: unmappedTopPrograms,
         },
         null,
