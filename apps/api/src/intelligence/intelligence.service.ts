@@ -309,6 +309,16 @@ export class IntelligenceService {
       }),
     );
 
+    // getTrackedBills runs an expensive pgvector similarity search
+    // (findTrackedBillsByEmbeddings, ~1.8s). It was previously called THREE times
+    // per profile-v1 request — directly (index 4), inside getBillRegulationLinks
+    // (index 5), and inside getHearingAlerts (index 23) — tripling that cost and
+    // the connection-pool pressure under the parallel fan-out. Compute it ONCE
+    // here and feed the same promise into all three consumers. The standalone
+    // controller endpoints + their unit tests still call getTrackedBills() with no
+    // precomputed value, so their behavior is unchanged.
+    const trackedBillsPromise = this.getTrackedBills(clientId, tenantId);
+
     // Each source is resolved independently via allSettled so one failing
     // builder (a missing sync table, a tenant without a given mapping, a slow
     // query) degrades only its own section instead of rejecting the whole
@@ -319,8 +329,8 @@ export class IntelligenceService {
       this.getLobbyingRoi(clientId, tenantId),
       this.getFecMoneyFlow(clientId, tenantId),
       this.getDistrictNexus(clientId, tenantId),
-      this.getTrackedBills(clientId, tenantId),
-      this.getBillRegulationLinks(clientId, tenantId),
+      trackedBillsPromise,
+      this.getBillRegulationLinks(clientId, tenantId, trackedBillsPromise),
       // [6] Knowledge graph: REMOVED from the client Intelligence tab. The graph
       // is being relocated to the Intelligence Center (it still has its own
       // dedicated endpoint + getKnowledgeGraph() method, used by
@@ -416,7 +426,7 @@ export class IntelligenceService {
       // [23] Upcoming hearings & markups matched to this client (next 21d). The
       // legacy Hearings panel was removed from the UI; this surfaces the same
       // signal as time-sensitive alert rows on the Top alerts card.
-      this.getHearingAlerts(clientId, tenantId, now, day21),
+      this.getHearingAlerts(clientId, tenantId, now, day21, trackedBillsPromise),
     ]);
 
     const settledSourceLabels = [
@@ -3344,11 +3354,12 @@ export class IntelligenceService {
     tenantId: string,
     now: Date,
     until: Date,
+    precomputedTracked?: Promise<Awaited<ReturnType<typeof this.getTrackedBills>>> | Awaited<ReturnType<typeof this.getTrackedBills>>,
   ): Promise<AlertRow[]> {
     try {
       // Tracked bills give us the bill identifiers + the committees of jurisdiction
       // to match hearings against (same signal the removed Hearings panel used).
-      const tracked = await this.getTrackedBills(clientId, tenantId);
+      const tracked = await (precomputedTracked ?? this.getTrackedBills(clientId, tenantId));
       const billVariants = (tracked.bills ?? []).map((b) => ({
         identifier: b.identifier,
         // "hr-1234" / "hr 1234" / "h.r. 1234" style variants for title matching.
@@ -4451,8 +4462,12 @@ export class IntelligenceService {
    * the bill's identifier (e.g. "H.R. 1234"). Surfaces "the agency just published
    * a rule for a bill you track."
    */
-  async getBillRegulationLinks(clientId: string, tenantId: string) {
-    const tracked = await this.getTrackedBills(clientId, tenantId);
+  async getBillRegulationLinks(
+    clientId: string,
+    tenantId: string,
+    precomputedTracked?: Promise<Awaited<ReturnType<typeof this.getTrackedBills>>> | Awaited<ReturnType<typeof this.getTrackedBills>>,
+  ) {
+    const tracked = await (precomputedTracked ?? this.getTrackedBills(clientId, tenantId));
     if (!tracked.bills.length) {
       return { links: [], totalBills: 0, totalRegulations: 0 };
     }
