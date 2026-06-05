@@ -930,7 +930,7 @@ export class MicrosoftGraphSyncService {
     connectionId: string,
     token: IntegrationConnectionToken,
   ): Promise<string> {
-    const hasRequiredScopes = MICROSOFT_SCOPES.every((scope) => token.scopes.includes(scope));
+    const hasRequiredScopes = hasRequiredResourceScopes(token.scopes);
     if (hasRequiredScopes && token.expiresAt.getTime() > Date.now() + TOKEN_REFRESH_SKEW_MS) {
       return this.tokenCrypto.decrypt({
         ciphertext: token.accessTokenCiphertext,
@@ -971,7 +971,7 @@ export class MicrosoftGraphSyncService {
         'Microsoft token refresh failed; reconnect Microsoft 365',
       );
     }
-    await this.persistRefreshedAccessToken(tenantId, connectionId, result);
+    await this.persistRefreshedAccessToken(tenantId, connectionId, result, token.homeAccountId);
     return result.accessToken;
   }
 
@@ -1001,19 +1001,30 @@ export class MicrosoftGraphSyncService {
     tenantId: string,
     connectionId: string,
     result: AuthenticationResult,
+    homeAccountId: string | null,
   ) {
     const encrypted = this.tokenCrypto.encrypt(result.accessToken);
-    const grantedScopes = (result.scopes ?? []).map((s) => s.toLowerCase());
-    const requiredLower = MICROSOFT_SCOPES.map((s) => s.toLowerCase());
-    const missingScopes = requiredLower.filter((s) => !grantedScopes.includes(s));
-    if (missingScopes.length) {
+    // Azure never echoes offline_access (nor openid/profile) in a refresh response, and returns
+    // resource scopes inconsistently (short name vs full Graph URI). Only warn when a real
+    // RESOURCE scope is missing — a genuine signal consent was reduced. Critically, do NOT derive
+    // the persisted scope set from result.scopes: dropping offline_access here previously made
+    // getValidAccessToken() believe the token lacked a required scope and forced a token refresh on
+    // every sync (a refresh storm against Azure for already-connected mailboxes).
+    if (!hasRequiredResourceScopes(result.scopes)) {
+      const granted = normalizeScopeNames(result.scopes);
+      const missing = REQUIRED_RESOURCE_SCOPES.filter((scope) => !granted.has(scope));
       this.logger.warn(
-        `Refreshed Microsoft token is missing required scopes for connection ${connectionId} (tenant ${tenantId}): ${missingScopes.join(', ')}`,
+        `Refreshed Microsoft token is missing required scopes for connection ${connectionId} (tenant ${tenantId}): ${missing.join(', ')}`,
       );
     }
-    const persistedScopes = grantedScopes.length
-      ? (result.scopes ?? MICROSOFT_SCOPES)
-      : MICROSOFT_SCOPES;
+    // Persist the canonical scope set we requested (a successful refresh confirms it) so the next
+    // getValidAccessToken() scope gate stays stable.
+    const persistedScopes = MICROSOFT_SCOPES;
+    // Azure rotates refresh tokens on every redemption. Capture the freshly issued one (matched to
+    // this account) and persist it, so we advance the token chain instead of replaying the original
+    // refresh token from connect time forever.
+    const rotatedRefresh = this.extractRotatedRefreshToken(homeAccountId);
+    const refreshEnvelope = rotatedRefresh ? this.tokenCrypto.encrypt(rotatedRefresh) : null;
     await this.prisma.withTenant(tenantId, async (tx) => {
       await tx.integrationConnectionToken.update({
         where: { connectionId },
@@ -1021,6 +1032,13 @@ export class MicrosoftGraphSyncService {
           accessTokenCiphertext: encrypted.ciphertext,
           accessTokenIv: encrypted.iv,
           accessTokenAuthTag: encrypted.authTag,
+          ...(refreshEnvelope
+            ? {
+                refreshTokenCiphertext: refreshEnvelope.ciphertext,
+                refreshTokenIv: refreshEnvelope.iv,
+                refreshTokenAuthTag: refreshEnvelope.authTag,
+              }
+            : {}),
           keyVersion: this.tokenCrypto.getKeyVersion(),
           scopes: persistedScopes,
           expiresAt: result.expiresOn ?? new Date(Date.now() + 60 * 60 * 1000),
@@ -1035,6 +1053,32 @@ export class MicrosoftGraphSyncService {
         },
       });
     });
+  }
+
+  /**
+   * Read the freshly rotated refresh token out of the MSAL in-memory cache after a successful
+   * acquireTokenByRefreshToken. AuthenticationResult does not expose the refresh token, so we
+   * serialize the cache and pick the entry for this account (home_account_id), falling back to the
+   * most recent entry. Best-effort: if nothing is found we keep the existing stored refresh token.
+   */
+  private extractRotatedRefreshToken(homeAccountId: string | null): string | undefined {
+    if (!this.msal) return undefined;
+    try {
+      const cache = JSON.parse(this.msal.getTokenCache().serialize()) as {
+        RefreshToken?: Record<string, { secret?: string; home_account_id?: string }>;
+      };
+      const entries = Object.values(cache.RefreshToken ?? {});
+      if (!entries.length) return undefined;
+      const matched = homeAccountId
+        ? entries.find((entry) => entry.home_account_id === homeAccountId)
+        : undefined;
+      return (matched ?? entries[entries.length - 1])?.secret;
+    } catch (err) {
+      this.logger.warn(
+        `Failed to read rotated Microsoft refresh token from MSAL cache: ${(err as Error).message}`,
+      );
+      return undefined;
+    }
   }
 
   private async graphGet<T>(
@@ -1383,6 +1427,31 @@ function addDays(date: Date, days: number): Date {
 
 function unique<T>(values: T[]): T[] {
   return Array.from(new Set(values.filter(Boolean)));
+}
+
+// Required RESOURCE scopes = MICROSOFT_SCOPES minus offline_access. Azure never echoes
+// offline_access/openid/profile in token responses, so it must not be treated as "missing".
+// Lower-cased short names for tolerant comparison against whatever form Azure returns.
+const REQUIRED_RESOURCE_SCOPES = MICROSOFT_SCOPES.filter(
+  (scope) => scope.toLowerCase() !== 'offline_access',
+).map((scope) => scope.toLowerCase());
+
+// Normalize granted scopes to lower-cased short names (strip the Graph resource URI prefix that
+// Azure sometimes prepends, e.g. "https://graph.microsoft.com/Mail.Read" -> "mail.read").
+export function normalizeScopeNames(scopes: readonly string[] | undefined): Set<string> {
+  return new Set(
+    (scopes ?? []).map((scope) =>
+      scope.toLowerCase().replace(/^https:\/\/graph\.microsoft\.com\//, ''),
+    ),
+  );
+}
+
+// True when every required resource scope is present, tolerant of case, URI-prefixing, and the
+// absent-by-design offline_access scope. Used to decide whether a stored token still grants what
+// we need (and therefore whether a refresh is required).
+export function hasRequiredResourceScopes(scopes: readonly string[] | undefined): boolean {
+  const granted = normalizeScopeNames(scopes);
+  return REQUIRED_RESOURCE_SCOPES.every((scope) => granted.has(scope));
 }
 
 function requiresInteractiveMicrosoftConsent(error: unknown): boolean {
