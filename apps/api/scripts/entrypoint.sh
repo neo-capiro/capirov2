@@ -107,6 +107,11 @@ case "${1:-serve}" in
     echo "Running diag-ingestion-health (read-only ingestion counts + freshness report)"
     exec ./node_modules/.bin/tsx scripts/diag-ingestion-health.ts
     ;;
+  diag-profile-v1)
+    shift
+    echo "Running diag-profile-v1 (read-only Intelligence-tab per-source health + latency)"
+    exec ./node_modules/.bin/tsx scripts/diag-profile-v1.ts "$@"
+    ;;
   emit-bill-alerts)
     echo "Running emit-bill-alerts (semantic per-bill stage alerts)"
     exec ./node_modules/.bin/tsx scripts/emit-bill-alerts.ts
