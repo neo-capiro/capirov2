@@ -35,6 +35,13 @@ COPY apps/web/public apps/web/public
 COPY apps/web/index.html apps/web/vite.config.ts apps/web/tsconfig.json apps/web/
 
 RUN pnpm --filter @capiro/shared build
+# Cache-bust: GIT_SHA changes every commit, so the vite build layer below can
+# never be restored stale from the GHA build cache. Without this, buildx's
+# cache-from=gha was reusing a frozen dist/ across commits and shipping an old
+# SPA bundle even though the image digest changed. Declared right before the
+# build so only the build (and copy) layers invalidate, not the dep install.
+ARG GIT_SHA=dev
+RUN echo "build for ${GIT_SHA}" > /workspace/.git_sha
 # Build with placeholder values; the real keys come from runtime-config.js
 # generated at container start. env.ts ignores VITE_* when window.__CAPIRO_CONFIG__ is set.
 RUN VITE_CLERK_PUBLISHABLE_KEY=runtime VITE_API_BASE_URL=runtime \
