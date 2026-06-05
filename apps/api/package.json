@@ -36,6 +36,7 @@
     "seed:acq-program-map": "tsx scripts/seed-acq-program-map.ts",
     "report:award-pe-coverage": "tsx scripts/report-award-pe-coverage.ts",
     "rebuild:pe-years": "tsx scripts/rebuild-program-element-years.ts",
+    "normalize:pe-units": "tsx scripts/normalize-pe-units.ts",
     "diag:stale-directory": "tsx scripts/diag-stale-directory.ts",
     "reconcile:personnel-supersede": "tsx scripts/reconcile-personnel-supersede.ts",
     "reconcile:stale-pes": "tsx scripts/reconcile-stale-pes.ts",
