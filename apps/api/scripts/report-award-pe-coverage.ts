@@ -125,6 +125,32 @@ async function main(): Promise<void> {
       ) t
     `);
 
+    // Per-FY request/enacted VALUES for a few marquee PEs — to see whether the
+    // timeline's "non-budget" years are zero/null (data reality: only the budget
+    // year carries dollars) vs genuinely populated. Answers the "graph only shows
+    // one year" question with the actual numbers the chart receives.
+    const sampleYearValues = await prisma.$queryRaw<
+      Array<{ peCode: string; fy: number; request: number | null; enacted: number | null; conference: number | null }>
+    >(Prisma.sql`
+      SELECT pe_code AS "peCode", fy,
+             request::float8 AS request,
+             enacted::float8 AS enacted,
+             conference::float8 AS conference
+      FROM program_element_year
+      WHERE pe_code IN ('0204202N','0401132F','0207138F','0101224N')
+      ORDER BY pe_code, fy
+    `);
+    const singleValueDespiteMultiYear = await prisma.$queryRaw<Array<{ n: number }>>(Prisma.sql`
+      SELECT COUNT(*)::int AS n FROM (
+        SELECT pe_code,
+               COUNT(*) AS year_rows,
+               COUNT(*) FILTER (WHERE request IS NOT NULL AND request <> 0) AS nonzero_request_years
+        FROM program_element_year
+        GROUP BY pe_code
+      ) t
+      WHERE year_rows > 1 AND nonzero_request_years <= 1
+    `);
+
     console.log(
       JSON.stringify(
         {
@@ -144,6 +170,9 @@ async function main(): Promise<void> {
           pesWithAnyYearRow: pesWithAnyYear[0]?.n ?? 0,
           fyRowsPerPeDistribution: yearDepth,
           distinctFiscalYears: distinctFys,
+          // TIMELINE VALUE DIAGNOSTIC:
+          sampleYearValues,
+          pesMultiYearButSingleValue: singleValueDespiteMultiYear[0]?.n ?? 0,
           // COVERAGE DIAGNOSTIC:
           pesWithTeam: pesWithTeam[0]?.n ?? 0,
           topUnmappedProgramsByAwardCount: unmappedTopPrograms,
