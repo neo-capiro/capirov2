@@ -76,7 +76,8 @@ export class ProgramElementReadService {
           ${hasDataExpr} AS has_data,
           CASE WHEN ${q ? 1 : 0} = 1 THEN GREATEST(similarity(pe.title, ${q ?? ''}), 0) ELSE 0 END AS score
         FROM program_element pe
-        WHERE (${service ? Prisma.sql`pe.service ILIKE ${service}` : Prisma.sql`TRUE`})
+        WHERE pe.retired_at IS NULL
+          AND (${service ? Prisma.sql`pe.service ILIKE ${service}` : Prisma.sql`TRUE`})
           AND (${budgetActivity ? Prisma.sql`pe.budget_activity ILIKE ${budgetActivity}` : Prisma.sql`TRUE`})
           AND (${hasDataOnly ? hasDataExpr : Prisma.sql`TRUE`})
           AND (
@@ -184,7 +185,8 @@ export class ProgramElementReadService {
             END AS "divergencePct"
           FROM current_cycle cc
           JOIN program_element pe ON pe.pe_code = cc.pe_code
-          WHERE (${service ? Prisma.sql`pe.service ILIKE ${service}` : Prisma.sql`TRUE`})
+          WHERE pe.retired_at IS NULL
+            AND (${service ? Prisma.sql`pe.service ILIKE ${service}` : Prisma.sql`TRUE`})
         )
         SELECT
           "peCode",

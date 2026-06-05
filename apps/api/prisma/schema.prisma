@@ -1793,6 +1793,13 @@ model ProgramElement {
   sourceConfidence   Float?   @map("source_confidence")
   firstSeenFy        Int?     @map("first_seen_fy")
   lastSyncedAt       DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  // Soft-retire marker. Set by reconcile-stale-pes for PEs that exist ONLY because
+  // of the old stanford spreadsheet (source='stanford_pe_directory_jan2026') and
+  // carry no live signal (no linked person/award/bill/watch/year). Reads exclude
+  // retiredAt IS NOT NULL by default. Reversible. NOT a hard delete — watches /
+  // awards / bills reference pe_code with no FK, so we never DELETE the row.
+  retiredAt          DateTime? @map("retired_at") @db.Timestamptz(6)
+  retiredReason      String?   @map("retired_reason")
 
   years                   ProgramElementYear[]
   milestones              ProgramElementMilestone[]
@@ -1805,6 +1812,7 @@ model ProgramElement {
   @@index([serviceCode], map: "program_element_service_code_idx")
   @@index([appropriationType], map: "program_element_appropriation_type_idx")
   @@index([status], map: "program_element_status_idx")
+  @@index([retiredAt], map: "program_element_retired_at_idx")
   @@map("program_element")
 }
 
@@ -1999,6 +2007,13 @@ model AcquisitionPersonnel {
   publicProfileUrl String?  @map("public_profile_url")
   confidence       Float    @default(0.5)
   status           String   @default("active") @db.VarChar(16)
+  // Soft-supersede marker. Set by reconcile-personnel-supersede when a person's
+  // only provenance is a deprecated one-time directory load (e.g. the old
+  // stanford_dow_* spreadsheet) and no current source re-asserts them. Reads
+  // exclude supersededAt IS NOT NULL by default. Reversible (set back to null).
+  // Distinct from status='departed', which is a real-world departure signal.
+  supersededAt     DateTime? @map("superseded_at") @db.Timestamptz(6)
+  supersededReason String?   @map("superseded_reason")
   firstSeenAt      DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
   lastSeenAt       DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
   metadata         Json     @default("{}") @map("metadata_jsonb")
@@ -2011,6 +2026,7 @@ model AcquisitionPersonnel {
   @@index([nameKey], map: "acquisition_personnel_name_key_idx")
   @@index([service, organization], map: "acquisition_personnel_service_org_idx")
   @@index([status], map: "acquisition_personnel_status_idx")
+  @@index([supersededAt], map: "acquisition_personnel_superseded_at_idx")
   @@map("acquisition_personnel")
 }
 

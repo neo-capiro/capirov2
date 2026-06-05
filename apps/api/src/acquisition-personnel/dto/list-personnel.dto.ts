@@ -36,6 +36,12 @@ export class ListPersonnelDto {
   @IsIn(['pe_first', 'confidence'])
   sort?: 'pe_first' | 'confidence';
 
+  // Admin escape hatch. By default the list HIDES soft-superseded people (old
+  // DoW-directory rows the updated directory dropped); pass 'true' to include them.
+  @IsOptional()
+  @IsString()
+  include_superseded?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()

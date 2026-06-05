@@ -39,6 +39,12 @@ ENCODED_PASSWORD=$(node -e 'process.stdout.write(encodeURIComponent(process.argv
 
 export DATABASE_URL="postgresql://${DB_USER}:${ENCODED_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}?schema=public&sslmode=require"
 
+# tsx writes its compile cache under TMPDIR; this image has no /tmp or /app/tmp, so
+# an unset TMPDIR makes tsx-based verbs (sync-*/diag-*/reconcile-*) crash. /dev/shm
+# is always present (tmpfs). Default it only if the task definition didn't set one.
+: "${TMPDIR:=/dev/shm}"
+export TMPDIR
+
 case "${1:-serve}" in
   migrate)
     echo "Running prisma migrate deploy"
@@ -184,6 +190,20 @@ case "${1:-serve}" in
   seed-acq-program-map) shift; exec ./node_modules/.bin/tsx scripts/seed-acq-program-map.ts "$@" ;;
   # Read-only: print federal_award PE/acq-program coverage counts as JSON. No writes.
   report-award-pe-coverage) shift; exec ./node_modules/.bin/tsx scripts/report-award-pe-coverage.ts "$@" ;;
+  # ── Stale old-DoW-directory cleanup (PEs + personnel) ──────────────────────
+  # Read-only: counts old-directory data still live (would-supersede / would-retire /
+  # links-to-repair) using the SAME predicates as the reconcile jobs. No writes.
+  diag-stale-directory) shift; exec ./node_modules/.bin/tsx scripts/diag-stale-directory.ts "$@" ;;
+  # Soft-supersede personnel whose only provenance is the old DoW spreadsheet and who
+  # are absent from the updated directory. DRY RUN unless --commit; --limit=N caps.
+  reconcile-personnel-supersede) shift; exec ./node_modules/.bin/tsx scripts/reconcile-personnel-supersede.ts "$@" ;;
+  # Soft-retire old-spreadsheet PEs with no live signal (keeps real-but-uncovered).
+  # DRY RUN unless --commit. Run AFTER reconcile-personnel-supersede.
+  reconcile-stale-pes) shift; exec ./node_modules/.bin/tsx scripts/reconcile-stale-pes.ts "$@" ;;
+  # Re-validate person->PE links: clear stale/untrusted links to retired/missing PEs
+  # (keeps human-confirmed). DRY RUN unless --commit. Run AFTER reconcile-stale-pes,
+  # then generate-pe-person-candidates to re-propose cleared links.
+  repair-person-pe-links) shift; exec ./node_modules/.bin/tsx scripts/repair-person-pe-links.ts "$@" ;;
   sync-fara)              exec ./node_modules/.bin/tsx scripts/sync-fara.ts ;;
   sync-sec-edgar)         exec ./node_modules/.bin/tsx scripts/sync-sec-edgar.ts ;;
   sync-rss-intel)         exec ./node_modules/.bin/tsx scripts/sync-rss-intel.ts ;;
@@ -274,7 +294,7 @@ case "${1:-serve}" in
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-federal-award | enrich-award-districts | enrich-award-pe | seed-acq-program-map | report-award-pe-coverage | extract-press-personnel | sync-sam-personnel | sync-fec-pac | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | import-dow-directory-v6 | sync-dow-headshots | generate-pe-person-candidates | sync-peo-rosters | sync-dod-orgcharts | sync-dod-press-personnel | sync-cpe-roster | recompute-conference-probability | extract-bill-pe-codes | extract-gao-interviewees | extract-hearing-witnesses | parse-hasc-report | parse-sasc-report | parse-hac-d-report | parse-sac-d-report | parse-ndaa-conference | parse-defense-approps-public-law | parse-pdoc | rebuild-pe-years)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-federal-award | enrich-award-districts | enrich-award-pe | seed-acq-program-map | report-award-pe-coverage | extract-press-personnel | sync-sam-personnel | sync-fec-pac | sync-fara | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | import-dow-directory-v6 | sync-dow-headshots | generate-pe-person-candidates | sync-peo-rosters | sync-dod-orgcharts | sync-dod-press-personnel | sync-cpe-roster | recompute-conference-probability | extract-bill-pe-codes | extract-gao-interviewees | extract-hearing-witnesses | parse-hasc-report | parse-sasc-report | parse-hac-d-report | parse-sac-d-report | parse-ndaa-conference | parse-defense-approps-public-law | parse-pdoc | rebuild-pe-years | diag-stale-directory | reconcile-personnel-supersede | reconcile-stale-pes | repair-person-pe-links)" >&2
     exit 1
     ;;
 esac

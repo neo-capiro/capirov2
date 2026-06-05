@@ -12,11 +12,17 @@ type MergeDecision = 'merge' | 'keep_separate' | 'reject_a' | 'reject_b';
 export class AcquisitionPersonnelReadService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listPersonnel(query: ListPersonnelDto, ctx: TenantContext): Promise<PersonnelListResponseDto> {
+  async listPersonnel(
+    query: ListPersonnelDto,
+    ctx: TenantContext,
+  ): Promise<PersonnelListResponseDto> {
     const page = this.normalizePage(query.page);
     const limit = this.normalizeLimit(query.limit);
 
     const where: Prisma.AcquisitionPersonnelWhereInput = {
+      // Hide soft-superseded people (old DoW-directory rows the updated directory
+      // dropped) unless an admin explicitly opts in via include_superseded=true.
+      ...(query.include_superseded === 'true' ? {} : { supersededAt: null }),
       ...(query.service ? { service: query.service } : {}),
       ...(query.organization
         ? {
@@ -35,7 +41,9 @@ export class AcquisitionPersonnelReadService {
       ...(query.pe_aligned === 'aligned'
         ? { OR: [{ pePrimary: { not: null } }, { peSecondary: { isEmpty: false } }] }
         : {}),
-      ...(query.pe_aligned === 'unaligned' ? { pePrimary: null, peSecondary: { isEmpty: true } } : {}),
+      ...(query.pe_aligned === 'unaligned'
+        ? { pePrimary: null, peSecondary: { isEmpty: true } }
+        : {}),
     };
 
     // PE-aligned-first ordering (default for the DoW directory): rows with a confirmed
@@ -46,7 +54,11 @@ export class AcquisitionPersonnelReadService {
     const orderBy: Prisma.AcquisitionPersonnelOrderByWithRelationInput[] =
       query.sort === 'confidence'
         ? [{ confidence: 'desc' }, { updatedAt: 'desc' }]
-        : [{ pePrimary: { sort: 'desc', nulls: 'last' } }, { confidence: 'desc' }, { updatedAt: 'desc' }];
+        : [
+            { pePrimary: { sort: 'desc', nulls: 'last' } },
+            { confidence: 'desc' },
+            { updatedAt: 'desc' },
+          ];
 
     const { total, people } = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const trgmIds = query.q?.trim()
@@ -54,9 +66,7 @@ export class AcquisitionPersonnelReadService {
         : null;
 
       const [count, rows] = await Promise.all([
-        trgmIds
-          ? Promise.resolve(trgmIds.length)
-          : tx.acquisitionPersonnel.count({ where }),
+        trgmIds ? Promise.resolve(trgmIds.length) : tx.acquisitionPersonnel.count({ where }),
         trgmIds
           ? tx.acquisitionPersonnel.findMany({
               where: {
@@ -122,7 +132,7 @@ export class AcquisitionPersonnelReadService {
         publicProfileUrl: p.publicProfileUrl,
         headshotUrl:
           p.metadata && typeof p.metadata === 'object' && !Array.isArray(p.metadata)
-            ? ((p.metadata as Record<string, unknown>).headshotUrl as string | undefined) ?? null
+            ? (((p.metadata as Record<string, unknown>).headshotUrl as string | undefined) ?? null)
             : null,
         confidence: p.confidence,
         status: p.status,
@@ -194,10 +204,15 @@ export class AcquisitionPersonnelReadService {
     };
   }
 
-  async getProgramElementPersonnel(peCode: string, ctx: TenantContext): Promise<PersonnelListResponseDto['data']> {
+  async getProgramElementPersonnel(
+    peCode: string,
+    ctx: TenantContext,
+  ): Promise<PersonnelListResponseDto['data']> {
     const rows = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const found = await tx.acquisitionPersonnel.findMany({
         where: {
+          // Don't surface superseded people on a PE's team panel.
+          supersededAt: null,
           OR: [{ pePrimary: peCode }, { peSecondary: { has: peCode } }],
         },
         include: {
@@ -237,7 +252,7 @@ export class AcquisitionPersonnelReadService {
       publicProfileUrl: p.publicProfileUrl,
       headshotUrl:
         p.metadata && typeof p.metadata === 'object' && !Array.isArray(p.metadata)
-          ? ((p.metadata as Record<string, unknown>).headshotUrl as string | undefined) ?? null
+          ? (((p.metadata as Record<string, unknown>).headshotUrl as string | undefined) ?? null)
           : null,
       confidence: p.confidence,
       status: p.status,
@@ -247,10 +262,17 @@ export class AcquisitionPersonnelReadService {
     }));
   }
 
-  async linkCrmContact(personId: string, engagementContactId: string, ctx: TenantContext): Promise<{ linked: true }> {
+  async linkCrmContact(
+    personId: string,
+    engagementContactId: string,
+    ctx: TenantContext,
+  ): Promise<{ linked: true }> {
     await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const [person, contact] = await Promise.all([
-        this.prisma.acquisitionPersonnel.findUnique({ where: { id: personId }, select: { id: true } }),
+        this.prisma.acquisitionPersonnel.findUnique({
+          where: { id: personId },
+          select: { id: true },
+        }),
         tx.engagementContact.findFirst({
           where: {
             id: engagementContactId,
@@ -261,7 +283,8 @@ export class AcquisitionPersonnelReadService {
       ]);
 
       if (!person) throw new NotFoundException(`Acquisition personnel ${personId} not found`);
-      if (!contact) throw new NotFoundException(`Engagement contact ${engagementContactId} not found`);
+      if (!contact)
+        throw new NotFoundException(`Engagement contact ${engagementContactId} not found`);
 
       const updated = await tx.engagementContact.update({
         where: { id: contact.id },
@@ -294,9 +317,7 @@ export class AcquisitionPersonnelReadService {
     const page = this.normalizePage(pageRaw);
     const limit = this.normalizeLimit(limitRaw);
 
-    const where: Prisma.AcquisitionPersonnelMergeCandidateWhereInput = status
-      ? { status }
-      : {};
+    const where: Prisma.AcquisitionPersonnelMergeCandidateWhereInput = status ? { status } : {};
 
     const { total, rows } = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const [count, items] = await Promise.all([
@@ -497,7 +518,9 @@ export class AcquisitionPersonnelReadService {
         select: { sourceUrl: true, pageNumber: true },
       });
       const citationUrl =
-        r2?.sourceUrl && r2.pageNumber ? `${r2.sourceUrl}#page=${r2.pageNumber}` : r2?.sourceUrl ?? null;
+        r2?.sourceUrl && r2.pageNumber
+          ? `${r2.sourceUrl}#page=${r2.pageNumber}`
+          : (r2?.sourceUrl ?? null);
 
       await this.prisma.$transaction(async (tx) => {
         // Apply the link only if the person isn't already mapped (don't clobber).
@@ -545,7 +568,13 @@ export class AcquisitionPersonnelReadService {
           action: 'program_element.person_candidate.resolve',
           entityType: 'program_element_person_candidate',
           entityId: id,
-          after: { decision, peCode: candidate.peCode, personId: candidate.personId, linked, notes: notes ?? null },
+          after: {
+            decision,
+            peCode: candidate.peCode,
+            personId: candidate.personId,
+            linked,
+            notes: notes ?? null,
+          },
         },
       });
     });
@@ -566,14 +595,20 @@ export class AcquisitionPersonnelReadService {
     const fullName = (input.fullName ?? '').trim();
     if (!fullName) throw new BadRequestException('fullName is required');
 
-    const pe = await this.prisma.programElement.findUnique({ where: { peCode }, select: { peCode: true } });
+    const pe = await this.prisma.programElement.findUnique({
+      where: { peCode },
+      select: { peCode: true },
+    });
     if (!pe) throw new NotFoundException(`Program Element ${peCode} not found`);
 
     const nameKey = normalizeName(fullName).nameKey;
 
     const result = await this.prisma.$transaction(async (tx) => {
       // Reuse an existing person by nameKey if present; otherwise create one.
-      let person = await tx.acquisitionPersonnel.findFirst({ where: { nameKey }, select: { id: true } });
+      let person = await tx.acquisitionPersonnel.findFirst({
+        where: { nameKey },
+        select: { id: true },
+      });
       if (!person) {
         person = await tx.acquisitionPersonnel.create({
           data: {
@@ -608,7 +643,10 @@ export class AcquisitionPersonnelReadService {
           peCode,
           score: 0.3,
           matchBasis: `user-suggested by tenant admin${input.roleTitle ? ` (${input.roleTitle})` : ''}`,
-          scoreBreakdown: { source: 'user_suggested', notes: input.notes ?? null } as unknown as object,
+          scoreBreakdown: {
+            source: 'user_suggested',
+            notes: input.notes ?? null,
+          } as unknown as object,
           status: 'open',
         },
         update: {
@@ -630,7 +668,12 @@ export class AcquisitionPersonnelReadService {
           action: 'program_element.person_candidate.suggest',
           entityType: 'program_element_person_candidate',
           entityId: result,
-          after: { peCode, fullName, roleTitle: input.roleTitle ?? null, organization: input.organization ?? null },
+          after: {
+            peCode,
+            fullName,
+            roleTitle: input.roleTitle ?? null,
+            organization: input.organization ?? null,
+          },
         },
       });
     });
