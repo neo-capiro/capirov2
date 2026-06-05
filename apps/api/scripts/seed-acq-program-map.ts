@@ -65,6 +65,24 @@ const CURATED: CuratedEntry[] = [
   { code: '289', name: 'TACTOM', peCodes: ['0204229N'] },
   { code: '197', name: 'DDG 1000', peCodes: ['0204202N'] },
   { code: '474', name: 'F-22 INC 3.2B MOD', peCodes: ['0207138F'] },
+  // ── 2026-06-05 extension: highest-award topUnmapped programs from
+  // report-award-pe-coverage. Every (code -> peCode) is validated against
+  // program_element at seed time, so any PE this deployment hasn't loaded yet is
+  // SKIPPED + reported, never invented. PATRIOT P3I shares PATRIOT's PE (already
+  // mapped, so a guaranteed hit); the rest are citable J-book PEs that land as
+  // their program elements get ingested.
+  { code: '564', name: 'PATRIOT P3I', peCodes: ['0607865A'] },
+  { code: '278', name: 'CH-47F', peCodes: ['0203744A'] },
+  { code: '128', name: 'BRADLEY FVS', peCodes: ['0203735A'] },
+  { code: '101', name: 'H-1 UPGRADES', peCodes: ['0204136N'] },
+  { code: '420', name: 'MQ-1C GRAY EAGLE', peCodes: ['0205228A'] },
+  { code: '373', name: 'MQ-4C TRITON', peCodes: ['0305220N', '0204762N'] },
+  { code: '390', name: 'CH-53K', peCodes: ['0604262N'] },
+  { code: '442', name: 'AIM-9X BLK II', peCodes: ['0207161F', '0207161N'] },
+  { code: '166', name: 'NAVSTAR GPS', peCodes: ['1203940SF', '0305265F'] },
+  { code: '439', name: 'SDB II', peCodes: ['0604329F'] },
+  { code: '503', name: 'JDAM', peCodes: ['0207161F'] },
+  { code: '110', name: 'AEGIS', peCodes: ['0204163N', '0603892C'] },
 ];
 
 function hasFlag(name: string): boolean {

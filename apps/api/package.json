@@ -54,6 +54,7 @@
     "sync:regulations": "tsx scripts/sync-regulations.ts",
     "sync:sec": "tsx scripts/sync-sec-edgar.ts",
     "sync:fara": "tsx scripts/sync-fara.ts",
+    "sync:fara-enrichment": "tsx scripts/sync-fara-enrichment.ts",
     "sync:bls": "tsx scripts/sync-bls.ts",
     "sync:census": "tsx scripts/sync-census.ts",
     "sync:bea": "tsx scripts/sync-bea.ts",
