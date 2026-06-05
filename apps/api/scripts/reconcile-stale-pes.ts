@@ -62,7 +62,7 @@ async function main(): Promise<void> {
         EXISTS (SELECT 1 FROM federal_award fa WHERE fa.pe_code = p.pe_code) AS "hasAward",
         EXISTS (SELECT 1 FROM congress_bill b WHERE p.pe_code = ANY(b.pe_codes)) AS "hasBill",
         EXISTS (SELECT 1 FROM program_element_watch w WHERE w.pe_code = p.pe_code) AS "hasWatch",
-        EXISTS (SELECT 1 FROM client_capability cc WHERE cc.pe_number = p.pe_code) AS "hasCap",
+        EXISTS (SELECT 1 FROM client_capabilities cc WHERE cc.pe_number = p.pe_code) AS "hasCap",
         EXISTS (SELECT 1 FROM program_element_source s WHERE s.pe_code = p.pe_code) AS "hasCitation",
         EXISTS (SELECT 1 FROM program_element_project pr WHERE pr.pe_code = p.pe_code) AS "hasProject",
         EXISTS (

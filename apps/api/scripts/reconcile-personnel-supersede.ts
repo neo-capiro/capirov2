@@ -4,6 +4,10 @@
  *   tsx scripts/reconcile-personnel-supersede.ts            # DRY RUN (counts + samples)
  *   tsx scripts/reconcile-personnel-supersede.ts --commit   # set superseded_at
  *   flags: --limit=N (cap supersedes this run; 0 = all)
+ *          --include-tier1 (also supersede stanford_dow_tier1 "decision makers";
+ *                           DEFAULT KEEPS them — the updated directory may not
+ *                           re-cover that curated subset 1:1, and wrongly hiding a
+ *                           sitting decision-maker is worse than leaving a stale row)
  *
  * Soft-supersedes acquisition-personnel whose ENTIRE provenance is the old DoW
  * spreadsheet (stanford_dow_directory_jan2026 / stanford_dow_tier1) and who are
@@ -25,6 +29,7 @@ import {
 dotenvConfig();
 
 const COMMIT = process.argv.includes('--commit');
+const INCLUDE_TIER1 = process.argv.includes('--include-tier1');
 
 function numArg(name: string, def: number): number {
   const hit = process.argv.find((a) => a.startsWith(`--${name}=`));
@@ -53,15 +58,23 @@ async function main(): Promise<void> {
     });
 
     const toSupersede: typeof people = [];
-    let tier1 = 0;
+    let tier1Candidates = 0;
+    let tier1Excluded = 0;
     let linkedToPe = 0;
     for (const p of people) {
       const decision = classifyPersonStaleness({ supersededAt: null, sources: p.sources });
-      if (decision.action === 'supersede') {
-        toSupersede.push(p);
-        if (isTier1(p.sources)) tier1 += 1;
-        if (p.pePrimary || (p.peSecondary?.length ?? 0) > 0) linkedToPe += 1;
+      if (decision.action !== 'supersede') continue;
+      const tier1Person = isTier1(p.sources);
+      if (tier1Person) tier1Candidates += 1;
+      // Conservative default: KEEP tier-1 "decision makers" unless --include-tier1.
+      // The updated directory may not re-cover that curated subset 1:1, so wrongly
+      // hiding a sitting decision-maker is worse than leaving one stale row.
+      if (tier1Person && !INCLUDE_TIER1) {
+        tier1Excluded += 1;
+        continue;
       }
+      toSupersede.push(p);
+      if (p.pePrimary || (p.peSecondary?.length ?? 0) > 0) linkedToPe += 1;
     }
 
     const capped = limit > 0 ? toSupersede.slice(0, limit) : toSupersede;
@@ -84,9 +97,11 @@ async function main(): Promise<void> {
       JSON.stringify(
         {
           mode: COMMIT ? 'COMMIT' : 'DRY_RUN',
+          includeTier1: INCLUDE_TIER1,
           scanned: people.length,
           wouldSupersede: toSupersede.length,
-          wouldSupersedeTier1: tier1,
+          tier1Candidates,
+          tier1Excluded,
           wouldSupersedeLinkedToPe: linkedToPe,
           capApplied: limit > 0 ? limit : null,
           superseded: COMMIT ? superseded : 0,
