@@ -60,6 +60,10 @@ function makeService(opts?: { changedPeCodes?: string[] }) {
   const changed = new Set(opts?.changedPeCodes ?? []);
 
   const writer = {
+    upsertProgramElement: jest.fn(async (record: { peCode: string }) => ({
+      inserted: true,
+      pe_code: record.peCode,
+    })),
     upsertProgramElementYear: jest.fn(async (record: CapturedYear['record'], source: string) => {
       upserts.push({ record, source });
       return { inserted: true, changed: changed.has(record.peCode) };
@@ -92,7 +96,8 @@ describe('ConferenceReportParserService.load', () => {
       expect(u.record.conference).toBeDefined();
       expect(u.record.enacted).toBeUndefined();
     }
-    expect(upserts.find((u) => u.record.peCode === '0603270A')!.record.conference).toBe(145000);
+    // Table value 145,000 (thousands) is normalized to 145 ($145M) at the boundary.
+    expect(upserts.find((u) => u.record.peCode === '0603270A')!.record.conference).toBe(145);
   });
 
   test('public_law stage → enacted field + public_law source', async () => {
@@ -100,7 +105,7 @@ describe('ConferenceReportParserService.load', () => {
     await svc.load(goldenRecords, 'public_law', 2027);
     const ew = upserts.find((u) => u.record.peCode === '0603270A')!;
     expect(ew.source).toBe('public_law_fy27');
-    expect(ew.record.enacted).toBe(145000);
+    expect(ew.record.enacted).toBe(145);
     expect(ew.record.conference).toBeUndefined();
   });
 

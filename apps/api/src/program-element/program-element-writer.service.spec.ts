@@ -252,6 +252,54 @@ describe('ProgramElementWriterService', () => {
     expect(String(service.__mock.years.get('0603270A::2026')?.request)).toBe('500');
   });
 
+  test('Multiple sources merge into one row without clobbering (full funding lifecycle)', async () => {
+    const service = createService();
+    await service.upsertProgramElement(basePe, 'fixture', 0.9);
+
+    // Each source carries only its own field — the real ingestion shape. Before
+    // the merge fix, each write overwrote the whole row, so only the last source's
+    // field survived (the "all program elements show no funding" bug).
+    await service.upsertProgramElementYear({ peCode: '0603270A', fy: 2027, request: '382.0' }, 'r_doc_fy27');
+    await service.upsertProgramElementYear({ peCode: '0603270A', fy: 2027, hascMark: '290.0' }, 'hasc_report_fy27');
+    await service.upsertProgramElementYear(
+      { peCode: '0603270A', fy: 2027, conference: '286.0' },
+      'conference_report_fy27',
+    );
+    // Public law (enacted) writes LAST — the case that used to wipe everything else.
+    await service.upsertProgramElementYear({ peCode: '0603270A', fy: 2027, enacted: '286.0' }, 'public_law_fy27');
+
+    const row = service.__mock.years.get('0603270A::2027')!;
+    expect(String(row.request)).toBe('382');
+    expect(String(row.hascMark)).toBe('290');
+    expect(String(row.conference)).toBe('286');
+    expect(String(row.enacted)).toBe('286');
+
+    // Per-field provenance is recorded so the FY drawer's "Source" column is real.
+    const attribution = (row.raw as { sourceAttribution?: Record<string, string> }).sourceAttribution ?? {};
+    expect(attribution.request).toBe("President's Budget (R-2)");
+    expect(attribution.enacted).toBe('Enacted public law');
+  });
+
+  test('Higher-priority source wins per field even with _fy-suffixed tags', async () => {
+    const service = createService();
+    await service.upsertProgramElement(basePe, 'fixture', 0.9);
+
+    // conference_report (rank 0) outranks r_doc (rank 5). The suffixed tags must
+    // still resolve to those ranks — the old indexOf left every real tag tied at
+    // the bottom, so this lower-priority r_doc write would have clobbered the 500.
+    await service.upsertProgramElementYear(
+      { peCode: '0603270A', fy: 2027, request: '500' },
+      'conference_report_fy27',
+    );
+    const result = await service.upsertProgramElementYear(
+      { peCode: '0603270A', fy: 2027, request: '100' },
+      'r_doc_fy27',
+    );
+
+    expect(result).toEqual({ inserted: false, changed: false });
+    expect(String(service.__mock.years.get('0603270A::2027')?.request)).toBe('500');
+  });
+
   test('refreshProgramElementDetailMaterializedView runs concurrent refresh', async () => {
     const service = createService();
 
@@ -458,7 +506,9 @@ function createPrismaMock() {
       }),
     },
     $executeRawUnsafe: jest.fn(async (sql: string) => {
-      if (sql === 'REFRESH MATERIALIZED VIEW CONCURRENTLY program_element_detail_mv') {
+      // The writer refreshes via the SECURITY DEFINER function (capiro_app isn't the
+      // MV owner), so match the function call the service actually issues.
+      if (sql === 'SELECT refresh_program_element_detail_mv()') {
         materializedViewRefreshCount += 1;
       }
       return 0;

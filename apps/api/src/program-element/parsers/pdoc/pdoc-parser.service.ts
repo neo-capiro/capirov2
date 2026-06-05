@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { isValidPeCode } from '../../jbook/jbook-extract.js';
+import { isValidPeCode, thousandsToMillions } from '../../jbook/jbook-extract.js';
 import { ProgramElementWriterService } from '../../program-element-writer.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 
@@ -188,12 +188,14 @@ export class PDocParserService {
       pesUpserted += 1;
 
       // Parent FY totals → program_element_year (request column carries the dollars).
+      // P-1 exhibits print dollars in THOUSANDS; convert to the canonical MILLIONS
+      // unit so procurement requests aren't 1000x inflated against the UI/fixtures.
       for (const fyRow of rec.fyData) {
         const result = await this.writer.upsertProgramElementYear(
           {
             peCode: rec.peCode,
             fy: fyRow.fy,
-            request: fyRow.requestDollarsThousands,
+            request: thousandsToMillions(fyRow.requestDollarsThousands),
             notes: fyRow.quantity !== null ? `qty=${fyRow.quantity}` : null,
             raw: fyRow,
           },

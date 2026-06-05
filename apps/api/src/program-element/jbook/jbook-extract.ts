@@ -105,3 +105,15 @@ export function isValidPeCode(peCode: string | null | undefined): boolean {
   if (!peCode) return false;
   return PE_CODE_REGEX.test(peCode.trim().toUpperCase());
 }
+
+/**
+ * DoD budget exhibits and congressional committee/appropriations tables
+ * denominate dollars in THOUSANDS. Program Element marks are stored and displayed
+ * in MILLIONS — the convention the seed fixtures and the UI's `$X.XXm` formatting
+ * already use. Convert at every ingestion boundary so one consistent unit
+ * (millions) reaches the writer; a 0 stays 0 and null/NaN stay null.
+ */
+export function thousandsToMillions(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  return value / 1000;
+}

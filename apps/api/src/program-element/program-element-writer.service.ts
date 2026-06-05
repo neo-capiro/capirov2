@@ -2,9 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, ProgramElementMilestone, ProgramElementYear } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ProgramElementMetricsService } from './program-element-metrics.service.js';
-import { FieldDelta, PeMilestoneInput, PeRecordInput, PeYearInput, SOURCE_PRIORITY } from './types.js';
+import { FieldDelta, PeMilestoneInput, PeRecordInput, PeYearInput } from './types.js';
 import { ReconciliationService, RECONCILE_FIELDS, type ReconcileField } from './reconciliation/reconciliation.service.js';
 import { isValidPeCode } from './jbook/jbook-extract.js';
+import { sourceLabel, sourceRank } from './source-priority.js';
 
 const MARK_FIELDS = new Set(['hascMark', 'sascMark', 'hacDMark', 'sacDMark', 'conference', 'enacted']);
 const FIELD_LABEL: Record<string, string> = {
@@ -18,6 +19,23 @@ const FIELD_LABEL: Record<string, string> = {
   reprogrammed: 'Reprogrammed',
   executed: 'Executed',
 };
+
+// Every numeric mark a single PE-year row carries. The canonical row is the
+// UNION of these across sources (request from the budget, marks from committee
+// reports, conference from the JES, enacted from the public law) — so the writer
+// MERGES per field rather than overwriting the whole row on each source's write.
+const VALUE_FIELDS = [
+  'request',
+  'hascMark',
+  'sascMark',
+  'hacDMark',
+  'sacDMark',
+  'conference',
+  'enacted',
+  'reprogrammed',
+  'executed',
+] as const;
+type ValueField = (typeof VALUE_FIELDS)[number];
 
 interface EmissionPayload {
   changeType: 'pe_mark_added' | 'pe_mark_changed' | 'pe_value_increased' | 'pe_value_decreased' | 'pe_milestone_slip';
@@ -131,39 +149,30 @@ export class ProgramElementWriterService {
       return { inserted: false, changed: false };
     }
 
-    const sourceRank = this.getSourceRank(source);
-    const winner = await this.prisma.programElementYearSourceValue.findFirst({
-      where: {
-        peCode: record.peCode,
-        fy: record.fy,
-        fieldName: '__row__',
-        isWinner: true,
-      },
-      orderBy: { recordedAt: 'desc' },
-    });
-
-    if (winner) {
-      const winnerRank = this.getSourceRank(winner.source);
-      if (sourceRank > winnerRank) {
-        await this.logSourceValue(record, source, false);
-        return { inserted: false, changed: false };
-      }
-    }
-
     const existing = await this.prisma.programElementYear.findUnique({
       where: { peCode_fy: { peCode: record.peCode, fy: record.fy } },
     });
 
-    const normalized = this.normalizeYearInput(record);
+    const incoming = this.normalizeYearInput(record);
 
     // Cross-source reconciliation (Step 29): log per-source values + queue
     // over-threshold conflicts on every observed write, before canonical changes.
     await this.runReconciliation(record, source);
 
+    // MERGE this source's fields into the existing row instead of overwriting it.
+    // Each ingestion source carries only its own field(s) — request from the
+    // budget, one mark from a committee report, conference from the JES, enacted
+    // from the public law. A whole-row overwrite (the old behavior) nulled out
+    // every field the OTHER sources had populated, so only the last writer's field
+    // survived — the root cause of "all program elements show no funding". The
+    // merge keeps every populated field and lets source-priority break per-field
+    // conflicts.
+    const merged = this.buildMergedYear(existing, incoming, source);
+
     if (!existing) {
       await this.prisma.programElementYear.create({
         data: {
-          ...normalized,
+          ...merged,
           peCode: record.peCode,
           fy: record.fy,
           lastSyncedAt: new Date(),
@@ -174,7 +183,7 @@ export class ProgramElementWriterService {
       return { inserted: true, changed: true };
     }
 
-    const delta = this.computeYearDelta(existing, normalized);
+    const delta = this.computeYearDelta(existing, merged);
     if (delta.length === 0) {
       await this.logSourceValue(record, source, true);
       return { inserted: false, changed: false };
@@ -183,7 +192,7 @@ export class ProgramElementWriterService {
     await this.prisma.programElementYear.update({
       where: { peCode_fy: { peCode: record.peCode, fy: record.fy } },
       data: {
-        ...normalized,
+        ...merged,
         lastSyncedAt: new Date(),
       },
     });
@@ -331,9 +340,14 @@ export class ProgramElementWriterService {
     return isValidPeCode(peCode);
   }
 
+  /**
+   * Source-priority rank — lower index = higher priority. Delegates to the shared
+   * prefix-aware resolver so suffixed tags (`hasc_report_fy27`, `p_doc_navy_fy27`)
+   * map to their base priority. The old literal `indexOf` never matched a suffixed
+   * tag, so every real source tied at the bottom and priority was silently inert.
+   */
   private getSourceRank(source: string): number {
-    const idx = SOURCE_PRIORITY.indexOf(source as (typeof SOURCE_PRIORITY)[number]);
-    return idx === -1 ? SOURCE_PRIORITY.length : idx;
+    return sourceRank(source);
   }
 
   /**
@@ -375,6 +389,95 @@ export class ProgramElementWriterService {
       rDocSection: record.rDocSection ?? null,
       raw: this.toJsonValue(record.raw),
     };
+  }
+
+  /**
+   * Merge an incoming source's normalized fields over the existing canonical row.
+   * Per value field: take the incoming value only when it is non-null AND its
+   * source is at least as high-priority as whatever last set the field (tracked in
+   * raw.fieldSources); otherwise keep the existing value. A null incoming field
+   * NEVER clobbers an existing value. Records per-field provenance
+   * (raw.sourceAttribution for display + raw.datesAdded), stamping the date only
+   * when a value actually changes so idempotent re-runs stay no-ops. Returns the
+   * row payload for both create and update (caller adds peCode/fy/lastSyncedAt).
+   */
+  private buildMergedYear(
+    existing: ProgramElementYear | null,
+    incoming: Omit<Prisma.ProgramElementYearUncheckedCreateInput, 'id' | 'peCode' | 'fy' | 'lastSyncedAt'>,
+    source: string,
+  ): Omit<Prisma.ProgramElementYearUncheckedCreateInput, 'id' | 'peCode' | 'fy' | 'lastSyncedAt'> {
+    const incomingRank = this.getSourceRank(source);
+    const existingRaw = this.asRecord(existing?.raw);
+    const fieldSources = this.asStringMap(existingRaw.fieldSources);
+    const sourceAttribution = this.asStringMap(existingRaw.sourceAttribution);
+    const datesAdded = this.asStringMap(existingRaw.datesAdded);
+    const today = new Date().toISOString().slice(0, 10);
+
+    const values: Partial<Record<ValueField, Prisma.Decimal | null>> = {};
+    for (const field of VALUE_FIELDS) {
+      const inc = (incoming[field] ?? null) as Prisma.Decimal | null;
+      const cur = (existing?.[field] ?? null) as Prisma.Decimal | null;
+
+      if (inc === null) {
+        values[field] = cur; // a source that doesn't carry this field must not erase it
+        continue;
+      }
+
+      const curRank = field in fieldSources ? this.getSourceRank(fieldSources[field]!) : Number.MAX_SAFE_INTEGER;
+      if (cur !== null && incomingRank > curRank) {
+        values[field] = cur; // a lower-priority source never overwrites a higher one
+        continue;
+      }
+
+      values[field] = inc;
+      if (cur === null || !this.decEqual(cur, inc)) {
+        datesAdded[field] = today;
+      }
+      fieldSources[field] = source;
+      sourceAttribution[field] = sourceLabel(source);
+    }
+
+    // Narrative columns: prefer a non-empty incoming value, else keep existing.
+    const incNotes = typeof incoming.notes === 'string' && incoming.notes.trim() ? incoming.notes : null;
+    const incRDoc =
+      typeof incoming.rDocSection === 'string' && incoming.rDocSection.trim() ? incoming.rDocSection : null;
+
+    return {
+      request: values.request ?? null,
+      hascMark: values.hascMark ?? null,
+      sascMark: values.sascMark ?? null,
+      hacDMark: values.hacDMark ?? null,
+      sacDMark: values.sacDMark ?? null,
+      conference: values.conference ?? null,
+      enacted: values.enacted ?? null,
+      reprogrammed: values.reprogrammed ?? null,
+      executed: values.executed ?? null,
+      notes: incNotes ?? existing?.notes ?? null,
+      rDocSection: incRDoc ?? existing?.rDocSection ?? null,
+      raw: this.toJsonValue({ ...existingRaw, fieldSources, sourceAttribution, datesAdded }),
+    };
+  }
+
+  private decEqual(a: Prisma.Decimal | null, b: Prisma.Decimal | null): boolean {
+    if (a === null || b === null) return a === b;
+    return a.toString() === b.toString();
+  }
+
+  /** Shallow-clone a JSON value into a plain object (or {} when it isn't one). */
+  private asRecord(value: unknown): Record<string, unknown> {
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? { ...(value as Record<string, unknown>) }
+      : {};
+  }
+
+  /** Coerce a JSON value into a string→string map, dropping non-string entries. */
+  private asStringMap(value: unknown): Record<string, string> {
+    if (!value || typeof value !== 'object') return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof v === 'string') out[k] = v;
+    }
+    return out;
   }
 
   private computeYearDelta(
@@ -542,8 +645,10 @@ export class ProgramElementWriterService {
     deltaAbs: number;
   }): string {
     const { peCode, field, fieldLabel, newValue, deltaAbs } = input;
-    const newValueM = newValue / 1_000_000;
-    const deltaM = deltaAbs / 1_000_000;
+    // Marks are stored in millions of dollars (the canonical unit across ingestion,
+    // fixtures, and the UI), so the value IS the figure in $M — no scaling.
+    const newValueM = newValue;
+    const deltaM = deltaAbs;
 
     if (field !== 'request') {
       return `${fieldLabel} marked PE ${peCode} at $${newValueM.toFixed(0)}M (${deltaM >= 0 ? '+' : ''}${deltaM.toFixed(0)}M over request)`;

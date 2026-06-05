@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { isValidPeCode } from '../jbook/jbook-extract.js';
+import { isValidPeCode, thousandsToMillions } from '../jbook/jbook-extract.js';
 import { ProgramElementWriterService } from '../program-element-writer.service.js';
 
 /**
@@ -178,12 +178,14 @@ export abstract class CommitteeReportParserBase {
         0.3,
       );
 
+      // Committee/appropriations tables print dollars in THOUSANDS; convert to the
+      // canonical MILLIONS unit before the write so marks aren't 1000x inflated.
       const result = await this.writer.upsertProgramElementYear(
         {
           peCode: rec.peCode,
           fy: rec.fy,
-          request: rec.request,
-          [markField]: rec.mark,
+          request: thousandsToMillions(rec.request),
+          [markField]: thousandsToMillions(rec.mark),
           notes: rec.explanation,
           raw: rec,
         },

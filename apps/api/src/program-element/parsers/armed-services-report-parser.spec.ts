@@ -76,6 +76,10 @@ function makeService(opts?: { changedPeCodes?: string[] }) {
   const changed = new Set(opts?.changedPeCodes ?? []);
 
   const writer = {
+    upsertProgramElement: jest.fn(async (record: { peCode: string }) => ({
+      inserted: true,
+      pe_code: record.peCode,
+    })),
     upsertProgramElementYear: jest.fn(async (record: CapturedYear['record'], source: string) => {
       upserts.push({ record, source });
       return { inserted: true, changed: changed.has(record.peCode) };
@@ -109,7 +113,8 @@ describe('ArmedServicesReportParserService.load', () => {
       expect(u.record.sascMark).toBeUndefined();
     }
     const ew = upserts.find((u) => u.record.peCode === '0603270A')!;
-    expect(ew.record.hascMark).toBe(150000);
+    // Table value 150,000 (thousands) is normalized to 150 ($150M) at the boundary.
+    expect(ew.record.hascMark).toBe(150);
   });
 
   test('SASC routes to sascMark + sasc source', async () => {
@@ -117,7 +122,7 @@ describe('ArmedServicesReportParserService.load', () => {
     await svc.load(goldenRecords, 'SASC', 2027);
     const ew = upserts.find((u) => u.record.peCode === '0603270A')!;
     expect(ew.source).toBe('sasc_report_fy27');
-    expect(ew.record.sascMark).toBe(150000);
+    expect(ew.record.sascMark).toBe(150);
     expect(ew.record.hascMark).toBeUndefined();
   });
 

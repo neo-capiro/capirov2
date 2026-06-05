@@ -35,6 +35,7 @@
     "enrich:award-pe": "tsx scripts/enrich-award-pe.ts",
     "seed:acq-program-map": "tsx scripts/seed-acq-program-map.ts",
     "report:award-pe-coverage": "tsx scripts/report-award-pe-coverage.ts",
+    "rebuild:pe-years": "tsx scripts/rebuild-program-element-years.ts",
     "sync:congress": "tsx scripts/sync-congress.ts",
     "extract:bill-pe-codes": "tsx scripts/extract-bill-pe-codes.ts",
     "parse:hasc-report": "tsx scripts/parse-hasc-sasc-reports.ts --chamber HASC",
