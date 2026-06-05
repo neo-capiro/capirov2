@@ -107,13 +107,24 @@ export function isValidPeCode(peCode: string | null | undefined): boolean {
 }
 
 /**
- * DoD budget exhibits and congressional committee/appropriations tables
- * denominate dollars in THOUSANDS. Program Element marks are stored and displayed
- * in MILLIONS — the convention the seed fixtures and the UI's `$X.XXm` formatting
- * already use. Convert at every ingestion boundary so one consistent unit
- * (millions) reaches the writer; a 0 stays 0 and null/NaN stay null.
+ * Program Element marks are stored + displayed in MILLIONS (the seed-fixture + UI
+ * `$X.XXm` convention). Source artifacts arrive in different raw units, so each
+ * ingestion path normalizes to millions at the boundary; 0 stays 0, null/NaN -> null.
+ *
+ *  - dollarsToMillions: committee (HASC/SASC/HAC-D/SAC-D), NDAA conference, and
+ *    enacted public-law extraction artifacts encode FULL DOLLARS — verified against
+ *    the committed artifact + live data (e.g. armed_services_hasc_fy2027.json has
+ *    0601102A = 215322000 = $215.3M; prod 0101224N enacted 60280000 = $60.3M).
+ *    Divide by 1e6.
+ *  - thousandsToMillions: P-1 procurement (P-doc) exhibits are denominated in
+ *    THOUSANDS. Divide by 1e3.
  */
+export function dollarsToMillions(value: number | null | undefined): number | null {
+  if (value === null || value === undefined || !Number.isFinite(value)) return null;
+  return value / 1_000_000;
+}
+
 export function thousandsToMillions(value: number | null | undefined): number | null {
   if (value === null || value === undefined || !Number.isFinite(value)) return null;
-  return value / 1000;
+  return value / 1_000;
 }

@@ -99,8 +99,8 @@ describe('DefenseAppropsReportParserService.load', () => {
       expect(u.record.sacDMark).toBeUndefined();
     }
     const inc = upserts.find((u) => u.record.peCode === '0603270A')!;
-    // Table value 140,000 (thousands) is normalized to 140 ($140M) at the boundary.
-    expect(inc.record.hacDMark).toBe(140);
+    // Artifact value 140000 (full dollars) is normalized to 0.14 ($0.14M) at the boundary.
+    expect(inc.record.hacDMark).toBe(0.14);
   });
 
   test('SAC-D routes to sacDMark + sac_d source', async () => {
@@ -108,7 +108,7 @@ describe('DefenseAppropsReportParserService.load', () => {
     await svc.load(goldenRecords, 'SAC-D', 2027);
     const inc = upserts.find((u) => u.record.peCode === '0603270A')!;
     expect(inc.source).toBe('sac_d_report_fy27');
-    expect(inc.record.sacDMark).toBe(140);
+    expect(inc.record.sacDMark).toBe(0.14);
     expect(inc.record.hacDMark).toBeUndefined();
   });
 

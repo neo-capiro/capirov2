@@ -113,8 +113,8 @@ describe('ArmedServicesReportParserService.load', () => {
       expect(u.record.sascMark).toBeUndefined();
     }
     const ew = upserts.find((u) => u.record.peCode === '0603270A')!;
-    // Table value 150,000 (thousands) is normalized to 150 ($150M) at the boundary.
-    expect(ew.record.hascMark).toBe(150);
+    // Artifact value 150000 (full dollars) is normalized to 0.15 ($0.15M) at the boundary.
+    expect(ew.record.hascMark).toBe(0.15);
   });
 
   test('SASC routes to sascMark + sasc source', async () => {
@@ -122,7 +122,7 @@ describe('ArmedServicesReportParserService.load', () => {
     await svc.load(goldenRecords, 'SASC', 2027);
     const ew = upserts.find((u) => u.record.peCode === '0603270A')!;
     expect(ew.source).toBe('sasc_report_fy27');
-    expect(ew.record.sascMark).toBe(150);
+    expect(ew.record.sascMark).toBe(0.15);
     expect(ew.record.hascMark).toBeUndefined();
   });
 

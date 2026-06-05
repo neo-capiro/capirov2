@@ -56,13 +56,20 @@ export interface RebuiltYear {
 }
 
 /**
- * Convert a logged value to the canonical MILLIONS unit. Real budget/committee
- * sources logged THOUSANDS; the seed fixture logged MILLIONS already. (The log
- * holds pre-fix values — run the rebuild before any post-fix re-ingestion so this
- * assumption holds; a 0 stays 0.)
+ * Convert a logged value to the canonical MILLIONS unit, by source:
+ *   - fixture  -> already millions (no scaling)
+ *   - p_doc    -> P-1 procurement exhibits are THOUSANDS (÷1e3)
+ *   - else     -> committee / conference / public-law artifacts are FULL DOLLARS
+ *                 (÷1e6), verified against live data (0101224N enacted 60280000 =
+ *                 $60.3M, committee 0101113F 931164000 = $931M).
+ * The log holds pre-fix values — run the rebuild before any post-fix re-ingestion
+ * so this holds; a 0 stays 0.
  */
 export function normalizeLoggedValue(value: number, source: string): number {
-  return sourceBaseKey(source) === 'fixture' ? value : value / 1000;
+  const base = sourceBaseKey(source);
+  if (base === 'fixture') return value;
+  if (base === 'p_doc') return value / 1_000;
+  return value / 1_000_000;
 }
 
 /** True when `a` should beat `b` for a field: higher priority, else more recent. */
