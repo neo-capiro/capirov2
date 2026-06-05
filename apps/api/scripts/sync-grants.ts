@@ -96,6 +96,10 @@ async function main() {
       }
       console.log(`[grants-sync] page ${page + 1}: ${hits.length} grants (total: ${total}, hitCount: ${payload?.hitCount ?? '?'})`);
       if (hits.length < PAGE_SIZE) break;
+      // grants.gov returns full pages even past hitCount (offset is not honored),
+      // which just re-upserts the same opportunities. Stop once we've covered the
+      // reported total so a run does ~hitCount upserts, not MAX_PAGES*PAGE_SIZE.
+      if (payload?.hitCount && total >= payload.hitCount) break;
     }
 
     console.log(`[grants-sync] total: ${total}`);
