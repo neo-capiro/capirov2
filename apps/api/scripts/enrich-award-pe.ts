@@ -157,18 +157,35 @@ async function main(): Promise<void> {
         knownPeCodes,
         acqMap,
       );
-      await prisma.federalAward.update({
-        where: { id: row.id },
-        data: {
-          dodAcqProgramCode: acq.code,
-          dodAcqProgramName: acq.name ?? undefined,
-          // Only set pe_code/source when we actually resolved one — never clobber an
-          // existing resolution with null.
-          ...(resolved ? { peCode: resolved.peCode, peCodeSource: resolved.source } : {}),
-        },
-      });
+      // federal_award.pe_code is VARCHAR(8), but some valid PEs are 9 chars
+      // (Space Force "....SF", e.g. 1203940SF). Never let an over-length value
+      // abort the whole pass with P2000 — skip just the pe write and log it (the
+      // column widen is tracked in the remediation report). A try/catch backstops
+      // any other per-row write error so one bad award can't kill the batch.
+      const writablePe = resolved && resolved.peCode.length <= 8 ? resolved : null;
+      if (resolved && !writablePe) {
+        console.warn(
+          `[enrich-award-pe] peCode "${resolved.peCode}" exceeds VARCHAR(8); skipping pe write for ${row.id}`,
+        );
+      }
+      try {
+        await prisma.federalAward.update({
+          where: { id: row.id },
+          data: {
+            dodAcqProgramCode: acq.code,
+            dodAcqProgramName: acq.name ?? undefined,
+            // Only set pe_code/source when we resolved a storable one — never
+            // clobber an existing resolution with null.
+            ...(writablePe ? { peCode: writablePe.peCode, peCodeSource: writablePe.source } : {}),
+          },
+        });
+      } catch (err) {
+        failed += 1;
+        console.warn(`[enrich-award-pe] update failed for ${row.id}: ${(err as Error).message}`);
+        continue;
+      }
       taggedCode += 1;
-      if (resolved) resolvedPe += 1;
+      if (writablePe) resolvedPe += 1;
       if (taggedCode % 100 === 0) {
         console.log(`[enrich-award-pe] tagged=${taggedCode} resolvedPe=${resolvedPe} noData=${noData} failed=${failed}`);
       }

@@ -13,6 +13,8 @@ const OS_BASE = 'https://v3.openstates.org';
 const OS_KEY = process.env.OPENSTATES_API_KEY ?? '';
 const DELAY_MS = 2000;
 const MAX_RETRIES = 3;
+const PER_PAGE = 20; // OpenStates v3 hard max; per_page>20 -> HTTP 400 (old per_page=100/200 fetched 0 rows)
+const MAX_PAGES = 5; // up to PER_PAGE*MAX_PAGES rows/state/resource per run; full coverage builds over the weekly cycle
 const BATCH_SIZE = 10; // process 10 states per run to avoid rate limits
 // All states + DC
 const ALL_STATES = [
@@ -50,6 +52,32 @@ async function fetchOS<T>(path: string, params: Record<string, string> = {}): Pr
   return null;
 }
 
+/**
+ * Page through an OpenStates v3 list endpoint at the API's max page size.
+ * OpenStates rejects per_page>20 with HTTP 400, so we request PER_PAGE rows and
+ * walk pages up to MAX_PAGES (or the reported max_page). A null page (error or
+ * rate-limit after retries) ends the walk. Returns the flattened results.
+ */
+async function fetchAllPages<T>(
+  path: string,
+  params: Record<string, string> = {},
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let page = 1; page <= MAX_PAGES; page++) {
+    await new Promise((r) => setTimeout(r, DELAY_MS));
+    const resp = await fetchOS<{ results: T[]; pagination?: { max_page?: number } }>(
+      path,
+      { ...params, per_page: String(PER_PAGE), page: String(page) },
+    );
+    const rows = resp?.results ?? [];
+    if (!rows.length) break;
+    all.push(...rows);
+    const maxPage = resp?.pagination?.max_page ?? page;
+    if (page >= maxPage) break;
+  }
+  return all;
+}
+
 function safeDate(v: string | null | undefined): Date | null {
   if (!v) return null;
   const d = new Date(v);
@@ -69,15 +97,15 @@ async function main() {
     let totalPeople = 0;
 
     for (const state of PRIORITY_STATES) {
-      // Fetch recent bills (updated in last 30 days)
+      // Fetch recent bills (updated in last 30 days), paged at the API max
+      // (per_page>20 returns HTTP 400 — the cause of the old "0 bills" runs).
       const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
-      await new Promise((r) => setTimeout(r, DELAY_MS));
-      const bills = await fetchOS<{ results: any[]; pagination: { max_page: number } }>(
-        '/bills', { jurisdiction: state, updated_since: since, per_page: '100', page: '1', sort: 'updated_desc' }
+      const billsList = await fetchAllPages<any>(
+        '/bills', { jurisdiction: state, updated_since: since, sort: 'updated_desc' }
       );
 
-      if (bills?.results) {
-        for (const b of bills.results) {
+      if (billsList.length) {
+        for (const b of billsList) {
           const sponsor = b.sponsorships?.[0];
           const lastAction = b.latest_action;
           await (prisma as any).stateBill.upsert({
@@ -101,17 +129,16 @@ async function main() {
           });
           totalBills++;
         }
-        console.log(`[openstates-sync] ${state.toUpperCase()} bills: ${bills.results.length}`);
+        console.log(`[openstates-sync] ${state.toUpperCase()} bills: ${billsList.length}`);
       }
 
-      // Fetch current legislators
-      await new Promise((r) => setTimeout(r, DELAY_MS));
-      const people = await fetchOS<{ results: any[] }>(
-        '/people', { jurisdiction: state, per_page: '200', page: '1' }
+      // Fetch current legislators, paged at the API max (per_page=200 -> 400).
+      const peopleList = await fetchAllPages<any>(
+        '/people', { jurisdiction: state }
       );
 
-      if (people?.results) {
-        for (const p of people.results) {
+      if (peopleList.length) {
+        for (const p of peopleList) {
           const currentRole = p.current_role;
           await (prisma as any).stateLegislator.upsert({
             where: { id: p.id },
@@ -137,7 +164,7 @@ async function main() {
           });
           totalPeople++;
         }
-        console.log(`[openstates-sync] ${state.toUpperCase()} legislators: ${people.results.length}`);
+        console.log(`[openstates-sync] ${state.toUpperCase()} legislators: ${peopleList.length}`);
       }
     }
 

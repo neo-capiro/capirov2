@@ -45,6 +45,7 @@ export const INGESTION_JOBS: ScheduledIngestionJob[] = [
   { id: 'SyncLda', command: ['sync-lda'], cron: { minute: '0', hour: '5', weekDay: 'MON' }, tier: 'weekly', description: 'LDA lobbying filings (weekly Mon)' },
   { id: 'SyncOpenlobby', command: ['sync-openlobby'], cron: { minute: '30', hour: '5', weekDay: 'MON' }, tier: 'weekly', description: 'OpenLobby derived intel (weekly Mon)' },
   { id: 'SyncFara', command: ['sync-fara'], cron: { minute: '0', hour: '6', weekDay: 'MON' }, tier: 'weekly', description: 'FARA registrations (weekly Mon)' },
+  { id: 'SyncFaraEnrichment', command: ['sync-fara-enrichment', '--commit'], cron: { minute: '20', hour: '6', weekDay: 'MON' }, tier: 'weekly', description: 'FARA foreign-principal enrichment from FARA_FP_SOURCE_URL (after FARA sync)' },
   { id: 'SyncGao', command: ['sync-gao'], cron: { minute: '30', hour: '6', weekDay: 'MON' }, tier: 'weekly', description: 'GAO reports (weekly Mon)' },
   { id: 'SyncCrs', command: ['sync-crs'], cron: { minute: '0', hour: '7', weekDay: 'MON' }, tier: 'weekly', description: 'CRS reports (weekly Mon)' },
   { id: 'SyncGrants', command: ['sync-grants'], cron: { minute: '30', hour: '7', weekDay: 'MON' }, tier: 'weekly', description: 'Federal grants (weekly Mon)' },

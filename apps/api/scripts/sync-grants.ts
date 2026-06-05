@@ -42,8 +42,14 @@ async function main() {
         }),
       });
       if (!resp.ok) { console.warn(`[grants-sync] HTTP ${resp.status}`); break; }
-      const data = await resp.json() as any;
-      const hits = data?.oppHits ?? [];
+      const body = await resp.json() as any;
+      // grants.gov search2 wraps the payload in a `data` envelope:
+      //   { errorcode, msg, token, data: { oppHits, hitCount, ... } }
+      // The old code read top-level `oppHits`, which is always absent, so every
+      // run saw 0 hits and inserted nothing. Read from data.* (fallback to body
+      // for forward-compat if the envelope is ever flattened).
+      const payload = body?.data ?? body;
+      const hits = payload?.oppHits ?? [];
       if (!hits.length) break;
 
       for (const g of hits) {
@@ -53,7 +59,7 @@ async function main() {
           where: { id },
           update: {
             title: g.title || g.opportunityTitle || 'Untitled',
-            agency: g.agency?.name || g.agencyName || 'Unknown',
+            agency: (typeof g.agency === 'string' ? g.agency : g.agency?.name) || g.agencyName || g.agencyCode || 'Unknown',
             subAgency: g.agency?.subName || null,
             opportunityNumber: g.number || g.opportunityNumber || null,
             category: g.opportunityCategory || null,
@@ -71,7 +77,7 @@ async function main() {
           create: {
             id,
             title: g.title || g.opportunityTitle || 'Untitled',
-            agency: g.agency?.name || g.agencyName || 'Unknown',
+            agency: (typeof g.agency === 'string' ? g.agency : g.agency?.name) || g.agencyName || g.agencyCode || 'Unknown',
             subAgency: g.agency?.subName || null,
             opportunityNumber: g.number || g.opportunityNumber || null,
             category: g.opportunityCategory || null,
@@ -88,8 +94,12 @@ async function main() {
         });
         total++;
       }
-      console.log(`[grants-sync] page ${page + 1}: ${hits.length} grants (total: ${total})`);
+      console.log(`[grants-sync] page ${page + 1}: ${hits.length} grants (total: ${total}, hitCount: ${payload?.hitCount ?? '?'})`);
       if (hits.length < PAGE_SIZE) break;
+      // grants.gov returns full pages even past hitCount (offset is not honored),
+      // which just re-upserts the same opportunities. Stop once we've covered the
+      // reported total so a run does ~hitCount upserts, not MAX_PAGES*PAGE_SIZE.
+      if (payload?.hitCount && total >= payload.hitCount) break;
     }
 
     console.log(`[grants-sync] total: ${total}`);
