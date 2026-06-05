@@ -82,3 +82,27 @@ Baselines (prod, read-only via `report-award-pe-coverage` / `diag-ingestion-heal
   `BEA_API_KEY`/`OPENSTATES_API_KEY` (and any other `capiro/dev/*_api_key`) to the task-def `secrets`.
 - Note: the live api-key secrets (`capiro/dev/*_api_key`, no leading slash) are out-of-band and are **not**
   in `SecretsStack`; importing them (vs. re-creating) is required to avoid a create-conflict on deploy.
+
+## UPDATE — verified on prod (2026-06-05, supersedes "Remaining" above)
+
+Built a one-off **amd64** image from a clean checkout of the committed branch (tag `capiro/dev/api:fedfix-amd64`),
+registered a one-off **X86_64** task def `capiro-dev-api-fedfix`, and ran the fixed code on prod (isolated from
+the `:latest` arm64 service). Results:
+
+| Source | Before | After | Note |
+|---|---:|---:|---|
+| `federal_grant` | 0 | **~1,899** | 10k upserts dedup to ~1,899 distinct (hitCount); now stop-guarded |
+| `state_bill` (+ `state_legislator`) | 0 | **37 WY (+96 legislators)** | per-page fix; full state coverage builds over the weekly cycle |
+| `federal_award.pe_code` resolved | 227 | **256** (+29) | from the top-800 awards alone; map rows 31→41 / 30→37 distinct PEs |
+
+A **4th bug** surfaced by running enrich: `enrich-award-pe` crashed with Prisma **P2000** because
+`federal_award.pe_code` is `VARCHAR(8)` but valid Space Force PEs are 9 chars (e.g. `1203940SF`). The crash aborted
+the whole pass after ~33 rows — the actual reason coverage was frozen at 227. Fixed in `cbc423b` (skip the
+over-length pe write + per-row try/catch). Verified: the enrich run now exits 0 and logs
+`peCode "1203940SF" exceeds VARCHAR(8); skipping…` instead of dying. grants also now stops at `hitCount`.
+
+**Still open:**
+- **bea** — wiring done; the stored key is **inactive** (`APIErrorCode 4`). Activate `capiro/dev/bea_api_key`, then run sync-bea.
+- **Full peCode pass** — run `enrich-award-pe --refresh` (no limit) post-deploy to resolve the remaining ~1,146 acq-coded awards.
+- **Widen `federal_award.pe_code` to `VARCHAR(16)`** so 9-char Space Force PEs (NSSL/GPS/space) store instead of being skipped. Deferred here only because `schema.prisma` currently carries unrelated uncommitted (stale-DoW) changes — make it in a clean branch + `prisma migrate deploy`.
+- **Deploy**: the `:latest` arm64 service still runs the old code; the scheduled grants/openstates rules keep returning 0 until `:latest` is rebuilt from this branch. The one-off `fedfix` image already populated prod; the recurring fix lands at your normal merge+deploy.
