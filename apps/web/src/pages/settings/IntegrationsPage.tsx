@@ -101,7 +101,16 @@ export function IntegrationsPage() {
 
   const syncMicrosoft = useMutation({
     mutationFn: async (connectionId: string) =>
-      (await api.post(`/api/engagement/integrations/microsoft/${connectionId}/sync`)).data,
+      // Mailbox/calendar sync pages through Graph + persists per item; a fresh
+      // reset-sync legitimately runs longer than the global 20s axios timeout
+      // (the API still returns hasMore so it can be re-run). Give this specific
+      // call generous headroom (under the 180s ALB idle timeout) so the client
+      // doesn't abort a sync the server is completing successfully.
+      (
+        await api.post(`/api/engagement/integrations/microsoft/${connectionId}/sync`, undefined, {
+          timeout: 120_000,
+        })
+      ).data,
     onSuccess: () => {
       message.success('Microsoft sync complete');
       qc.invalidateQueries({ queryKey: ['engagement-integrations'] });
