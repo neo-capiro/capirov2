@@ -146,6 +146,8 @@ describe('FyHistoryChart', () => {
               fy: 2027,
               request: 278.5,
               enacted: 278.5,
+              funding: 278.5,
+              fundingStage: 'Pending',
               projected: true,
               requestSource: 'rdoc',
               hascMark: null,

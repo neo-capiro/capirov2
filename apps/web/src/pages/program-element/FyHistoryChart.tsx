@@ -18,6 +18,12 @@ interface ChartPoint {
   fy: number;
   request: number;
   enacted: number;
+  // Best-available funding figure for the year: enacted → conference → request.
+  // This is the continuous series the timeline plots so EVERY year shows a real
+  // bar, even when (as is normal) historical years carry only `enacted` and budget
+  // years carry only `request`. `fundingStage` labels which one it came from.
+  funding: number;
+  fundingStage: 'Enacted' | 'Conference' | 'Requested' | 'Pending';
   projected: boolean;
   requestSource: string;
   hascMark: number | null;
@@ -42,10 +48,27 @@ function sourceFor(row: ProgramElementHistoryRow, field: ProgramElementSourceFie
 }
 
 function toChartPoint(row: ProgramElementHistoryRow): ChartPoint {
+  // Best-available funding figure + the stage it came from. Historical years
+  // typically have only enacted; budget years only request — so picking the best
+  // available value gives a continuous, honest timeline instead of half-empty bars.
+  let funding = 0;
+  let fundingStage: ChartPoint['fundingStage'] = 'Pending';
+  if (row.enacted != null) {
+    funding = row.enacted;
+    fundingStage = row.projectedEnacted ? 'Pending' : 'Enacted';
+  } else if (row.conference != null) {
+    funding = row.conference;
+    fundingStage = 'Conference';
+  } else if (row.request != null) {
+    funding = row.request;
+    fundingStage = 'Requested';
+  }
   return {
     fy: row.fy,
     request: row.request ?? 0,
     enacted: row.enacted ?? row.request ?? 0,
+    funding,
+    fundingStage,
     projected: row.projectedEnacted,
     requestSource: sourceFor(row, 'request'),
     hascMark: row.hascMark,
@@ -104,12 +127,24 @@ function TooltipRow({ label, value, source }: { label: string; value: number | n
 
 function WinRateLabel({ rows }: { rows: ProgramElementHistoryRow[] }) {
   const pct = useMemo(() => {
-    const baseline = rows.reduce((acc, r) => acc + (r.request ?? 0), 0);
-    const enacted = rows.reduce((acc, r) => acc + (r.enacted ?? r.request ?? 0), 0);
-    if (baseline === 0) return 0;
+    // Only compare years where BOTH a request and an enacted figure exist — those
+    // are the years where "did appropriators add to / cut the request" is a real
+    // question. Mixing years that have only one or the other produced a meaningless
+    // number before. If no year has both, there's no win rate to show.
+    const comparable = rows.filter((r) => r.request != null && r.enacted != null);
+    const baseline = comparable.reduce((acc, r) => acc + (r.request ?? 0), 0);
+    const enacted = comparable.reduce((acc, r) => acc + (r.enacted ?? 0), 0);
+    if (baseline === 0) return null;
     return ((enacted - baseline) / baseline) * 100;
   }, [rows]);
 
+  if (pct == null) {
+    return (
+      <span className="pe-winrate" data-testid="pe-win-rate-label">
+        Win rate (5y) <b>n/a</b> over request
+      </span>
+    );
+  }
   const sign = pct >= 0 ? '+' : '';
   return (
     <span className="pe-winrate" data-testid="pe-win-rate-label">
@@ -162,21 +197,9 @@ export function FyHistoryChart({ rows, loading = false, onFyClick }: FyHistoryCh
             />
             <Tooltip content={<TooltipContent />} cursor={{ fill: 'rgba(42,87,206,0.06)' }} />
             <Bar
-              dataKey="request"
-              fill="#9db8ff"
+              dataKey="funding"
+              name="Funding"
               radius={[3, 3, 0, 0]}
-              name="Request"
-              onClick={(state) => {
-                const entry = state as { fy?: number } | null;
-                if (entry && typeof entry.fy === 'number') {
-                  onFyClick?.(entry.fy);
-                }
-              }}
-            />
-            <Bar
-              dataKey="enacted"
-              fill="#2a57ce"
-              name="Enacted"
               onClick={(state) => {
                 const entry = state as { fy?: number } | null;
                 if (entry && typeof entry.fy === 'number') {
@@ -202,13 +225,21 @@ export function FyHistoryChart({ rows, loading = false, onFyClick }: FyHistoryCh
                   return null;
                 }
                 const { x, y, width, height, payload } = candidate;
-                // Projected/pending years render as a low beige bar to match the
-                // mockup's "Pending" treatment instead of a faded blue.
-                const fill = payload.projected ? '#d8d2c4' : '#2a57ce';
+                // Color encodes the funding stage so a single continuous bar per FY
+                // stays honest about whether the number is enacted vs requested vs
+                // pending: enacted = solid blue, conference = mid blue, requested =
+                // light blue, pending/projected = beige with a "Pending" caption.
+                const fillByStage: Record<ChartPoint['fundingStage'], string> = {
+                  Enacted: '#2a57ce',
+                  Conference: '#5b7fd6',
+                  Requested: '#9db8ff',
+                  Pending: '#d8d2c4',
+                };
+                const fill = fillByStage[payload.fundingStage];
                 return (
                   <g>
                     <rect x={x} y={y} width={width} height={height} rx={3} ry={3} fill={fill} />
-                    {payload.projected ? (
+                    {payload.fundingStage === 'Pending' ? (
                       <text
                         x={x + width / 2}
                         y={Math.max(y - 6, 12)}
@@ -232,6 +263,10 @@ export function FyHistoryChart({ rows, loading = false, onFyClick }: FyHistoryCh
           <span className="pe-leg">
             <i style={{ background: '#9db8ff' }} />
             Request
+          </span>
+          <span className="pe-leg">
+            <i style={{ background: '#5b7fd6' }} />
+            Conference
           </span>
           <span className="pe-leg">
             <i style={{ background: '#2a57ce' }} />
