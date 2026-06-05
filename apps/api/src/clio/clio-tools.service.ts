@@ -14,6 +14,8 @@ import { MicrosoftGraphSyncService } from '../engagement/microsoft/microsoft-gra
 import { LdaIntelService } from '../lda-intel/lda-intel.service.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
 import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
+import { ProgramElementReadService } from '../program-element/program-element-read.service.js';
+import { AcquisitionPersonnelReadService } from '../acquisition-personnel/acquisition-personnel-read.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { buildSavedMemoryRecord } from './clio-memory.helpers.js';
 
@@ -116,6 +118,34 @@ const TOOL_DEFINITIONS = [
     name: 'save_memory',
     description: 'Persist a durable fact or preference the user shares (a nickname, reporting style, ongoing priority, etc.) to Clio\'s long-term memory so it is recalled in future conversations. Use this whenever the user asks you to remember something.',
   },
+  {
+    name: 'search_program_elements',
+    description: 'Search DoD Program Elements (PEs) — the RDT&E/procurement budget lines from the Pentagon J-books. Filter by military service, budget activity, or title keyword. Returns PE code, title, service, budget activity, appropriation type, status, and whether the PE has budget/award/bill data. Use get_program_element / get_pe_budget_timeline for detail.',
+  },
+  {
+    name: 'get_program_element',
+    description: 'Get a single DoD Program Element\'s full detail by PE code: title, description, service, appropriation type, status, ACAT level, program of record, source-document URLs, and complete fiscal-year budget history.',
+  },
+  {
+    name: 'get_pe_budget_timeline',
+    description: 'Get a Program Element\'s fiscal-year budget timeline by PE code: per-FY president\'s request, House/Senate authorization and appropriations marks (HASC/SASC/HAC-D/SAC-D), conference, and enacted amounts, plus milestones and conference-probability predictions.',
+  },
+  {
+    name: 'get_pe_contractors',
+    description: 'Get the top contractors linked to a Program Element over the last ~24 months, by direct PE tag or DoD acquisition-program code. Note: PE-to-contractor linkage is sparse — many PEs return no contractors.',
+  },
+  {
+    name: 'get_pe_bills',
+    description: 'Get congressional bills that reference a Program Element (by PE code), with sponsor, lead committee, and latest action.',
+  },
+  {
+    name: 'search_acquisition_personnel',
+    description: 'Search DoD acquisition personnel — the program managers, contracting officers, PEOs, and program leads who run defense programs. Filter by name (query), military service, organization, role, or linked Program Element (peCode). Returns name, service, organization, title, role, linked PE(s), and source count.',
+  },
+  {
+    name: 'get_acquisition_person',
+    description: 'Get a single DoD acquisition person\'s full detail by id: name, service, organization, title, role, program of record, linked Program Elements, public profile, and the source citations behind each fact.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -168,6 +198,8 @@ export class ClioToolsService {
     private readonly ldaIntel: LdaIntelService,
     private readonly lobbyIntel: LobbyIntelService,
     private readonly federalSpending: FederalSpendingService,
+    private readonly programElement: ProgramElementReadService,
+    private readonly acquisitionPersonnel: AcquisitionPersonnelReadService,
   ) {}
 
   manifest() {
@@ -321,6 +353,28 @@ export class ClioToolsService {
         key: str('Optional short topic/key, e.g. "nickname" or "reporting-style".'),
         scope: str('"personal" (default — this user only) or "firm" (shared across the firm).'),
       }, ['content']),
+      search_program_elements: obj({
+        query: str('Keyword search on PE title'),
+        service: str('Military service filter, e.g. Army, Navy, Air Force, Space Force'),
+        budgetActivity: str('Budget activity filter'),
+        hasData: { type: 'boolean', description: 'Only return PEs that have budget/award/bill data' },
+        limit: int('Max results (1-50)'),
+        page: int('Page number'),
+      }),
+      get_program_element: obj({ peCode: str('Program Element code, e.g. 0604201A') }, ['peCode']),
+      get_pe_budget_timeline: obj({ peCode: str('Program Element code') }, ['peCode']),
+      get_pe_contractors: obj({ peCode: str('Program Element code') }, ['peCode']),
+      get_pe_bills: obj({ peCode: str('Program Element code') }, ['peCode']),
+      search_acquisition_personnel: obj({
+        query: str('Name search (fuzzy)'),
+        service: str('Military service filter, e.g. Army, Navy, Air Force, Space Force'),
+        organization: str('Organization filter'),
+        role: str('Role filter, e.g. PM, KO, PEO'),
+        peCode: str('Program Element code the person is linked to'),
+        limit: int('Max results (1-50)'),
+        page: int('Page number'),
+      }),
+      get_acquisition_person: obj({ id: str('Acquisition personnel UUID') }, ['id']),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -392,6 +446,20 @@ export class ClioToolsService {
         return this.replyEmail(ctx, input);
       case 'save_memory':
         return this.saveMemory(ctx, input);
+      case 'search_program_elements':
+        return this.searchProgramElements(ctx, input);
+      case 'get_program_element':
+        return this.getProgramElementDetail(ctx, input);
+      case 'get_pe_budget_timeline':
+        return this.getPeBudgetTimeline(input);
+      case 'get_pe_contractors':
+        return this.getPeContractors(input);
+      case 'get_pe_bills':
+        return this.getPeBills(input);
+      case 'search_acquisition_personnel':
+        return this.searchAcquisitionPersonnel(ctx, input);
+      case 'get_acquisition_person':
+        return this.getAcquisitionPerson(ctx, input);
       default:
         assertNever(name);
     }
@@ -796,6 +864,116 @@ export class ClioToolsService {
         actionDate: a.actionDate,
         piid: a.piid,
       })),
+    };
+  }
+
+  // ── Program Element (DoD budget) tools ──────────────────────────────
+
+  private async searchProgramElements(ctx: TenantContext, input: Record<string, unknown>) {
+    const q = optionalString(input, 'query', 240) ?? optionalString(input, 'q', 240);
+    const service = optionalString(input, 'service', 60);
+    const budgetActivity = optionalString(input, 'budgetActivity', 120);
+    const hasData = optionalBoolean(input, 'hasData');
+    const limit = clampInt(input.limit, 1, 50, 20);
+    const page = clampInt(input.page, 1, 100, 1);
+
+    const result = await this.programElement.listProgramElements(
+      {
+        q: q ?? undefined,
+        service: service ?? undefined,
+        budgetActivity: budgetActivity ?? undefined,
+        hasData: hasData ? 'true' : undefined,
+        limit,
+        page,
+      },
+      ctx,
+    );
+
+    return {
+      tool: 'search_program_elements',
+      generatedAt: new Date().toISOString(),
+      ...result,
+    };
+  }
+
+  private async getProgramElementDetail(ctx: TenantContext, input: Record<string, unknown>) {
+    const peCode = requiredString(input, 'peCode', 32);
+    const programElement = await this.programElement.getProgramElement(peCode, ctx);
+    return {
+      tool: 'get_program_element',
+      generatedAt: new Date().toISOString(),
+      programElement,
+    };
+  }
+
+  private async getPeBudgetTimeline(input: Record<string, unknown>) {
+    const peCode = requiredString(input, 'peCode', 32);
+    const timeline = await this.programElement.getTimeline(peCode);
+    return {
+      tool: 'get_pe_budget_timeline',
+      generatedAt: new Date().toISOString(),
+      ...timeline,
+    };
+  }
+
+  private async getPeContractors(input: Record<string, unknown>) {
+    const peCode = requiredString(input, 'peCode', 32);
+    const result = await this.programElement.getContractors(peCode);
+    return {
+      tool: 'get_pe_contractors',
+      generatedAt: new Date().toISOString(),
+      ...result,
+    };
+  }
+
+  private async getPeBills(input: Record<string, unknown>) {
+    const peCode = requiredString(input, 'peCode', 32);
+    const bills = await this.programElement.getBills(peCode);
+    return {
+      tool: 'get_pe_bills',
+      generatedAt: new Date().toISOString(),
+      bills,
+    };
+  }
+
+  // ── Acquisition personnel (DoD program people) tools ────────────────
+
+  private async searchAcquisitionPersonnel(ctx: TenantContext, input: Record<string, unknown>) {
+    const q = optionalString(input, 'query', 240) ?? optionalString(input, 'q', 240);
+    const service = optionalString(input, 'service', 60);
+    const organization = optionalString(input, 'organization', 200);
+    const role = optionalString(input, 'role', 60);
+    const peCode = optionalString(input, 'peCode', 32);
+    const limit = clampInt(input.limit, 1, 50, 20);
+    const page = clampInt(input.page, 1, 100, 1);
+
+    const result = await this.acquisitionPersonnel.listPersonnel(
+      {
+        q: q ?? undefined,
+        service: service ?? undefined,
+        organization: organization ?? undefined,
+        role: role ?? undefined,
+        pe_code: peCode ?? undefined,
+        page,
+        limit,
+      },
+      ctx,
+    );
+
+    return {
+      tool: 'search_acquisition_personnel',
+      generatedAt: new Date().toISOString(),
+      ...result,
+    };
+  }
+
+  private async getAcquisitionPerson(ctx: TenantContext, input: Record<string, unknown>) {
+    const id = requiredString(input, 'id', 80);
+    const person = await this.acquisitionPersonnel.getPersonDetail(id, ctx);
+    return {
+      tool: 'get_acquisition_person',
+      generatedAt: new Date().toISOString(),
+      person,
     };
   }
 

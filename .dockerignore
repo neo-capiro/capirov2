@@ -1,6 +1,10 @@
 node_modules
+**/node_modules
 .git
+.claude
+.hermes
 dist
+**/dist
 *.log
 .env
 .env.*
