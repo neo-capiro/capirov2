@@ -180,6 +180,7 @@ export class MicrosoftGraphSyncService {
   private readonly logger = new Logger(MicrosoftGraphSyncService.name);
   private readonly clientId?: string;
   private readonly tenantId?: string;
+  private readonly authority: string;
   private readonly thumbprint?: string;
   private readonly privateKey?: string;
   private readonly stateSecret?: Buffer;
@@ -194,6 +195,7 @@ export class MicrosoftGraphSyncService {
   ) {
     this.clientId = config.get('MICROSOFT_CLIENT_ID', { infer: true });
     this.tenantId = config.get('MICROSOFT_TENANT_ID', { infer: true });
+    this.authority = config.get('MICROSOFT_AUTHORITY', { infer: true });
     this.thumbprint = config.get('MICROSOFT_CERT_THUMBPRINT', { infer: true });
     const rawKey = config.get('MICROSOFT_CERT_PRIVATE_KEY', { infer: true });
     this.privateKey = rawKey ? normalizePem(rawKey) : undefined;
@@ -335,9 +337,7 @@ export class MicrosoftGraphSyncService {
     await this.assertConnectionAccess(ctx, connectionId);
     const { token } = await this.loadConnection(ctx.tenantId, connectionId);
     const accessToken = await this.getValidAccessToken(ctx.tenantId, connectionId, token);
-    const toGraphRecipients = (
-      list: Array<{ email: string; name?: string | null }> | undefined,
-    ) =>
+    const toGraphRecipients = (list: Array<{ email: string; name?: string | null }> | undefined) =>
       (list ?? []).map((recipient) => ({
         emailAddress: {
           address: recipient.email,
@@ -1011,7 +1011,9 @@ export class MicrosoftGraphSyncService {
         `Refreshed Microsoft token is missing required scopes for connection ${connectionId} (tenant ${tenantId}): ${missingScopes.join(', ')}`,
       );
     }
-    const persistedScopes = grantedScopes.length ? result.scopes ?? MICROSOFT_SCOPES : MICROSOFT_SCOPES;
+    const persistedScopes = grantedScopes.length
+      ? (result.scopes ?? MICROSOFT_SCOPES)
+      : MICROSOFT_SCOPES;
     await this.prisma.withTenant(tenantId, async (tx) => {
       await tx.integrationConnectionToken.update({
         where: { connectionId },
@@ -1158,7 +1160,9 @@ export class MicrosoftGraphSyncService {
     const config: Configuration = {
       auth: {
         clientId: this.clientId!,
-        authority: `https://login.microsoftonline.com/${this.tenantId}`,
+        // Multi-tenant authority (default /organizations); refresh tokens for any
+        // customer's Outlook account resolve to their home tenant via this endpoint.
+        authority: this.authority,
         clientCertificate: {
           thumbprint: this.thumbprint!,
           privateKey: this.privateKey!,

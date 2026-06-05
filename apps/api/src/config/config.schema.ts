@@ -131,7 +131,18 @@ export const configSchema = z.object({
   // is a PEM string; if it doesn't start with "-----BEGIN" the loader treats
   // it as base64-encoded PEM (handy for env-var transport).
   MICROSOFT_CLIENT_ID: z.string().optional(),
+  // MICROSOFT_TENANT_ID is retained for reference/diagnostics only. It must NOT
+  // drive the OAuth authority: customers connect their own Outlook mailboxes
+  // from ANY Azure AD org, so the authority is multi-tenant (MICROSOFT_AUTHORITY
+  // below). Pinning the authority to this single tenant GUID (= the capiro.ai
+  // tenant) was what rejected every external customer with AADSTS50020.
   MICROSOFT_TENANT_ID: z.string().optional(),
+  // OAuth authority for the Microsoft 365 integration. Defaults to the shared
+  // multi-tenant `/organizations` endpoint so work/school accounts from any
+  // customer Azure AD tenant can connect. The capiro-outlook app registration
+  // is already multi-tenant (AzureADMultipleOrgs), so no Azure change is needed.
+  // Override only for a deliberately single-tenant deployment.
+  MICROSOFT_AUTHORITY: z.string().url().default('https://login.microsoftonline.com/organizations'),
   MICROSOFT_CERT_THUMBPRINT: z.string().optional(),
   MICROSOFT_CERT_PRIVATE_KEY: z.string().optional(),
   // APP_SIGN_IN_URL is injected by CDK per env (compute-stack apiSharedEnv).

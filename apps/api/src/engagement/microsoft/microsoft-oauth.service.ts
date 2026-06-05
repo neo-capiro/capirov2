@@ -52,6 +52,7 @@ export class MicrosoftOAuthService {
   private readonly logger = new Logger(MicrosoftOAuthService.name);
   private readonly clientId?: string;
   private readonly tenantId?: string;
+  private readonly authority: string;
   private readonly thumbprint?: string;
   private readonly privateKey?: string;
   private readonly redirectUri: string;
@@ -66,6 +67,7 @@ export class MicrosoftOAuthService {
   ) {
     this.clientId = config.get('MICROSOFT_CLIENT_ID', { infer: true });
     this.tenantId = config.get('MICROSOFT_TENANT_ID', { infer: true });
+    this.authority = config.get('MICROSOFT_AUTHORITY', { infer: true });
     this.thumbprint = config.get('MICROSOFT_CERT_THUMBPRINT', { infer: true });
     const rawKey = config.get('MICROSOFT_CERT_PRIVATE_KEY', { infer: true });
     this.privateKey = rawKey ? normalizePem(rawKey) : undefined;
@@ -280,7 +282,9 @@ export class MicrosoftOAuthService {
     const config: Configuration = {
       auth: {
         clientId: this.clientId!,
-        authority: `https://login.microsoftonline.com/${this.tenantId}`,
+        // Multi-tenant authority (default /organizations) so customers on any
+        // Azure AD org can connect, not just the capiro.ai tenant.
+        authority: this.authority,
         clientCertificate: {
           thumbprint: this.thumbprint!,
           privateKey: this.privateKey!,
