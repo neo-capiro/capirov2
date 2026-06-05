@@ -2721,7 +2721,7 @@ model FederalAward {
   recipientUei    String?   @map("recipient_uei")
   amount          Decimal?  @db.Decimal(18, 2)
   description     String?   @db.Text
-  peCode          String?   @map("pe_code") @db.VarChar(8)
+  peCode          String?   @map("pe_code") @db.VarChar(16)
   // How pe_code was resolved, for provenance/auditing and honest UI labeling.
   // Null when pe_code is null. Values: 'description_regex' (legacy text match),
   // 'dod_acquisition_program' (linked via the contract's DoD acquisition / MDAP
