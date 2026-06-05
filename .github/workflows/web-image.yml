@@ -54,6 +54,8 @@ jobs:
           platforms: linux/arm64
           push: true
           provenance: false
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: |
             ${{ steps.ecr.outputs.registry }}/capiro/${{ env.TARGET_ENV }}/web:${{ github.sha }}
             ${{ steps.ecr.outputs.registry }}/capiro/${{ env.TARGET_ENV }}/web:latest
