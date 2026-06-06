@@ -94,12 +94,21 @@ async function main() {
   if (sinceOverride) {
     postedAfter = sinceOverride.slice(0, 10);
   } else if (incremental) {
+    // Use the latest *non-future* postedDate as the incremental floor.
+    // Regulations.gov occasionally returns dockets with a postedDate in the
+    // future; taking a raw MAX(posted_date) lets one such row poison the
+    // watermark and stall every subsequent sync (observed 2026-06: floor stuck
+    // at 2026-12-13, fetching 1 doc/run). Ignoring future-dated rows keeps the
+    // floor sane, and a 2-day overlap re-captures late edits near the boundary.
     const latest = await prisma.regulatoryDocket.findFirst({
+      where: { postedDate: { lte: new Date() } },
       orderBy: { postedDate: 'desc' },
       select: { postedDate: true },
     });
     if (latest?.postedDate) {
-      postedAfter = latest.postedDate.toISOString().slice(0, 10);
+      const floor = new Date(latest.postedDate);
+      floor.setUTCDate(floor.getUTCDate() - 2);
+      postedAfter = floor.toISOString().slice(0, 10);
     }
   }
   console.log(`[reg-sync] postedAfter=${postedAfter} (incremental=${incremental})`);
