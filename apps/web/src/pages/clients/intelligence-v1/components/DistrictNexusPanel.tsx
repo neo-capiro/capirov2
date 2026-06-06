@@ -9,6 +9,8 @@
 import { Link } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import type { ClientProfileV1 } from '../mappers.js';
+import { HelpTip } from './HelpTip.js';
+import { HELP } from '../help-content.js';
 
 type DistrictNexus = ClientProfileV1['sections']['financialFootprint']['districtNexus'];
 
@@ -87,7 +89,7 @@ export function DistrictNexusPanel({ districtNexus, supportHref }: DistrictNexus
   return (
     <div className="iv1-surface iv1-district-panel">
       <div className="iv1-surface-head">
-        <h3>District nexus</h3>
+        <h3>District nexus <HelpTip title={HELP.districtNexus} /></h3>
         <span className="iv1-surface-sub">{isSpend ? 'contract spend by CD' : 'jobs & ops by CD'}</span>
       </div>
 

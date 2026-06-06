@@ -10,6 +10,7 @@ import { useApi } from '../../../../lib/use-api.js';
 import type { ClientIntelProfile, HealthScore, CommentAlert } from '../mappers.js';
 import { daysUntil, formatDate, type ClientProfileV1 } from '../mappers.js';
 import { BriefingCard } from '../components/BriefingCard.js';
+import { HelpTip } from '../components/HelpTip.js';
 import { TopAlertsList } from '../components/TopAlertsList.js';
 
 interface SnapshotSectionProps {
@@ -183,7 +184,10 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
         {/* Activity 14-day summary */}
         <div className="iv1-surface">
           <div className="iv1-surface-head">
-            <h3>Activity · 14 days</h3>
+            <h3>
+              Activity · 14 days{' '}
+              <HelpTip title="Your logged CRM activity for this client over the last 14 days — meetings, outreach sent, bills tracked, and critical alerts. A flat or empty panel is a prompt to re-engage." />
+            </h3>
             <span className="iv1-surface-sub">CRM signals</span>
           </div>
           <div className="iv1-surface-body">

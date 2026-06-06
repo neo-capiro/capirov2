@@ -9,15 +9,6 @@ interface MatchRow {
   state?: string | null;
 }
 
-// ── Scored candidate after Stage B+C ────────────────────────────────────────
-interface CandidateMatch {
-  source: string;
-  externalId: string;
-  externalName: string;
-  rawSimilarity: number;
-  confidence: number;
-}
-
 export interface ResolutionSummary {
   totalClients: number;
   mappingsCreated: number;
@@ -34,7 +25,45 @@ const SUFFIX_RE =
 // that floods the review queue with generic-string noise (e.g. employer
 // "services" fuzzy-matching dozens of clients). Only candidates clearing this
 // floor are written; the rest are dropped before they reach the review queue.
-const MIN_WRITE_CONFIDENCE = 0.4;
+export const MIN_WRITE_CONFIDENCE = 0.4;
+
+/** Confidence at/above which a single best candidate may be auto-confirmed. */
+export const AUTO_CONFIRM_THRESHOLD = 0.85;
+
+/**
+ * The best candidate for a source must beat the runner-up by at least this much
+ * to auto-confirm. A near-tie (e.g. two plausible LDA clients with the same
+ * name) is ambiguous and routes to human review instead of guessing.
+ */
+export const AUTO_CONFIRM_AMBIGUITY_MARGIN = 0.05;
+
+export type CandidateDecision = 'skip' | 'review' | 'auto_confirm';
+
+/**
+ * Single source of truth for what happens to one scored candidate, given its
+ * rank within its source. Only the single best candidate per source may
+ * auto-confirm, and only when it clears the threshold AND is clearly ahead of
+ * the runner-up. fec_committee never auto-confirms (PAC attribution is
+ * compliance-sensitive — always human-reviewed).
+ */
+export function candidateDecision(params: {
+  source: string;
+  confidence: number;
+  isTopForSource: boolean;
+  runnerUpConfidence: number | null;
+}): CandidateDecision {
+  const { source, confidence, isTopForSource, runnerUpConfidence } = params;
+  const clearWinner =
+    runnerUpConfidence === null ||
+    confidence - runnerUpConfidence >= AUTO_CONFIRM_AMBIGUITY_MARGIN;
+  const autoConfirm =
+    isTopForSource &&
+    clearWinner &&
+    source !== 'fec_committee' &&
+    confidence >= AUTO_CONFIRM_THRESHOLD;
+  if (confidence < MIN_WRITE_CONFIDENCE && !autoConfirm) return 'skip';
+  return autoConfirm ? 'auto_confirm' : 'review';
+}
 
 @Injectable()
 export class EntityResolutionService {
@@ -55,22 +84,92 @@ export class EntityResolutionService {
 
   // ── Stage C: Score a candidate ────────────────────────────────────────────
 
-  private scoreCandidate(
-    clientFp: string,
-    row: MatchRow,
-  ): number {
+  private scoreCandidate(clientFp: string, row: MatchRow): number {
     let confidence = row.similarity;
 
-    // Fingerprint match boost: if raw similarity is in the ambiguous 0.3-0.6
-    // band and fingerprints match exactly, treat it as a strong signal.
-    if (confidence >= 0.3 && confidence < 0.6) {
-      const externalFp = this.fingerprint(row.external_name);
-      if (clientFp === externalFp) {
-        confidence = Math.max(confidence, 0.70);
-      }
+    // Exact normalized-name ("fingerprint") match is the strongest signal we
+    // have. A MULTI-TOKEN exact match (e.g. "lockheed martin" == "lockheed
+    // martin") is highly unlikely to be a coincidence, so promote it into
+    // auto-confirm territory — this rescues obvious pairs like "Acme Defense
+    // Corp" vs "Acme Defense Corporation" that raw trigram scores well below the
+    // bar. A SINGLE-TOKEN exact fingerprint (e.g. "acme", "defense") can collapse
+    // genuinely different firms after suffix stripping, so it is only strong
+    // enough for human review, never auto-confirm.
+    const externalFp = this.fingerprint(row.external_name);
+    const fingerprintExact = clientFp.length > 0 && clientFp === externalFp;
+    const fingerprintMultiToken = clientFp.includes(' ');
+    if (fingerprintExact && fingerprintMultiToken) {
+      confidence = Math.max(confidence, 0.9);
+    } else if (fingerprintExact) {
+      confidence = Math.max(confidence, 0.7);
     }
 
     return Math.min(confidence, 1.0);
+  }
+
+  /**
+   * Score-sort one source's candidates and persist them, auto-confirming only
+   * the single best when {@link candidateDecision} says it is unambiguous. Never
+   * downgrades an existing human-confirmed mapping (confirmed is only ever set to
+   * true, never back to false). Returns counts for the tenant-wide summary.
+   */
+  private async persistSourceCandidates(
+    clientId: string,
+    source: string,
+    rows: MatchRow[],
+    clientFp: string,
+  ): Promise<{ created: number; autoConfirmed: number; needsReview: number }> {
+    const scored = rows
+      .map((row) => ({
+        externalId: row.external_id,
+        externalName: row.external_name,
+        confidence: this.scoreCandidate(clientFp, row),
+      }))
+      .sort((a, b) => b.confidence - a.confidence);
+
+    let created = 0;
+    let autoConfirmed = 0;
+    let needsReview = 0;
+
+    for (let i = 0; i < scored.length; i++) {
+      const cand = scored[i]!;
+      const decision = candidateDecision({
+        source,
+        confidence: cand.confidence,
+        isTopForSource: i === 0,
+        runnerUpConfidence: i === 0 ? (scored[1]?.confidence ?? null) : null,
+      });
+      if (decision === 'skip') continue;
+      const autoConfirm = decision === 'auto_confirm';
+
+      const updateData: { externalName: string; confidence: number; confirmed?: boolean } = {
+        externalName: cand.externalName,
+        confidence: cand.confidence,
+      };
+      // Only ever upgrade to confirmed; never silently un-confirm a human pick.
+      if (autoConfirm) updateData.confirmed = true;
+
+      await this.prisma.clientIntelMapping.upsert({
+        where: {
+          clientId_source_externalId: { clientId, source, externalId: cand.externalId },
+        },
+        update: updateData,
+        create: {
+          clientId,
+          source,
+          externalId: cand.externalId,
+          externalName: cand.externalName,
+          confidence: cand.confidence,
+          confirmed: autoConfirm,
+        },
+      });
+
+      created++;
+      if (autoConfirm) autoConfirmed++;
+      else needsReview++;
+    }
+
+    return { created, autoConfirmed, needsReview };
   }
 
   // ── Stage A: Fuzzy match per source ──────────────────────────────────────
@@ -200,94 +299,18 @@ export class EntityResolutionService {
         this.matchLobbyIntel(clientName),
       ]);
 
-    const allCandidates: CandidateMatch[] = [
-      ...ldaRows.map((r) => ({
-        source: 'lda',
-        externalId: r.external_id,
-        externalName: r.external_name,
-        rawSimilarity: r.similarity,
-        confidence: this.scoreCandidate(clientFp, r),
-      })),
-      ...fecCommitteeRows.map((r) => ({
-        source: 'fec_committee',
-        externalId: r.external_id,
-        externalName: r.external_name,
-        rawSimilarity: r.similarity,
-        confidence: this.scoreCandidate(clientFp, r),
-      })),
-      ...contractorRows.map((r) => ({
-        source: 'contracting',
-        externalId: r.external_id,
-        externalName: r.external_name,
-        rawSimilarity: r.similarity,
-        confidence: this.scoreCandidate(clientFp, r),
-      })),
-      ...secRows.map((r) => ({
-        source: 'sec',
-        externalId: r.external_id,
-        externalName: r.external_name,
-        rawSimilarity: r.similarity,
-        confidence: this.scoreCandidate(clientFp, r),
-      })),
-      ...fecRows.map((r) => ({
-        source: 'fec_employer',
-        externalId: r.external_id,
-        externalName: r.external_name,
-        rawSimilarity: r.similarity,
-        confidence: this.scoreCandidate(clientFp, r),
-      })),
-      ...faraRows.map((r) => ({
-        source: 'fara',
-        externalId: r.external_id,
-        externalName: r.external_name,
-        rawSimilarity: r.similarity,
-        confidence: this.scoreCandidate(clientFp, r),
-      })),
-      ...lobbyRows.map((r) => ({
-        source: 'lobby_intel',
-        externalId: r.external_id,
-        externalName: r.external_name,
-        rawSimilarity: r.similarity,
-        confidence: this.scoreCandidate(clientFp, r),
-      })),
+    const groups: Array<{ source: string; rows: MatchRow[] }> = [
+      { source: 'lda', rows: ldaRows },
+      { source: 'contracting', rows: contractorRows },
+      { source: 'sec', rows: secRows },
+      { source: 'fec_employer', rows: fecRows },
+      { source: 'fec_committee', rows: fecCommitteeRows },
+      { source: 'fara', rows: faraRows },
+      { source: 'lobby_intel', rows: lobbyRows },
     ];
 
-    for (const candidate of allCandidates) {
-      // Stage D thresholds. PAC committee attribution is compliance-sensitive:
-      // never auto-confirm fec_committee — always route to human review.
-      const autoConfirm = candidate.source !== 'fec_committee' && candidate.confidence >= 0.85;
-
-      // Drop low-confidence candidates before they reach the review queue.
-      if (candidate.confidence < MIN_WRITE_CONFIDENCE && !autoConfirm) continue;
-
-      const updateData: {
-        externalName: string;
-        confidence: number;
-        confirmed?: boolean;
-      } = {
-        externalName: candidate.externalName,
-        confidence: candidate.confidence,
-      };
-      if (autoConfirm) updateData.confirmed = true;
-
-      await this.prisma.clientIntelMapping.upsert({
-        where: {
-          clientId_source_externalId: {
-            clientId,
-            source: candidate.source,
-            externalId: candidate.externalId,
-          },
-        },
-        update: updateData,
-        create: {
-          clientId,
-          source: candidate.source,
-          externalId: candidate.externalId,
-          externalName: candidate.externalName,
-          confidence: candidate.confidence,
-          confirmed: autoConfirm,
-        },
-      });
+    for (const { source, rows } of groups) {
+      await this.persistSourceCandidates(clientId, source, rows, clientFp);
     }
   }
 
@@ -326,48 +349,10 @@ export class EntityResolutionService {
       ];
 
       for (const { source, rows } of sourceGroups) {
-        for (const row of rows) {
-          const confidence = this.scoreCandidate(clientFp, row);
-          // PAC committee attribution is compliance-sensitive: never auto-confirm,
-          // always route to human review regardless of score.
-          const autoConfirm = source !== 'fec_committee' && confidence >= 0.85;
-
-          // Drop low-confidence candidates before they reach the review queue.
-          if (confidence < MIN_WRITE_CONFIDENCE && !autoConfirm) continue;
-
-          const updateData: {
-            externalName: string;
-            confidence: number;
-            confirmed?: boolean;
-          } = {
-            externalName: row.external_name,
-            confidence,
-          };
-          if (autoConfirm) updateData.confirmed = true;
-
-          await this.prisma.clientIntelMapping.upsert({
-            where: {
-              clientId_source_externalId: {
-                clientId: client.id,
-                source,
-                externalId: row.external_id,
-              },
-            },
-            update: updateData,
-            create: {
-              clientId: client.id,
-              source,
-              externalId: row.external_id,
-              externalName: row.external_name,
-              confidence,
-              confirmed: autoConfirm,
-            },
-          });
-
-          mappingsCreated++;
-          if (autoConfirm) autoConfirmed++;
-          else needsReview++;
-        }
+        const result = await this.persistSourceCandidates(client.id, source, rows, clientFp);
+        mappingsCreated += result.created;
+        autoConfirmed += result.autoConfirmed;
+        needsReview += result.needsReview;
       }
     }
 
