@@ -131,10 +131,23 @@ export class ProgramElementWriterService {
       return { inserted: true, pe_code: peCode };
     }
 
+    // Title-preservation guard: committee/NDAA-table sources derive the title from
+    // PDF table text, which can be truncated (line-wrap, embedded numbers). Never let
+    // such a source REPLACE a longer, already-stored title with a shorter/truncated
+    // one. Keep the incoming title only when it's an improvement (longer) or the
+    // existing one is empty. Authoritative full titles (J-book, etc.) still win
+    // because they're longer. Truncated markers ('FOO-', 'F–') are shorter, so they
+    // can't clobber a good title.
+    const incomingTitle = (record.title ?? '').trim();
+    const existingTitle = (existing.title ?? '').trim();
+    const keptTitle =
+      existingTitle.length > incomingTitle.length ? existingTitle : incomingTitle || existingTitle;
+
     await this.prisma.programElement.update({
       where: { peCode },
       data: {
         ...data,
+        title: keptTitle,
         firstSeenFy: existing.firstSeenFy ?? data.firstSeenFy,
       },
     });

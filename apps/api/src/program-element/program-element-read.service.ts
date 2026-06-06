@@ -81,7 +81,7 @@ export class ProgramElementReadService {
           AND (${budgetActivity ? Prisma.sql`pe.budget_activity ILIKE ${budgetActivity}` : Prisma.sql`TRUE`})
           AND (${hasDataOnly ? hasDataExpr : Prisma.sql`TRUE`})
           AND (
-            ${q ? Prisma.sql`pe.title ILIKE ${`%${q}%`} OR similarity(pe.title, ${q}) > 0.2` : Prisma.sql`TRUE`}
+            ${q ? Prisma.sql`pe.title ILIKE ${`%${q}%`} OR pe.pe_code ILIKE ${`%${q}%`} OR similarity(pe.title, ${q}) > 0.2` : Prisma.sql`TRUE`}
           )
       )
       SELECT

@@ -45,35 +45,70 @@ def parse_amount(tok):
 def extract_rows(pdf_path, fy):
     import pdfplumber
 
+    # The two trailing money columns (request, authorized) anchored at END of line.
+    # Anchoring at the end means embedded numbers in the program name (F-22A, F-35,
+    # E-7, SSN-774) are NOT mistaken for dollar columns — the old "split on first
+    # money token" logic truncated "F–22A SQUADRONS" to "F–".
+    TAIL_AMTS = re.compile(r"\s+(\(?-?[\d,]{2,}\)?)\s+(\(?-?[\d,]{2,}\)?)\s*$")
+    TAIL_ONE = re.compile(r"\s+(\(?-?[\d,]{2,}\)?)\s*$")
+
     rows = []
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             text = page.extract_text() or ""
-            for raw in text.split("\n"):
+            lines = text.split("\n")
+            for idx, raw in enumerate(lines):
                 line = raw.strip()
                 m = ROW_RE.match(line)
                 if not m:
                     continue
                 pe = m.group(1).upper()
                 rest = m.group(2)
-                # Take the last two money tokens on the line: [request, mark].
-                amts = [parse_amount(a) for a in MONEY_RE.findall(rest)]
-                amts = [a for a in amts if a is not None]
-                if not amts:
-                    continue
-                if len(amts) >= 2:
-                    request, mark = amts[-2], amts[-1]
+
+                # Pull the trailing amount columns off the END of the line.
+                two = TAIL_AMTS.search(rest)
+                if two:
+                    request = parse_amount(two.group(1))
+                    mark = parse_amount(two.group(2))
+                    name = rest[: two.start()]
                 else:
-                    request, mark = None, amts[-1]
-                # NDAA funding tables are printed "In Thousands of Dollars"; the
-                # canonical program_element_year store is in DOLLARS. Scale up.
+                    one = TAIL_ONE.search(rest)
+                    if not one:
+                        continue
+                    request, mark = None, parse_amount(one.group(1))
+                    name = rest[: one.start()]
+
+                if request is None and mark is None:
+                    continue
+                # NDAA funding tables are "In Thousands of Dollars" -> scale to dollars.
                 if request is not None:
                     request *= 1000
                 if mark is not None:
                     mark *= 1000
-                # program name = text before the first money token
-                name = MONEY_RE.split(rest)[0]
-                name = re.sub(r"[.\s]+$", "", name).strip(" .") or None
+
+                # Clean the name: strip dot-leaders / trailing punctuation.
+                name = re.sub(r"[.\s]+$", "", name).strip(" .")
+                # De-hyphenate a wrapped program name: when the name ends with a
+                # hyphen the final word continued on the NEXT physical line(s) (e.g.
+                # "...ADVANCED TECH-" + "NOLOGY." or "...TRAINING AD-" + "VANCED
+                # TECHNOLOGY."). The continuation runs up to the first period. Splice
+                # it in. Guard against swallowing a following PE row or a bracketed
+                # plus-up annotation line.
+                if name.endswith("-") and idx + 1 < len(lines):
+                    cont = lines[idx + 1].strip()
+                    if cont and not ROW_RE.match(cont) and not cont.lstrip().startswith("["):
+                        # Continuation is the text up to the first period (sentence end
+                        # of the program name). May be multiple words ("VANCED TECHNOLOGY").
+                        frag = cont.split(".", 1)[0].strip()
+                        # Strip any trailing bracketed plus-up that shares the line.
+                        frag = re.split(r"\s*\[", frag, 1)[0].strip()
+                        if frag and not MONEY_RE.fullmatch(frag.replace(" ", "")):
+                            first, _, rest_words = frag.partition(" ")
+                            # The hyphen joins the FIRST continuation token directly
+                            # (TECH- + NOLOGY); any further words append with a space.
+                            name = name[:-1] + first + ((" " + rest_words) if rest_words else "")
+                name = name or None
+
                 rows.append(
                     {"peCode": pe, "fy": fy, "request": request, "mark": mark, "explanation": name}
                 )
