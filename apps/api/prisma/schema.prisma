@@ -269,6 +269,10 @@ model Client {
   profileType         String?   @default("CLIENT") @map("profile_type")
   profileStatus       String    @default("ACTIVE") @map("profile_status")
   submissionTracks    String[]  @default([]) @map("submission_tracks")
+  // Manual client-level LDA issue-code override, set in the client summary
+  // settings. Unioned with the auto codes from the confirmed LDA match to drive
+  // bill/regulation matching (works even when no LDA entity is mapped).
+  issueCodes          String[]  @default([]) @map("issue_codes")
   createdByUserId     String?   @map("created_by_user_id") @db.Uuid
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)

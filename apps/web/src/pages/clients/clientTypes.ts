@@ -121,6 +121,8 @@ export interface Client {
   profileType?: string | null;
   profileStatus?: string | null;
   submissionTracks?: string[];
+  /** Manual client-level LDA issue-code override; unioned with the LDA-match codes for matching. */
+  issueCodes?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -138,6 +140,7 @@ export interface ClientPayload {
   profileType?: string | null;
   profileStatus?: string | null;
   submissionTracks?: string[];
+  issueCodes?: string[];
 }
 
 export interface ClientAttachment {
@@ -171,6 +174,8 @@ export interface ClientFormValues {
   sectors?: string[];
   /** Controlled SubmissionTrack[], see SUBMISSION_TRACKS in @capiro/shared. */
   submissionTracks?: string[];
+  /** Manual client-level LDA issue-code override (matching). */
+  issueCodes?: string[];
   /** Controlled ProfileType, see PROFILE_TYPES in @capiro/shared. */
   profileType?: string;
   /** Controlled ProfileStatus, see PROFILE_STATUSES in @capiro/shared. */

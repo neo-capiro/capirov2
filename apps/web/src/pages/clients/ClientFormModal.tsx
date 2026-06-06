@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { UploadOutlined } from '@ant-design/icons';
 import {
   Button,
@@ -23,6 +24,7 @@ import {
   normalizeSector,
 } from '@capiro/shared';
 import type { Client, ClientFormSubmit, ClientFormValues, ClientPayload } from './clientTypes.js';
+import { useApi } from '../../lib/use-api.js';
 
 interface ClientFormModalProps {
   open: boolean;
@@ -75,7 +77,14 @@ const STEP_FIELDS: Array<Array<keyof ClientFormValues>> = [
     'ldaRegistrantName',
     'ein',
   ],
-  ['sectors', 'submissionTracks', 'engagementStartDate', 'primaryContactName', 'internalNotes'],
+  [
+    'sectors',
+    'submissionTracks',
+    'issueCodes',
+    'engagementStartDate',
+    'primaryContactName',
+    'internalNotes',
+  ],
 ];
 
 const SAM_STATUS_OPTIONS = [
@@ -428,6 +437,15 @@ function GovRegistrationStep({
 /* ── Step 4: Sector & Tracks ─────────────────────────────────────────────── */
 
 function SectorTracksStep() {
+  const api = useApi();
+  // LDA issue-code reference list (code + English name), for the client-level
+  // matching override below.
+  const issuesQuery = useQuery<Array<{ code: string; name: string }>>({
+    queryKey: ['lda-issues-options', 'client-form'],
+    queryFn: async () =>
+      (await api.get<Array<{ code: string; name: string }>>('/api/lda-intel/issues')).data,
+    staleTime: 30 * 60 * 1000,
+  });
   return (
     <>
       <Form.Item
@@ -447,6 +465,27 @@ function SectorTracksStep() {
           options={SUBMISSION_TRACKS.map((t) => ({
             label: SUBMISSION_TRACK_LABELS[t],
             value: t,
+          }))}
+        />
+      </Form.Item>
+
+      <Form.Item
+        name="issueCodes"
+        label="LDA issue codes (bill/policy matching)"
+        tooltip="Federal lobbying issue areas used to auto-match this client to bills and regulations. These normally fill in automatically from the client's LDA match — set them here to add or correct codes when that match is thin or missing."
+      >
+        <Select
+          mode="multiple"
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          placeholder={
+            issuesQuery.isLoading ? 'Loading issue codes…' : 'Add or correct LDA issue codes'
+          }
+          loading={issuesQuery.isLoading}
+          options={(issuesQuery.data ?? []).map((issue) => ({
+            value: issue.code,
+            label: `${issue.code} — ${issue.name}`,
           }))}
         />
       </Form.Item>
@@ -546,6 +585,8 @@ export function formValuesToClientPayload(
     payload.sectorTag = normalizeSector(primarySector) ?? primarySector;
   }
   if (values.submissionTracks?.length) payload.submissionTracks = values.submissionTracks;
+  // Always send issueCodes (even when empty) so clearing the override persists.
+  payload.issueCodes = Array.isArray(values.issueCodes) ? values.issueCodes : [];
   if (values.profileType) payload.profileType = values.profileType;
   if (values.profileStatus) payload.profileStatus = values.profileStatus;
   return payload;
@@ -575,6 +616,7 @@ export function clientToFormValues(client?: Client): ClientFormValues {
     primaryContactPhone: client.primaryContactPhone ?? undefined,
     sectors,
     submissionTracks: client.submissionTracks ?? [],
+    issueCodes: client.issueCodes ?? [],
     profileType: client.profileType ?? undefined,
     profileStatus: client.profileStatus ?? undefined,
     // Address

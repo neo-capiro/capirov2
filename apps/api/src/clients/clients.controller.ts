@@ -71,6 +71,11 @@ class CreateClientDto {
   submissionTracks?: string[];
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  issueCodes?: string[];
+
+  @IsOptional()
   @IsString()
   profileStatus?: string;
 }
@@ -136,6 +141,11 @@ class UpdateClientDto {
   @IsArray()
   @IsString({ each: true })
   submissionTracks?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  issueCodes?: string[];
 
   @IsOptional()
   @IsString()

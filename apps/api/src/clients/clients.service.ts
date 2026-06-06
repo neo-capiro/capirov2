@@ -19,6 +19,7 @@ export interface CreateClientInput {
   profileType?: string;
   sectorTag?: string;
   submissionTracks?: string[];
+  issueCodes?: string[];
   profileStatus?: string;
 }
 
@@ -94,6 +95,7 @@ export class ClientsService {
           profileType: input.profileType ?? null,
           sectorTag: input.sectorTag ?? null,
           submissionTracks: input.submissionTracks ?? [],
+          issueCodes: input.issueCodes ?? [],
           profileStatus: input.profileStatus ?? 'ACTIVE',
           createdByUserId: ctx.userId,
         },
@@ -172,6 +174,7 @@ export class ClientsService {
               profileType: input.profileType ?? null,
               sectorTag: input.sectorTag ?? null,
               submissionTracks: input.submissionTracks ?? [],
+              issueCodes: input.issueCodes ?? [],
               profileStatus: input.profileStatus ?? 'ACTIVE',
               createdByUserId: ctx.userId,
             },
@@ -215,6 +218,7 @@ export class ClientsService {
           ...('profileType' in input ? { profileType: input.profileType ?? null } : {}),
           ...('sectorTag' in input ? { sectorTag: input.sectorTag ?? null } : {}),
           ...('submissionTracks' in input ? { submissionTracks: input.submissionTracks ?? [] } : {}),
+          ...('issueCodes' in input ? { issueCodes: input.issueCodes ?? [] } : {}),
           ...('profileStatus' in input ? { profileStatus: input.profileStatus! } : {}),
         },
       }),

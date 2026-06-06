@@ -2693,18 +2693,39 @@ export class IntelligenceService {
     let issueCodes: string[] = [];
     let issueNames: string[] = [];
 
+    const ldaCodes: string[] = [];
     if (ldaMapping) {
       const codeRows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`
         SELECT COALESCE(issue_codes, '{}') AS issue_codes FROM lda_client WHERE id = ${Number(ldaMapping.externalId)}
       `;
-      issueCodes = codeRows[0]?.issue_codes ?? [];
+      ldaCodes.push(...(codeRows[0]?.issue_codes ?? []));
+    }
 
-      if (issueCodes.length) {
-        const nameRows = await this.prisma.$queryRaw<Array<{ name: string }>>`
-          SELECT name FROM lda_issue_code WHERE code = ANY(${issueCodes}::text[])
-        `;
-        issueNames = nameRows.map((r) => r.name);
+    // Client-level manual override (the "LDA Issue Codes" control in the client
+    // summary settings). Unioned with the auto codes from the LDA match, and
+    // applied even when there is NO LDA mapping — so a thin-LDA client can still
+    // drive matching by setting codes by hand. Defensive: a unit-test prisma mock
+    // may not stub tx.client, so any failure here simply yields no override.
+    const overrideCodes: string[] = [];
+    if (tenantId) {
+      try {
+        const c = await this.prisma.withTenant(tenantId, (tx) =>
+          tx.client.findFirst({ where: { id: clientId }, select: { issueCodes: true } }),
+        );
+        if (Array.isArray(c?.issueCodes)) overrideCodes.push(...c!.issueCodes);
+      } catch {
+        // tenant client read unavailable (e.g. mocked tx) — no override applied.
       }
+    }
+
+    issueCodes = Array.from(
+      new Set([...ldaCodes, ...overrideCodes].map((c) => c.trim()).filter(Boolean)),
+    );
+    if (issueCodes.length) {
+      const nameRows = await this.prisma.$queryRaw<Array<{ name: string }>>`
+        SELECT name FROM lda_issue_code WHERE code = ANY(${issueCodes}::text[])
+      `;
+      issueNames = nameRows.map((r) => r.name);
     }
 
     // Always union client capability keywords with LDA issue names (Caveat 2).
