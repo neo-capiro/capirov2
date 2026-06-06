@@ -1,4 +1,6 @@
 import { formatCompact, formatRatio } from '../mappers.js';
+import { HelpTip } from './HelpTip.js';
+import { HELP } from '../help-content.js';
 
 type HeroTruthState = 'normal' | 'zero_obligation' | 'no_activity';
 
@@ -71,7 +73,7 @@ export function RoiHeroPanel({ hero }: RoiHeroPanelProps) {
         </div>
 
         <div className={`iv1-roi-cell emphasis-secondary ${state === 'zero_obligation' ? 'truth-zero' : ''}`}>
-          <div className="iv1-roi-label">Return ratio</div>
+          <div className="iv1-roi-label">Return ratio <HelpTip title={HELP.returnRatio} /></div>
           <div
             className={`iv1-roi-val num ${state === 'zero_obligation' ? 'critical' : ratio != null ? 'positive' : ''}`}
             title={ratioTitle}

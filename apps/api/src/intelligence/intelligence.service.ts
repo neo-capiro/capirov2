@@ -11,6 +11,7 @@ import { EMBEDDING_MODEL, embedText, normalize, vectorLiteral } from '../embeddi
 import { classifyTrajectory } from './trajectory-classifier.model.js';
 import { addDateInZone, dateBoundsInZone, dayBoundsInZone } from './time-bounds.js';
 import { FEC_DISCLAIMER } from './fec-disclaimer.js';
+import { expandTerms, isKnownAcronym, MIN_KEYWORD_TOKEN_LENGTH } from './term-expansion.js';
 
 /**
  * Normalized internal shape every "Top alerts" source emits. `_urgencyScore` and
@@ -1086,14 +1087,26 @@ export class IntelligenceService {
 
     const committeeNames = Array.from(new Set(hearingsList.map((h) => h.committeeName).filter(Boolean))).slice(0, 12);
     const topDistrictWeight = districtRows.length ? districtRows[0]!.jobs : 0;
-    const hasFecSignal = (fec.summary?.totalAmount ?? 0) > 0;
+
+    // Members who actually received FEC money from this client's employees, so the
+    // `fec` signal on an office is office-SPECIFIC rather than a flat boost applied
+    // to every office whenever the client has any FEC activity at all.
+    const fecRecipientNames = new Set<string>();
+    for (const committee of fec.committees ?? []) {
+      for (const cand of committee.candidates ?? []) {
+        if (cand.candidateName) fecRecipientNames.add(cand.candidateName.toLowerCase());
+        for (const m of cand.linkedMembers ?? []) {
+          if (m.memberName) fecRecipientNames.add(m.memberName.toLowerCase());
+        }
+      }
+    }
 
     const sponsorRecommendations = Array.from(sponsorMembers.values())
       .map((member) => {
         const committeeWeight = Math.min(1, member.billCount / 4);
         const districtWeight = topDistrictWeight > 0 ? 0.2 : 0;
         const exStafferWeight = member.exStaffer ? 0.3 : 0;
-        const fecWeight = hasFecSignal ? 0.15 : 0;
+        const fecWeight = fecRecipientNames.has(member.name.toLowerCase()) ? 0.15 : 0;
         const score = Math.min(1, 0.35 + committeeWeight * 0.35 + districtWeight + exStafferWeight + fecWeight);
 
         const tags = [
@@ -1146,8 +1159,10 @@ export class IntelligenceService {
           committeeRecommendations = jurisdictionRows.map((row) => {
             const count = Number(row.bill_count);
             const share = maxBills > 0 ? count / maxBills : 0;
+            // Only the office-specific `committee` tag here — a client-level "has
+            // FEC activity" flag is not specific to this committee, so it is not
+            // shown on committee rows (it would imply the committee received money).
             const tags = ['committee'];
-            if (hasFecSignal) tags.push('fec');
             return {
               office: row.chamber ? `${row.committee_name} · ${row.chamber}` : row.committee_name,
               score: Math.min(1, 0.45 + share * 0.5),
@@ -1631,8 +1646,8 @@ export class IntelligenceService {
       issueNames.push(...nameRows.map((r) => r.name));
     }
 
-    const allTerms = [...issueNames, ...fallbackTerms]
-      .map((t) => (typeof t === 'string' ? t.trim() : ''))
+    const allTerms = expandTerms([...issueNames, ...fallbackTerms])
+      .map((t) => t.trim())
       .filter((t) => t.length > 0);
     if (!allTerms.length) return { total: 0, bills: [] };
 
@@ -1665,7 +1680,7 @@ export class IntelligenceService {
       }
     | null
   > {
-    const query = normalize(`Issue-bill linker query: ${allTerms.join(' ; ')}`);
+    const query = normalize(allTerms.join('. '));
     if (query.length < 10) return null;
 
     try {
@@ -1767,6 +1782,7 @@ export class IntelligenceService {
          OR LOWER(cbs.name) ~ ANY(${wordPatterns}::text[])
          OR LOWER(cb.policy_area) = ANY(${lowerTerms}::text[])
          OR LOWER(cb.policy_area) ~ ANY(${wordPatterns}::text[])
+         OR LOWER(cb.title) ~ ANY(${wordPatterns}::text[])
     `;
 
     const rows = await this.prisma.$queryRaw<
@@ -1797,6 +1813,7 @@ export class IntelligenceService {
            OR LOWER(cbs.name) ~ ANY(${wordPatterns}::text[])
            OR LOWER(cb.policy_area) = ANY(${lowerTerms}::text[])
            OR LOWER(cb.policy_area) ~ ANY(${wordPatterns}::text[])
+           OR LOWER(cb.title) ~ ANY(${wordPatterns}::text[])
         ORDER BY cb.id
       ) q
       ORDER BY q.latest_action_date DESC NULLS LAST
@@ -2347,6 +2364,12 @@ export class IntelligenceService {
       };
     }
 
+    // Rolling window: count recent giving only, so the headline figure is
+    // well-defined and current. The panel labels this "last 24 months" (the
+    // previous "TTM" label was inaccurate — the query had no date bound at all).
+    // Undated rows fall outside the window and are excluded.
+    const windowStart = new Date(Date.now() - 2 * 365 * 24 * 60 * 60 * 1000);
+
     const flowRows = await this.prisma.$queryRaw<
       Array<{
         committee_id: string;
@@ -2368,13 +2391,16 @@ export class IntelligenceService {
         MAX(fc.contribution_date) AS latest_contribution_date
       FROM fec_contribution fc
       WHERE LOWER(fc.contributor_employer) = LOWER(${employer})
+        AND fc.contribution_date >= ${windowStart}
       GROUP BY fc.committee_id, fc.candidate_id, fc.candidate_name
       ORDER BY total_amount DESC
       LIMIT 250
     `;
 
-    const committeeIds = Array.from(new Set(flowRows.map((r) => r.committee_id).filter(Boolean)));
-    const candidateNames = Array.from(new Set(flowRows.map((r) => r.candidate_name).filter((v): v is string => Boolean(v))));
+    const candidateNames = Array.from(
+      new Set(flowRows.map((r) => r.candidate_name).filter((v): v is string => Boolean(v))),
+    );
+    const candidateNamesLower = candidateNames.map((n) => n.toLowerCase());
 
     const memberRows = candidateNames.length
       ? await this.prisma.$queryRaw<Array<{ candidate_name: string; member_name: string; bill_count: number }>>`
@@ -2391,16 +2417,17 @@ export class IntelligenceService {
         `
       : [];
 
-    const committeeBillRows = committeeIds.length
-      ? await this.prisma.$queryRaw<Array<{ committee_id: string; bill_id: string; bill_title: string; sponsor_name: string | null }>>`
-          SELECT
-            cbc.committee_code AS committee_id,
-            cb.id AS bill_id,
-            cb.title AS bill_title,
-            cb.sponsor_name
-          FROM congress_bill_committee cbc
-          JOIN congress_bill cb ON cb.id = cbc.bill_id
-          WHERE cbc.committee_code = ANY(${committeeIds}::text[])
+    // Bills associated with the money flow, linked the ONLY way that is sound: a
+    // recipient candidate who is themselves a bill sponsor. (The previous join
+    // matched FEC committee IDs like "C00…" against congressional committee codes
+    // like "hsas00" — disjoint ID spaces that never matched, so billCount was
+    // always 0.) Keyed by sponsor name so bills attach to the committees that
+    // funded that member.
+    const sponsoredBillRows = candidateNamesLower.length
+      ? await this.prisma.$queryRaw<Array<{ sponsor_name: string; bill_id: string; bill_title: string }>>`
+          SELECT cb.sponsor_name, cb.id AS bill_id, cb.title AS bill_title
+          FROM congress_bill cb
+          WHERE LOWER(cb.sponsor_name) = ANY(${candidateNamesLower}::text[])
           ORDER BY cb.latest_action_date DESC NULLS LAST
           LIMIT 500
         `
@@ -2414,11 +2441,13 @@ export class IntelligenceService {
       memberByCandidate.set(key, arr);
     }
 
-    const billsByCommittee = new Map<string, Array<{ billId: string; billTitle: string; sponsorName: string | null }>>();
-    for (const r of committeeBillRows) {
-      const arr = billsByCommittee.get(r.committee_id) ?? [];
+    const billsBySponsor = new Map<string, Array<{ billId: string; billTitle: string; sponsorName: string | null }>>();
+    for (const r of sponsoredBillRows) {
+      const key = (r.sponsor_name ?? '').toLowerCase();
+      if (!key) continue;
+      const arr = billsBySponsor.get(key) ?? [];
       arr.push({ billId: r.bill_id, billTitle: r.bill_title, sponsorName: r.sponsor_name });
-      billsByCommittee.set(r.committee_id, arr);
+      billsBySponsor.set(key, arr);
     }
 
     const grouped = new Map<
@@ -2474,11 +2503,21 @@ export class IntelligenceService {
 
     const committees = Array.from(grouped.values())
       .sort((a, b) => b.totalAmount - a.totalAmount)
-      .map((g) => ({
-        ...g,
-        candidates: g.candidates.sort((a, b) => b.totalAmount - a.totalAmount),
-        bills: (billsByCommittee.get(g.committeeId) ?? []).slice(0, 15),
-      }));
+      .map((g) => {
+        // A committee's associated bills = the bills sponsored by the candidates
+        // it funded (deduped across this committee's candidates).
+        const billsForCommittee = new Map<string, { billId: string; billTitle: string; sponsorName: string | null }>();
+        for (const cand of g.candidates) {
+          for (const b of billsBySponsor.get(cand.candidateName.toLowerCase()) ?? []) {
+            billsForCommittee.set(b.billId, b);
+          }
+        }
+        return {
+          ...g,
+          candidates: g.candidates.sort((a, b) => b.totalAmount - a.totalAmount),
+          bills: Array.from(billsForCommittee.values()).slice(0, 15),
+        };
+      });
 
     const uniqueCandidates = new Set<string>();
     const uniqueMembers = new Set<string>();
@@ -2675,25 +2714,64 @@ export class IntelligenceService {
     // capabilities are complementary signals — capabilities are often the more
     // specific of the two — so we combine both rather than treating them as
     // mutually exclusive.
-    const capKeywords: string[] = [];
+    // Build two term sets from the client's capabilities:
+    //   • keywordTerms  — short precise tokens for the whole-word keyword matcher
+    //     (sector, tags, capability-name words), acronym-expanded so e.g. an "EW"
+    //     tag also matches the "Electronic warfare" bill subject.
+    //   • embeddingParts — richer natural-language text (capability name +
+    //     description + justification + district nexus) for the semantic matcher,
+    //     which benefits from full prose and is protected by a cosine floor.
+    const keywordTerms: string[] = [...issueNames];
+    const embeddingParts: string[] = [...issueNames];
+    let hasCapabilitySignal = false;
     if (tenantId) {
       const caps = await this.prisma.withTenant(tenantId, (tx) =>
         tx.clientCapability.findMany({
           where: { clientId },
-          select: { sector: true, name: true, tags: true },
+          select: {
+            sector: true,
+            name: true,
+            tags: true,
+            description: true,
+            justification: true,
+            districtNexus: true,
+          },
         }),
       );
+      hasCapabilitySignal = caps.length > 0;
       for (const cap of caps) {
-        if (cap.sector) capKeywords.push(cap.sector);
-        if (cap.name) cap.name.split(/\s+/).filter((w) => w.length > 3).forEach((w) => capKeywords.push(w));
-        const tags = Array.isArray(cap.tags) ? (cap.tags as unknown[]) : [];
+        if (cap.sector) {
+          keywordTerms.push(cap.sector);
+          embeddingParts.push(cap.sector);
+        }
+        if (cap.name) {
+          embeddingParts.push(cap.name);
+          cap.name
+            .split(/\s+/)
+            .filter((w) => w.length >= MIN_KEYWORD_TOKEN_LENGTH)
+            .forEach((w) => keywordTerms.push(w));
+        }
+        const tags = Array.isArray(cap.tags)
+          ? (cap.tags as unknown[]).filter((t): t is string => typeof t === 'string')
+          : [];
         for (const t of tags) {
-          if (typeof t === 'string' && t.length > 3) capKeywords.push(t);
+          embeddingParts.push(t); // any length — the embedding query is cosine-floored
+          if (t.trim().length >= MIN_KEYWORD_TOKEN_LENGTH || isKnownAcronym(t)) {
+            keywordTerms.push(t);
+          }
+        }
+        for (const rich of [cap.description, cap.justification, cap.districtNexus]) {
+          if (rich) embeddingParts.push(rich);
         }
       }
     }
 
-    const allTerms = [...issueNames, ...capKeywords]
+    // Acronym-expand the keyword tokens (EW → electronic warfare, etc.) so short
+    // client tags reach the full-phrase vocabulary used by bill subjects.
+    const keywordTermsExpanded = expandTerms(keywordTerms)
+      .map((n) => n.trim())
+      .filter((n) => n.length > 0);
+    const embeddingPartsClean = embeddingParts
       .map((n) => (typeof n === 'string' ? n.trim() : ''))
       .filter((n) => n.length > 0);
 
@@ -2723,24 +2801,23 @@ export class IntelligenceService {
       return { total: merged.length, issueCodes, bills: merged };
     };
 
-    if (!allTerms.length) {
+    if (!keywordTermsExpanded.length && !embeddingPartsClean.length) {
       // No relevance signal, but manual picks may still exist — surface them.
       return mergeManual({ total: 0, bills: [] });
     }
 
-    // Thin-signal guard: a client with no capability keywords matches on broad
-    // LDA issue-code names alone, which produces semantic false positives at the
+    // Thin-signal guard: a client with no capabilities matches on broad LDA
+    // issue-code names alone, which produces semantic false positives at the
     // default floor. Require a tighter similarity for those clients.
-    const hasCapabilitySignal = capKeywords.length > 0;
     const embedded = await this.findTrackedBillsByEmbeddings(
-      allTerms,
+      embeddingPartsClean,
       embeddingSimilarityFloor(hasCapabilitySignal),
     );
     if (embedded) {
       return mergeManual(embedded);
     }
 
-    const keyword = await this.findTrackedBillsByKeyword(allTerms);
+    const keyword = await this.findTrackedBillsByKeyword(keywordTermsExpanded);
     return mergeManual(keyword);
   }
 
@@ -2875,7 +2952,7 @@ export class IntelligenceService {
       }
     | null
   > {
-    const query = normalize(`Issue-bill tracker query: ${allTerms.join(' ; ')}`);
+    const query = normalize(allTerms.join('. '));
     if (query.length < 10) return null;
 
     try {
@@ -2975,6 +3052,7 @@ export class IntelligenceService {
          OR LOWER(cbs.name) ~ ANY(${wordPatterns}::text[])
          OR LOWER(cb.policy_area) = ANY(${lowerTerms}::text[])
          OR LOWER(cb.policy_area) ~ ANY(${wordPatterns}::text[])
+         OR LOWER(cb.title) ~ ANY(${wordPatterns}::text[])
     `;
 
     const bills = await this.prisma.$queryRaw<
@@ -2997,6 +3075,7 @@ export class IntelligenceService {
            OR LOWER(cbs.name) ~ ANY(${wordPatterns}::text[])
            OR LOWER(cb.policy_area) = ANY(${lowerTerms}::text[])
            OR LOWER(cb.policy_area) ~ ANY(${wordPatterns}::text[])
+           OR LOWER(cb.title) ~ ANY(${wordPatterns}::text[])
         ORDER BY cb.id
       ) q
       ORDER BY q.latest_action_date DESC NULLS LAST

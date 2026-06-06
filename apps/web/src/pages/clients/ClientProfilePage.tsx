@@ -1410,7 +1410,6 @@ function CapabilityCard({
 }) {
   const typeKey = (cap.type ?? 'product').toLowerCase();
   const tags = Array.isArray(cap.tags) ? (cap.tags as string[]) : [];
-  const issueCodes = Array.isArray(cap.issueCodes) ? (cap.issueCodes as string[]) : [];
   const ownerInitial = (cap.peNumber || cap.name || '?')[0]?.toUpperCase() ?? '?';
 
   return (
@@ -1432,11 +1431,6 @@ function CapabilityCard({
                   {t}
                 </span>
               ))}
-              {issueCodes.slice(0, 2).map((code) => (
-                <span key={`issue-${code}`} className="cap-sector">
-                  {code}
-                </span>
-              ))}
             </div>
           ) : (
             <div className="cap-sectors">
@@ -1444,11 +1438,6 @@ function CapabilityCard({
               {tags.slice(0, 4).map((t) => (
                 <span key={t} className="cap-sector">
                   {t}
-                </span>
-              ))}
-              {issueCodes.slice(0, 4).map((code) => (
-                <span key={`issue-${code}`} className="cap-sector">
-                  {code}
                 </span>
               ))}
             </div>
@@ -1638,7 +1627,6 @@ function AddCapabilityModal({
             description: values.description ?? null,
             sector: values.sector ?? null,
             tags: Array.isArray(values.tags) ? values.tags : [],
-            issueCodes: Array.isArray(values.issueCodes) ? values.issueCodes : [],
             trl: values.trl ? Number(values.trl) : null,
             mrl: values.mrl ? Number(values.mrl) : null,
             fundingAsk: values.fundingAsk ? Number(values.fundingAsk) : null,
@@ -1683,7 +1671,6 @@ function AddCapabilityModal({
             options={CAPABILITY_TAG_SUGGESTIONS.map((t) => ({ label: t, value: t }))}
           />
         </Form.Item>
-        <CapabilityIssueCodesField form={form} />
         <Form.Item name="description" label="Description">
           <Input.TextArea rows={3} />
         </Form.Item>
@@ -1703,38 +1690,6 @@ function AddCapabilityModal({
         </Form.Item>
       </Form>
     </Modal>
-  );
-}
-
-function CapabilityIssueCodesField({ form }: { form: ReturnType<typeof Form.useForm>[0] }) {
-  const api = useApi();
-  const issuesQuery = useQuery<Array<{ code: string; name: string }>>({
-    queryKey: ['lda-issues-options', 'add-capability-modal'],
-    queryFn: async () =>
-      (await api.get<Array<{ code: string; name: string }>>('/api/lda-intel/issues')).data,
-    staleTime: 30 * 60 * 1000,
-  });
-
-  return (
-    <Form.Item
-      name="issueCodes"
-      label="LDA Issue Codes"
-      tooltip="Attach one or more LDA issue codes to improve bill/policy auto-matching."
-    >
-      <Select
-        mode="multiple"
-        allowClear
-        showSearch
-        placeholder={issuesQuery.isLoading ? 'Loading issue codes…' : 'Select issue codes'}
-        optionFilterProp="label"
-        loading={issuesQuery.isLoading}
-        options={(issuesQuery.data ?? []).map((issue) => ({
-          value: issue.code,
-          label: `${issue.code}, ${issue.name}`,
-        }))}
-        onChange={(values) => form.setFieldValue('issueCodes', values)}
-      />
-    </Form.Item>
   );
 }
 

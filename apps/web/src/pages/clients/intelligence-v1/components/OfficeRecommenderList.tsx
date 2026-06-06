@@ -1,4 +1,7 @@
 import { Link } from 'react-router-dom';
+import { Tooltip } from 'antd';
+import { HelpTip } from './HelpTip.js';
+import { HELP, OFFICE_TAG_HELP, OFFICE_TAG_LABELS } from '../help-content.js';
 
 interface OfficeTag {
   label: string;
@@ -9,6 +12,24 @@ interface OfficeTag {
 /** True for app-internal SPA routes that should navigate without a full reload. */
 function isInternalHref(href: string): boolean {
   return href.startsWith('/') && !href.startsWith('//');
+}
+
+/**
+ * Render the office's signal chips. Each chip shows a readable label and, on
+ * hover/focus, a plain-English explainer of what the tag means and how to use it.
+ */
+function renderOfficeTags(tags: OfficeTag[]) {
+  return (
+    <div className="iv1-office-tags">
+      {tags.map((tag) => (
+        <Tooltip key={tag.label} title={OFFICE_TAG_HELP[tag.variant]}>
+          <span className={`iv1-office-tag ${tag.variant}`}>
+            {OFFICE_TAG_LABELS[tag.variant] ?? tag.label}
+          </span>
+        </Tooltip>
+      ))}
+    </div>
+  );
 }
 
 export interface OfficeRecommenderRow {
@@ -23,6 +44,8 @@ interface OfficeRecommenderListProps {
   rows: OfficeRecommenderRow[];
   allCount: number;
   allHref?: string;
+  /** Header-link label. Defaults to "All {allCount}". */
+  allLabel?: string;
   rowHrefBuilder?: (row: OfficeRecommenderRow) => string;
 }
 
@@ -30,32 +53,34 @@ export function OfficeRecommenderList({
   rows,
   allCount,
   allHref,
+  allLabel,
   rowHrefBuilder,
 }: OfficeRecommenderListProps) {
   const safeAllHref = allHref?.trim() || '';
   const buildRowHref = rowHrefBuilder;
-  const linksEnabled = Boolean(safeAllHref) && Boolean(buildRowHref);
+  // Row links and the header link are independent: a row links only when a per-row
+  // destination is provided; the header link shows whenever allHref is set.
+  const rowLinksEnabled = Boolean(buildRowHref);
+  const headerLabel = allLabel ? `${allLabel} →` : `All ${allCount} →`;
 
   return (
     <>
       <div className="iv1-surface-head">
-        <h3>Office recommender</h3>
+        <h3>
+          Office recommender <HelpTip title={HELP.officeRecommender} />
+        </h3>
         <span className="iv1-surface-sub">top {Math.min(6, rows.length)} · weighted score</span>
-        {linksEnabled ? (
+        {safeAllHref ? (
           isInternalHref(safeAllHref) ? (
             <Link className="iv1-surface-right" to={safeAllHref} style={{ textDecoration: 'underline', color: 'var(--ink-2)', fontSize: 11.5 }}>
-              All {allCount} →
+              {headerLabel}
             </Link>
           ) : (
             <a className="iv1-surface-right" href={safeAllHref} style={{ textDecoration: 'underline', color: 'var(--ink-2)', fontSize: 11.5 }}>
-              All {allCount} →
+              {headerLabel}
             </a>
           )
-        ) : (
-          <span className="iv1-surface-right" style={{ color: 'var(--ink-4)', fontSize: 11.5 }}>
-            All {allCount} →
-          </span>
-        )}
+        ) : null}
       </div>
 
       <div style={{ padding: '8px 16px 0', fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
@@ -68,15 +93,15 @@ export function OfficeRecommenderList({
           <b>No office recommendations yet</b>
           <span>
             Recommendations are derived from the committees of jurisdiction over
-            this client&apos;s tracked bills. Confirm the client&apos;s issue codes or
-            capability mappings so bills get tracked, and ranked congressional
-            offices will appear here.
+            this client&apos;s tracked bills. Confirm this client&apos;s LDA match and
+            add capabilities (with tags) in the client profile so bills get
+            tracked, and ranked congressional offices will appear here.
           </span>
         </div>
       ) : (
         <div>
           {rows.map((office) => {
-          if (linksEnabled && buildRowHref) {
+          if (rowLinksEnabled && buildRowHref) {
             const rowHref = buildRowHref(office);
             const rowInner = (
               <>
@@ -85,13 +110,7 @@ export function OfficeRecommenderList({
                   <div className="iv1-office-name">{office.name}</div>
                   <div className="iv1-office-sub">{office.sub}</div>
                 </div>
-                <div className="iv1-office-tags">
-                  {office.tags.map((tag) => (
-                    <span key={tag.label} className={`iv1-office-tag ${tag.variant}`}>
-                      {tag.label}
-                    </span>
-                  ))}
-                </div>
+                {renderOfficeTags(office.tags)}
                 <div className="iv1-office-score num">{office.score.toFixed(2)}</div>
               </>
             );
@@ -127,13 +146,7 @@ export function OfficeRecommenderList({
                 <div className="iv1-office-name">{office.name}</div>
                 <div className="iv1-office-sub">{office.sub}</div>
               </div>
-              <div className="iv1-office-tags">
-                {office.tags.map((tag) => (
-                  <span key={tag.label} className={`iv1-office-tag ${tag.variant}`}>
-                    {tag.label}
-                  </span>
-                ))}
-              </div>
+              {renderOfficeTags(office.tags)}
               <div className="iv1-office-score num">{office.score.toFixed(2)}</div>
             </div>
           );

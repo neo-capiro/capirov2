@@ -16,6 +16,8 @@ import {
   type KanbanControlsValue,
 } from '../components/BillKanbanControls.js';
 import { RegLifecycleRail } from '../components/RegLifecycleRail.js';
+import { HelpTip } from '../components/HelpTip.js';
+import { HELP } from '../help-content.js';
 
 interface LegislativeRegulatorySectionProps {
   aggregate?: ClientProfileV1;
@@ -298,7 +300,7 @@ export function LegislativeRegulatorySection({
 
       <div className="iv1-surface">
         <div className="iv1-surface-head">
-          <h3>Bill pipeline</h3>
+          <h3>Bill pipeline <HelpTip title={HELP.trackedBills} /></h3>
           <span
             className="iv1-surface-sub"
             title="Bills are matched to this client's confirmed LDA issue codes and capability text by the Issue-Bill Linker (vector embeddings)."
@@ -399,7 +401,7 @@ export function LegislativeRegulatorySection({
       <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 14, marginTop: 14 }}>
         <div className="iv1-surface">
         <div className="iv1-surface-head">
-          <h3>Regulatory lifecycle</h3>
+          <h3>Regulatory lifecycle <HelpTip title={HELP.regulatory} /></h3>
           <span className="iv1-surface-sub">
             {(regulatoryLifecycle?.totalRegulations ?? regsData.length)} rules tracked · {(regulatoryLifecycle?.totalLinkedBills ?? 0)} linked bills
           </span>

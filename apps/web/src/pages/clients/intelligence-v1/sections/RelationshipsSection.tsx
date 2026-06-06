@@ -55,19 +55,18 @@ export function RelationshipsSection({ aggregate, issueHref }: RelationshipsSect
 
       {/* Office recommender */}
       <div className="iv1-surface">
+        {/*
+          Office rows are informational (the actionable guidance is in the per-tag
+          tooltips). There is no per-office detail page, and the issue leaderboard
+          ignored the old `office=` param — so rather than a misleading per-row
+          drill-through, we expose one honest header link to the issue competitive
+          landscape for this client's primary issue.
+        */}
         <OfficeRecommenderList
           rows={offices}
           allCount={offices.length}
           allHref={issueLeaderboardHref || undefined}
-          rowHrefBuilder={
-            issueLeaderboardHref
-              ? (row) => {
-                  const base = issueLeaderboardHref;
-                  const separator = base.includes('?') ? '&' : '?';
-                  return `${base}${separator}office=${encodeURIComponent(row.name)}`;
-                }
-              : undefined
-          }
+          allLabel="Issue landscape"
         />
       </div>
     </section>

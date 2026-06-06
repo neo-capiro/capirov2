@@ -9,6 +9,8 @@
  */
 import { Link } from 'react-router-dom';
 import { formatCompact, type ClientProfileV1 } from '../mappers.js';
+import { HelpTip } from './HelpTip.js';
+import { HELP } from '../help-content.js';
 
 /** True for app-internal SPA routes that should navigate without a full reload. */
 function isInternalHref(href: string): boolean {
@@ -71,8 +73,10 @@ export function FecContributionPanel({ fec, runFecEnabled, runFecHref }: FecCont
   return (
     <div className="iv1-surface">
       <div className="iv1-surface-head">
-        <h3>FEC contributions — individual (employer-linked)</h3>
-        <span className="iv1-surface-sub">individuals listing the mapped employer · TTM</span>
+        <h3>
+          FEC contributions — individual (employer-linked) <HelpTip title={HELP.fec} />
+        </h3>
+        <span className="iv1-surface-sub">individuals listing the mapped employer · last 24 months</span>
         {hasData && (
           <span className="iv1-surface-right">{summary!.totalContributions} contributions</span>
         )}
