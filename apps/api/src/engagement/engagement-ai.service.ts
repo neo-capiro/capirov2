@@ -945,6 +945,12 @@ export class EngagementAiService {
     const hasSubstantiveContext =
       hasEmailThreads || hasPriorMeetings || hasTasks || hasDirectoryMatches || hasUserContext;
 
+    // Surface meeting logistics so the brief can lead with them.
+    const meetingRecord = toRecord(input.meeting);
+    const location =
+      typeof meetingRecord.location === 'string' ? meetingRecord.location.trim() : '';
+    const hasLocation = location.length > 0;
+
     return [
       'Write a lobbyist-ready meeting prep. Keep it concise, specific, and decision-focused.',
       // --- Hard anti-fabrication contract ---
@@ -953,6 +959,7 @@ export class EngagementAiService {
       '- Do NOT introduce any fact, policy position, relationship, history, statistic, commitment, priority, or topic that is not explicitly present in that data. No outside/world knowledge. No plausible-sounding guesses.',
       '- Do NOT infer what attendees think, want, or will say unless the source text states it.',
       '- If you are tempted to add a detail and cannot point to where it came from in the supplied data, omit it.',
+      "- The recentMeetings and recentThreads reflect your FIRM's history with this client (they may involve colleagues, not just the reader). Treat them as the firm's shared record.",
       '',
       hasSubstantiveContext
         ? 'There IS supporting context below. Ground every line in it.'
@@ -962,13 +969,23 @@ export class EngagementAiService {
         ? `USER-PROVIDED ADDITIONAL CONTEXT (authoritative; treat as factual input from the user and incorporate it):\n${userContext}`
         : 'No additional context was provided by the user.',
       '',
+      hasLocation
+        ? `MEETING LOGISTICS: this meeting has a location ("${location}"). OPEN the summary with a one-line logistics header stating the meeting date/time and this location, before any narrative. Make a "Logistics" item the FIRST entry in the agenda, naming the location and time. Use only the supplied meeting date/time fields verbatim; do not guess a timezone or reformat into one.`
+        : 'MEETING LOGISTICS: no location is recorded for this meeting. Do not invent one. Open the summary with the meeting date/time only.',
+      '',
+      'CENTRAL SUBJECT & DISCUSSION POINTS: Determine the core subject of this meeting and its key discussion points by synthesizing the meeting subject/description, recentThreads (email correspondence), recentMeetings, tasks, and any user context. Surface them explicitly as a "Discussion Priorities" agenda section and as concrete talkingPoints. Where the threads or prior meetings reveal an open ask, pending decision, or unresolved thread, name it specifically. Do not assert a subject the supplied data does not support.',
+      '',
+      hasEmailThreads
+        ? 'PRIOR CORRESPONDENCE: Summarize the previous relevant email conversations with specifics — who said what, when, the ask or commitment, and the current state of each thread — using ONLY the supplied recentThreads. Reflect that substance in the summary and talkingPoints (which the user sees), and also capture it as emailEvidence bullets that each name the sender, the date, and the concrete point. Quote or closely paraphrase; do not generalize the details away.'
+        : 'PRIOR CORRESPONDENCE: no email threads are linked to this client/meeting. Do not reference or invent email history.',
+      '',
       'Output structure (JSON fields):',
-      'agenda: short section headers with one-line guidance for: Objective, Executive Summary, Discussion Priorities, Attendee Context, Risks, Logistics. Only include a section when supported by context.',
+      'agenda: ordered section headers with one-line guidance. When supported by context, order them: Logistics (location/time, when present), Objective, Discussion Priorities, Attendee Context, Risks. Only include a section when supported by context.',
       'talkingPoints: concrete points the lobbyist can say in the room, each grounded in supplied context (empty array if none).',
       'risks: likely objections/sensitivities grounded in supplied context only (empty array if none).',
       'followUps: specific next steps with owner/timing when known; if unknown, leave timing blank rather than fabricating.',
-      'summary: 2-4 sentence plain-language brief (who, why now, what success looks like) — or the insufficient-context statement above when there is no context.',
-      'emailEvidence: concise bullets drawn verbatim/paraphrased from provided threads only; empty array when none.',
+      'summary: 2-4 sentence plain-language brief that OPENS with logistics (date/time, plus location when present), then covers who, why now, the central subject, and what success looks like — or the insufficient-context statement above when there is no context.',
+      'emailEvidence: detailed bullets drawn from provided threads only — each names the sender and date and captures the specific point, ask, or commitment. Empty array when no threads.',
       '',
       hasDirectoryMatches
         ? 'Use congressionalDirectoryMatches for attendee context (role, committee/jurisdiction, office details) when present.'

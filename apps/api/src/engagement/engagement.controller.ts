@@ -205,6 +205,12 @@ class UpdateMeetingPrepDto {
   @ArrayMaxSize(80)
   @IsString({ each: true })
   followUps?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(80)
+  @IsString({ each: true })
+  emailEvidence?: string[];
 }
 
 class CreateTaskDto {

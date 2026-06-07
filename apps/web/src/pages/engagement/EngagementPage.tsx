@@ -56,6 +56,7 @@ interface MeetingPrep {
   talkingPoints: string[];
   risks: string[];
   followUps: string[];
+  emailEvidence: string[];
   summary: string | null;
   provider: string | null;
   model: string | null;
@@ -304,6 +305,7 @@ interface PrepFormValues {
   talkingPointsText?: string;
   risksText?: string;
   followUpsText?: string;
+  emailEvidenceText?: string;
 }
 
 interface DebriefDraftState {
@@ -741,6 +743,7 @@ export function EngagementPage() {
           talkingPoints: linesToArray(values.talkingPointsText),
           risks: linesToArray(values.risksText),
           followUps: linesToArray(values.followUpsText),
+          emailEvidence: linesToArray(values.emailEvidenceText),
         })
       ).data,
     onSuccess: () => {
@@ -1134,6 +1137,7 @@ export function EngagementPage() {
                       talkingPointsText: prep.talkingPoints.join('\n'),
                       risksText: prep.risks.join('\n'),
                       followUpsText: prep.followUps.join('\n'),
+                      emailEvidenceText: (prep.emailEvidence ?? []).join('\n'),
                     });
                     setEditingPrep({ meeting, prep });
                   }}
@@ -1374,6 +1378,9 @@ export function EngagementPage() {
           </Form.Item>
           <Form.Item name="followUpsText" label="Follow-ups">
             <Input.TextArea rows={3} placeholder="One follow-up per line" />
+          </Form.Item>
+          <Form.Item name="emailEvidenceText" label="Email recap">
+            <Input.TextArea rows={4} placeholder="One correspondence bullet per line" />
           </Form.Item>
         </Form>
       </Modal>
@@ -1977,6 +1984,14 @@ function MeetingDetailPanel({
                           empty="No talking points generated yet."
                         />
                       </DetailBlock>
+                      {prep.emailEvidence?.length ? (
+                        <DetailBlock title="Email Recap">
+                          <BulletList
+                            items={prep.emailEvidence}
+                            empty="No prior correspondence found."
+                          />
+                        </DetailBlock>
+                      ) : null}
                     </>
                   ) : (
                     <div className="engagement-empty-prep">

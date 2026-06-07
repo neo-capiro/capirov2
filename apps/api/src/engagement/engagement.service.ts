@@ -97,6 +97,7 @@ export interface UpdateMeetingPrepInput {
   talkingPoints?: string[];
   risks?: string[];
   followUps?: string[];
+  emailEvidence?: string[];
 }
 
 export interface AssociationOverrideInput {
@@ -351,101 +352,184 @@ interface ReportTargetDraft {
   pendingActionIds: Set<string>;
 }
 
+// System outreach templates. Each `prompt` is injected as the generation
+// `objective` and runs through the existing per-recipient pipeline
+// (generate-batch -> generateOutreachDraft -> { subject, body }). The body
+// carries the work product as Markdown; for the memo/brief templates that is a
+// structured document, for the message templates it is a short email. Every
+// prompt bakes in the senior-government-affairs voice and the anti-fabrication
+// rules so it stays grounded in the selected context, and avoids literal
+// [bracket] tokens (the outreach pipeline rejects unresolved placeholders).
 const SYSTEM_AI_TEMPLATES = [
   {
-    id: 'system-thank-you',
+    id: 'system-outreach-message',
     source: 'system' as const,
-    name: 'Thank You',
-    category: 'general',
+    name: 'Outreach Message',
+    category: 'outreach',
     prompt:
-      "Write a brief, warm thank-you email acknowledging a specific recent action or support from the recipient. Name what you're thanking them for using the meeting or engagement context. No new asks. Close with an offer to stay in touch. Under 150 words.",
-    description: 'Warm thank-you acknowledging support or a specific recent action.',
-    samplePreview: 'Dear [Name], Thank you so much for...',
-    tone: 'friendly',
-    usageCount: 0,
-  },
-  {
-    id: 'system-follow-up',
-    source: 'system' as const,
-    name: 'Follow-Up',
-    category: 'follow_up',
-    prompt:
-      'Write a polite follow-up email referencing a specific prior meeting or conversation. Restate one clear ask or next step. Propose a concrete next action with a suggested timeline. Reference any open commitments from the prior engagement. Under 200 words.',
-    description: 'Follow-up referencing a prior meeting with a clear next step.',
-    samplePreview: 'Thank you for meeting with us last week. Following up on...',
+      'Draft a short, polished outreach message to this recipient on behalf of the client. Sound like a real government affairs operator wrote it — direct, human, specific; use em dashes where natural and never open with "Dear". Set a concrete subject line (no "re:" padding). Body under 175 words: open with a natural greeting using the recipient\'s real first name; one sentence on why you are reaching out; one short paragraph tying the client\'s issue to this recipient\'s committee, district/state, agency role, or prior work from the selected context; one specific ask; an offer of helpful follow-up or materials; close with the sender\'s name. Do not overstate the relationship, do not claim the recipient supports anything unless the context proves it, and do not invent facts.',
+    description: 'Short, personalized Hill or client message — direct, specific, one clear ask.',
+    samplePreview:
+      "Subject: FY27 follow-up on directed-energy funding\n\nHi Dana —\n\nFollowing your subcommittee's markup last week, I wanted to flag where our client's work lines up with...",
     tone: 'professional',
     usageCount: 0,
   },
   {
-    id: 'system-memo',
+    id: 'system-policy-update',
     source: 'system' as const,
-    name: 'Memo / Position Paper',
+    name: 'Policy Update',
     category: 'policy',
     prompt:
-      'Write a concise position memo. Structure: one-line summary at top, then Background (2-3 sentences), The Ask (1 sentence, specific), Supporting Points (3-4 bullets with evidence), and District/State Impact (if available). Under 400 words. Formal but accessible tone.',
-    description: 'Concise position memo with background, ask, and supporting points.',
-    samplePreview: 'SUMMARY: [One-line summary]\n\nBACKGROUND: ...',
+      'Write a policy update for a government affairs audience (client or internal team), delivered as an email. Subject: the issue name plus a short hook. Body in skimmable Markdown, grounded only in the supplied client and selected context — do not invent legislation, votes, funding levels, or quotes, and if the context is thin say what is missing. Include only the sections the context supports: **Bottom line** (what happened, why it matters, what the client should do); **What changed** (date, actor, action, procedural status, what is new, what is unresolved); **Why it matters** (direct vs indirect vs political vs funding vs timing impact on the client); **Who is driving this** (relevant members, committees, agencies, coalitions, opponents — and why each matters); **Political read** (momentum, support, opposition, likelihood of movement — do not overstate certainty); **Client implications** (Opportunity / Risk / Watch item / Recommended posture); **Recommended action** (specific next steps); **What we still need to know**.',
+    description: 'Timely update on a bill, rule, or development — what changed and what to do.',
+    samplePreview:
+      '## Bottom line\nThe HAC-D mark restored full funding for the program, but report language adds a new reporting requirement that...\n\n## What changed\n...',
+    tone: 'professional',
+    usageCount: 0,
+  },
+  {
+    id: 'system-client-memo',
+    source: 'system' as const,
+    name: 'Client Memo',
+    category: 'memo',
+    prompt:
+      'Write a polished client memo, delivered as an email a client could read directly. Subject: a clear memo title. Body in Markdown, grounded only in the supplied client and selected context with no invented facts. Sections: **Bottom line** (the practical takeaway up top — do not bury the lead); **Situation** (what is happening, concise); **Why it matters** (tie to the client\'s business, policy, funding, regulatory, or reputational interests); **Analysis** (key stakeholders, political dynamics, process timing, risks, opportunities); **Recommendation** (what to do, who to engage, when, what materials are needed); **Next steps**; **Open questions**. Sound like a strong government affairs team — thoughtful, direct, useful; use em dashes where natural and never open with "Dear".',
+    description: 'Polished, client-ready memo: situation, analysis, recommendation, next steps.',
+    samplePreview:
+      '## Bottom line\nWe recommend engaging the SASC personnel staff this week, before the markup window closes...\n\n## Situation\n...',
     tone: 'formal',
     usageCount: 0,
   },
   {
-    id: 'system-post-meeting-memo',
+    id: 'system-meeting-prep',
     source: 'system' as const,
-    name: 'Post-Meeting Memo',
+    name: 'Meeting Prep',
     category: 'meeting',
     prompt:
-      'Generate an internal post-meeting memo. Include: Date/Time, Participants, Summary of discussion, Key takeaways, Policy implications, Follow-up items, and Next steps. Use only the supplied client, recipient, meeting, debrief, and congressional directory context. Under 600 words.',
-    description: 'Internal post-meeting memo built from meeting and debrief context.',
-    samplePreview: '## Post-Meeting Memo\n\nDate: [Date]\nParticipants: ...',
+      'Prepare a meeting prep memo for a single meeting, delivered as an email the lobbyist reads beforehand. Subject: "Meeting prep — " plus the meeting subject or recipient. Use the supplied client, attendees, meeting, and selected context first; do not invent attendees, positions, history, or facts, and mark confidence (High/Medium/Low) where useful. Body in Markdown: **Bottom line** (why this meeting matters, the opportunity, the risk if handled poorly, what to get out of it); **Who is in the room** (per relevant attendee: role, organization, why they matter, known interests, connection to the client — no filler bios); **What they likely care about** (Confirmed from context / Reasonable inference / Unknown); **Relevant recent activity** (only the most relevant items — what happened, why it matters, how it connects to the client); **Client angle** (strongest client-specific angle, proof points, likely objections); **Recommended message**; **Talking points** (5-8, usable live); **Smart questions to ask** (5-8, specific); **Watch-outs**; **Recommended ask** (primary, fallback, follow-up); **Follow-up plan**.',
+    description: 'Single-meeting prep: who is in the room, the angle, talking points, the ask.',
+    samplePreview:
+      "## Bottom line\nThis is your first sit-down with the LD — the goal is to confirm the office's posture on the amendment and secure a staff-level follow-up...",
+    tone: 'professional',
+    usageCount: 0,
+  },
+  {
+    id: 'system-hill-prep',
+    source: 'system' as const,
+    name: 'Hill Prep (Multiple Meetings)',
+    category: 'hill',
+    prompt:
+      'Prepare a Hill prep packet covering multiple congressional meetings in a day, delivered as one email. Subject: "Hill prep — " plus the client and date if known. This is a single coordinated strategy, not separate summaries. Use only the supplied client, recipients, and selected context; do not invent. Body in Markdown: **Bottom line for the day** (main objective, which meetings matter most, strongest alignment, likely objections, what to avoid saying); **Core message** (the common message across meetings — natural, not a script — with value proposition, policy rationale, local/committee relevance, and the specific ask); **Message discipline** (one-sentence message, top 3 proof points, framing, words or arguments to avoid, sensitive issues); **Meeting-by-meeting** (per office: priority High/Medium/Low, why it matters, office read, best angle, likely concerns, 3-5 tailored talking points, 3-5 questions, recommended ask, follow-up); **Cross-meeting intelligence** (likely supporters, offices needing education, skeptics, offices with appropriations/authorization/oversight leverage, potential champions and blockers); **Suggested meeting order strategy**; **Questions to carry across the day**; **End-of-day follow-up plan**.',
+    description:
+      'Full Hill-day packet: one message, office-by-office prep, cross-meeting strategy.',
+    samplePreview:
+      '## Bottom line for the day\nFour meetings, one ask. Lead with Rep. Carter (most aligned) to validate the framing before the two skeptical offices...',
+    tone: 'professional',
+    usageCount: 0,
+  },
+  {
+    id: 'system-office-memo',
+    source: 'system' as const,
+    name: 'Congressional Office Memo',
+    category: 'office',
+    prompt:
+      'Generate a congressional office intelligence memo that helps the lobbyist decide how to approach this office — not just who the member is — delivered as an email. Subject: "Office memo — " plus the office name. Use selected context first; include generic biography only when it affects strategy; do not invent. Body in Markdown: **Bottom line** (why this office matters to the client; champion / persuadable / information target / blocker; best way to approach); **Office profile** (party, state/district, committees, leadership roles, caucuses, relevant staff, district/state interests — only what is supported); **Policy interests** (from bills, committee activity, statements, hearings, funding requests, district economic profile); **Connection to client** (Strong alignment / Possible / Weak / Friction); **Recent activity that matters** (what happened, why it matters, how to use it); **Influence assessment** (policy influence, political relevance, client relevance — each High/Medium/Low, with reasoning); **Best engagement strategy** (messenger, argument, proof point, ask, follow-up material); **Talking points**; **Questions to ask**; **Risks and watch-outs**.',
+    description: 'How to approach an office: posture, interests, influence, engagement strategy.',
+    samplePreview:
+      '## Bottom line\nLikely persuadable. The member sits on the relevant subcommittee and has a major employer in-district, so lead with the jobs angle...',
+    tone: 'professional',
+    usageCount: 0,
+  },
+  {
+    id: 'system-legislative-impact',
+    source: 'system' as const,
+    name: 'Legislative Impact Memo',
+    category: 'legislation',
+    prompt:
+      'Analyze legislation from the client\'s perspective, delivered as an email — not a generic bill summary. Subject: "Legislative impact — " plus the bill number or title. Use the supplied bill details, client, and selected context; do not invent provisions, status, sponsors, or predictions. Body in Markdown: **Bottom line** (practical impact in 3-5 bullets); **What the bill does** (only the provisions relevant to the client); **Why it matters to the client** (direct / indirect / competitive / funding / regulatory / political impact); **Key provisions to watch** (per provision: plain-English explanation, client impact, stakeholders affected, risk/opportunity rating, recommended action); **Political and procedural outlook** (status, committee path, leadership dynamics, support/opposition, timing, likelihood — cautious, lobbyist-style language); **Stakeholder map** (sponsors, cosponsors, committees, agencies, supporters, opponents, coalitions, validators); **Recommended position** (Support / Support with changes / Oppose / Monitor / Engage quietly / Seek clarification — with why); **Recommended amendments or changes** (what, why, who might carry it, supporting argument); **Engagement plan** (offices to brief, committees to monitor, coalition opportunities, materials, timeline).',
+    description: 'Bill analysis through the client lens: impact, position, amendments, engagement.',
+    samplePreview:
+      "## Bottom line\n- Section 214 directly affects the client's contract vehicle\n- Funding is authorized but not yet appropriated\n- Recommend Support with changes...",
     tone: 'formal',
     usageCount: 0,
   },
   {
-    id: 'system-introduction',
+    id: 'system-hearing-prep',
     source: 'system' as const,
-    name: 'Introduction',
-    category: 'general',
+    name: 'Hearing Prep',
+    category: 'hearing',
     prompt:
-      "Write an introductory outreach email on behalf of a client to a congressional office. Briefly introduce who the client is and why they matter to the recipient's portfolio. Connect the client's work to the recipient's committee jurisdiction or district interests. End with a low-friction first ask, a 15-minute introductory call or brief meeting. Under 200 words.",
-    description: 'Introductory outreach explaining the client and reason for engaging.',
-    samplePreview: 'My name is [Name] and I represent...',
+      'Prepare a hearing intelligence brief, delivered as an email — what is likely to happen, why it matters, and how to use the hearing before and after. Subject: "Hearing prep — " plus the hearing title. Use the supplied hearing details, witnesses, members, client, and selected context; do not invent testimony, questions, or positions. Body in Markdown: **Bottom line** (why this hearing matters to the client, the main issue, likely political frame, what to watch); **Hearing setup** (committee/subcommittee, chair and ranking member, witnesses, jurisdiction, related bills/programs/funding); **Likely themes** (per theme: why likely, who raises it, client relevance, risk/opportunity); **Witness read** (per witness: role, likely perspective, relevant prior activity, effect on the client); **Member dynamics** (who shapes the hearing and how); **Likely questions** (majority / minority / client-relevant / risk-creating); **Client implications** (policy, oversight, appropriations, regulation, reputation, business development, coalition); **Recommended pre-hearing actions**; **Recommended post-hearing actions**; **Watch-outs**.',
+    description: 'Hearing brief: likely themes, witness read, member dynamics, pre/post actions.',
+    samplePreview:
+      '## Bottom line\nThe hearing is framed around readiness, but the real action for the client is the Q&A on the modernization account...',
     tone: 'professional',
     usageCount: 0,
   },
   {
-    id: 'system-meeting-request',
+    id: 'system-pe-brief',
     source: 'system' as const,
-    name: 'Meeting Request',
-    category: 'meeting',
+    name: 'Defense Program Element Brief',
+    category: 'defense',
     prompt:
-      'Write a concise meeting request email. State the purpose of the meeting in one sentence. Suggest 2-3 scheduling windows. List who would attend from the client side. Include a one-sentence agenda. Under 150 words.',
-    description: 'Request a meeting with scheduling options and a brief agenda.',
-    samplePreview: 'I would like to request a brief meeting to discuss...',
+      'Generate a Defense Program Element intelligence brief connecting budget data to lobbying and business-development strategy, delivered as an email. Subject: "PE brief — " plus the PE code and title. Use the supplied PE data (code, title, service, budget activity, funding history, requested funding, congressional marks, associated programs, office/command, contractors, contracts, hearings, legislation, reports), client, and selected context; do not invent figures or marks, and state confidence. Body in Markdown: **Bottom line** (what the program funds; why it matters to the service, to industry, and to the client); **Funding picture** (prior year, current request, increase/decrease, congressional changes, direction of travel, confidence — what the movement suggests without overstating); **Program read** (mission area, modernization relevance, technology areas, associated programs, milestones, dependencies); **Stakeholder map** (service owner, PEO/PM/command, OSD stakeholders, committees, interested members, contractors, competitors, associations); **Congressional relevance** (appropriations/authorization interest, oversight risk, district/state relevance, prior marks or report language, hearing references); **Industry relevance** (contracting opportunities, competitive positioning, recompete/new-start signals, transition risk); **Client implications** (Opportunity / Risk / Relationship target / Funding target / Intelligence gap); **Recommended engagement strategy**; **Talking points** (5-7); **Questions to ask** (Hill staff, agency, industry, client team); **Watch items** (budget documents, marks, hearings, contract awards, RFIs/RFPs, GAO/CRS/IG reports).',
+    description:
+      'PE budget intelligence tied to lobbying strategy: funding, stakeholders, watch items.',
+    samplePreview:
+      '## Bottom line\nPE 0604XXXF funds the next-gen sensor line — the FY27 request is up 18%, and the client is positioned for the integration recompete...',
     tone: 'professional',
     usageCount: 0,
   },
   {
-    id: 'system-status-update',
+    id: 'system-stakeholder-profile',
     source: 'system' as const,
-    name: 'Status Update',
-    category: 'general',
+    name: 'Stakeholder Profile',
+    category: 'stakeholder',
     prompt:
-      'Write a brief progress update email. List 2-4 short bullets covering: activity since last contact, current program status, and next planned milestone. Only include a new ask if directly tied to the update. Under 200 words.',
-    description: 'Brief progress update on client activity and next steps.',
-    samplePreview: 'Quick update on recent progress:\n\n• [Activity 1]...',
+      'Generate a stakeholder intelligence profile that helps the lobbyist decide how to approach this person — not just their resume — delivered as an email. Subject: "Stakeholder profile — " plus the name. Use selected context first; do not invent activity, positions, or relationships. Body in Markdown: **Bottom line** (why this person matters, what they likely care about, how to approach them, what to avoid); **Role and influence** (formal authority, informal influence, decision power, relationship to relevant committees/agencies/programs); **Issue alignment** (Strong / Possible / Friction / Unknown); **Relevant activity** (statements, bills, hearings, votes, funding, lobbying connections, agency actions, news — from context); **Relationship strategy** (best reason to engage, messenger, opening, proof point, ask, follow-up); **Talking points** (5, tailored); **Questions to ask** (5); **Watch-outs**.',
+    description: 'Read on a person: influence, alignment, and how to build the relationship.',
+    samplePreview:
+      '## Bottom line\nThe staff director is the real decision-maker here — pragmatic, data-driven, and skeptical of vendor pitches. Lead with the readiness data...',
     tone: 'professional',
     usageCount: 0,
   },
   {
-    id: 'system-policy-alert',
+    id: 'system-daily-brief',
     source: 'system' as const,
-    name: 'Policy Alert',
-    category: 'policy',
+    name: 'Daily Client Brief',
+    category: 'brief',
     prompt:
-      "Write a policy alert email informing the recipient of a relevant development. Open with the news (bill movement, funding change, regulatory action). Explain the impact on the recipient's jurisdiction or the client's program. Suggest a follow-up conversation if appropriate. Under 250 words.",
-    description: 'Policy alert informing of a relevant legislative or regulatory development.',
-    samplePreview: 'Important development: [News headline]...',
+      'Generate a daily government affairs brief for a client, delivered as an email. Include only developments that could realistically affect this client — not everything. Subject: "Daily brief — " plus the client and date if known. Use only the supplied client and selected context; do not invent developments. Body in Markdown: **Bottom line** (the short version of what the client needs to know today); **Critical** (items needing attention or action — per item: what happened, why it matters, recommended action, owner if known, timing); **Important** (meaningful but not urgent — what happened, why it matters, recommended action); **Monitor** (lower-priority signals — the signal, why we are watching, what would escalate it); **Recommended actions today**; **Questions for the client** (only those that improve strategy). If nothing material is in the context, say so plainly rather than padding.',
+    description: 'Daily client roundup triaged into Critical / Important / Monitor with actions.',
+    samplePreview:
+      '## Bottom line\nOne item needs a decision today: the markup amendment dropped last night and touches your contract directly.\n\n## Critical\n...',
     tone: 'professional',
+    usageCount: 0,
+  },
+  {
+    id: 'system-exec-one-pager',
+    source: 'system' as const,
+    name: 'Executive One-Pager',
+    category: 'executive',
+    prompt:
+      'Create an executive one-pager for a senior business audience, delivered as an email. They want business impact, risk, and recommended action — not process detail. Subject: "Executive brief — " plus the issue. Use the supplied client and selected context; do not invent. Body in tight Markdown: **Bottom line** (max 3 bullets: what happened, why it matters, what we should do); **Business impact** (only the relevant of: revenue/market, regulatory, funding, competitive, reputation); **Political read** (short — politics, timing, likely path); **Recommended decision** (one of: Act now / Prepare / Monitor / Engage quietly / Escalate / No action needed yet); **Next steps** (3-5 specific). Keep it to roughly a page and cut anything an executive would not act on.',
+    description: 'One-page executive brief: business impact, political read, the decision to make.',
+    samplePreview:
+      "## Bottom line\n- The rule, as proposed, raises our client's compliance cost\n- Comment window closes in 21 days\n- Recommend: Prepare comments + brief two offices...",
+    tone: 'formal',
+    usageCount: 0,
+  },
+  {
+    id: 'system-strategy-memo',
+    source: 'system' as const,
+    name: 'Internal Strategy Memo',
+    category: 'strategy',
+    prompt:
+      'Create an internal government affairs strategy memo for planning what to do next, delivered as an email. Be candid, practical, and direct — this is internal. Subject: "Strategy memo — " plus the issue. Use the supplied client, stakeholders, and selected context; do not invent. Body in Markdown: **Bottom line** (the recommended strategy in plain English); **Objective** (what we are trying to accomplish); **Current landscape** (policy status, political dynamics, stakeholders, timing, risks); **Strategic options** (2-4 options — per option: description, upside, downside, required work, likelihood of success, recommended or not); **Recommended path** (target offices or agencies, message, proof points, coalition needs, materials, timing); **Risks** (political, procedural, reputational, client); **Next 7 days**; **Next 30 days**.',
+    description: 'Internal game plan: options weighed, a recommended path, and a 7/30-day plan.',
+    samplePreview:
+      '## Bottom line\nRun a quiet authorization play through SASC rather than a public appropriations push — lower profile, better odds this cycle...',
+    tone: 'candid',
     usageCount: 0,
   },
 ] as const;
@@ -2823,6 +2907,9 @@ export class EngagementService {
       const meetingAssociationWhere = correctClientId
         ? await this.clientMeetingAssociationWhere(tx, ctx.tenantId, correctClientId)
         : null;
+      // Firm-wide prep context: prior meetings are scoped to the tenant + the
+      // matched client, NOT to the requesting user. Any operator preparing for
+      // this client sees the firm's collective meeting history with them.
       const recentMeetings = meetingAssociationWhere
         ? await tx.meeting.findMany({
             where: {
@@ -2830,7 +2917,6 @@ export class EngagementService {
                 {
                   tenantId: ctx.tenantId,
                   id: { not: meeting.id },
-                  ...ownMeetingWhere(ctx.userId),
                 },
                 meetingAssociationWhere,
               ],
@@ -2850,8 +2936,11 @@ export class EngagementService {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      // Keep prep context scoped to client-linked email threads only.
-      // Do NOT pull by attendee/to/cc domains to avoid unrelated coworker context.
+      // Firm-wide prep context: pull email threads associated with the matched
+      // client across the tenant's connections (not just the requesting user's
+      // mailbox), so prep reflects the firm's full correspondence with the
+      // client. Still scoped to client-linked threads only — we never pull by
+      // attendee/to/cc domains, so unrelated coworker inbox content is excluded.
       const threadFilters: Prisma.MailThreadWhereInput[] = [];
       if (correctClientId) {
         threadFilters.push(
@@ -2863,7 +2952,6 @@ export class EngagementService {
         ? await tx.mailThread.findMany({
             where: {
               tenantId: ctx.tenantId,
-              ...ownMailThreadWhere(ctx.userId),
               lastMessageAt: { gte: thirtyDaysAgo },
               OR: threadFilters,
             },
@@ -2918,6 +3006,7 @@ export class EngagementService {
           talkingPoints: generated.talkingPoints,
           risks: generated.risks,
           followUps: generated.followUps,
+          emailEvidence: generated.emailEvidence,
           summary: generated.summary,
           provider: generated.provider,
           model: generated.model,
@@ -2955,6 +3044,9 @@ export class EngagementService {
             : {}),
           ...('risks' in input ? { risks: normalizeStringArray(input.risks) } : {}),
           ...('followUps' in input ? { followUps: normalizeStringArray(input.followUps) } : {}),
+          ...('emailEvidence' in input
+            ? { emailEvidence: normalizeStringArray(input.emailEvidence) }
+            : {}),
           status: MeetingPrepStatus.edited,
           editedByUserId: ctx.userId,
         },
