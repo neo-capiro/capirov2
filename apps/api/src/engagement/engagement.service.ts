@@ -123,6 +123,7 @@ export interface ConfirmAttachmentInput {
   contentType: string;
   s3Key: string;
   checksumSha256?: string;
+  source?: string;
 }
 
 export interface EngagementReportQuery {
@@ -3341,6 +3342,7 @@ export class EngagementService {
           bucket: this.bucket!,
           s3Key: input.s3Key,
           checksumSha256: input.checksumSha256 ?? null,
+          source: input.source ?? 'manual',
           uploadedByUserId: ctx.userId,
         },
       }),

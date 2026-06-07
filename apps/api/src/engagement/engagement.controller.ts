@@ -333,6 +333,15 @@ class ConfirmAttachmentDto {
   @IsOptional()
   @IsString()
   checksumSha256?: string;
+
+  // Free-text provenance tag. Defaults to "manual" server-side. Used to scope an
+  // attachment to a sub-entity without a dedicated column — e.g. "capability:<id>"
+  // for documents uploaded from a capability drawer (which also carry clientId, so
+  // they appear in the client Documents tab too).
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  source?: string;
 }
 
 const campaignTypes = [
