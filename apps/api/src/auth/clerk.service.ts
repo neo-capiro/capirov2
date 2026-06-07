@@ -7,7 +7,12 @@ export interface ClerkSessionClaims {
   sub: string; // Clerk user id
   iss: string;
   email?: string;
-  // Clerk Organizations claims (populated when the user has an active org):
+  // Clerk Organizations claims (populated when the user has an active org).
+  // NOTE: Clerk's *v2* default session token nests these under a compact `o`
+  // object (`o.id`, `o.rol`, `o.slg`) and sets `v: 2`, rather than the flat
+  // `org_id`/`org_role`/`org_slug` of v1. verifySessionToken() normalizes the
+  // v2 shape back into these flat fields so the rest of the codebase has a
+  // single contract regardless of which token version Clerk emits.
   org_id?: string;
   org_slug?: string;
   org_role?: string;
@@ -16,10 +21,19 @@ export interface ClerkSessionClaims {
   //   capiro_tenant_id   = {{org.public_metadata.capiro_tenant_id}}
   //   capiro_tenant_slug = {{org.slug}}
   // Empty strings when the user has no active org. The middleware falls back
-  // to header/subdomain resolution in that case.
+  // to header/subdomain resolution in that case. These are OPTIONAL: tenant
+  // resolution also works from org_id alone (matched against
+  // tenants.clerk_org_id), which is what the v2 default token provides.
   capiro_tenant_id?: string;
   capiro_tenant_slug?: string;
   capiro_org_role?: string;
+}
+
+/** Clerk v2 default session token nests org info under a compact `o` object. */
+interface ClerkV2OrgClaim {
+  id?: string;
+  slg?: string;
+  rol?: string;
 }
 
 /**
@@ -49,10 +63,43 @@ export class ClerkService {
    * Uses Clerk's JWKS (cached by the SDK).
    */
   async verifySessionToken(token: string): Promise<ClerkSessionClaims> {
-    const claims = await verifyToken(token, {
+    const raw = await verifyToken(token, {
       secretKey: this.secretKey,
       ...(this.issuer ? { issuer: this.issuer } : {}),
     });
-    return claims as unknown as ClerkSessionClaims;
+    return normalizeClaims(raw as Record<string, unknown>);
   }
+}
+
+/**
+ * Normalize Clerk session-token claims into our flat ClerkSessionClaims
+ * contract. Clerk's v2 default session token nests the active-org claims under
+ * a compact `o` object ({ id, slg, rol }) instead of the v1 flat
+ * `org_id`/`org_slug`/`org_role`. Without this, the tenant-context middleware
+ * (which reads `org_id`) sees `undefined` for every request and 403s every
+ * authenticated user. We map v2 -> flat, preferring any explicit flat claim
+ * (e.g. from a custom JWT template) when present.
+ */
+function normalizeClaims(raw: Record<string, unknown>): ClerkSessionClaims {
+  const o = (raw.o ?? undefined) as ClerkV2OrgClaim | undefined;
+  const orgId = (raw.org_id as string | undefined) ?? o?.id;
+  const orgSlug = (raw.org_slug as string | undefined) ?? o?.slg;
+  const orgRole = (raw.org_role as string | undefined) ?? normalizeOrgRole(o?.rol);
+
+  return {
+    ...(raw as unknown as ClerkSessionClaims),
+    org_id: orgId,
+    org_slug: orgSlug,
+    org_role: orgRole,
+  };
+}
+
+/**
+ * v2 `o.rol` is the short role ("admin"/"member"); v1 `org_role` is the
+ * prefixed form ("org:admin"/"org:member"). mapClerkRoleToCapiro accepts both,
+ * but normalize to the prefixed form for consistency with the webhook path.
+ */
+function normalizeOrgRole(rol: string | undefined): string | undefined {
+  if (!rol) return undefined;
+  return rol.startsWith('org:') ? rol : `org:${rol}`;
 }
