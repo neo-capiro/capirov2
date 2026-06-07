@@ -67,12 +67,21 @@ interface PerformerArtifact {
 // so the read path can surface only real primes by default.
 const NON_COMPANY_RE =
   /^(VARIOUS|TBD|N\/?A|MULTIPLE|GOVERNMENT|GOVT|MDA|TBD\b.*|CLASSIFIED|WITHIN|INTERNAL|MIPR|ALLOTMENT|SEE\b)/i;
+// Location-bleed junk: a performer string that STARTS with a comma-separated US state-code
+// list (e.g. "AL, CO, CA, VA, Various", "CA, CO, VA Various") is a multi-state location
+// that leaked into the company column on a MIPR/Allotment government row — not a company.
+const STATE_PREFIX_JUNK_RE =
+  /^([A-Z]{2})(\s*,\s*[A-Z]{2}\b)+/; // two+ comma-joined 2-letter tokens at the start
 const LEGAL_SUFFIX_RE =
   /\b(INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LLC|LTD|LP|PLC|TECHNOLOGIES|TECHNOLOGY|SYSTEMS|GROUP|SERVICES|INTERNATIONAL|INTL|ASSOCIATES|CONSULTING|SOLUTIONS|LABORATORIES|LABORATORY|LABS|UNIVERSITY|INSTITUTE)\b/i;
 
 function isNamedCompany(performer: string): boolean {
   const p = (performer || '').trim();
   if (!p || NON_COMPANY_RE.test(p)) return false;
+  if (STATE_PREFIX_JUNK_RE.test(p)) return false; // multi-state location bleed, not a company
+  // Reject if it's mostly a state-code/Various salad (>=2 bare state codes and no legal suffix).
+  const stateCodeCount = (p.match(/\b(AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC)\b/g) || []).length;
+  if (stateCodeCount >= 2 && !LEGAL_SUFFIX_RE.test(p)) return false;
   // A real company either has a legal suffix or is a multi-word proper name >4 chars.
   return LEGAL_SUFFIX_RE.test(p) || (p.length > 4 && /[A-Za-z]/.test(p));
 }
