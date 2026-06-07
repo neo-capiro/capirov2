@@ -115,4 +115,67 @@ describe('ContractorsPanel', () => {
     expect(screen.getByText(/Direct Co/i)).toBeInTheDocument();
     expect(screen.queryByText(/via Acq Program/i)).toBeNull();
   });
+
+  test('named primes (R-3 exhibit) render as the primary section with provenance', () => {
+    render(
+      <ContractorsPanel
+        contractors={{
+          namedPrimes: [
+            {
+              contractorName: 'Boeing',
+              location: 'Huntsville, AL',
+              contractMethod: 'C/CPAF',
+              totalCostM: 53.058,
+              fy: 2027,
+              sourceUrl: 'https://example.gov/mda-r3.pdf',
+              pageNumber: 89,
+              publisher: 'MDA',
+              attribution: 'Named prime per MDA FY2027 R-3 exhibit (p. 89)',
+            },
+          ],
+          data: [
+            { contractorName: 'Lockheed Martin', amount: 2200, awards: 8, source: 'program' },
+          ],
+          todo: null,
+        }}
+      />,
+    );
+    // Named-prime section header + the prime itself + its R-3 source tag.
+    expect(screen.getByText(/Named primes \(per Service budget exhibit\)/i)).toBeInTheDocument();
+    expect(screen.getByText(/^Boeing$/i)).toBeInTheDocument();
+    expect(screen.getByText(/C\/CPAF/i)).toBeInTheDocument();
+    expect(screen.getByText(/Huntsville, AL/i)).toBeInTheDocument();
+    expect(screen.getByText(/MDA FY2027 R-3 p\.89/i)).toBeInTheDocument();
+    // Award-flow section still renders below.
+    expect(screen.getByText(/Award dollar flow/i)).toBeInTheDocument();
+    expect(screen.getByText(/Lockheed Martin/i)).toBeInTheDocument();
+  });
+
+  test('named primes alone (no award flow) still render', () => {
+    render(
+      <ContractorsPanel
+        contractors={{
+          namedPrimes: [
+            {
+              contractorName: 'Raytheon',
+              location: null,
+              contractMethod: 'C/CPIF',
+              totalCostM: null,
+              fy: 2026,
+              sourceUrl: null,
+              pageNumber: null,
+              publisher: 'Navy',
+              attribution: 'Named prime per Navy FY2026 R-3 exhibit',
+            },
+          ],
+          data: [],
+          todo: null,
+        }}
+      />,
+    );
+    expect(screen.getByText(/^Raytheon$/i)).toBeInTheDocument();
+    expect(screen.getByText(/Navy FY2026 R-3/i)).toBeInTheDocument();
+    // No award-flow sub-header when data[] is empty.
+    expect(screen.queryByText(/Award dollar flow/i)).toBeNull();
+  });
 });

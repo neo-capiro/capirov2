@@ -94,7 +94,26 @@ export interface ProgramElementContractor {
   attribution?: string | null;
 }
 
+// A prime named directly in the Service's own R-3 "Product Development" budget
+// exhibit. This is the primary, precise answer — zero inference, the government
+// itself names the performing activity per program element.
+export interface ProgramElementNamedPrime {
+  contractorName: string;
+  location: string | null;
+  contractMethod: string | null;
+  totalCostM: number | null;
+  fy: number | null;
+  sourceUrl: string | null;
+  pageNumber: number | null;
+  publisher: string | null;
+  // Human-readable provenance, e.g. "Named prime per Navy FY2027 R-3 exhibit (p. 89)".
+  attribution: string;
+}
+
 export interface ProgramElementContractorsResponse {
+  // Named primes straight from the budget exhibit (Layer 1) — the primary,
+  // precise answer. May be empty if no R-3 performer table covers this PE.
+  namedPrimes?: ProgramElementNamedPrime[];
   data: ProgramElementContractor[];
   todo: string | null;
 }

@@ -231,6 +231,7 @@ export function ProgramElementWatchPage() {
   const hasBudgetData = years.length > 0;
   const bills: ProgramElementBill[] = billsQuery.data ?? [];
   const contractors: ProgramElementContractorsResponse = contractorsQuery.data ?? {
+    namedPrimes: [],
     data: [],
     todo: null,
   };
