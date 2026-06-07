@@ -29,6 +29,13 @@ const EMBED_ON_SYNC = process.env.EMBED_ON_SYNC !== '0';
 const CONGRESS_BASE = 'https://api.congress.gov/v3';
 const CONGRESS_API_KEY = process.env.CONGRESS_API_KEY ?? '';
 const LIMIT = 100;
+
+// Congress.gov's fromDateTime/toDateTime params require the strict format
+// %Y-%m-%dT%H:%M:%SZ (NO milliseconds). Date.toISOString() emits ".000Z",
+// which the API rejects with a 400 UserInputException. Strip the millis.
+function toCongressDateTime(d: Date): string {
+  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
 // Fetch up to 50 pages per congress (5000 bills per congress)
 const MAX_PAGES_PER_CONGRESS = 50;
 const TARGET_CONGRESSES = [117, 118, 119];
@@ -223,7 +230,7 @@ async function main() {
       // window (Jan 1 2021), Congress.gov rejects requests with no scope.
       let fromDateTime: string | undefined;
       if (SINCE_OVERRIDE) {
-        fromDateTime = new Date(SINCE_OVERRIDE).toISOString();
+        fromDateTime = toCongressDateTime(new Date(SINCE_OVERRIDE));
       } else if (INCREMENTAL) {
         const latest = await prisma.congressBill.findFirst({
           where: { congress },
@@ -231,7 +238,7 @@ async function main() {
           select: { updateDate: true },
         });
         if (latest?.updateDate) {
-          fromDateTime = latest.updateDate.toISOString();
+          fromDateTime = toCongressDateTime(latest.updateDate);
         }
       }
       console.log(
