@@ -2798,8 +2798,14 @@ export class IntelligenceService {
   }
 
   async getTrackedBills(clientId: string, tenantId?: string) {
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
+    // Union across ALL confirmed LDA registrants, not just one. A large client
+    // (e.g. RTX) files its lobbying under several registrant-name variants —
+    // "RTX CORPORATION", "RTX CORPORATION AND AFFILIATES", "RAYTHEON TECHNOLOGIES
+    // CORPORATION", various FKA forms — and each is a distinct lda_client. Picking
+    // a single one left big clients matching on a thin slice of their footprint.
+    const ldaMappings = await this.prisma.clientIntelMapping.findMany({
       where: { clientId, source: 'lda', confirmed: true },
+      select: { externalId: true },
     });
 
     // Manually pinned bills (explicit human picks) — always included regardless
@@ -2811,11 +2817,22 @@ export class IntelligenceService {
     let issueNames: string[] = [];
 
     const ldaCodes: string[] = [];
-    if (ldaMapping) {
-      const codeRows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`
-        SELECT COALESCE(issue_codes, '{}') AS issue_codes FROM lda_client WHERE id = ${Number(ldaMapping.externalId)}
-      `;
-      ldaCodes.push(...(codeRows[0]?.issue_codes ?? []));
+    if (ldaMappings.length) {
+      const ldaIds = ldaMappings
+        .map((m) => Number(m.externalId))
+        .filter((n) => Number.isFinite(n));
+      if (ldaIds.length) {
+        // DISTINCT unnest = the union of issue codes across every confirmed
+        // registrant variant for this client.
+        const codeRows = await this.prisma.$queryRaw<Array<{ code: string }>>`
+          SELECT DISTINCT unnest(issue_codes) AS code
+          FROM lda_client
+          WHERE id = ANY(${ldaIds}::int[]) AND issue_codes IS NOT NULL
+        `;
+        ldaCodes.push(
+          ...codeRows.map((r) => r.code).filter((c) => typeof c === 'string' && c.length > 0),
+        );
+      }
     }
 
     // Client-level manual override (the "LDA Issue Codes" control in the client

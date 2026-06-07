@@ -212,7 +212,7 @@ describe('IntelligenceService — district spend wiring + manual bill tracking',
       };
       const prisma: any = {
         withTenant: jest.fn(async (_t: string, run: (tx: any) => Promise<any>) => run(tenantTx)),
-        clientIntelMapping: { findFirst: jest.fn(async () => null) }, // no LDA mapping
+        clientIntelMapping: { findMany: jest.fn(async () => []) }, // no confirmed LDA mappings
         // $queryRaw is used for fetchBillsByIds; route by call shape.
         $queryRaw: jest.fn(async () => queryRows.fetchByIds ?? []),
         $queryRawUnsafe: jest.fn(async () => queryRows.embeddings ?? []),
@@ -267,12 +267,10 @@ describe('IntelligenceService — district spend wiring + manual bill tracking',
       // getTrackedBills needs at least one term to reach the embeddings branch;
       // stub capability keywords by spying on the tenant capability read is
       // already empty, so inject a term via the LDA issue path instead:
-      (service as any).prisma.clientIntelMapping.findFirst = jest.fn(async () => ({
-        externalId: '1',
-      }));
+      (service as any).prisma.clientIntelMapping.findMany = jest.fn(async () => [{ externalId: '1' }]);
       (service as any).prisma.$queryRaw = jest.fn(async (strings: any) => {
         const sql = Array.isArray(strings) ? strings.join(' ') : String(strings);
-        if (sql.includes('issue_codes')) return [{ issue_codes: ['DEF'] }];
+        if (sql.includes('unnest(issue_codes)')) return [{ code: 'DEF' }];
         if (sql.includes('lda_issue_code')) return [{ name: 'Defense' }];
         return [];
       });
@@ -305,10 +303,10 @@ describe('IntelligenceService — district spend wiring + manual bill tracking',
         ],
       });
       jest.spyOn(service as any, 'getManualTrackedBillIds').mockResolvedValue(['119-hr-9999']);
-      (service as any).prisma.clientIntelMapping.findFirst = jest.fn(async () => ({ externalId: '1' }));
+      (service as any).prisma.clientIntelMapping.findMany = jest.fn(async () => [{ externalId: '1' }]);
       (service as any).prisma.$queryRaw = jest.fn(async (strings: any) => {
         const sql = Array.isArray(strings) ? strings.join(' ') : String(strings);
-        if (sql.includes('issue_codes')) return [{ issue_codes: ['DEF'] }];
+        if (sql.includes('unnest(issue_codes)')) return [{ code: 'DEF' }];
         if (sql.includes('lda_issue_code')) return [{ name: 'Defense' }];
         // fetchBillsByIds for the missing manual id.
         return [billRow('119-hr-9999', 'Pinned Bill')];

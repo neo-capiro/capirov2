@@ -21,10 +21,14 @@ describe('IntelligenceService.getTrackedBills — client-level issue-code overri
     };
     const prisma: any = {
       withTenant: jest.fn(async (_t: string, run: (tx: any) => Promise<any>) => run(tenantTx)),
-      clientIntelMapping: { findFirst: jest.fn(async () => opts.ldaMapping) },
+      clientIntelMapping: {
+        findMany: jest.fn(async () => (opts.ldaMapping ? [opts.ldaMapping] : [])),
+      },
       $queryRaw: jest.fn(async (strings: any) => {
         const sql = Array.isArray(strings) ? strings.join(' ') : String(strings);
-        if (sql.includes('FROM lda_client')) return [{ issue_codes: opts.ldaClientCodes ?? [] }];
+        // Union of issue_codes across all confirmed LDA registrants.
+        if (sql.includes('unnest(issue_codes)'))
+          return (opts.ldaClientCodes ?? []).map((code) => ({ code }));
         if (sql.includes('lda_issue_code')) return [{ name: 'Defense' }];
         return [];
       }),
