@@ -113,3 +113,33 @@ describe('matchPerson — Signal 2 (program_of_record)', () => {
     expect(c).toHaveLength(0); // 0605051A is ARMY; NAVY person -> mismatch dropped
   });
 });
+
+describe('matchPerson — Signal 3 (organization -> PE)', () => {
+  const pes: PeRow[] = [
+    { peCode: '0604727N', title: 'Joint Standoff Weapon (JSOW)' },
+    { peCode: '0605853N', title: 'Naval Research Laboratory (NRL)' },
+  ];
+  const { peIndex, byNormTitle } = buildIndex(pes);
+
+  test('matches a program-office organization to its PE when no peTitle/program_of_record', () => {
+    const person: PersonRow = { id: 'p8', service: 'NAVY', organization: 'Joint Standoff Weapon (JSOW)', peTitle: null, programOfRecord: null };
+    const c = svc.matchPerson(person, peIndex, byNormTitle, []);
+    expect(c).toHaveLength(1);
+    expect(c[0]!.peCode).toBe('0604727N');
+    expect(String(c[0]!.breakdown.signal)).toMatch(/^3_/);
+    expect(c[0]!.score).toBeLessThan(0.9); // org signal is capped below peTitle signals
+  });
+
+  test('does not fire when a stronger signal (peTitle) already matched', () => {
+    const person: PersonRow = { id: 'p9', service: 'NAVY', organization: 'Naval Research Laboratory (NRL)', peTitle: 'Joint Standoff Weapon (JSOW)', programOfRecord: null };
+    const c = svc.matchPerson(person, peIndex, byNormTitle, []);
+    expect(c).toHaveLength(1);
+    expect(String(c[0]!.breakdown.signal)).toMatch(/^1/); // signal 1 wins, signal 3 suppressed
+  });
+
+  test('rejects a short/fragment organization', () => {
+    const person: PersonRow = { id: 'p10', service: 'NAVY', organization: 'N/A', peTitle: null, programOfRecord: null };
+    const c = svc.matchPerson(person, peIndex, byNormTitle, []);
+    expect(c).toHaveLength(0);
+  });
+});

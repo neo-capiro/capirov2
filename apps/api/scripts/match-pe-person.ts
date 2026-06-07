@@ -25,6 +25,7 @@ function arg(name: string): string | undefined {
 const APPLY = process.argv.includes('--apply');
 const S1_TRGM_MIN = Number(arg('s1-trgm-min') ?? 0.45);
 const S2_MIN = Number(arg('s2-min') ?? 0.6);
+const S3_MIN = Number(arg('s3-min') ?? 0.6);
 
 async function main(): Promise<void> {
   const prisma = new PrismaClient({ transactionOptions: { timeout: 120000, maxWait: 20000 } });
@@ -60,7 +61,7 @@ async function main(): Promise<void> {
         programOfRecord: pr.programOfRecord,
       },
       peIndex, byNormTitle, projectIndex,
-      { s1TrgmMin: S1_TRGM_MIN, s2Min: S2_MIN },
+      { s1TrgmMin: S1_TRGM_MIN, s2Min: S2_MIN, s3Min: S3_MIN },
     ));
 
     const bySignal = proposals.reduce<Record<string, number>>((a, p) => { const s = String(p.breakdown.signal); a[s] = (a[s] ?? 0) + 1; return a; }, {});
