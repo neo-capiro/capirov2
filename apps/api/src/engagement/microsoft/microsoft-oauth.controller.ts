@@ -139,12 +139,26 @@ export class MicrosoftOAuthController {
     @Query('state') state: string | undefined,
     @Query('error') error: string | undefined,
     @Query('error_description') errorDescription: string | undefined,
+    @Query('admin_consent') adminConsent: string | undefined,
+    @Query('tenant') msTenant: string | undefined,
     @Res() res: Response,
   ): Promise<void> {
     if (error) {
       const target = `${this.oauth.getSuccessRedirect()}?provider=microsoft_365&error=${encodeURIComponent(
         errorDescription || error,
       )}`;
+      res.redirect(302, target);
+      return;
+    }
+    // Admin-consent return: Microsoft redirects the org admin back here after a
+    // tenant-wide admin consent grant with ?admin_consent=True&tenant=<id> and
+    // NO code/state (it's not a user auth-code flow). Land on the integrations
+    // page with a friendly status instead of throwing "Missing code or state".
+    if (adminConsent !== undefined || (!code && !state && msTenant)) {
+      const granted = adminConsent === 'True' || adminConsent === 'true';
+      const target = `${this.oauth.getSuccessRedirect()}?provider=microsoft_365&admin_consent=${
+        granted ? '1' : '0'
+      }`;
       res.redirect(302, target);
       return;
     }

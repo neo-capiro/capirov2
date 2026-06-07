@@ -159,7 +159,13 @@ export class MicrosoftOAuthService {
       scopes: MICROSOFT_SCOPES,
       redirectUri: this.redirectUri,
       state,
-      prompt: 'consent',
+      // select_account (not 'consent') forces Microsoft's account picker every
+      // time so the user explicitly chooses THEIR OWN mailbox. With 'consent'
+      // and a browser already signed into another MS account (e.g. an org
+      // admin), the flow silently reused that account and bound the wrong
+      // mailbox. Org-wide app consent is a separate one-time admin action
+      // (Entra admin center / adminconsent endpoint), not driven from here.
+      prompt: 'select_account',
     });
 
     return { authUrl, connectionId: connection.id };

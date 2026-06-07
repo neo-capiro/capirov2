@@ -21,6 +21,12 @@ interface ClerkOrgMembershipPayload {
   id: string;
   organization: { id: string; slug: string };
   public_user_data?: ClerkPublicUserData;
+  // The invitation's public_metadata is inherited by the membership. We set
+  // first_name/last_name here at invite time (the invitee's name is known
+  // before they accept), so this is the authoritative name source when the
+  // user never typed a name into Clerk's sign-up form (public_user_data names
+  // are null in that common case).
+  public_metadata?: { first_name?: string | null; last_name?: string | null };
   role: string; // e.g. "org:admin" or "org:member" depending on Clerk config
 }
 
@@ -148,11 +154,18 @@ export class ClerkWebhookService {
           return;
         }
         const email = m.public_user_data?.identifier ?? `${clerkUserId}@unknown.invalid`;
+        // Name source priority: the user's own Clerk profile names if present,
+        // else the invitation-inherited public_metadata (set at invite time).
+        // public_user_data names are null when the invitee never typed a name
+        // into Clerk's hosted sign-up form, which is the common case — so the
+        // invitation metadata is what actually carries first/last name through.
+        const firstName = m.public_user_data?.first_name || m.public_metadata?.first_name || null;
+        const lastName = m.public_user_data?.last_name || m.public_metadata?.last_name || null;
         const user = await this.syncUserIdentity(tx, {
           clerkUserId,
           email,
-          firstName: m.public_user_data?.first_name ?? null,
-          lastName: m.public_user_data?.last_name ?? null,
+          firstName,
+          lastName,
         });
 
         const role = mapClerkRoleToCapiro(m.organization.slug, m.role);
@@ -215,11 +228,20 @@ export class ClerkWebhookService {
       where: { clerkUserId: input.clerkUserId },
     });
     const existingByEmail = await tx.user.findUnique({ where: { email: input.email } });
+
+    // Name updates are COALESCE-style: an incoming null/empty never clobbers an
+    // already-stored name. Clerk emits user.created (names often null when the
+    // invitee didn't type them) and organizationMembership.created (names from
+    // the invitation public_metadata) and these can arrive in EITHER order, so
+    // we must not let a later null-name event wipe a good name set earlier.
+    const prior = existingByClerkId ?? existingByEmail;
+    const mergedFirst = input.firstName || prior?.firstName || null;
+    const mergedLast = input.lastName || prior?.lastName || null;
     const userData = {
       clerkUserId: input.clerkUserId,
       email: input.email,
-      firstName: input.firstName ?? null,
-      lastName: input.lastName ?? null,
+      firstName: mergedFirst,
+      lastName: mergedLast,
     };
 
     if (existingByClerkId && existingByEmail && existingByClerkId.id !== existingByEmail.id) {
