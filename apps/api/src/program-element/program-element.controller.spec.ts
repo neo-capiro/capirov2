@@ -18,6 +18,7 @@ describe('ProgramElementController', () => {
       getTimeline: jest.fn(),
       getBills: jest.fn(),
       getContractors: jest.fn(),
+      getRelatedProgramElements: jest.fn(),
       setWatching: jest.fn(),
     };
 
@@ -150,6 +151,20 @@ describe('ProgramElementController', () => {
 
     expect(service.getBills).toHaveBeenCalledWith('0603270A');
     expect(result).toHaveLength(1);
+  });
+
+  test('GET /api/program-elements/:peCode/related returns similarity suggestions', async () => {
+    const { controller, service } = makeController();
+    service.getRelatedProgramElements.mockResolvedValue({
+      related: [{ peCode: '0603271A', title: 'Adjacent program', service: 'Army', similarity: 0.83 }],
+      todo: null,
+    });
+
+    const result = await controller.related('0603270A');
+
+    expect(service.getRelatedProgramElements).toHaveBeenCalledWith('0603270A');
+    expect(result.related).toHaveLength(1);
+    expect(result.related[0]?.similarity).toBe(0.83);
   });
 
   test('GET /api/program-elements/:peCode/contractors returns [] + TODO when federal_award table missing', async () => {

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import LRUCache = require('lru-cache');
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { EMBEDDING_MODEL } from '../embeddings/embedder.js';
 import { ConferenceProbabilityService } from './models/conference-probability.service.js';
 
 export interface ProgramElementListQuery {
@@ -530,6 +531,91 @@ export class ProgramElementReadService {
       // MDAP-program link, or UEI-confirmed R-3 prime via enrich-award-pe-tas).
       data,
       todo: null,
+    };
+  }
+
+  /**
+   * "Related Program Elements" — SUGGESTIONS, not hard links.
+   *
+   * Reads this PE's stored mission embedding (context_embeddings,
+   * source_type='pe') and returns the nearest other PE vectors by cosine
+   * similarity. This is intentionally framed as "PEs with similar missions",
+   * never as a definitive relationship: the score is a semantic-nearness signal,
+   * not a documented fact, so the UI labels it as a suggestion and shows the
+   * similarity so a lobbyist can judge it. Returns an empty list (never throws)
+   * when this PE has no embedding yet, so the panel degrades gracefully before
+   * the embed-program-elements backfill has run.
+   */
+  async getRelatedProgramElements(peCode: string, limit = 8) {
+    const exists = await this.prisma.programElement.findUnique({
+      where: { peCode },
+      select: { peCode: true },
+    });
+    if (!exists) throw new NotFoundException(`Program element ${peCode} not found`);
+
+    // Relevance floor (cosine similarity). Defense PE descriptions share a lot of
+    // boilerplate, so we set this fairly high to avoid surfacing tangential PEs;
+    // mirrors the issue-bill linker's 0.65 floor.
+    const SIMILARITY_FLOOR = 0.7;
+
+    // Self-join on the pe vectors: <=> is pgvector cosine DISTANCE, so
+    // (1 - distance) is similarity. We pull the source vector inline by peCode
+    // rather than round-tripping it through Bedrock — the embedding already
+    // exists, no model call needed.
+    let rows: Array<{
+      peCode: string;
+      title: string;
+      service: string | null;
+      score: number;
+    }> = [];
+    try {
+      rows = await this.prisma.$queryRaw<
+        Array<{ peCode: string; title: string; service: string | null; score: number }>
+      >(Prisma.sql`
+        WITH src AS (
+          SELECT embedding
+          FROM context_embeddings
+          WHERE source_type = 'pe'
+            AND source_id = ${peCode}
+            AND model = ${EMBEDDING_MODEL}
+            AND embedding IS NOT NULL
+          LIMIT 1
+        )
+        SELECT pe.pe_code AS "peCode",
+               pe.title   AS "title",
+               pe.service AS "service",
+               (1 - (ce.embedding <=> (SELECT embedding FROM src)))::float8 AS "score"
+        FROM context_embeddings ce
+        JOIN program_element pe ON pe.pe_code = ce.source_id
+        WHERE ce.source_type = 'pe'
+          AND ce.model = ${EMBEDDING_MODEL}
+          AND ce.embedding IS NOT NULL
+          AND ce.source_id <> ${peCode}
+          AND pe.retired_at IS NULL
+          AND EXISTS (SELECT 1 FROM src)
+          AND (1 - (ce.embedding <=> (SELECT embedding FROM src))) >= ${SIMILARITY_FLOOR}
+        ORDER BY ce.embedding <=> (SELECT embedding FROM src)
+        LIMIT ${limit}
+      `);
+    } catch {
+      // No pgvector / table absent / embedding missing — degrade to empty so the
+      // panel renders its honest empty state rather than 500ing.
+      rows = [];
+    }
+
+    return {
+      // Explicitly a suggestion list. The UI MUST label it as such.
+      related: rows.map((r) => ({
+        peCode: r.peCode,
+        title: r.title,
+        service: r.service,
+        // 0..1 cosine similarity, surfaced so the user can weigh the suggestion.
+        similarity: Math.round(r.score * 100) / 100,
+      })),
+      todo:
+        rows.length === 0
+          ? 'No related program elements yet — similarity suggestions appear once mission embeddings are generated.'
+          : null,
     };
   }
 

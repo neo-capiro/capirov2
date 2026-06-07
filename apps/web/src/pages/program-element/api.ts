@@ -5,6 +5,7 @@ import type {
   ProgramElementDetail,
   ProgramElementListResponse,
   ProgramElementMarkupMonitorResponse,
+  ProgramElementRelatedResponse,
   ProgramTeamPerson,
   PersonCandidateListResponse,
   AcquisitionPersonnelListResponse,
@@ -49,6 +50,17 @@ export async function getProgramElementPersonnel(
   return (
     await api.get<ProgramTeamPerson[]>(
       `/api/program-elements/${encodeURIComponent(peCode)}/personnel`,
+    )
+  ).data;
+}
+
+export async function getProgramElementRelated(
+  api: AxiosInstance,
+  peCode: string,
+): Promise<ProgramElementRelatedResponse> {
+  return (
+    await api.get<ProgramElementRelatedResponse>(
+      `/api/program-elements/${encodeURIComponent(peCode)}/related`,
     )
   ).data;
 }

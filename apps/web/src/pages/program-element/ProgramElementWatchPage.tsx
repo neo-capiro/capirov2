@@ -14,11 +14,13 @@ import {
   getProgramElementContractors,
   getProgramElementDetail,
   getProgramElementPersonnel,
+  getProgramElementRelated,
   setProgramElementWatching,
 } from './api.js';
 import { FyHistoryChart } from './FyHistoryChart.js';
 import { BillsTouchingPePanel } from './BillsTouchingPePanel.js';
 import { ContractorsPanel } from './ContractorsPanel.js';
+import { RelatedPesPanel } from './RelatedPesPanel.js';
 import { FyDetailDrawer } from './FyDetailDrawer.js';
 import { LinkCrmContactModal } from './LinkCrmContactModal.js';
 import { ProgramTeamPanel } from './ProgramTeamPanel.js';
@@ -91,6 +93,7 @@ function latestMeaningful(
 const LazyFyHistoryChart = lazy(async () => ({ default: FyHistoryChart }));
 const LazyBillsTouchingPePanel = lazy(async () => ({ default: BillsTouchingPePanel }));
 const LazyContractorsPanel = lazy(async () => ({ default: ContractorsPanel }));
+const LazyRelatedPesPanel = lazy(async () => ({ default: RelatedPesPanel }));
 const LazyProgramTeamPanel = lazy(async () => ({ default: ProgramTeamPanel }));
 
 function formatSyncedDate(value: string): string {
@@ -186,6 +189,13 @@ export function ProgramElementWatchPage() {
   const programTeamQuery = useQuery({
     queryKey: ['program-element-personnel', normalizedPeCode],
     queryFn: () => getProgramElementPersonnel(api, normalizedPeCode),
+    staleTime: 60 * 1000,
+    enabled: normalizedPeCode.length > 0,
+  });
+
+  const relatedQuery = useQuery({
+    queryKey: ['program-element-related', normalizedPeCode],
+    queryFn: () => getProgramElementRelated(api, normalizedPeCode),
     staleTime: 60 * 1000,
     enabled: normalizedPeCode.length > 0,
   });
@@ -471,6 +481,16 @@ export function ProgramElementWatchPage() {
             setLinkTarget({ id: personId, name: person?.fullName ?? 'this person' });
           }}
         />
+      </Suspense>
+
+      <Suspense
+        fallback={
+          <Card title="Related program elements">
+            <Skeleton active paragraph={{ rows: 3 }} />
+          </Card>
+        }
+      >
+        <LazyRelatedPesPanel related={relatedQuery.data} loading={relatedQuery.isLoading} />
       </Suspense>
 
       <FyDetailDrawer
