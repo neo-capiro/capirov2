@@ -271,8 +271,18 @@ class AssociationOverrideDto {
   @IsUUID()
   entityId!: string;
 
+  @IsOptional()
   @IsUUID()
-  clientId!: string;
+  clientId?: string;
+
+  /**
+   * When true, mark the entity (meetings only) as internal — clears any client
+   * association and stops the sync from re-linking it. Mutually exclusive with
+   * clientId; one of the two must be provided.
+   */
+  @IsOptional()
+  @IsBoolean()
+  internal?: boolean;
 
   @IsOptional()
   @IsString()
@@ -1100,7 +1110,10 @@ export class EngagementController {
       from,
       to,
       recipientEmails: recipientEmails
-        ? recipientEmails.split(',').map((s) => s.trim()).filter(Boolean)
+        ? recipientEmails
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
         : undefined,
     });
   }
@@ -1213,7 +1226,10 @@ export class EngagementController {
     return this.service.listMailThreads(ctx, {
       clientId,
       recipientEmails: recipientEmails
-        ? recipientEmails.split(',').map((s) => s.trim()).filter(Boolean)
+        ? recipientEmails
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
         : undefined,
     });
   }
@@ -1286,10 +1302,7 @@ export class EngagementController {
   }
 
   @Get('outreach/insights')
-  outreachInsights(
-    @CurrentTenant() ctx: TenantContext,
-    @Query('clientId') clientId?: string,
-  ) {
+  outreachInsights(@CurrentTenant() ctx: TenantContext, @Query('clientId') clientId?: string) {
     return this.service.getOutreachInsights(ctx, { clientId });
   }
 
@@ -1302,10 +1315,7 @@ export class EngagementController {
   }
 
   @Post('outreach/generate-batch')
-  generateBatchEmails(
-    @CurrentTenant() ctx: TenantContext,
-    @Body() body: GenerateBatchEmailDto,
-  ) {
+  generateBatchEmails(@CurrentTenant() ctx: TenantContext, @Body() body: GenerateBatchEmailDto) {
     return this.service.generateBatchEmails(ctx, body);
   }
 

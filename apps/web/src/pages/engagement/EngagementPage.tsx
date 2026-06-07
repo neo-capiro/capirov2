@@ -14,7 +14,20 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Dropdown, Empty, Form, Input, Modal, Select, Space, Tabs, Tag, Typography } from 'antd';
+import {
+  App,
+  Button,
+  Dropdown,
+  Empty,
+  Form,
+  Input,
+  Modal,
+  Select,
+  Space,
+  Tabs,
+  Tag,
+  Typography,
+} from 'antd';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useMe } from '../../lib/me.js';
 import { useApi } from '../../lib/use-api.js';
@@ -62,6 +75,7 @@ interface Meeting {
   organizerName: string | null;
   status: string;
   metadata: Record<string, unknown> | null;
+  isInternal?: boolean;
   associationScore: number | null;
   associationReason: string | null;
   client: Pick<
@@ -321,7 +335,9 @@ export function EngagementPage() {
   const [rangeEnd, setRangeEnd] = useState(defaultRange.end);
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [meetingDetailTab, setMeetingDetailTab] = useState('prep');
-  const [activeEngagementTab, setActiveEngagementTab] = useState<'overview' | 'meetings' | 'outreach' | 'reports'>('overview');
+  const [activeEngagementTab, setActiveEngagementTab] = useState<
+    'overview' | 'meetings' | 'outreach' | 'reports'
+  >('overview');
   const [meetingViewMode, setMeetingViewMode] = useState<'list' | 'calendar' | 'day'>('list');
   const [historyBatch, setHistoryBatch] = useState(0);
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('current');
@@ -352,7 +368,7 @@ export function EngagementPage() {
     lastProcessedUrlRef.current = urlKey;
 
     const segments = location.pathname.split('/').filter(Boolean);
-    const section = segments[0] === 'engagement' ? segments[1] ?? 'overview' : null;
+    const section = segments[0] === 'engagement' ? (segments[1] ?? 'overview') : null;
     const nextTab =
       section && ['overview', 'meetings', 'outreach', 'reports'].includes(section)
         ? (section as 'overview' | 'meetings' | 'outreach' | 'reports')
@@ -369,10 +385,14 @@ export function EngagementPage() {
       (nextTab && nextTab !== activeEngagementTab) ||
       (nextTab === 'meetings' && nextMeetingId !== selectedMeetingId) ||
       (nextTab === 'meetings' && nextDetail && nextDetail !== meetingDetailTab) ||
-      (nextTab === 'meetings' && (nextView === 'list' || nextView === 'calendar' || nextView === 'day') && nextView !== meetingViewMode) ||
+      (nextTab === 'meetings' &&
+        (nextView === 'list' || nextView === 'calendar' || nextView === 'day') &&
+        nextView !== meetingViewMode) ||
       (nextTab === 'meetings' && nextFrom && nextFrom !== rangeStart) ||
       (nextTab === 'meetings' && nextTo && nextTo !== rangeEnd) ||
-      (nextTab === 'reports' && ['current', 'previous', 'all'].includes(nextPeriod ?? '') && nextPeriod !== reportPeriod);
+      (nextTab === 'reports' &&
+        ['current', 'previous', 'all'].includes(nextPeriod ?? '') &&
+        nextPeriod !== reportPeriod);
 
     if (!hasUrlStateChange) return;
     syncingFromUrlRef.current = true;
@@ -417,7 +437,8 @@ export function EngagementPage() {
       nextPath = selectedMeetingId
         ? `/engagement/meetings/${encodeURIComponent(selectedMeetingId)}`
         : '/engagement/meetings';
-      if (meetingDetailTab && meetingDetailTab !== 'prep') nextParams.set('detail', meetingDetailTab);
+      if (meetingDetailTab && meetingDetailTab !== 'prep')
+        nextParams.set('detail', meetingDetailTab);
       if (meetingViewMode !== 'list') nextParams.set('view', meetingViewMode);
       if (rangeStart) nextParams.set('from', rangeStart);
       if (rangeEnd) nextParams.set('to', rangeEnd);
@@ -892,7 +913,12 @@ export function EngagementPage() {
   };
 
   const handleTabChange = (nextKey: string) => {
-    if (nextKey === 'overview' || nextKey === 'meetings' || nextKey === 'outreach' || nextKey === 'reports') {
+    if (
+      nextKey === 'overview' ||
+      nextKey === 'meetings' ||
+      nextKey === 'outreach' ||
+      nextKey === 'reports'
+    ) {
       setActiveEngagementTab(nextKey);
     }
   };
@@ -939,7 +965,8 @@ export function EngagementPage() {
                 onNavigate={(tab) => setActiveEngagementTab(tab)}
                 stats={{
                   meetingsThisWeek: meetings.data?.length ?? 0,
-                  debriefsPending: (meetings.data ?? []).filter((m) => m.debriefs.length === 0).length,
+                  debriefsPending: (meetings.data ?? []).filter((m) => m.debriefs.length === 0)
+                    .length,
                   draftsOpen: 0,
                 }}
               />
@@ -1434,7 +1461,9 @@ function MeetingListView({
             {weekGroup.days.map((group) => (
               <div className="engagement-date-subgroup" key={group.key}>
                 <div className={`engagement-date-header${group.isToday ? ' today' : ''}`}>
-                  {group.isToday ? `Today - ${formatFullDay(group.date)}` : formatFullDay(group.date)}
+                  {group.isToday
+                    ? `Today - ${formatFullDay(group.date)}`
+                    : formatFullDay(group.date)}
                 </div>
                 {group.meetings.map((meeting) => (
                   <MeetingListItem
@@ -1700,12 +1729,11 @@ function MeetingDayTimeline({
   const days = dateRangeDays(rangeStart, rangeEnd);
   const grouped = groupMeetingsByDate(meetings);
   const initialKey = localDateKey(new Date());
-  const defaultDayKey =
-    grouped.has(initialKey)
-      ? initialKey
-      : days.find((day) => (grouped.get(localDateKey(day)) ?? []).length > 0)
-        ? localDateKey(days.find((day) => (grouped.get(localDateKey(day)) ?? []).length > 0) as Date)
-        : localDateKey(days[0] ?? new Date());
+  const defaultDayKey = grouped.has(initialKey)
+    ? initialKey
+    : days.find((day) => (grouped.get(localDateKey(day)) ?? []).length > 0)
+      ? localDateKey(days.find((day) => (grouped.get(localDateKey(day)) ?? []).length > 0) as Date)
+      : localDateKey(days[0] ?? new Date());
   const [selectedDayKey, setSelectedDayKey] = useState(defaultDayKey);
 
   useEffect(() => {
@@ -1742,7 +1770,11 @@ function MeetingDayTimeline({
               >
                 <span>{weekdayShort(day)}</span>
                 <strong>{day.getDate()}</strong>
-                <small>{items.length ? `${items.length} meeting${items.length === 1 ? '' : 's'}` : 'No meetings'}</small>
+                <small>
+                  {items.length
+                    ? `${items.length} meeting${items.length === 1 ? '' : 's'}`
+                    : 'No meetings'}
+                </small>
               </button>
             );
           })}
@@ -1763,7 +1795,9 @@ function MeetingDayTimeline({
                 >
                   <span>{formatTime(meeting.startsAt)}</span>
                   <strong>{meeting.subject}</strong>
-                  <small>{meeting.client?.name ?? meeting.location ?? sourceLabel(meeting.source)}</small>
+                  <small>
+                    {meeting.client?.name ?? meeting.location ?? sourceLabel(meeting.source)}
+                  </small>
                   {status.kind === 'missing' ? (
                     <em
                       onClick={(event) => {
@@ -1781,7 +1815,9 @@ function MeetingDayTimeline({
             })
           ) : (
             <div className="engagement-list-empty">
-              <Empty description={`No meetings on ${formatCalendarRange(selectedDayDate, selectedDayDate)}`} />
+              <Empty
+                description={`No meetings on ${formatCalendarRange(selectedDayDate, selectedDayDate)}`}
+              />
             </div>
           )}
         </div>
@@ -1886,12 +1922,13 @@ function MeetingDetailPanel({
           </Typography.Text>
           <div style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {meeting.client ? 'Client:' : 'No client —'}
+              {meeting.isInternal ? 'Internal —' : meeting.client ? 'Client:' : 'No client —'}
             </Typography.Text>
             <AssignClientControl
               entityType="meeting"
               entityId={meeting.id}
               currentClientId={meeting.client?.id ?? null}
+              isInternal={meeting.isInternal ?? false}
             />
           </div>
           {status.kind === 'missing' && !hasSavedDebrief ? (
@@ -2743,15 +2780,22 @@ function CalendarView({ meetings }: { meetings: Meeting[] }) {
 // Self-contained control to (re)assign a meeting or mail thread to a client,
 // wired to POST /api/engagement/associations/override. Drop it anywhere; it
 // fetches clients itself and invalidates the relevant caches on success.
+// Sentinel value used by the client dropdown to represent "this meeting is
+// internal" (no client). Not a real client id; the backend treats it specially.
+const INTERNAL_OPTION = '__internal__';
+
 function AssignClientControl({
   entityType,
   entityId,
   currentClientId,
+  isInternal = false,
   size = 'small',
 }: {
   entityType: 'meeting' | 'mail_thread';
   entityId: string;
   currentClientId?: string | null;
+  /** Meetings only: whether the entity is currently flagged internal. */
+  isInternal?: boolean;
   size?: 'small' | 'middle';
 }) {
   const api = useApi();
@@ -2762,25 +2806,25 @@ function AssignClientControl({
     queryFn: async () => (await api.get<Client[]>('/api/clients')).data,
     staleTime: 60_000,
   });
-  const options = useMemo(
-    () =>
-      (clients.data ?? [])
-        .filter((c) => c.status !== 'archived' && c.name?.trim())
-        .map((c) => ({ value: c.id, label: c.name })),
-    [clients.data],
-  );
+  const options = useMemo(() => {
+    const clientOptions = (clients.data ?? [])
+      .filter((c) => c.status !== 'archived' && c.name?.trim())
+      .map((c) => ({ value: c.id, label: c.name }));
+    // "Internal" is a meetings-only concept; offer it ahead of the client list.
+    return entityType === 'meeting'
+      ? [{ value: INTERNAL_OPTION, label: 'Internal' }, ...clientOptions]
+      : clientOptions;
+  }, [clients.data, entityType]);
   const assign = useMutation({
-    mutationFn: async (clientId: string) =>
-      (
-        await api.post('/api/engagement/associations/override', {
-          entityType,
-          entityId,
-          clientId,
-          reason: 'Manual association from Engagement',
-        })
-      ).data,
-    onSuccess: () => {
-      message.success('Reassigned to client');
+    mutationFn: async (value: string) => {
+      const body =
+        value === INTERNAL_OPTION
+          ? { entityType, entityId, internal: true, reason: 'Marked internal from Engagement' }
+          : { entityType, entityId, clientId: value, reason: 'Manual association from Engagement' };
+      return (await api.post('/api/engagement/associations/override', body)).data;
+    },
+    onSuccess: (_data, value) => {
+      message.success(value === INTERNAL_OPTION ? 'Marked internal' : 'Reassigned to client');
       for (const key of [
         ['engagement-meetings'],
         ['engagement-meeting'],
@@ -2793,13 +2837,14 @@ function AssignClientControl({
     },
     onError: (e) => message.error(errorMessage(e)),
   });
+  const value = isInternal ? INTERNAL_OPTION : (currentClientId ?? undefined);
   return (
     <Select
       size={size}
       showSearch
       placeholder="Assign client…"
       style={{ minWidth: 170 }}
-      value={currentClientId ?? undefined}
+      value={value}
       options={options}
       optionFilterProp="label"
       loading={clients.isLoading || assign.isPending}
@@ -3871,23 +3916,89 @@ const MOCK_MEETINGS_FOR_CAPIRO: Meeting[] = (() => {
 
   return [
     {
-      id: 'mock-m1', subject: 'Capiro Platform Review', source: 'google', description: 'Review the Capiro platform capabilities and discuss partnership alignment.', location: 'Microsoft Teams Meeting',
-      startsAt: from(2), endsAt: from(2, 14, 45), organizerEmail: 'jordan@capiro.ai', organizerName: 'Jordan Clayton', status: 'confirmed', metadata: null, associationScore: null, associationReason: null,
-      client: { id: 'c1', name: 'Brightdefense', website: null, primaryContactName: null, primaryContactEmail: null }, attendees: [
+      id: 'mock-m1',
+      subject: 'Capiro Platform Review',
+      source: 'google',
+      description: 'Review the Capiro platform capabilities and discuss partnership alignment.',
+      location: 'Microsoft Teams Meeting',
+      startsAt: from(2),
+      endsAt: from(2, 14, 45),
+      organizerEmail: 'jordan@capiro.ai',
+      organizerName: 'Jordan Clayton',
+      status: 'confirmed',
+      metadata: null,
+      associationScore: null,
+      associationReason: null,
+      client: {
+        id: 'c1',
+        name: 'Brightdefense',
+        website: null,
+        primaryContactName: null,
+        primaryContactEmail: null,
+      },
+      attendees: [
         { id: 'a1', email: 'jordan@capiro.ai', name: 'Jordan Clayton', role: 'organizer' },
         { id: 'a2', email: 'neo@capiro.ai', name: 'Neo Martinez', role: 'required' },
         { id: 'a3', email: 'jham@mavenadvocacy.com', name: 'Justin Ham', role: 'required' },
-      ], attachments: [], preps: [], notes: [], debriefs: [],
+      ],
+      attachments: [],
+      preps: [],
+      notes: [],
+      debriefs: [],
     },
     {
-      id: 'mock-m2', subject: 'Intro meeting with Persues consultant', source: 'google', description: null, location: 'Room 16, 112 Main St Los Angeles CA',
-      startsAt: from(1, 13), endsAt: from(1, 13, 30), organizerEmail: 'neo@capiro.ai', organizerName: 'Neo Martinez', status: 'confirmed', metadata: null, associationScore: null, associationReason: null,
-      client: { id: 'c1', name: 'Brightdefense', website: null, primaryContactName: null, primaryContactEmail: null }, attendees: [], attachments: [], preps: [], notes: [], debriefs: [],
+      id: 'mock-m2',
+      subject: 'Intro meeting with Persues consultant',
+      source: 'google',
+      description: null,
+      location: 'Room 16, 112 Main St Los Angeles CA',
+      startsAt: from(1, 13),
+      endsAt: from(1, 13, 30),
+      organizerEmail: 'neo@capiro.ai',
+      organizerName: 'Neo Martinez',
+      status: 'confirmed',
+      metadata: null,
+      associationScore: null,
+      associationReason: null,
+      client: {
+        id: 'c1',
+        name: 'Brightdefense',
+        website: null,
+        primaryContactName: null,
+        primaryContactEmail: null,
+      },
+      attendees: [],
+      attachments: [],
+      preps: [],
+      notes: [],
+      debriefs: [],
     },
     {
-      id: 'mock-m3', subject: 'HASC Seapower PSM coffee, Rachel Kim', source: 'google', description: 'Discuss Jaia authorization language.', location: 'Rayburn HOB, Room 2118',
-      startsAt: from(-3, 9), endsAt: from(-3, 9, 30), organizerEmail: 'neo@capiro.ai', organizerName: 'Neo Martinez', status: 'confirmed', metadata: null, associationScore: null, associationReason: null,
-      client: { id: 'c2', name: 'SAGINT INC.', website: null, primaryContactName: null, primaryContactEmail: null }, attendees: [], attachments: [], preps: [], notes: [], debriefs: [],
+      id: 'mock-m3',
+      subject: 'HASC Seapower PSM coffee, Rachel Kim',
+      source: 'google',
+      description: 'Discuss Jaia authorization language.',
+      location: 'Rayburn HOB, Room 2118',
+      startsAt: from(-3, 9),
+      endsAt: from(-3, 9, 30),
+      organizerEmail: 'neo@capiro.ai',
+      organizerName: 'Neo Martinez',
+      status: 'confirmed',
+      metadata: null,
+      associationScore: null,
+      associationReason: null,
+      client: {
+        id: 'c2',
+        name: 'SAGINT INC.',
+        website: null,
+        primaryContactName: null,
+        primaryContactEmail: null,
+      },
+      attendees: [],
+      attachments: [],
+      preps: [],
+      notes: [],
+      debriefs: [],
     },
   ];
 })();

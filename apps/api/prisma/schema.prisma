@@ -425,6 +425,7 @@ model Meeting {
   id                 String           @id @default(uuid()) @db.Uuid
   tenantId           String           @map("tenant_id") @db.Uuid
   clientId           String?          @map("client_id") @db.Uuid
+  isInternal         Boolean          @default(false) @map("is_internal")
   connectionId       String?          @map("connection_id") @db.Uuid
   source             EngagementSource @default(manual)
   externalId         String?          @map("external_id")

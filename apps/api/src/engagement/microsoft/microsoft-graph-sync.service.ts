@@ -620,7 +620,7 @@ export class MicrosoftGraphSyncService {
             externalId: event.id!,
           },
         },
-        select: { id: true, clientId: true, associationSignals: true },
+        select: { id: true, clientId: true, isInternal: true, associationSignals: true },
       });
       const ownEmail = accountEmail?.trim().toLowerCase();
       const association = await this.association.associate(tx, tenantId, {
@@ -639,10 +639,13 @@ export class MicrosoftGraphSyncService {
             existing.id,
           )
         : false;
-      // Respect manual/explicit associations, but let stale auto-links be corrected.
-      const clientId =
-        existing?.clientId &&
-        (hasManualOverride || hasManualAssociationSignal(existing.associationSignals))
+      // Meetings the user marked internal stay client-less; never re-link them.
+      // Otherwise respect manual/explicit associations, but let stale auto-links
+      // be corrected.
+      const clientId = existing?.isInternal
+        ? null
+        : existing?.clientId &&
+            (hasManualOverride || hasManualAssociationSignal(existing.associationSignals))
           ? existing.clientId
           : association.clientId;
 

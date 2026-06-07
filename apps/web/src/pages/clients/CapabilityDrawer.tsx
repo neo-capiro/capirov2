@@ -18,6 +18,7 @@ import {
   Typography,
   Upload,
 } from 'antd';
+import { CAPABILITY_TAG_SUGGESTIONS } from '@capiro/shared';
 import { useApi } from '../../lib/use-api.js';
 import type { ClientAttachment } from './clientTypes.js';
 
@@ -150,9 +151,7 @@ export function CapabilityDrawer({ capability, clientId, onClose, onUpdated, onD
             <span className={`cap-type-tag ${typeClass}`} style={{ textTransform: 'capitalize' }}>
               {capability.type}
             </span>
-            {capability.sector ? (
-              <span className="cap-sector-tag">{capability.sector}</span>
-            ) : null}
+            {capability.sector ? <span className="cap-sector-tag">{capability.sector}</span> : null}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -167,7 +166,12 @@ export function CapabilityDrawer({ capability, clientId, onClose, onUpdated, onD
               title="Delete capability"
             />
           ) : null}
-          <button className="cap-drawer-close" onClick={onClose} aria-label="Close drawer" title="Close">
+          <button
+            className="cap-drawer-close"
+            onClick={onClose}
+            aria-label="Close drawer"
+            title="Close"
+          >
             <CloseOutlined style={{ fontSize: 13 }} />
           </button>
         </div>
@@ -208,6 +212,8 @@ function ProfileTab({
   return (
     <>
       <TrlScale value={capability.trl} onSave={(v) => onPatch({ trl: v })} />
+
+      <InlineTags tags={capability.tags ?? []} onSave={(tags) => onPatch({ tags })} />
 
       <InlineTextArea
         label="Description"
@@ -787,6 +793,48 @@ function InlineTextArea({
           {value || placeholder || '-'}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Editable tag row for a capability. Tags drive bill matching and intelligence
+ * triage, so they must be editable after creation (not only in the add modal).
+ * Saves on blur to avoid a PATCH per keystroke; tags are normalized server-side.
+ */
+function InlineTags({ tags, onSave }: { tags: string[]; onSave: (tags: string[]) => void }) {
+  const [draft, setDraft] = useState<string[]>(tags);
+  const [dirty, setDirty] = useState(false);
+
+  // Keep local draft in sync when the underlying capability changes (e.g. after
+  // a successful save re-fetches), unless the user is mid-edit.
+  if (!dirty && draft !== tags && draft.join(' ') !== tags.join(' ')) {
+    setDraft(tags);
+  }
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div className="ps-title" style={{ marginBottom: 6 }}>
+        Tags
+      </div>
+      <Select
+        mode="tags"
+        allowClear
+        size="small"
+        style={{ width: '100%' }}
+        placeholder="Pick or add tags"
+        tokenSeparators={[',']}
+        value={draft}
+        options={CAPABILITY_TAG_SUGGESTIONS.map((t) => ({ label: t, value: t }))}
+        onChange={(v) => {
+          setDirty(true);
+          setDraft(v as string[]);
+        }}
+        onBlur={() => {
+          if (dirty) onSave(draft);
+          setDirty(false);
+        }}
+      />
     </div>
   );
 }

@@ -102,7 +102,9 @@ export interface UpdateMeetingPrepInput {
 export interface AssociationOverrideInput {
   entityType: AssociationEntityType;
   entityId: string;
-  clientId: string;
+  clientId?: string;
+  /** Meetings only: mark internal (no client) and stop the sync from re-linking. */
+  internal?: boolean;
   reason?: string;
 }
 
@@ -1708,8 +1710,8 @@ export class EngagementService {
         (recipient as Record<string, unknown>).email?.toString(),
         (recipient as Record<string, unknown>).name?.toString(),
       ].filter((s): s is string => Boolean(s));
-      const personalItems = recipientKeyCandidates.flatMap((k) =>
-        recipientScopedItems.get(k) ?? [],
+      const personalItems = recipientKeyCandidates.flatMap(
+        (k) => recipientScopedItems.get(k) ?? [],
       );
       const personalContextText = personalItems.length
         ? `Personalized context for this recipient:\n${formatItems(personalItems)}`
@@ -3020,10 +3022,30 @@ export class EngagementService {
 
   async overrideAssociation(ctx: TenantContext, input: AssociationOverrideInput) {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
-      await ensureExists(
-        tx.client.findUnique({ where: { id: input.clientId } }),
-        'Client not found',
-      );
+      // Marking a meeting "internal" clears its client and is a meetings-only path.
+      if (input.internal) {
+        if (input.entityType !== AssociationEntityType.meeting) {
+          throw new BadRequestException('Only meetings can be marked internal');
+        }
+        const existing = await tx.meeting.findFirst({
+          where: {
+            id: input.entityId,
+            tenantId: ctx.tenantId,
+            ...ownMeetingWhere(ctx.userId),
+          },
+        });
+        if (!existing) throw new NotFoundException('Meeting not found');
+        return tx.meeting.update({
+          where: { id: input.entityId },
+          data: { isInternal: true, clientId: null },
+        });
+      }
+
+      if (!input.clientId) {
+        throw new BadRequestException('clientId is required unless marking internal');
+      }
+      const clientId = input.clientId;
+      await ensureExists(tx.client.findUnique({ where: { id: clientId } }), 'Client not found');
 
       if (input.entityType === AssociationEntityType.meeting) {
         const existing = await tx.meeting.findFirst({
@@ -3034,16 +3056,17 @@ export class EngagementService {
           },
         });
         if (!existing) throw new NotFoundException('Meeting not found');
+        // Assigning a real client also clears any prior internal flag.
         await tx.meeting.update({
           where: { id: input.entityId },
-          data: { clientId: input.clientId },
+          data: { clientId, isInternal: false },
         });
         return tx.clientAssociationOverride.create({
           data: {
             tenantId: ctx.tenantId,
             entityType: input.entityType,
             entityId: input.entityId,
-            clientId: input.clientId,
+            clientId,
             previousClientId: existing.clientId,
             confidenceBefore: existing.associationScore,
             reason: input.reason ?? 'Manual association override.',
@@ -3063,14 +3086,14 @@ export class EngagementService {
         if (!existing) throw new NotFoundException('Mail thread not found');
         await tx.mailThread.update({
           where: { id: input.entityId },
-          data: { clientId: input.clientId },
+          data: { clientId },
         });
         return tx.clientAssociationOverride.create({
           data: {
             tenantId: ctx.tenantId,
             entityType: input.entityType,
             entityId: input.entityId,
-            clientId: input.clientId,
+            clientId,
             previousClientId: existing.clientId,
             confidenceBefore: existing.associationScore,
             reason: input.reason ?? 'Manual association override.',
@@ -4510,12 +4533,14 @@ function mailMessageEmails(message: {
   ccRecipients: Prisma.JsonValue;
   bccRecipients: Prisma.JsonValue;
 }): string[] {
-  return unique([
-    normalizeEmailAddress(message.fromEmail),
-    ...recipientEmails(message.toRecipients),
-    ...recipientEmails(message.ccRecipients),
-    ...recipientEmails(message.bccRecipients),
-  ].filter((email): email is string => Boolean(email)));
+  return unique(
+    [
+      normalizeEmailAddress(message.fromEmail),
+      ...recipientEmails(message.toRecipients),
+      ...recipientEmails(message.ccRecipients),
+      ...recipientEmails(message.bccRecipients),
+    ].filter((email): email is string => Boolean(email)),
+  );
 }
 
 type MailThreadParticipant = {
