@@ -333,6 +333,13 @@ export class IntelligenceController {
     return this.service.searchLdaClients(q.q);
   }
 
+  // Free-text search of distinct FEC contributor-employer strings for the
+  // manual-attach panel (the employer string is both the id and the name).
+  @Get('fec-employers/search')
+  searchFecEmployers(@Query() q: LdaSearchQueryDto) {
+    return this.service.searchFecEmployers(q.q);
+  }
+
   // Read-only "what's driving this client's matching" signal: the union'd issue
   // codes (+ names), how many LDA registrants back them, and capability richness.
   @Get('clients/:clientId/issue-code-signal')

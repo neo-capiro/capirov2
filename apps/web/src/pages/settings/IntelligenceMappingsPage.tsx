@@ -9,6 +9,7 @@ import {
   Input,
   Modal,
   Progress,
+  Segmented,
   Select,
   Skeleton,
   Space,
@@ -214,7 +215,7 @@ export function IntelligenceMappingsPage() {
         <span style={{ flex: 1 }} />
         <Space>
           <Button icon={<PlusOutlined />} onClick={() => setManualOpen(true)}>
-            Add LDA mapping manually
+            Add mapping manually
           </Button>
           <Button
             type="primary"
@@ -336,17 +337,31 @@ function formatSpend(v: number | null): string {
   return `$${Math.round(v)}`;
 }
 
+interface FecEmployerResult {
+  id: string;
+  name: string;
+  contributionCount: number;
+  totalAmount: number | null;
+  latestYear: number | null;
+  similarity: number;
+}
+
+type MappingSource = 'lda' | 'fec_employer';
+
 /**
- * Attach an LDA registrant to a client by EXACT lda_client.id. Fuzzy auto-resolve
- * keys off the client's name, so a renamed/legacy variant (e.g. "RAYTHEON
- * TECHNOLOGIES" under a client named "RTX") never surfaces. Here the user searches
- * freely (by name OR id) and pins the right record by its stable id + filing
- * footprint — creating a confirmed mapping the matching/union logic reads at once.
+ * Attach an external record to a client by its exact identifier. Fuzzy
+ * auto-resolve keys off the client's NAME, so a renamed/legacy entity
+ * ("RAYTHEON TECHNOLOGIES" registrants, or "RAYTHEON" contribution-employer
+ * strings, under a client named "RTX") never surfaces and can't be confirmed.
+ * Here the user searches the federal registry freely and pins the exact
+ * record(s) — saved as confirmed mappings the union logic reads at once.
+ * Supports LDA registrants (by id/name) and FEC contributor-employers.
  */
 function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const api = useApi();
   const qc = useQueryClient();
   const { notification } = AntApp.useApp();
+  const [source, setSource] = useState<MappingSource>('lda');
   const [clientId, setClientId] = useState<string | undefined>(undefined);
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
@@ -358,7 +373,7 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
     staleTime: 60_000,
   });
 
-  const searchQuery = useQuery<LdaSearchResult[]>({
+  const ldaSearch = useQuery<LdaSearchResult[]>({
     queryKey: ['lda-client-search', query],
     queryFn: async () =>
       (
@@ -366,30 +381,54 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
           `/api/intelligence/lda-clients/search?q=${encodeURIComponent(query)}`,
         )
       ).data,
-    enabled: open && query.trim().length > 0,
+    enabled: open && source === 'lda' && query.trim().length > 0,
   });
 
+  const fecSearch = useQuery<FecEmployerResult[]>({
+    queryKey: ['fec-employer-search', query],
+    queryFn: async () =>
+      (
+        await api.get<FecEmployerResult[]>(
+          `/api/intelligence/fec-employers/search?q=${encodeURIComponent(query)}`,
+        )
+      ).data,
+    enabled: open && source === 'fec_employer' && query.trim().length > 0,
+  });
+
+  const isFetching = source === 'lda' ? ldaSearch.isFetching : fecSearch.isFetching;
+
   const attachMutation = useMutation({
-    mutationFn: async (r: LdaSearchResult) =>
+    mutationFn: async (r: { id: string; name: string }) =>
       api.post(`/api/intelligence/mappings/${clientId}/manual`, {
-        source: 'lda',
+        source,
         externalId: r.id,
         externalName: r.name,
       }),
     onSuccess: (_d, r) => {
       notification.success({
         message: 'Mapping attached',
-        description: `"${r.name}" (LDA id ${r.id}) is now a confirmed mapping. Its issue codes feed this client's matching immediately.`,
+        description: `"${r.name}" is now a confirmed ${source === 'lda' ? 'LDA' : 'FEC employer'} mapping. It feeds this client's ${source === 'lda' ? 'issue-code matching' : 'contribution panel'} immediately.`,
       });
       void qc.invalidateQueries({ queryKey: ['intelligence-mappings'] });
       invalidateClientIntel(qc);
     },
-    onError: (err) => notification.error({ message: 'Attach failed', description: apiErrorMessage(err) }),
+    onError: (err) =>
+      notification.error({ message: 'Attach failed', description: apiErrorMessage(err) }),
   });
 
-  const results = searchQuery.data ?? [];
+  const attachButton = (record: { id: string; name: string }) => (
+    <Button
+      size="small"
+      type="primary"
+      disabled={!clientId}
+      loading={attachMutation.isPending && attachMutation.variables?.id === record.id}
+      onClick={() => attachMutation.mutate({ id: record.id, name: record.name })}
+    >
+      Attach
+    </Button>
+  );
 
-  const resultColumns: ColumnsType<LdaSearchResult> = [
+  const ldaColumns: ColumnsType<LdaSearchResult> = [
     { title: 'LDA id', dataIndex: 'id', width: 80, render: (v: string) => <Text code>{v}</Text> },
     {
       title: 'Registrant name',
@@ -429,46 +468,71 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
           <Text type="secondary">—</Text>
         ),
     },
-    {
-      title: '',
-      key: 'attach',
-      width: 90,
-      render: (_v, record) => (
-        <Button
-          size="small"
-          type="primary"
-          disabled={!clientId}
-          loading={attachMutation.isPending && attachMutation.variables?.id === record.id}
-          onClick={() => attachMutation.mutate(record)}
-        >
-          Attach
-        </Button>
-      ),
-    },
+    { title: '', key: 'attach', width: 90, render: (_v, record) => attachButton(record) },
   ];
+
+  const fecColumns: ColumnsType<FecEmployerResult> = [
+    {
+      title: 'Contributor employer',
+      dataIndex: 'name',
+      ellipsis: true,
+      render: (v: string) => <Text style={{ fontSize: 13 }}>{v}</Text>,
+    },
+    { title: 'Contributions', dataIndex: 'contributionCount', width: 110 },
+    {
+      title: 'Total',
+      dataIndex: 'totalAmount',
+      width: 90,
+      render: (v: number | null) => formatSpend(v),
+    },
+    {
+      title: 'Latest',
+      dataIndex: 'latestYear',
+      width: 72,
+      render: (v: number | null) => v ?? '—',
+    },
+    { title: '', key: 'attach', width: 90, render: (_v, record) => attachButton(record) },
+  ];
+
+  const resetSearch = () => {
+    setSearchInput('');
+    setQuery('');
+  };
 
   return (
     <Modal
-      title="Attach an LDA registrant manually"
+      title="Attach a federal record manually"
       open={open}
       onCancel={onClose}
       footer={<Button onClick={onClose}>Done</Button>}
       width={860}
       afterClose={() => {
+        setSource('lda');
         setClientId(undefined);
-        setSearchInput('');
-        setQuery('');
+        resetSearch();
       }}
     >
       <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
-        Use this for registrant variants the automatic matcher can&apos;t find — e.g. a
-        renamed or legacy entity (&quot;RAYTHEON TECHNOLOGIES&quot; under a client named
-        &quot;RTX&quot;). Pick the client, search the federal LDA registry by name or id, and
-        pin the exact record. It&apos;s saved as a confirmed mapping and folded into that
-        client&apos;s issue-code footprint right away.
+        Use this for records the automatic matcher can&apos;t find — a renamed or legacy entity
+        (&quot;RAYTHEON TECHNOLOGIES&quot; under a client named &quot;RTX&quot;). Pick the client,
+        search the federal registry, and pin the exact record. It&apos;s saved as a confirmed
+        mapping and folded into that client&apos;s footprint right away.
       </Text>
 
       <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Segmented<MappingSource>
+          block
+          value={source}
+          onChange={(v) => {
+            setSource(v);
+            resetSearch();
+          }}
+          options={[
+            { label: 'LDA registrant (issue codes)', value: 'lda' },
+            { label: 'FEC employer (contributions)', value: 'fec_employer' },
+          ]}
+        />
+
         <Select
           showSearch
           placeholder="1 · Select the client to attach to"
@@ -481,34 +545,57 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
         />
 
         <Input.Search
-          placeholder="2 · Search LDA registry by name or id (e.g. raytheon, or 4321)"
+          placeholder={
+            source === 'lda'
+              ? '2 · Search LDA registry by name or id (e.g. raytheon, or 4321)'
+              : '2 · Search FEC contributor-employers by name (e.g. raytheon)'
+          }
           enterButton="Search"
           allowClear
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           onSearch={(v) => setQuery(v)}
-          loading={searchQuery.isFetching}
+          loading={isFetching}
         />
 
-        {query.trim().length > 0 && (
-          <Table<LdaSearchResult>
-            rowKey="id"
-            size="small"
-            loading={searchQuery.isFetching}
-            dataSource={results}
-            columns={resultColumns}
-            pagination={false}
-            scroll={{ y: 320 }}
-            locale={{
-              emptyText: (
-                <Empty
-                  description="No LDA registrants matched. Try a shorter name or the numeric id."
-                  image={Empty.PRESENTED_IMAGE_SIMPLE}
-                />
-              ),
-            }}
-          />
-        )}
+        {query.trim().length > 0 &&
+          (source === 'lda' ? (
+            <Table<LdaSearchResult>
+              rowKey="id"
+              size="small"
+              loading={ldaSearch.isFetching}
+              dataSource={ldaSearch.data ?? []}
+              columns={ldaColumns}
+              pagination={false}
+              scroll={{ y: 320 }}
+              locale={{
+                emptyText: (
+                  <Empty
+                    description="No LDA registrants matched. Try a shorter name or the numeric id."
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  />
+                ),
+              }}
+            />
+          ) : (
+            <Table<FecEmployerResult>
+              rowKey="id"
+              size="small"
+              loading={fecSearch.isFetching}
+              dataSource={fecSearch.data ?? []}
+              columns={fecColumns}
+              pagination={false}
+              scroll={{ y: 320 }}
+              locale={{
+                emptyText: (
+                  <Empty
+                    description="No FEC employers matched. Try a shorter or alternate spelling."
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  />
+                ),
+              }}
+            />
+          ))}
       </Space>
     </Modal>
   );

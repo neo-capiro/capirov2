@@ -19,10 +19,11 @@ describe('IntelligenceService.getFecMoneyFlow — bill linkage + window', () => 
     const prisma: any = {
       withTenant: jest.fn(async (_t: string, run: (tx: any) => Promise<any>) => run(tenantTx)),
       clientIntelMapping: {
-        // getFecMoneyFlow: confirmed fec_employer mapping.
-        findFirst: jest.fn(async () => ({ externalName: 'ACME DEFENSE INC' })),
-        // getPacGiving: no committee mapped → tracked:false (early return).
-        findMany: jest.fn(async () => []),
+        // getFecMoneyFlow unions confirmed fec_employer mappings; getPacGiving
+        // reads fec_committee mappings (none → tracked:false early return).
+        findMany: jest.fn(async (args: any) =>
+          args?.where?.source === 'fec_employer' ? [{ externalName: 'ACME DEFENSE INC' }] : [],
+        ),
       },
       $queryRaw: jest.fn(async (strings: any) => {
         const sql = Array.isArray(strings) ? strings.join(' ') : String(strings);

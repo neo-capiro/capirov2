@@ -2096,6 +2096,49 @@ export class IntelligenceService {
   }
 
   /**
+   * Search distinct FEC contributor-employer strings for the manual-attach panel.
+   * FEC employer is free-text (no id), so the "external id" IS the employer string.
+   * A renamed org's contributions are split across spellings the fuzzy matcher
+   * won't surface from the client name (e.g. "RAYTHEON …" under client "RTX"),
+   * so the user searches freely and pins each. Returns contribution count, total
+   * amount, and latest year so the right employer strings are recognisable.
+   */
+  async searchFecEmployers(query: string) {
+    const q = query.trim();
+    if (!q) return [];
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        employer: string;
+        contribution_count: number;
+        total_amount: number | null;
+        latest_year: number | null;
+        similarity: number;
+      }>
+    >`
+      SELECT contributor_employer AS employer,
+             COUNT(*)::int AS contribution_count,
+             COALESCE(SUM(amount), 0)::float AS total_amount,
+             MAX(EXTRACT(YEAR FROM contribution_date))::int AS latest_year,
+             similarity(contributor_employer, ${q}) AS similarity
+      FROM fec_contribution
+      WHERE contributor_employer IS NOT NULL
+        AND similarity(contributor_employer, ${q}) > 0.2
+      GROUP BY contributor_employer
+      ORDER BY similarity DESC, total_amount DESC
+      LIMIT 25
+    `;
+    return rows.map((r) => ({
+      // For fec_employer the employer string is both the id and the name.
+      id: r.employer,
+      name: r.employer,
+      contributionCount: Number(r.contribution_count ?? 0),
+      totalAmount: r.total_amount,
+      latestYear: r.latest_year,
+      similarity: Number(r.similarity ?? 0),
+    }));
+  }
+
+  /**
    * Manually attach (and confirm) an external record to a client. For source
    * 'lda' this pins an exact lda_client.id — the reliable way to fold a
    * registrant variant the fuzzy matcher can't reach into a client's footprint.
@@ -2431,13 +2474,23 @@ export class IntelligenceService {
     // Client's own PAC giving (Schedule B) — computed once, used in all paths below.
     const pacGiving = await this.getPacGiving(clientId);
 
-    const fecMapping = await this.prisma.clientIntelMapping.findFirst({
+    // Union ALL confirmed FEC-employer strings, not just one. A renamed/large org
+    // files individual contributions under several employer spellings ("RAYTHEON",
+    // "RTX", "RAYTHEON TECHNOLOGIES CORPORATION"); reading only the single top
+    // mapping undercounted the footprint. Mirrors the LDA-registrant union.
+    const fecMappings = await this.prisma.clientIntelMapping.findMany({
       where: { clientId, source: 'fec_employer', confirmed: true },
       orderBy: { confidence: 'desc' },
     });
-
-    const employer = fecMapping?.externalName?.trim() ?? null;
-    if (!employer) {
+    const employers = Array.from(
+      new Set(
+        fecMappings
+          .map((m) => m.externalName?.trim())
+          .filter((e): e is string => Boolean(e && e.length > 0)),
+      ),
+    );
+    const employersLower = employers.map((e) => e.toLowerCase());
+    if (!employers.length) {
       return {
         clientId,
         clientName: client.name,
@@ -2483,7 +2536,7 @@ export class IntelligenceService {
         COALESCE(SUM(fc.amount), 0)::float AS total_amount,
         MAX(fc.contribution_date) AS latest_contribution_date
       FROM fec_contribution fc
-      WHERE LOWER(fc.contributor_employer) = LOWER(${employer})
+      WHERE LOWER(fc.contributor_employer) = ANY(${employersLower}::text[])
         AND fc.contribution_date >= ${windowStart}
       GROUP BY fc.committee_id, fc.candidate_id, fc.candidate_name
       ORDER BY total_amount DESC
@@ -2629,7 +2682,7 @@ export class IntelligenceService {
     return {
       clientId,
       clientName: client.name,
-      mappedEmployer: employer,
+      mappedEmployer: employers.join(', '),
       // Everything in `committees` is Schedule A (received-by-committee) data keyed by
       // contributor EMPLOYER — i.e. individual filers who list this employer. It is
       // legally distinct from the organization's / its PAC's own giving.

@@ -140,4 +140,34 @@ describe('IntelligenceService — manual LDA mapping', () => {
       expect(out.capabilityDescCount).toBe(1);
     });
   });
+
+  describe('searchFecEmployers', () => {
+    test('empty query short-circuits to [] without hitting the DB', async () => {
+      const $queryRaw = jest.fn();
+      const service = new IntelligenceService({ $queryRaw } as any);
+      expect(await service.searchFecEmployers('  ')).toEqual([]);
+      expect($queryRaw).not.toHaveBeenCalled();
+    });
+
+    test('maps employer aggregate rows; id and name are the employer string', async () => {
+      const $queryRaw = jest.fn(async () => [
+        {
+          employer: 'RAYTHEON TECHNOLOGIES',
+          contribution_count: 412,
+          total_amount: 1875000,
+          latest_year: 2026,
+          similarity: 0.4,
+        },
+      ]);
+      const service = new IntelligenceService({ $queryRaw } as any);
+      const out = await service.searchFecEmployers('raytheon');
+      expect(out[0]).toMatchObject({
+        id: 'RAYTHEON TECHNOLOGIES',
+        name: 'RAYTHEON TECHNOLOGIES',
+        contributionCount: 412,
+        totalAmount: 1875000,
+        latestYear: 2026,
+      });
+    });
+  });
 });
