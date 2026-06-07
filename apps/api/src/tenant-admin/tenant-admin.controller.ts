@@ -16,6 +16,16 @@ class InviteDto {
   role!: 'user_admin' | 'standard_user';
 
   @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  lastName?: string;
+
+  @IsOptional()
   @IsUrl()
   redirectUrl?: string;
 }

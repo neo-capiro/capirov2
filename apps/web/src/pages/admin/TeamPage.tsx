@@ -30,7 +30,12 @@ export function TeamPage() {
   const qc = useQueryClient();
   const { message } = App.useApp();
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [form] = Form.useForm<{ email: string; role: 'user_admin' | 'standard_user' }>();
+  const [form] = Form.useForm<{
+    email: string;
+    role: 'user_admin' | 'standard_user';
+    firstName?: string;
+    lastName?: string;
+  }>();
 
   const team = useQuery<TeamRow[]>({
     queryKey: ['team'],
@@ -42,8 +47,12 @@ export function TeamPage() {
   });
 
   const invite = useMutation({
-    mutationFn: async (input: { email: string; role: 'user_admin' | 'standard_user' }) =>
-      (await api.post('/api/tenant-admin/team/invite', input)).data,
+    mutationFn: async (input: {
+      email: string;
+      role: 'user_admin' | 'standard_user';
+      firstName?: string;
+      lastName?: string;
+    }) => (await api.post('/api/tenant-admin/team/invite', input)).data,
     onSuccess: (_data, variables) => {
       message.success(`Invitation sent to ${variables.email}`);
       setInviteOpen(false);
@@ -215,6 +224,14 @@ export function TeamPage() {
           initialValues={{ role: 'standard_user' }}
           onFinish={(values) => invite.mutate(values)}
         >
+          <Space style={{ display: 'flex' }} align="start">
+            <Form.Item name="firstName" label="First name" style={{ flex: 1 }}>
+              <Input placeholder="Jane" />
+            </Form.Item>
+            <Form.Item name="lastName" label="Last name" style={{ flex: 1 }}>
+              <Input placeholder="Doe" />
+            </Form.Item>
+          </Space>
           <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
             <Input placeholder="teammate@example.com" />
           </Form.Item>
