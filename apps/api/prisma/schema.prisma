@@ -612,6 +612,7 @@ model MeetingPrep {
   talkingPoints  Json              @default("[]") @map("talking_points_jsonb")
   risks          Json              @default("[]") @map("risks_jsonb")
   followUps      Json              @default("[]") @map("follow_ups_jsonb")
+  emailEvidence  Json              @default("[]") @map("email_evidence_jsonb")
   summary        String?
   provider       String?
   model          String?
@@ -1843,13 +1844,17 @@ model ProgramElementSource {
   observedAt  DateTime @default(now()) @map("observed_at") @db.Timestamptz(6)
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  // Registry link (Step 0.1): the fingerprinted source file this citation came from.
+  sourceDocumentId String? @map("source_document_id") @db.Uuid
 
-  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@unique([peCode, docType, sourceUrl, pageNumber], map: "program_element_source_pe_doc_url_page_key")
   @@index([peCode], map: "program_element_source_pe_code_idx")
   @@index([peCode, fy], map: "program_element_source_pe_fy_idx")
   @@index([docType], map: "program_element_source_doc_type_idx")
+  @@index([sourceDocumentId], map: "program_element_source_source_document_idx")
   @@map("program_element_source")
 }
 
@@ -1875,11 +1880,15 @@ model ProgramElementProject {
   lastSyncedAt   DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  // Registry link (Step 0.1): the fingerprinted source file this project came from.
+  sourceDocumentId String? @map("source_document_id") @db.Uuid
 
-  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@unique([peCode, projectCode], map: "program_element_project_pe_code_project_key")
   @@index([peCode], map: "program_element_project_pe_code_idx")
+  @@index([sourceDocumentId], map: "program_element_project_source_document_idx")
   @@map("program_element_project")
 }
 
@@ -1951,12 +1960,70 @@ model ProgramElementYearSourceValue {
   writtenAt    DateTime @default(now()) @map("written_at") @db.Timestamptz(6)
   isWinner     Boolean  @default(false) @map("is_winner")
   recordedAt   DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  // Registry link (Step 0.1): the fingerprinted source file this per-field value came from.
+  sourceDocumentId String? @map("source_document_id") @db.Uuid
 
-  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([peCode, fy, fieldName], map: "program_element_year_source_value_lookup_idx")
   @@index([peCode, fy, fieldName, isWinner], map: "program_element_year_source_value_winner_idx")
+  @@index([sourceDocumentId], map: "program_element_year_source_value_source_document_idx")
   @@map("program_element_year_source_value")
+}
+
+// Registry of fingerprinted, versioned source files behind extracted defense-budget
+// rows (Step 0.1, plan §4.2/§4.3). GLOBAL table (no tenant_id / RLS): public-domain
+// reference data, same as program_element / federal_award.
+//
+// Versioning: exactly ONE *live* document per sourceKey (supersededByDocumentId IS NULL);
+// re-ingesting identical content (same sourceKey + sha256) is a no-op, while a CHANGED
+// sha256 for a sourceKey creates a new row and chains the prior live head via
+// supersededByDocumentId. "One live per sourceKey" is enforced by upsertSourceDocument
+// (source-document-registry.ts), not a DB partial index (Prisma 5 can't express one); the
+// UNIQUE(source_key, sha256) below guarantees checksum de-duplication. Populated by the
+// artifact-loading sync/parse scripts (which upsert their document first) and by
+// backfill-source-documents.ts.
+model SourceDocument {
+  id                    String    @id @default(uuid()) @db.Uuid
+  // Stable human key, derived from the committed artifact filename (e.g. 'jbook_r1_fy2027').
+  sourceKey             String    @map("source_key")
+  fiscalYear            Int?      @map("fiscal_year")
+  // pb | hasc | sasc | hac_d | sac_d | conference | enacted | supplemental
+  budgetCycle           String    @map("budget_cycle")
+  // ARMY | NAVY | AF | SF | DW | ... (null for the all-component R-1 master list / committee docs)
+  component             String?
+  // r1 | r2 | r3 | p1 | p40 | committee_report | conference_report | public_law | other
+  documentType          String    @map("document_type")
+  title                 String
+  // Source PDF URL (J-books); the artifact's source filename when no URL exists (committee docs).
+  sourceUrl             String    @map("source_url")
+  sha256                String?   @db.Char(64)
+  byteSize              Int?      @map("byte_size")
+  pageCount             Int?      @map("page_count")
+  downloadedAt          DateTime? @map("downloaded_at") @db.Timestamptz(6)
+  // Path under apps/api/scripts/__data__/ for the committed extraction artifact.
+  artifactPath          String?   @map("artifact_path")
+  // structured_import | deterministic_pdf | manual
+  extractionMethod      String    @map("extraction_method")
+  extractionToolVersion String?   @map("extraction_tool_version")
+  ingestedAt            DateTime  @default(now()) @map("ingested_at") @db.Timestamptz(6)
+  // Version chain: set on the OLD head when a newer version of the same sourceKey is ingested.
+  supersededByDocumentId String?  @map("superseded_by_document_id") @db.Uuid
+  metadata              Json      @default("{}") @map("metadata_jsonb")
+
+  supersededBy SourceDocument?  @relation("SourceDocumentVersion", fields: [supersededByDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  supersedes   SourceDocument[] @relation("SourceDocumentVersion")
+
+  programElementSources    ProgramElementSource[]
+  programElementProjects   ProgramElementProject[]
+  programElementPerformers ProgramElementPerformer[]
+  yearSourceValues         ProgramElementYearSourceValue[]
+
+  @@unique([sourceKey, sha256], map: "source_document_source_key_sha256_key")
+  @@index([documentType, fiscalYear, budgetCycle, component], map: "source_document_type_fy_cycle_component_idx")
+  @@index([sourceKey], map: "source_document_source_key_idx")
+  @@map("source_document")
 }
 
 /// Cross-source reconciliation review queue (Step 29 §4.1). An entry is queued when
@@ -2861,13 +2928,17 @@ model ProgramElementPerformer {
   confidence      Float    @default(0.95)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   lastSyncedAt    DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  // Registry link (Step 0.1): the fingerprinted source file this performer row came from.
+  sourceDocumentId String? @map("source_document_id") @db.Uuid
 
-  programElement  ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  programElement  ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  sourceDocument  SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   // Natural key: same prime can appear under different cost categories / projects / methods.
   @@unique([peCode, performerNormalized, location, contractMethod, costCategory, fy], map: "program_element_performer_natural_key")
   @@index([peCode], map: "program_element_performer_pe_code_idx")
   @@index([performerNormalized], map: "program_element_performer_norm_idx")
   @@index([isNamedCompany], map: "program_element_performer_named_idx")
+  @@index([sourceDocumentId], map: "program_element_performer_source_document_idx")
   @@map("program_element_performer")
 }

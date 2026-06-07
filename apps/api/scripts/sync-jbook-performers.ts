@@ -2,6 +2,13 @@ import { config as dotenvConfig } from 'dotenv';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import {
+  upsertSourceDocument,
+  sha256OfFile,
+  readDocumentToolVersion,
+  type SourceDocumentClient,
+} from '../src/program-element/source-document/source-document-registry.js';
+import { classifyArtifact } from '../src/program-element/source-document/source-document-classify.js';
 
 /**
  * sync-jbook-performers.ts  (Layer 1 — PRIMARY, highest-precision PE -> prime link)
@@ -123,6 +130,8 @@ async function main() {
     citations_written: 0,
     pe_missing: 0,
     distinct_pes_touched: 0,
+    source_documents_inserted: 0,
+    source_documents_deduped: 0,
     missing_pe_codes: [] as string[],
   };
 
@@ -146,6 +155,32 @@ async function main() {
       const art = JSON.parse(fs.readFileSync(file, 'utf-8')) as PerformerArtifact;
       if (art.error) throw new Error(`artifact ${file} has error: ${art.error}`);
       const { sourceUrl: url, fy, publisher } = art;
+
+      // Register the fingerprinted R-3 source document for this volume; stamp its id on the
+      // performer rows + citations we write from it.
+      let sourceDocumentId: string | null = null;
+      if (commit) {
+        const cls = classifyArtifact(path.basename(file), { fy });
+        const reg = await upsertSourceDocument(prisma as unknown as SourceDocumentClient, {
+          sourceKey: cls?.sourceKey ?? path.basename(file).replace(/\.json$/i, ''),
+          sha256: sha256OfFile(file),
+          fiscalYear: cls?.fiscalYear ?? fy ?? null,
+          budgetCycle: cls?.budgetCycle ?? 'pb',
+          component: cls?.component ?? null,
+          documentType: cls?.documentType ?? 'r3',
+          title: cls?.title ?? `RDT&E R-3 performers (${art.volumeId})`,
+          sourceUrl: url,
+          pageCount: art.pageCount ?? null,
+          byteSize: fs.statSync(file).size,
+          artifactPath: path.relative(process.cwd(), file),
+          extractionMethod: 'deterministic_pdf',
+          extractionToolVersion: readDocumentToolVersion(art),
+          metadata: { volumeId: art.volumeId, exhibit: art.exhibitType, publisher },
+        });
+        sourceDocumentId = reg.document.id;
+        if (reg.created) stats.source_documents_inserted++;
+        else stats.source_documents_deduped++;
+      }
 
       for (const row of art.performers) {
         stats.performer_rows_seen++;
@@ -197,6 +232,7 @@ async function main() {
             isNamedCompany: named,
             source: 'comptroller_jbook_r3',
             confidence: named ? 0.95 : 0.6,
+            sourceDocumentId: sourceDocumentId ?? undefined,
           },
           update: {
             performer: row.performer,
@@ -208,6 +244,7 @@ async function main() {
             publisher,
             isNamedCompany: named,
             lastSyncedAt: new Date(),
+            sourceDocumentId: sourceDocumentId ?? undefined,
           },
         });
         stats.performers_upserted++;
@@ -233,10 +270,12 @@ async function main() {
             publisher: publisher || 'DoD Comptroller',
             confidence: 0.95,
             metadata: { exhibit: 'R-3', performer: row.performer, page: row.page },
+            sourceDocumentId: sourceDocumentId ?? undefined,
           },
           update: {
             exhibitType: 'R-3',
             snippet: `R-3 Product Development: ${row.performer}${row.location ? ` (${row.location})` : ''}${row.contractMethod ? ` — ${row.contractMethod}` : ''}`,
+            sourceDocumentId: sourceDocumentId ?? undefined,
           },
         });
         stats.citations_written++;

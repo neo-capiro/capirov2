@@ -51,6 +51,7 @@
     "parse:ndaa-conference": "tsx scripts/parse-ndaa-conference.ts",
     "parse:defense-approps-public-law": "tsx scripts/parse-defense-approps-public-law.ts",
     "parse:pdoc": "tsx scripts/parse-pdoc-army.ts",
+    "backfill:source-documents": "tsx scripts/backfill-source-documents.ts",
     "sync:federal-register": "tsx scripts/sync-federal-register.ts",
     "sync:regulations": "tsx scripts/sync-regulations.ts",
     "sync:sec": "tsx scripts/sync-sec-edgar.ts",

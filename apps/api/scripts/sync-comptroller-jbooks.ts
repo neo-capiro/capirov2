@@ -6,6 +6,14 @@ import * as path from 'node:path';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { ProgramElementWriterService } from '../src/program-element/program-element-writer.service.js';
 import { serviceFromPeCode, readR1UrlFromText, citationKey, PE_CODE_REGEX } from '../src/program-element/jbook/jbook-extract.js';
+import {
+  upsertSourceDocument,
+  sha256OfFile,
+  sha256OfBuffer,
+  readDocumentToolVersion,
+  type SourceDocumentClient,
+} from '../src/program-element/source-document/source-document-registry.js';
+import { classifyArtifact } from '../src/program-element/source-document/source-document-classify.js';
 
 /**
  * sync-comptroller-jbooks.ts
@@ -98,6 +106,7 @@ async function main() {
     pe_updated: 0,
     pe_quarantined: 0,
     provenance_written: 0,
+    sourceDocument: null as null | { id: string; action: 'inserted' | 'deduped'; superseded: string | null },
   };
 
   const prisma = new PrismaService();
@@ -105,6 +114,39 @@ async function main() {
   const peWriter = new ProgramElementWriterService(prisma);
 
   try {
+    // Register the fingerprinted source document first; stamp its id on every citation
+    // we write. Checksum-deduped + version-chained (see source-document-registry.ts).
+    let sourceDocumentId: string | null = null;
+    if (commit) {
+      const artifactExists = fs.existsSync(artifactPath);
+      const cls = classifyArtifact(path.basename(artifactPath), { fy: 2027 });
+      const sha = artifactExists
+        ? sha256OfFile(artifactPath)
+        : sha256OfBuffer(Buffer.from(JSON.stringify(result)));
+      const reg = await upsertSourceDocument(prisma as unknown as SourceDocumentClient, {
+        sourceKey: cls?.sourceKey ?? 'jbook_r1_fy2027',
+        sha256: sha,
+        fiscalYear: cls?.fiscalYear ?? 2027,
+        budgetCycle: cls?.budgetCycle ?? 'pb',
+        component: cls?.component ?? null,
+        documentType: cls?.documentType ?? 'r1',
+        title: cls?.title ?? 'DoD Comptroller R-1 RDT&E master list (FY2027)',
+        sourceUrl: url,
+        pageCount: result.pageCount ?? null,
+        byteSize: artifactExists ? fs.statSync(artifactPath).size : null,
+        artifactPath: artifactExists ? path.relative(process.cwd(), artifactPath) : null,
+        extractionMethod: 'deterministic_pdf',
+        extractionToolVersion: readDocumentToolVersion(result),
+        metadata: { exhibit: 'R-1', fy: 2027 },
+      });
+      sourceDocumentId = reg.document.id;
+      stats.sourceDocument = {
+        id: reg.document.id,
+        action: reg.created ? 'inserted' : 'deduped',
+        superseded: reg.supersededDocument?.id ?? null,
+      };
+    }
+
     // Dedupe rows by (peCode, page) so the same PE on the same page isn't
     // double-cited; the same PE on DIFFERENT pages keeps each citation.
     const seen = new Set<string>();
@@ -156,8 +198,12 @@ async function main() {
                 snippet: `${row.peCode} ${row.title} (BA ${row.budgetActivity ?? '?'})`,
                 publisher: 'DoD Comptroller',
                 confidence: 0.95,
+                sourceDocumentId: sourceDocumentId ?? undefined,
               },
-              update: { snippet: `${row.peCode} ${row.title} (BA ${row.budgetActivity ?? '?'})` },
+              update: {
+                snippet: `${row.peCode} ${row.title} (BA ${row.budgetActivity ?? '?'})`,
+                sourceDocumentId: sourceDocumentId ?? undefined,
+              },
             });
             stats.provenance_written++;
           }

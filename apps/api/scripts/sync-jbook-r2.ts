@@ -3,6 +3,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { r2PeSnippet, r2aProjectSnippet } from '../src/program-element/jbook/jbook-extract.js';
+import {
+  upsertSourceDocument,
+  sha256OfFile,
+  readDocumentToolVersion,
+  type SourceDocumentClient,
+} from '../src/program-element/source-document/source-document-registry.js';
+import { classifyArtifact } from '../src/program-element/source-document/source-document-classify.js';
 
 /**
  * sync-jbook-r2.ts
@@ -92,6 +99,8 @@ async function main() {
     pe_citations_written: 0,
     projects_upserted: 0,
     project_citations_written: 0,
+    source_documents_inserted: 0,
+    source_documents_deduped: 0,
     missing_pe_codes: [] as string[],
   };
 
@@ -109,6 +118,32 @@ async function main() {
       if (art.error) throw new Error(`artifact ${file} has error: ${art.error}`);
       const url = art.sourceUrl;
       const fy = art.fy;
+
+      // Register the fingerprinted source document for this volume; stamp its id on the
+      // citations + projects we write from it. One document per artifact (per sourceUrl).
+      let sourceDocumentId: string | null = null;
+      if (commit) {
+        const cls = classifyArtifact(path.basename(file), { fy });
+        const reg = await upsertSourceDocument(prisma as unknown as SourceDocumentClient, {
+          sourceKey: cls?.sourceKey ?? path.basename(file).replace(/\.json$/i, ''),
+          sha256: sha256OfFile(file),
+          fiscalYear: cls?.fiscalYear ?? fy ?? null,
+          budgetCycle: cls?.budgetCycle ?? 'pb',
+          component: cls?.component ?? null,
+          documentType: cls?.documentType ?? 'r2',
+          title: cls?.title ?? `RDT&E R-2/R-2A justification (${art.volumeId})`,
+          sourceUrl: url,
+          pageCount: art.pageCount ?? null,
+          byteSize: fs.statSync(file).size,
+          artifactPath: path.relative(process.cwd(), file),
+          extractionMethod: 'deterministic_pdf',
+          extractionToolVersion: readDocumentToolVersion(art),
+          metadata: { volumeId: art.volumeId, exhibit: art.exhibitType },
+        });
+        sourceDocumentId = reg.document.id;
+        if (reg.created) stats.source_documents_inserted++;
+        else stats.source_documents_deduped++;
+      }
 
       for (const pe of art.programElements) {
         const existing = commit
@@ -156,11 +191,13 @@ async function main() {
                 publisher: 'DoD Comptroller (Army)',
                 confidence: 0.9,
                 metadata: { volumeId: art.volumeId, exhibit: 'R-2' },
+                sourceDocumentId: sourceDocumentId ?? undefined,
               },
               update: {
                 pageEnd: pe.pageEnd ?? undefined,
                 exhibitType: 'R-2',
                 snippet: r2PeSnippet(pe.peCode, pe.peName, pe.pageStart, pe.pageEnd),
+                sourceDocumentId: sourceDocumentId ?? undefined,
               },
             });
             stats.pe_citations_written++;
@@ -184,12 +221,14 @@ async function main() {
                 source: 'comptroller_jbook_r2a',
                 confidence: 0.9,
                 metadata: { volumeId: art.volumeId },
+                sourceDocumentId: sourceDocumentId ?? undefined,
               },
               update: {
                 title: proj.title,
                 mission: proj.mission || null,
                 pageNumber: proj.page,
                 lastSyncedAt: new Date(),
+                sourceDocumentId: sourceDocumentId ?? undefined,
               },
             });
             stats.projects_upserted++;
@@ -215,10 +254,12 @@ async function main() {
                 publisher: 'DoD Comptroller (Army)',
                 confidence: 0.9,
                 metadata: { volumeId: art.volumeId, exhibit: 'R-2A', projectCode: proj.projectCode },
+                sourceDocumentId: sourceDocumentId ?? undefined,
               },
               update: {
                 exhibitType: 'R-2A',
                 snippet: r2aProjectSnippet(pe.peCode, proj.projectCode, proj.title, url, proj.page),
+                sourceDocumentId: sourceDocumentId ?? undefined,
               },
             });
             stats.project_citations_written++;

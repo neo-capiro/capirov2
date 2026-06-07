@@ -28,7 +28,12 @@ Output (stdout): JSON
 """
 import sys
 import json
+import os
 import re
+
+# Allow importing the shared _doc_header helper when run as a script from any cwd.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _doc_header import build_document_header  # noqa: E402
 
 PE_RE = re.compile(r"\b([0-9]{7}[A-Z])\b")
 # A leading line number (col 1), then the PE code, then the title, then a 2-digit
@@ -91,11 +96,23 @@ def main() -> None:
         i = sys.argv.index("--doc-type")
         if i + 1 < len(sys.argv):
             doc_type = sys.argv[i + 1].upper()
+    source_url = None
+    if "--source-url" in sys.argv:
+        i = sys.argv.index("--source-url")
+        if i + 1 < len(sys.argv):
+            source_url = sys.argv[i + 1]
     try:
         result = extract(pdf_path, doc_type)
     except ModuleNotFoundError:
         print(json.dumps({"error": "pdfplumber_not_installed"}))
         sys.exit(3)
+    # Self-describing provenance header (Step 0.1): fingerprints the SOURCE PDF + tool.
+    result["_document"] = build_document_header(
+        pdf_path,
+        source_url=source_url,
+        page_count=result.get("pageCount"),
+        tool="extract_jbook_r1.py",
+    )
     print(json.dumps(result))
 
 

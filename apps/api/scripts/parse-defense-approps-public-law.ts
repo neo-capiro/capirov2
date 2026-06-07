@@ -11,19 +11,28 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { PrismaClient } from '@prisma/client';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { ProgramElementWriterService } from '../src/program-element/program-element-writer.service.js';
 import {
   ConferenceReportParserService,
+  conferenceReportSource,
   parseExtractedRows,
 } from '../src/program-element/parsers/conference-report-parser.service.js';
 import type { ExtractedReportRow } from '../src/program-element/parsers/committee-report-parser.js';
+import {
+  upsertSourceDocument,
+  sha256OfFile,
+  readDocumentToolVersion,
+  type SourceDocumentClient,
+} from '../src/program-element/source-document/source-document-registry.js';
 
 dotenvConfig();
 
 interface Artifact {
   fy?: number;
+  source?: string;
   rows?: ExtractedReportRow[];
 }
 
@@ -53,7 +62,47 @@ async function main(): Promise<void> {
     const parser = new ConferenceReportParserService(writer);
     const records = parseExtractedRows(artifact.rows ?? [], { fy });
     const result = await parser.load(records, 'public_law', fy);
-    console.log(JSON.stringify({ artifact: artifactPath, ...result }, null, 2));
+
+    const source = conferenceReportSource('public_law', fy);
+    const reg = await upsertSourceDocument(prisma as unknown as SourceDocumentClient, {
+      sourceKey: path.basename(artifactPath).replace(/\.json$/i, ''),
+      sha256: sha256OfFile(artifactPath),
+      fiscalYear: fy,
+      budgetCycle: 'enacted',
+      component: null,
+      documentType: 'public_law',
+      title: `Defense Appropriations public law (FY${fy})`,
+      sourceUrl: artifact.source ?? path.basename(artifactPath),
+      byteSize: fs.statSync(artifactPath).size,
+      artifactPath: path.relative(process.cwd(), artifactPath),
+      extractionMethod: 'deterministic_pdf',
+      extractionToolVersion: readDocumentToolVersion(artifact),
+      metadata: { stage: 'public_law', sourceTag: source },
+    });
+    // The writer logs rows under both the full tag (logSourceValue, '__row__') and the
+    // fy-suffix-stripped tag (reconciliation per-field rows); fy disambiguates the stripped
+    // form across fiscal years.
+    const stamped = await prisma.programElementYearSourceValue.updateMany({
+      where: { fy, source: { in: [source, source.replace(/_fy\d+$/i, '')] } },
+      data: { sourceDocumentId: reg.document.id },
+    });
+
+    console.log(
+      JSON.stringify(
+        {
+          artifact: artifactPath,
+          ...result,
+          sourceDocument: {
+            id: reg.document.id,
+            action: reg.created ? 'inserted' : 'deduped',
+            superseded: reg.supersededDocument?.id ?? null,
+            stamped_year_source_values: stamped.count,
+          },
+        },
+        null,
+        2,
+      ),
+    );
   } finally {
     await prisma.$disconnect();
   }
