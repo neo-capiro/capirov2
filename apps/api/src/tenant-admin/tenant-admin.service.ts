@@ -134,47 +134,18 @@ export class TenantAdminService {
       emailAddress: email,
       role: toClerkOrganizationRole(input.role),
       // Carry the invitee's name through to sign-up; Clerk pre-fills the form
-      // and the webhook persists firstName/lastName on user.created.
+      // and the webhook persists firstName/lastName on user.created. We do NOT
+      // pre-create a local users row here: the canonical user row is created
+      // with the invitee's REAL clerkUserId on accept (webhook) or on first
+      // authenticated request (tenant-context middleware self-heal). Pre-creating
+      // a placeholder row keyed on a fake `pending:<id>` clerkUserId caused a
+      // unique-email collision that 500'd every request after the user signed in.
       publicMetadata: {
         capiro_tenant_id: tenant.id,
         ...(firstName ? { first_name: firstName } : {}),
         ...(lastName ? { last_name: lastName } : {}),
       },
       redirectUrl: input.redirectUrl ?? this.defaultInvitationRedirectUrl(),
-    });
-
-    // Eagerly create a local "invited" user + membership so the team list shows
-    // the pending member (with name) immediately. The Clerk webhook reconciles
-    // clerkUserId + status='active' once the invitee accepts.
-    await this.prisma.withSystem(async (tx) => {
-      const existingUser = await tx.user.findUnique({ where: { email } });
-      const user = existingUser
-        ? await tx.user.update({
-            where: { id: existingUser.id },
-            data: {
-              firstName: firstName ?? existingUser.firstName,
-              lastName: lastName ?? existingUser.lastName,
-            },
-          })
-        : await tx.user.create({
-            data: {
-              clerkUserId: `pending:${invitation.id}`,
-              email,
-              firstName,
-              lastName,
-            },
-          });
-      await tx.tenantMembership.upsert({
-        where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
-        create: {
-          tenantId: tenant.id,
-          userId: user.id,
-          role: input.role,
-          status: 'invited',
-          invitedBy: ctx.userId,
-        },
-        update: { role: input.role, invitedBy: ctx.userId },
-      });
     });
 
     return {
