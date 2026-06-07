@@ -226,6 +226,14 @@ export class IntelligenceController {
     return this.service.computeEngagementHealth(clientId, ctx.tenantId);
   }
 
+  @Get('clients/:clientId/setup-completeness')
+  getSetupCompleteness(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getSetupCompleteness(clientId, ctx.tenantId);
+  }
+
   @Get('issues/:code/leaderboard')
   getIssueLeaderboard(@Param('code') code: string) {
     return this.service.getIssueLeaderboard(code);
