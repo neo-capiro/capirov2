@@ -120,7 +120,11 @@ export function ClientProfilePage({
   const qc = useQueryClient();
   const { message, modal } = AntApp.useApp();
   const [activeTab, setActiveTab] = useState<ProfileTab>('overview');
-  const [selectedCapability, setSelectedCapability] = useState<Capability | null>(null);
+  // Track the SELECTED CAPABILITY BY ID, not by snapshot object. The drawer edits
+  // capabilities inline; if we held a snapshot, an edit would refetch the list but
+  // leave the drawer pointing at the stale object, so the just-edited value would
+  // visually revert ("can't edit"). Deriving from the live query keeps it fresh.
+  const [selectedCapabilityId, setSelectedCapabilityId] = useState<string | null>(null);
   const [addCapabilityOpen, setAddCapabilityOpen] = useState(false);
   const [addPersonOpen, setAddPersonOpen] = useState(false);
 
@@ -129,6 +133,9 @@ export function ClientProfilePage({
     queryFn: async () =>
       (await api.get<Capability[]>(`/api/clients/${client.id}/capabilities`)).data,
   });
+
+  const selectedCapability =
+    capabilities.data?.find((c) => c.id === selectedCapabilityId) ?? null;
 
   const people = useQuery<ClientPerson[]>({
     queryKey: ['client-people', client.id],
@@ -174,7 +181,7 @@ export function ClientProfilePage({
       (await api.delete(`/api/clients/${client.id}/capabilities/${id}`)).data,
     onSuccess: () => {
       message.success('Capability removed');
-      if (selectedCapability) setSelectedCapability(null);
+      if (selectedCapabilityId) setSelectedCapabilityId(null);
       qc.invalidateQueries({ queryKey: ['client-capabilities', client.id] });
     },
     onError: (err) => message.error(errorMessage(err)),
@@ -392,7 +399,7 @@ export function ClientProfilePage({
                 // drawer) rather than over the Overview, so the user lands in the
                 // full editing context.
                 setActiveTab('capabilities');
-                setSelectedCapability(cap);
+                setSelectedCapabilityId(cap.id);
               }}
               onAddCap={() => setAddCapabilityOpen(true)}
             />
@@ -402,7 +409,7 @@ export function ClientProfilePage({
               clientId={client.id}
               capabilities={capabilities.data ?? []}
               loading={capabilities.isLoading}
-              onCapClick={setSelectedCapability}
+              onCapClick={(cap) => setSelectedCapabilityId(cap.id)}
               onAddCap={() => setAddCapabilityOpen(true)}
               onDeleteCap={(id) => {
                 modal.confirm({
@@ -452,7 +459,7 @@ export function ClientProfilePage({
           <CapabilityDrawer
             capability={selectedCapability}
             clientId={client.id}
-            onClose={() => setSelectedCapability(null)}
+            onClose={() => setSelectedCapabilityId(null)}
             onUpdated={() => {
               qc.invalidateQueries({ queryKey: ['client-capabilities', client.id] });
             }}
@@ -535,26 +542,6 @@ function OverviewTab({
       return next;
     });
 
-  // Gov't registration (Company Info v3 field set).
-  const cageCode = readText(intake, ['cageCode', 'cage_code']);
-  const uei = readText(intake, ['uei']);
-  const samStatus = readText(intake, ['samStatus', 'sam_status']);
-  const samExpirationDate = readText(intake, ['samExpirationDate', 'sam_expiration_date']);
-  const primaryNaics = readText(intake, ['primaryNaics', 'primary_naics', 'naics']);
-  const additionalNaics = readText(intake, ['additionalNaics', 'additional_naics']);
-  const ldaRegistrantName = readText(intake, ['ldaRegistrantName', 'lda_registrant_name']);
-  const ein = readText(intake, ['ein']);
-  const existingContracts = readText(intake, ['existingContracts', 'existing_contracts']);
-  const hasGovReg =
-    cageCode ||
-    uei ||
-    primaryNaics ||
-    additionalNaics ||
-    samStatus ||
-    samExpirationDate ||
-    ldaRegistrantName ||
-    ein ||
-    existingContracts;
 
   // Company-info fields.
   const dba = readText(intake, ['dba']);
@@ -720,28 +707,6 @@ function OverviewTab({
           </section>
         ) : null}
 
-        {/* Government Registration, only show if any field is populated */}
-        {hasGovReg ? (
-          <section className="surface" style={{ marginTop: 14 }}>
-            <header className="surface-head">
-              <h3>Government registration</h3>
-            </header>
-            <div className="info-table">
-              <InfoRow label="CAGE Code" value={cageCode} />
-              <InfoRow label="UEI (SAM)" value={uei} />
-              <InfoRow label="SAM Status" value={samStatus} />
-              <InfoRow
-                label="SAM Expiration"
-                value={samExpirationDate ? formatDate(samExpirationDate) : null}
-              />
-              <InfoRow label="Primary NAICS" value={primaryNaics} />
-              <InfoRow label="Additional NAICS" value={additionalNaics} />
-              <InfoRow label="LDA Registrant" value={ldaRegistrantName} />
-              <InfoRow label="EIN" value={ein} />
-              <InfoRow label="Existing Contracts" value={existingContracts} />
-            </div>
-          </section>
-        ) : null}
       </div>
 
       <div>
@@ -1628,9 +1593,6 @@ function AddCapabilityModal({
             sector: values.sector ?? null,
             tags: Array.isArray(values.tags) ? values.tags : [],
             trl: values.trl ? Number(values.trl) : null,
-            mrl: values.mrl ? Number(values.mrl) : null,
-            fundingAsk: values.fundingAsk ? Number(values.fundingAsk) : null,
-            fundingAskLabel: values.fundingAskLabel ?? null,
           });
         }}
       >
@@ -1674,19 +1636,8 @@ function AddCapabilityModal({
         <Form.Item name="description" label="Description">
           <Input.TextArea rows={3} />
         </Form.Item>
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="trl" label="TRL (1–9)" style={{ flex: 1 }}>
-            <Input type="number" min={1} max={9} />
-          </Form.Item>
-          <Form.Item name="mrl" label="MRL (1–10)" style={{ flex: 1 }}>
-            <Input type="number" min={1} max={10} />
-          </Form.Item>
-          <Form.Item name="fundingAsk" label="Funding Ask ($)" style={{ flex: 2 }}>
-            <Input type="number" min={0} placeholder="e.g. 28000000" />
-          </Form.Item>
-        </div>
-        <Form.Item name="fundingAskLabel" label="Ask Label">
-          <Input placeholder="e.g. SAC-D FY27 ask" />
+        <Form.Item name="trl" label="TRL (1–9)">
+          <Input type="number" min={1} max={9} />
         </Form.Item>
       </Form>
     </Modal>

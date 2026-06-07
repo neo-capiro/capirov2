@@ -1,5 +1,12 @@
 import { useState } from 'react';
-import { CloseOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
+import {
+  CloseOutlined,
+  DeleteOutlined,
+  DownloadOutlined,
+  FileTextOutlined,
+  PlusOutlined,
+  UploadOutlined,
+} from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   App as AntApp,
@@ -9,8 +16,10 @@ import {
   Select,
   Skeleton,
   Typography,
+  Upload,
 } from 'antd';
 import { useApi } from '../../lib/use-api.js';
+import type { ClientAttachment } from './clientTypes.js';
 
 export interface Capability {
   id: string;
@@ -116,19 +125,7 @@ export function CapabilityDrawer({ capability, clientId, onClose, onUpdated, onD
   const api = useApi();
   const qc = useQueryClient();
   const { message, modal } = AntApp.useApp();
-  const [drawerTab, setDrawerTab] = useState<'profile' | 'history' | 'documents'>('profile');
-  const [addingHistory, setAddingHistory] = useState(false);
-
-  const historyQuery = useQuery<SubmissionHistory[]>({
-    queryKey: ['client-capability-history', clientId, capability?.id],
-    queryFn: async () =>
-      (
-        await api.get<SubmissionHistory[]>(
-          `/api/clients/${clientId}/capabilities/${capability!.id}/history`,
-        )
-      ).data,
-    enabled: Boolean(capability?.id) && drawerTab === 'history',
-  });
+  const [drawerTab, setDrawerTab] = useState<'profile' | 'documents'>('profile');
 
   const patchCapability = useMutation({
     mutationFn: async (patch: Record<string, unknown>) =>
@@ -136,34 +133,6 @@ export function CapabilityDrawer({ capability, clientId, onClose, onUpdated, onD
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['client-capabilities', clientId] });
       onUpdated();
-    },
-    onError: (err) => message.error(errorMessage(err)),
-  });
-
-  const createHistory = useMutation({
-    mutationFn: async (data: {
-      fiscalYear: string;
-      title: string;
-      meta?: string;
-      outcomeType?: string;
-      notes?: string;
-    }) =>
-      (await api.post(`/api/clients/${clientId}/capabilities/${capability!.id}/history`, data))
-        .data,
-    onSuccess: () => {
-      message.success('Entry added');
-      setAddingHistory(false);
-      qc.invalidateQueries({ queryKey: ['client-capability-history', clientId, capability?.id] });
-    },
-    onError: (err) => message.error(errorMessage(err)),
-  });
-
-  const deleteHistory = useMutation({
-    mutationFn: async (id: string) =>
-      (await api.delete(`/api/clients/${clientId}/history/${id}`)).data,
-    onSuccess: () => {
-      message.success('Entry removed');
-      qc.invalidateQueries({ queryKey: ['client-capability-history', clientId, capability?.id] });
     },
     onError: (err) => message.error(errorMessage(err)),
   });
@@ -205,18 +174,14 @@ export function CapabilityDrawer({ capability, clientId, onClose, onUpdated, onD
       </div>
 
       <div className="cap-drawer-tabs">
-        {(['profile', 'history', 'documents'] as const).map((tab) => (
+        {(['profile', 'documents'] as const).map((tab) => (
           <div
             key={tab}
             className={`cap-drawer-tab${drawerTab === tab ? ' active' : ''}`}
             onClick={() => setDrawerTab(tab)}
             role="tab"
           >
-            {tab === 'profile'
-              ? 'Profile'
-              : tab === 'history'
-                ? 'Submission History'
-                : 'Documents'}
+            {tab === 'profile' ? 'Profile' : 'Documents'}
           </div>
         ))}
       </div>
@@ -225,32 +190,8 @@ export function CapabilityDrawer({ capability, clientId, onClose, onUpdated, onD
         {drawerTab === 'profile' && (
           <ProfileTab capability={capability} onPatch={(p) => patchCapability.mutate(p)} />
         )}
-        {drawerTab === 'history' && (
-          <HistoryTab
-            history={historyQuery.data ?? []}
-            loading={historyQuery.isLoading}
-            addingHistory={addingHistory}
-            onAdd={() => setAddingHistory(true)}
-            onCancelAdd={() => setAddingHistory(false)}
-            onCreateHistory={(data) => createHistory.mutate(data)}
-            onDeleteHistory={(id) => {
-              modal.confirm({
-                title: 'Remove this entry?',
-                okText: 'Remove',
-                okButtonProps: { danger: true },
-                onOk: () => deleteHistory.mutateAsync(id),
-              });
-            }}
-            creating={createHistory.isPending}
-          />
-        )}
         {drawerTab === 'documents' && (
-          <div className="cp-doc-placeholder">
-            <Typography.Text type="secondary">
-              Document filtering by capability is coming soon. Upload documents from the client&apos;s
-              Documents tab.
-            </Typography.Text>
-          </div>
+          <CapabilityDocumentsTab clientId={clientId} capabilityId={capability.id} />
         )}
       </div>
     </div>
@@ -266,22 +207,7 @@ function ProfileTab({
 }) {
   return (
     <>
-      <div className="readiness-matrix">
-        <ReadinessItem
-          label="TRL"
-          value={capability.trl}
-          max={9}
-          labels={TRL_LABELS}
-          onSave={(v) => onPatch({ trl: v })}
-        />
-        <ReadinessItem
-          label="MRL"
-          value={capability.mrl}
-          max={10}
-          labels={MRL_LABELS}
-          onSave={(v) => onPatch({ mrl: v })}
-        />
-      </div>
+      <TrlScale value={capability.trl} onSave={(v) => onPatch({ trl: v })} />
 
       <InlineTextArea
         label="Description"
@@ -289,69 +215,6 @@ function ProfileTab({
         placeholder="Describe this capability..."
         onSave={(v) => onPatch({ description: v || null })}
       />
-
-      <div style={{ marginTop: 16 }}>
-        <div className="ps-title">Government Engagement</div>
-        <InlineFieldRow
-          label="PE Number"
-          value={capability.peNumber ?? ''}
-          placeholder="e.g. 0603286F"
-          onSave={(v) => onPatch({ peNumber: v || null })}
-        />
-        <InlineFieldRow
-          label="Appropriation Account"
-          value={capability.appropriationAccount ?? ''}
-          placeholder="e.g. RDT&E Army"
-          onSave={(v) => onPatch({ appropriationAccount: v || null })}
-        />
-        <InlineFieldRow
-          label="Service Branch"
-          value={capability.serviceBranch ?? ''}
-          placeholder="e.g. Army, Navy, AF"
-          onSave={(v) => onPatch({ serviceBranch: v || null })}
-        />
-        <InlineFieldRow
-          label="Target Subcommittee"
-          value={capability.targetSubcommittee ?? ''}
-          placeholder="e.g. HASC, SASC-SA"
-          onSave={(v) => onPatch({ targetSubcommittee: v || null })}
-        />
-        <InlineNumberRow
-          label="Funding Ask ($)"
-          value={capability.fundingAsk}
-          onSave={(v) => onPatch({ fundingAsk: v ?? null })}
-        />
-        <InlineFieldRow
-          label="Ask Label"
-          value={capability.fundingAskLabel ?? ''}
-          placeholder="e.g. SAC-D FY27 ask"
-          onSave={(v) => onPatch({ fundingAskLabel: v || null })}
-        />
-        <InlineFieldRow
-          label="Existing Contracts"
-          value={capability.existingContracts ?? ''}
-          placeholder="e.g. SBIR Phase II, ONR BAA"
-          onSave={(v) => onPatch({ existingContracts: v || null })}
-        />
-      </div>
-
-      <div style={{ marginTop: 8 }}>
-        <InlineTextArea
-          label="Justification"
-          value={capability.justification ?? ''}
-          placeholder="Congressional justification..."
-          onSave={(v) => onPatch({ justification: v || null })}
-        />
-      </div>
-
-      <div style={{ marginTop: 8 }}>
-        <InlineTextArea
-          label="District Nexus"
-          value={capability.districtNexus ?? ''}
-          placeholder="Connection to district/state..."
-          onSave={(v) => onPatch({ districtNexus: v || null })}
-        />
-      </div>
 
       <div style={{ marginTop: 8 }}>
         <InlineTextArea
@@ -362,6 +225,185 @@ function ProfileTab({
         />
       </div>
     </>
+  );
+}
+
+/**
+ * TRL as a clickable 1–9 ladder (replaces the old single thin bar). Each step is a
+ * segment; segments up to the current level are filled, the active one is ringed.
+ * Clicking a step sets it; clicking the active step clears it.
+ */
+function TrlScale({ value, onSave }: { value: number | null; onSave: (v: number | null) => void }) {
+  const label = value != null ? (TRL_LABELS[value - 1] ?? '') : '';
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'baseline',
+          marginBottom: 6,
+          gap: 8,
+        }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#555' }}>
+          Technology Readiness Level
+        </span>
+        <span style={{ fontSize: 12, color: '#888', textAlign: 'right' }}>
+          {value != null ? `TRL ${value}${label ? ` · ${label}` : ''}` : 'Not set — click to set'}
+        </span>
+      </div>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {Array.from({ length: 9 }, (_, i) => i + 1).map((n) => {
+          const filled = value != null && n <= value;
+          const selected = value === n;
+          return (
+            <button
+              type="button"
+              key={n}
+              title={`TRL ${n}: ${TRL_LABELS[n - 1] ?? ''}`}
+              aria-label={`TRL ${n}: ${TRL_LABELS[n - 1] ?? ''}`}
+              onClick={() => onSave(selected ? null : n)}
+              style={{
+                flex: 1,
+                height: 30,
+                borderRadius: 6,
+                border: selected ? '2px solid #1677ff' : '1px solid #d9d9d9',
+                background: filled ? '#1677ff' : '#f5f5f5',
+                color: filled ? '#fff' : '#999',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: 0,
+              }}
+            >
+              {n}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Per-capability documents. Uploads go through the shared engagement-attachment
+ * flow (presigned S3 POST → confirm) tagged with source `capability:<id>` AND the
+ * clientId — so each file is scoped to this capability here AND automatically
+ * shows up in the client's Documents tab.
+ */
+function CapabilityDocumentsTab({
+  clientId,
+  capabilityId,
+}: {
+  clientId: string;
+  capabilityId: string;
+}) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const { message } = AntApp.useApp();
+  const source = `capability:${capabilityId}`;
+
+  const docs = useQuery<ClientAttachment[]>({
+    queryKey: ['capability-documents', clientId, capabilityId],
+    queryFn: async () =>
+      (
+        await api.get<ClientAttachment[]>('/api/engagement/attachments', {
+          params: { clientId },
+        })
+      ).data,
+    select: (rows) => rows.filter((r) => r.source === source),
+  });
+
+  const uploadOne = async (file: File) => {
+    const contentType = file.type || 'application/octet-stream';
+    const presigned = (
+      await api.post<{ url: string; fields: Record<string, string>; s3Key: string }>(
+        '/api/engagement/attachments/upload-url',
+        { clientId, fileName: file.name, contentType, contentLength: file.size },
+      )
+    ).data;
+    const form = new FormData();
+    Object.entries(presigned.fields).forEach(([k, v]) => form.append(k, v));
+    form.append('file', file);
+    const s3Res = await fetch(presigned.url, { method: 'POST', body: form });
+    if (!s3Res.ok) throw new Error('Upload to storage failed');
+    await api.post('/api/engagement/attachments/confirm', {
+      clientId,
+      fileName: file.name,
+      contentType,
+      s3Key: presigned.s3Key,
+      source,
+    });
+  };
+
+  const uploadMutation = useMutation({
+    mutationFn: uploadOne,
+    onSuccess: () => {
+      message.success('Document added');
+      void qc.invalidateQueries({ queryKey: ['capability-documents', clientId, capabilityId] });
+      void qc.invalidateQueries({ queryKey: ['client-attachments', clientId] });
+      void qc.invalidateQueries({ queryKey: ['client-attachments-count', clientId] });
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  const list = docs.data ?? [];
+
+  return (
+    <div>
+      <Upload
+        multiple
+        showUploadList={false}
+        accept=".pdf,.doc,.docx,.txt,.ppt,.pptx,.xls,.xlsx,image/*"
+        beforeUpload={(file) => {
+          void uploadMutation.mutateAsync(file as File);
+          return false;
+        }}
+      >
+        <Button icon={<UploadOutlined />} loading={uploadMutation.isPending} size="small">
+          Upload document
+        </Button>
+      </Upload>
+      <Typography.Paragraph type="secondary" style={{ fontSize: 11.5, margin: '8px 0 12px' }}>
+        Documents added here are scoped to this capability and also appear in the client&apos;s
+        Documents tab.
+      </Typography.Paragraph>
+
+      {docs.isLoading ? (
+        <Skeleton active paragraph={{ rows: 3 }} />
+      ) : list.length ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {list.map((d) => (
+            <div
+              key={d.id}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '8px 10px',
+                border: '1px solid #f0f0f0',
+                borderRadius: 8,
+              }}
+            >
+              <FileTextOutlined style={{ color: '#888' }} />
+              <span style={{ flex: 1, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                {d.fileName}
+              </span>
+              {d.downloadUrl ? (
+                <a href={d.downloadUrl} target="_blank" rel="noreferrer" title="Download">
+                  <DownloadOutlined />
+                </a>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+          No documents yet for this capability.
+        </Typography.Text>
+      )}
+    </div>
   );
 }
 
