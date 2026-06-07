@@ -98,4 +98,46 @@ describe('IntelligenceService — manual LDA mapping', () => {
       expect(upsert).not.toHaveBeenCalled();
     });
   });
+
+  describe('getIssueCodeSignal', () => {
+    test('unions LDA codes across registrants + override, with names and counts', async () => {
+      const prisma: any = {
+        clientIntelMapping: {
+          findMany: jest.fn(async () => [
+            { externalId: '1', externalName: 'RTX CORPORATION' },
+            { externalId: '2', externalName: 'RAYTHEON COMPANY' },
+          ]),
+        },
+        $queryRaw: jest.fn(async (strings: any) => {
+          const sql = Array.isArray(strings) ? strings.join(' ') : String(strings);
+          if (sql.includes('unnest(issue_codes)')) return [{ code: 'DEF' }, { code: 'AVI' }];
+          if (sql.includes('lda_issue_code'))
+            return [
+              { code: 'DEF', name: 'Defense' },
+              { code: 'AVI', name: 'Aviation' },
+              { code: 'TAX', name: 'Taxation' },
+            ];
+          return [];
+        }),
+        withTenant: jest.fn(async (_t: string, run: (tx: any) => Promise<any>) =>
+          run({
+            client: { findFirst: jest.fn(async () => ({ issueCodes: ['TAX'] })) },
+            clientCapability: {
+              findMany: jest.fn(async () => [{ tags: ['hypersonics'], description: 'Strike.' }]),
+            },
+          }),
+        ),
+      };
+      const service = new IntelligenceService(prisma);
+      const out = await service.getIssueCodeSignal(clientId, tenantId);
+      expect(out.ldaRegistrantCount).toBe(2);
+      expect(out.codes.map((c) => c.code).sort()).toEqual(['AVI', 'DEF', 'TAX']);
+      // TAX comes only from the client-level override.
+      expect(out.codes.find((c) => c.code === 'TAX')!.source).toBe('manual');
+      expect(out.codes.find((c) => c.code === 'DEF')!.source).toBe('lda');
+      expect(out.codes.find((c) => c.code === 'AVI')!.name).toBe('Aviation');
+      expect(out.capabilityTagCount).toBe(1);
+      expect(out.capabilityDescCount).toBe(1);
+    });
+  });
 });

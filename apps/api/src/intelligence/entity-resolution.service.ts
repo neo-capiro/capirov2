@@ -20,6 +20,54 @@ export interface ResolutionSummary {
 const SUFFIX_RE =
   /\b(inc|llc|corp|ltd|co|lp|llp|pa|pc|pllc|group|holdings|international|associates|partners|consulting|services|solutions|technologies|enterprises)\b\.?/gi;
 
+// Generic tokens that carry NO entity identity on their own. The trigram matcher
+// casts a wide net on the full name, so a short distinctive client name dominated
+// by a generic word (e.g. "RTX CORPORATION") trigram-matches dozens of unrelated
+// "<X> CORPORATION" filers (FOX/CSX/GATX/VF CORPORATION…) at ~0.6 — flooding the
+// review queue with junk. We strip these before checking whether two names share
+// any DISTINCTIVE token. SUFFIX_RE already removes inc/llc/corp/etc.; this adds the
+// spelled-out forms that survive it.
+const GENERIC_NAME_TOKENS = new Set([
+  'corporation',
+  'company',
+  'companies',
+  'incorporated',
+  'limited',
+  'holdings',
+  'group',
+  'international',
+  'corp',
+  'inc',
+  'llc',
+  'co',
+  'the',
+  'and',
+  'of',
+  'for',
+  'a',
+]);
+
+/** Distinctive tokens of a fingerprint = tokens that aren't generic corporate words. */
+export function distinctiveTokens(fingerprint: string): string[] {
+  return fingerprint
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0 && !GENERIC_NAME_TOKENS.has(t));
+}
+
+/**
+ * True when two fingerprints share at least one distinctive token, OR when either
+ * has no distinctive token at all (can't judge — don't penalise). Used to drop
+ * pure "<X> CORPORATION"-style trigram collisions before they reach the queue.
+ */
+export function sharesDistinctiveToken(aFingerprint: string, bFingerprint: string): boolean {
+  const a = distinctiveTokens(aFingerprint);
+  const b = distinctiveTokens(bFingerprint);
+  if (a.length === 0 || b.length === 0) return true;
+  const bset = new Set(b);
+  return a.some((t) => bset.has(t));
+}
+
 // Minimum confidence required to persist a candidate mapping. The per-source SQL
 // uses a loose similarity > 0.3 to cast a wide net, but writing everything above
 // that floods the review queue with generic-string noise (e.g. employer
@@ -102,6 +150,15 @@ export class EntityResolutionService {
       confidence = Math.max(confidence, 0.9);
     } else if (fingerprintExact) {
       confidence = Math.max(confidence, 0.7);
+    }
+
+    // Distinctiveness guard: a high raw trigram score driven only by a shared
+    // generic word ("<X> CORPORATION" vs "RTX CORPORATION") is noise, not a match.
+    // If the two names share NO distinctive token, cap below the write floor so the
+    // candidate is dropped rather than flooding the review queue. Never lowers a
+    // genuine fingerprint-exact match (those share all tokens by definition).
+    if (!fingerprintExact && !sharesDistinctiveToken(clientFp, externalFp)) {
+      confidence = Math.min(confidence, 0.35);
     }
 
     return Math.min(confidence, 1.0);

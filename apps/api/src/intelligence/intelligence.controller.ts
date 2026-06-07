@@ -333,6 +333,16 @@ export class IntelligenceController {
     return this.service.searchLdaClients(q.q);
   }
 
+  // Read-only "what's driving this client's matching" signal: the union'd issue
+  // codes (+ names), how many LDA registrants back them, and capability richness.
+  @Get('clients/:clientId/issue-code-signal')
+  getIssueCodeSignal(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getIssueCodeSignal(clientId, ctx.tenantId);
+  }
+
   // Manually pin (and confirm) an external record to a client. Admin-curation
   // action, so gated like resolve-all.
   @Post('mappings/:clientId/manual')

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import {
   App as AntApp,
   Button,
@@ -81,6 +81,7 @@ export function IntelligenceMappingsPage() {
         duration: 6,
       });
       void qc.invalidateQueries({ queryKey: ['intelligence-mappings'] });
+      invalidateClientIntel(qc);
     },
     onError: (err) => {
       const detail = apiErrorMessage(err);
@@ -93,6 +94,7 @@ export function IntelligenceMappingsPage() {
       api.patch(`/api/intelligence/mappings/${id}`, { confirmed }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['intelligence-mappings'] });
+      invalidateClientIntel(qc);
     },
     onError: (err) => {
       notification.error({ message: 'Update failed', description: apiErrorMessage(err) });
@@ -380,6 +382,7 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
         description: `"${r.name}" (LDA id ${r.id}) is now a confirmed mapping. Its issue codes feed this client's matching immediately.`,
       });
       void qc.invalidateQueries({ queryKey: ['intelligence-mappings'] });
+      invalidateClientIntel(qc);
     },
     onError: (err) => notification.error({ message: 'Attach failed', description: apiErrorMessage(err) }),
   });
@@ -509,6 +512,21 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
       </Space>
     </Modal>
   );
+}
+
+// Profile/intel react-query keys that depend on a client's mappings. Invalidated
+// after any mapping change so the Intelligence tab (aggregate, snapshot, setup
+// checklist, derived issue-code signal) reflects the change without a hard reload.
+const CLIENT_INTEL_QUERY_KEYS = [
+  'client-intel-v1-profile',
+  'client-intel-v1-aggregate',
+  'intel-setup-completeness',
+  'intel-issue-code-signal',
+];
+function invalidateClientIntel(qc: QueryClient) {
+  for (const key of CLIENT_INTEL_QUERY_KEYS) {
+    void qc.invalidateQueries({ queryKey: [key] });
+  }
 }
 
 function apiErrorMessage(error: unknown): string {

@@ -5,6 +5,7 @@ import { useApi } from '../../../lib/use-api.js';
 import type { ClientIntelProfile } from '../../intelligence/types.js';
 import { SectionNav } from './components/SectionNav.js';
 import { SetupChecklist } from './components/SetupChecklist.js';
+import { IssueCodeSignal } from './components/IssueCodeSignal.js';
 import {
   buildSectionNavMeta,
   SECTION_ORDER,
@@ -176,6 +177,7 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
 
           <Space direction="vertical" size={18} style={{ width: '100%' }}>
             <SetupChecklist clientId={clientId} />
+            <IssueCodeSignal clientId={clientId} />
             <SnapshotSection
               clientId={clientId}
               clientName={clientName}

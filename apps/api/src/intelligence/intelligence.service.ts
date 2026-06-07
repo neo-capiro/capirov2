@@ -2890,6 +2890,89 @@ export class IntelligenceService {
     };
   }
 
+  /**
+   * Read-only "what's driving this client's bill/regulation matching" summary for
+   * the profile. Surfaces the issue codes the matcher actually uses — the union
+   * across all confirmed LDA registrants plus any client-level override — with
+   * their human names, the registrant count behind them, and how much richer
+   * (capability) signal exists. Makes the otherwise-invisible matching inputs
+   * legible so users can see and trust the intel.
+   */
+  async getIssueCodeSignal(clientId: string, tenantId: string) {
+    const ldaMappings = await this.prisma.clientIntelMapping.findMany({
+      where: { clientId, source: 'lda', confirmed: true },
+      select: { externalId: true, externalName: true },
+    });
+    const ldaIds = ldaMappings
+      .map((m) => Number(m.externalId))
+      .filter((n) => Number.isFinite(n));
+
+    const ldaCodes: string[] = [];
+    if (ldaIds.length) {
+      const codeRows = await this.prisma.$queryRaw<Array<{ code: string }>>`
+        SELECT DISTINCT unnest(issue_codes) AS code
+        FROM lda_client
+        WHERE id = ANY(${ldaIds}::int[]) AND issue_codes IS NOT NULL
+      `;
+      ldaCodes.push(
+        ...codeRows.map((r) => r.code).filter((c) => typeof c === 'string' && c.length > 0),
+      );
+    }
+
+    let overrideCodes: string[] = [];
+    let capabilityTagCount = 0;
+    let capabilityDescCount = 0;
+    try {
+      const [client, caps] = await this.prisma.withTenant(tenantId, (tx) =>
+        Promise.all([
+          tx.client.findFirst({ where: { id: clientId }, select: { issueCodes: true } }),
+          tx.clientCapability.findMany({
+            where: { clientId },
+            select: { tags: true, description: true },
+          }),
+        ]),
+      );
+      if (Array.isArray(client?.issueCodes)) {
+        overrideCodes = client!.issueCodes.filter((c): c is string => typeof c === 'string');
+      }
+      capabilityTagCount = caps.reduce(
+        (s, c) => s + (Array.isArray(c.tags) ? (c.tags as unknown[]).length : 0),
+        0,
+      );
+      capabilityDescCount = caps.filter(
+        (c) => typeof c.description === 'string' && c.description.trim().length > 0,
+      ).length;
+    } catch {
+      // tenant reads unavailable (e.g. mocked tx) — fall back to LDA-only signal.
+    }
+
+    const ldaSet = new Set(ldaCodes.map((c) => c.trim()).filter(Boolean));
+    const overrideSet = new Set(overrideCodes.map((c) => c.trim()).filter(Boolean));
+    const allCodes = Array.from(new Set([...ldaSet, ...overrideSet])).sort();
+
+    const names: Record<string, string> = {};
+    if (allCodes.length) {
+      const nameRows = await this.prisma.$queryRaw<Array<{ code: string; name: string }>>`
+        SELECT code, name FROM lda_issue_code WHERE code = ANY(${allCodes}::text[])
+      `;
+      for (const r of nameRows) names[r.code] = r.name;
+    }
+
+    return {
+      clientId,
+      ldaRegistrantCount: ldaIds.length,
+      ldaRegistrants: ldaMappings.map((m) => m.externalName),
+      codes: allCodes.map((code) => ({
+        code,
+        name: names[code] ?? null,
+        source: ldaSet.has(code) && overrideSet.has(code) ? 'both' : ldaSet.has(code) ? 'lda' : 'manual',
+      })),
+      overrideCodeCount: overrideSet.size,
+      capabilityTagCount,
+      capabilityDescCount,
+    };
+  }
+
   async getTrackedBills(clientId: string, tenantId?: string) {
     // Union across ALL confirmed LDA registrants, not just one. A large client
     // (e.g. RTX) files its lobbying under several registrant-name variants —
