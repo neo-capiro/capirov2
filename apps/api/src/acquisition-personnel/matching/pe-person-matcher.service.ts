@@ -123,7 +123,7 @@ export class PePersonMatcherService {
     peIndex: Array<{ peCode: string; norm: string; tg: Set<string>; svc: Service | null }>,
     byNormTitle: Map<string, string[]>,
     projectIndex: Array<{ peCode: string; tg: Set<string>; svc: Service | null }>,
-    opts = { s1TrgmMin: 0.45, s2Min: 0.6 },
+    opts = { s1TrgmMin: 0.45, s2Min: 0.6, s3Min: 0.6 },
   ): Candidate[] {
     const pSvc = this.personService(person.service, person.organization);
     const out: Candidate[] = [];
@@ -154,22 +154,7 @@ export class PePersonMatcherService {
 
     // ---- SIGNAL 2: organization + program_of_record ----
     if (!out.length && person.programOfRecord) {
-      const q = this.trigrams(person.programOfRecord);
-      let best: { c: string; eff: number; raw: number; via: string; m: ReturnType<PePersonMatcherService['svcMatch']> } | null = null;
-      for (const p of peIndex) {
-        const m = this.svcMatch(pSvc, p.svc);
-        if (m === 'mismatch') continue;
-        const raw = this.simSet(q, p.tg);
-        const eff = raw * (m === 'exact' ? 1 : 0.92);
-        if (!best || eff > best.eff) best = { c: p.peCode, eff, raw, via: 'pe_title', m };
-      }
-      for (const p of projectIndex) {
-        const m = this.svcMatch(pSvc, p.svc);
-        if (m === 'mismatch') continue;
-        const raw = this.simSet(q, p.tg);
-        const eff = raw * (m === 'exact' ? 1 : 0.92);
-        if (!best || eff > best.eff) best = { c: p.peCode, eff, raw, via: 'project_title', m };
-      }
+      const best = this.bestServiceAwareMatch(person.programOfRecord, pSvc, peIndex, projectIndex);
       const cleanedLen = this.norm(person.programOfRecord).replace(/[^a-z0-9]/g, '').length;
       if (best && best.raw >= opts.s2Min && cleanedLen >= 12) {
         const score = Number(Math.min(0.85, 0.45 + best.raw * 0.45).toFixed(3));
@@ -180,7 +165,50 @@ export class PePersonMatcherService {
         });
       }
     }
+
+    // ---- SIGNAL 3: organization string -> PE (program offices that name their program) ----
+    // Lower confidence than signals 1/2 (an org can run several PEs), so this only fires
+    // when nothing better matched and the org clears the s3 bar + min-length guard.
+    if (!out.length && person.organization) {
+      const best = this.bestServiceAwareMatch(person.organization, pSvc, peIndex, projectIndex);
+      const cleanedLen = this.norm(person.organization).replace(/[^a-z0-9]/g, '').length;
+      if (best && best.raw >= opts.s3Min && cleanedLen >= 12) {
+        // Cap below the peTitle signals: org is a weaker program signal than an explicit PE title.
+        const score = Number(Math.min(0.8, 0.4 + best.raw * 0.45).toFixed(3));
+        out.push({
+          personId: person.id, peCode: best.c, score,
+          matchBasis: `3_${best.via}: organization ~ PE (sim ${best.raw.toFixed(2)}, svc ${pSvc}/${best.m})`,
+          breakdown: { signal: `3_${best.via}`, personService: pSvc, sim: best.raw, svcMatch: best.m },
+        });
+      }
+    }
     return out;
+  }
+
+  /** Best service-aware trigram match of a free-text query against PE + project titles. */
+  private bestServiceAwareMatch(
+    query: string,
+    pSvc: Service | null,
+    peIndex: Array<{ peCode: string; norm: string; tg: Set<string>; svc: Service | null }>,
+    projectIndex: Array<{ peCode: string; tg: Set<string>; svc: Service | null }>,
+  ): { c: string; raw: number; via: string; m: ReturnType<PePersonMatcherService['svcMatch']> } | null {
+    const q = this.trigrams(query);
+    let best: { c: string; eff: number; raw: number; via: string; m: ReturnType<PePersonMatcherService['svcMatch']> } | null = null;
+    for (const p of peIndex) {
+      const m = this.svcMatch(pSvc, p.svc);
+      if (m === 'mismatch') continue;
+      const raw = this.simSet(q, p.tg);
+      const eff = raw * (m === 'exact' ? 1 : 0.92);
+      if (!best || eff > best.eff) best = { c: p.peCode, eff, raw, via: 'pe_title', m };
+    }
+    for (const p of projectIndex) {
+      const m = this.svcMatch(pSvc, p.svc);
+      if (m === 'mismatch') continue;
+      const raw = this.simSet(q, p.tg);
+      const eff = raw * (m === 'exact' ? 1 : 0.92);
+      if (!best || eff > best.eff) best = { c: p.peCode, eff, raw, via: 'project_title', m };
+    }
+    return best ? { c: best.c, raw: best.raw, via: best.via, m: best.m } : null;
   }
 
   private simSet(a: Set<string>, b: Set<string>): number {
