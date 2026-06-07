@@ -1812,6 +1812,7 @@ model ProgramElement {
   conferenceProbabilities ConferenceProbability[]
   sources                 ProgramElementSource[]
   projects                ProgramElementProject[]
+  performers              ProgramElementPerformer[]
 
   @@index([serviceCode], map: "program_element_service_code_idx")
   @@index([appropriationType], map: "program_element_appropriation_type_idx")
@@ -2733,6 +2734,27 @@ model FederalAward {
   // contractor panel state HOW a contractor was tied to a PE rather than implying
   // a precision the source does not have.
   peCodeSource    String?   @map("pe_code_source")
+  // ── USAspending File C (financial_accounts_by_awards) funding crosswalk ──────────
+  // Populated by enrich-award-pe-tas from /api/v2/awards/funding/. The Treasury
+  // Account Symbol + Program Activity are the federal mechanism that ties an award
+  // to the appropriation account / program activity it was funded from. We store the
+  // dominant (largest-obligation) TAS+PA for display + the PE crosswalk. PE attribution
+  // from TAS+PA is intentionally LOWER precision than the R-3 named-prime link (one
+  // account/PA funds many PEs), so peCodeConfidence + peCodeCandidateCount make the
+  // ambiguity explicit and the UI never implies a false 1:1.
+  fundingTas              String?  @map("funding_tas")           // e.g. '057-3600' (federal_account) or full TAS label
+  fundingTasTitle         String?  @map("funding_tas_title")     // e.g. 'RDT&E, Air Force'
+  programActivityCode     String?  @map("program_activity_code") // e.g. '0001'
+  programActivityName     String?  @map("program_activity_name") // e.g. 'BASIC RESEARCH'
+  fundingFy               Int?     @map("funding_fy")            // reporting fiscal year of the dominant File C row
+  // 0..1 confidence of the pe_code attribution. 1.0 only when UEI-confirmed against an
+  // R-3 named prime; ~0.5 when account+PA+FY resolve to a single PE; lower when ambiguous.
+  peCodeConfidence        Float?   @map("pe_code_confidence")
+  // How many distinct PEs the award's (account + program activity + FY) could map to.
+  // 1 = unambiguous; >1 = the UI shows "funded via <account> (N programs)" not a single PE.
+  peCodeCandidateCount    Int?     @map("pe_code_candidate_count")
+  // When peCodeSource='uei_confirmed_r3_prime', the matched performer row id (audit trail).
+  matchedPerformerId      String?  @map("matched_performer_id") @db.Uuid
   // DoD Major Defense Acquisition Program (MDAP) attribution straight off the
   // contract record (USAspending latest_transaction_contract_data). Always present
   // on contracts; '000'/'NONE' for services & non-program awards. This is the
@@ -2791,4 +2813,60 @@ model ProgramElementAcquisitionProgram {
   @@index([peCode], map: "pe_acq_program_pe_code_idx")
   @@index([acqProgramCode], map: "pe_acq_program_code_idx")
   @@map("program_element_acquisition_program")
+}
+
+/// Named prime contractor ("performing activity") for a Program Element, extracted
+/// verbatim from the Service RDT&E Justification Book R-3 "Product Development" /
+/// "Support" / "Management Services" cost-analysis tables (and embedded R-2A tables).
+/// This is the zero-inference, government-STATED PE -> prime link: the exhibit names
+/// the company, contract method/type, performing location, and total contract cost.
+/// Each row carries page-level provenance so the contractor panel can deep-link to
+/// the exact exhibit page ("per the Navy's own FY27 R-3 exhibit, page N"). Global
+/// table (no tenant_id / RLS): J-book data is public-domain reference data, same as
+/// program_element / federal_award. Loaded by the sync-jbook-performers verb from a
+/// committed offline extraction artifact (scripts/__data__/jbook_performers_*.json);
+/// no PDF/Python at runtime. Idempotent: unique on the natural performer key.
+model ProgramElementPerformer {
+  id              String   @id @default(uuid()) @db.Uuid
+  peCode          String   @map("pe_code") @db.VarChar(16)
+  /// Company name exactly as printed in the exhibit (e.g. 'LOCKHEED MARTIN CORPORATION').
+  performer       String
+  /// Uppercased/punctuation-stripped name for joins/dedup (e.g. 'LOCKHEED MARTIN CORP').
+  performerNormalized String @map("performer_normalized")
+  /// Performing location as printed (state code 'AL', 'Various', city, or country).
+  /// NOT NULL ('' when absent) so the natural-key unique index is deterministic
+  /// (Postgres treats NULLs as distinct, which would break idempotent upserts).
+  location        String   @default("") @map("location")
+  /// Contract method & type token ('SS/IDIQ','C/CPAF','MIPR',...). '' when blank/Various.
+  contractMethod  String   @default("") @map("contract_method")
+  /// Cost-category item label from the exhibit row (e.g. 'THAAD Development - Capability').
+  costCategory    String   @default("") @map("cost_category")
+  /// Total contract cost in $M as printed (TotalCost column). Null when not stated.
+  totalCostM      Decimal? @map("total_cost_m") @db.Decimal(18, 3)
+  /// R-3 table family this came from: 'product_development' | 'support' | 'management_services'.
+  tableType       String?  @map("table_type")
+  /// Project (R-2A) code/name when the table is under a specific project, else null.
+  projectCode     String?  @map("project_code")
+  projectName     String?  @map("project_name")
+  fy              Int
+  sourceUrl       String   @map("source_url")
+  pageNumber      Int      @map("page_number")
+  /// Publishing component for provenance label (e.g. 'DoD Comptroller (Navy)').
+  publisher       String?
+  /// True when the performer is a real named company (has a legal suffix / not 'Various'/
+  /// 'TBD'/government-internal MIPR). Lets the read path surface only real primes by default.
+  isNamedCompany  Boolean  @default(true) @map("is_named_company")
+  source          String   @default("comptroller_jbook_r3")
+  confidence      Float    @default(0.95)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSyncedAt    DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  programElement  ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  // Natural key: same prime can appear under different cost categories / projects / methods.
+  @@unique([peCode, performerNormalized, location, contractMethod, costCategory, fy], map: "program_element_performer_natural_key")
+  @@index([peCode], map: "program_element_performer_pe_code_idx")
+  @@index([performerNormalized], map: "program_element_performer_norm_idx")
+  @@index([isNamedCompany], map: "program_element_performer_named_idx")
+  @@map("program_element_performer")
 }

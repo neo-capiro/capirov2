@@ -230,6 +230,15 @@ case "${1:-serve}" in
   # artifacts (scripts/__data__/jbook_r2_*.json) and enriches program_element
   # narrative + program_element_project + page citations. No PDF/Python at runtime.
   sync-jbook-r2) exec ./node_modules/.bin/tsx scripts/sync-jbook-r2.ts --commit ;;
+  # PE -> named prime contractor linkage (Layer 1, highest precision). Loads the R-3
+  # "Product Development" performer tables (company, contract method, location, $) from
+  # the committed offline artifacts scripts/__data__/jbook_performers_*.json into
+  # program_element_performer + R-3 page citations. --commit (dispatched task always writes).
+  sync-jbook-performers) exec ./node_modules/.bin/tsx scripts/sync-jbook-performers.ts --commit ;;
+  # USAspending File C TAS+ProgramActivity funding crosswalk + UEI confirmation of awards
+  # against R-3 named primes (Layer 2/3). Stores funding account/PA for display + asserts
+  # pe_code only when the recipient matches an R-3 named prime. Pass --limit/--min-amount/--refresh.
+  enrich-award-pe-tas) shift; exec ./node_modules/.bin/tsx scripts/enrich-award-pe-tas.ts "$@" ;;
   # Stanford DoW acquisition-personnel directory import (idempotent: pre-seeds its
   # dedup map from the DB by nameKey, re-runs add source mentions not duplicates).
   # Populates program_element + acquisition_personnel + person->PE links.

@@ -442,7 +442,72 @@ export class ProgramElementReadService {
           : 'Linked via DoD Acquisition Program (USAspending)',
     }));
 
+    // ── Layer 1 (PRIMARY): named primes straight from the Service's own R-3
+    // "Product Development" exhibit. Zero inference — the government names the
+    // performing activity per PE. We surface real named companies (isNamedCompany)
+    // first; this is the defensible "who are the primes on this program" answer and
+    // is independent of whether USAspending dollars have been linked yet.
+    let namedPrimes: Array<{
+      contractorName: string;
+      location: string | null;
+      contractMethod: string | null;
+      totalCostM: number | null;
+      fy: number | null;
+      sourceUrl: string | null;
+      pageNumber: number | null;
+      publisher: string | null;
+      attribution: string;
+    }> = [];
+    const performerTableExists = await this.prisma.$queryRaw<Array<{ exists: boolean }>>(Prisma.sql`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'program_element_performer'
+      ) AS "exists"
+    `);
+    if (performerTableExists[0]?.exists) {
+      // Aggregate per company (a prime can appear under several cost categories);
+      // keep the richest provenance row (max total cost) for the deep-link.
+      const primeRows = await this.prisma.$queryRaw<
+        Array<{
+          contractorName: string;
+          location: string | null;
+          contractMethod: string | null;
+          totalCostM: number | null;
+          fy: number | null;
+          sourceUrl: string | null;
+          pageNumber: number | null;
+          publisher: string | null;
+        }>
+      >(Prisma.sql`
+        SELECT DISTINCT ON (performer_normalized)
+          performer        AS "contractorName",
+          NULLIF(location, '') AS "location",
+          NULLIF(contract_method, '') AS "contractMethod",
+          total_cost_m::double precision AS "totalCostM",
+          fy               AS "fy",
+          source_url       AS "sourceUrl",
+          page_number      AS "pageNumber",
+          publisher        AS "publisher"
+        FROM program_element_performer
+        WHERE pe_code = ${peCode}
+          AND is_named_company = true
+        ORDER BY performer_normalized, total_cost_m DESC NULLS LAST, fy DESC
+      `);
+      namedPrimes = primeRows
+        .map((r) => ({
+          ...r,
+          attribution: `Named prime per ${r.publisher ?? 'DoD'} FY${r.fy ?? ''} R-3 exhibit${r.pageNumber ? ` (p. ${r.pageNumber})` : ''}`,
+        }))
+        // Highest stated contract value first; null costs (e.g. support rows) after.
+        .sort((a, b) => (b.totalCostM ?? -1) - (a.totalCostM ?? -1))
+        .slice(0, 25);
+    }
+
     return {
+      // Named primes from the budget exhibit (Layer 1) — the primary, precise answer.
+      namedPrimes,
+      // Award dollar-flow over the last 24 months (Layer 2/3 — direct pe_code,
+      // MDAP-program link, or UEI-confirmed R-3 prime via enrich-award-pe-tas).
       data,
       todo: null,
     };
