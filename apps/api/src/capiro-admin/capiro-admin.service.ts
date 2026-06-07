@@ -116,49 +116,17 @@ export class CapiroAdminService {
       emailAddress: adminEmail,
       role: 'org:admin',
       // Carry the admin's name through to the sign-up form so Clerk pre-fills
-      // it and the webhook persists it on user.created.
+      // it and the webhook persists it on user.created. We do NOT pre-create a
+      // local users row: the canonical row is created with the admin's REAL
+      // clerkUserId on accept (webhook) or first authenticated request
+      // (middleware self-heal). A `pending:<id>` placeholder row collides on
+      // the unique email constraint and 500s every request post-sign-in.
       publicMetadata: {
         capiro_tenant_id: tenant.id,
         ...(adminFirstName ? { first_name: adminFirstName } : {}),
         ...(adminLastName ? { last_name: adminLastName } : {}),
       },
       redirectUrl: input.redirectUrl ?? this.defaultInvitationRedirectUrl(),
-    });
-
-    // Eagerly create a local "invited" user + membership so the Capiro Admin
-    // tenant view shows the pending admin (with name) immediately, before the
-    // invitee accepts. The Clerk webhook reconciles clerkUserId on accept.
-    await this.prisma.withSystem(async (tx) => {
-      const placeholderClerkId = `pending:${invitation.id}`;
-      const existingUser =
-        (await tx.user.findUnique({ where: { email: adminEmail } })) ?? null;
-      const user = existingUser
-        ? await tx.user.update({
-            where: { id: existingUser.id },
-            data: {
-              firstName: adminFirstName ?? existingUser.firstName,
-              lastName: adminLastName ?? existingUser.lastName,
-            },
-          })
-        : await tx.user.create({
-            data: {
-              clerkUserId: placeholderClerkId,
-              email: adminEmail,
-              firstName: adminFirstName,
-              lastName: adminLastName,
-            },
-          });
-      await tx.tenantMembership.upsert({
-        where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
-        create: {
-          tenantId: tenant.id,
-          userId: user.id,
-          role: 'user_admin',
-          status: 'invited',
-          invitedBy: actor?.userId,
-        },
-        update: { role: 'user_admin', invitedBy: actor?.userId ?? undefined },
-      });
     });
 
     return {

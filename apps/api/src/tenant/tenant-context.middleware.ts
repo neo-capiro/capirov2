@@ -106,14 +106,28 @@ export class TenantContextMiddleware implements NestMiddleware {
         // First-time authenticated request from this Clerk user. The webhook is
         // the canonical source of users, but a slow (or, as in the 2026-05
         // webhook-routing outage, undelivered) webhook must not block a user
-        // whose verified Clerk JWT already proves their identity. Create the
-        // row; the self-heal below attaches the membership from the JWT.
-        user = await tx.user.create({
-          data: {
-            clerkUserId: claims.sub,
-            email: claims.email ?? `${claims.sub}@unknown.invalid`,
-          },
-        });
+        // whose verified Clerk JWT already proves their identity.
+        //
+        // A row may already exist for this email — e.g. created by an earlier
+        // flow with a different/placeholder clerkUserId, or by an out-of-order
+        // webhook. Adopt it and bind it to this verified Clerk identity rather
+        // than INSERTing a duplicate, which would violate the unique email
+        // constraint and 500 every request. Verified-JWT email is authoritative.
+        const email = claims.email ?? `${claims.sub}@unknown.invalid`;
+        const existingByEmail = await tx.user.findUnique({ where: { email } });
+        if (existingByEmail) {
+          user = await tx.user.update({
+            where: { id: existingByEmail.id },
+            data: { clerkUserId: claims.sub },
+          });
+        } else {
+          user = await tx.user.create({
+            data: {
+              clerkUserId: claims.sub,
+              email,
+            },
+          });
+        }
       }
 
       let memberships = await tx.tenantMembership.findMany({
