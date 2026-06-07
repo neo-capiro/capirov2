@@ -69,6 +69,16 @@ export const INGESTION_JOBS: ScheduledIngestionJob[] = [
   { id: 'SyncLobbyTrending', command: ['sync-lobby-trending'], cron: { minute: '0', hour: '7', day: '1' }, tier: 'monthly', description: 'Lobby trending topics recompute (monthly)' },
 
   // ── TIER 5 — DERIVED / EMITTERS (daily, after sources) ────────────────────
+  // LIVE-DRIFT WARNING (2026-06-07): none of the derived jobs below have a live
+  // EventBridge rule yet EXCEPT an orphan `capiro-dev-emit-changes-daily` rule
+  // (legacy name + dead `EventsServiceRole`, no ecs:RunTask/iam:PassRole) that
+  // silently fails every fire — which is why the Changes Inbox / "Needs
+  // Attention" surfaces only comment-deadline alerts. When this matrix is finally
+  // consumed by a CDK construct: (1) DELETE that orphan rule, and (2) create all
+  // derived jobs with the `capiro-dev-eventbridge-sync-invoker` role (same role
+  // the source syncs use; it already PassRoles the emit-changes task+exec roles).
+  // Full write-up + the out-of-band remediation command:
+  //   apps/api/reports/changes-inbox-emit-changes-role-2026-06-07.md
   { id: 'ExtractBillPeCodes', command: ['extract-bill-pe-codes'], cron: { minute: '0', hour: '9' }, tier: 'derived', description: 'Bill<->PE linkage (after congress)' },
   { id: 'RefreshLobbyIntelMv', command: ['refresh-lobby-intel-mv'], cron: { minute: '30', hour: '9' }, tier: 'derived', description: 'Lobby intel MV refresh (after LDA/openlobby)' },
   { id: 'EmitChanges', command: ['emit-changes'], cron: { minute: '0', hour: '10' }, tier: 'derived', description: 'IntelligenceChange emitter (after sources)' },
