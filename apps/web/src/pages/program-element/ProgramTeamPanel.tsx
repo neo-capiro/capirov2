@@ -101,7 +101,7 @@ export function ProgramTeamPanel({
       {personnel.length === 0 ? (
         <Empty description="No team data found for this PE — log meeting contacts to build coverage" />
       ) : (
-        <div className="pe-team-list">
+        <div className="pe-team-list pe-scroll-5">
           {personnel.map((person) => {
             const conf = confidenceDot(person.confidence);
             const meta = [person.title, person.organization].filter(Boolean).join(' · ');

@@ -137,4 +137,49 @@ describe('BillsTouchingPePanel', () => {
     fireEvent.click(screen.getByText(/H\.R\. 123/i));
     expect(navigateMock).toHaveBeenCalledWith('/intelligence/bills/HR-123');
   });
+
+  test('blanket authorizer (NDAA, many PEs) is tagged; PE-specific bill is not', () => {
+    render(
+      <MemoryRouter>
+        <BillsTouchingPePanel
+          bills={[
+            {
+              id: 'HR-2670',
+              congress: 118,
+              billType: 'HR',
+              billNumber: '2670',
+              title: 'National Defense Authorization Act for Fiscal Year 2024',
+              policyArea: null,
+              latestActionText: 'Became Public Law',
+              latestActionDate: '2023-12-22',
+              url: null,
+              sponsor: 'Rep. Rogers',
+              committee: 'Armed Services',
+              peCodeCount: 746,
+            },
+            {
+              id: 'HR-100',
+              congress: 119,
+              billType: 'HR',
+              billNumber: '100',
+              title: 'A targeted program bill',
+              policyArea: null,
+              latestActionText: null,
+              latestActionDate: null,
+              url: null,
+              sponsor: 'Rep. Doe',
+              committee: 'Armed Services',
+              peCodeCount: 2,
+            },
+          ]}
+        />
+      </MemoryRouter>,
+    );
+
+    // The NDAA carries the blanket-authorizer tag with its PE count.
+    expect(screen.getByText(/Blanket authorizer · 746 PEs/i)).toBeInTheDocument();
+    // The targeted bill renders but is NOT tagged.
+    expect(screen.getByText(/A targeted program bill/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Blanket authorizer · 2 PEs/i)).toBeNull();
+  });
 });

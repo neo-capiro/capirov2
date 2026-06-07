@@ -341,6 +341,7 @@ export class ProgramElementReadService {
         latestActionDate: true,
         url: true,
         sponsorName: true,
+        peCodes: true,
         committeeRefs: {
           select: { committeeName: true },
           take: 1,
@@ -353,11 +354,30 @@ export class ProgramElementReadService {
     // is intentionally omitted — Congress.gov gives us no such signal, so the UI
     // shows honest metadata (sponsor, committee, latest action) rather than a
     // fabricated score.
-    return bills.map(({ committeeRefs, sponsorName, ...bill }) => ({
+    //
+    // peCodeCount = how many distinct PEs this bill references. This is the signal
+    // the UI needs to stop showing "the same two bills on every PE": the annual
+    // NDAA references 700+ PEs (it authorizes nearly all of them), so it surfaces
+    // on every program element and tells a lobbyist nothing PE-specific. A bill
+    // that names a handful of PEs is genuinely targeting this one. We sort the
+    // PE-specific bills first (fewest PEs), then by recency, and tag the blanket
+    // authorizers so the panel can label + de-emphasize them rather than hide
+    // real legislation.
+    const mapped = bills.map(({ committeeRefs, sponsorName, peCodes, ...bill }) => ({
       ...bill,
       sponsor: sponsorName,
       committee: committeeRefs[0]?.committeeName ?? null,
+      peCodeCount: peCodes?.length ?? 0,
     }));
+    mapped.sort((a, b) => {
+      // PE-specific bills (fewer PEs) ahead of blanket authorizers.
+      if (a.peCodeCount !== b.peCodeCount) return a.peCodeCount - b.peCodeCount;
+      // Then most-recent action first (nulls last).
+      const at = a.latestActionDate ? new Date(a.latestActionDate).getTime() : 0;
+      const bt = b.latestActionDate ? new Date(b.latestActionDate).getTime() : 0;
+      return bt - at;
+    });
+    return mapped;
   }
 
   async getContractors(peCode: string) {

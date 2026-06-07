@@ -1,4 +1,4 @@
-import { Card, Empty, List, Skeleton, Tag, Typography } from 'antd';
+import { Card, Empty, List, Skeleton, Tag, Tooltip, Typography } from 'antd';
 import { FolderOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ProgramElementBill } from './types.js';
@@ -73,6 +73,16 @@ function probabilityLabel(probability: number | null | undefined): string {
   return `${Math.round(probability * 100)}%`;
 }
 
+// A bill that references this many distinct PEs or more is a blanket authorizer
+// (the annual NDAA references ~700) rather than a PE-specific bill. We still show
+// it — it's real legislation — but tag it and let the API sink it to the bottom
+// so the genuinely PE-specific bills lead.
+const BLANKET_PE_THRESHOLD = 50;
+
+function isBlanketAuthorizer(bill: ProgramElementBill): boolean {
+  return (bill.peCodeCount ?? 0) >= BLANKET_PE_THRESHOLD;
+}
+
 export function BillsTouchingPePanel({ bills, loading = false }: BillsTouchingPePanelProps) {
   const navigate = useNavigate();
 
@@ -98,53 +108,67 @@ export function BillsTouchingPePanel({ bills, loading = false }: BillsTouchingPe
       title="Bills touching this PE"
       extra={<Text type="secondary">{bills.length} linked</Text>}
     >
-      <List
-        className="pe-bills-list"
-        dataSource={bills}
-        renderItem={(bill) => {
-          // Honest action chip: show passage probability only when the model
-          // actually produced one; otherwise surface the policy area, which is
-          // real metadata, instead of a misleading "N/A" score.
-          const hasProbability = typeof bill.passageProbability === 'number';
-          const actionDate = formatActionDate(bill.latestActionDate);
-          const pill = statusPill(bill);
-          const meta = [bill.sponsor ?? 'Sponsor N/A', bill.committee ?? 'Committee N/A'];
-          if (actionDate) meta.push(`Last action ${actionDate}`);
+      <div className="pe-scroll-5">
+        <List
+          className="pe-bills-list"
+          dataSource={bills}
+          renderItem={(bill) => {
+            // Honest action chip: show passage probability only when the model
+            // actually produced one; otherwise surface the policy area, which is
+            // real metadata, instead of a misleading "N/A" score.
+            const hasProbability = typeof bill.passageProbability === 'number';
+            const actionDate = formatActionDate(bill.latestActionDate);
+            const pill = statusPill(bill);
+            const blanket = isBlanketAuthorizer(bill);
+            const meta = [bill.sponsor ?? 'Sponsor N/A', bill.committee ?? 'Committee N/A'];
+            if (actionDate) meta.push(`Last action ${actionDate}`);
 
-          return (
-            <List.Item
-              key={bill.id}
-              className="pe-bill-row"
-              onClick={() => navigate(`/intelligence/bills/${encodeURIComponent(bill.id)}`)}
-              style={{ cursor: 'pointer' }}
-            >
-              <div className="pe-bill-ident">
-                <span className="pe-bill-num">{billLabel(bill)}</span>
-                <span className="pe-bill-chamber">{chamberLabel(bill)}</span>
-              </div>
-              <div className="pe-bill-body">
-                <div className="pe-bill-title">{truncate(bill.title)}</div>
-                <div className="pe-bill-meta">{meta.join(' • ')}</div>
-                {bill.policyArea ? (
-                  <span className="pe-bill-policy">
-                    <FolderOutlined /> {bill.policyArea}
-                  </span>
-                ) : null}
-              </div>
-              <div className="pe-bill-status">
-                {pill ? <span className={`pill ${pill.cls}`}>{pill.label}</span> : null}
-                {hasProbability ? (
-                  <Tag color={probabilityColor(bill.passageProbability)}>
-                    {probabilityLabel(bill.passageProbability)}
-                  </Tag>
-                ) : !pill ? (
-                  <Text type="secondary">{bill.congress}th</Text>
-                ) : null}
-              </div>
-            </List.Item>
-          );
-        }}
-      />
+            return (
+              <List.Item
+                key={bill.id}
+                className={`pe-bill-row${blanket ? ' pe-bill-blanket' : ''}`}
+                onClick={() => navigate(`/intelligence/bills/${encodeURIComponent(bill.id)}`)}
+                style={{ cursor: 'pointer' }}
+              >
+                <div className="pe-bill-ident">
+                  <span className="pe-bill-num">{billLabel(bill)}</span>
+                  <span className="pe-bill-chamber">{chamberLabel(bill)}</span>
+                </div>
+                <div className="pe-bill-body">
+                  <div className="pe-bill-title">{truncate(bill.title)}</div>
+                  <div className="pe-bill-meta">{meta.join(' • ')}</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {bill.policyArea ? (
+                      <span className="pe-bill-policy">
+                        <FolderOutlined /> {bill.policyArea}
+                      </span>
+                    ) : null}
+                    {blanket ? (
+                      <Tooltip
+                        title={`This bill references ${bill.peCodeCount?.toLocaleString()} program elements — it's a blanket authorizer (e.g. the annual NDAA), not a PE-specific bill.`}
+                      >
+                        <span className="pe-bill-blanket-tag">
+                          Blanket authorizer · {bill.peCodeCount?.toLocaleString()} PEs
+                        </span>
+                      </Tooltip>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="pe-bill-status">
+                  {pill ? <span className={`pill ${pill.cls}`}>{pill.label}</span> : null}
+                  {hasProbability ? (
+                    <Tag color={probabilityColor(bill.passageProbability)}>
+                      {probabilityLabel(bill.passageProbability)}
+                    </Tag>
+                  ) : !pill ? (
+                    <Text type="secondary">{bill.congress}th</Text>
+                  ) : null}
+                </div>
+              </List.Item>
+            );
+          }}
+        />
+      </div>
     </Card>
   );
 }

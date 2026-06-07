@@ -77,6 +77,9 @@ export interface ProgramElementBill {
   sponsor?: string | null;
   committee?: string | null;
   passageProbability?: number | null;
+  // How many distinct PEs this bill references. ~700 = an annual NDAA / blanket
+  // authorizer that touches nearly every PE; a small count = a PE-specific bill.
+  peCodeCount?: number;
 }
 
 export interface ProgramElementContractor {

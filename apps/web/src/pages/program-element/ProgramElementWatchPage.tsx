@@ -433,23 +433,23 @@ export function ProgramElementWatchPage() {
         <Col xs={24} xl={15}>
           <Suspense
             fallback={
-              <Card title="Bills touching this PE">
-                <Skeleton active paragraph={{ rows: 4 }} />
-              </Card>
-            }
-          >
-            <LazyBillsTouchingPePanel bills={bills} loading={billsQuery.isLoading} />
-          </Suspense>
-        </Col>
-        <Col xs={24} xl={9}>
-          <Suspense
-            fallback={
               <Card title="Top contractors touching this PE">
                 <Skeleton active paragraph={{ rows: 4 }} />
               </Card>
             }
           >
             <LazyContractorsPanel contractors={contractors} loading={contractorsQuery.isLoading} />
+          </Suspense>
+        </Col>
+        <Col xs={24} xl={9}>
+          <Suspense
+            fallback={
+              <Card title="Bills touching this PE">
+                <Skeleton active paragraph={{ rows: 4 }} />
+              </Card>
+            }
+          >
+            <LazyBillsTouchingPePanel bills={bills} loading={billsQuery.isLoading} />
           </Suspense>
         </Col>
       </Row>

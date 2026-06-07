@@ -16730,3 +16730,45 @@ body {
   .pe-watch-page .pe-team-row { grid-template-columns: 36px 1fr auto; }
   .pe-watch-page .pe-team-conf { display: none; }
 }
+
+/* ── Panel scrollers: show ~5 rows, then scroll, so no gadget runs too long.
+   Each panel's body scrolls internally; the card header stays pinned. The
+   max-heights are tuned to the per-row heights above (bill ≈ 72px incl. padding,
+   contractor table row ≈ 54px, team row ≈ 66px) so roughly five rows are
+   visible before the scrollbar appears. */
+.pe-watch-page .pe-scroll-5 {
+  max-height: 360px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* room so the last visible row isn't clipped against the scrollbar */
+  padding-right: 4px;
+}
+.pe-watch-page .pe-scroll-5.pe-scroll-table { max-height: 320px; }
+.pe-watch-page .pe-scroll-5::-webkit-scrollbar { width: 8px; }
+.pe-watch-page .pe-scroll-5::-webkit-scrollbar-thumb {
+  background: var(--border-2);
+  border-radius: 999px;
+}
+.pe-watch-page .pe-scroll-5::-webkit-scrollbar-track { background: transparent; }
+/* Keep the contractor sub-tables' sticky header readable while the body scrolls. */
+.pe-watch-page .pe-scroll-5 .ant-table-thead > tr > th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+/* A bill that authorizes hundreds of PEs (the annual NDAA) is a blanket
+   authorizer — real, but it appears on every PE, so we de-emphasize it and
+   sink it below the PE-specific bills. */
+.pe-watch-page .pe-bill-row.pe-bill-blanket { opacity: 0.72; }
+.pe-watch-page .pe-bill-blanket-tag {
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-sunken);
+  color: var(--ink-3);
+  border: 1px solid var(--border-1);
+}

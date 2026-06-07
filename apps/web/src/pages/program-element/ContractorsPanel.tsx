@@ -161,13 +161,15 @@ export function ContractorsPanel({ contractors, loading = false }: ContractorsPa
             Companies the Service names as the performing activity for this program element in
             its R-3 “Product Development” exhibit — a direct, document-level attribution.
           </Text>
-          <Table<ProgramElementNamedPrime>
-            rowKey={(row) => `${row.contractorName}-${row.fy ?? ''}-${row.pageNumber ?? ''}`}
-            size="small"
-            pagination={false}
-            columns={namedPrimeColumns}
-            dataSource={namedPrimes}
-          />
+          <div className="pe-scroll-5 pe-scroll-table">
+            <Table<ProgramElementNamedPrime>
+              rowKey={(row) => `${row.contractorName}-${row.fy ?? ''}-${row.pageNumber ?? ''}`}
+              size="small"
+              pagination={false}
+              columns={namedPrimeColumns}
+              dataSource={namedPrimes}
+            />
+          </div>
         </div>
       ) : null}
 
@@ -178,18 +180,20 @@ export function ContractorsPanel({ contractors, loading = false }: ContractorsPa
               Award dollar flow (USAspending, last 24 months)
             </Text>
           ) : null}
-          <Table<ProgramElementContractor>
-            rowKey={(row) => row.contractorName}
-            size="small"
-            pagination={false}
-            columns={columns}
-            dataSource={top10}
-            rowClassName={(row) => {
-              if (row.isNewEntrant) return 'contractor-row-warning contractor-row-highlight';
-              if (row.contractorIsCrmClient) return 'contractor-row-crm contractor-row-highlight';
-              return '';
-            }}
-          />
+          <div className="pe-scroll-5 pe-scroll-table">
+            <Table<ProgramElementContractor>
+              rowKey={(row) => row.contractorName}
+              size="small"
+              pagination={false}
+              columns={columns}
+              dataSource={top10}
+              rowClassName={(row) => {
+                if (row.isNewEntrant) return 'contractor-row-warning contractor-row-highlight';
+                if (row.contractorIsCrmClient) return 'contractor-row-crm contractor-row-highlight';
+                return '';
+              }}
+            />
+          </div>
           {hasProgramLinked ? (
             <Text type="secondary" style={{ display: 'block', marginTop: 8, fontSize: 12 }}>
               Rows tagged “via Acq Program” are linked through the contract’s DoD acquisition
