@@ -1,3 +1,15 @@
+// ============================================================================
+// ⛔ CHANGE-CONTROL: AUTHENTICATION / EMAIL INTEGRATION — APPROVAL REQUIRED
+// ----------------------------------------------------------------------------
+// Do NOT modify this file (or anything touching Clerk auth, the tenant-context
+// middleware, JWT/session handling, Microsoft Graph OAuth, the Clerk webhook,
+// or integration connection/token persistence) without EXPLICIT prior approval
+// from Neo. These paths gate every authenticated request and the email/Outlook
+// integration; a subtle change here has repeatedly caused tenant-wide 403/500
+// outages (see git history 2026-06-07 + skill: capiro-tenant-onboarding-flow).
+// Investigate read-only and PROPOSE first; wait for go-ahead before editing,
+// merging, or deploying.
+// ============================================================================
 import {
   ForbiddenException,
   Injectable,
