@@ -2040,6 +2040,99 @@ export class IntelligenceService {
     });
   }
 
+  /**
+   * Search lda_client by name (trigram) OR by exact numeric LDA client id.
+   *
+   * Powers the "attach a registrant manually" panel. Fuzzy resolution keys off
+   * the client's NAME, so a legacy/renamed variant (e.g. "RAYTHEON TECHNOLOGIES
+   * CORPORATION" under a client named "RTX CORPORATION") never clears the
+   * similarity floor and can't be confirmed through the auto-resolve flow. Here
+   * a human searches freely and pins an EXACT lda_client.id — the reliable,
+   * name-independent identifier. We return filing-history columns (state, total
+   * filings, latest year, spend, issue codes) so the right record is recognised
+   * by its footprint + stable id rather than by name alone.
+   */
+  async searchLdaClients(query: string) {
+    const q = query.trim();
+    if (!q) return [];
+    const asId = Number(q);
+    const idMatch = Number.isInteger(asId) && asId > 0 ? asId : -1;
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: number;
+        name: string;
+        state: string | null;
+        total_filings: number;
+        latest_filing_year: number | null;
+        total_spending: number | null;
+        issue_codes: string[];
+        similarity: number;
+      }>
+    >`
+      SELECT id, name, state,
+             total_filings,
+             latest_filing_year,
+             total_spending::float AS total_spending,
+             COALESCE(issue_codes, '{}') AS issue_codes,
+             GREATEST(
+               similarity(name, ${q}),
+               CASE WHEN id = ${idMatch} THEN 1 ELSE 0 END
+             ) AS similarity
+      FROM lda_client
+      WHERE similarity(name, ${q}) > 0.2 OR id = ${idMatch}
+      ORDER BY similarity DESC, total_filings DESC
+      LIMIT 25
+    `;
+    return rows.map((r) => ({
+      id: String(r.id),
+      name: r.name,
+      state: r.state,
+      totalFilings: Number(r.total_filings ?? 0),
+      latestFilingYear: r.latest_filing_year,
+      totalSpending: r.total_spending,
+      issueCodes: r.issue_codes ?? [],
+      similarity: Number(r.similarity ?? 0),
+    }));
+  }
+
+  /**
+   * Manually attach (and confirm) an external record to a client. For source
+   * 'lda' this pins an exact lda_client.id — the reliable way to fold a
+   * registrant variant the fuzzy matcher can't reach into a client's footprint.
+   * confidence=1 marks it as a deliberate human pin; confirmed=true so the
+   * union/match logic reads it immediately. Tenant-scoped: the client must
+   * belong to the caller's tenant.
+   */
+  async createManualMapping(
+    clientId: string,
+    tenantId: string,
+    input: { source: string; externalId: string; externalName: string },
+  ) {
+    const client = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({ where: { id: clientId }, select: { id: true } }),
+    );
+    if (!client) throw new NotFoundException('Client not found');
+
+    return this.prisma.clientIntelMapping.upsert({
+      where: {
+        clientId_source_externalId: {
+          clientId,
+          source: input.source,
+          externalId: input.externalId,
+        },
+      },
+      update: { externalName: input.externalName, confirmed: true },
+      create: {
+        clientId,
+        source: input.source,
+        externalId: input.externalId,
+        externalName: input.externalName,
+        confidence: 1,
+        confirmed: true,
+      },
+    });
+  }
+
   /** Resolve mappings by fuzzy matching a CRM client against all sources */
   async resolveMapping(clientId: string, tenantId: string) {
     const client = await this.prisma.withTenant(tenantId, (tx) =>

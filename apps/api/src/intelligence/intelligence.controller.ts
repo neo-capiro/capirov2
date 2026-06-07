@@ -50,6 +50,25 @@ class ConfirmMappingDto {
   confirmed!: boolean;
 }
 
+class LdaSearchQueryDto {
+  @IsString()
+  q!: string;
+}
+
+// Manual pin of an external record to a client. externalId is the source's
+// stable id (for 'lda' the exact lda_client.id) — the reliable, name-independent
+// way to attach a registrant variant the fuzzy matcher can't reach.
+class ManualMappingDto {
+  @IsIn(['lda', 'contracting', 'sec', 'fec_employer', 'fec_committee', 'fara', 'lobby_intel'])
+  source!: string;
+
+  @IsString()
+  externalId!: string;
+
+  @IsString()
+  externalName!: string;
+}
+
 class GenerateInsightsDto {
   @IsIn(['market', 'client', 'changes'])
   scope!: 'market' | 'client' | 'changes';
@@ -304,6 +323,30 @@ export class IntelligenceController {
     @Body() body: ConfirmMappingDto,
   ) {
     return this.service.confirmMapping(mappingId, body.confirmed);
+  }
+
+  // Free-text / by-id search of lda_client for the manual-attach panel. Returns
+  // identity + filing-history columns so a user can pin the right registrant by
+  // its stable id + footprint rather than by name similarity.
+  @Get('lda-clients/search')
+  searchLdaClients(@Query() q: LdaSearchQueryDto) {
+    return this.service.searchLdaClients(q.q);
+  }
+
+  // Manually pin (and confirm) an external record to a client. Admin-curation
+  // action, so gated like resolve-all.
+  @Post('mappings/:clientId/manual')
+  @Roles('user_admin')
+  createManualMapping(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+    @Body() body: ManualMappingDto,
+  ) {
+    return this.service.createManualMapping(clientId, ctx.tenantId, {
+      source: body.source,
+      externalId: body.externalId,
+      externalName: body.externalName,
+    });
   }
 
   // ── Feature 4.1: Report Card ───────────────────────────────────────────

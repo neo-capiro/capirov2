@@ -7,6 +7,7 @@ import {
   Card,
   Empty,
   Input,
+  Modal,
   Progress,
   Select,
   Skeleton,
@@ -17,7 +18,7 @@ import {
   Typography,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { CheckCircleOutlined, SyncOutlined } from '@ant-design/icons';
+import { CheckCircleOutlined, PlusOutlined, SyncOutlined } from '@ant-design/icons';
 import { useApi } from '../../lib/use-api.js';
 
 const { Text } = Typography;
@@ -61,6 +62,7 @@ export function IntelligenceMappingsPage() {
     searchParams.get('source') ?? undefined,
   );
   const [confirmedFilter, setConfirmedFilter] = useState<'all' | 'confirmed' | 'unconfirmed'>('all');
+  const [manualOpen, setManualOpen] = useState(false);
 
   const mappingsQuery = useQuery<ClientIntelMapping[]>({
     queryKey: ['intelligence-mappings'],
@@ -208,14 +210,19 @@ export function IntelligenceMappingsPage() {
           Intelligence Mappings
         </Typography.Title>
         <span style={{ flex: 1 }} />
-        <Button
-          type="primary"
-          icon={<SyncOutlined />}
-          loading={resolveAllMutation.isPending}
-          onClick={() => resolveAllMutation.mutate()}
-        >
-          Resolve All Clients
-        </Button>
+        <Space>
+          <Button icon={<PlusOutlined />} onClick={() => setManualOpen(true)}>
+            Add LDA mapping manually
+          </Button>
+          <Button
+            type="primary"
+            icon={<SyncOutlined />}
+            loading={resolveAllMutation.isPending}
+            onClick={() => resolveAllMutation.mutate()}
+          >
+            Resolve All Clients
+          </Button>
+        </Space>
       </div>
 
       {/* Filters + bulk actions */}
@@ -298,7 +305,209 @@ export function IntelligenceMappingsPage() {
           )}
         />
       )}
+
+      <ManualMapModal open={manualOpen} onClose={() => setManualOpen(false)} />
     </div>
+  );
+}
+
+interface ClientLite {
+  id: string;
+  name: string;
+}
+
+interface LdaSearchResult {
+  id: string;
+  name: string;
+  state: string | null;
+  totalFilings: number;
+  latestFilingYear: number | null;
+  totalSpending: number | null;
+  issueCodes: string[];
+  similarity: number;
+}
+
+function formatSpend(v: number | null): string {
+  if (v == null || v <= 0) return '—';
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`;
+  if (v >= 1_000) return `$${(v / 1_000).toFixed(0)}K`;
+  return `$${Math.round(v)}`;
+}
+
+/**
+ * Attach an LDA registrant to a client by EXACT lda_client.id. Fuzzy auto-resolve
+ * keys off the client's name, so a renamed/legacy variant (e.g. "RAYTHEON
+ * TECHNOLOGIES" under a client named "RTX") never surfaces. Here the user searches
+ * freely (by name OR id) and pins the right record by its stable id + filing
+ * footprint — creating a confirmed mapping the matching/union logic reads at once.
+ */
+function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const api = useApi();
+  const qc = useQueryClient();
+  const { notification } = AntApp.useApp();
+  const [clientId, setClientId] = useState<string | undefined>(undefined);
+  const [searchInput, setSearchInput] = useState('');
+  const [query, setQuery] = useState('');
+
+  const clientsQuery = useQuery<ClientLite[]>({
+    queryKey: ['clients-lite-for-mapping'],
+    queryFn: async () => (await api.get<ClientLite[]>('/api/clients')).data,
+    enabled: open,
+    staleTime: 60_000,
+  });
+
+  const searchQuery = useQuery<LdaSearchResult[]>({
+    queryKey: ['lda-client-search', query],
+    queryFn: async () =>
+      (
+        await api.get<LdaSearchResult[]>(
+          `/api/intelligence/lda-clients/search?q=${encodeURIComponent(query)}`,
+        )
+      ).data,
+    enabled: open && query.trim().length > 0,
+  });
+
+  const attachMutation = useMutation({
+    mutationFn: async (r: LdaSearchResult) =>
+      api.post(`/api/intelligence/mappings/${clientId}/manual`, {
+        source: 'lda',
+        externalId: r.id,
+        externalName: r.name,
+      }),
+    onSuccess: (_d, r) => {
+      notification.success({
+        message: 'Mapping attached',
+        description: `"${r.name}" (LDA id ${r.id}) is now a confirmed mapping. Its issue codes feed this client's matching immediately.`,
+      });
+      void qc.invalidateQueries({ queryKey: ['intelligence-mappings'] });
+    },
+    onError: (err) => notification.error({ message: 'Attach failed', description: apiErrorMessage(err) }),
+  });
+
+  const results = searchQuery.data ?? [];
+
+  const resultColumns: ColumnsType<LdaSearchResult> = [
+    { title: 'LDA id', dataIndex: 'id', width: 80, render: (v: string) => <Text code>{v}</Text> },
+    {
+      title: 'Registrant name',
+      dataIndex: 'name',
+      ellipsis: true,
+      render: (v: string) => <Text style={{ fontSize: 13 }}>{v}</Text>,
+    },
+    { title: 'State', dataIndex: 'state', width: 64, render: (v: string | null) => v ?? '—' },
+    { title: 'Filings', dataIndex: 'totalFilings', width: 72 },
+    {
+      title: 'Latest',
+      dataIndex: 'latestFilingYear',
+      width: 72,
+      render: (v: number | null) => v ?? '—',
+    },
+    {
+      title: 'Spend',
+      dataIndex: 'totalSpending',
+      width: 80,
+      render: (v: number | null) => formatSpend(v),
+    },
+    {
+      title: 'Issue codes',
+      dataIndex: 'issueCodes',
+      width: 150,
+      render: (codes: string[]) =>
+        codes.length ? (
+          <span>
+            {codes.slice(0, 4).map((c) => (
+              <Tag key={c} style={{ marginInlineEnd: 2 }}>
+                {c}
+              </Tag>
+            ))}
+            {codes.length > 4 ? <Text type="secondary">+{codes.length - 4}</Text> : null}
+          </span>
+        ) : (
+          <Text type="secondary">—</Text>
+        ),
+    },
+    {
+      title: '',
+      key: 'attach',
+      width: 90,
+      render: (_v, record) => (
+        <Button
+          size="small"
+          type="primary"
+          disabled={!clientId}
+          loading={attachMutation.isPending && attachMutation.variables?.id === record.id}
+          onClick={() => attachMutation.mutate(record)}
+        >
+          Attach
+        </Button>
+      ),
+    },
+  ];
+
+  return (
+    <Modal
+      title="Attach an LDA registrant manually"
+      open={open}
+      onCancel={onClose}
+      footer={<Button onClick={onClose}>Done</Button>}
+      width={860}
+      afterClose={() => {
+        setClientId(undefined);
+        setSearchInput('');
+        setQuery('');
+      }}
+    >
+      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+        Use this for registrant variants the automatic matcher can&apos;t find — e.g. a
+        renamed or legacy entity (&quot;RAYTHEON TECHNOLOGIES&quot; under a client named
+        &quot;RTX&quot;). Pick the client, search the federal LDA registry by name or id, and
+        pin the exact record. It&apos;s saved as a confirmed mapping and folded into that
+        client&apos;s issue-code footprint right away.
+      </Text>
+
+      <Space direction="vertical" size={12} style={{ width: '100%' }}>
+        <Select
+          showSearch
+          placeholder="1 · Select the client to attach to"
+          style={{ width: '100%' }}
+          value={clientId}
+          loading={clientsQuery.isLoading}
+          onChange={(v) => setClientId(v)}
+          optionFilterProp="label"
+          options={(clientsQuery.data ?? []).map((c) => ({ label: c.name, value: c.id }))}
+        />
+
+        <Input.Search
+          placeholder="2 · Search LDA registry by name or id (e.g. raytheon, or 4321)"
+          enterButton="Search"
+          allowClear
+          value={searchInput}
+          onChange={(e) => setSearchInput(e.target.value)}
+          onSearch={(v) => setQuery(v)}
+          loading={searchQuery.isFetching}
+        />
+
+        {query.trim().length > 0 && (
+          <Table<LdaSearchResult>
+            rowKey="id"
+            size="small"
+            loading={searchQuery.isFetching}
+            dataSource={results}
+            columns={resultColumns}
+            pagination={false}
+            scroll={{ y: 320 }}
+            locale={{
+              emptyText: (
+                <Empty
+                  description="No LDA registrants matched. Try a shorter name or the numeric id."
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
+              ),
+            }}
+          />
+        )}
+      </Space>
+    </Modal>
   );
 }
 
