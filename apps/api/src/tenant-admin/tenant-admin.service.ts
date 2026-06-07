@@ -17,6 +17,8 @@ import type { Prisma } from '@prisma/client';
 interface InviteTeamMemberInput {
   email: string;
   role: 'user_admin' | 'standard_user';
+  firstName?: string;
+  lastName?: string;
   redirectUrl?: string;
 }
 
@@ -103,6 +105,8 @@ export class TenantAdminService {
 
   async inviteTeamMember(ctx: TenantContext, input: InviteTeamMemberInput) {
     const email = normalizeEmail(input.email);
+    const firstName = input.firstName?.trim() || null;
+    const lastName = input.lastName?.trim() || null;
     const tenant = await this.prisma.withSystem(async (tx) =>
       tx.tenant.findUnique({ where: { id: ctx.tenantId } }),
     );
@@ -129,7 +133,48 @@ export class TenantAdminService {
       organizationId: tenant.clerkOrgId,
       emailAddress: email,
       role: toClerkOrganizationRole(input.role),
+      // Carry the invitee's name through to sign-up; Clerk pre-fills the form
+      // and the webhook persists firstName/lastName on user.created.
+      publicMetadata: {
+        capiro_tenant_id: tenant.id,
+        ...(firstName ? { first_name: firstName } : {}),
+        ...(lastName ? { last_name: lastName } : {}),
+      },
       redirectUrl: input.redirectUrl ?? this.defaultInvitationRedirectUrl(),
+    });
+
+    // Eagerly create a local "invited" user + membership so the team list shows
+    // the pending member (with name) immediately. The Clerk webhook reconciles
+    // clerkUserId + status='active' once the invitee accepts.
+    await this.prisma.withSystem(async (tx) => {
+      const existingUser = await tx.user.findUnique({ where: { email } });
+      const user = existingUser
+        ? await tx.user.update({
+            where: { id: existingUser.id },
+            data: {
+              firstName: firstName ?? existingUser.firstName,
+              lastName: lastName ?? existingUser.lastName,
+            },
+          })
+        : await tx.user.create({
+            data: {
+              clerkUserId: `pending:${invitation.id}`,
+              email,
+              firstName,
+              lastName,
+            },
+          });
+      await tx.tenantMembership.upsert({
+        where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
+        create: {
+          tenantId: tenant.id,
+          userId: user.id,
+          role: input.role,
+          status: 'invited',
+          invitedBy: ctx.userId,
+        },
+        update: { role: input.role, invitedBy: ctx.userId },
+      });
     });
 
     return {
@@ -138,6 +183,8 @@ export class TenantAdminService {
         id: invitation.id,
         email: invitation.emailAddress,
         role: input.role,
+        firstName,
+        lastName,
         createdAt: new Date(invitation.createdAt).toISOString(),
         expiresAt: invitation.expiresAt ? new Date(invitation.expiresAt).toISOString() : null,
       },

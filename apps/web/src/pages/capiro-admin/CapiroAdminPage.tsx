@@ -35,6 +35,8 @@ interface CreateTenantInput {
   slug: string;
   name: string;
   adminEmail: string;
+  adminFirstName?: string;
+  adminLastName?: string;
 }
 
 export function CapiroAdminPage() {
@@ -75,10 +77,21 @@ function TenantsTab() {
   const create = useMutation({
     mutationFn: async (input: CreateTenantInput) =>
       (await api.post('/api/capiro-admin/tenants', input)).data,
-    onSuccess: () => {
-      message.success('Tenant created and admin provisioned in Clerk');
+    onSuccess: (_data, vars) => {
+      message.success(`Tenant created. Invitation email sent to ${vars.adminEmail}`);
       setOpen(false);
       form.resetFields();
+      qc.invalidateQueries({ queryKey: ['capiro-admin', 'tenants'] });
+    },
+    onError: (err) => message.error((err as Error).message),
+  });
+
+  const deleteTenant = useMutation({
+    mutationFn: async (tenantId: string) =>
+      (await api.delete(`/api/capiro-admin/tenants/${tenantId}`)).data,
+    onSuccess: (_data, tenantId) => {
+      const t = tenants.data?.find((x) => x.id === tenantId);
+      message.success(`Tenant ${t?.slug ?? ''} deleted`);
       qc.invalidateQueries({ queryKey: ['capiro-admin', 'tenants'] });
     },
     onError: (err) => message.error((err as Error).message),
@@ -142,16 +155,29 @@ function TenantsTab() {
           { title: 'Created', dataIndex: 'createdAt', width: 200 },
           {
             title: '',
-            width: 120,
+            width: 200,
             render: (_v, r) => (
-              <Popconfirm
-                title="Impersonate this tenant?"
-                description="A reason will be required and audit-logged."
-                okText="Continue"
-                onConfirm={() => setImpOpen(r)}
-              >
-                <Button size="small">Impersonate</Button>
-              </Popconfirm>
+              <Space>
+                <Popconfirm
+                  title="Impersonate this tenant?"
+                  description="A reason will be required and audit-logged."
+                  okText="Continue"
+                  onConfirm={() => setImpOpen(r)}
+                >
+                  <Button size="small">Impersonate</Button>
+                </Popconfirm>
+                <Popconfirm
+                  title={`Delete tenant "${r.slug}"?`}
+                  description="Permanently deletes the tenant, its Clerk org, all members, clients, meetings and data. This cannot be undone."
+                  okText="Delete"
+                  okButtonProps={{ danger: true, loading: deleteTenant.isPending }}
+                  onConfirm={() => deleteTenant.mutate(r.id)}
+                >
+                  <Button size="small" danger>
+                    Delete
+                  </Button>
+                </Popconfirm>
+              </Space>
             ),
           },
         ]}
@@ -159,12 +185,12 @@ function TenantsTab() {
 
       {/* Create tenant */}
       <Modal
-        title="Create tenant + provision admin"
+        title="Create tenant + invite admin"
         open={open}
         onCancel={() => setOpen(false)}
         onOk={() => form.submit()}
         confirmLoading={create.isPending}
-        okText="Create + provision"
+        okText="Create + send invite"
       >
         <Form form={form} layout="vertical" onFinish={(v) => create.mutate(v)}>
           <Form.Item
@@ -184,9 +210,18 @@ function TenantsTab() {
           <Form.Item name="name" label="Display name" rules={[{ required: true, min: 2 }]}>
             <Input placeholder="Acme Lobbying Group" />
           </Form.Item>
+          <Space style={{ display: 'flex' }} align="start">
+            <Form.Item name="adminFirstName" label="Admin first name" style={{ flex: 1 }}>
+              <Input placeholder="Jane" />
+            </Form.Item>
+            <Form.Item name="adminLastName" label="Admin last name" style={{ flex: 1 }}>
+              <Input placeholder="Doe" />
+            </Form.Item>
+          </Space>
           <Form.Item
             name="adminEmail"
             label="Admin email"
+            extra="An onboarding invitation email is sent to this address."
             rules={[{ required: true, type: 'email' }]}
           >
             <Input placeholder="admin@acme.com" />

@@ -20,6 +20,16 @@ class CreateTenantDto {
   adminEmail!: string;
 
   @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  adminFirstName?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 100)
+  adminLastName?: string;
+
+  @IsOptional()
   @IsUrl()
   redirectUrl?: string;
 }
@@ -66,6 +76,11 @@ export class CapiroAdminController {
   @Get('tenants/:tenantId')
   getTenant(@Param('tenantId') tenantId: string) {
     return this.service.getTenant(tenantId);
+  }
+
+  @Delete('tenants/:tenantId')
+  deleteTenant(@Param('tenantId') tenantId: string) {
+    return this.service.deleteTenant(tenantId);
   }
 
   @Post('tenants/:tenantId/admins/resend')

@@ -10,6 +10,8 @@ interface CreateTenantInput {
   slug: string;
   name: string;
   adminEmail: string;
+  adminFirstName?: string;
+  adminLastName?: string;
   redirectUrl?: string;
 }
 
@@ -64,6 +66,10 @@ export class CapiroAdminService {
       );
     }
 
+    const adminEmail = input.adminEmail.trim().toLowerCase();
+    const adminFirstName = input.adminFirstName?.trim() || null;
+    const adminLastName = input.adminLastName?.trim() || null;
+
     // Step 1: Clerk org.
     const existingList = await this.clerk.backend.organizations.getOrganizationList({
       query: slug,
@@ -90,17 +96,154 @@ export class CapiroAdminService {
       publicMetadata: { capiro_tenant_id: tenant.id, capiro_tenant_slug: slug },
     });
 
-    // Step 3: real Clerk user + org membership, mirrored back to Capiro.
-    const admin = await this.provisioning.provisionOrganizationMember({
-      tenantId: tenant.id,
+    // Step 3: INVITE the first admin via Clerk's organization invitation flow.
+    //
+    // This is the only path that actually sends an onboarding *email*. The
+    // previous implementation called provisionOrganizationMember(), which
+    // created a passwordless Clerk user + an immediately-active membership and
+    // sent NOTHING — the invitee never received a link and had no way to set a
+    // password, which is exactly the "added a tenant but no invite arrived in
+    // Outlook" failure. We now mirror the team-invite flow: revoke any stale
+    // pending invite, then createOrganizationInvitation with a /sign-up
+    // redirect so the invitee gets the real Clerk email.
+    //
+    // If the admin is *already* a real Clerk user (re-inviting an existing
+    // person, e.g. an internal re-run), Clerk auto-routes them to /sign-in.
+    await this.revokeStalePendingInvitation(org.id, adminEmail, actor?.clerkUserId);
+
+    const invitation = await this.clerk.backend.organizations.createOrganizationInvitation({
       organizationId: org.id,
-      email: input.adminEmail,
-      role: 'user_admin',
-      actorUserId: actor?.userId,
-      actorClerkUserId: actor?.clerkUserId,
+      emailAddress: adminEmail,
+      role: 'org:admin',
+      // Carry the admin's name through to the sign-up form so Clerk pre-fills
+      // it and the webhook persists it on user.created.
+      publicMetadata: {
+        capiro_tenant_id: tenant.id,
+        ...(adminFirstName ? { first_name: adminFirstName } : {}),
+        ...(adminLastName ? { last_name: adminLastName } : {}),
+      },
+      redirectUrl: input.redirectUrl ?? this.defaultInvitationRedirectUrl(),
     });
 
-    return { tenant, admin, clerkOrgId: org.id };
+    // Eagerly create a local "invited" user + membership so the Capiro Admin
+    // tenant view shows the pending admin (with name) immediately, before the
+    // invitee accepts. The Clerk webhook reconciles clerkUserId on accept.
+    await this.prisma.withSystem(async (tx) => {
+      const placeholderClerkId = `pending:${invitation.id}`;
+      const existingUser =
+        (await tx.user.findUnique({ where: { email: adminEmail } })) ?? null;
+      const user = existingUser
+        ? await tx.user.update({
+            where: { id: existingUser.id },
+            data: {
+              firstName: adminFirstName ?? existingUser.firstName,
+              lastName: adminLastName ?? existingUser.lastName,
+            },
+          })
+        : await tx.user.create({
+            data: {
+              clerkUserId: placeholderClerkId,
+              email: adminEmail,
+              firstName: adminFirstName,
+              lastName: adminLastName,
+            },
+          });
+      await tx.tenantMembership.upsert({
+        where: { tenantId_userId: { tenantId: tenant.id, userId: user.id } },
+        create: {
+          tenantId: tenant.id,
+          userId: user.id,
+          role: 'user_admin',
+          status: 'invited',
+          invitedBy: actor?.userId,
+        },
+        update: { role: 'user_admin', invitedBy: actor?.userId ?? undefined },
+      });
+    });
+
+    return {
+      tenant,
+      invitation: {
+        id: invitation.id,
+        email: invitation.emailAddress,
+        status: 'invited' as const,
+        createdAt: new Date(invitation.createdAt).toISOString(),
+        expiresAt: invitation.expiresAt ? new Date(invitation.expiresAt).toISOString() : null,
+      },
+      clerkOrgId: org.id,
+    };
+  }
+
+  /**
+   * Hard-delete a tenant: remove the Clerk organization (best-effort) and
+   * cascade-delete the tenant row in our DB. Every tenant-scoped table has an
+   * `onDelete: Cascade` FK to `tenants`, so a single prisma delete removes all
+   * dependent data (memberships, clients, meetings, mail, clio, etc.).
+   *
+   * This is a destructive, capiro_admin-only operation intended for cleaning up
+   * test/abandoned tenants. There is no soft-delete recovery.
+   */
+  async deleteTenant(tenantId: string) {
+    const tenant = await this.prisma.withSystem(async (tx) =>
+      tx.tenant.findUnique({ where: { id: tenantId } }),
+    );
+    if (!tenant) throw new NotFoundException('Tenant not found');
+
+    // Step 1: delete the Clerk organization (revokes memberships + pending
+    // invitations on Clerk's side). Best-effort — if Clerk is already missing
+    // the org, proceed with the local delete so we don't strand the DB row.
+    if (tenant.clerkOrgId) {
+      await this.clerk.backend.organizations
+        .deleteOrganization(tenant.clerkOrgId)
+        .catch((err) => {
+          this.logger.warn(
+            `Clerk deleteOrganization(${tenant.clerkOrgId}) failed: ${(err as Error).message}`,
+          );
+        });
+    }
+
+    // Step 2: cascade-delete the tenant and all tenant-scoped rows.
+    await this.prisma.withSystem(async (tx) => {
+      await tx.tenant.delete({ where: { id: tenantId } });
+    });
+
+    this.logger.log(`Deleted tenant ${tenantId} (${tenant.slug})`);
+    return { ok: true, deletedTenantId: tenantId, slug: tenant.slug };
+  }
+
+  private async revokeStalePendingInvitation(
+    organizationId: string,
+    email: string,
+    requestingUserId?: string,
+  ): Promise<void> {
+    const pending = await this.clerk.backend.organizations.getOrganizationInvitationList({
+      organizationId,
+      status: ['pending'],
+      limit: 100,
+    });
+    const stale = pending.data.find((inv) => inv.emailAddress.toLowerCase() === email);
+    if (!stale) return;
+    await this.clerk.backend.organizations
+      .revokeOrganizationInvitation({
+        organizationId,
+        invitationId: stale.id,
+        requestingUserId,
+      })
+      .catch((err) => {
+        this.logger.warn(`Unable to revoke stale invitation ${stale.id}: ${(err as Error).message}`);
+      });
+  }
+
+  private defaultInvitationRedirectUrl(): string {
+    const override = this.config.get('INVITATION_REDIRECT_URL', { infer: true }) as
+      | string
+      | undefined;
+    if (override) return override;
+    const rawOrigin = this.config.get('WEB_ORIGIN', { infer: true }) as string | undefined;
+    const firstOrigin = rawOrigin?.split(',')[0]?.trim();
+    const origin =
+      firstOrigin && /^https?:\/\//.test(firstOrigin) ? firstOrigin : 'https://app.capiro.ai';
+    return `${origin.replace(/\/$/, '')}/sign-up`;
   }
 
   async resendAdminInvitation(tenantId: string, email: string, redirectUrl?: string) {
