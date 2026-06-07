@@ -161,7 +161,7 @@ async function main() {
         // treats NULLs as distinct; we store '' to keep upsert idempotent).
         await prisma.programElementPerformer.upsert({
           where: {
-            program_element_performer_natural_key: {
+            peCode_performerNormalized_location_contractMethod_costCategory_fy: {
               peCode: row.peCode,
               performerNormalized: row.performerNormalized,
               location: row.location ?? '',
