@@ -58,6 +58,11 @@ export class ProgramElementController {
     return this.service.getContractors(peCode);
   }
 
+  @Get(':peCode/related')
+  related(@Param('peCode') peCode: string) {
+    return this.service.getRelatedProgramElements(peCode);
+  }
+
   @Post(':peCode/watch')
   watch(
     @CurrentTenant() ctx: TenantContext,

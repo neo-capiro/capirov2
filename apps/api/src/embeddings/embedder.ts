@@ -275,3 +275,23 @@ export function buildLdaText(f: {
   ].filter(Boolean);
   return normalize(parts.join('\n'));
 }
+
+export function buildProgramElementText(p: {
+  peCode: string;
+  title: string;
+  service: string | null;
+  budgetActivityName: string | null;
+  appropriationType: string | null;
+  programOfRecord: string | null;
+  description: string | null;
+}): string {
+  const parts = [
+    `Program Element ${p.peCode}: ${p.title}`,
+    p.service ? `Service: ${p.service}` : null,
+    p.appropriationType ? `Appropriation: ${p.appropriationType}` : null,
+    p.budgetActivityName ? `Budget activity: ${p.budgetActivityName}` : null,
+    p.programOfRecord ? `Program of record: ${p.programOfRecord}` : null,
+    p.description,
+  ].filter(Boolean);
+  return normalize(parts.join('\n'));
+}

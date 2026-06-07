@@ -121,6 +121,22 @@ export interface ProgramElementContractorsResponse {
   todo: string | null;
 }
 
+// A semantically-similar PE surfaced by mission-embedding similarity. This is a
+// SUGGESTION, not a documented relationship — the UI must label it as such and
+// show the similarity so the user can judge it.
+export interface ProgramElementRelated {
+  peCode: string;
+  title: string;
+  service: string | null;
+  // 0..1 cosine similarity between the two PEs' mission embeddings.
+  similarity: number;
+}
+
+export interface ProgramElementRelatedResponse {
+  related: ProgramElementRelated[];
+  todo: string | null;
+}
+
 export interface ProgramTeamPerson {
   id: string;
   fullName: string;
