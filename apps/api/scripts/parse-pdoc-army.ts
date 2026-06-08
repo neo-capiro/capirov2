@@ -58,10 +58,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const prisma = new PrismaClient();
+  const prisma = new PrismaService();
   await prisma.$connect();
   try {
-    const prismaService = prisma as unknown as PrismaService;
+    const prismaService = prisma;
     const writer = new ProgramElementWriterService(prismaService);
     const parser = new PDocParserService(writer, prismaService);
 

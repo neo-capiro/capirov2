@@ -65,10 +65,10 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const prisma = new PrismaClient();
+  const prisma = new PrismaService();
   await prisma.$connect();
   try {
-    const writer = new ProgramElementWriterService(prisma as unknown as PrismaService);
+    const writer = new ProgramElementWriterService(prisma);
     const parser = new ArmedServicesReportParserService(writer);
 
     const records = parseExtractedRows(artifact.rows ?? [], { fy });
