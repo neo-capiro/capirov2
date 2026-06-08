@@ -452,7 +452,14 @@ async function backfillCapabilities(
   limit?: number,
 ): Promise<RunCounts> {
   const where = tenantFilter ? { tenantId: tenantFilter } : {};
-  const total = await prisma.clientCapability.count({ where });
+  // client_capabilities is RLS-FORCED. This backfill reads ACROSS tenants
+  // (where={} when no tenantFilter), so the read must bypass RLS — the writes
+  // already do (upsertRow bypassRls:true). Without this the count/findMany
+  // return zero rows under the non-super app role and the backfill no-ops.
+  const total = await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL app.bypass_rls = 'on'`);
+    return tx.clientCapability.count({ where });
+  });
   console.log(`[capabilities] ${total} rows, tenant=${tenantFilter ?? 'all'}`);
 
   let processed = 0;
@@ -463,11 +470,14 @@ async function backfillCapabilities(
   let lastId: string | undefined;
 
   while (true) {
-    const batch = await prisma.clientCapability.findMany({
-      take: PAGE_SIZE,
-      where,
-      ...(lastId ? { cursor: { id: lastId }, skip: 1 } : {}),
-      orderBy: { id: 'asc' },
+    const batch = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL app.bypass_rls = 'on'`);
+      return tx.clientCapability.findMany({
+        take: PAGE_SIZE,
+        where,
+        ...(lastId ? { cursor: { id: lastId }, skip: 1 } : {}),
+        orderBy: { id: 'asc' },
+      });
     });
     if (batch.length === 0) break;
 

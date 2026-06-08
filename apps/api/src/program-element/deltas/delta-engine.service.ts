@@ -459,10 +459,15 @@ export class DeltaEngineService {
       // Match BOTH the legacy scalar peNumber and the multi-PE peNumbers[] array directly, so
       // a peNumbers[]-only capability is caught here (not only via the relevance leg, which
       // has a .catch->[] fallback that could silently drop it).
-      this.prisma.clientCapability.findMany({
-        where: { OR: [{ peNumber: peCode }, { peNumbers: { has: peCode } }] },
-        select: { tenantId: true, clientId: true },
-      }),
+      // Cross-tenant BY DESIGN (enumerate every tenant whose capability names
+      // this PE). client_capabilities is RLS-FORCED, so this must run on the
+      // system (bypass) path or it returns zero rows for the app role.
+      this.prisma.withSystem((tx) =>
+        tx.clientCapability.findMany({
+          where: { OR: [{ peNumber: peCode }, { peNumbers: { has: peCode } }] },
+          select: { tenantId: true, clientId: true },
+        }),
+      ),
       this.relevanceService
         ? this.relevanceService
             .getRelevantTenantClientsForPe(peCode, { minScore: 0.5 })

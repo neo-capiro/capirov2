@@ -247,7 +247,9 @@ export class StrategiesService {
 
     const [capability, client] = await Promise.all([
       strategy.capabilityId
-        ? this.prisma.clientCapability.findUnique({ where: { id: strategy.capabilityId } })
+        ? this.prisma.withTenant(tenantId, (tx) =>
+            tx.clientCapability.findUnique({ where: { id: strategy.capabilityId! } }),
+          )
         : Promise.resolve(null),
       this.prisma.client.findUnique({ where: { id: strategy.clientId } }),
     ]);
@@ -283,7 +285,9 @@ export class StrategiesService {
 
     const [capability, client] = await Promise.all([
       strategy.capabilityId
-        ? this.prisma.clientCapability.findUnique({ where: { id: strategy.capabilityId } })
+        ? this.prisma.withTenant(tenantId, (tx) =>
+            tx.clientCapability.findUnique({ where: { id: strategy.capabilityId! } }),
+          )
         : Promise.resolve(null),
       this.prisma.client.findUnique({ where: { id: strategy.clientId } }),
     ]);

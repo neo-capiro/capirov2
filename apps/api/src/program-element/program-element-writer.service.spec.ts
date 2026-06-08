@@ -499,6 +499,24 @@ function createPrismaMock() {
         capabilities.filter((c) => c.peNumber === where.peNumber),
       ),
     },
+    // client_capabilities is RLS-FORCED; getAffectedTenants reads it cross-tenant
+    // via the bypass path (withSystem). Run the callback against a stub tx backed
+    // by the same `capabilities` fixture.
+    withSystem: jest.fn(
+      async (
+        fn: (tx: {
+          clientCapability: {
+            findMany: (args: { where: { peNumber: string } }) => Promise<unknown>;
+          };
+        }) => unknown,
+      ) =>
+        fn({
+          clientCapability: {
+            findMany: async ({ where }: { where: { peNumber: string } }) =>
+              capabilities.filter((c) => c.peNumber === where.peNumber),
+          },
+        }),
+    ),
     intelligenceChange: {
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
         intelligenceChanges.push({ ...data });
