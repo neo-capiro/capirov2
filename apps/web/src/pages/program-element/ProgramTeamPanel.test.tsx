@@ -33,7 +33,108 @@ const people = [
   { id: '5', fullName: 'Sam Patel', title: 'Tech Director', organization: 'DARPA', role: 'TD', confidence: 0.81, lastSeenAt: '2026-01-11T00:00:00.000Z', sourceCount: 5 },
 ];
 
+// Step 2.2 (plan §8): people hang off OFFICES and ROLES. A person with a real
+// PersonRole chain renders a contactUse badge + the verbatim why-shown line + a
+// freshness line, plus a stale badge when staleAt is set.
+const personWithRoles = {
+  id: 'r1',
+  fullName: 'COL Dana Reyes',
+  title: 'Procurement Lead',
+  organization: 'PEO Missiles & Space',
+  role: 'KO',
+  confidence: 0.93,
+  lastSeenAt: '2026-01-10T00:00:00.000Z',
+  sourceCount: 2,
+  roles: [
+    {
+      id: 'role-1',
+      roleTitle: 'Contracting Officer',
+      roleType: 'contracting_officer',
+      officeName: 'PEO Missiles & Space',
+      programName: 'LRPF',
+      contactUse: 'official_procurement_poc',
+      contactUseLabel: 'Official procurement POC',
+      reviewStatus: 'accepted',
+      // Noon UTC so the calendar day is stable across the runner's timezone.
+      observedAt: '2026-01-10T12:00:00.000Z',
+      staleAt: '2026-06-01T00:00:00.000Z',
+      whyShown:
+        'Contracting Officer in PEO Missiles & Space, which manages LRPF (mapped to this PE)',
+    },
+    {
+      id: 'role-2',
+      roleTitle: 'Deputy PM',
+      roleType: 'deputy',
+      officeName: 'PEO Missiles & Space',
+      programName: null,
+      contactUse: 'program_ownership_context',
+      contactUseLabel: 'Program ownership context',
+      reviewStatus: 'accepted',
+      observedAt: '2026-01-08T00:00:00.000Z',
+      staleAt: null,
+      whyShown: 'Deputy PM in PEO Missiles & Space',
+    },
+  ],
+};
+
+const personEmptyRoles = {
+  id: 'e1',
+  fullName: 'Pat Lin',
+  title: 'Program Analyst',
+  organization: 'DARPA',
+  role: 'Analyst',
+  confidence: 0.84,
+  lastSeenAt: '2026-01-09T00:00:00.000Z',
+  sourceCount: 1,
+  roles: [],
+};
+
 describe('ProgramTeamPanel', () => {
+  test('renders the primary role contactUse badge, why-shown, and stale badge', () => {
+    setupBrowserMocks();
+    render(<ProgramTeamPanel personnel={[personWithRoles]} />);
+
+    expect(screen.getByText('Official procurement POC')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Contracting Officer in PEO Missiles & Space, which manages LRPF (mapped to this PE)',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Stale — verify before use')).toBeInTheDocument();
+    // The freshness line renders the observed date. The "Last observed", the date,
+    // and the host suffix are separate text nodes, so match on the element's
+    // normalized textContent rather than a single text node.
+    expect(
+      screen.getByText((_content, el) =>
+        Boolean(
+          el?.className === 'pe-team-role-seen' &&
+            (el.textContent ?? '').includes('Last observed Jan 10, 2026'),
+        ),
+      ),
+    ).toBeInTheDocument();
+    // The additional (non-primary) role is listed compactly.
+    expect(screen.getByText('Deputy PM · Program ownership context')).toBeInTheDocument();
+  });
+
+  test('empty roles → legacy display + pending note, no crash, no "owns PE"', () => {
+    setupBrowserMocks();
+    const { container } = render(<ProgramTeamPanel personnel={[personEmptyRoles]} />);
+
+    // Legacy display still renders.
+    expect(screen.getByText('Pat Lin')).toBeInTheDocument();
+    expect(screen.getByText('Program Analyst · DARPA')).toBeInTheDocument();
+    // Subtle muted pending note instead of a role chain.
+    expect(screen.getByText('Role mapping pending review')).toBeInTheDocument();
+    // The forbidden phrase never appears anywhere in the rendered output.
+    expect(container.textContent ?? '').not.toContain('owns PE');
+  });
+
+  test('never renders the phrase "owns PE" even with a full role chain', () => {
+    setupBrowserMocks();
+    const { container } = render(<ProgramTeamPanel personnel={[personWithRoles]} />);
+    expect(container.textContent ?? '').not.toContain('owns PE');
+  });
+
   test('renders with 5 persons and link actions', () => {
     setupBrowserMocks();
     const onLink = vi.fn();

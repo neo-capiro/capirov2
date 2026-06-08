@@ -1,5 +1,6 @@
-import { Avatar, Button, Card, Empty, Skeleton, Typography } from 'antd';
+import { Avatar, Button, Card, Empty, Skeleton, Tag, Typography } from 'antd';
 import { ExportOutlined } from '@ant-design/icons';
+import type { PersonRoleSummary } from './types.js';
 
 const { Text, Link } = Typography;
 
@@ -13,6 +14,43 @@ export interface ProgramTeamPerson {
   lastSeenAt: string;
   sourceCount: number;
   headshotUrl?: string | null;
+  // Step 2.2 (plan §8): people hang off OFFICES and ROLES, never directly off a PE.
+  // Empty/absent → render the legacy display + a muted "role mapping pending" note.
+  roles?: PersonRoleSummary[];
+}
+
+// contactUse → AntD Tag color. Procurement-sensitive / quarantined buckets read
+// hot (red) so a user never mistakes them for a safe lobbying target; the actual
+// procurement POC reads volcano (visible, but distinct from "do not contact").
+const CONTACT_USE_TAG_COLOR: Record<string, string> = {
+  official_procurement_poc: 'volcano',
+  do_not_contact_procurement_sensitive: 'red',
+  quarantined: 'red',
+  candidate: 'default',
+  program_ownership_context: 'blue',
+  internal_owner: 'geekblue',
+  relationship_owner: 'geekblue',
+  lobbying_contact: 'green',
+};
+
+function contactUseColor(contactUse: string): string {
+  return CONTACT_USE_TAG_COLOR[contactUse] ?? 'default';
+}
+
+// Best-effort host for the freshness line. The role summary carries no source URL
+// in the current contract, so this is defensive: if a sourceUrl/source ever rides
+// along we surface its host; otherwise the freshness line is just the date.
+function sourceHost(role: PersonRoleSummary): string | null {
+  const raw = (role as { sourceUrl?: string | null; source?: string | null }).sourceUrl;
+  const fallback = (role as { source?: string | null }).source ?? null;
+  if (raw) {
+    try {
+      return new URL(raw).host;
+    } catch {
+      return raw;
+    }
+  }
+  return fallback;
 }
 
 export interface ProgramTeamPanelProps {
@@ -105,6 +143,18 @@ export function ProgramTeamPanel({
           {personnel.map((person) => {
             const conf = confidenceDot(person.confidence);
             const meta = [person.title, person.organization].filter(Boolean).join(' · ');
+            // Step 2.2: the role chain (role → office → program → PE). The primary
+            // (first) role drives the contactUse badge + why-shown; any extras are
+            // listed compactly. Empty/absent → legacy display + a pending note.
+            // Defense-in-depth: the API already excludes quarantined roles, but
+            // never render one even if it slips through (suspect data). Accepted +
+            // candidate roles are shown; candidate is badged "requires review".
+            const roles = Array.isArray(person.roles)
+              ? person.roles.filter((r) => r.reviewStatus !== 'quarantined')
+              : [];
+            const primaryRole = roles[0] ?? null;
+            const extraRoles = roles.slice(1);
+            const primaryHost = primaryRole ? sourceHost(primaryRole) : null;
             return (
               <div className="pe-team-row" key={person.id}>
                 <Avatar
@@ -120,6 +170,36 @@ export function ProgramTeamPanel({
                     {person.role ? <span className="pe-role-pill">{person.role}</span> : null}
                   </div>
                   <div className="pe-team-sub">{meta || 'Title/organization unavailable'}</div>
+                  {primaryRole ? (
+                    <div className="pe-team-roles">
+                      <div className="pe-team-role-head">
+                        <Tag color={contactUseColor(primaryRole.contactUse)}>
+                          {primaryRole.contactUseLabel}
+                        </Tag>
+                        {primaryRole.staleAt ? (
+                          <Tag color="warning">Stale — verify before use</Tag>
+                        ) : null}
+                      </div>
+                      <div className="pe-team-role-why">{primaryRole.whyShown}</div>
+                      <div className="pe-team-role-seen">
+                        Last observed {formatDate(primaryRole.observedAt)}
+                        {primaryHost ? ` — ${primaryHost}` : ''}
+                      </div>
+                      {extraRoles.length > 0 ? (
+                        <div className="pe-team-role-extra">
+                          {extraRoles.map((r) => (
+                            <Tag key={r.id} color={contactUseColor(r.contactUse)}>
+                              {r.roleTitle} · {r.contactUseLabel}
+                            </Tag>
+                          ))}
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div className="pe-team-role-pending">
+                      <Text type="secondary">Role mapping pending review</Text>
+                    </div>
+                  )}
                 </div>
                 <div className="pe-team-conf">
                   <span className="pe-conf">

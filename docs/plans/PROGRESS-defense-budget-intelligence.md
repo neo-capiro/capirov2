@@ -29,7 +29,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 1.4 | Typed budget-delta engine + materiality | ✅ done — engine+scorer+API+script+web "What changed" panel; writer-severity rewire deferred (engine already emits IntelligenceChange) |
 | 1.5 | R-2A deep extraction | ⏳ SCAFFOLDED — needs richer extraction data |
 | 2.1 | Program / ProgramAlias / PEProgramMatch | ✅ done (backend+web); explorer-tab wiring deferred (hook added) |
-| 2.2 | ProgramOffice + PersonRole + guardrails | ⬜ pending |
+| 2.2 | ProgramOffice + PersonRole + guardrails | ✅ done — foundation (212790e) + follow-on (backfill, read+API roles hydration, matcher-records-PersonRole, web ProgramTeamPanel badges, staleness); adversarial review issues fixed. Backfill+matcher are tooling; live population deferred to deploy-time run |
 | 2.3 | Client relevance v2 | ⬜ pending |
 | 2.4 | Committee report language capture | ⬜ pending |
 | 3.1 | SAM.gov opportunities ingestion | ⏳ needs SAM_GOV_API_KEY/data |
@@ -99,6 +99,29 @@ Scaffold/partials interleaved: 0.4 (diag+docs), 0.3 / 1.1 / 1.5 (tooling+runbook
   controller+deltas specs 59 green; 1.4 migration applies clean on fresh scratch DB.
   **Deferred**: the writer-emission severity rewire (the engine already
   emits IntelligenceChange, so alerting works; the writer rewire was the timeout-risky part).
+- **Step 2.2 done** (foundation by an agent, follow-on by a 8-agent Workflow + my adversarial-review
+  triage). FOUNDATION (commit 212790e): global models ProgramOffice / PersonRole / ProgramOfficeProgramLink
+  (additive migration, functional-unique office key, FKs verified on a fresh scratch DB) + the pure
+  contact-use guardrail policy (FAR hard rule: contracting_officer/sam_gov => official_procurement_poc,
+  NEVER lobbying; source-selection => do_not_contact; 21 specs incl. exhaustive never-lobbying matrix).
+  FOLLOW-ON: backfill-program-offices.ts (roster orgs -> offices, people -> roles, idempotent find-or-create
+  on the raw functional-unique key, conservative programOfRecord match, never creates people, excludes
+  superseded); read-service getProgramElementPersonnel now hydrates roles[] (batched, no N+1) w/ contactUse
+  badge + buildWhyShown chain (names the missing hop) + freshness; resolvePersonCandidate CONFIRM now also
+  materializes a PersonRole (atomically, idempotent); web ProgramTeamPanel renders the contactUse badge +
+  why-shown + 'Stale — verify before use'; classifyRoleStaleness (180d, pure) + reconcile-person-role-staleness.ts.
+  ADVERSARIAL REVIEW (4 code-reviewers) caught + I FIXED: (1) **roles hydration leaked quarantined roles** ->
+  fetchRolesByPerson now excludes reviewStatus quarantined (keeps accepted+candidate, candidate is badged) +
+  web defense-in-depth filter + spec; (2) resolve split-transaction -> candidate.update moved INSIDE the tx
+  + idempotent already-resolved guard (no duplicate provenance on re-confirm; spec asserts single source row);
+  (3) suggestPerson re-open bug (rejected stayed invisible) -> update now sets status:'open'; (4) backfill
+  dry-run count inflated + included superseded -> fixed; staleness reconcile comment over-promised recommendation
+  exclusion -> corrected (display shows stale badged; exclusion is the 3.2 generator's job). Wired
+  jest.config testMatch to run scripts/**/*.spec.ts (the backfill spec). Verified: api typecheck clean;
+  17 suites/223 specs green; web typecheck clean; ProgramTeamPanel 7/7 vitest. **DEPLOY-TIME**: run
+  `tsx scripts/backfill-program-offices.ts --commit` (after sync-peo-rosters) to populate offices/roles;
+  schedule reconcile-person-role-staleness. Pre-existing fuzzy-search pagination total bug spawned as a
+  separate task (out of scope).
 - **Step 1.4 web "What changed" panel done** (myself, to avoid another agent timeout): web
   `getProgramElementDeltas` api + `ProgramElementDelta`/`ProgramElementDeltaListResponse` types;
   `WhatChangedPanel.tsx` (top-N materiality-scored deltas — type badge, FY tag, `$Xm → $Ym (±%)`,

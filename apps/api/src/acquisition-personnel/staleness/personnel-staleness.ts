@@ -74,3 +74,72 @@ export function classifyPersonStaleness(p: PersonStalenessInput): PersonStalenes
 export function isTier1(sources: PersonSourceLike[]): boolean {
   return sources.some((s) => s.source === 'stanford_dow_tier1');
 }
+
+// ---------------------------------------------------------------------------
+// PersonRole staleness (plan §8: people hang off OFFICES and ROLES).
+// ---------------------------------------------------------------------------
+
+/**
+ * A `person_role` asserts that, as of `observedAt`, a person held a role on an
+ * office/program. Roles are NOT re-asserted on every sync — they decay. If a role
+ * has not been re-observed for longer than the staleness threshold, we mark it
+ * stale so downstream consumers stop surfacing it (e.g. on recommendation
+ * surfaces). This is a pure time-based decision; the reconcile script supplies a
+ * single captured `now` so the function never reads the clock itself.
+ */
+export interface RoleStalenessInput {
+  observedAt: Date | string | null;
+  staleAt: Date | string | null;
+  /** Caller-supplied clock — keeps this function pure/testable. */
+  now: Date;
+  /** Days of no re-assertion before a role is considered stale. */
+  thresholdDays?: number;
+}
+
+export type RoleStalenessAction = 'mark_stale' | 'keep' | 'skip';
+
+export interface RoleStalenessDecision {
+  action: RoleStalenessAction;
+  reason: string;
+}
+
+/** Default re-assertion window before a role decays (days). */
+export const DEFAULT_ROLE_STALENESS_THRESHOLD_DAYS = 180;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/** Coerce a Date | ISO string | null into a Date (or null). */
+function toDateOrNull(value: Date | string | null): Date | null {
+  if (value === null) return null;
+  return value instanceof Date ? value : new Date(value);
+}
+
+/**
+ * Decide whether a `person_role` should be marked stale.
+ *
+ *   - no `observedAt`            -> skip       ('no observed_at')
+ *   - `staleAt` already set      -> skip       ('already stale')  [idempotent]
+ *   - age STRICTLY > threshold   -> mark_stale ('observed_at older than <n>d ...')
+ *   - otherwise                  -> keep       ('fresh')
+ *
+ * The threshold is a STRICT greater-than at the day boundary: a role observed
+ * exactly `thresholdDays` ago is still kept; one day older is marked stale.
+ */
+export function classifyRoleStaleness(input: RoleStalenessInput): RoleStalenessDecision {
+  const thresholdDays = input.thresholdDays ?? DEFAULT_ROLE_STALENESS_THRESHOLD_DAYS;
+
+  const observedAt = toDateOrNull(input.observedAt);
+  if (!observedAt) return { action: 'skip', reason: 'no observed_at' };
+
+  if (toDateOrNull(input.staleAt)) return { action: 'skip', reason: 'already stale' };
+
+  const ageDays = (input.now.getTime() - observedAt.getTime()) / MS_PER_DAY;
+  if (ageDays > thresholdDays) {
+    return {
+      action: 'mark_stale',
+      reason: `observed_at older than ${thresholdDays}d without re-assertion`,
+    };
+  }
+
+  return { action: 'keep', reason: 'fresh' };
+}

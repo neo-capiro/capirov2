@@ -3,10 +3,59 @@ import { Prisma } from '@prisma/client';
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { normalizeName } from './normalization/name-normalizer.js';
-import { ListPersonnelDto, type PersonnelListResponseDto } from './dto/list-personnel.dto.js';
+import {
+  ListPersonnelDto,
+  type PersonRoleSummaryDto,
+  type PersonnelListResponseDto,
+} from './dto/list-personnel.dto.js';
 import type { PersonDetailDto } from './dto/person-detail.dto.js';
+import {
+  CONTACT_USE_LABELS,
+  classifyContactUse,
+  type ContactUse,
+  type RoleType,
+} from './contact-use.policy.js';
+import { buildWhyShown } from './person-role-why-shown.js';
 
 type MergeDecision = 'merge' | 'keep_separate' | 'reject_a' | 'reject_b';
+
+const ROLE_TYPES: readonly RoleType[] = [
+  'peo',
+  'pm',
+  'deputy',
+  'chief_engineer',
+  'contracting_officer',
+  'staff',
+  'other',
+];
+
+/**
+ * Normalize a person's free-text role/title into the PersonRole.roleType enum
+ * ('peo' | 'pm' | 'deputy' | 'chief_engineer' | 'contracting_officer' | 'staff' |
+ * 'other'). Order matters: more specific signals are checked first (deputy before
+ * the broader pm/peo bucket; contracting before generic staff). Defaults to 'other'.
+ */
+export function inferRoleType(role?: string | null, title?: string | null): RoleType {
+  const text = `${role ?? ''} ${title ?? ''}`.toLowerCase();
+  if (!text.trim()) return 'other';
+
+  // Exact-enum passthrough if the role field already carries a canonical value.
+  const exact = (role ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, '_');
+  if ((ROLE_TYPES as readonly string[]).includes(exact)) return exact as RoleType;
+
+  if (/\bdeputy\b/.test(text)) return 'deputy';
+  if (/contracting officer|\bco\b|contract officer/.test(text)) return 'contracting_officer';
+  if (/chief engineer|\bcheng\b|chief\s+engineer/.test(text)) return 'chief_engineer';
+  if (/program executive officer|\bpeo\b/.test(text)) return 'peo';
+  if (/program manager|product manager|project manager|\bpm\b|\bpdm\b|\bppm\b/.test(text)) {
+    return 'pm';
+  }
+  if (/staff|specialist|analyst|engineer|officer|lead|director/.test(text)) return 'staff';
+  return 'other';
+}
 
 @Injectable()
 export class AcquisitionPersonnelReadService {
@@ -239,27 +288,176 @@ export class AcquisitionPersonnelReadService {
       return found;
     });
 
-    return rows.map((p) => ({
-      id: p.id,
-      fullName: p.fullName,
-      service: p.service,
-      organization: p.organization,
-      title: p.title,
-      role: p.role,
-      pePrimary: p.pePrimary,
-      peSecondary: p.peSecondary,
-      emailDomain: p.emailDomain,
-      publicProfileUrl: p.publicProfileUrl,
-      headshotUrl:
-        p.metadata && typeof p.metadata === 'object' && !Array.isArray(p.metadata)
-          ? (((p.metadata as Record<string, unknown>).headshotUrl as string | undefined) ?? null)
-          : null,
-      confidence: p.confidence,
-      status: p.status,
-      firstSeenAt: p.firstSeenAt.toISOString(),
-      lastSeenAt: p.lastSeenAt.toISOString(),
-      sourceCount: p.sources.length,
-    }));
+    // Attach the role chain (plan §8: people hang off OFFICES and ROLES, never
+    // directly off a PE). ProgramOffice / PersonRole / Program are GLOBAL reference
+    // tables (no RLS), so this read uses the base client. All person_role rows for
+    // the returned people are fetched in ONE batched query (no N+1), left-joining the
+    // office (officeName) and program (programName) names.
+    const rolesByPerson = await this.fetchRolesByPerson(
+      rows.map((p) => p.id),
+      peCode,
+    );
+
+    return rows.map((p) => {
+      const roles = rolesByPerson.get(p.id) ?? [];
+      // Legacy fallback: the person is on this PE only via the old pe_primary
+      // shortcut (no PersonRole chain yet). Surface a single explanatory entry.
+      const legacySource =
+        roles.length === 0 ? (p.pePrimary === peCode ? 'pe_primary link' : null) : null;
+      return {
+        id: p.id,
+        fullName: p.fullName,
+        service: p.service,
+        organization: p.organization,
+        title: p.title,
+        role: p.role,
+        pePrimary: p.pePrimary,
+        peSecondary: p.peSecondary,
+        emailDomain: p.emailDomain,
+        publicProfileUrl: p.publicProfileUrl,
+        headshotUrl:
+          p.metadata && typeof p.metadata === 'object' && !Array.isArray(p.metadata)
+            ? (((p.metadata as Record<string, unknown>).headshotUrl as string | undefined) ?? null)
+            : null,
+        confidence: p.confidence,
+        status: p.status,
+        firstSeenAt: p.firstSeenAt.toISOString(),
+        lastSeenAt: p.lastSeenAt.toISOString(),
+        sourceCount: p.sources.length,
+        roles,
+      };
+    });
+  }
+
+  /**
+   * Batch-fetch the PersonRole chain for a set of people and flatten each row into a
+   * PersonRoleSummaryDto. ONE query for the roles (with office/program names joined),
+   * plus one batched lookup each for accepted office->program links and accepted
+   * program->PE matches — no per-person/per-role round trips.
+   *
+   * People with no person_role rows are simply absent from the returned map (the
+   * caller treats absence as `roles: []`).
+   */
+  private async fetchRolesByPerson(
+    personIds: string[],
+    peCode: string,
+  ): Promise<Map<string, PersonRoleSummaryDto[]>> {
+    const byPerson = new Map<string, PersonRoleSummaryDto[]>();
+    if (personIds.length === 0) return byPerson;
+
+    const roleRows = await this.prisma.personRole.findMany({
+      // Display surface: show accepted + candidate roles (candidate is badged
+      // "requires review" in the UI); HIDE quarantined roles (data explicitly
+      // flagged as suspect must never surface). Recommendation-audience exclusion
+      // (procurement POC / stale roles) is enforced separately by the Step 3.2
+      // action-recommendation generator, not on this display panel.
+      where: { personId: { in: personIds }, reviewStatus: { not: 'quarantined' } },
+      include: {
+        office: { select: { name: true } },
+        program: { select: { canonicalName: true } },
+      },
+      orderBy: [{ observedAt: 'desc' }],
+    });
+    if (roleRows.length === 0) return byPerson;
+
+    // Resolve the upper two hops in batches.
+    // Hop "office manages program": accepted ProgramOfficeProgramLink for (officeId, programId).
+    const linkPairs = roleRows.filter((r) => r.officeId && r.programId);
+    const officeIds = Array.from(new Set(linkPairs.map((r) => r.officeId as string)));
+    const linkProgramIds = Array.from(new Set(linkPairs.map((r) => r.programId as string)));
+    const acceptedLinks = officeIds.length
+      ? await this.prisma.programOfficeProgramLink.findMany({
+          where: {
+            officeId: { in: officeIds },
+            programId: { in: linkProgramIds },
+            reviewStatus: 'accepted',
+          },
+          select: { officeId: true, programId: true },
+        })
+      : [];
+    const acceptedLinkKeys = new Set(acceptedLinks.map((l) => `${l.officeId}:${l.programId}`));
+
+    // Hop "program maps to PE": accepted PeProgramMatch for (programId, peCode).
+    const matchProgramIds = Array.from(
+      new Set(roleRows.filter((r) => r.programId).map((r) => r.programId as string)),
+    );
+    const acceptedMatches = matchProgramIds.length
+      ? await this.prisma.peProgramMatch.findMany({
+          where: {
+            programId: { in: matchProgramIds },
+            peCode,
+            status: 'accepted',
+          },
+          select: { programId: true },
+        })
+      : [];
+    const acceptedMatchPrograms = new Set(acceptedMatches.map((m) => m.programId));
+
+    for (const r of roleRows) {
+      const contactUse = r.contactUse;
+      const contactUseLabel = CONTACT_USE_LABELS[contactUse as ContactUse] ?? contactUse;
+      const officeName = r.office?.name ?? null;
+      const programName = r.program?.canonicalName ?? null;
+      const officeManagesProgram = Boolean(
+        r.officeId && r.programId && acceptedLinkKeys.has(`${r.officeId}:${r.programId}`),
+      );
+      const programMappedToPe = Boolean(r.programId && acceptedMatchPrograms.has(r.programId));
+
+      const summary: PersonRoleSummaryDto = {
+        id: r.id,
+        roleTitle: r.roleTitle,
+        roleType: r.roleType,
+        officeName,
+        programName,
+        contactUse,
+        contactUseLabel,
+        reviewStatus: r.reviewStatus,
+        observedAt: r.observedAt.toISOString(),
+        staleAt: r.staleAt ? r.staleAt.toISOString() : null,
+        whyShown: buildWhyShown({
+          roleTitle: r.roleTitle,
+          roleType: r.roleType,
+          officeName,
+          programName,
+          officeManagesProgram,
+          programMappedToPe,
+          peCode,
+        }),
+      };
+
+      const list = byPerson.get(r.personId);
+      if (list) list.push(summary);
+      else byPerson.set(r.personId, [summary]);
+    }
+
+    return byPerson;
+  }
+
+  /**
+   * Find (never create) the ProgramOffice that matches a person's organization
+   * string. Tries an exact match first, then a case-insensitive match. Returns null
+   * when there's no organization or no matching office. We never upsert here: the
+   * program_office functional-unique (name, service, COALESCE(valid_from,-infinity))
+   * key is a raw SQL index Prisma cannot express.
+   */
+  private async resolveOfficeId(
+    tx: Prisma.TransactionClient,
+    organization: string | null,
+  ): Promise<string | null> {
+    const name = organization?.trim();
+    if (!name) return null;
+
+    const exact = await tx.programOffice.findFirst({
+      where: { name },
+      select: { id: true },
+    });
+    if (exact) return exact.id;
+
+    const ci = await tx.programOffice.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    return ci?.id ?? null;
   }
 
   async linkCrmContact(
@@ -508,6 +706,14 @@ export class AcquisitionPersonnelReadService {
     const candidate = await this.prisma.programElementPersonCandidate.findUnique({ where: { id } });
     if (!candidate) throw new NotFoundException(`Person-PE candidate ${id} not found`);
 
+    // Idempotent guard: a candidate that is already resolved is a no-op. This
+    // prevents a double-click / retry from appending duplicate provenance
+    // (acquisition_personnel_source) rows. Re-suggested candidates are reset to
+    // 'open' (see suggestPersonForProgramElement), so they re-enter here normally.
+    if (candidate.status !== 'open') {
+      return { resolved: true, linked: candidate.status === 'confirmed' };
+    }
+
     let linked = false;
 
     if (decision === 'confirm') {
@@ -545,19 +751,76 @@ export class AcquisitionPersonnelReadService {
             },
           },
         });
+
+        // Matcher evolution (plan §8): a confirmed match also materializes a
+        // PersonRole row so the person hangs off a ROLE/OFFICE, not just the legacy
+        // pe_primary shortcut. programId stays null — PE<->program is a separate
+        // graph resolved elsewhere. Idempotent: dedupe on (personId, roleTitle, source).
+        const SOURCE = 'pe_match_confirmed';
+        const person = await tx.acquisitionPersonnel.findUnique({
+          where: { id: candidate.personId },
+          select: { organization: true, title: true, role: true },
+        });
+        const roleTitle = (person?.title || person?.role || 'Program team member').trim();
+        const existingRole = await tx.personRole.findFirst({
+          where: { personId: candidate.personId, roleTitle, source: SOURCE },
+          select: { id: true },
+        });
+        if (!existingRole) {
+          // Resolve the office from the person's organization (find-or-nothing: a
+          // ProgramOffice whose name matches exactly or case-insensitively). We never
+          // create offices here. The functional-unique (name, service, valid_from)
+          // index is raw SQL, so we never upsert against it.
+          const officeId = await this.resolveOfficeId(tx, person?.organization ?? null);
+          const roleType = inferRoleType(person?.role, person?.title);
+          await tx.personRole.create({
+            data: {
+              personId: candidate.personId,
+              officeId,
+              programId: null,
+              roleTitle,
+              roleType,
+              source: SOURCE,
+              sourceUrl: null,
+              observedAt: new Date(),
+              confidence: candidate.score ?? 0.7,
+              reviewStatus: 'accepted',
+              // contact_use is NOT NULL with no DB default — set it explicitly via the policy.
+              contactUse: classifyContactUse({
+                roleType,
+                source: SOURCE,
+                reviewStatus: 'accepted',
+              }),
+            },
+          });
+        }
+
+        // Close the candidate ATOMICALLY with the link writes: if the process
+        // dies mid-confirm, the whole unit rolls back, so the candidate stays
+        // 'open' with NO half-applied provenance and a retry re-runs cleanly.
+        await tx.programElementPersonCandidate.update({
+          where: { id },
+          data: {
+            status: 'confirmed',
+            resolvedByUserId: ctx.userId,
+            resolvedAt: new Date(),
+            decisionNotes: notes ?? null,
+          },
+        });
       });
       linked = true;
+    } else {
+      // Reject: just close the candidate (no link writes to coordinate).
+      await this.prisma.programElementPersonCandidate.update({
+        where: { id },
+        data: {
+          status: 'rejected',
+          resolvedByUserId: ctx.userId,
+          resolvedAt: new Date(),
+          decisionNotes: notes ?? null,
+        },
+      });
     }
-
-    await this.prisma.programElementPersonCandidate.update({
-      where: { id },
-      data: {
-        status: decision === 'confirm' ? 'confirmed' : 'rejected',
-        resolvedByUserId: ctx.userId,
-        resolvedAt: new Date(),
-        decisionNotes: notes ?? null,
-      },
-    });
 
     await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       await tx.auditLog.create({
@@ -650,8 +913,12 @@ export class AcquisitionPersonnelReadService {
           status: 'open',
         },
         update: {
-          // Re-open if previously rejected, refresh basis; never clobber a confirmed link.
+          // Re-open and refresh basis: a re-suggested person must re-enter the
+          // capiro_admin review queue (default filter status='open'), otherwise a
+          // previously-rejected candidate stays permanently invisible. Re-opening a
+          // confirmed candidate is harmless — the admin simply sees it again.
           matchBasis: `user-suggested by tenant admin${input.roleTitle ? ` (${input.roleTitle})` : ''}`,
+          status: 'open',
         },
         select: { id: true },
       });

@@ -55,6 +55,25 @@ export class ListPersonnelDto {
   limit?: number;
 }
 
+// One PersonRole row, flattened for the program-team panel (plan §8: people hang off
+// OFFICES and ROLES, never directly off a PE). `whyShown` is the human chain
+// (role -> office -> program -> PE); it NEVER says "owns PE". See person-role-why-shown.ts.
+export interface PersonRoleSummaryDto {
+  id: string;
+  roleTitle: string;
+  roleType: string;
+  officeName: string | null;
+  programName: string | null;
+  /** The stored person_role.contact_use value. */
+  contactUse: string;
+  /** CONTACT_USE_LABELS[contactUse] (falls back to the raw value if unknown). */
+  contactUseLabel: string;
+  reviewStatus: string;
+  observedAt: string;
+  staleAt: string | null;
+  whyShown: string;
+}
+
 export interface PersonnelListItemDto {
   id: string;
   fullName: string;
@@ -72,6 +91,8 @@ export interface PersonnelListItemDto {
   firstSeenAt: string;
   lastSeenAt: string;
   sourceCount: number;
+  // Additive (plan §8). Empty array when the person has no PersonRole rows yet.
+  roles?: PersonRoleSummaryDto[];
 }
 
 export interface PersonnelListResponseDto {

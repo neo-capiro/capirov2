@@ -1,5 +1,9 @@
 import { describe, expect, test } from '@jest/globals';
-import { classifyPersonStaleness, isTier1 } from './personnel-staleness.js';
+import {
+  classifyPersonStaleness,
+  classifyRoleStaleness,
+  isTier1,
+} from './personnel-staleness.js';
 
 const src = (...sources: string[]) => sources.map((source) => ({ source }));
 
@@ -76,5 +80,64 @@ describe('classifyPersonStaleness', () => {
   test('isTier1 detects a tier-1 mention', () => {
     expect(isTier1(src('stanford_dow_tier1', 'stanford_dow_directory_jan2026'))).toBe(true);
     expect(isTier1(src('stanford_dow_directory_jan2026'))).toBe(false);
+  });
+});
+
+describe('classifyRoleStaleness', () => {
+  const NOW = new Date('2026-06-08T00:00:00Z');
+  const daysAgo = (n: number) => new Date(NOW.getTime() - n * 24 * 60 * 60 * 1000);
+
+  test('KEEPS a role observed exactly 180d ago (boundary — not strictly greater)', () => {
+    const d = classifyRoleStaleness({ observedAt: daysAgo(180), staleAt: null, now: NOW });
+    expect(d.action).toBe('keep');
+    expect(d.reason).toBe('fresh');
+  });
+
+  test('marks stale a role observed 181d ago (one day past the boundary)', () => {
+    const d = classifyRoleStaleness({ observedAt: daysAgo(181), staleAt: null, now: NOW });
+    expect(d.action).toBe('mark_stale');
+    expect(d.reason).toBe('observed_at older than 180d without re-assertion');
+  });
+
+  test('KEEPS a freshly observed role', () => {
+    const d = classifyRoleStaleness({ observedAt: daysAgo(10), staleAt: null, now: NOW });
+    expect(d.action).toBe('keep');
+    expect(d.reason).toBe('fresh');
+  });
+
+  test('skips a role already marked stale (idempotent)', () => {
+    const d = classifyRoleStaleness({
+      observedAt: daysAgo(365),
+      staleAt: daysAgo(30),
+      now: NOW,
+    });
+    expect(d.action).toBe('skip');
+    expect(d.reason).toBe('already stale');
+  });
+
+  test('skips a role with no observed_at', () => {
+    const d = classifyRoleStaleness({ observedAt: null, staleAt: null, now: NOW });
+    expect(d.action).toBe('skip');
+    expect(d.reason).toBe('no observed_at');
+  });
+
+  test('accepts ISO-string timestamps as well as Date objects', () => {
+    const d = classifyRoleStaleness({
+      observedAt: daysAgo(181).toISOString(),
+      staleAt: null,
+      now: NOW,
+    });
+    expect(d.action).toBe('mark_stale');
+  });
+
+  test('honors a custom thresholdDays', () => {
+    const d = classifyRoleStaleness({
+      observedAt: daysAgo(31),
+      staleAt: null,
+      now: NOW,
+      thresholdDays: 30,
+    });
+    expect(d.action).toBe('mark_stale');
+    expect(d.reason).toBe('observed_at older than 30d without re-assertion');
   });
 });

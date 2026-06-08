@@ -192,6 +192,26 @@ export interface ProgramElementRelatedResponse {
   todo: string | null;
 }
 
+// One PersonRole row flattened for the program-team panel (Step 2.2, plan §8:
+// people hang off OFFICES and ROLES, never directly off a PE). Mirrors the API's
+// PersonRoleSummaryDto exactly. `whyShown` is the human chain (role → office →
+// program → PE); it NEVER says "owns PE".
+export interface PersonRoleSummary {
+  id: string;
+  roleTitle: string;
+  roleType: string;
+  officeName: string | null;
+  programName: string | null;
+  /** The stored person_role.contact_use value. */
+  contactUse: string;
+  /** CONTACT_USE_LABELS[contactUse] (falls back to the raw value if unknown). */
+  contactUseLabel: string;
+  reviewStatus: string;
+  observedAt: string;
+  staleAt: string | null;
+  whyShown: string;
+}
+
 export interface ProgramTeamPerson {
   id: string;
   fullName: string;
@@ -209,6 +229,9 @@ export interface ProgramTeamPerson {
   firstSeenAt: string;
   lastSeenAt: string;
   sourceCount: number;
+  // Additive (Step 2.2, plan §8). Empty array when the person has no PersonRole
+  // rows yet — render the legacy display + a "role mapping pending" note.
+  roles?: PersonRoleSummary[];
 }
 
 export type ProgramElementSourceField =
