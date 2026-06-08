@@ -43,6 +43,13 @@ export interface ActiveDraftContext {
   body: string;
 }
 
+/** White-paper editing context so Clio (global drawer) can target the open paper. */
+export interface ActiveWhitePaperContext {
+  instanceId: string;
+  title: string;
+  strategyId?: string | null;
+}
+
 export interface ClioAlert {
   id: string;
   alertType: string;
@@ -95,6 +102,7 @@ let state: ChatState = {
 };
 
 let activeDraft: ActiveDraftContext | null = null;
+let activeWhitePaper: ActiveWhitePaperContext | null = null;
 let listeners: Array<() => void> = [];
 
 function notify(): void {
@@ -175,6 +183,14 @@ export function setActiveDraft(draft: ActiveDraftContext | null): void {
 
 export function getActiveDraft(): ActiveDraftContext | null {
   return activeDraft;
+}
+
+export function setActiveWhitePaper(wp: ActiveWhitePaperContext | null): void {
+  activeWhitePaper = wp;
+}
+
+export function getActiveWhitePaper(): ActiveWhitePaperContext | null {
+  return activeWhitePaper;
 }
 
 export function setConversations(conversations: ClioConversation[]): void {
