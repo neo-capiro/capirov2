@@ -27,6 +27,7 @@ import {
 import {
   ClockCircleOutlined,
   DownOutlined,
+  FileTextOutlined,
   LinkOutlined,
   RightOutlined,
   TeamOutlined,
@@ -50,6 +51,7 @@ import {
   type TeamMemberOption,
 } from './actions-api.js';
 import { CoveragePanel } from './CoveragePanel.js';
+import { ArtifactsPanel } from './ArtifactsPanel.js';
 
 const { Text, Paragraph, Title } = Typography;
 
@@ -96,6 +98,10 @@ export function ActionCard({
   // expand and stays true so a collapse/re-expand reuses the cached query.
   const [coverageOpen, setCoverageOpen] = useState(false);
   const [coverageEnabled, setCoverageEnabled] = useState(false);
+  // Artifacts (Step 3.3) are fetched LAZILY too — same latch pattern as Coverage, so the
+  // board never fires one artifacts request per card.
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
+  const [artifactsEnabled, setArtifactsEnabled] = useState(false);
 
   const audience = Array.isArray(card.targetAudience) ? card.targetAudience : [];
   const evidence = Array.isArray(card.evidence) ? card.evidence : [];
@@ -141,6 +147,14 @@ export function ActionCard({
     setCoverageOpen((open) => {
       const next = !open;
       if (next) setCoverageEnabled(true); // latch the lazy fetch on first expand
+      return next;
+    });
+  }
+
+  function toggleArtifacts() {
+    setArtifactsOpen((open) => {
+      const next = !open;
+      if (next) setArtifactsEnabled(true); // latch the lazy fetch on first expand
       return next;
     });
   }
@@ -349,6 +363,26 @@ export function ActionCard({
           </button>
           {coverageOpen ? (
             <CoveragePanel actionId={card.id} teamMembers={members} enabled={coverageEnabled} />
+          ) : null}
+        </div>
+
+        <div className="action-card-artifacts">
+          <button
+            type="button"
+            className="action-card-coverage-toggle"
+            aria-expanded={artifactsOpen}
+            onClick={toggleArtifacts}
+          >
+            {artifactsOpen ? <DownOutlined /> : <RightOutlined />}
+            <FileTextOutlined />
+            <span>Artifacts</span>
+          </button>
+          {artifactsOpen ? (
+            <ArtifactsPanel
+              actionId={card.id}
+              suggestedArtifactType={card.suggestedArtifactType}
+              enabled={artifactsEnabled}
+            />
           ) : null}
         </div>
 

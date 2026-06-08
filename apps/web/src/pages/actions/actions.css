@@ -223,3 +223,97 @@
   align-items: center;
   margin-top: 2px;
 }
+
+/* Step 3.3 artifacts sub-section (lives inside .action-card). */
+.action-card-artifacts {
+  border-top: 1px solid var(--border-subtle, #f0f0f0);
+  padding-top: 8px;
+}
+
+.artifacts-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.artifacts-panel-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.artifacts-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.artifacts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.artifact-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border-subtle, #f0f0f0);
+  background: var(--bg-subtle, #fafafa);
+  cursor: pointer;
+}
+
+.artifact-row:hover {
+  border-color: var(--border, #d9d9d9);
+}
+
+.artifact-row-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.artifact-row-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.artifact-viewer-title {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.artifact-dropped-note {
+  background: #fffbe6;
+  border-left: 3px solid #faad14;
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.artifact-body {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.artifact-body-editor {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+}
