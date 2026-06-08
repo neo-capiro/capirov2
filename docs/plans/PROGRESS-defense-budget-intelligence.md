@@ -28,7 +28,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 1.3 | Budget-cycle (PB position) + FYDP outyears | ⬜ pending |
 | 1.4 | Typed budget-delta engine + materiality | ⬜ pending |
 | 1.5 | R-2A deep extraction | ⏳ SCAFFOLDED — needs richer extraction data |
-| 2.1 | Program / ProgramAlias / PEProgramMatch | ⏳ backend done (schema+seed+matcher+review API+specs); web pending |
+| 2.1 | Program / ProgramAlias / PEProgramMatch | ✅ done (backend+web); explorer-tab wiring deferred (hook added) |
 | 2.2 | ProgramOffice + PersonRole + guardrails | ⬜ pending |
 | 2.3 | Client relevance v2 | ⬜ pending |
 | 2.4 | Committee report language capture | ⬜ pending |
@@ -70,4 +70,11 @@ Scaffold/partials interleaved: 0.4 (diag+docs), 0.3 / 1.1 / 1.5 (tooling+runbook
   ProgramsService/Controller (`GET /programs`, `/programs/:id`, admin match-queue list + resolve
   w/ AuditLog). Verified: api typecheck clean; 6 suites/81 specs green (incl. table-driven
   thresholds + 0 fuzzy-accept SQL proof); migration applies clean on a fresh scratch DB; seed +
-  matcher proofs. **Web pending**: admin review page + PE "Programs" panel + explorer search wiring.
+  matcher proofs.
+- **Step 2.1 web done** (sub-agent + my verification): web programs-api, ProgramMatchQueuePage
+  (capiro_admin review queue: why-shown evidence line + confidence band + status, accept/reject/
+  quarantine + AuditLog), ProgramsPanel on the PE profile (accepted + candidate-badged, quarantined
+  hidden), thin `GET /program-elements/:peCode/programs` read + controller delegation test, App.tsx
+  route. Verified: api+web typecheck clean; FULL suites green (API 99 suites/778, web all pass).
+  Deferred (documented): explorer "Programs" search TAB (needs a new /api/explorer/programs facet
+  endpoint + panel — risky to the finder); added the `getPrograms`/`useProgramSearch` building block.

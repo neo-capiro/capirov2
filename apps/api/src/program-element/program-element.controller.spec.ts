@@ -25,6 +25,7 @@ describe('ProgramElementController', () => {
       getProjects: jest.fn(),
       getSources: jest.fn(),
       getRelatedProgramElements: jest.fn(),
+      getProgramsForPe: jest.fn(),
       setWatching: jest.fn(),
       listReconciliationQueue: jest.fn(),
       resolveReconciliation: jest.fn(),
@@ -174,6 +175,24 @@ describe('ProgramElementController', () => {
     expect(service.getRelatedProgramElements).toHaveBeenCalledWith('0603270A');
     expect(result.related).toHaveLength(1);
     expect(result.related[0]?.similarity).toBe(0.83);
+  });
+
+  test('GET /api/program-elements/:peCode/programs delegates to the read service (Step 2.1)', async () => {
+    const { controller, service } = makeController();
+    service.getProgramsForPe.mockResolvedValue({
+      peCode: '0601102A',
+      acceptedMatches: [
+        { id: 'm1', program: { canonicalName: 'PATRIOT' }, status: 'accepted', confidenceBand: 'high', whyShown: 'curated MDAP map' },
+      ],
+      candidateMatches: [],
+    });
+
+    const result = await controller.programs('0601102A');
+
+    expect(service.getProgramsForPe).toHaveBeenCalledWith('0601102A');
+    expect(result.acceptedMatches).toHaveLength(1);
+    expect(result.acceptedMatches[0]?.program?.canonicalName).toBe('PATRIOT');
+    expect(result.candidateMatches).toEqual([]);
   });
 
   test('GET /api/program-elements/:peCode/contractors returns [] + TODO when federal_award table missing', async () => {

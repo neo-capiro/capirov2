@@ -25,6 +25,8 @@ import { ContractorsPanel } from './ContractorsPanel.js';
 import { ProjectsPanel } from './ProjectsPanel.js';
 import { ProofPackPanel } from './ProofPackPanel.js';
 import { RelatedPesPanel } from './RelatedPesPanel.js';
+import { ProgramsPanel } from './ProgramsPanel.js';
+import { getProgramsForPe } from './programs-api.js';
 import { FyDetailDrawer } from './FyDetailDrawer.js';
 import { LinkCrmContactModal } from './LinkCrmContactModal.js';
 import { ProgramTeamPanel } from './ProgramTeamPanel.js';
@@ -101,6 +103,7 @@ const LazyRelatedPesPanel = lazy(async () => ({ default: RelatedPesPanel }));
 const LazyProgramTeamPanel = lazy(async () => ({ default: ProgramTeamPanel }));
 const LazyProjectsPanel = lazy(async () => ({ default: ProjectsPanel }));
 const LazyProofPackPanel = lazy(async () => ({ default: ProofPackPanel }));
+const LazyProgramsPanel = lazy(async () => ({ default: ProgramsPanel }));
 
 function formatSyncedDate(value: string): string {
   const parsed = new Date(value);
@@ -216,6 +219,13 @@ export function ProgramElementWatchPage() {
   const sourcesQuery = useQuery({
     queryKey: ['program-element-sources', normalizedPeCode],
     queryFn: () => getProgramElementSources(api, normalizedPeCode),
+    staleTime: 60 * 1000,
+    enabled: normalizedPeCode.length > 0,
+  });
+
+  const programsQuery = useQuery({
+    queryKey: ['program-element-programs', normalizedPeCode],
+    queryFn: () => getProgramsForPe(api, normalizedPeCode),
     staleTime: 60 * 1000,
     enabled: normalizedPeCode.length > 0,
   });
@@ -467,6 +477,16 @@ export function ProgramElementWatchPage() {
         }
       >
         <LazyProjectsPanel projects={projectsQuery.data} loading={projectsQuery.isLoading} />
+      </Suspense>
+
+      <Suspense
+        fallback={
+          <Card title="Programs">
+            <Skeleton active paragraph={{ rows: 3 }} />
+          </Card>
+        }
+      >
+        <LazyProgramsPanel programs={programsQuery.data} loading={programsQuery.isLoading} />
       </Suspense>
 
       <Row gutter={[16, 16]} className="pe-two-col">

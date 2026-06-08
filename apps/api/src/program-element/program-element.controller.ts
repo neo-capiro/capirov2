@@ -114,6 +114,13 @@ export class ProgramElementController {
     return this.service.getRelatedProgramElements(peCode);
   }
 
+  // Step 2.1 — PE→Program graph view for the profile "Programs" panel. Returns
+  // accepted + candidate matches separately; quarantined/weak-signal never surfaced.
+  @Get(':peCode/programs')
+  programs(@Param('peCode') peCode: string) {
+    return this.service.getProgramsForPe(peCode);
+  }
+
   @Post(':peCode/watch')
   watch(
     @CurrentTenant() ctx: TenantContext,

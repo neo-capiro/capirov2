@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { EMBEDDING_MODEL } from '../embeddings/embedder.js';
 import { ConferenceProbabilityService } from './models/conference-probability.service.js';
 import { compareProofPackSources } from './proof-pack.js';
+import { confidenceBand } from './matching/program-match-thresholds.js';
 
 export interface ProgramElementListQuery {
   service?: string;
@@ -856,6 +857,77 @@ export class ProgramElementReadService {
       appliedValue,
     };
   }
+
+  /**
+   * Step 2.1 — PE-keyed read of the Program graph for the PE profile "Programs" panel.
+   * The programs API is program-centric; this is the thin PE→programs view the panel needs.
+   *
+   * Returns accepted matches and candidate matches in SEPARATE buckets (the panel renders
+   * candidates only behind a "requires review" badge). Quarantined / rejected / weak-signal
+   * matches are NEVER returned. Each row carries the program name + mdapCode, the confidence
+   * band, the Why-shown evidence line (built from the evidence jsonb, same shape as
+   * programs.service.buildWhyShown), the status, and last-reviewed timestamp.
+   */
+  async getProgramsForPe(peCode: string) {
+    const code = peCode.trim();
+    if (!code) return { peCode: code, acceptedMatches: [], candidateMatches: [] };
+
+    const matches = await this.prisma.peProgramMatch.findMany({
+      // Only accepted + candidate are ever surfaced; quarantined/rejected/weak-signal never are.
+      where: { peCode: code, status: { in: ['accepted', 'candidate'] } },
+      orderBy: [{ status: 'asc' }, { score: 'desc' }],
+    });
+
+    const programIds = Array.from(new Set(matches.map((m) => m.programId)));
+    const programs = await this.prisma.program.findMany({
+      where: { id: { in: programIds } },
+      select: { id: true, canonicalName: true, component: true, mdapCode: true, status: true },
+    });
+    const programById = new Map(programs.map((p) => [p.id, p]));
+
+    const decorate = (m: (typeof matches)[number]) => ({
+      id: m.id,
+      programId: m.programId,
+      program: programById.get(m.programId) ?? null,
+      peCode: m.peCode,
+      projectCode: m.projectCode,
+      score: m.score,
+      confidenceBand: confidenceBand(m.score),
+      evidenceTier: m.evidenceTier,
+      status: m.status,
+      whyShown: buildProgramWhyShown(m.evidence),
+      evidence: m.evidence,
+      resolvedAt: m.resolvedAt,
+    });
+
+    return {
+      peCode: code,
+      acceptedMatches: matches.filter((m) => m.status === 'accepted').map(decorate),
+      candidateMatches: matches.filter((m) => m.status === 'candidate').map(decorate),
+    };
+  }
+}
+
+/**
+ * Build the "Why-shown" evidence summary line from a PeProgramMatch's evidence jsonb
+ * (e.g. "project title exact match + R-2A p.144 + P-1 line 027"). Replicated minimally
+ * from programs.service (which does not export its helper) so the PE panel renders the
+ * same line. Guards against non-array / malformed evidence.
+ */
+function buildProgramWhyShown(evidence: unknown): string {
+  if (!Array.isArray(evidence)) return '';
+  const parts: string[] = [];
+  for (const item of evidence as Array<Record<string, unknown>>) {
+    const kind = typeof item?.kind === 'string' ? item.kind : '';
+    const page = typeof item?.pageNumber === 'number' ? ` p.${item.pageNumber}` : '';
+    const quote = typeof item?.quote === 'string' ? item.quote : '';
+    if (kind === 'mdap_curated') parts.push('curated MDAP map');
+    else if (kind === 'other_funding_link') parts.push(`shared P-1 line${page}`);
+    else if (kind.startsWith('alias_trigram')) parts.push(quote || 'alias match');
+    else if (quote) parts.push(`${quote}${page}`);
+    else if (kind) parts.push(`${kind}${page}`);
+  }
+  return parts.join(' + ');
 }
 
 export type ReconciliationDecision = 'keep_current' | 'accept_conflicting' | 'manual_value';

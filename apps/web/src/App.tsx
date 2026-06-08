@@ -62,6 +62,12 @@ const PeReconciliationPage = lazy(async () =>
   })),
 );
 
+const ProgramMatchQueuePage = lazy(async () =>
+  import('./pages/program-element/ProgramMatchQueuePage.js').then((m) => ({
+    default: m.ProgramMatchQueuePage,
+  })),
+);
+
 export function App() {
   const { isLoaded, isSignedIn } = useAuth();
 
@@ -142,6 +148,14 @@ export function App() {
           element={
             <Suspense fallback={<PlaceholderPage title="Loading reconciliation queue" description="Please wait..." />}>
               <PeReconciliationPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/admin/program-element/match-queue"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading program match queue" description="Please wait..." />}>
+              <ProgramMatchQueuePage />
             </Suspense>
           }
         />
