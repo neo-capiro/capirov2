@@ -1,0 +1,351 @@
+/**
+ * Step 3.1 — SAM.gov DoD contract-opportunities ingestion + review-gated matching.
+ *
+ *   pnpm --filter @capiro/api sync:sam-opportunities -- --commit
+ *   tsx scripts/sync-sam-opportunities.ts --since 2026-05-01 --commit
+ *
+ * Pulls DoD Contract Opportunities from the SAM.gov API
+ * (api.sam.gov/opportunities/v2/search), upserts each notice into sam_opportunity
+ * (idempotent on noticeId), derives `active` from the archive date, then runs a PURE,
+ * review-gated matching pass (sam-opportunity-matcher) to propose opportunity ->
+ * PE / program links into sam_opportunity_match.
+ *
+ * Wrapped in runWithSyncRun: the incremental window comes from the last successful
+ * run's watermark (ctx.since), or an explicit `--since YYYY-MM-DD`. DoD-filtered via
+ * the deptname API filter AND a client-side org-path check (defense in depth).
+ *
+ * Review gating (sam-opportunity-matcher):
+ *   - a verbatim PE-code hit in the text         -> review_status 'accepted'
+ *   - a program alias + office/PSC agreement     -> review_status 'candidate'
+ *   - PSC/NAICS alone                            -> review_status 'quarantined'
+ * No fuzzy / coarse path is ever auto-accepted.
+ *
+ * Requires SAM_GOV_API_KEY (Secrets Manager -> env). Dry-run by default; pass
+ * `--commit` to write. Idempotent.
+ */
+import { config as dotenvConfig } from 'dotenv';
+import { PrismaClient } from '@prisma/client';
+import { runWithSyncRun, type RunCounts } from '../src/ingestion/sync-run.helper.js';
+import {
+  matchOpportunity,
+  trigrams,
+  normalizeText,
+  type AliasForMatch,
+  type OpportunityForMatch,
+  type ProposedSamMatch,
+} from './sam-opportunity-matcher.js';
+
+dotenvConfig();
+
+const SAM_URL = 'https://api.sam.gov/opportunities/v2/search';
+const SOURCE = 'sync-sam-opportunities';
+const DEFAULT_LOOKBACK_DAYS = 30;
+const PAGE_LIMIT = 100;
+const MAX_PAGES = 50; // circuit breaker
+
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+function flag(name: string): boolean {
+  return process.argv.includes(`--${name}`);
+}
+
+/** MM/dd/yyyy (SAM.gov date format). */
+function samDate(d: Date): string {
+  const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(d.getUTCDate()).padStart(2, '0');
+  return `${mm}/${dd}/${d.getUTCFullYear()}`;
+}
+
+function safeDate(v: string | null | undefined): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function str(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s.length ? s : null;
+}
+
+// ── SAM.gov opportunities/v2 record (the subset we read) ─────────────────────
+interface SamPlaceOfPerformance {
+  city?: { code?: string; name?: string };
+  state?: { code?: string; name?: string };
+  zip?: string;
+  country?: { code?: string; name?: string };
+}
+interface SamPointOfContact {
+  fullName?: string;
+  email?: string;
+  type?: string;
+}
+interface SamOpportunityRecord {
+  noticeId?: string;
+  solicitationNumber?: string;
+  title?: string;
+  type?: string; // notice type
+  baseType?: string;
+  fullParentPathName?: string; // org hierarchy "DEPT OF DEFENSE.DEPT OF THE ARMY..."
+  department?: string;
+  subTier?: string;
+  office?: string;
+  organizationType?: string;
+  classificationCode?: string; // PSC
+  naicsCode?: string;
+  postedDate?: string;
+  responseDeadLine?: string;
+  archiveDate?: string;
+  description?: string; // a URL to the description endpoint OR inline text
+  pointOfContact?: SamPointOfContact[];
+  placeOfPerformance?: SamPlaceOfPerformance;
+  uiLink?: string;
+  active?: string; // 'Yes' | 'No'
+}
+
+interface SamSearchResponse {
+  totalRecords?: number;
+  opportunitiesData?: SamOpportunityRecord[];
+  error?: { message?: string };
+}
+
+/** Is this notice from DoD? (org-path / department check — mirrors the personnel sync). */
+function isDod(rec: SamOpportunityRecord): boolean {
+  const hay = `${rec.fullParentPathName ?? ''} ${rec.department ?? ''} ${rec.subTier ?? ''}`.toUpperCase();
+  return /DEPT OF DEFENSE|DEPARTMENT OF DEFENSE|\bDOD\b|DEPT OF THE (ARMY|NAVY|AIR FORCE)|DEFENSE/.test(hay);
+}
+
+/** Best-effort office label from the org path / office fields. */
+function officeOf(rec: SamOpportunityRecord): string | null {
+  return (
+    str(rec.office) ??
+    str(rec.fullParentPathName?.split('.').pop()) ??
+    str(rec.subTier) ??
+    str(rec.department)
+  );
+}
+
+/** First POC's name + email (public header fields). */
+function primaryPoc(rec: SamOpportunityRecord): { name: string | null; email: string | null } {
+  const poc = (rec.pointOfContact ?? []).find((p) => (p.type ?? '').toLowerCase() === 'primary') ?? (rec.pointOfContact ?? [])[0];
+  return { name: str(poc?.fullName), email: str(poc?.email) };
+}
+
+async function fetchPage(apiKey: string, postedFrom: string, postedTo: string, offset: number): Promise<SamSearchResponse> {
+  const params = new URLSearchParams({
+    api_key: apiKey,
+    postedFrom,
+    postedTo,
+    limit: String(PAGE_LIMIT),
+    offset: String(offset),
+    deptname: 'DEPARTMENT OF DEFENSE',
+  });
+  const res = await fetch(`${SAM_URL}?${params.toString()}`);
+  const json = (await res.json()) as SamSearchResponse;
+  if (!res.ok) {
+    throw new Error(`SAM.gov ${res.status}: ${json.error?.message ?? JSON.stringify(json).slice(0, 200)}`);
+  }
+  return json;
+}
+
+/**
+ * Build the in-memory alias index the matcher needs: each program alias with its
+ * precomputed trigram set + optional office/PSC corroboration hints (from the
+ * program's metadata, when present). Pure shaping — no network.
+ */
+function buildAliasIndex(
+  aliases: Array<{ programId: string; aliasNormalized: string; aliasType: string; officeHint?: string | null; pscHints?: string[] }>,
+): AliasForMatch[] {
+  return aliases.map((a) => ({
+    programId: a.programId,
+    aliasNormalized: a.aliasNormalized,
+    aliasType: a.aliasType,
+    tg: trigrams(a.aliasNormalized),
+    officeHint: a.officeHint ?? null,
+    pscHints: a.pscHints ? new Set(a.pscHints.map((p) => p.toUpperCase())) : undefined,
+  }));
+}
+
+async function main(): Promise<void> {
+  const apiKey = process.env.SAM_GOV_API_KEY ?? '';
+  if (!apiKey) throw new Error('SAM_GOV_API_KEY not configured');
+  const commit = flag('commit');
+  const sinceArg = arg('since');
+  const t0 = Date.now();
+  console.log(`[sam-opportunities] starting (${commit ? 'COMMIT' : 'DRY-RUN'})`);
+
+  const prisma = new PrismaClient();
+  try {
+    await runWithSyncRun(
+      prisma as never,
+      SOURCE,
+      async (ctx): Promise<RunCounts> => {
+        // Incremental window: explicit --since wins; else the watermark; else lookback.
+        const since = ctx.since ?? new Date(Date.now() - DEFAULT_LOOKBACK_DAYS * 86_400_000);
+        const postedFrom = samDate(since);
+        const postedTo = samDate(new Date());
+        console.log(`[sam-opportunities] window postedFrom=${postedFrom} postedTo=${postedTo}`);
+
+        // Known PEs (for verbatim PE-code matching) + the program alias universe.
+        const pes = await prisma.programElement.findMany({ select: { peCode: true } });
+        const knownPeCodes = new Set<string>(pes.map((p) => p.peCode.toUpperCase()));
+        const aliasRows = await prisma.programAlias.findMany({
+          select: { programId: true, aliasNormalized: true, aliasType: true },
+        });
+        const aliasIndex = buildAliasIndex(aliasRows);
+        console.log(`[sam-opportunities] ${knownPeCodes.size} known PEs, ${aliasIndex.length} program aliases`);
+
+        const counts: RunCounts = { inserted: 0, updated: 0, skipped: 0, errors: 0 };
+        let matchesWritten = 0;
+        let offset = 0;
+
+        for (let page = 0; page < MAX_PAGES; page += 1) {
+          const resp = await fetchPage(apiKey, postedFrom, postedTo, offset);
+          const batch = resp.opportunitiesData ?? [];
+          if (batch.length === 0) break;
+
+          for (const rec of batch) {
+            if (!isDod(rec)) {
+              counts.skipped += 1;
+              continue;
+            }
+            const noticeId = str(rec.noticeId);
+            if (!noticeId) {
+              counts.skipped += 1;
+              continue;
+            }
+
+            const archiveDate = safeDate(rec.archiveDate);
+            // active: SAM's own flag if present, else derived from archive date.
+            const active =
+              rec.active != null
+                ? rec.active.toLowerCase() !== 'no'
+                : archiveDate == null || archiveDate.getTime() > Date.now();
+            const poc = primaryPoc(rec);
+            const opp = {
+              noticeId,
+              solicitationNumber: str(rec.solicitationNumber),
+              title: str(rec.title) ?? '(untitled)',
+              noticeType: (str(rec.type) ?? str(rec.baseType) ?? 'unknown').slice(0, 32),
+              agency: str(rec.department),
+              office: officeOf(rec),
+              pscCode: str(rec.classificationCode)?.slice(0, 8) ?? null,
+              naicsCode: str(rec.naicsCode)?.slice(0, 8) ?? null,
+              postedDate: safeDate(rec.postedDate),
+              responseDeadline: safeDate(rec.responseDeadLine),
+              archiveDate,
+              description: str(rec.description),
+              pocName: poc.name,
+              pocEmail: poc.email,
+              placeOfPerformance: (rec.placeOfPerformance ?? {}) as object,
+              sourceUrl: str(rec.uiLink) ?? `https://sam.gov/opp/${noticeId}/view`,
+              active,
+            };
+
+            try {
+              const existed = await prisma.samOpportunity.findUnique({
+                where: { noticeId },
+                select: { id: true },
+              });
+              const row = commit
+                ? await prisma.samOpportunity.upsert({
+                    where: { noticeId },
+                    create: { ...opp, raw: rec as object, lastSyncedAt: new Date() },
+                    update: { ...opp, raw: rec as object, lastSyncedAt: new Date() },
+                  })
+                : { id: existed?.id ?? '(dry-run)' };
+              if (existed) counts.updated += 1;
+              else counts.inserted += 1;
+
+              // ── review-gated matching pass (pure) ──
+              const forMatch: OpportunityForMatch = {
+                title: opp.title,
+                description: opp.description,
+                office: opp.office,
+                pscCode: opp.pscCode,
+                naicsCode: opp.naicsCode,
+              };
+              const proposed = matchOpportunity(forMatch, knownPeCodes, aliasIndex);
+              if (commit && proposed.length > 0) {
+                matchesWritten += await persistMatches(prisma, row.id, proposed);
+              }
+            } catch (err) {
+              counts.errors += 1;
+              console.warn(`[sam-opportunities] upsert/match failed for ${noticeId}: ${(err as Error).message}`);
+            }
+          }
+
+          offset += PAGE_LIMIT;
+          if (resp.totalRecords !== undefined && offset >= resp.totalRecords) break;
+        }
+
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+        console.log(
+          `[sam-opportunities] inserted=${counts.inserted} updated=${counts.updated} skipped=${counts.skipped} errors=${counts.errors} matches=${matchesWritten} in ${elapsed}s`,
+        );
+        return counts;
+      },
+      { overrideSince: sinceArg ?? null },
+    );
+  } finally {
+    await prisma.$disconnect();
+  }
+}
+
+/**
+ * Upsert proposed matches into sam_opportunity_match, idempotent on the natural key
+ * (opportunity_id, program_id, pe_code). Returns the number written. Uses the
+ * functional-unique index via a manual find-or-create (Prisma cannot target a
+ * coalesce()-based unique index in upsert).
+ */
+async function persistMatches(prisma: PrismaClient, opportunityId: string, proposed: ProposedSamMatch[]): Promise<number> {
+  let written = 0;
+  for (const m of proposed) {
+    const existing = await prisma.samOpportunityMatch.findFirst({
+      where: { opportunityId, programId: m.programId, peCode: m.peCode },
+      select: { id: true },
+    });
+    if (existing) {
+      await prisma.samOpportunityMatch.update({
+        where: { id: existing.id },
+        data: { matchBasis: m.matchBasis, confidence: m.confidence, reviewStatus: m.reviewStatus },
+      });
+    } else {
+      await prisma.samOpportunityMatch.create({
+        data: {
+          opportunityId,
+          programId: m.programId,
+          peCode: m.peCode,
+          matchBasis: m.matchBasis,
+          confidence: m.confidence,
+          reviewStatus: m.reviewStatus,
+        },
+      });
+    }
+    written += 1;
+  }
+  return written;
+}
+
+// Guarded entrypoint: only runs when invoked directly (never on import — the matcher
+// is imported by the spec). Mirrors the project's `void main().catch(...)` pattern.
+const isDirectRun = (() => {
+  try {
+    const invoked = process.argv[1] ?? '';
+    return /sync-sam-opportunities(\.[cm]?[tj]s)?$/.test(invoked.replace(/\\/g, '/'));
+  } catch {
+    return false;
+  }
+})();
+
+if (isDirectRun) {
+  void main().catch((err) => {
+    console.error('[sam-opportunities] FAILED', err);
+    process.exit(1);
+  });
+}
+
+// `normalizeText` re-exported so callers/tests can build hints with the same form.
+export { main, persistMatches, isDod, officeOf, buildAliasIndex, normalizeText };

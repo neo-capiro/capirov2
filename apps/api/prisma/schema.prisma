@@ -3149,6 +3149,7 @@ model Program {
 
   aliases        ProgramAlias[]
   matches        PeProgramMatch[]
+  samMatches     SamOpportunityMatch[]
   personRoles    PersonRole[]
   officeLinks    ProgramOfficeProgramLink[]
   provisionLinks ProvisionPeLink[]
@@ -3229,6 +3230,89 @@ model PeProgramMatch {
   @@index([peCode], map: "pe_program_match_pe_code_idx")
   @@index([status], map: "pe_program_match_status_idx")
   @@map("pe_program_match")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// SAM.gov OPPORTUNITIES (Step 3.1) — DoD contract opportunities + review-gated
+// opportunity -> program / PE matching. GLOBAL tables (no tenant_id / RLS): these
+// describe public-domain federal solicitations, same as federal_award / program.
+// SamOpportunityMatch mirrors PeProgramMatch / ProvisionPeLink review gating: a
+// machine match lands as 'candidate' or 'quarantined'; only a verbatim PE-code hit
+// in the description is 'accepted'. PSC/NAICS-only matches are NEVER auto-accepted.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// A SAM.gov contract opportunity (solicitation / notice). One row per notice_id.
+/// Loaded by sync-sam-opportunities (DoD-filtered, incremental). Global table —
+/// no tenant_id, no RLS (federal reference data, same as federal_award).
+model SamOpportunity {
+  id                  String    @id @default(uuid()) @db.Uuid
+  /// SAM.gov noticeId — stable idempotency key.
+  noticeId            String    @unique @map("notice_id")
+  solicitationNumber  String?   @map("solicitation_number")
+  title               String
+  /// SAM.gov notice type (e.g. 'Solicitation', 'Combined Synopsis/Solicitation',
+  /// 'Presolicitation', 'Sources Sought', 'Award Notice').
+  noticeType          String    @map("notice_type") @db.VarChar(32)
+  agency              String?
+  office              String?
+  /// Product/Service Code.
+  pscCode             String?   @map("psc_code") @db.VarChar(8)
+  naicsCode           String?   @map("naics_code") @db.VarChar(8)
+  postedDate          DateTime? @map("posted_date") @db.Timestamptz(6)
+  responseDeadline    DateTime? @map("response_deadline") @db.Timestamptz(6)
+  archiveDate         DateTime? @map("archive_date") @db.Timestamptz(6)
+  description         String?   @db.Text
+  /// Primary point-of-contact name (public header field).
+  pocName             String?   @map("poc_name")
+  pocEmail            String?   @map("poc_email")
+  placeOfPerformance  Json      @default("{}") @map("place_of_performance_jsonb")
+  sourceUrl           String?   @map("source_url")
+  /// Derived from archiveDate: false once the notice's archive date has passed.
+  active              Boolean   @default(true)
+  raw                 Json      @default("{}") @map("raw_jsonb")
+  lastSyncedAt        DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  matches SamOpportunityMatch[]
+
+  @@index([active, responseDeadline], map: "sam_opportunity_active_response_deadline_idx")
+  @@index([naicsCode], map: "sam_opportunity_naics_code_idx")
+  @@index([pscCode], map: "sam_opportunity_psc_code_idx")
+  @@index([office], map: "sam_opportunity_office_idx")
+  @@map("sam_opportunity")
+}
+
+/// Review-gated SAM.gov opportunity -> Program (and/or PE) link, with a confidence
+/// and a match basis. The graph's source of truth for "which opportunity belongs to
+/// which program". Mirrors PeProgramMatch gating: machine matches land as
+/// 'candidate'/'quarantined' for HUMAN review. A verbatim PE-code hit in the
+/// description is the ONLY auto-'accepted' basis; PSC/NAICS-only matches are
+/// 'quarantined' and NEVER auto-accepted.
+model SamOpportunityMatch {
+  id            String   @id @default(uuid()) @db.Uuid
+  opportunityId String   @map("opportunity_id") @db.Uuid
+  programId     String?  @map("program_id") @db.Uuid
+  peCode        String?  @map("pe_code") @db.VarChar(16)
+  /// 'program_alias' | 'office' | 'psc_naics_component' | 'description_pe_code'.
+  matchBasis    String   @map("match_basis") @db.VarChar(24)
+  confidence    Float    @default(0.5)
+  /// 'candidate' | 'accepted' | 'quarantined' | 'rejected'. Default 'candidate';
+  /// only 'description_pe_code' may be 'accepted'.
+  reviewStatus  String   @default("candidate") @map("review_status") @db.VarChar(20)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  opportunity SamOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  program     Program?       @relation(fields: [programId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  // Unique on (opportunity_id, coalesce(program_id::text,''), coalesce(pe_code,'')) —
+  // Postgres treats NULLs as distinct, so the coalesce()-based uniqueness is enforced
+  // via a raw expression index in the migration (Prisma cannot express it).
+  @@index([programId], map: "sam_opportunity_match_program_id_idx")
+  @@index([peCode], map: "sam_opportunity_match_pe_code_idx")
+  @@index([reviewStatus], map: "sam_opportunity_match_review_status_idx")
+  @@map("sam_opportunity_match")
 }
 
 /// A captured narrative PROVISION from a congressional committee report (HASC/SASC
