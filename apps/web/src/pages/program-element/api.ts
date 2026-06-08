@@ -6,6 +6,7 @@ import type {
   ProgramElementDetail,
   ProgramElementProject,
   ProgramElementSourceItem,
+  ProvisionItem,
   ProgramElementListResponse,
   ProgramElementMarkupMonitorResponse,
   ProgramElementRelatedResponse,
@@ -64,6 +65,17 @@ export async function getProgramElementSources(
   return (
     await api.get<ProgramElementSourceItem[]>(
       `/api/program-elements/${encodeURIComponent(peCode)}/sources`,
+    )
+  ).data;
+}
+
+export async function getProgramElementProvisions(
+  api: AxiosInstance,
+  peCode: string,
+): Promise<ProvisionItem[]> {
+  return (
+    await api.get<ProvisionItem[]>(
+      `/api/program-elements/${encodeURIComponent(peCode)}/provisions`,
     )
   ).data;
 }

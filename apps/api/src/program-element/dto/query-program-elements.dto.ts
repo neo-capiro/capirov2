@@ -52,7 +52,17 @@ export class QueryProgramElementsDto {
   @IsIn(['open', 'resolved', 'dismissed', 'all'])
   status?: string;
 
-  // Step 1.4 — budget-delta filters.
+  // Step 1.4 — budget-delta filters. Free-form string (no @IsIn enum) so the read path
+  // accepts every stored delta type. Recognized values: the budget delta types (see
+  // DeltaTypeForScore in deltas/materiality-scorer.ts: pb_vs_prior_pb, mark_vs_request,
+  // mark_vs_mark, conference_vs_marks, enacted_vs_request, new_start, termination, zeroed,
+  // transfer_candidate, quantity_change, unit_cost_change, outyear_shift,
+  // project_level_change) PLUS 'report_language_action' (Step 2.4 — committee-report
+  // LANGUAGE provisions). NOTE: 'report_language_action' is recognized here as a valid
+  // filter/type string ONLY; provision-change DETECTION is NOT wired into the delta engine
+  // yet — that is DEFERRED until real committee_provisions_* data exists (see
+  // sync-report-provisions.ts / provision-loader.ts). Do not add it to DeltaTypeForScore
+  // or the delta engine until then.
   @IsOptional()
   @IsString()
   deltaType?: string;

@@ -132,6 +132,14 @@ export class ProgramElementController {
     return this.service.getProgramsForPe(peCode);
   }
 
+  // Step 2.4 follow-on — committee-report LANGUAGE provisions linked to this PE
+  // (accepted first, then candidate; newest FY first). Empty until the real
+  // committee_provisions_* artifacts are loaded (DATA-PENDING).
+  @Get(':peCode/provisions')
+  provisions(@Param('peCode') peCode: string) {
+    return this.service.getProvisionsForPe(peCode);
+  }
+
   // Step 1.3 — budget positions (PB cycle + FYDP outyears). Optional ?fy=<assertedFy>
   // narrows to one fiscal year. Empty until per-FY dollar columns are loaded.
   @Get(':peCode/positions')

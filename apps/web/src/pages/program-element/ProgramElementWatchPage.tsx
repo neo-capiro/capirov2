@@ -16,6 +16,7 @@ import {
   getProgramElementDetail,
   getProgramElementPersonnel,
   getProgramElementProjects,
+  getProgramElementProvisions,
   getProgramElementRelated,
   getProgramElementSources,
   setProgramElementWatching,
@@ -26,6 +27,7 @@ import { ContractorsPanel } from './ContractorsPanel.js';
 import { ProjectsPanel } from './ProjectsPanel.js';
 import { ProofPackPanel } from './ProofPackPanel.js';
 import { WhatChangedPanel } from './WhatChangedPanel.js';
+import { ProvisionsPanel } from './ProvisionsPanel.js';
 import { RelatedPesPanel } from './RelatedPesPanel.js';
 import { ProgramsPanel } from './ProgramsPanel.js';
 import { getProgramsForPe } from './programs-api.js';
@@ -110,6 +112,7 @@ const LazyProofPackPanel = lazy(async () => ({ default: ProofPackPanel }));
 const LazyProgramsPanel = lazy(async () => ({ default: ProgramsPanel }));
 const LazyClientRelevancePanel = lazy(async () => ({ default: ClientRelevancePanel }));
 const LazyWhatChangedPanel = lazy(async () => ({ default: WhatChangedPanel }));
+const LazyProvisionsPanel = lazy(async () => ({ default: ProvisionsPanel }));
 
 function formatSyncedDate(value: string): string {
   const parsed = new Date(value);
@@ -246,6 +249,13 @@ export function ProgramElementWatchPage() {
   const deltasQuery = useQuery({
     queryKey: ['program-element-deltas', normalizedPeCode],
     queryFn: () => getProgramElementDeltas(api, normalizedPeCode, { limit: 25 }),
+    staleTime: 60 * 1000,
+    enabled: normalizedPeCode.length > 0,
+  });
+
+  const provisionsQuery = useQuery({
+    queryKey: ['program-element-provisions', normalizedPeCode],
+    queryFn: () => getProgramElementProvisions(api, normalizedPeCode),
     staleTime: 60 * 1000,
     enabled: normalizedPeCode.length > 0,
   });
@@ -530,6 +540,19 @@ export function ProgramElementWatchPage() {
         }
       >
         <LazyWhatChangedPanel deltas={deltasQuery.data?.data} loading={deltasQuery.isLoading} />
+      </Suspense>
+
+      <Suspense
+        fallback={
+          <Card title="Congressional activity">
+            <Skeleton active paragraph={{ rows: 3 }} />
+          </Card>
+        }
+      >
+        <LazyProvisionsPanel
+          provisions={provisionsQuery.data}
+          loading={provisionsQuery.isLoading}
+        />
       </Suspense>
 
       <Row gutter={[16, 16]} className="pe-two-col">

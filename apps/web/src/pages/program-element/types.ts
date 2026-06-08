@@ -351,6 +351,26 @@ export interface AcquisitionPersonnelListParams {
   limit?: number;
 }
 
+// ── Congressional report provisions (Step 2.4) ───────────────────────────────
+// One extracted report-language provision linking a committee report to this PE.
+// Backed by GET /api/program-elements/:peCode/provisions. `committee` is one of
+// hasc|sasc|hac_d|sac_d|conference; `actionType` is the directive class (or null
+// when the language is descriptive); `reviewStatus` is accepted|candidate.
+export interface ProvisionItem {
+  id: string;
+  committee: string;
+  fy: number;
+  heading: string;
+  text: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+  actionType: string | null;
+  sourceUrl: string | null;
+  matchBasis: string;
+  reviewStatus: string;
+  confidence: number;
+}
+
 // ── CRM contact picker (link an acquisition-personnel record to a contact) ────
 export interface EngagementContactListItem {
   id: string;

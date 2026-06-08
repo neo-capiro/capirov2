@@ -23,6 +23,28 @@ export interface ProgramElementListQuery {
 }
 
 /**
+ * One committee-report provision surfaced on a PE profile (Step 2.4 follow-on). Joins a
+ * provision_pe_link (matchBasis/reviewStatus/confidence) to its committee_report_provision
+ * (committee/fy/heading/text/pages/actionType) and the provision's SourceDocument
+ * (sourceUrl). The shape the web "Report language" panel renders.
+ */
+export interface ProvisionItem {
+  id: string;
+  committee: string;
+  fy: number;
+  heading: string;
+  text: string;
+  pageStart: number | null;
+  pageEnd: number | null;
+  actionType: string | null;
+  /** From the provision's SourceDocument when present (deep-link to the report); else null. */
+  sourceUrl: string | null;
+  matchBasis: string;
+  reviewStatus: string;
+  confidence: number;
+}
+
+/**
  * Cap on the number of not-already-matched candidate PEs the needs-attention feed probes
  * against the relevance service per request. Each probe is its own withTenant transaction,
  * so this bounds a new tenant's (no watches/caps) request to MAX_RELEVANCE_PROBES sequential
@@ -1095,6 +1117,65 @@ export class ProgramElementReadService {
       acceptedMatches: matches.filter((m) => m.status === 'accepted').map(decorate),
       candidateMatches: matches.filter((m) => m.status === 'candidate').map(decorate),
     };
+  }
+
+  /**
+   * Step 2.4 follow-on — committee-report LANGUAGE provisions linked to this PE.
+   *
+   * Joins provision_pe_link (peCode) → committee_report_provision (+ its SourceDocument
+   * for the deep-link sourceUrl). Only ACCEPTED + CANDIDATE links are surfaced — any other
+   * reviewStatus (e.g. 'rejected' / quarantined) is EXCLUDED. Ordered accepted-first, then
+   * by fiscal year descending (newest report cycle first). These are GLOBAL tables (no RLS),
+   * so read via this.prisma directly. Empty array (never an error) when this PE has no
+   * linked provisions — which is the case today, since the real committee_provisions_*
+   * artifacts are DATA-PENDING (the deferred pdfplumber language-extraction pass).
+   */
+  async getProvisionsForPe(peCode: string): Promise<ProvisionItem[]> {
+    const code = peCode.trim();
+    if (!code) return [];
+
+    const links = await this.prisma.provisionPeLink.findMany({
+      // Quarantined/rejected (any non-accepted/candidate reviewStatus) are NEVER surfaced.
+      where: { peCode: code, reviewStatus: { in: ['accepted', 'candidate'] } },
+      select: {
+        matchBasis: true,
+        reviewStatus: true,
+        confidence: true,
+        provision: {
+          select: {
+            id: true,
+            committee: true,
+            fy: true,
+            heading: true,
+            text: true,
+            pageStart: true,
+            pageEnd: true,
+            actionType: true,
+            sourceDocument: { select: { sourceUrl: true } },
+          },
+        },
+      },
+    });
+
+    const items: ProvisionItem[] = links.map((l) => ({
+      id: l.provision.id,
+      committee: l.provision.committee,
+      fy: l.provision.fy,
+      heading: l.provision.heading,
+      text: l.provision.text,
+      pageStart: l.provision.pageStart,
+      pageEnd: l.provision.pageEnd,
+      actionType: l.provision.actionType,
+      sourceUrl: l.provision.sourceDocument?.sourceUrl ?? null,
+      matchBasis: l.matchBasis,
+      reviewStatus: l.reviewStatus,
+      confidence: l.confidence,
+    }));
+
+    // Accepted first, then candidate; within a status, newest fiscal year first.
+    const statusRank = (s: string) => (s === 'accepted' ? 0 : 1);
+    items.sort((a, b) => statusRank(a.reviewStatus) - statusRank(b.reviewStatus) || b.fy - a.fy);
+    return items;
   }
 }
 

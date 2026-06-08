@@ -30,6 +30,7 @@ describe('ProgramElementController', () => {
       getNeedsAttention: jest.fn(),
       getRelatedProgramElements: jest.fn(),
       getProgramsForPe: jest.fn(),
+      getProvisionsForPe: jest.fn(),
       setWatching: jest.fn(),
       listReconciliationQueue: jest.fn(),
       resolveReconciliation: jest.fn(),
@@ -197,6 +198,33 @@ describe('ProgramElementController', () => {
     expect(result.acceptedMatches).toHaveLength(1);
     expect(result.acceptedMatches[0]?.program?.canonicalName).toBe('PATRIOT');
     expect(result.candidateMatches).toEqual([]);
+  });
+
+  test('GET /api/program-elements/:peCode/provisions delegates to the read service (Step 2.4)', async () => {
+    const { controller, service } = makeController();
+    service.getProvisionsForPe.mockResolvedValue([
+      {
+        id: 'prov-1',
+        committee: 'HASC',
+        fy: 2027,
+        heading: 'Increase for long-range fires development',
+        text: 'The committee recommends an increase of $25.0 million ...',
+        pageStart: 143,
+        pageEnd: 144,
+        actionType: 'adds',
+        sourceUrl: 'https://www.congress.gov/report.pdf',
+        matchBasis: 'pe_code',
+        reviewStatus: 'accepted',
+        confidence: 0.99,
+      },
+    ]);
+
+    const result = await controller.provisions('0604801F');
+
+    expect(service.getProvisionsForPe).toHaveBeenCalledWith('0604801F');
+    expect(result).toHaveLength(1);
+    expect(result[0]?.matchBasis).toBe('pe_code');
+    expect(result[0]?.reviewStatus).toBe('accepted');
   });
 
   test('GET /api/program-elements/:peCode/contractors returns [] + TODO when federal_award table missing', async () => {
