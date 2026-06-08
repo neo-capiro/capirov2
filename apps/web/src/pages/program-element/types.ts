@@ -56,6 +56,30 @@ export interface ProgramElementSourceItem {
   sourceDocument: { title: string; budgetCycle: string; sha256: string | null } | null;
 }
 
+/** A typed, materiality-scored budget delta (Step 1.4). */
+export interface ProgramElementDelta {
+  id: string;
+  peCode: string;
+  assertedFy: number;
+  deltaType: string;
+  fromRef: string | null;
+  toRef: string | null;
+  amountFrom: string | number | null;
+  amountTo: string | number | null;
+  deltaAbs: string | number | null;
+  deltaPct: number | null;
+  explanation: string | null;
+  materialityScore: number;
+  computedAt: string;
+}
+
+export interface ProgramElementDeltaListResponse {
+  data: ProgramElementDelta[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 export interface ProgramElementListItem {
   peCode: string;
   title: string;

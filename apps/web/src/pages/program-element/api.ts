@@ -2,6 +2,7 @@ import type { AxiosInstance } from 'axios';
 import type {
   ProgramElementBill,
   ProgramElementContractorsResponse,
+  ProgramElementDeltaListResponse,
   ProgramElementDetail,
   ProgramElementProject,
   ProgramElementSourceItem,
@@ -63,6 +64,19 @@ export async function getProgramElementSources(
   return (
     await api.get<ProgramElementSourceItem[]>(
       `/api/program-elements/${encodeURIComponent(peCode)}/sources`,
+    )
+  ).data;
+}
+
+export async function getProgramElementDeltas(
+  api: AxiosInstance,
+  peCode: string,
+  params: { deltaType?: string; fy?: number; limit?: number } = {},
+): Promise<ProgramElementDeltaListResponse> {
+  return (
+    await api.get<ProgramElementDeltaListResponse>(
+      `/api/program-elements/${encodeURIComponent(peCode)}/deltas`,
+      { params },
     )
   ).data;
 }

@@ -12,6 +12,7 @@ import { useApi } from '../../lib/use-api.js';
 import {
   getProgramElementBills,
   getProgramElementContractors,
+  getProgramElementDeltas,
   getProgramElementDetail,
   getProgramElementPersonnel,
   getProgramElementProjects,
@@ -24,6 +25,7 @@ import { BillsTouchingPePanel } from './BillsTouchingPePanel.js';
 import { ContractorsPanel } from './ContractorsPanel.js';
 import { ProjectsPanel } from './ProjectsPanel.js';
 import { ProofPackPanel } from './ProofPackPanel.js';
+import { WhatChangedPanel } from './WhatChangedPanel.js';
 import { RelatedPesPanel } from './RelatedPesPanel.js';
 import { ProgramsPanel } from './ProgramsPanel.js';
 import { getProgramsForPe } from './programs-api.js';
@@ -104,6 +106,7 @@ const LazyProgramTeamPanel = lazy(async () => ({ default: ProgramTeamPanel }));
 const LazyProjectsPanel = lazy(async () => ({ default: ProjectsPanel }));
 const LazyProofPackPanel = lazy(async () => ({ default: ProofPackPanel }));
 const LazyProgramsPanel = lazy(async () => ({ default: ProgramsPanel }));
+const LazyWhatChangedPanel = lazy(async () => ({ default: WhatChangedPanel }));
 
 function formatSyncedDate(value: string): string {
   const parsed = new Date(value);
@@ -226,6 +229,13 @@ export function ProgramElementWatchPage() {
   const programsQuery = useQuery({
     queryKey: ['program-element-programs', normalizedPeCode],
     queryFn: () => getProgramsForPe(api, normalizedPeCode),
+    staleTime: 60 * 1000,
+    enabled: normalizedPeCode.length > 0,
+  });
+
+  const deltasQuery = useQuery({
+    queryKey: ['program-element-deltas', normalizedPeCode],
+    queryFn: () => getProgramElementDeltas(api, normalizedPeCode, { limit: 25 }),
     staleTime: 60 * 1000,
     enabled: normalizedPeCode.length > 0,
   });
@@ -487,6 +497,16 @@ export function ProgramElementWatchPage() {
         }
       >
         <LazyProgramsPanel programs={programsQuery.data} loading={programsQuery.isLoading} />
+      </Suspense>
+
+      <Suspense
+        fallback={
+          <Card title="What changed">
+            <Skeleton active paragraph={{ rows: 3 }} />
+          </Card>
+        }
+      >
+        <LazyWhatChangedPanel deltas={deltasQuery.data?.data} loading={deltasQuery.isLoading} />
       </Suspense>
 
       <Row gutter={[16, 16]} className="pe-two-col">

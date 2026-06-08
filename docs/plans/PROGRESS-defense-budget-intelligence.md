@@ -26,7 +26,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 1.1 | P-1 procurement ingestion | ⏳ SCAFFOLDED — needs real P-1 PDF |
 | 1.2 | Surface projects + proof pack (API+UI) | ✅ done — API+web+tests green |
 | 1.3 | Budget-cycle (PB position) + FYDP outyears | ⏳ code done (schema+API+loader+specs); outyear/prior-PB DATA deferred |
-| 1.4 | Typed budget-delta engine + materiality | ✅ engine+scorer+API+script done; web "What changed" panel + writer-severity rewire deferred |
+| 1.4 | Typed budget-delta engine + materiality | ✅ done — engine+scorer+API+script+web "What changed" panel; writer-severity rewire deferred (engine already emits IntelligenceChange) |
 | 1.5 | R-2A deep extraction | ⏳ SCAFFOLDED — needs richer extraction data |
 | 2.1 | Program / ProgramAlias / PEProgramMatch | ✅ done (backend+web); explorer-tab wiring deferred (hook added) |
 | 2.2 | ProgramOffice + PersonRole + guardrails | ⬜ pending |
@@ -97,5 +97,12 @@ Scaffold/partials interleaved: 0.4 (diag+docs), 0.3 / 1.1 / 1.5 (tooling+runbook
   (filter deltaType/fy) + `GET deltas/needs-attention?minScore=&fy=` (per-tenant clientRelevance
   boost at read time) + controller delegation tests + DTO fields. Verified: api typecheck clean;
   controller+deltas specs 59 green; 1.4 migration applies clean on fresh scratch DB.
-  **Deferred**: web "What changed" PE panel + the writer-emission severity rewire (the engine already
+  **Deferred**: the writer-emission severity rewire (the engine already
   emits IntelligenceChange, so alerting works; the writer rewire was the timeout-risky part).
+- **Step 1.4 web "What changed" panel done** (myself, to avoid another agent timeout): web
+  `getProgramElementDeltas` api + `ProgramElementDelta`/`ProgramElementDeltaListResponse` types;
+  `WhatChangedPanel.tsx` (top-N materiality-scored deltas — type badge, FY tag, `$Xm → $Ym (±%)`,
+  materiality score Tag banded ≥0.7 red / ≥0.4 orange; honest empty state; Array.isArray guard) +
+  `materialityColor` export; lazy-wired into `ProgramElementWatchPage` (deltasQuery, Suspense block
+  after Programs). Tests: WhatChangedPanel render + max-cap + empty-state + materialityColor bands
+  (4 vitest). Verified: web typecheck clean; new panel 4/4 + ProgramElementWatchPage 3/3 vitest green.
