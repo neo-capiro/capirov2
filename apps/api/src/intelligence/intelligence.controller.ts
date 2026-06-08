@@ -305,8 +305,8 @@ export class IntelligenceController {
   }
 
   @Get('mappings/:clientId')
-  getMappings(@Param('clientId') clientId: string) {
-    return this.service.getMappings(clientId);
+  getMappings(@CurrentTenant() ctx: TenantContext, @Param('clientId') clientId: string) {
+    return this.service.getMappings(clientId, ctx.tenantId);
   }
 
   @Post('mappings/:clientId/resolve')
@@ -319,10 +319,11 @@ export class IntelligenceController {
 
   @Patch('mappings/:mappingId')
   confirmMapping(
+    @CurrentTenant() ctx: TenantContext,
     @Param('mappingId') mappingId: string,
     @Body() body: ConfirmMappingDto,
   ) {
-    return this.service.confirmMapping(mappingId, body.confirmed);
+    return this.service.confirmMapping(mappingId, body.confirmed, ctx.tenantId);
   }
 
   // Free-text / by-id search of lda_client for the manual-attach panel. Returns

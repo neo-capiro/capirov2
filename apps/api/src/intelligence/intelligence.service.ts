@@ -2032,11 +2032,21 @@ export class IntelligenceService {
     });
   }
 
-  /** Get client-to-intel source mappings */
-  async getMappings(clientId: string) {
-    return this.prisma.clientIntelMapping.findMany({
-      where: { clientId },
-      orderBy: { confidence: 'desc' },
+  /**
+   * Get client-to-intel source mappings. TENANT-SCOPED: the client must belong
+   * to the caller's tenant, otherwise this would be a cross-tenant read (the
+   * route is auth-guarded but not tenant-scoped, so we enforce ownership here).
+   * `clients` is RLS-isolated; the mapping read is additionally backstopped by
+   * RLS once client_intel_mapping carries tenant_id.
+   */
+  async getMappings(clientId: string, tenantId: string) {
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const client = await tx.client.findFirst({ where: { id: clientId }, select: { id: true } });
+      if (!client) throw new NotFoundException('Client not found');
+      return tx.clientIntelMapping.findMany({
+        where: { clientId },
+        orderBy: { confidence: 'desc' },
+      });
     });
   }
 
@@ -2270,11 +2280,27 @@ export class IntelligenceService {
     return mappings;
   }
 
-  /** Confirm or reject a mapping */
-  async confirmMapping(mappingId: string, confirmed: boolean) {
-    return this.prisma.clientIntelMapping.update({
-      where: { id: mappingId },
-      data: { confirmed },
+  /**
+   * Confirm or reject a mapping. TENANT-SCOPED: the mapping's client must belong
+   * to the caller's tenant, else a foreign mappingId could be flipped (the route
+   * is auth-guarded but not tenant-scoped). We gate on client ownership; once
+   * client_intel_mapping carries tenant_id + RLS the read itself is scoped and a
+   * foreign id simply returns null.
+   */
+  async confirmMapping(mappingId: string, confirmed: boolean, tenantId: string) {
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const mapping = await tx.clientIntelMapping.findUnique({
+        where: { id: mappingId },
+        select: { id: true, clientId: true },
+      });
+      const owned = mapping
+        ? await tx.client.findFirst({ where: { id: mapping.clientId }, select: { id: true } })
+        : null;
+      if (!mapping || !owned) throw new NotFoundException('Mapping not found');
+      return tx.clientIntelMapping.update({
+        where: { id: mappingId },
+        data: { confirmed },
+      });
     });
   }
 
