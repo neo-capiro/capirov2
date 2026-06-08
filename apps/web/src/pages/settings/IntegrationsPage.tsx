@@ -104,11 +104,12 @@ export function IntegrationsPage() {
       // Mailbox/calendar sync pages through Graph + persists per item; a fresh
       // reset-sync legitimately runs longer than the global 20s axios timeout
       // (the API still returns hasMore so it can be re-run). Give this specific
-      // call generous headroom (under the 180s ALB idle timeout) so the client
-      // doesn't abort a sync the server is completing successfully.
+      // call generous headroom (just under the 180s ALB idle timeout) so the
+      // client doesn't abort a sync the server is completing successfully —
+      // users on slow connections were hitting the 120s abort mid-sync.
       (
         await api.post(`/api/engagement/integrations/microsoft/${connectionId}/sync`, undefined, {
-          timeout: 120_000,
+          timeout: 170_000,
         })
       ).data,
     onSuccess: () => {
