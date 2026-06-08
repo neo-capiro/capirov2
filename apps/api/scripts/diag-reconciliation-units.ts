@@ -66,6 +66,10 @@ async function main(): Promise<void> {
   // real canonical that needs accept_conflicting). keep_current never changes a
   // value, so this only clears stale rows.
   const includeCanonRaw = process.argv.includes('--include-canonical-raw');
+  // Resolve specific row ids as keep_current — for operator-confirmed stale rows
+  // the ratio classifier leaves as 'genuine' (e.g. canonical=0 snapshots that a
+  // later correct load already superseded). Comma-separated. No value change.
+  const resolveIds = (argValue('resolve-ids') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   const sourceFilter = argValue('source');
   const prisma = new PrismaClient();
   await prisma.$connect();
@@ -127,6 +131,7 @@ async function main(): Promise<void> {
       if (!includeCanonRaw && totalCanonRaw > 0) {
         console.log(`(add --include-canonical-raw to ALSO sweep the ${totalCanonRaw} canonical-raw rows — only after verifying live data is correct.)`);
       }
+      if (resolveIds.length > 0) console.log(`(--resolve-ids would close ${resolveIds.length} operator-specified row(s).)`);
       return;
     }
 
@@ -134,7 +139,7 @@ async function main(): Promise<void> {
     const rawIds = includeCanonRaw
       ? rows.filter((r) => classify(r).verdict === 'artifact_canonical_raw').map((r) => r.id)
       : [];
-    if (keepIds.length === 0 && rawIds.length === 0) {
+    if (keepIds.length === 0 && rawIds.length === 0 && resolveIds.length === 0) {
       console.log('\nNothing to resolve.');
       return;
     }
@@ -164,6 +169,18 @@ async function main(): Promise<void> {
     }
     if (!includeCanonRaw && totalCanonRaw > 0) {
       console.log(`Left ${totalCanonRaw} CANONICAL-RAW row(s) open (pass --include-canonical-raw to sweep, after verifying live data).`);
+    }
+    if (resolveIds.length > 0) {
+      const res = await prisma.reconciliationReviewQueue.updateMany({
+        where: { id: { in: resolveIds }, status: 'open' },
+        data: {
+          status: 'resolved',
+          resolvedAt: new Date(),
+          resolutionNotes:
+            'operator-confirmed stale (live program_element_year verified correct in $M); closed via diag-reconciliation-units --resolve-ids.',
+        },
+      });
+      console.log(`Resolved ${res.count} operator-specified row(s) by id as keep_current.`);
     }
   } finally {
     await prisma.$disconnect();
