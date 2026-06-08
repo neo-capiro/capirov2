@@ -167,6 +167,7 @@ model Tenant {
   clientCapabilities           ClientCapability[]
   clientSubmissionHistory      ClientSubmissionHistory[]
   clientPeople                 ClientPerson[]
+  clientFacilities             ClientFacility[]
   strategies                   Strategy[]
   strategyTargets              StrategyTarget[]
   engagementCampaigns          EngagementCampaign[]
@@ -273,6 +274,11 @@ model Client {
   // settings. Unioned with the auto codes from the confirmed LDA match to drive
   // bill/regulation matching (works even when no LDA entity is mapped).
   issueCodes          String[]  @default([]) @map("issue_codes")
+  // Step 2.3 — government identifiers + code arrays for procurement matching.
+  uei                 String?   @db.VarChar(12)
+  cageCode            String?   @map("cage_code") @db.VarChar(5)
+  naicsCodes          String[]  @default([]) @map("naics_codes")
+  pscCodes            String[]  @default([]) @map("psc_codes")
   createdByUserId     String?   @map("created_by_user_id") @db.Uuid
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -298,6 +304,7 @@ model Client {
   capabilities            ClientCapability[]
   submissionHistory       ClientSubmissionHistory[]
   people                  ClientPerson[]
+  facilities              ClientFacility[]
   strategies              Strategy[]
   engagementCampaigns     EngagementCampaign[]
   clioProactiveAlerts     ClioProactiveAlert[]
@@ -1149,6 +1156,9 @@ model ClientCapability {
   trl                  Int?
   mrl                  Int?
   peNumber             String?  @map("pe_number")
+  // Step 2.3 — multi-PE + explicit match keywords (peNumber kept for backcompat).
+  peNumbers            String[] @default([]) @map("pe_numbers")
+  keywords             String[] @default([])
   appropriationAccount String?  @map("appropriation_account")
   serviceBranch        String?  @map("service_branch")
   targetSubcommittee   String?  @map("target_subcommittee")
@@ -1212,6 +1222,30 @@ model ClientPerson {
 
   @@index([tenantId, clientId], map: "client_people_tenant_client_idx")
   @@map("client_people")
+}
+
+model ClientFacility {
+  id                    String   @id @default(uuid()) @db.Uuid
+  tenantId              String   @map("tenant_id") @db.Uuid
+  clientId              String   @map("client_id") @db.Uuid
+  name                  String
+  addressLine           String?  @map("address_line")
+  city                  String?
+  state                 String?  @db.VarChar(2)
+  zip                   String?  @db.VarChar(10)
+  congressionalDistrict String?  @map("congressional_district") @db.VarChar(2)
+  districtSource        String?  @map("district_source") @db.VarChar(16)
+  employeeCount         Int?     @map("employee_count")
+  notes                 String?
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, clientId], map: "client_facilities_tenant_client_idx")
+  @@index([state, congressionalDistrict], map: "client_facilities_district_idx")
+  @@map("client_facilities")
 }
 
 model Strategy {
