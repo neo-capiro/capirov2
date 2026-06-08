@@ -113,6 +113,10 @@ case "${1:-serve}" in
     echo "Running diag-ingestion-health (read-only ingestion counts + freshness report)"
     exec ./node_modules/.bin/tsx scripts/diag-ingestion-health.ts
     ;;
+  diag-lda-identity)
+    echo "Running diag-lda-identity (read-only: LDA client_id stability vs name variation)"
+    exec ./node_modules/.bin/tsx scripts/diag-lda-identity.ts
+    ;;
   diag-profile-v1)
     shift
     echo "Running diag-profile-v1 (read-only Intelligence-tab per-source health + latency)"
