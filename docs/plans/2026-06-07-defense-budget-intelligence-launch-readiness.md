@@ -40,9 +40,12 @@ dismissed with a required reason (3.2). **§27.12 (artifact generation)** is `it
 | Live prod data populated so features show data | ⚠️ | one-time ops run: `seed:programs`→`match:pe-program`, `backfill:program-offices`, `deltas:compute`→`generate:actions` (runbook §2) |
 | Real §22 accuracy numbers | ⚠️ | harness ready; needs **human-curated golden sets** (test/__golden__/README.md). CLI reports `n/a` on the synthetic placeholders rather than fake-greening |
 | Perf baselines vs §21 (<1s search / <3s profile / <10s card) | ⚠️ | `scripts/perf/*` + `docs/runbooks/perf-baselines.md` ready; needs a seeded env run |
-| Live market signal (SAM.gov procurement) | ⛔ | Step 3.1 — needs `SAM_GOV_API_KEY`; `monitor_procurement` card type dormant |
-| Source-backed artifact generation (one-pagers/memos) | ⛔ | Step 3.3 — needs runtime LLM credential |
-| Full mark/enacted + P-1 + R-2A-deep + report-language coverage | ⛔ | Steps 0.3/1.1/1.5/2.4-extraction — need the real PDFs + a pdfplumber extraction pass; schemas/loaders/classifiers/panels already shipped to consume them |
+| Live market signal (SAM.gov procurement) | ✅ built / ⚠️ run | Step 3.1 DONE (ingestion + matcher + PE panel); `SAM_GOV_API_KEY` valid in Secrets Manager — run `sync:sam-opportunities` in prod to populate the `monitor_procurement` cards |
+| Source-backed artifact generation (one-pagers/memos) | ✅ | Step 3.3 DONE — FactSheet + constrained LLM (existing Anthropic path) + citation verifier + ClioArtifact + action-card Generate/viewer. Completes the §27 north-star |
+| RDT&E marks + R-2A-deep coverage | ✅ extracted / ⚠️ load | HASC FY26/27 + SASC FY26 marks + full FY2027 R-1/R-2/performers artifacts committed; verified load → 1,579 deltas on a scratch DB. Run the loaders in prod (recipe in PROGRESS) |
+| Appropriations marks + enacted | ⏳ pending publication | Steps 0.3-approps — HAC-D/SAC-D reports + enacted law not published yet; `parse:hac-d-report`/`sac-d`/`public-law` built, auto-ingest on release |
+| P-1 procurement coverage | ⛔ extractor | Step 1.1 — Army books on hand but `extract_pdoc.py` yields 0 on the weapon-system/BLIN layout; needs the extractor adapted to P-1/P-40. Schema + loader ready |
+| Committee report *language* (provisions) | ⛔ source | Step 2.4-extraction — needs the HASC/SASC committee-report PDFs (the narrative, not the marks); loader (`sync:report-provisions`) + classifier built |
 | Ingestion-schedule truth-up | ⛔ | Step 0.4 — needs `cdk diff` / prod AWS |
 
 ## §26 negative criteria (must-NOT) — ✅ enforced

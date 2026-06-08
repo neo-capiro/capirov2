@@ -21,20 +21,20 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 |------|-------|--------|
 | 0.1 | Source-document registry | ✅ done (commit 7b79862) |
 | 0.2 | Reconciliation resolve loop + totals harness | ✅ done (in 5ca3bcc) |
-| 0.3 | Mark/enacted coverage FY26–27 | ⏳ SCAFFOLDED — needs real PDFs |
+| 0.3 | Mark/enacted coverage FY26–27 | ✅ authorization marks DONE (HASC FY26/27, SASC FY26 artifacts + loaders; verified load → 1,579 deltas on a scratch DB). Appropriations (HAC-D/SAC-D) + enacted = PENDING PUBLICATION — parsers built; auto-ingest on release (NOT blocked on me) |
 | 0.4 | Ingestion scheduling truth-up | ⏳ partial — diag script + docs; CDK/AWS deferred |
-| 1.1 | P-1 procurement ingestion | ⏳ SCAFFOLDED — needs real P-1 PDF |
+| 1.1 | P-1 procurement ingestion | ⏳ schema + parse:pdoc loader + extract_pdoc.py ready; Army procurement books (FY2026) on hand. BUT extract_pdoc's PE-code heuristic yields 0 on these weapon-system justification books (BLIN/line-item layout, not 7-digit PE codes) → needs the extractor adapted to the P-1/P-40 structure. Honest: NOT extractable as-is |
 | 1.2 | Surface projects + proof pack (API+UI) | ✅ done — API+web+tests green |
 | 1.3 | Budget-cycle (PB position) + FYDP outyears | ⏳ code done (schema+API+loader+specs); outyear/prior-PB DATA deferred |
 | 1.4 | Typed budget-delta engine + materiality | ✅ done — engine+scorer+API+script+web "What changed" panel; writer-severity rewire deferred (engine already emits IntelligenceChange) |
-| 1.5 | R-2A deep extraction | ⏳ SCAFFOLDED — needs richer extraction data |
+| 1.5 | R-2A deep extraction | ✅ jbook_performers_* artifacts (all services) extracted + committed + loader (sync-jbook-performers); load in prod to populate named primes |
 | 2.1 | Program / ProgramAlias / PEProgramMatch | ✅ done (backend+web); explorer-tab wiring deferred (hook added) |
 | 2.2 | ProgramOffice + PersonRole + guardrails | ✅ done — foundation (212790e) + follow-on (backfill, read+API roles hydration, matcher-records-PersonRole, web ProgramTeamPanel badges, staleness); adversarial review issues fixed. Backfill+matcher are tooling; live population deferred to deploy-time run |
 | 2.3 | Client relevance v2 | ✅ done — RLS inputs + pure scoring (194a7d9) + relevance service/API, facilities CRUD, writer+needs-attention wiring, web (card/panel/facilities editor); adversarial fixes applied. RLS hardening of client_capabilities/client_intel_mapping spawned as a task |
 | 2.4 | Committee report language capture | ✅ code done (e18b6e7 foundation + loader/linking/API/web panel); report_language_action recognized at DTO; PDF language-EXTRACTION + engine emission deferred (data-blocked) |
-| 3.1 | SAM.gov opportunities ingestion | ⏳ needs SAM_GOV_API_KEY/data |
+| 3.1 | SAM.gov opportunities ingestion | ✅ done — SamOpportunity/Match + sync (bd11001) + structural-gated matcher + PE "Procurement activity" panel (af7364a). Key valid in Secrets Manager; run sync:sam-opportunities in prod to populate |
 | 3.2 | ActionRecommendation engine + Action Board | ✅ done — RLS model + pure cores (89dde05) + generator service, /intelligence/actions CRUD API, ActionBoard web; adversarial fixes applied. Procurement/SAM card types dormant until 2.4/3.1 data |
-| 3.3 | Source-backed artifact generation | ⏳ needs runtime LLM |
+| 3.3 | Source-backed artifact generation | ✅ done — FactSheet + constrained LLM (existing Anthropic path) + citation verifier + ClioArtifact persist (a8e5c80) + action-card Generate menu/viewer (f885662). Completes the §27 north-star |
 | 3.4 | Relationship coverage gaps | ✅ done — read-only engagement coverage service (66b940f) + API + web "Coverage" section in the action card (assign & create outreach). Writes only schedule_outreach cards; engagement untouched |
 | 3.5 | Unified analyst console | ✅ done — backend (982080c: review-counts/SLA, audit view, quarantine reprocess, alias manager + program-merge) + web /admin/analyst-console (9 tabs: 4 mounted queues + alias/quarantine/audit + honest provision/SAM placeholders) |
 | 4.1 | Accuracy harness, golden sets, metrics | ✅ harness done — pure §22 metric math + measure-accuracy CLI (CI gate; n/a on synthetic, never fake-greens) + product-metrics endpoint (§24, from existing data) + perf scaffold/runbook (§21). Real §22 numbers need human-curated golden sets (documented) |
