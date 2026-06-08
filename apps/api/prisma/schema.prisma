@@ -132,6 +132,12 @@ model Tenant {
   // Portfolio Tab v2 additions
   accountType     String?      @map("account_type")
   planTier        String       @default("FOUNDATION") @map("plan_tier")
+  // Client→data association overhaul: the lobbying firm this tenant files as.
+  // Anchors client→LDA resolution to this registrant's filings
+  // (lda_filing.registrant_id), collapsing the candidate set from ~46k global
+  // LDA clients to just the clients this firm has actually filed for.
+  ldaRegistrantId   Int?       @map("lda_registrant_id")
+  ldaRegistrantName String?    @map("lda_registrant_name")
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -280,6 +286,12 @@ model Client {
   cageCode            String?   @map("cage_code") @db.VarChar(5)
   naicsCodes          String[]  @default([]) @map("naics_codes")
   pscCodes            String[]  @default([]) @map("psc_codes")
+  // Client→data association overhaul: the confirmed set of Senate LDA client_ids
+  // this client resolves to (one id per lobbying-firm relationship — a real
+  // company can have many, e.g. Boeing = 27). Denormalized read-cache of the
+  // confirmed source='lda' ClientIntelMapping rows; reads join
+  // lda_filing.client_id = ANY(ldaClientIds) instead of fuzzy-matching the name.
+  ldaClientIds        Int[]     @default([]) @map("lda_client_ids")
   createdByUserId     String?   @map("created_by_user_id") @db.Uuid
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
