@@ -42,6 +42,7 @@
     "rebuild:pe-years": "tsx scripts/rebuild-program-element-years.ts",
     "normalize:pe-units": "tsx scripts/normalize-pe-units.ts",
     "diag:stale-directory": "tsx scripts/diag-stale-directory.ts",
+    "diag:reconciliation-units": "tsx scripts/diag-reconciliation-units.ts",
     "reconcile:personnel-supersede": "tsx scripts/reconcile-personnel-supersede.ts",
     "reconcile:stale-pes": "tsx scripts/reconcile-stale-pes.ts",
     "repair:person-pe-links": "tsx scripts/repair-person-pe-links.ts",
