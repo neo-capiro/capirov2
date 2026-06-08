@@ -1,12 +1,14 @@
 /**
  * Read-only TENANT/CLIENT CONFIG EXPORT. Dumps everything a tenant (and its
  * clients) has configured — a record snapshot. Resolves the search term against
- * BOTH tenant (name/slug) and client (name), so it works whether the term names
- * a firm or a client.
+ * tenant name/slug, client name, AND member email domain (so it finds a firm by
+ * its email domain even when the tenant is named something else). Always prints
+ * an all-tenants summary as a fallback for eyeballing.
  *
  *   diag-tenant-config "c2 strategies"
  *
- * SAFE: SELECT-only. No writes. Prints tagged JSON sections to stdout/CloudWatch.
+ * SAFE: SELECT-only. No writes. Member emails are included (own-tenant config
+ * record); OAuth token tables are intentionally NOT dumped.
  */
 import { PrismaClient } from '@prisma/client';
 
@@ -31,35 +33,76 @@ async function main(): Promise<void> {
   const like = `%${term}%`;
   const likeNoSpace = `%${term.replace(/\s+/g, '')}%`;
 
-  // 1) Tenants matching name or slug.
-  const tenants = await q(
-    `SELECT * FROM tenants WHERE name ILIKE $1 OR slug ILIKE $1 OR slug ILIKE $2 ORDER BY created_at`,
+  // Always: an all-tenants summary for eyeballing (small table).
+  const allTenants = await q(
+    `SELECT t.id, t.name, t.slug, t.status, t.plan_tier, t.account_type, t.clerk_org_id,
+            t.created_at,
+            (SELECT count(*)::int FROM clients c WHERE c.tenant_id = t.id) AS client_count,
+            (SELECT count(*)::int FROM tenant_memberships m WHERE m.tenant_id = t.id) AS member_count
+       FROM tenants t ORDER BY t.created_at`,
+  );
+  console.log('TC_ALL_TENANTS ' + JSON.stringify({ count: allTenants.length, tenants: allTenants }, num, 2));
+
+  // Resolve target tenant ids from three angles.
+  const byNameSlug = await q<{ id: string }>(
+    `SELECT id FROM tenants WHERE name ILIKE $1 OR slug ILIKE $1 OR slug ILIKE $2`,
     like,
     likeNoSpace,
   );
-  const tenantIds = tenants.map((t) => String((t as { id: string }).id));
-  console.log('TC_TENANTS ' + JSON.stringify({ term, matched: tenants.length, tenants }, num, 2));
+  const byEmail = await q<{ tenant_id: string }>(
+    `SELECT DISTINCT m.tenant_id
+       FROM tenant_memberships m JOIN users u ON u.id = m.user_id
+      WHERE u.email ILIKE $1 OR u.email ILIKE $2`,
+    likeNoSpace,
+    like,
+  );
+  const byClient = await q<{ tenant_id: string }>(
+    `SELECT DISTINCT tenant_id FROM clients WHERE name ILIKE $1`,
+    like,
+  );
+  const tenantIds = Array.from(
+    new Set([
+      ...byNameSlug.map((r) => String(r.id)),
+      ...byEmail.map((r) => String(r.tenant_id)),
+      ...byClient.map((r) => String(r.tenant_id)),
+    ]),
+  );
+  console.log('TC_RESOLVED ' + JSON.stringify({ term, byNameSlug: byNameSlug.length, byEmail: byEmail.length, byClient: byClient.length, tenantIds }, num, 2));
 
-  // 2) Clients: belonging to a matched tenant OR whose own name matches the term.
+  if (tenantIds.length === 0) {
+    console.log('TC_DONE ' + JSON.stringify({ matched: 0, note: 'no tenant matched name/slug/email-domain/client — see TC_ALL_TENANTS above' }, num, 2));
+    return;
+  }
+
+  // Full tenant rows + members.
+  const tenants = await q(`SELECT * FROM tenants WHERE id::text = ANY($1::text[]) ORDER BY created_at`, tenantIds);
+  for (const t of tenants) {
+    const tid = String((t as { id: string }).id);
+    const members = await q(
+      `SELECT m.role, m.status, m.joined_at, u.email, u.first_name, u.last_name, u.title, u.last_seen_at
+         FROM tenant_memberships m JOIN users u ON u.id = m.user_id
+        WHERE m.tenant_id::text = $1 ORDER BY m.role`,
+      tid,
+    );
+    console.log(`TC_TENANT ${(t as { name: string }).name} ` + JSON.stringify({ tenant: t, members }, num, 2));
+  }
+
+  // Clients of matched tenants (+ any client matched by name directly).
   const clients = await q(
-    `SELECT * FROM clients
-      WHERE (tenant_id::text = ANY($1::text[])) OR name ILIKE $2
-      ORDER BY created_at`,
+    `SELECT * FROM clients WHERE tenant_id::text = ANY($1::text[]) OR name ILIKE $2 ORDER BY created_at`,
     tenantIds,
     like,
   );
-  const clientIds = clients.map((c) => String((c as { id: string }).id));
   console.log('TC_CLIENTS_SUMMARY ' + JSON.stringify({ matched: clients.length, names: clients.map((c) => (c as { name: string }).name) }, num, 2));
 
-  // 3) For each client, dump the full profile + all attached config rows.
   for (const c of clients) {
     const id = String((c as { id: string }).id);
     const block: Record<string, unknown> = { client: c };
-    for (const t of CHILD_TABLES) {
+    for (const tbl of CHILD_TABLES) {
       try {
-        block[t] = await q(`SELECT * FROM ${t} WHERE client_id::text = $1`, id);
+        block[tbl] = await q(`SELECT * FROM ${tbl} WHERE client_id::text = $1`, id);
       } catch (e) {
-        block[t] = `ERR:${e instanceof Error ? e.message.slice(0, 120) : 'x'}`;
+        block[tbl] = `ERR:${e instanceof Error ? e.message.slice(0, 120) : 'x'}`;
       }
     }
     console.log(`TC_CLIENT ${(c as { name: string }).name} ` + JSON.stringify(block, num, 2));
