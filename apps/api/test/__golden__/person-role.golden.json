@@ -1,0 +1,48 @@
+{
+  "_note": "SYNTHETIC placeholder golden set — NOT human-verified. Replace with a human-curated sample (section-22) before trusting these accuracy numbers.",
+  "_schema": "Each row: { id (acquisition_personnel link / pe_person match id), personName, peCode, roleTitle, correct }. `correct` is the analyst verdict for an ACCEPTED person→role attribution. Precision is measured over accepted attributions. A real set is ~50 records verified against the source (DoW directory rev, press release, or hearing witness list); see README.md.",
+  "rows": [
+    {
+      "id": "22222222-0000-0000-0000-000000000001",
+      "personName": "Jane A. Doe",
+      "peCode": "0604402F",
+      "roleTitle": "Program Executive Officer",
+      "correct": true
+    },
+    {
+      "id": "22222222-0000-0000-0000-000000000002",
+      "personName": "Robert C. Smith",
+      "peCode": "0603766E",
+      "roleTitle": "Program Manager",
+      "correct": true
+    },
+    {
+      "id": "22222222-0000-0000-0000-000000000003",
+      "personName": "Maria L. Gomez",
+      "peCode": "0604161D8Z",
+      "roleTitle": "Deputy PEO",
+      "correct": true
+    },
+    {
+      "id": "22222222-0000-0000-0000-000000000004",
+      "personName": "David K. Lee",
+      "peCode": "0604047N",
+      "roleTitle": "Technical Director",
+      "correct": false
+    },
+    {
+      "id": "22222222-0000-0000-0000-000000000005",
+      "personName": "Susan P. Wright",
+      "peCode": "0305208A",
+      "roleTitle": "Product Lead",
+      "correct": true
+    },
+    {
+      "id": "22222222-0000-0000-0000-000000000006",
+      "personName": "Thomas J. Reed",
+      "peCode": "0603925N",
+      "roleTitle": "Chief Engineer",
+      "correct": true
+    }
+  ]
+}

@@ -1,0 +1,48 @@
+{
+  "_note": "SYNTHETIC placeholder golden set — NOT human-verified. Replace with a human-curated sample (section-22) before trusting these accuracy numbers.",
+  "_schema": "Each row: { id (pe_program_match.id), peCode, programName, correct }. `correct` is the analyst verdict: was an ACCEPTED match actually right? Precision is measured over the rows the system accepted (pe_program_match.status='accepted'). A real set is 25 accepted + 25 rejected decisions exported from the resolution console; see README.md.",
+  "rows": [
+    {
+      "id": "11111111-0000-0000-0000-000000000001",
+      "peCode": "0604402F",
+      "programName": "F-15EX Eagle II",
+      "correct": true
+    },
+    {
+      "id": "11111111-0000-0000-0000-000000000002",
+      "peCode": "0603766E",
+      "programName": "Next Generation Air Dominance",
+      "correct": true
+    },
+    {
+      "id": "11111111-0000-0000-0000-000000000003",
+      "peCode": "0604161D8Z",
+      "programName": "NC3 Integration",
+      "correct": true
+    },
+    {
+      "id": "11111111-0000-0000-0000-000000000004",
+      "peCode": "0604047N",
+      "programName": "Columbia-class SSBN",
+      "correct": false
+    },
+    {
+      "id": "11111111-0000-0000-0000-000000000005",
+      "peCode": "0305208A",
+      "programName": "DCGS-Army Increment 2",
+      "correct": true
+    },
+    {
+      "id": "11111111-0000-0000-0000-000000000006",
+      "peCode": "0603925N",
+      "programName": "HELIOS Laser Weapon",
+      "correct": true
+    },
+    {
+      "id": "11111111-0000-0000-0000-000000000007",
+      "peCode": "0602303E",
+      "programName": "JADC2 ABMS",
+      "correct": true
+    }
+  ]
+}

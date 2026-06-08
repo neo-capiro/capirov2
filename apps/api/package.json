@@ -56,6 +56,7 @@
     "backfill:source-documents": "tsx scripts/backfill-source-documents.ts",
     "verify:budget-reconciliation": "tsx scripts/verify-budget-reconciliation.ts",
     "deltas:compute": "tsx scripts/compute-budget-deltas.ts",
+    "measure:accuracy": "tsx scripts/measure-accuracy.ts",
     "sync:federal-register": "tsx scripts/sync-federal-register.ts",
     "sync:regulations": "tsx scripts/sync-regulations.ts",
     "sync:sec": "tsx scripts/sync-sec-edgar.ts",

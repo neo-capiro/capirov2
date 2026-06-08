@@ -37,7 +37,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 3.3 | Source-backed artifact generation | ⏳ needs runtime LLM |
 | 3.4 | Relationship coverage gaps | ⬜ pending |
 | 3.5 | Unified analyst console | ⬜ pending |
-| 4.1 | Accuracy harness, golden sets, metrics | ⬜ pending |
+| 4.1 | Accuracy harness, golden sets, metrics | ✅ harness done — pure §22 metric math + measure-accuracy CLI (CI gate; n/a on synthetic, never fake-greens) + product-metrics endpoint (§24, from existing data) + perf scaffold/runbook (§21). Real §22 numbers need human-curated golden sets (documented) |
 | 4.2 | End-to-end acceptance test + launch checklist | ⬜ pending |
 
 ## Execution order (value + completability, deps respected)

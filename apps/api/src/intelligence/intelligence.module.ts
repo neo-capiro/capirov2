@@ -9,6 +9,8 @@ import { ClientPeRelevanceController } from './client-pe-relevance.controller.js
 import { ActionRecommendationService } from './actions/action-recommendation.service.js';
 import { ActionRecommendationReadService } from './actions/action-recommendation-read.service.js';
 import { ActionRecommendationController } from './action-recommendation.controller.js';
+import { ProductMetricsService } from './metrics/product-metrics.service.js';
+import { ProductMetricsController } from './metrics/product-metrics.controller.js';
 import { LdaIntelModule } from '../lda-intel/lda-intel.module.js';
 import { LobbyIntelModule } from '../lobby-intel/lobby-intel.module.js';
 import { FederalSpendingModule } from '../federal-spending/federal-spending.module.js';
@@ -20,6 +22,7 @@ import { FederalRegisterModule } from '../federal-register/federal-register.modu
     IntelligenceController,
     ClientPeRelevanceController,
     ActionRecommendationController,
+    ProductMetricsController,
   ],
   providers: [
     IntelligenceService,
@@ -29,6 +32,7 @@ import { FederalRegisterModule } from '../federal-register/federal-register.modu
     ClientPeRelevanceService,
     ActionRecommendationService,
     ActionRecommendationReadService,
+    ProductMetricsService,
   ],
   // ClientPeRelevanceService is EXPORTED so the program-element delta writer (Agent B)
   // and other modules can inject the cross-tenant relevance path without a DI cycle.

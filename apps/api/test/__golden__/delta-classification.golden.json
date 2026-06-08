@@ -1,0 +1,42 @@
+{
+  "_note": "SYNTHETIC placeholder golden set — NOT human-verified. Replace with a human-curated sample (section-22) before trusting these accuracy numbers.",
+  "_schema": "Each row: { id (program_element_delta.id), peCode, assertedFy, deltaType }. `deltaType` is the human-verified classification the harness compares program_element_delta.delta_type against. A real set is ~25 deltas verified against the two source rows that produced them; see README.md.",
+  "rows": [
+    {
+      "id": "33333333-0000-0000-0000-000000000001",
+      "peCode": "0604402F",
+      "assertedFy": 2027,
+      "deltaType": "house_cut"
+    },
+    {
+      "id": "33333333-0000-0000-0000-000000000002",
+      "peCode": "0603766E",
+      "assertedFy": 2027,
+      "deltaType": "request_increase"
+    },
+    {
+      "id": "33333333-0000-0000-0000-000000000003",
+      "peCode": "0604161D8Z",
+      "assertedFy": 2027,
+      "deltaType": "new_start"
+    },
+    {
+      "id": "33333333-0000-0000-0000-000000000004",
+      "peCode": "0604047N",
+      "assertedFy": 2027,
+      "deltaType": "senate_add"
+    },
+    {
+      "id": "33333333-0000-0000-0000-000000000005",
+      "peCode": "0305208A",
+      "assertedFy": 2027,
+      "deltaType": "conference_reconcile"
+    },
+    {
+      "id": "33333333-0000-0000-0000-000000000006",
+      "peCode": "0603925N",
+      "assertedFy": 2027,
+      "deltaType": "request_decrease"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+{
+  "_note": "SYNTHETIC placeholder golden set — NOT human-verified. Replace with a human-curated sample (section-22) before trusting these accuracy numbers.",
+  "_schema": "Each row: { id, peCode, title, byAmount (BY request, $ MILLIONS), sourcePage }. id is the join key the harness uses to fetch the corresponding ACTUAL row from program_element / program_element_year. A real set is 100 randomly-sampled R-1 rows hand-verified against the J-book PDF; see README.md.",
+  "rows": [
+    {
+      "id": "0603766E",
+      "peCode": "0603766E",
+      "title": "Network-Centric Warfare Technology",
+      "byAmount": 312.45,
+      "sourcePage": 41
+    },
+    {
+      "id": "0604161D8Z",
+      "peCode": "0604161D8Z",
+      "title": "Nuclear Command, Control & Communications",
+      "byAmount": 198.7,
+      "sourcePage": 88
+    },
+    {
+      "id": "0604402F",
+      "peCode": "0604402F",
+      "title": "Advanced Component Development & Prototypes",
+      "byAmount": 1024.0,
+      "sourcePage": 153
+    },
+    {
+      "id": "0603925N",
+      "peCode": "0603925N",
+      "title": "Directed Energy and Electric Weapon Systems",
+      "byAmount": 76.2,
+      "sourcePage": 12
+    },
+    {
+      "id": "0602303E",
+      "peCode": "0602303E",
+      "title": "Information & Communications Technology",
+      "byAmount": 415.9,
+      "sourcePage": 207
+    },
+    {
+      "id": "0604256F",
+      "peCode": "0604256F",
+      "title": "Threat Simulator Development",
+      "byAmount": 33.4,
+      "sourcePage": 64
+    },
+    {
+      "id": "0305208A",
+      "peCode": "0305208A",
+      "title": "Distributed Common Ground/Surface Systems",
+      "byAmount": 52.8,
+      "sourcePage": 19
+    },
+    {
+      "id": "0604047N",
+      "peCode": "0604047N",
+      "title": "Surface Ship Underwater Defense",
+      "byAmount": 121.3,
+      "sourcePage": 99
+    }
+  ]
+}
