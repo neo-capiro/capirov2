@@ -9,6 +9,8 @@ import { ClientPeRelevanceController } from './client-pe-relevance.controller.js
 import { ActionRecommendationService } from './actions/action-recommendation.service.js';
 import { ActionRecommendationReadService } from './actions/action-recommendation-read.service.js';
 import { ActionRecommendationController } from './action-recommendation.controller.js';
+import { ArtifactGeneratorService } from './artifacts/artifact-generator.service.js';
+import { ArtifactController } from './artifacts/artifact.controller.js';
 import { ProductMetricsService } from './metrics/product-metrics.service.js';
 import { ProductMetricsController } from './metrics/product-metrics.controller.js';
 import { CoverageGapService } from './coverage/coverage-gap.service.js';
@@ -24,6 +26,7 @@ import { FederalRegisterModule } from '../federal-register/federal-register.modu
     IntelligenceController,
     ClientPeRelevanceController,
     ActionRecommendationController,
+    ArtifactController,
     ProductMetricsController,
     CoverageController,
   ],
@@ -35,6 +38,7 @@ import { FederalRegisterModule } from '../federal-register/federal-register.modu
     ClientPeRelevanceService,
     ActionRecommendationService,
     ActionRecommendationReadService,
+    ArtifactGeneratorService,
     ProductMetricsService,
     CoverageGapService,
   ],
