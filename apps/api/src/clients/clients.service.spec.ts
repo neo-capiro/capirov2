@@ -14,9 +14,15 @@ describe('ClientsService.list — archived filtering', () => {
     };
     // No ASSETS_BUCKET configured → logo signing is skipped (clients list is empty).
     const config = { get: jest.fn(() => undefined) };
-    // resolve-on-create dependency; unused by the list() paths under test.
+    // resolve-on-create dependencies; unused by the list() paths under test.
     const entityResolution = { resolveClient: jest.fn(async () => ({ created: 0, autoConfirmed: 0, needsReview: 0 })) };
-    const service = new ClientsService(prisma as never, config as never, entityResolution as never);
+    const prepopulation = { prepopulate: jest.fn(async () => ({ ldaClientIds: [], issueCodesAdded: 0 })) };
+    const service = new ClientsService(
+      prisma as never,
+      config as never,
+      entityResolution as never,
+      prepopulation as never,
+    );
     return { service, tenantTx };
   };
 

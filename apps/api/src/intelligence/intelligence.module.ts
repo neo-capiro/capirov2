@@ -17,6 +17,7 @@ import { CoverageGapService } from './coverage/coverage-gap.service.js';
 import { CoverageController } from './coverage/coverage.controller.js';
 import { FirmOnboardingService } from './firm-onboarding.service.js';
 import { FirmOnboardingController } from './firm-onboarding.controller.js';
+import { ClientPrepopulationService } from './client-prepopulation.service.js';
 import { LdaIntelModule } from '../lda-intel/lda-intel.module.js';
 import { LobbyIntelModule } from '../lobby-intel/lobby-intel.module.js';
 import { FederalSpendingModule } from '../federal-spending/federal-spending.module.js';
@@ -38,6 +39,7 @@ import { FederalRegisterModule } from '../federal-register/federal-register.modu
     InsightGeneratorService,
     EntityResolutionService,
     FirmOnboardingService,
+    ClientPrepopulationService,
     ReportCardService,
     ClientPeRelevanceService,
     ActionRecommendationService,
@@ -57,6 +59,9 @@ import { FederalRegisterModule } from '../federal-register/federal-register.modu
     ReportCardService,
     ClientPeRelevanceService,
     ActionRecommendationService,
+    // Exported so ClientsService (resolve-on-create) and FirmOnboardingService
+    // (import) can run the prepopulation cascade.
+    ClientPrepopulationService,
   ],
 })
 export class IntelligenceModule {}

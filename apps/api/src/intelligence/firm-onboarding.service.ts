@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ClientPrepopulationService } from './client-prepopulation.service.js';
 
 /**
  * Firm-registrant onboarding + "import your clients" (Phase 2 of the client→data
@@ -35,7 +36,10 @@ export interface ImportCandidate {
 export class FirmOnboardingService {
   private readonly logger = new Logger(FirmOnboardingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly prepopulation: ClientPrepopulationService,
+  ) {}
 
   /** Trigram search over LDA registrants so a firm can find itself. */
   async searchRegistrants(q: string): Promise<RegistrantHit[]> {
@@ -208,6 +212,15 @@ export class FirmOnboardingService {
           skipped.push({ ldaClientId: id, reason: `already onboarded as "${result.dup}"` });
         } else {
           created.push({ id: result.client.id, name: result.client.name, ldaClientId: id });
+          // Layer in LDA-derived signals + union issue codes (idempotent). Never
+          // fails the import row.
+          await this.prepopulation
+            .prepopulate(ctx.tenantId, result.client.id)
+            .catch((e: unknown) =>
+              this.logger.warn(
+                `prepopulate after import failed for ${result.client.id}: ${e instanceof Error ? e.message : String(e)}`,
+              ),
+            );
         }
       } catch (err) {
         skipped.push({ ldaClientId: id, reason: (err as Error).message ?? 'error' });

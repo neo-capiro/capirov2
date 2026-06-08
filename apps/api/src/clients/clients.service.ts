@@ -7,6 +7,7 @@ import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EntityResolutionService } from '../intelligence/entity-resolution.service.js';
+import { ClientPrepopulationService } from '../intelligence/client-prepopulation.service.js';
 
 export interface CreateClientInput {
   name: string;
@@ -63,6 +64,7 @@ export class ClientsService {
     private readonly prisma: PrismaService,
     config: ConfigService<AppConfig, true>,
     private readonly entityResolution: EntityResolutionService,
+    private readonly prepopulation: ClientPrepopulationService,
   ) {
     this.bucket = config.get('ASSETS_BUCKET', { infer: true });
     this.s3 = new S3Client({ region: config.get('AWS_REGION_DEFAULT', { infer: true }) });
@@ -128,6 +130,9 @@ export class ClientsService {
     // or fails the create response.
     void this.entityResolution
       .resolveClient(client.id, client.name, { ldaRegistrantId })
+      // After resolution (which may auto-confirm an LDA id), run the prepopulation
+      // cascade to sync lda_client_ids + merge issue codes / signals.
+      .then(() => this.prepopulation.prepopulate(ctx.tenantId, client.id))
       .catch((e: unknown) =>
         this.logger.warn(
           `resolve-on-create failed for client ${client.id}: ${e instanceof Error ? e.message : String(e)}`,
