@@ -1,10 +1,34 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { CapiroAdminService } from './capiro-admin.service.js';
-import { IsEmail, IsOptional, IsString, IsUrl, IsUUID, Length, Matches } from 'class-validator';
+import {
+  IsEmail,
+  IsIn,
+  IsISO8601,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUrl,
+  IsUUID,
+  Length,
+  Matches,
+  Max,
+  Min,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 class CreateTenantDto {
   @IsString()
@@ -50,6 +74,66 @@ class ImpersonateDto {
   @IsString()
   @Length(10, 500)
   reason!: string;
+}
+
+class AuditLogQueryDto {
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  action?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  entityType?: string;
+
+  @IsOptional()
+  @IsUUID()
+  actorUserId?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  from?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  to?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+}
+
+class QuarantineListQueryDto {
+  @IsIn(['program_element', 'acquisition_personnel'])
+  type!: 'program_element' | 'acquisition_personnel';
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  source?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
 }
 
 /**
@@ -106,5 +190,49 @@ export class CapiroAdminController {
   @Post('impersonate/end')
   endImpersonation(@CurrentTenant() ctx: TenantContext) {
     return this.service.endImpersonation(ctx.userId);
+  }
+
+  // --- Step 3.5: analyst console -------------------------------------------
+
+  @Get('review-counts')
+  getReviewCounts() {
+    return this.service.getReviewCounts();
+  }
+
+  @Get('audit-logs')
+  listAuditLogs(@CurrentTenant() ctx: TenantContext, @Query() query: AuditLogQueryDto) {
+    return this.service.listAuditLogs(ctx, query);
+  }
+
+  @Get('quarantine')
+  listQuarantine(@Query() query: QuarantineListQueryDto) {
+    return this.service.listQuarantine(query);
+  }
+
+  @Post('quarantine/:type/:id/discard')
+  discardQuarantine(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('type') type: string,
+    @Param('id') id: string,
+  ) {
+    return this.service.discardQuarantine(ctx, this.parseQuarantineType(type), id);
+  }
+
+  @Post('quarantine/:type/:id/reprocess')
+  reprocessQuarantine(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('type') type: string,
+    @Param('id') id: string,
+  ) {
+    return this.service.reprocessQuarantine(ctx, this.parseQuarantineType(type), id);
+  }
+
+  private parseQuarantineType(type: string): 'program_element' | 'acquisition_personnel' {
+    if (type !== 'program_element' && type !== 'acquisition_personnel') {
+      throw new BadRequestException(
+        'type must be program_element or acquisition_personnel',
+      );
+    }
+    return type;
   }
 }

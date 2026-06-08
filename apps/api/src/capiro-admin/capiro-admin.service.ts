@@ -1,10 +1,46 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { Prisma } from '@prisma/client';
 import type { TenantContext } from '@capiro/shared';
 import { ClerkProvisioningService } from '../auth/clerk-provisioning.service.js';
 import { ClerkService } from '../auth/clerk.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AppConfig } from '../config/config.schema.js';
+import { ProgramElementWriterService } from '../program-element/program-element-writer.service.js';
+import { isValidPeCode } from '../program-element/jbook/jbook-extract.js';
+import type { PeRecordInput } from '../program-element/types.js';
+import { AcquisitionPersonnelWriterService } from '../acquisition-personnel/acquisition-personnel-writer.service.js';
+import type { PersonRecordInput } from '../acquisition-personnel/types.js';
+
+/** Quarantine table discriminator shared by the browse/discard/reprocess routes. */
+export type QuarantineType = 'program_element' | 'acquisition_personnel';
+
+export interface ReviewCounts {
+  reconciliation: { openCount: number; oldestOpenAt: string | null };
+  programMatch: { openCount: number; quarantinedCount: number; oldestOpenAt: string | null };
+  personCandidate: { openCount: number; oldestOpenAt: string | null };
+  personnelMerge: { openCount: number; oldestOpenAt: string | null };
+  provisionPeLink: { candidateCount: number; oldestOpenAt: string | null };
+  programQuarantine: { count: number };
+  personnelQuarantine: { count: number };
+}
+
+interface AuditLogQuery {
+  action?: string;
+  entityType?: string;
+  actorUserId?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  limit?: number;
+}
+
+interface QuarantineListQuery {
+  type: QuarantineType;
+  source?: string;
+  page?: number;
+  limit?: number;
+}
 
 interface CreateTenantInput {
   slug: string;
@@ -29,6 +65,8 @@ export class CapiroAdminService {
     private readonly clerk: ClerkService,
     private readonly provisioning: ClerkProvisioningService,
     private readonly config: ConfigService<AppConfig, true>,
+    private readonly peWriter: ProgramElementWriterService,
+    private readonly personnelWriter: AcquisitionPersonnelWriterService,
   ) {}
 
   async listTenants() {
@@ -343,5 +381,306 @@ export class CapiroAdminService {
       note: 'Send the user the sign-in URL above; they use "Forgot password" on the Clerk hosted UI.',
       clerkUserId,
     };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Step 3.5 — Analyst console: review counts, audit-log view, quarantine.
+  //
+  // The review queues and quarantine tables are GLOBAL (no RLS): they're
+  // populated by cross-tenant ingestion and reviewed by Capiro staff, so they're
+  // read via the base `this.prisma` client. The audit_logs table is TENANT-SCOPED
+  // (RLS), so every read/write goes through `withTenant(ctx.tenantId, ...)` — the
+  // capiro_admin's own synthetic tenant owns the analyst-action audit trail.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Cross-tenant aggregate of every open review queue + quarantine table, for the
+   * analyst console's SLA dashboard. `oldestOpenAt` is the MIN(age field) among
+   * open rows (null when the queue is empty) so the UI can flag stale backlogs.
+   * Computed with count/aggregate (one round-trip per metric) rather than loading
+   * rows.
+   */
+  async getReviewCounts(): Promise<ReviewCounts> {
+    const [
+      reconOpen,
+      reconOldest,
+      matchOpen,
+      matchQuarantined,
+      matchOldest,
+      personCandOpen,
+      personCandOldest,
+      mergeOpen,
+      mergeOldest,
+      provisionCand,
+      provisionOldest,
+      programQuarantine,
+      personnelQuarantine,
+    ] = await Promise.all([
+      this.prisma.reconciliationReviewQueue.count({ where: { status: 'open' } }),
+      this.prisma.reconciliationReviewQueue.aggregate({
+        where: { status: 'open' },
+        _min: { queuedAt: true },
+      }),
+      this.prisma.peProgramMatch.count({ where: { status: 'candidate' } }),
+      this.prisma.peProgramMatch.count({ where: { status: 'quarantined' } }),
+      this.prisma.peProgramMatch.aggregate({
+        where: { status: 'candidate' },
+        _min: { createdAt: true },
+      }),
+      this.prisma.programElementPersonCandidate.count({ where: { status: 'open' } }),
+      this.prisma.programElementPersonCandidate.aggregate({
+        where: { status: 'open' },
+        _min: { createdAt: true },
+      }),
+      this.prisma.acquisitionPersonnelMergeCandidate.count({ where: { status: 'open' } }),
+      this.prisma.acquisitionPersonnelMergeCandidate.aggregate({
+        where: { status: 'open' },
+        _min: { createdAt: true },
+      }),
+      this.prisma.provisionPeLink.count({ where: { reviewStatus: 'candidate' } }),
+      this.prisma.provisionPeLink.aggregate({
+        where: { reviewStatus: 'candidate' },
+        _min: { createdAt: true },
+      }),
+      this.prisma.programElementQuarantine.count(),
+      this.prisma.acquisitionPersonnelQuarantine.count(),
+    ]);
+
+    return {
+      reconciliation: { openCount: reconOpen, oldestOpenAt: this.toIso(reconOldest._min.queuedAt) },
+      programMatch: {
+        openCount: matchOpen,
+        quarantinedCount: matchQuarantined,
+        oldestOpenAt: this.toIso(matchOldest._min.createdAt),
+      },
+      personCandidate: {
+        openCount: personCandOpen,
+        oldestOpenAt: this.toIso(personCandOldest._min.createdAt),
+      },
+      personnelMerge: { openCount: mergeOpen, oldestOpenAt: this.toIso(mergeOldest._min.createdAt) },
+      provisionPeLink: {
+        candidateCount: provisionCand,
+        oldestOpenAt: this.toIso(provisionOldest._min.createdAt),
+      },
+      programQuarantine: { count: programQuarantine },
+      personnelQuarantine: { count: personnelQuarantine },
+    };
+  }
+
+  /**
+   * Paginated, filtered view of the caller's tenant audit log (RLS-scoped). All
+   * filters are optional and AND together; results are newest-first.
+   */
+  async listAuditLogs(ctx: TenantContext, query: AuditLogQuery) {
+    const { page, limit } = this.normalizePage(query.page, query.limit);
+    const where: Prisma.AuditLogWhereInput = {};
+    if (query.action) where.action = query.action;
+    if (query.entityType) where.entityType = query.entityType;
+    if (query.actorUserId) where.actorUserId = query.actorUserId;
+    const occurredAt = this.dateRange(query.from, query.to);
+    if (occurredAt) where.occurredAt = occurredAt;
+
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const [data, total] = await Promise.all([
+        tx.auditLog.findMany({
+          where,
+          orderBy: { occurredAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        tx.auditLog.count({ where }),
+      ]);
+      return { data, total, page, limit };
+    });
+  }
+
+  /**
+   * Browse quarantined ingestion records (global) for the given pipeline. Newest
+   * quarantines first; optional `source` filter.
+   */
+  async listQuarantine(query: QuarantineListQuery) {
+    const { page, limit } = this.normalizePage(query.page, query.limit);
+    const where = query.source ? { source: query.source } : {};
+    const select = { id: true, rawRecord: true, reason: true, source: true, quarantinedAt: true };
+    const orderBy = { quarantinedAt: 'desc' as const };
+    const skip = (page - 1) * limit;
+
+    if (query.type === 'program_element') {
+      const [data, total] = await Promise.all([
+        this.prisma.programElementQuarantine.findMany({ where, select, orderBy, skip, take: limit }),
+        this.prisma.programElementQuarantine.count({ where }),
+      ]);
+      return { data, total, page, limit };
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.acquisitionPersonnelQuarantine.findMany({ where, select, orderBy, skip, take: limit }),
+      this.prisma.acquisitionPersonnelQuarantine.count({ where }),
+    ]);
+    return { data, total, page, limit };
+  }
+
+  /**
+   * Permanently delete a quarantine row (analyst decided the record is junk).
+   * Audit-logged under the caller's tenant.
+   */
+  async discardQuarantine(ctx: TenantContext, type: QuarantineType, id: string) {
+    const row = await this.findQuarantineRow(type, id);
+    if (!row) throw new NotFoundException('Quarantine record not found');
+
+    await this.deleteQuarantineRow(type, id);
+    await this.writeAudit(ctx, {
+      action: 'quarantine.discard',
+      entityType: this.quarantineEntityType(type),
+      entityId: id,
+      before: this.quarantineAuditSnapshot(row),
+    });
+    return { discarded: true };
+  }
+
+  /**
+   * Re-run the relevant writer's validation on a quarantined record. If it now
+   * passes, write the real row via the writer's normal entry point and delete the
+   * quarantine row; otherwise leave the row in place and report why it still fails.
+   *
+   * Validation is NOT duplicated here: we call the SAME predicate the writer's
+   * quarantine gate uses (isValidPeCode / non-empty full_name), then hand off to
+   * the writer's public upsert. Validating up front (instead of letting the writer
+   * re-quarantine on failure) keeps a still-bad record as a single row rather than
+   * creating a duplicate quarantine entry.
+   */
+  async reprocessQuarantine(ctx: TenantContext, type: QuarantineType, id: string) {
+    const row = await this.findQuarantineRow(type, id);
+    if (!row) throw new NotFoundException('Quarantine record not found');
+
+    const raw = (row.rawRecord ?? {}) as Record<string, unknown>;
+    const source = row.source;
+
+    if (type === 'program_element') {
+      const peCode = typeof raw.peCode === 'string' ? raw.peCode : undefined;
+      if (!isValidPeCode(peCode)) {
+        const reason = `Invalid pe_code: ${peCode ?? '(missing)'}`;
+        await this.writeAudit(ctx, {
+          action: 'quarantine.reprocess',
+          entityType: this.quarantineEntityType(type),
+          entityId: id,
+          after: { accepted: false, reason },
+        });
+        return { reprocessed: true, accepted: false, reason };
+      }
+      await this.peWriter.upsertProgramElement(raw as unknown as PeRecordInput, source, 0.5);
+    } else {
+      const fullName = typeof raw.fullName === 'string' ? raw.fullName.trim() : '';
+      if (!fullName) {
+        const reason = 'Missing required field: full_name';
+        await this.writeAudit(ctx, {
+          action: 'quarantine.reprocess',
+          entityType: this.quarantineEntityType(type),
+          entityId: id,
+          after: { accepted: false, reason },
+        });
+        return { reprocessed: true, accepted: false, reason };
+      }
+      await this.personnelWriter.upsertPerson(
+        raw as unknown as PersonRecordInput,
+        source,
+        undefined,
+        undefined,
+        new Date(),
+        0.5,
+      );
+    }
+
+    await this.deleteQuarantineRow(type, id);
+    await this.writeAudit(ctx, {
+      action: 'quarantine.reprocess',
+      entityType: this.quarantineEntityType(type),
+      entityId: id,
+      before: this.quarantineAuditSnapshot(row),
+      after: { accepted: true },
+    });
+    return { reprocessed: true, accepted: true };
+  }
+
+  // --- helpers -------------------------------------------------------------
+
+  private toIso(value: Date | null | undefined): string | null {
+    return value ? value.toISOString() : null;
+  }
+
+  private normalizePage(page?: number, limit?: number): { page: number; limit: number } {
+    const safePage = Number.isFinite(page) && (page ?? 0) >= 1 ? Math.floor(page!) : 1;
+    const requested = Number.isFinite(limit) && (limit ?? 0) >= 1 ? Math.floor(limit!) : 50;
+    return { page: safePage, limit: Math.min(requested, 100) };
+  }
+
+  private dateRange(from?: string, to?: string): Prisma.DateTimeFilter | undefined {
+    const filter: Prisma.DateTimeFilter = {};
+    if (from) filter.gte = new Date(from);
+    if (to) filter.lte = new Date(to);
+    return Object.keys(filter).length ? filter : undefined;
+  }
+
+  private quarantineEntityType(type: QuarantineType): string {
+    return type === 'program_element'
+      ? 'program_element_quarantine'
+      : 'acquisition_personnel_quarantine';
+  }
+
+  private quarantineAuditSnapshot(row: {
+    rawRecord: unknown;
+    reason: string;
+    source: string;
+  }): Prisma.InputJsonValue {
+    return {
+      reason: row.reason,
+      source: row.source,
+      rawRecord: (row.rawRecord ?? {}) as Prisma.InputJsonValue,
+    };
+  }
+
+  private async findQuarantineRow(
+    type: QuarantineType,
+    id: string,
+  ): Promise<{ id: string; rawRecord: unknown; reason: string; source: string } | null> {
+    if (type === 'program_element') {
+      return this.prisma.programElementQuarantine.findUnique({ where: { id } });
+    }
+    return this.prisma.acquisitionPersonnelQuarantine.findUnique({ where: { id } });
+  }
+
+  private async deleteQuarantineRow(type: QuarantineType, id: string): Promise<void> {
+    if (type === 'program_element') {
+      await this.prisma.programElementQuarantine.delete({ where: { id } });
+      return;
+    }
+    await this.prisma.acquisitionPersonnelQuarantine.delete({ where: { id } });
+  }
+
+  /** Write an analyst-action audit row under the caller's (capiro-internal) tenant. */
+  private async writeAudit(
+    ctx: TenantContext,
+    entry: {
+      action: string;
+      entityType: string;
+      entityId: string;
+      before?: Prisma.InputJsonValue;
+      after?: Prisma.InputJsonValue;
+    },
+  ): Promise<void> {
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          actorRole: 'capiro_admin',
+          action: entry.action,
+          entityType: entry.entityType,
+          entityId: entry.entityId,
+          ...(entry.before !== undefined ? { before: entry.before } : {}),
+          ...(entry.after !== undefined ? { after: entry.after } : {}),
+        },
+      });
+    });
   }
 }

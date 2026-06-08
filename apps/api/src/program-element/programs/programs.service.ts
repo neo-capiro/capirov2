@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { confidenceBand } from '../matching/program-match-thresholds.js';
+import { PeProgramMatcherService } from '../matching/pe-program-matcher.service.js';
 
 /** Decisions a reviewer can make on a PeProgramMatch (Step 2.1 review queue). */
 export type ProgramMatchDecision = 'accept' | 'reject' | 'quarantine';
@@ -11,6 +12,39 @@ export interface ResolveProgramMatchInput {
   decision: ProgramMatchDecision;
   notes?: string;
 }
+
+/** Body for POST /programs/admin/:programId/aliases (Step 3.5 alias manager). */
+export interface CreateAliasInput {
+  alias: string;
+  aliasType: string;
+  source?: string;
+}
+
+/** Body for PATCH /programs/admin/aliases/:id (Step 3.5 alias manager). */
+export interface UpdateAliasInput {
+  alias?: string;
+  aliasType?: string;
+}
+
+/** Body for POST /programs/admin/merge (Step 3.5 program merge). */
+export interface MergeProgramsInput {
+  keepProgramId: string;
+  mergeProgramId: string;
+}
+
+/** Allowed aliasType values (mirrors the schema doc-comment on program_alias.aliasType). */
+const ALIAS_TYPES = [
+  'canonical',
+  'acronym',
+  'pe_title',
+  'project_title',
+  'p1_line_name',
+  'mdap_name',
+  'office_usage',
+  'congressional',
+  'sam_usage',
+  'award_usage',
+] as const;
 
 /**
  * Build the "Why-shown" evidence summary line from the evidence jsonb, e.g.
@@ -41,7 +75,10 @@ function buildWhyShown(evidence: unknown): string {
  */
 @Injectable()
 export class ProgramsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly matcher: PeProgramMatcherService,
+  ) {}
 
   /** GET /programs?q= — alias search (trigram), returns programs ranked by best alias similarity. */
   async searchPrograms(q: string | undefined, limitRaw?: number) {
@@ -320,5 +357,459 @@ export class ProgramsService {
     });
 
     return { resolved: true as const, id, status: nextStatus, decision: input.decision };
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // Step 3.5 — analyst console: alias manager + program merge (capiro_admin only,
+  // gated at the controller). The program graph tables (program, program_alias,
+  // and the FK tables re-pointed on merge) are GLOBAL reference data (no tenant_id
+  // / RLS); AuditLog is TENANT-SCOPED so it is always written inside withTenant.
+  // ───────────────────────────────────────────────────────────────────────────
+
+  private assertAliasType(aliasType: string): void {
+    if (!(ALIAS_TYPES as readonly string[]).includes(aliasType)) {
+      throw new BadRequestException(
+        `aliasType must be one of: ${ALIAS_TYPES.join(', ')} (got '${aliasType}').`,
+      );
+    }
+  }
+
+  /** GET /programs/admin/:programId/aliases — all aliases for a program. */
+  async listAliases(programId: string) {
+    const program = await this.prisma.program.findUnique({ where: { id: programId } });
+    if (!program) throw new NotFoundException(`Program ${programId} not found`);
+    const aliases = await this.prisma.programAlias.findMany({
+      where: { programId },
+      orderBy: [{ aliasType: 'asc' }, { confidence: 'desc' }, { alias: 'asc' }],
+      select: {
+        id: true,
+        programId: true,
+        alias: true,
+        aliasNormalized: true,
+        aliasType: true,
+        source: true,
+        sourceUrl: true,
+        confidence: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    return { programId, data: aliases, total: aliases.length };
+  }
+
+  /**
+   * POST /programs/admin/:programId/aliases — create an analyst-entered alias.
+   * aliasNormalized is computed exactly the way the matcher does (reuse
+   * normalizeAlias) so the new alias agrees with the pg_trgm index. Duplicates of
+   * the (programId, aliasNormalized, aliasType) unique are rejected with a 400
+   * (rather than surfacing a raw P2002). Writes an AuditLog inside withTenant.
+   */
+  async createAlias(programId: string, input: CreateAliasInput, ctx: TenantContext) {
+    const aliasText = (input.alias ?? '').trim();
+    if (!aliasText) throw new BadRequestException('alias is required.');
+    this.assertAliasType(input.aliasType);
+
+    const program = await this.prisma.program.findUnique({ where: { id: programId } });
+    if (!program) throw new NotFoundException(`Program ${programId} not found`);
+
+    const aliasNormalized = this.matcher.normalizeAlias(aliasText);
+    if (!aliasNormalized) {
+      throw new BadRequestException('alias normalizes to an empty string; provide alphanumeric text.');
+    }
+
+    const existing = await this.prisma.programAlias.findFirst({
+      where: { programId, aliasNormalized, aliasType: input.aliasType },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new BadRequestException(
+        `An alias '${aliasNormalized}' of type '${input.aliasType}' already exists on this program.`,
+      );
+    }
+
+    const source = (input.source ?? '').trim() || 'analyst_manual';
+    const created = await this.prisma.programAlias.create({
+      data: {
+        programId,
+        alias: aliasText,
+        aliasNormalized,
+        aliasType: input.aliasType,
+        source,
+        confidence: 1.0,
+      },
+    });
+
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          actorRole: ctx.role,
+          action: 'program.alias.create',
+          entityType: 'program_alias',
+          entityId: created.id,
+          before: Prisma.JsonNull,
+          after: {
+            programId,
+            alias: aliasText,
+            aliasNormalized,
+            aliasType: input.aliasType,
+            source,
+          },
+        },
+      });
+    });
+
+    return created;
+  }
+
+  /**
+   * PATCH /programs/admin/aliases/:id — edit an alias text and/or type. The
+   * aliasNormalized is always recomputed from the (new or existing) alias text via
+   * the matcher's normalizeAlias. A change that would collide with another existing
+   * (programId, aliasNormalized, aliasType) row is rejected with a 400. Writes an
+   * AuditLog inside withTenant.
+   */
+  async updateAlias(id: string, input: UpdateAliasInput, ctx: TenantContext) {
+    const alias = await this.prisma.programAlias.findUnique({ where: { id } });
+    if (!alias) throw new NotFoundException(`ProgramAlias ${id} not found`);
+
+    const nextAlias = input.alias !== undefined ? input.alias.trim() : alias.alias;
+    if (!nextAlias) throw new BadRequestException('alias is required.');
+    const nextType = input.aliasType !== undefined ? input.aliasType : alias.aliasType;
+    if (input.aliasType !== undefined) this.assertAliasType(input.aliasType);
+
+    const nextNormalized = this.matcher.normalizeAlias(nextAlias);
+    if (!nextNormalized) {
+      throw new BadRequestException('alias normalizes to an empty string; provide alphanumeric text.');
+    }
+
+    // Reject a collision with a DIFFERENT alias row on the same program.
+    const collision = await this.prisma.programAlias.findFirst({
+      where: {
+        programId: alias.programId,
+        aliasNormalized: nextNormalized,
+        aliasType: nextType,
+        id: { not: id },
+      },
+      select: { id: true },
+    });
+    if (collision) {
+      throw new BadRequestException(
+        `An alias '${nextNormalized}' of type '${nextType}' already exists on this program.`,
+      );
+    }
+
+    const updated = await this.prisma.programAlias.update({
+      where: { id },
+      data: { alias: nextAlias, aliasNormalized: nextNormalized, aliasType: nextType },
+    });
+
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          actorRole: ctx.role,
+          action: 'program.alias.update',
+          entityType: 'program_alias',
+          entityId: id,
+          before: { alias: alias.alias, aliasNormalized: alias.aliasNormalized, aliasType: alias.aliasType },
+          after: { alias: nextAlias, aliasNormalized: nextNormalized, aliasType: nextType },
+        },
+      });
+    });
+
+    return updated;
+  }
+
+  /**
+   * DELETE /programs/admin/aliases/:id — remove an alias. Conservatively REFUSES to
+   * delete a program's last remaining 'canonical' alias (which would orphan the
+   * program's primary name) with a 400. Writes an AuditLog inside withTenant.
+   */
+  async deleteAlias(id: string, ctx: TenantContext) {
+    const alias = await this.prisma.programAlias.findUnique({ where: { id } });
+    if (!alias) throw new NotFoundException(`ProgramAlias ${id} not found`);
+
+    if (alias.aliasType === 'canonical') {
+      const remainingCanonical = await this.prisma.programAlias.count({
+        where: { programId: alias.programId, aliasType: 'canonical', id: { not: id } },
+      });
+      if (remainingCanonical === 0) {
+        throw new BadRequestException(
+          "Refusing to delete a program's last 'canonical' alias (it would orphan the program).",
+        );
+      }
+    }
+
+    await this.prisma.programAlias.delete({ where: { id } });
+
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          actorRole: ctx.role,
+          action: 'program.alias.delete',
+          entityType: 'program_alias',
+          entityId: id,
+          before: {
+            programId: alias.programId,
+            alias: alias.alias,
+            aliasNormalized: alias.aliasNormalized,
+            aliasType: alias.aliasType,
+          },
+          after: Prisma.JsonNull,
+        },
+      });
+    });
+
+    return { deleted: true as const, id };
+  }
+
+  /**
+   * GET /programs/admin/duplicate-aliases — the §13 duplicate-alias detector: every
+   * aliasNormalized that maps to MORE THAN ONE distinct program. Each entry lists
+   * the colliding programs (canonicalName + the offending aliasId) so the analyst can
+   * decide whether they are the same program (→ merge) or a true homonym.
+   */
+  async listDuplicateAliases() {
+    const aliases = await this.prisma.programAlias.findMany({
+      select: { id: true, programId: true, aliasNormalized: true },
+      orderBy: { aliasNormalized: 'asc' },
+    });
+
+    // Group by aliasNormalized -> distinct programs.
+    const byNorm = new Map<string, Map<string, string>>(); // norm -> (programId -> aliasId)
+    for (const a of aliases) {
+      let progs = byNorm.get(a.aliasNormalized);
+      if (!progs) {
+        progs = new Map();
+        byNorm.set(a.aliasNormalized, progs);
+      }
+      // Keep the first aliasId seen for a (norm, program) pair.
+      if (!progs.has(a.programId)) progs.set(a.programId, a.id);
+    }
+
+    const dupNorms = Array.from(byNorm.entries()).filter(([, progs]) => progs.size > 1);
+    const programIds = Array.from(new Set(dupNorms.flatMap(([, progs]) => Array.from(progs.keys()))));
+    const programs = programIds.length
+      ? await this.prisma.program.findMany({
+          where: { id: { in: programIds } },
+          select: { id: true, canonicalName: true, status: true },
+        })
+      : [];
+    const programById = new Map(programs.map((p) => [p.id, p]));
+
+    const data = dupNorms.map(([aliasNormalized, progs]) => ({
+      aliasNormalized,
+      programs: Array.from(progs.entries()).map(([programId, aliasId]) => ({
+        programId,
+        canonicalName: programById.get(programId)?.canonicalName ?? null,
+        status: programById.get(programId)?.status ?? null,
+        aliasId,
+      })),
+    }));
+
+    return { data, total: data.length };
+  }
+
+  /**
+   * POST /programs/admin/merge — fold mergeProgramId INTO keepProgramId in one
+   * $transaction (the graph tables are global, so no RLS context is needed for the
+   * graph writes; the AuditLog is written separately inside withTenant, mirroring
+   * resolveMatch). The loser is "retired" (status='merged', metadata.mergedInto /
+   * mergedAt) rather than deleted, preserving its id for audit/back-reference.
+   *
+   * Each FK table that references programId is re-pointed loser -> keeper. For the
+   * tables with a uniqueness constraint involving programId, a loser row whose
+   * re-pointed key already exists on the keeper is DELETED instead of updated (it
+   * would otherwise raise P2002):
+   *   - pe_program_match           unique (peCode, coalesce(projectCode,''), programId)
+   *   - program_office_program_link unique (officeId, programId)
+   *   - provision_pe_link          unique (provisionId, coalesce(peCode,''), coalesce(programId::text,''))
+   *   - person_role                NO unique on programId -> straight re-point.
+   */
+  async mergePrograms(input: MergeProgramsInput, ctx: TenantContext) {
+    const { keepProgramId, mergeProgramId } = input;
+    if (!keepProgramId || !mergeProgramId) {
+      throw new BadRequestException('keepProgramId and mergeProgramId are both required.');
+    }
+    if (keepProgramId === mergeProgramId) {
+      throw new BadRequestException('keepProgramId and mergeProgramId must differ.');
+    }
+
+    const [keep, loser] = await Promise.all([
+      this.prisma.program.findUnique({ where: { id: keepProgramId } }),
+      this.prisma.program.findUnique({ where: { id: mergeProgramId } }),
+    ]);
+    if (!keep) throw new NotFoundException(`Program ${keepProgramId} (keep) not found`);
+    if (!loser) throw new NotFoundException(`Program ${mergeProgramId} (merge) not found`);
+    if (loser.status === 'merged') {
+      throw new BadRequestException(`Program ${mergeProgramId} is already merged.`);
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      // ── pe_program_match: key on (peCode, projectCode ?? '') ──
+      const loserMatches = await tx.peProgramMatch.findMany({
+        where: { programId: mergeProgramId },
+        select: { id: true, peCode: true, projectCode: true },
+      });
+      const keeperMatches = await tx.peProgramMatch.findMany({
+        where: { programId: keepProgramId },
+        select: { peCode: true, projectCode: true },
+      });
+      const keeperMatchKeys = new Set(keeperMatches.map((m) => `${m.peCode}::${m.projectCode ?? ''}`));
+      let matchesRepointed = 0;
+      let matchesDeleted = 0;
+      for (const m of loserMatches) {
+        const key = `${m.peCode}::${m.projectCode ?? ''}`;
+        if (keeperMatchKeys.has(key)) {
+          await tx.peProgramMatch.delete({ where: { id: m.id } });
+          matchesDeleted++;
+        } else {
+          await tx.peProgramMatch.update({ where: { id: m.id }, data: { programId: keepProgramId } });
+          keeperMatchKeys.add(key);
+          matchesRepointed++;
+        }
+      }
+
+      // ── person_role: no unique on programId -> straight re-point ──
+      const roles = await tx.personRole.updateMany({
+        where: { programId: mergeProgramId },
+        data: { programId: keepProgramId },
+      });
+      const rolesRepointed = roles.count;
+
+      // ── program_office_program_link: key on officeId ──
+      const loserLinks = await tx.programOfficeProgramLink.findMany({
+        where: { programId: mergeProgramId },
+        select: { id: true, officeId: true },
+      });
+      const keeperLinks = await tx.programOfficeProgramLink.findMany({
+        where: { programId: keepProgramId },
+        select: { officeId: true },
+      });
+      const keeperOfficeIds = new Set(keeperLinks.map((l) => l.officeId));
+      let officeLinksRepointed = 0;
+      let officeLinksDeleted = 0;
+      for (const l of loserLinks) {
+        if (keeperOfficeIds.has(l.officeId)) {
+          await tx.programOfficeProgramLink.delete({ where: { id: l.id } });
+          officeLinksDeleted++;
+        } else {
+          await tx.programOfficeProgramLink.update({ where: { id: l.id }, data: { programId: keepProgramId } });
+          keeperOfficeIds.add(l.officeId);
+          officeLinksRepointed++;
+        }
+      }
+
+      // ── provision_pe_link: key on (provisionId, peCode ?? '') ──
+      const loserProvLinks = await tx.provisionPeLink.findMany({
+        where: { programId: mergeProgramId },
+        select: { id: true, provisionId: true, peCode: true },
+      });
+      const keeperProvLinks = await tx.provisionPeLink.findMany({
+        where: { programId: keepProgramId },
+        select: { provisionId: true, peCode: true },
+      });
+      const keeperProvKeys = new Set(keeperProvLinks.map((l) => `${l.provisionId}::${l.peCode ?? ''}`));
+      let provisionLinksRepointed = 0;
+      let provisionLinksDeleted = 0;
+      for (const l of loserProvLinks) {
+        const key = `${l.provisionId}::${l.peCode ?? ''}`;
+        if (keeperProvKeys.has(key)) {
+          await tx.provisionPeLink.delete({ where: { id: l.id } });
+          provisionLinksDeleted++;
+        } else {
+          await tx.provisionPeLink.update({ where: { id: l.id }, data: { programId: keepProgramId } });
+          keeperProvKeys.add(key);
+          provisionLinksRepointed++;
+        }
+      }
+
+      // ── aliases: copy the loser's aliases the keeper doesn't already have ──
+      const loserAliases = await tx.programAlias.findMany({ where: { programId: mergeProgramId } });
+      const keeperAliases = await tx.programAlias.findMany({
+        where: { programId: keepProgramId },
+        select: { aliasNormalized: true, aliasType: true },
+      });
+      const keeperAliasKeys = new Set(keeperAliases.map((a) => `${a.aliasNormalized}::${a.aliasType}`));
+      let aliasesCopied = 0;
+      for (const a of loserAliases) {
+        const key = `${a.aliasNormalized}::${a.aliasType}`;
+        if (keeperAliasKeys.has(key)) continue;
+        await tx.programAlias.update({ where: { id: a.id }, data: { programId: keepProgramId } });
+        keeperAliasKeys.add(key);
+        aliasesCopied++;
+      }
+
+      // ── retire the loser ──
+      const mergedAt = new Date();
+      const priorMeta =
+        loser.metadata && typeof loser.metadata === 'object' && !Array.isArray(loser.metadata)
+          ? (loser.metadata as Prisma.JsonObject)
+          : {};
+      await tx.program.update({
+        where: { id: mergeProgramId },
+        data: {
+          status: 'merged',
+          metadata: { ...priorMeta, mergedInto: keepProgramId, mergedAt: mergedAt.toISOString() },
+        },
+      });
+
+      return {
+        repointed: {
+          matches: matchesRepointed,
+          roles: rolesRepointed,
+          officeLinks: officeLinksRepointed,
+          provisionLinks: provisionLinksRepointed,
+        },
+        deleted: {
+          matches: matchesDeleted,
+          officeLinks: officeLinksDeleted,
+          provisionLinks: provisionLinksDeleted,
+        },
+        aliasesCopied,
+        mergedAt,
+      };
+    });
+
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          actorRole: ctx.role,
+          action: 'program.merge',
+          entityType: 'program',
+          entityId: mergeProgramId,
+          before: {
+            mergeProgramId,
+            mergeCanonicalName: loser.canonicalName,
+            mergeStatus: loser.status,
+          },
+          after: {
+            keepProgramId,
+            keepCanonicalName: keep.canonicalName,
+            status: 'merged',
+            mergedInto: keepProgramId,
+            mergedAt: result.mergedAt.toISOString(),
+            repointed: result.repointed,
+            deleted: result.deleted,
+            aliasesCopied: result.aliasesCopied,
+          },
+        },
+      });
+    });
+
+    return {
+      merged: true as const,
+      keepProgramId,
+      mergeProgramId,
+      repointed: result.repointed,
+      aliasesCopied: result.aliasesCopied,
+    };
   }
 }
