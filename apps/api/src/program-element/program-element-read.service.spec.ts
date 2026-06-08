@@ -338,6 +338,13 @@ function makePrisma(options: {
     programElementMilestone: {
       findMany: jest.fn(async () => []),
     },
+    // Step 1.2: getProgramElement now badges projectCount/sourceCount.
+    programElementProject: {
+      count: jest.fn(async () => 0),
+    },
+    programElementSource: {
+      count: jest.fn(async () => 0),
+    },
     withTenant: jest.fn(
       async (
         _tenantId: string,
