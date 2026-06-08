@@ -3,6 +3,8 @@ import type {
   ProgramElementBill,
   ProgramElementContractorsResponse,
   ProgramElementDetail,
+  ProgramElementProject,
+  ProgramElementSourceItem,
   ProgramElementListResponse,
   ProgramElementMarkupMonitorResponse,
   ProgramElementRelatedResponse,
@@ -39,6 +41,28 @@ export async function getProgramElementContractors(
   return (
     await api.get<ProgramElementContractorsResponse>(
       `/api/program-elements/${encodeURIComponent(peCode)}/contractors`,
+    )
+  ).data;
+}
+
+export async function getProgramElementProjects(
+  api: AxiosInstance,
+  peCode: string,
+): Promise<ProgramElementProject[]> {
+  return (
+    await api.get<ProgramElementProject[]>(
+      `/api/program-elements/${encodeURIComponent(peCode)}/projects`,
+    )
+  ).data;
+}
+
+export async function getProgramElementSources(
+  api: AxiosInstance,
+  peCode: string,
+): Promise<ProgramElementSourceItem[]> {
+  return (
+    await api.get<ProgramElementSourceItem[]>(
+      `/api/program-elements/${encodeURIComponent(peCode)}/sources`,
     )
   ).data;
 }

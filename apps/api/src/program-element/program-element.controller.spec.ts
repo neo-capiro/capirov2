@@ -22,6 +22,8 @@ describe('ProgramElementController', () => {
       getTimeline: jest.fn(),
       getBills: jest.fn(),
       getContractors: jest.fn(),
+      getProjects: jest.fn(),
+      getSources: jest.fn(),
       getRelatedProgramElements: jest.fn(),
       setWatching: jest.fn(),
       listReconciliationQueue: jest.fn(),
@@ -186,6 +188,31 @@ describe('ProgramElementController', () => {
     expect(service.getContractors).toHaveBeenCalledWith('0603270A');
     expect(result.data).toEqual([]);
     expect(result.todo).toContain('Step 28');
+  });
+
+  test('GET /api/program-elements/:peCode/projects delegates to the read service', async () => {
+    const { controller, service } = makeController();
+    service.getProjects.mockResolvedValue([
+      { id: 'p1', projectCode: 'AA1', title: 'Basic research', pageNumber: 12, sourceUrl: 'http://x.pdf' },
+    ]);
+
+    const result = await controller.projects('0601102A');
+
+    expect(service.getProjects).toHaveBeenCalledWith('0601102A');
+    expect(result).toHaveLength(1);
+    expect(result[0]?.projectCode).toBe('AA1');
+  });
+
+  test('GET /api/program-elements/:peCode/sources delegates to the read service', async () => {
+    const { controller, service } = makeController();
+    service.getSources.mockResolvedValue([
+      { id: 's1', docType: 'R', exhibitType: 'R-2A', fy: 2027, pageNumber: 12, sourceUrl: 'http://x.pdf' },
+    ]);
+
+    const result = await controller.sources('0601102A');
+
+    expect(service.getSources).toHaveBeenCalledWith('0601102A');
+    expect(result[0]?.exhibitType).toBe('R-2A');
   });
 
   test('POST /api/program-elements/:peCode/watch is tenant-scoped', async () => {

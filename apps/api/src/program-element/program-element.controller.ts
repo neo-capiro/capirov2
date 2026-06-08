@@ -99,6 +99,16 @@ export class ProgramElementController {
     return this.service.getContractors(peCode);
   }
 
+  @Get(':peCode/projects')
+  projects(@Param('peCode') peCode: string) {
+    return this.service.getProjects(peCode);
+  }
+
+  @Get(':peCode/sources')
+  sources(@Param('peCode') peCode: string) {
+    return this.service.getSources(peCode);
+  }
+
   @Get(':peCode/related')
   related(@Param('peCode') peCode: string) {
     return this.service.getRelatedProgramElements(peCode);

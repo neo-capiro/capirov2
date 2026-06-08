@@ -24,7 +24,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 0.3 | Mark/enacted coverage FY26–27 | ⏳ SCAFFOLDED — needs real PDFs |
 | 0.4 | Ingestion scheduling truth-up | ⏳ partial — diag script + docs; CDK/AWS deferred |
 | 1.1 | P-1 procurement ingestion | ⏳ SCAFFOLDED — needs real P-1 PDF |
-| 1.2 | Surface projects + proof pack (API+UI) | ⬜ pending |
+| 1.2 | Surface projects + proof pack (API+UI) | ✅ done — API+web+tests green |
 | 1.3 | Budget-cycle (PB position) + FYDP outyears | ⬜ pending |
 | 1.4 | Typed budget-delta engine + materiality | ⬜ pending |
 | 1.5 | R-2A deep extraction | ⏳ SCAFFOLDED — needs richer extraction data |
@@ -45,4 +45,19 @@ Code-completable first: 1.2 → 1.4 → 1.3 → 2.1 → 2.4 → 4.1 → 2.2 → 
 Scaffold/partials interleaved: 0.4 (diag+docs), 0.3 / 1.1 / 1.5 (tooling+runbooks), 3.1 / 3.3 (scaffolds).
 
 ## Log
-- (start) Branched, baseline typecheck clean (api+web), jest 715 / vitest 98 green.
+- (start) Branched `feat/defense-budget-intelligence-plan` off 5ca3bcc; baseline typecheck clean
+  (api+web), jest 715 / vitest 98 green.
+- **Concurrent-session collision + worktree pivot**: a parallel session switched the shared
+  OneDrive working tree to its own branch (`whitepaper-clean`) mid-task, yanking my checkout. To
+  work safely overnight without colliding, I created an **isolated git worktree** for my branch at
+  `C:/Users/neoma/capiro-obi` (separate working dir, own node_modules, shared .git). All overnight
+  work happens there; the OneDrive tree is left to the other session. My branch retains complete
+  Steps 0.1 + 0.2 (verified: resolveReconciliation + budget-reconciliation present).
+  NOTE for review/merge: this branch is based on 5ca3bcc (bundles the other session's whitepaper
+  backend); if `main` history is rewritten, rebase this branch onto final main before merging.
+- **Step 1.2 done** (worktree): API `GET :peCode/projects` + `:peCode/sources` (proof-pack ordered
+  R-1→R-2→R-2A→R-3→P-1→P-40, FY desc, page asc) + projectCount/sourceCount on the detail; web
+  ProjectsPanel + ProofPackPanel (deep-links `#page=`) wired into the PE page; ContractorsPanel
+  named-prime link now appends `#page=`. Tests: proof-pack ordering, controller delegation,
+  panel render + deep-link + empty-state. api+web typecheck clean; targeted jest 19 / vitest 9 green.
+  Deferred (not in success criteria): FyDetailDrawer per-field open-at-page link — minor follow-up.

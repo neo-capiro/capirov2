@@ -14,12 +14,16 @@ import {
   getProgramElementContractors,
   getProgramElementDetail,
   getProgramElementPersonnel,
+  getProgramElementProjects,
   getProgramElementRelated,
+  getProgramElementSources,
   setProgramElementWatching,
 } from './api.js';
 import { FyHistoryChart } from './FyHistoryChart.js';
 import { BillsTouchingPePanel } from './BillsTouchingPePanel.js';
 import { ContractorsPanel } from './ContractorsPanel.js';
+import { ProjectsPanel } from './ProjectsPanel.js';
+import { ProofPackPanel } from './ProofPackPanel.js';
 import { RelatedPesPanel } from './RelatedPesPanel.js';
 import { FyDetailDrawer } from './FyDetailDrawer.js';
 import { LinkCrmContactModal } from './LinkCrmContactModal.js';
@@ -95,6 +99,8 @@ const LazyBillsTouchingPePanel = lazy(async () => ({ default: BillsTouchingPePan
 const LazyContractorsPanel = lazy(async () => ({ default: ContractorsPanel }));
 const LazyRelatedPesPanel = lazy(async () => ({ default: RelatedPesPanel }));
 const LazyProgramTeamPanel = lazy(async () => ({ default: ProgramTeamPanel }));
+const LazyProjectsPanel = lazy(async () => ({ default: ProjectsPanel }));
+const LazyProofPackPanel = lazy(async () => ({ default: ProofPackPanel }));
 
 function formatSyncedDate(value: string): string {
   const parsed = new Date(value);
@@ -196,6 +202,20 @@ export function ProgramElementWatchPage() {
   const relatedQuery = useQuery({
     queryKey: ['program-element-related', normalizedPeCode],
     queryFn: () => getProgramElementRelated(api, normalizedPeCode),
+    staleTime: 60 * 1000,
+    enabled: normalizedPeCode.length > 0,
+  });
+
+  const projectsQuery = useQuery({
+    queryKey: ['program-element-projects', normalizedPeCode],
+    queryFn: () => getProgramElementProjects(api, normalizedPeCode),
+    staleTime: 60 * 1000,
+    enabled: normalizedPeCode.length > 0,
+  });
+
+  const sourcesQuery = useQuery({
+    queryKey: ['program-element-sources', normalizedPeCode],
+    queryFn: () => getProgramElementSources(api, normalizedPeCode),
     staleTime: 60 * 1000,
     enabled: normalizedPeCode.length > 0,
   });
@@ -439,6 +459,16 @@ export function ProgramElementWatchPage() {
         </Card>
       )}
 
+      <Suspense
+        fallback={
+          <Card title="Projects (R-2A)">
+            <Skeleton active paragraph={{ rows: 3 }} />
+          </Card>
+        }
+      >
+        <LazyProjectsPanel projects={projectsQuery.data} loading={projectsQuery.isLoading} />
+      </Suspense>
+
       <Row gutter={[16, 16]} className="pe-two-col">
         <Col xs={24} xl={15}>
           <Suspense
@@ -463,6 +493,16 @@ export function ProgramElementWatchPage() {
           </Suspense>
         </Col>
       </Row>
+
+      <Suspense
+        fallback={
+          <Card title="Sources & evidence">
+            <Skeleton active paragraph={{ rows: 4 }} />
+          </Card>
+        }
+      >
+        <LazyProofPackPanel sources={sourcesQuery.data} loading={sourcesQuery.isLoading} />
+      </Suspense>
 
       <Suspense
         fallback={

@@ -23,6 +23,37 @@ export interface ProgramElementDetail {
   lastSyncedAt: string;
   currentUserIsWatching: boolean;
   years: ProgramElementYearPoint[];
+  /** Step 1.2: counts so the profile can badge + lazy-load the project/proof-pack panels. */
+  projectCount?: number;
+  sourceCount?: number;
+}
+
+/** R-2A project / sub-element of a PE (Step 1.2). */
+export interface ProgramElementProject {
+  id: string;
+  projectCode: string;
+  title: string;
+  mission: string | null;
+  budgetActivity: string | null;
+  fy: number | null;
+  sourceUrl: string | null;
+  pageNumber: number | null;
+  confidence: number | null;
+}
+
+/** One page-level citation in the proof pack (Step 1.2). */
+export interface ProgramElementSourceItem {
+  id: string;
+  docType: string;
+  exhibitType: string | null;
+  fy: number | null;
+  sourceUrl: string;
+  pageNumber: number | null;
+  pageEnd: number | null;
+  snippet: string | null;
+  publisher: string | null;
+  confidence: number | null;
+  sourceDocument: { title: string; budgetCycle: string; sha256: string | null } | null;
 }
 
 export interface ProgramElementListItem {

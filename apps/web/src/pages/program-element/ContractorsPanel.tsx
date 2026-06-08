@@ -106,7 +106,11 @@ const namedPrimeColumns: ColumnsType<ProgramElementNamedPrime> = [
         </Tooltip>
       );
       return row.sourceUrl ? (
-        <a href={row.sourceUrl} target="_blank" rel="noreferrer">
+        <a
+          href={row.pageNumber ? `${row.sourceUrl}#page=${row.pageNumber}` : row.sourceUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
           {tag}
         </a>
       ) : (

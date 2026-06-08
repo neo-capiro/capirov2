@@ -5,6 +5,7 @@ import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EMBEDDING_MODEL } from '../embeddings/embedder.js';
 import { ConferenceProbabilityService } from './models/conference-probability.service.js';
+import { compareProofPackSources } from './proof-pack.js';
 
 export interface ProgramElementListQuery {
   service?: string;
@@ -269,9 +270,18 @@ export class ProgramElementReadService {
       )
       .catch(() => [] as Array<{ billCount: number | null }>);
 
+    // Cheap counts so the profile can badge "Projects (n)" / "Sources (n)" and lazy-load the
+    // panels only when present (Step 1.2). Cached with the rest of the detail.
+    const [projectCount, sourceCount] = await Promise.all([
+      this.prisma.programElementProject.count({ where: { peCode } }),
+      this.prisma.programElementSource.count({ where: { peCode } }),
+    ]);
+
     const detail: Record<string, unknown> = {
       ...programElement,
       billCount: mvRows[0]?.billCount ?? null,
+      projectCount,
+      sourceCount,
     };
 
     this.detailCache.set(cacheKey, detail);
@@ -532,6 +542,68 @@ export class ProgramElementReadService {
       data,
       todo: null,
     };
+  }
+
+  /**
+   * R-2A projects/sub-elements for a PE (Step 1.2). Ordered by project code; each carries
+   * its own page-level citation (sourceUrl + pageNumber) so the UI can deep-link to the
+   * exact exhibit page. Empty array (never an error) when this PE has no extracted projects.
+   */
+  async getProjects(peCode: string) {
+    const exists = await this.prisma.programElement.findUnique({
+      where: { peCode },
+      select: { peCode: true },
+    });
+    if (!exists) throw new NotFoundException(`Program element ${peCode} not found`);
+
+    return this.prisma.programElementProject.findMany({
+      where: { peCode },
+      orderBy: [{ projectCode: 'asc' }],
+      select: {
+        id: true,
+        projectCode: true,
+        title: true,
+        mission: true,
+        budgetActivity: true,
+        fy: true,
+        sourceUrl: true,
+        pageNumber: true,
+        confidence: true,
+      },
+    });
+  }
+
+  /**
+   * Proof-pack: every page-level citation for a PE (Step 1.2, §11), each joined to its
+   * SourceDocument (title/budgetCycle/sha256) and ordered in document order (R-1 → R-2 →
+   * R-2A → R-3 → P-1 → P-40), then FY desc, page asc — so the UI can render "show me the
+   * source" with an open-at-page deep link.
+   */
+  async getSources(peCode: string) {
+    const exists = await this.prisma.programElement.findUnique({
+      where: { peCode },
+      select: { peCode: true },
+    });
+    if (!exists) throw new NotFoundException(`Program element ${peCode} not found`);
+
+    const rows = await this.prisma.programElementSource.findMany({
+      where: { peCode },
+      select: {
+        id: true,
+        docType: true,
+        exhibitType: true,
+        fy: true,
+        sourceUrl: true,
+        pageNumber: true,
+        pageEnd: true,
+        snippet: true,
+        publisher: true,
+        confidence: true,
+        sourceDocument: { select: { title: true, budgetCycle: true, sha256: true } },
+      },
+    });
+
+    return [...rows].sort((a, b) => compareProofPackSources(a, b));
   }
 
   /**
