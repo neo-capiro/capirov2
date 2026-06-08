@@ -28,7 +28,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 1.3 | Budget-cycle (PB position) + FYDP outyears | ⬜ pending |
 | 1.4 | Typed budget-delta engine + materiality | ⬜ pending |
 | 1.5 | R-2A deep extraction | ⏳ SCAFFOLDED — needs richer extraction data |
-| 2.1 | Program / ProgramAlias / PEProgramMatch | ⬜ pending |
+| 2.1 | Program / ProgramAlias / PEProgramMatch | ⏳ backend done (schema+seed+matcher+review API+specs); web pending |
 | 2.2 | ProgramOffice + PersonRole + guardrails | ⬜ pending |
 | 2.3 | Client relevance v2 | ⬜ pending |
 | 2.4 | Committee report language capture | ⬜ pending |
@@ -61,3 +61,13 @@ Scaffold/partials interleaved: 0.4 (diag+docs), 0.3 / 1.1 / 1.5 (tooling+runbook
   named-prime link now appends `#page=`. Tests: proof-pack ordering, controller delegation,
   panel render + deep-link + empty-state. api+web typecheck clean; targeted jest 19 / vitest 9 green.
   Deferred (not in success criteria): FyDetailDrawer per-field open-at-page link — minor follow-up.
+- **Step 2.1 backend done** (implemented by a sub-agent in the worktree, then independently
+  verified by me): Program / ProgramAlias / PeProgramMatch (global, additive migration w/ pg_trgm
+  GIN + functional-unique COALESCE index); `seed-programs.ts` (idempotent, MDAP→Program +
+  accepted/mdap_curated matches + aliases); pure `program-match-thresholds.ts` (the §5/§7
+  guardrail — fuzzy/usage tiers can NEVER reach 'accepted'); `pe-program-matcher.service.ts`
+  (trigram, fuzzy capped <0.90 → candidate/quarantined only) + `match-pe-program.ts`;
+  ProgramsService/Controller (`GET /programs`, `/programs/:id`, admin match-queue list + resolve
+  w/ AuditLog). Verified: api typecheck clean; 6 suites/81 specs green (incl. table-driven
+  thresholds + 0 fuzzy-accept SQL proof); migration applies clean on a fresh scratch DB; seed +
+  matcher proofs. **Web pending**: admin review page + PE "Programs" panel + explorer search wiring.

@@ -2942,3 +2942,111 @@ model ProgramElementPerformer {
   @@index([sourceDocumentId], map: "program_element_performer_source_document_idx")
   @@map("program_element_performer")
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// PROGRAM GRAPH (Step 2.1) — the canonical Program entity + alias dictionary +
+// review-gated PE/project -> program matching. GLOBAL tables (no tenant_id / RLS):
+// these describe public-domain federal programs, same as program_element /
+// federal_award. PeProgramMatch is the graph's source of truth going forward;
+// program_element_acquisition_program is kept for award attribution.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// Canonical defense program (e.g. 'F-35', 'SSN 774'). One row per real-world
+/// program-of-record. Seeded from program_element_acquisition_program MDAP codes
+/// (seed-programs.ts) and grown by the matcher / human review. PE links live on
+/// PeProgramMatch, not here.
+model Program {
+  id                 String   @id @default(uuid()) @db.Uuid
+  canonicalName      String   @map("canonical_name")
+  component          String? // service / component (e.g. 'AF', 'NAVY', 'ARMY', 'OSD')
+  capabilityArea     String?  @map("capability_area")
+  acquisitionPathway String?  @map("acquisition_pathway")
+  /// MDAP code from the program_element_acquisition_program seed (e.g. '198'); null
+  /// for programs introduced outside the curated MDAP map.
+  mdapCode           String?  @map("mdap_code")
+  description        String?  @db.Text
+  status             String   @default("active") @db.VarChar(20)
+  metadata           Json     @default("{}") @map("metadata_jsonb")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  aliases ProgramAlias[]
+  matches PeProgramMatch[]
+
+  @@index([mdapCode], map: "program_mdap_code_idx")
+  @@index([component], map: "program_component_idx")
+  @@index([status], map: "program_status_idx")
+  @@map("program")
+}
+
+/// Alias / known name for a Program — drives fuzzy PE/project -> program matching.
+/// aliasNormalized is the upper-cased, punctuation-stripped form used for the
+/// pg_trgm trigram index. aliasType records WHERE the alias came from so the
+/// matcher can weight official names over usage strings.
+model ProgramAlias {
+  id              String   @id @default(uuid()) @db.Uuid
+  programId       String   @map("program_id") @db.Uuid
+  alias           String
+  /// Upper-cased, punctuation-stripped form (see normalizeAlias in pe-program-matcher).
+  aliasNormalized String   @map("alias_normalized")
+  /// 'canonical' | 'acronym' | 'pe_title' | 'project_title' | 'p1_line_name' |
+  /// 'mdap_name' | 'office_usage' | 'congressional' | 'sam_usage' | 'award_usage'.
+  aliasType       String   @map("alias_type")
+  source          String
+  sourceUrl       String?  @map("source_url")
+  confidence      Float    @default(0.9)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, aliasNormalized, aliasType], map: "program_alias_program_norm_type_key")
+  @@index([programId], map: "program_alias_program_id_idx")
+  @@index([aliasNormalized], map: "program_alias_normalized_idx")
+  // NOTE: the pg_trgm GIN index on alias_normalized is created in raw SQL in the
+  // migration (Prisma cannot express `USING gin (... gin_trgm_ops)`).
+  @@map("program_alias")
+}
+
+/// PE (and optionally a project within it) -> Program link, with evidence and a
+/// confidence tier. The graph's source of truth. Machine matches land here as
+/// 'candidate'/'quarantined' for HUMAN review; 'accepted' is reserved for curated
+/// seed rows and reviewer confirmations (and the documented official+exact
+/// auto-accept rule). NEVER auto-accepted from a fuzzy path.
+model PeProgramMatch {
+  id          String  @id @default(uuid()) @db.Uuid
+  peCode      String  @map("pe_code") @db.VarChar(16)
+  /// Project (R-2A) code within the PE when the match is project-level, else null.
+  projectCode String? @map("project_code") @db.VarChar(8)
+  programId   String  @map("program_id") @db.Uuid
+  score       Float
+  /// 'exact_pe_number' | 'exact_project_title' | 'r2a_office_named' |
+  /// 'other_funding_link' | 'official_office_page' | 'sar_msar' | 'sam_match' |
+  /// 'award_match' | 'press_release' | 'news_only' | 'mdap_curated' (seed).
+  evidenceTier String  @map("evidence_tier")
+  /// Array of evidence items: { kind, sourceUrl, pageNumber?, quote? }.
+  evidence     Json     @default("[]") @map("evidence_jsonb")
+  /// 'accepted' | 'candidate' | 'quarantined' | 'rejected'. Default derived from
+  /// score+tier per the plan thresholds (see deriveMatchStatus).
+  status       String   @default("candidate") @db.VarChar(20)
+  /// True when score < 0.50 — stored as a weak signal, NEVER surfaced.
+  weakSignal       Boolean   @default(false) @map("weak_signal")
+  matchBasis       String?   @map("match_basis") @db.Text
+  resolvedByUserId String?   @map("resolved_by_user_id") @db.Uuid
+  resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz(6)
+  decisionNotes    String?   @map("decision_notes") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  // Unique on (peCode, coalesce(projectCode,''), programId): a project-null and a
+  // project-scoped match to the same program coexist; two matches with the same
+  // (pe, project, program) do not. Postgres treats NULLs as distinct, so the
+  // coalesce()-based uniqueness is enforced via a raw expression index in the
+  // migration (Prisma cannot express a functional unique index).
+  @@index([programId], map: "pe_program_match_program_id_idx")
+  @@index([peCode], map: "pe_program_match_pe_code_idx")
+  @@index([status], map: "pe_program_match_status_idx")
+  @@map("pe_program_match")
+}

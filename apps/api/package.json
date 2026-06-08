@@ -35,6 +35,8 @@
     "enrich:award-districts": "tsx scripts/enrich-award-districts.ts",
     "enrich:award-pe": "tsx scripts/enrich-award-pe.ts",
     "seed:acq-program-map": "tsx scripts/seed-acq-program-map.ts",
+    "seed:programs": "tsx scripts/seed-programs.ts",
+    "match:pe-program": "tsx scripts/match-pe-program.ts",
     "report:award-pe-coverage": "tsx scripts/report-award-pe-coverage.ts",
     "rebuild:pe-years": "tsx scripts/rebuild-program-element-years.ts",
     "normalize:pe-units": "tsx scripts/normalize-pe-units.ts",
