@@ -8,9 +8,10 @@ import { ClientPeopleService } from './client-people.service.js';
 import { ClientFacilitiesController } from './client-facilities.controller.js';
 import { ClientFacilitiesService } from './client-facilities.service.js';
 import { EmbeddingsModule } from '../embeddings/embeddings.module.js';
+import { IntelligenceModule } from '../intelligence/intelligence.module.js';
 
 @Module({
-  imports: [EmbeddingsModule],
+  imports: [EmbeddingsModule, IntelligenceModule],
   controllers: [
     ClientsController,
     ClientCapabilitiesController,

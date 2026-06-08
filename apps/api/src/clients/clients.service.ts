@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
@@ -6,6 +6,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { EntityResolutionService } from '../intelligence/entity-resolution.service.js';
 
 export interface CreateClientInput {
   name: string;
@@ -56,10 +57,12 @@ const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 export class ClientsService {
   private readonly s3: S3Client;
   private readonly bucket?: string;
+  private readonly logger = new Logger(ClientsService.name);
 
   constructor(
     private readonly prisma: PrismaService,
     config: ConfigService<AppConfig, true>,
+    private readonly entityResolution: EntityResolutionService,
   ) {
     this.bucket = config.get('ASSETS_BUCKET', { infer: true });
     this.s3 = new S3Client({ region: config.get('AWS_REGION_DEFAULT', { infer: true }) });
@@ -88,8 +91,8 @@ export class ClientsService {
   }
 
   async create(ctx: TenantContext, input: CreateClientInput) {
-    const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.client.create({
+    const { client, ldaRegistrantId } = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const client = await tx.client.create({
         data: {
           tenantId: ctx.tenantId,
           name: input.name,
@@ -111,8 +114,26 @@ export class ClientsService {
           pscCodes: input.pscCodes ?? [],
           createdByUserId: ctx.userId,
         },
-      }),
-    );
+      });
+      const tenant = await tx.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { ldaRegistrantId: true },
+      });
+      return { client, ldaRegistrantId: tenant?.ldaRegistrantId ?? null };
+    });
+
+    // Resolve-on-create: registrant-anchored entity resolution, fire-and-forget.
+    // client_intel_mapping is not RLS-scoped and resolveClient does not write the
+    // RLS-protected clients table, so this runs safely detached and never blocks
+    // or fails the create response.
+    void this.entityResolution
+      .resolveClient(client.id, client.name, { ldaRegistrantId })
+      .catch((e: unknown) =>
+        this.logger.warn(
+          `resolve-on-create failed for client ${client.id}: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
+
     return this.withLogoUrl(client);
   }
 
