@@ -471,7 +471,7 @@ export class IntelligenceService {
     if (settled[0].status === 'rejected') throw settled[0].reason;
     const profile = settled[0].value as Awaited<ReturnType<typeof this.getClientProfile>>;
 
-    const roi = settle(1, { lobbySpend: 0, contractWins: 0, roi: null, gap: 0, mappedLdaClientId: null } as Awaited<ReturnType<typeof this.getLobbyingRoi>>);
+    const roi = settle(1, { clientId, clientName: client.name, mappedLdaClientId: null, mappedLdaClientIds: [], mappedContractorId: null, lobbySpend: 0, contractWins: 0, roi: null, gap: 0 } as Awaited<ReturnType<typeof this.getLobbyingRoi>>);
     const fec = settle(2, { clientId, clientName: client.name, mappedEmployer: null, contributionType: 'individual_employer_linked' as const, summary: { totalContributions: 0, totalAmount: 0, committeeCount: 0, candidateCount: 0, memberCount: 0, billCount: 0 }, committees: [], pacGiving: { tracked: false, committees: [], summary: { totalAmount: 0, disbursementCount: 0, recipientCount: 0 } }, disclaimer: FEC_DISCLAIMER } as unknown as Awaited<ReturnType<typeof this.getFecMoneyFlow>>);
     const district = settle(3, { capabilities: [] } as unknown as Awaited<ReturnType<typeof this.getDistrictNexus>>);
     const trackedBills = settle(4, { total: 0, issueCodes: [], bills: [] } as Awaited<ReturnType<typeof this.getTrackedBills>>);
@@ -1220,7 +1220,7 @@ export class IntelligenceService {
           : 'no_activity';
 
     const quarterRoiSeries = await this.buildRoiQuarterSeries({
-      mappedLdaClientId: roi.mappedLdaClientId,
+      mappedLdaClientIds: roi.mappedLdaClientIds,
       lobbyingYearly: profile.lda.yearlySpend,
       obligationsYearly: profile.contracting.yearlySpend,
       now,
@@ -1433,6 +1433,23 @@ export class IntelligenceService {
     return this.pickLdaClientIds(
       [],
       confirmed.map((m) => m.externalId),
+    );
+  }
+
+  /**
+   * The client's confirmed source='lda' externalIds as an int set, read live from
+   * the GLOBAL (no-RLS) client_intel_mapping. For callers without a tenantId in
+   * scope whose clientId was already tenant-validated upstream. Functionally the
+   * same set as the clients.lda_client_ids cache (kept in sync by prepopulation).
+   */
+  private async confirmedLdaIds(clientId: string): Promise<number[]> {
+    const mappings = await this.prisma.clientIntelMapping.findMany({
+      where: { clientId, source: 'lda', confirmed: true },
+      select: { externalId: true },
+    });
+    return this.pickLdaClientIds(
+      [],
+      mappings.map((m) => m.externalId),
     );
   }
 
@@ -2381,13 +2398,14 @@ export class IntelligenceService {
   /** Lobbying $ vs Contract $ ROI for a client via confirmed mappings */
   async getLobbyingRoi(clientId: string, tenantId: string) {
     const client = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.client.findFirst({ where: { id: clientId }, select: { id: true, name: true } }),
+      tx.client.findFirst({ where: { id: clientId }, select: { id: true, name: true, ldaClientIds: true } }),
     );
     if (!client) {
       return {
         clientId,
         clientName: null,
         mappedLdaClientId: null,
+        mappedLdaClientIds: [] as number[],
         mappedContractorId: null,
         lobbySpend: 0,
         contractWins: 0,
@@ -2396,23 +2414,30 @@ export class IntelligenceService {
       };
     }
 
-    const [ldaMapping, contractingMapping] = await Promise.all([
-      this.prisma.clientIntelMapping.findFirst({
+    const [ldaMappings, contractingMapping] = await Promise.all([
+      this.prisma.clientIntelMapping.findMany({
         where: { clientId, source: 'lda', confirmed: true },
+        select: { externalId: true },
       }),
       this.prisma.clientIntelMapping.findFirst({
         where: { clientId, source: 'contracting', confirmed: true },
       }),
     ]);
+    // Lobbying spend across the client's FULL LDA id set (all firm relationships),
+    // not a single confirmed mapping.
+    const ldaClientIds = this.pickLdaClientIds(
+      client.ldaClientIds,
+      ldaMappings.map((m) => m.externalId),
+    );
 
     let lobbySpend = 0;
     let contractWins = 0;
 
-    if (ldaMapping) {
+    if (ldaClientIds.length) {
       const rows = await this.prisma.$queryRaw<Array<{ total: number }>>`
         SELECT COALESCE(SUM(income), 0)::float AS total
         FROM lda_filing
-        WHERE client_id = ${Number(ldaMapping.externalId)}
+        WHERE client_id = ANY(${ldaClientIds}::int[])
       `;
       lobbySpend = rows[0]?.total ?? 0;
     }
@@ -2430,7 +2455,8 @@ export class IntelligenceService {
     return {
       clientId,
       clientName: client.name,
-      mappedLdaClientId: ldaMapping?.externalId ?? null,
+      mappedLdaClientId: ldaClientIds[0] ?? null, // representative scalar (back-compat)
+      mappedLdaClientIds: ldaClientIds,
       mappedContractorId: contractingMapping?.externalId ?? null,
       lobbySpend,
       contractWins,
@@ -2789,17 +2815,15 @@ export class IntelligenceService {
 
   /** Competitor surge detector: other registrants lobbying on same issue codes in last 90 days */
   async getCompetitorBoard(clientId: string) {
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
-    if (!ldaMapping) return { competitors: [], leaderboards: [] };
+    // Resolve the client's FULL LDA id set (all firm relationships).
+    const ldaClientIds = await this.confirmedLdaIds(clientId);
+    if (!ldaClientIds.length) return { competitors: [], leaderboards: [] };
 
-    const ldaClientId = Number(ldaMapping.externalId);
-
-    const clientRows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`
-      SELECT COALESCE(issue_codes, '{}') AS issue_codes FROM lda_client WHERE id = ${ldaClientId}
+    const codeRows = await this.prisma.$queryRaw<Array<{ code: string }>>`
+      SELECT DISTINCT unnest(issue_codes) AS code
+      FROM lda_client WHERE id = ANY(${ldaClientIds}::int[]) AND issue_codes IS NOT NULL
     `;
-    const issueCodes = clientRows[0]?.issue_codes ?? [];
+    const issueCodes = codeRows.map((r) => r.code).filter(Boolean);
     if (!issueCodes.length) return { competitors: [], leaderboards: [] };
 
     const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
@@ -2821,7 +2845,7 @@ export class IntelligenceService {
         FROM lda_filing f,
              LATERAL unnest(f.issue_codes) ic
         WHERE f.dt_posted >= ${ninetyDaysAgo}
-          AND f.client_id != ${ldaClientId}
+          AND f.client_id != ALL(${ldaClientIds}::int[])
           AND f.issue_codes && ${issueCodes}::text[]
           AND ic = ANY(${issueCodes}::text[])
         GROUP BY f.registrant_name
@@ -2853,16 +2877,12 @@ export class IntelligenceService {
       if (!belongs) return { lobbyists: [] };
     }
 
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
-    if (!ldaMapping) return { lobbyists: [] };
-
-    const ldaClientId = Number(ldaMapping.externalId);
+    const ldaClientIds = await this.confirmedLdaIds(clientId);
+    if (!ldaClientIds.length) return { lobbyists: [] };
 
     const regRows = await this.prisma.$queryRaw<Array<{ registrant_id: number }>>`
       SELECT DISTINCT registrant_id FROM lda_filing
-      WHERE client_id = ${ldaClientId} AND registrant_id IS NOT NULL
+      WHERE client_id = ANY(${ldaClientIds}::int[]) AND registrant_id IS NOT NULL
     `;
     const registrantIds = regRows.map((r) => r.registrant_id);
     if (!registrantIds.length) return { lobbyists: [] };
@@ -5793,12 +5813,12 @@ export class IntelligenceService {
    * Obligations values are derived from annual contractor data (÷4 per quarter).
    */
   private async buildRoiQuarterSeries({
-    mappedLdaClientId,
+    mappedLdaClientIds,
     lobbyingYearly,
     obligationsYearly,
     now,
   }: {
-    mappedLdaClientId: string | null;
+    mappedLdaClientIds: number[];
     lobbyingYearly: Array<{ year: number; amount: number }>;
     obligationsYearly: Array<{ year: number; amount: number }>;
     now: Date;
@@ -5828,25 +5848,26 @@ export class IntelligenceService {
     };
 
     const lobbyByQuarter = new Map<string, number>(); // key = "YYYY-Q#"
-    if (mappedLdaClientId) {
-      const ldaId = Number(mappedLdaClientId);
-      if (!Number.isNaN(ldaId)) {
-        const rows = await this.prisma.$queryRaw<
-          Array<{ filing_year: number; filing_period: string | null; amount: number }>
-        >`
+    if (mappedLdaClientIds.length) {
+      const rows = await this.prisma.$queryRaw<
+        Array<{ filing_year: number; filing_period: string | null; amount: number }>
+      >`
           SELECT filing_year,
                  filing_period,
                  COALESCE(SUM(income), 0)::float AS amount
           FROM lda_filing
-          WHERE client_id = ${ldaId}
+          WHERE client_id = ANY(${mappedLdaClientIds}::int[])
             AND filing_period IS NOT NULL
           GROUP BY filing_year, filing_period
         `;
-        for (const row of rows) {
-          const qNum = PERIOD_MAP[row.filing_period ?? ''];
-          if (!qNum) continue;
-          lobbyByQuarter.set(`${row.filing_year}-Q${qNum}`, row.amount);
-        }
+      for (const row of rows) {
+        const qNum = PERIOD_MAP[row.filing_period ?? ''];
+        if (!qNum) continue;
+        // Same quarter across multiple registrants sums (rows are disjoint per client_id).
+        lobbyByQuarter.set(
+          `${row.filing_year}-Q${qNum}`,
+          (lobbyByQuarter.get(`${row.filing_year}-Q${qNum}`) ?? 0) + row.amount,
+        );
       }
     } else {
       // Fall back to distributing annual lobbying data evenly across quarters
