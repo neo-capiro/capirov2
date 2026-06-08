@@ -214,11 +214,17 @@ export class IntelligenceService {
       }
     }
 
-    // 3. Resolve each source, use confirmed mapping if present, else fuzzy match
+    // 3. Resolve each source, use confirmed mapping if present, else fuzzy match.
+    //    LDA resolves over the client's FULL id set (cache, else confirmed
+    //    mappings) so a company lobbied by N firms aggregates all N relationships
+    //    (e.g. Boeing's 27 ids). Name-fuzzy is the fallback ONLY when unresolved.
+    const confirmedLdaExternalIds = existingMappings
+      .filter((m) => m.source === 'lda' && m.confirmed)
+      .map((m) => m.externalId);
+    const ldaClientIds = this.pickLdaClientIds(client.ldaClientIds, confirmedLdaExternalIds);
+
     const [ldaMatch, contractorMatch, lobbyMatch] = await Promise.all([
-      confirmedBySource.has('lda')
-        ? this.fetchLdaById(Number(confirmedBySource.get('lda')))
-        : this.fuzzyMatchLda(clientName),
+      ldaClientIds.length ? this.fetchLdaByIds(ldaClientIds) : this.fuzzyMatchLda(clientName),
       confirmedBySource.has('contracting')
         ? this.fetchContractorById(confirmedBySource.get('contracting')!)
         : this.fuzzyMatchContractor(clientName),
@@ -259,6 +265,7 @@ export class IntelligenceService {
       lda: ldaMatch ?? {
         matched: false,
         ldaClientId: null,
+        ldaClientIds: [],
         confidence: 0,
         totalFilings: 0,
         totalSpending: null,
@@ -1390,44 +1397,86 @@ export class IntelligenceService {
     };
   }
 
-  /** Fetch LDA data by confirmed client ID (skips fuzzy match) */
-  private async fetchLdaById(ldaClientId: number) {
-    const row = await this.prisma.$queryRaw<
-      Array<{
-        id: number;
-        name: string;
-        total_filings: number;
-        total_spending: number | null;
-        issue_codes: string[];
-      }>
-    >`
-      SELECT id, name, total_filings, total_spending,
-             COALESCE(issue_codes, '{}') as issue_codes
-      FROM lda_client WHERE id = ${ldaClientId}
-    `;
-    if (!row.length) return null;
+  /**
+   * Phase 4: a real company = a SET of LDA client_ids (one per lobbying-firm
+   * relationship). Pure selection: prefer the denormalized clients.lda_client_ids
+   * cache, else the confirmed source='lda' mapping externalIds. Returns [] for an
+   * unresolved client — callers MUST treat [] as "fall back to name-fuzzy", never
+   * as ANY('{}').
+   */
+  private pickLdaClientIds(
+    cached: number[] | null | undefined,
+    confirmedExternalIds: string[],
+  ): number[] {
+    const c = (cached ?? []).filter((n) => Number.isInteger(n));
+    if (c.length) return Array.from(new Set(c));
+    return Array.from(
+      new Set(confirmedExternalIds.map((e) => Number(e)).filter((n) => Number.isInteger(n))),
+    );
+  }
 
-    const match = row[0]!;
+  /**
+   * Tenant-safe LDA id-set resolution for callers that don't already hold the
+   * client + mappings. Verifies the client belongs to the tenant (clients is RLS-
+   * scoped) before falling back to the GLOBAL client_intel_mapping table.
+   */
+  private async resolveLdaClientIds(clientId: string, tenantId: string): Promise<number[]> {
+    const client = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({ where: { id: clientId }, select: { ldaClientIds: true } }),
+    );
+    if (!client) return [];
+    if ((client.ldaClientIds ?? []).length) return this.pickLdaClientIds(client.ldaClientIds, []);
+    const confirmed = await this.prisma.clientIntelMapping.findMany({
+      where: { clientId, source: 'lda', confirmed: true },
+      select: { externalId: true },
+    });
+    return this.pickLdaClientIds(
+      [],
+      confirmed.map((m) => m.externalId),
+    );
+  }
+
+  /**
+   * Fetch a client's LDA profile aggregated across its FULL confirmed id set
+   * (replaces the old single-id fetchLdaById, which undercounted to one of N firm
+   * relationships — e.g. Boeing's 27 ids). Two-pass aggregate so id rows that have
+   * no issue_codes still contribute to filings/spend.
+   */
+  private async fetchLdaByIds(ldaClientIds: number[]) {
+    if (!ldaClientIds.length) return null;
+    const agg = await this.prisma.$queryRaw<
+      Array<{ total_filings: number; total_spending: number | null }>
+    >`
+      SELECT COALESCE(SUM(total_filings), 0)::int AS total_filings,
+             SUM(total_spending)::float AS total_spending
+      FROM lda_client WHERE id = ANY(${ldaClientIds}::int[])
+    `;
     const filings = await this.prisma.ldaFiling.findMany({
-      where: { clientId: match.id },
+      where: { clientId: { in: ldaClientIds } },
       orderBy: { dtPosted: 'desc' },
       take: 10,
     });
-    const yearlySpend = await this.prisma.$queryRaw<
-      Array<{ year: number; amount: number }>
-    >`
+    // Stale/unknown ids (no lda_client rows and no filings) → treat as unmatched.
+    if ((agg[0]?.total_filings ?? 0) === 0 && filings.length === 0) return null;
+
+    const codeRows = await this.prisma.$queryRaw<Array<{ code: string }>>`
+      SELECT DISTINCT unnest(issue_codes) AS code
+      FROM lda_client WHERE id = ANY(${ldaClientIds}::int[]) AND issue_codes IS NOT NULL
+    `;
+    const yearlySpend = await this.prisma.$queryRaw<Array<{ year: number; amount: number }>>`
       SELECT filing_year as year, COALESCE(SUM(income), 0)::float as amount
-      FROM lda_filing WHERE client_id = ${match.id}
+      FROM lda_filing WHERE client_id = ANY(${ldaClientIds}::int[])
       GROUP BY filing_year ORDER BY filing_year
     `;
 
     return {
       matched: true,
-      ldaClientId: match.id,
+      ldaClientId: ldaClientIds[0]!, // representative scalar (frontend back-compat)
+      ldaClientIds, // the full set
       confidence: 1.0,
-      totalFilings: match.total_filings,
-      totalSpending: match.total_spending,
-      issueCodes: match.issue_codes,
+      totalFilings: agg[0]?.total_filings ?? 0,
+      totalSpending: agg[0]?.total_spending ?? null,
+      issueCodes: codeRows.map((r) => r.code).filter(Boolean),
       recentFilings: filings,
       yearlySpend,
     };
@@ -1531,6 +1580,7 @@ export class IntelligenceService {
     return {
       matched: true,
       ldaClientId: match.id,
+      ldaClientIds: [match.id],
       confidence: match.similarity,
       totalFilings: match.total_filings,
       totalSpending: match.total_spending,

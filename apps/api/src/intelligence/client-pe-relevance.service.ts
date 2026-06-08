@@ -133,7 +133,9 @@ export class ClientPeRelevanceService {
         select: { state: true, congressionalDistrict: true },
       }),
       tx.clientIntelMapping.findMany({
-        where: { clientId },
+        // Confirmed only: unconfirmed fuzzy candidates (the trigram noise) must not
+        // feed PE-matching terms — that's the GIGO this overhaul removes.
+        where: { clientId, confirmed: true },
         select: { externalName: true },
       }),
     ]);
