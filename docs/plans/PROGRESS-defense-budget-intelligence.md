@@ -1,0 +1,48 @@
+# Defense Budget Intelligence — execution progress
+
+Branch: `feat/defense-budget-intelligence-plan` (off `main` @ 5ca3bcc).
+Plan: `docs/plans/2026-06-07-defense-budget-intelligence-gap-analysis-and-execution-plan.md`.
+Driver: autonomous overnight run. Each completed step is its own commit; this file is the tracker.
+
+## Working rules
+- Each step: read the closest analogous code → implement to convention → verify (typecheck +
+  jest/vitest, DB on a scratch DB where needed) → adversarial review → commit. Never break the
+  baseline suites.
+- **Concurrent work**: a parallel session is editing whitepaper/chat UI files
+  (`apps/web/src/components/chat/*`, `WhitePaperEditorPage.tsx`, `theme.css`) in this same working
+  tree. Those are left UNTOUCHED and never staged in my commits.
+- **Autonomy limits (honest)**: this env has no reliable way to (a) download + pdfplumber-extract
+  real congressional PDFs, (b) run `cdk diff`/query prod AWS, (c) call runtime LLMs, or (d) use a
+  SAM.gov key. Steps that hinge on those are **scaffolded** (tooling + runbooks + deferred-data
+  notes), not faked. Marked SCAFFOLDED below.
+
+## Status
+| Step | Title | Status |
+|------|-------|--------|
+| 0.1 | Source-document registry | ✅ done (commit 7b79862) |
+| 0.2 | Reconciliation resolve loop + totals harness | ✅ done (in 5ca3bcc) |
+| 0.3 | Mark/enacted coverage FY26–27 | ⏳ SCAFFOLDED — needs real PDFs |
+| 0.4 | Ingestion scheduling truth-up | ⏳ partial — diag script + docs; CDK/AWS deferred |
+| 1.1 | P-1 procurement ingestion | ⏳ SCAFFOLDED — needs real P-1 PDF |
+| 1.2 | Surface projects + proof pack (API+UI) | ⬜ pending |
+| 1.3 | Budget-cycle (PB position) + FYDP outyears | ⬜ pending |
+| 1.4 | Typed budget-delta engine + materiality | ⬜ pending |
+| 1.5 | R-2A deep extraction | ⏳ SCAFFOLDED — needs richer extraction data |
+| 2.1 | Program / ProgramAlias / PEProgramMatch | ⬜ pending |
+| 2.2 | ProgramOffice + PersonRole + guardrails | ⬜ pending |
+| 2.3 | Client relevance v2 | ⬜ pending |
+| 2.4 | Committee report language capture | ⬜ pending |
+| 3.1 | SAM.gov opportunities ingestion | ⏳ needs SAM_GOV_API_KEY/data |
+| 3.2 | ActionRecommendation engine + Action Board | ⬜ pending |
+| 3.3 | Source-backed artifact generation | ⏳ needs runtime LLM |
+| 3.4 | Relationship coverage gaps | ⬜ pending |
+| 3.5 | Unified analyst console | ⬜ pending |
+| 4.1 | Accuracy harness, golden sets, metrics | ⬜ pending |
+| 4.2 | End-to-end acceptance test + launch checklist | ⬜ pending |
+
+## Execution order (value + completability, deps respected)
+Code-completable first: 1.2 → 1.4 → 1.3 → 2.1 → 2.4 → 4.1 → 2.2 → 2.3 → 3.2 → 3.4 → 3.5 → 4.2.
+Scaffold/partials interleaved: 0.4 (diag+docs), 0.3 / 1.1 / 1.5 (tooling+runbooks), 3.1 / 3.3 (scaffolds).
+
+## Log
+- (start) Branched, baseline typecheck clean (api+web), jest 715 / vitest 98 green.
