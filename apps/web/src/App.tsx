@@ -69,6 +69,12 @@ const ProgramMatchQueuePage = lazy(async () =>
   })),
 );
 
+const AnalystConsolePage = lazy(async () =>
+  import('./pages/admin/AnalystConsolePage.js').then((m) => ({
+    default: m.AnalystConsolePage,
+  })),
+);
+
 export function App() {
   const { isLoaded, isSignedIn } = useAuth();
 
@@ -158,6 +164,17 @@ export function App() {
           element={
             <Suspense fallback={<PlaceholderPage title="Loading program match queue" description="Please wait..." />}>
               <ProgramMatchQueuePage />
+            </Suspense>
+          }
+        />
+        {/* Step 3.5 — Unified analyst console (capiro_admin). Gated client-side by
+            the page itself; every endpoint it calls enforces RolesGuard server-side.
+            Must precede the /admin/* catch-all redirect below. */}
+        <Route
+          path="/admin/analyst-console"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading analyst console" description="Please wait..." />}>
+              <AnalystConsolePage />
             </Suspense>
           }
         />

@@ -17,6 +17,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   QuestionCircleOutlined,
+  SafetyCertificateOutlined,
   ScheduleOutlined,
   SearchOutlined,
   SettingOutlined,
@@ -25,6 +26,7 @@ import {
   UsergroupAddOutlined,
 } from '@ant-design/icons';
 import { useClerk, useUser } from '@clerk/clerk-react';
+import { ROLE_RANK, type TenantRole } from '@capiro/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
@@ -53,6 +55,8 @@ interface NavItem {
   icon: ReactNode;
   nested?: boolean;
   disabled?: boolean;
+  /** When set, the item is only shown to callers at or above this role. */
+  minRole?: TenantRole;
 }
 
 type AppSection =
@@ -64,6 +68,7 @@ type AppSection =
   | 'intelligence'
   | 'actions'
   | 'program-elements'
+  | 'analyst-console'
   | 'directory'
   | 'stakeholders'
   | 'collaborators'
@@ -140,6 +145,13 @@ const NAV: NavItem[] = [
     label: 'Program Elements',
     path: '/program-elements',
     icon: <FundOutlined />,
+  },
+  {
+    key: 'analyst-console',
+    label: 'Analyst Console',
+    path: '/admin/analyst-console',
+    icon: <SafetyCertificateOutlined />,
+    minRole: 'capiro_admin',
   },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
@@ -321,9 +333,15 @@ export function AppShell() {
     };
   }, [visibleClients.length, changesUnread.data]);
 
+  const role = me.data?.role;
   const items = useMemo(() => {
     const result: NonNullable<MenuProps['items']> = [];
     for (const n of NAV) {
+      // Role-gated nav entries (e.g. capiro_admin Analyst Console) are an
+      // affordance only; the API's RolesGuard is the security boundary.
+      if (n.minRole && (!role || ROLE_RANK[role] < ROLE_RANK[n.minRole])) {
+        continue;
+      }
       if (n.key === 'clients') {
         result.push({ type: 'divider' });
       }
@@ -365,7 +383,7 @@ export function AppShell() {
       });
     }
     return result;
-  }, [message, navCounts, workflowLocked]);
+  }, [message, navCounts, role, workflowLocked]);
 
   const selectedKey = page.key === 'not-found' ? 'home' : page.key;
 
@@ -823,6 +841,7 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname.startsWith('/workspace')) return 'workspace';
   if (pathname.startsWith('/actions')) return 'actions';
   if (pathname.startsWith('/explorer') || pathname.startsWith('/intelligence')) return 'intelligence';
+  if (pathname.startsWith('/admin/analyst-console')) return 'analyst-console';
   if (pathname.startsWith('/program-elements')) return 'program-elements';
   if (pathname.startsWith('/directory')) return 'directory';
   if (pathname.startsWith('/portal')) return 'portal';
@@ -842,6 +861,7 @@ function pageConfigFor(pathname: string): PageConfig {
     intelligence: 'Intelligence Center',
     actions: 'Action Board',
     'program-elements': 'Program Elements',
+    'analyst-console': 'Analyst Console',
     directory: 'Directory',
     stakeholders: 'Stakeholders',
     collaborators: 'Collaborators',

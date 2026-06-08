@@ -341,7 +341,9 @@ function PersonCard({ person, side }: { person: MergePersonDetail | null; side: 
   );
 }
 
-function PersonnelMergeTab() {
+// Exported (additive — behavior unchanged) so the Analyst Console can mount this
+// merge-candidates queue as a tab without duplicating its logic.
+export function PersonnelMergeTab() {
   const api = useApi();
   const qc = useQueryClient();
   const { message } = App.useApp();

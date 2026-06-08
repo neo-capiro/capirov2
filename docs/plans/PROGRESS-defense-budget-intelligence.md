@@ -36,7 +36,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 3.2 | ActionRecommendation engine + Action Board | ✅ done — RLS model + pure cores (89dde05) + generator service, /intelligence/actions CRUD API, ActionBoard web; adversarial fixes applied. Procurement/SAM card types dormant until 2.4/3.1 data |
 | 3.3 | Source-backed artifact generation | ⏳ needs runtime LLM |
 | 3.4 | Relationship coverage gaps | ✅ done — read-only engagement coverage service (66b940f) + API + web "Coverage" section in the action card (assign & create outreach). Writes only schedule_outreach cards; engagement untouched |
-| 3.5 | Unified analyst console | ⬜ pending |
+| 3.5 | Unified analyst console | ✅ done — backend (982080c: review-counts/SLA, audit view, quarantine reprocess, alias manager + program-merge) + web /admin/analyst-console (9 tabs: 4 mounted queues + alias/quarantine/audit + honest provision/SAM placeholders) |
 | 4.1 | Accuracy harness, golden sets, metrics | ✅ harness done — pure §22 metric math + measure-accuracy CLI (CI gate; n/a on synthetic, never fake-greens) + product-metrics endpoint (§24, from existing data) + perf scaffold/runbook (§21). Real §22 numbers need human-curated golden sets (documented) |
 | 4.2 | End-to-end acceptance test + launch checklist | ⬜ pending |
 
