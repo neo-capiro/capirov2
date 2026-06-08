@@ -150,6 +150,28 @@ class UpdateClientDto {
   @IsOptional()
   @IsString()
   profileStatus?: string;
+
+  // Step 2.3 — government identifiers used for procurement/client<->PE matching.
+  // All optional, light validation: lengths mirror the schema column caps.
+  @IsOptional()
+  @IsString()
+  @Length(0, 12)
+  uei?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 5)
+  cageCode?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  naicsCodes?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  pscCodes?: string[];
 }
 
 class ListClientsQueryDto {

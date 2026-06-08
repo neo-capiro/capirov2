@@ -49,6 +49,10 @@ import { CapabilityDrawer } from './CapabilityDrawer.js';
 import type { Client, ClientAttachment, ClientFormSubmit } from './clientTypes.js';
 import { IntelligenceTab } from './IntelligenceTab.js';
 import { DowDirectoryTab } from './DowDirectoryTab.js';
+import { FacilitiesEditor } from './FacilitiesEditor.js';
+import { DefenseBudgetExposureCard } from './DefenseBudgetExposureCard.js';
+import { getRelevantPesForClient } from './relevance-api.js';
+import type { ClientFacility } from './facilities-api.js';
 
 interface WorkflowInstance {
   id: string;
@@ -75,6 +79,7 @@ type ProfileTab =
   | 'overview'
   | 'capabilities'
   | 'people'
+  | 'facilities'
   | 'workflows'
   | 'documents'
   | 'intelligence'
@@ -162,6 +167,13 @@ export function ClientProfilePage({
           params: { clientId: client.id },
         })
       ).data,
+    staleTime: 60_000,
+  });
+
+  const facilitiesCount = useQuery<ClientFacility[]>({
+    queryKey: ['client-facilities', client.id],
+    queryFn: async () =>
+      (await api.get<ClientFacility[]>(`/api/clients/${client.id}/facilities`)).data,
     staleTime: 60_000,
   });
 
@@ -332,6 +344,7 @@ export function ClientProfilePage({
             'overview',
             'capabilities',
             'people',
+            'facilities',
             'workflows',
             'documents',
             'intelligence',
@@ -343,11 +356,13 @@ export function ClientProfilePage({
               ? capabilities.data?.length
               : tab === 'people'
                 ? people.data?.length
-                : tab === 'workflows'
-                  ? workflows.data?.length
-                  : tab === 'documents'
-                    ? docsCount.data?.length
-                    : null;
+                : tab === 'facilities'
+                  ? facilitiesCount.data?.length
+                  : tab === 'workflows'
+                    ? workflows.data?.length
+                    : tab === 'documents'
+                      ? docsCount.data?.length
+                      : null;
           return (
             <div
               key={tab}
@@ -362,13 +377,15 @@ export function ClientProfilePage({
                     ? 'Capabilities'
                     : tab === 'people'
                       ? 'People'
-                      : tab === 'workflows'
-                        ? 'Workflows'
-                        : tab === 'documents'
-                          ? 'Documents'
-                          : tab === 'intelligence'
-                            ? 'Intelligence'
-                            : 'DoW Directory'}
+                      : tab === 'facilities'
+                        ? 'Facilities'
+                        : tab === 'workflows'
+                          ? 'Workflows'
+                          : tab === 'documents'
+                            ? 'Documents'
+                            : tab === 'intelligence'
+                              ? 'Intelligence'
+                              : 'DoW Directory'}
               </span>
               {badge != null && badge > 0 ? (
                 <span className="cp-tab-badge num">{badge}</span>
@@ -436,6 +453,9 @@ export function ClientProfilePage({
                 });
               }}
             />
+          )}
+          {activeTab === 'facilities' && (
+            <FacilitiesEditor clientId={client.id} canManage={canManageClients} />
           )}
           {activeTab === 'workflows' && (
             <WorkflowsTab workflows={workflows.data ?? []} loading={workflows.isLoading} />
@@ -521,6 +541,14 @@ function OverviewTab({
   onAddCap: () => void;
 }) {
   const api = useApi();
+
+  // Defense budget exposure: PEs this client is most relevant to (>= the API floor).
+  // Fetched here so the card lives on the Overview tab; presentational card receives the data.
+  const exposure = useQuery({
+    queryKey: ['client-pe-relevance', client.id, { minScore: 0.5 }],
+    queryFn: () => getRelevantPesForClient(api, client.id, { minScore: 0.5, limit: 8 }),
+    staleTime: 60_000,
+  });
 
   // Capabilities preview is collapsible; persist the choice across the session
   // (and future visits) via localStorage so it doesn't reset on every render.
@@ -706,6 +734,9 @@ function OverviewTab({
             </div>
           </section>
         ) : null}
+
+        {/* Defense budget exposure: explainable client ⇄ PE relevance (Step 2.3). */}
+        <DefenseBudgetExposureCard relevance={exposure.data} loading={exposure.isLoading} />
 
       </div>
 

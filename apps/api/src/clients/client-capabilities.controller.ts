@@ -54,6 +54,17 @@ class CreateCapabilityDto {
   @IsString()
   peNumber?: string;
 
+  // Step 2.3 — multi-PE list + explicit match keywords (peNumber kept for backcompat).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  peNumbers?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  keywords?: string[];
+
   @IsOptional()
   @IsString()
   appropriationAccount?: string;
@@ -141,6 +152,17 @@ class UpdateCapabilityDto {
   @IsOptional()
   @IsString()
   peNumber?: string;
+
+  // Step 2.3 — multi-PE list + explicit match keywords (peNumber kept for backcompat).
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  peNumbers?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  keywords?: string[];
 
   @IsOptional()
   @IsString()

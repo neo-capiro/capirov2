@@ -12,6 +12,8 @@ export interface CreateCapabilityInput {
   trl?: number;
   mrl?: number;
   peNumber?: string;
+  peNumbers?: string[];
+  keywords?: string[];
   appropriationAccount?: string;
   serviceBranch?: string;
   targetSubcommittee?: string;
@@ -101,6 +103,8 @@ export class ClientCapabilitiesService {
           trl: input.trl ?? null,
           mrl: input.mrl ?? null,
           peNumber: input.peNumber ?? null,
+          peNumbers: input.peNumbers ?? [],
+          keywords: input.keywords ?? [],
           appropriationAccount: input.appropriationAccount ?? null,
           serviceBranch: input.serviceBranch ?? null,
           targetSubcommittee: input.targetSubcommittee ?? null,
@@ -143,6 +147,8 @@ export class ClientCapabilitiesService {
           ...('trl' in input ? { trl: input.trl ?? null } : {}),
           ...('mrl' in input ? { mrl: input.mrl ?? null } : {}),
           ...('peNumber' in input ? { peNumber: input.peNumber ?? null } : {}),
+          ...('peNumbers' in input ? { peNumbers: input.peNumbers ?? [] } : {}),
+          ...('keywords' in input ? { keywords: input.keywords ?? [] } : {}),
           ...('appropriationAccount' in input
             ? { appropriationAccount: input.appropriationAccount ?? null }
             : {}),

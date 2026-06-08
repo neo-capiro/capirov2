@@ -17,6 +17,10 @@ export interface Capability {
   trl?: number;
   mrl?: number;
   peNumber?: string;
+  // Step 2.3 — explicit multi-PE list + match keywords used by client ⇄ PE relevance.
+  // Optional here (additive) to stay in sync with the canonical CapabilityDrawer interface.
+  peNumbers?: string[];
+  keywords?: string[];
   appropriationAccount?: string;
   service?: string;
   targetSubcommittee?: string;
@@ -123,6 +127,11 @@ export interface Client {
   submissionTracks?: string[];
   /** Manual client-level LDA issue-code override; unioned with the LDA-match codes for matching. */
   issueCodes?: string[];
+  // Step 2.3 — first-class government identifiers used by the client ⇄ PE relevance engine.
+  uei?: string | null;
+  cageCode?: string | null;
+  naicsCodes?: string[];
+  pscCodes?: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -141,6 +150,11 @@ export interface ClientPayload {
   profileStatus?: string | null;
   submissionTracks?: string[];
   issueCodes?: string[];
+  // Step 2.3 — first-class government identifiers (relevance matching).
+  uei?: string | null;
+  cageCode?: string | null;
+  naicsCodes?: string[];
+  pscCodes?: string[];
 }
 
 export interface ClientAttachment {
@@ -204,6 +218,9 @@ export interface ClientFormValues {
   additionalNaics?: string;
   ldaRegistrantName?: string;
   ein?: string;
+  // Step 2.3 — first-class NAICS / PSC code lists for relevance matching (tag inputs).
+  naicsCodes?: string[];
+  pscCodes?: string[];
   // Sector & tracks (step 4)
   engagementStartDate?: string;
   internalNotes?: string;

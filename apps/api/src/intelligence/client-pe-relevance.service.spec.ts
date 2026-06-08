@@ -1,0 +1,448 @@
+import type { TenantContext } from '@capiro/shared';
+import { ClientPeRelevanceService } from './client-pe-relevance.service.js';
+import {
+  ECOSYSTEM_SCORE,
+  FACILITY_DISTRICT_SCORE,
+  PE_DIRECT_SCORE,
+  PRIOR_AWARD_BASE_SCORE,
+} from './client-pe-relevance.scoring.js';
+
+const ctx: TenantContext = {
+  tenantId: '00000000-0000-0000-0000-000000000001',
+  tenantSlug: 'capiro',
+  userId: '00000000-0000-0000-0000-000000000002',
+  clerkUserId: 'user_test',
+  role: 'standard_user',
+};
+
+const PE = '0604256F';
+
+/** A blank capability/facility/mapping baseline; tests override only the signal under test. */
+type ClientFixture = {
+  id?: string;
+  name?: string;
+  uei?: string | null;
+  capabilities?: Array<{
+    peNumber?: string | null;
+    peNumbers?: string[];
+    keywords?: string[];
+    tags?: unknown;
+    name?: string;
+  }>;
+  facilities?: Array<{ state: string | null; congressionalDistrict: string | null }>;
+  mappings?: Array<{ externalName: string }>;
+};
+
+/**
+ * Build a mock prisma whose tenant tx returns the given client fixture and whose global
+ * reads (federal_award, program_element*) are driven by `global`. `$queryRaw` is dispatched
+ * by inspecting the SQL text the service emits, so each path can be tested in isolation.
+ */
+function makePrisma(opts: {
+  client?: ClientFixture | null;
+  // Per-path raw-query results, keyed by a substring of the SQL.
+  keywordRows?: Array<{ term: string; sim: number }>;
+  priorAward?: { cnt: number; total: number };
+  awardDistricts?: Array<{ state: string; district: string }>;
+  ecosystem?: Array<{ performer: string }>;
+  // Candidate PE codes the client-side enumeration returns (award + facility unions).
+  candidateAwardPes?: Array<{ peCode: string }>;
+  candidateFacilityPes?: Array<{ peCode: string }>;
+  // For getRelevantClientsForPe: candidate client ids in the tenant for a PE.
+  candidateClientIds?: Array<{ clientId: string }>;
+  // For getRelevantTenantClientsForPe: system candidate (tenant, client) pairs.
+  systemCandidates?: Array<{ tenantId: string; clientId: string }>;
+  // PE corpus for the keyword path.
+  pe?: { title: string; description: string | null } | null;
+  projects?: Array<{ title: string; mission: string | null }>;
+  sources?: Array<{ snippet: string | null }>;
+  peTitles?: Array<{ peCode: string; title: string | null }>;
+}) {
+  const client =
+    opts.client === null
+      ? null
+      : {
+          id: opts.client?.id ?? 'client-1',
+          name: opts.client?.name ?? 'Acme Defense',
+          uei: opts.client?.uei ?? null,
+        };
+  const capabilities = (opts.client?.capabilities ?? []).map((c) => ({
+    peNumber: c.peNumber ?? null,
+    peNumbers: c.peNumbers ?? [],
+    keywords: c.keywords ?? [],
+    tags: c.tags ?? [],
+    name: c.name ?? '',
+  }));
+  const facilities = opts.client?.facilities ?? [];
+  const mappings = opts.client?.mappings ?? [];
+
+  // Global $queryRaw dispatcher (this.prisma.$queryRaw) — inspect the SQL fragments.
+  const globalQueryRaw = jest.fn(async (sql: { strings?: string[]; sql?: string }) => {
+    const text = sqlText(sql);
+    if (text.includes('similarity(') && text.includes('unnest(') && text.includes('t(term)')) {
+      return opts.keywordRows ?? [];
+    }
+    if (text.includes('COALESCE(SUM(amount)')) {
+      const a = opts.priorAward ?? { cnt: 0, total: 0 };
+      return [{ cnt: a.cnt, total: a.total }];
+    }
+    if (text.includes('program_element_performer') && text.includes('ecosystem')) {
+      return opts.ecosystem ?? [];
+    }
+    // Candidate-facility PE enumeration (JOIN unnest over the client's districts) — must be
+    // matched BEFORE the per-PE award-district read, which also references pop_state.
+    if (text.includes('JOIN unnest(') && text.includes('pop_state')) {
+      return opts.candidateFacilityPes ?? [];
+    }
+    // Candidate-award PE enumeration: award rows by UEI/name, bounded by LIMIT.
+    if (text.includes('recipient_uei') && text.includes('LIMIT')) {
+      return opts.candidateAwardPes ?? [];
+    }
+    // Per-PE award-district read for the facility path: DISTINCT pop_state AS "state".
+    if (text.includes('pop_state AS "state"')) {
+      return opts.awardDistricts ?? [];
+    }
+    return [];
+  });
+
+  const tx = {
+    client: { findUnique: jest.fn(async () => client) },
+    clientCapability: { findMany: jest.fn(async () => capabilities) },
+    clientFacility: { findMany: jest.fn(async () => facilities) },
+    clientIntelMapping: { findMany: jest.fn(async () => mappings) },
+    $queryRaw: jest.fn(async (sql: { strings?: string[]; sql?: string }) => {
+      const text = sqlText(sql);
+      // candidate client ids for a PE (tenant tx) — has client_capabilities + UNION.
+      if (text.includes('client_capabilities') && text.includes('UNION')) {
+        return opts.candidateClientIds ?? [];
+      }
+      return [];
+    }),
+  };
+
+  return {
+    $queryRaw: globalQueryRaw,
+    programElement: {
+      findUnique: jest.fn(async () => opts.pe ?? null),
+      findMany: jest.fn(async () => opts.peTitles ?? []),
+    },
+    programElementProject: { findMany: jest.fn(async () => opts.projects ?? []) },
+    programElementSource: { findMany: jest.fn(async () => opts.sources ?? []) },
+    withTenant: jest.fn(async (_tenantId: string, fn: (t: typeof tx) => Promise<unknown>) =>
+      fn(tx),
+    ),
+    withSystem: jest.fn(async (fn: (t: { $queryRaw: jest.Mock }) => Promise<unknown>) =>
+      fn({
+        $queryRaw: jest.fn(async () => opts.systemCandidates ?? []),
+      }),
+    ),
+    __tx: tx,
+  };
+}
+
+/** Reconstruct the SQL text from a Prisma.sql tagged-template object for inspection. */
+function sqlText(sql: { strings?: string[]; sql?: string; values?: unknown[] }): string {
+  if (typeof sql === 'string') return sql;
+  if (Array.isArray(sql?.strings)) return sql.strings.join(' ');
+  if (typeof sql?.sql === 'string') return sql.sql;
+  return JSON.stringify(sql ?? '');
+}
+
+describe('ClientPeRelevanceService', () => {
+  describe('computeForClientPe — per-path isolation', () => {
+    test('capability_pe_direct only → full score, evidence lists the PE', async () => {
+      const prisma = makePrisma({
+        client: { capabilities: [{ peNumbers: [PE] }] },
+        pe: { title: 'Some PE', description: null },
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+
+      expect(result.paths).toHaveLength(1);
+      expect(result.paths[0]!.path).toBe('capability_pe_direct');
+      expect(result.score).toBe(PE_DIRECT_SCORE);
+      expect(result.paths[0]!.evidence.join(' ')).toContain(PE);
+    });
+
+    test('legacy peNumber also satisfies the direct path', async () => {
+      const prisma = makePrisma({
+        client: { capabilities: [{ peNumber: PE.toLowerCase() }] },
+        pe: { title: 'Some PE', description: null },
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+      expect(result.paths[0]!.path).toBe('capability_pe_direct');
+      expect(result.score).toBe(1.0);
+    });
+
+    test('capability_keyword only → similarity score, keywords in evidence', async () => {
+      const prisma = makePrisma({
+        client: { capabilities: [{ keywords: ['hypersonics'] }] },
+        pe: { title: 'Hypersonic Glide Body', description: 'hypersonics work' },
+        keywordRows: [{ term: 'hypersonics', sim: 0.72 }],
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+
+      expect(result.paths).toHaveLength(1);
+      expect(result.paths[0]!.path).toBe('capability_keyword');
+      expect(result.paths[0]!.score).toBe(0.72);
+      expect(result.score).toBe(0.72);
+      expect(result.paths[0]!.evidence.join(' ')).toContain('hypersonics');
+    });
+
+    test('capability_keyword: no rows at/above floor → path absent', async () => {
+      const prisma = makePrisma({
+        client: { capabilities: [{ keywords: ['hypersonics'] }] },
+        pe: { title: 'Unrelated', description: null },
+        keywordRows: [],
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+      expect(result.score).toBe(0);
+      expect(result.paths).toHaveLength(0);
+    });
+
+    test('prior_award only → base score, evidence describes the award', async () => {
+      const prisma = makePrisma({
+        client: { uei: 'ABC123DEF456' },
+        pe: { title: 'Some PE', description: null },
+        priorAward: { cnt: 1, total: 250_000 },
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+
+      expect(result.paths).toHaveLength(1);
+      expect(result.paths[0]!.path).toBe('prior_award');
+      expect(result.score).toBe(PRIOR_AWARD_BASE_SCORE);
+      expect(result.paths[0]!.evidence[0]).toContain('1 prior award');
+    });
+
+    test('facility_district only → fixed score, "ST-NN" evidence (bare number stored)', async () => {
+      const prisma = makePrisma({
+        // facility stores BARE district "12", state "TX" separately.
+        client: { facilities: [{ state: 'TX', congressionalDistrict: '12' }] },
+        pe: { title: 'Some PE', description: null },
+        awardDistricts: [{ state: 'TX', district: '12' }],
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+
+      expect(result.paths).toHaveLength(1);
+      expect(result.paths[0]!.path).toBe('facility_district');
+      expect(result.score).toBe(FACILITY_DISTRICT_SCORE);
+      expect(result.paths[0]!.evidence.join(' ')).toContain('TX-12');
+    });
+
+    test('facility_district: no district overlap → path absent', async () => {
+      const prisma = makePrisma({
+        client: { facilities: [{ state: 'TX', congressionalDistrict: '12' }] },
+        pe: { title: 'Some PE', description: null },
+        awardDistricts: [{ state: 'CA', district: '23' }],
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+      expect(result.score).toBe(0);
+    });
+
+    test('ecosystem only → fixed score, performer in evidence', async () => {
+      const prisma = makePrisma({
+        client: { name: 'Acme Aerospace' },
+        pe: { title: 'Some PE', description: null },
+        ecosystem: [{ performer: 'Acme Aerospace' }],
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+
+      expect(result.paths).toHaveLength(1);
+      expect(result.paths[0]!.path).toBe('ecosystem');
+      expect(result.score).toBe(ECOSYSTEM_SCORE);
+      expect(result.paths[0]!.evidence.join(' ')).toContain('Acme Aerospace');
+    });
+  });
+
+  describe('computeForClientPe — multi-path & no-signal', () => {
+    test('two strong paths → combined score uses the diversity bonus', async () => {
+      const prisma = makePrisma({
+        client: {
+          uei: 'ABC123DEF456',
+          facilities: [{ state: 'TX', congressionalDistrict: '12' }],
+        },
+        pe: { title: 'Some PE', description: null },
+        priorAward: { cnt: 1, total: 100_000 }, // 0.8
+        awardDistricts: [{ state: 'TX', district: '12' }], // 0.6
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+
+      // base 0.8 + one diversity step 0.05 (two distinct strong paths).
+      expect(result.score).toBe(0.85);
+      expect(result.paths.map((p) => p.path).sort()).toEqual(
+        ['facility_district', 'prior_award'].sort(),
+      );
+    });
+
+    test('no-signal client → score 0, no paths', async () => {
+      const prisma = makePrisma({
+        client: {}, // no capabilities/facilities/mappings/uei
+        pe: { title: 'Some PE', description: null },
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+      expect(result).toEqual({ score: 0, paths: [] });
+    });
+
+    test('missing client → score 0, no paths', async () => {
+      const prisma = makePrisma({ client: null });
+      const service = new ClientPeRelevanceService(prisma as never);
+      const result = await service.computeForClientPe(prisma.__tx as never, 'missing', PE);
+      expect(result).toEqual({ score: 0, paths: [] });
+    });
+  });
+
+  describe('getRelevantPesForClient', () => {
+    test('filters out PEs below minScore and paginates the survivors', async () => {
+      // Candidate PEs: PE (direct, 1.0) plus PE_FACILITY (facility-only, 0.6).
+      const PE_FACILITY = '0207141F';
+      const prisma = makePrisma({
+        client: {
+          capabilities: [{ peNumbers: [PE] }],
+          facilities: [{ state: 'TX', congressionalDistrict: '12' }],
+        },
+        candidateFacilityPes: [{ peCode: PE_FACILITY }],
+        // global award-district read returns the TX-12 match for whichever PE is scored.
+        awardDistricts: [{ state: 'TX', district: '12' }],
+        peTitles: [
+          { peCode: PE, title: 'Direct PE' },
+          { peCode: PE_FACILITY, title: 'Facility PE' },
+        ],
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      // minScore 0.7 keeps the direct PE (1.0) but drops the facility-only PE (0.6).
+      const page1 = await service.getRelevantPesForClient(ctx, 'client-1', {
+        minScore: 0.7,
+        page: 1,
+        limit: 1,
+      });
+
+      expect(page1.total).toBe(1);
+      expect(page1.data).toHaveLength(1);
+      expect(page1.data[0]!.peCode).toBe(PE);
+      expect(page1.data[0]!.title).toBe('Direct PE');
+      expect(page1.data[0]!.score).toBe(1);
+    });
+
+    test('default minScore 0.5 keeps both, limit paginates', async () => {
+      const PE_FACILITY = '0207141F';
+      const prisma = makePrisma({
+        client: {
+          capabilities: [{ peNumbers: [PE] }],
+          facilities: [{ state: 'TX', congressionalDistrict: '12' }],
+        },
+        candidateFacilityPes: [{ peCode: PE_FACILITY }],
+        awardDistricts: [{ state: 'TX', district: '12' }],
+        peTitles: [
+          { peCode: PE, title: 'Direct PE' },
+          { peCode: PE_FACILITY, title: 'Facility PE' },
+        ],
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const page1 = await service.getRelevantPesForClient(ctx, 'client-1', { limit: 1, page: 1 });
+      expect(page1.total).toBe(2);
+      expect(page1.data).toHaveLength(1);
+      // Sorted desc by score → the direct PE (1.0) comes first.
+      expect(page1.data[0]!.peCode).toBe(PE);
+
+      const page2 = await service.getRelevantPesForClient(ctx, 'client-1', { limit: 1, page: 2 });
+      expect(page2.data).toHaveLength(1);
+      expect(page2.data[0]!.peCode).toBe(PE_FACILITY);
+    });
+
+    test('missing client → empty result set', async () => {
+      const prisma = makePrisma({ client: null });
+      const service = new ClientPeRelevanceService(prisma as never);
+      const out = await service.getRelevantPesForClient(ctx, 'missing');
+      expect(out).toEqual({ data: [], total: 0, page: 1, limit: 50 });
+    });
+  });
+
+  describe('getRelevantClientsForPe', () => {
+    test('scores tenant candidates and filters below minScore', async () => {
+      const prisma = makePrisma({
+        client: { id: 'client-1', name: 'Acme Defense', capabilities: [{ peNumbers: [PE] }] },
+        candidateClientIds: [{ clientId: 'client-1' }],
+        pe: { title: 'Some PE', description: null },
+        peTitles: [{ peCode: PE, title: 'Some PE' }],
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const out = await service.getRelevantClientsForPe(ctx, PE, { minScore: 0.5 });
+      expect(out).toHaveLength(1);
+      expect(out[0]!.clientId).toBe('client-1');
+      expect(out[0]!.score).toBe(1);
+      expect(out[0]!.paths[0]!.path).toBe('capability_pe_direct');
+    });
+
+    test('no tenant candidates → empty array', async () => {
+      const prisma = makePrisma({ candidateClientIds: [] });
+      const service = new ClientPeRelevanceService(prisma as never);
+      const out = await service.getRelevantClientsForPe(ctx, PE);
+      expect(out).toEqual([]);
+    });
+
+    test('clientId-ownership guard: a wrong-tenant candidate (RLS clients read returns null) is skipped', async () => {
+      // client_capabilities/client_facilities lack RLS, so the candidate enumeration can
+      // surface a clientId that does not belong to this tenant. The RLS-protected `clients`
+      // read (mocked here as null, as Postgres RLS would do for a wrong-tenant id) must cause
+      // that candidate to be skipped → empty result, no cross-tenant read.
+      const prisma = makePrisma({
+        client: null,
+        candidateClientIds: [{ clientId: 'wrong-tenant-client' }],
+        pe: { title: 'Some PE', description: null },
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const out = await service.getRelevantClientsForPe(ctx, PE, { minScore: 0.5 });
+      expect(out).toEqual([]);
+    });
+  });
+
+  describe('getRelevantTenantClientsForPe (system cross-tenant)', () => {
+    test('scores each system candidate under its tenant and filters by minScore', async () => {
+      const prisma = makePrisma({
+        client: { id: 'client-1', name: 'Acme Defense', capabilities: [{ peNumbers: [PE] }] },
+        systemCandidates: [{ tenantId: ctx.tenantId, clientId: 'client-1' }],
+        pe: { title: 'Some PE', description: null },
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const out = await service.getRelevantTenantClientsForPe(PE, { minScore: 0.5 });
+      expect(out).toHaveLength(1);
+      expect(out[0]).toEqual({ tenantId: ctx.tenantId, clientId: 'client-1', score: 1 });
+      // Uses the system (RLS-bypass) read to enumerate, then a tenant tx to score.
+      expect(prisma.withSystem).toHaveBeenCalled();
+      expect(prisma.withTenant).toHaveBeenCalledWith(ctx.tenantId, expect.any(Function));
+    });
+
+    test('no system candidates → empty array, no per-tenant scoring', async () => {
+      const prisma = makePrisma({ systemCandidates: [] });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const out = await service.getRelevantTenantClientsForPe(PE);
+      expect(out).toEqual([]);
+      expect(prisma.withTenant).not.toHaveBeenCalled();
+    });
+  });
+});

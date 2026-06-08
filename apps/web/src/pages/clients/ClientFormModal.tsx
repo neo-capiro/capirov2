@@ -76,6 +76,8 @@ const STEP_FIELDS: Array<Array<keyof ClientFormValues>> = [
     'additionalNaics',
     'ldaRegistrantName',
     'ein',
+    'naicsCodes',
+    'pscCodes',
   ],
   [
     'sectors',
@@ -430,6 +432,39 @@ function GovRegistrationStep({
           <Input placeholder="12-3456789" />
         </Form.Item>
       </Col>
+      {/* Step 2.3 — first-class NAICS / PSC code lists. These drive client ⇄ PE
+          relevance matching (procurement codes), distinct from the legacy free-text
+          NAICS fields above which remain for back-compat. */}
+      <Col xs={24} md={12}>
+        <Form.Item
+          name="naicsCodes"
+          label="NAICS codes"
+          tooltip="Procurement NAICS codes for this client. Type a code and press Enter; used for client ⇄ Program-Element relevance matching."
+        >
+          <Select
+            mode="tags"
+            allowClear
+            placeholder="541330, 541512"
+            tokenSeparators={[',', ' ']}
+            options={[]}
+          />
+        </Form.Item>
+      </Col>
+      <Col xs={24} md={12}>
+        <Form.Item
+          name="pscCodes"
+          label="PSC codes"
+          tooltip="Product/Service codes for this client. Type a code and press Enter; used for client ⇄ Program-Element relevance matching."
+        >
+          <Select
+            mode="tags"
+            allowClear
+            placeholder="R425, AC12"
+            tokenSeparators={[',', ' ']}
+            options={[]}
+          />
+        </Form.Item>
+      </Col>
     </Row>
   );
 }
@@ -589,6 +624,15 @@ export function formValuesToClientPayload(
   payload.issueCodes = Array.isArray(values.issueCodes) ? values.issueCodes : [];
   if (values.profileType) payload.profileType = values.profileType;
   if (values.profileStatus) payload.profileStatus = values.profileStatus;
+
+  // Step 2.3 — mirror the government identifiers to the first-class client columns the
+  // relevance engine reads (clients.uei / cage_code / naics_codes[] / psc_codes[]). UEI/CAGE
+  // also continue to ride in intakeData above for back-compat reads; here we additionally send
+  // the canonical columns. Always send the arrays (even empty) so clearing them persists.
+  payload.uei = optionalText(values.uei)?.toUpperCase() ?? null;
+  payload.cageCode = optionalText(values.cageCode)?.toUpperCase() ?? null;
+  payload.naicsCodes = normalizeCodes(values.naicsCodes);
+  payload.pscCodes = normalizeCodes(values.pscCodes);
   return payload;
 }
 
@@ -634,9 +678,11 @@ export function clientToFormValues(client?: Client): ClientFormValues {
     sbEightA: readBool(sb, ['eightA', 'eight_a', '8a']),
     sbLarge: readBool(sb, ['large']),
     sbForeignOwned: readBool(sb, ['foreignOwned', 'foreign_owned']),
-    // Gov't registration
-    cageCode: readText(intake, ['cageCode', 'cage_code']),
-    uei: readText(intake, ['uei']),
+    // Gov't registration — prefer the first-class columns (Step 2.3), fall back to intakeData.
+    cageCode: client.cageCode ?? readText(intake, ['cageCode', 'cage_code']),
+    uei: client.uei ?? readText(intake, ['uei']),
+    naicsCodes: Array.isArray(client.naicsCodes) ? client.naicsCodes : [],
+    pscCodes: Array.isArray(client.pscCodes) ? client.pscCodes : [],
     samStatus: readText(intake, ['samStatus', 'sam_status']),
     samExpirationDate: readDate(intake, ['samExpirationDate', 'sam_expiration_date']),
     primaryNaics: readText(intake, ['primaryNaics', 'primary_naics', 'naics']),
@@ -666,6 +712,20 @@ export function clientToFormValues(client?: Client): ClientFormValues {
 function optionalText(value: unknown): string | undefined {
   const text = typeof value === 'string' ? value.trim() : String(value ?? '').trim();
   return text.length ? text : undefined;
+}
+
+/** Trim + uppercase + de-dupe a code list (NAICS/PSC) from a tags input; drops empties. */
+function normalizeCodes(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of value) {
+    const code = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+    if (!code || seen.has(code)) continue;
+    seen.add(code);
+    out.push(code);
+  }
+  return out;
 }
 
 function uploadFileToFile(file?: UploadFile): File | undefined {

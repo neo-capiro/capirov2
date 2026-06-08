@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { ClientPeRelevanceService } from '../../intelligence/client-pe-relevance.service.js';
 import type { BudgetPositionLike } from '../budget-position.js';
 import {
   deltasFromPositions,
@@ -77,7 +78,14 @@ export interface PeDeltaResult {
 export class DeltaEngineService {
   private readonly logger = new Logger(DeltaEngineService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Step 2.3 — explainable client⇄PE relevance, used by getAffectedTenants to additively
+    // pull relevance-only clients into a delta's relatedClientIds. Optional only so the
+    // hand-wired `deltas:compute` CLI (`new DeltaEngineService(prisma)`) keeps compiling;
+    // Nest always injects it in the running app via ProgramElementModule → IntelligenceModule.
+    private readonly relevanceService?: ClientPeRelevanceService,
+  ) {}
 
   /** Derive (and optionally persist/emit) deltas for every PE that has data for `fy`, or all PEs. */
   async computeAll(fy?: number, opts: ComputeOptions = {}): Promise<PeDeltaResult[]> {
@@ -438,9 +446,34 @@ export class DeltaEngineService {
   }
 
   private async getAffectedTenants(peCode: string): Promise<Array<{ tenantId: string; relatedClientIds: string[] }>> {
-    const [watches, capabilities] = await Promise.all([
+    // Step 2.3 — affected tenants are the union of THREE signals:
+    //   (1) a user in the tenant WATCHES this PE,
+    //   (2) a client capability explicitly names this PE (legacy peNumber == peCode),
+    //   (3) a client is RELEVANT to this PE on any evidence path (keyword / prior-award /
+    //       facility-district / ecosystem) at/above 0.5 — surfaced cross-tenant by the
+    //       relevance service's SYSTEM path.
+    // (3) is ADDITIVE: it pulls in clients with NO watch and NO peNumber capability, so a
+    // keyword/award/facility-relevant client still appears in relatedClientIds.
+    const [watches, capabilities, relevant] = await Promise.all([
       this.prisma.programElementWatch.findMany({ where: { peCode }, select: { tenantId: true } }),
-      this.prisma.clientCapability.findMany({ where: { peNumber: peCode }, select: { tenantId: true, clientId: true } }),
+      // Match BOTH the legacy scalar peNumber and the multi-PE peNumbers[] array directly, so
+      // a peNumbers[]-only capability is caught here (not only via the relevance leg, which
+      // has a .catch->[] fallback that could silently drop it).
+      this.prisma.clientCapability.findMany({
+        where: { OR: [{ peNumber: peCode }, { peNumbers: { has: peCode } }] },
+        select: { tenantId: true, clientId: true },
+      }),
+      this.relevanceService
+        ? this.relevanceService
+            .getRelevantTenantClientsForPe(peCode, { minScore: 0.5 })
+            .catch((err: unknown) => {
+              // Relevance is an enrichment, never a gate: a failure must not drop the
+              // watch/capability-derived recipients. Degrade to no relevance signal.
+              const message = err instanceof Error ? err.message : String(err);
+              this.logger.warn(`relevance lookup failed for PE ${peCode} (non-fatal): ${message}`);
+              return [] as Array<{ tenantId: string; clientId: string; score: number }>;
+            })
+        : Promise.resolve([] as Array<{ tenantId: string; clientId: string; score: number }>),
     ]);
     const byTenant = new Map<string, Set<string>>();
     for (const w of watches) if (!byTenant.has(w.tenantId)) byTenant.set(w.tenantId, new Set());
@@ -448,6 +481,11 @@ export class DeltaEngineService {
       const set = byTenant.get(c.tenantId) ?? new Set<string>();
       set.add(c.clientId);
       byTenant.set(c.tenantId, set);
+    }
+    for (const r of relevant) {
+      const set = byTenant.get(r.tenantId) ?? new Set<string>();
+      set.add(r.clientId);
+      byTenant.set(r.tenantId, set);
     }
     return [...byTenant.entries()].map(([tenantId, ids]) => ({ tenantId, relatedClientIds: [...ids] }));
   }

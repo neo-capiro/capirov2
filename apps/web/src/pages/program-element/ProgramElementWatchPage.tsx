@@ -29,6 +29,8 @@ import { WhatChangedPanel } from './WhatChangedPanel.js';
 import { RelatedPesPanel } from './RelatedPesPanel.js';
 import { ProgramsPanel } from './ProgramsPanel.js';
 import { getProgramsForPe } from './programs-api.js';
+import { ClientRelevancePanel } from './ClientRelevancePanel.js';
+import { getRelevantClientsForPe } from '../clients/relevance-api.js';
 import { FyDetailDrawer } from './FyDetailDrawer.js';
 import { LinkCrmContactModal } from './LinkCrmContactModal.js';
 import { ProgramTeamPanel } from './ProgramTeamPanel.js';
@@ -106,6 +108,7 @@ const LazyProgramTeamPanel = lazy(async () => ({ default: ProgramTeamPanel }));
 const LazyProjectsPanel = lazy(async () => ({ default: ProjectsPanel }));
 const LazyProofPackPanel = lazy(async () => ({ default: ProofPackPanel }));
 const LazyProgramsPanel = lazy(async () => ({ default: ProgramsPanel }));
+const LazyClientRelevancePanel = lazy(async () => ({ default: ClientRelevancePanel }));
 const LazyWhatChangedPanel = lazy(async () => ({ default: WhatChangedPanel }));
 
 function formatSyncedDate(value: string): string {
@@ -229,6 +232,13 @@ export function ProgramElementWatchPage() {
   const programsQuery = useQuery({
     queryKey: ['program-element-programs', normalizedPeCode],
     queryFn: () => getProgramsForPe(api, normalizedPeCode),
+    staleTime: 60 * 1000,
+    enabled: normalizedPeCode.length > 0,
+  });
+
+  const clientRelevanceQuery = useQuery({
+    queryKey: ['program-element-client-relevance', normalizedPeCode],
+    queryFn: () => getRelevantClientsForPe(api, normalizedPeCode),
     staleTime: 60 * 1000,
     enabled: normalizedPeCode.length > 0,
   });
@@ -497,6 +507,19 @@ export function ProgramElementWatchPage() {
         }
       >
         <LazyProgramsPanel programs={programsQuery.data} loading={programsQuery.isLoading} />
+      </Suspense>
+
+      <Suspense
+        fallback={
+          <Card title="Client relevance">
+            <Skeleton active paragraph={{ rows: 3 }} />
+          </Card>
+        }
+      >
+        <LazyClientRelevancePanel
+          clients={clientRelevanceQuery.data}
+          loading={clientRelevanceQuery.isLoading}
+        />
       </Suspense>
 
       <Suspense

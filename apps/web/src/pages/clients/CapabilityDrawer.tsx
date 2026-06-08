@@ -33,6 +33,9 @@ export interface Capability {
   trl: number | null;
   mrl: number | null;
   peNumber: string | null;
+  // Step 2.3 — explicit multi-PE list + match keywords used by client ⇄ PE relevance.
+  peNumbers: string[];
+  keywords: string[];
   appropriationAccount: string | null;
   serviceBranch: string | null;
   targetSubcommittee: string | null;
@@ -214,6 +217,22 @@ function ProfileTab({
       <TrlScale value={capability.trl} onSave={(v) => onPatch({ trl: v })} />
 
       <InlineTags tags={capability.tags ?? []} onSave={(tags) => onPatch({ tags })} />
+
+      {/* Step 2.3 — explicit PE numbers (strongest relevance path) + match keywords. */}
+      <InlineCodeTags
+        label="PE numbers"
+        placeholder="e.g. 0604201A — add and press Enter"
+        values={capability.peNumbers ?? []}
+        upper
+        onSave={(peNumbers) => onPatch({ peNumbers })}
+      />
+
+      <InlineCodeTags
+        label="Match keywords"
+        placeholder="Keywords that match PE text (e.g. counter-UAS)"
+        values={capability.keywords ?? []}
+        onSave={(keywords) => onPatch({ keywords })}
+      />
 
       <InlineTextArea
         label="Description"
@@ -832,6 +851,72 @@ function InlineTags({ tags, onSave }: { tags: string[]; onSave: (tags: string[])
         }}
         onBlur={() => {
           if (dirty) onSave(draft);
+          setDirty(false);
+        }}
+      />
+    </div>
+  );
+}
+
+/**
+ * Step 2.3 — inline editor for a free code/keyword list (PE numbers, match keywords).
+ * Mirrors InlineTags but without the curated tag suggestions; optionally uppercases each
+ * token (PE codes). Saves on blur, only when the draft changed.
+ */
+function InlineCodeTags({
+  label,
+  placeholder,
+  values,
+  upper = false,
+  onSave,
+}: {
+  label: string;
+  placeholder: string;
+  values: string[];
+  upper?: boolean;
+  onSave: (values: string[]) => void;
+}) {
+  const [draft, setDraft] = useState<string[]>(values);
+  const [dirty, setDirty] = useState(false);
+
+  // Keep local draft in sync when the underlying capability changes (after a save
+  // re-fetches), unless the user is mid-edit.
+  if (!dirty && draft !== values && draft.join(' ') !== values.join(' ')) {
+    setDraft(values);
+  }
+
+  function normalize(list: string[]): string[] {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of list) {
+      const cleaned = upper ? raw.trim().toUpperCase() : raw.trim();
+      if (!cleaned || seen.has(cleaned)) continue;
+      seen.add(cleaned);
+      out.push(cleaned);
+    }
+    return out;
+  }
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div className="ps-title" style={{ marginBottom: 6 }}>
+        {label}
+      </div>
+      <Select
+        mode="tags"
+        allowClear
+        size="small"
+        style={{ width: '100%' }}
+        placeholder={placeholder}
+        tokenSeparators={[',', ' ']}
+        value={draft}
+        options={[]}
+        onChange={(v) => {
+          setDirty(true);
+          setDraft(v as string[]);
+        }}
+        onBlur={() => {
+          if (dirty) onSave(normalize(draft));
           setDirty(false);
         }}
       />

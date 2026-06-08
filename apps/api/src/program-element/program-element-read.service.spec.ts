@@ -324,6 +324,96 @@ describe('ProgramElementReadService', () => {
       expect(result.years[0]?.conferenceProbabilityConfidence).toBe(0.66);
     });
   });
+
+  describe('getNeedsAttention client relevance (Step 2.3)', () => {
+    const delta = (peCode: string, materialityScore: number) => ({
+      id: `delta-${peCode}`,
+      peCode,
+      assertedFy: 2027,
+      deltaType: 'mark_vs_request',
+      materialityScore,
+      supersededAt: null,
+    });
+
+    test('boosts + floats up a PE that is relevant ONLY via the relevance service (no watch, no capability)', async () => {
+      // PE_PLAIN is more material on raw score; PE_REL is relevant only via the relevance
+      // service. The +0.15 read-time boost must lift PE_REL above PE_PLAIN.
+      const prisma = makePrisma({
+        queryRawQueue: [],
+        deltas: [delta('PE_PLAIN', 0.5), delta('PE_REL', 0.45)],
+        tenantWatches: [],
+        tenantCaps: [],
+      });
+      const relevance = makeRelevanceService(['PE_REL']);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+        relevance as never,
+      );
+
+      const result = await service.getNeedsAttention(ctx);
+      const byPe = new Map(
+        (result.data as Array<{ peCode: string; clientRelevant: boolean; effectiveScore: number }>).map((r) => [
+          r.peCode,
+          r,
+        ]),
+      );
+
+      // PE_REL is flagged relevant and boosted (0.45 + 0.15 = 0.60); PE_PLAIN stays at 0.5.
+      expect(byPe.get('PE_REL')?.clientRelevant).toBe(true);
+      expect(byPe.get('PE_REL')?.effectiveScore).toBeCloseTo(0.6, 5);
+      expect(byPe.get('PE_PLAIN')?.clientRelevant).toBe(false);
+      expect(byPe.get('PE_PLAIN')?.effectiveScore).toBeCloseTo(0.5, 5);
+      // The boosted relevance PE floats to the top despite a lower raw materiality score.
+      expect((result.data[0] as { peCode: string }).peCode).toBe('PE_REL');
+      // Relevance probe used the documented 0.5 floor and only the un-matched candidate PEs.
+      expect(relevance.getRelevantClientsForPe).toHaveBeenCalledWith(ctx, 'PE_REL', { minScore: 0.5 });
+    });
+
+    test('a watch-relevant PE is still boosted without consulting the relevance service for it', async () => {
+      const prisma = makePrisma({
+        queryRawQueue: [],
+        deltas: [delta('PE_WATCHED', 0.45)],
+        tenantWatches: [{ peCode: 'PE_WATCHED' }],
+        tenantCaps: [],
+      });
+      const relevance = makeRelevanceService([]); // relevance service reports nothing
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+        relevance as never,
+      );
+
+      const result = await service.getNeedsAttention(ctx);
+      const row = (result.data as Array<{ peCode: string; clientRelevant: boolean; effectiveScore: number }>)[0];
+
+      expect(row?.clientRelevant).toBe(true);
+      expect(row?.effectiveScore).toBeCloseTo(0.6, 5);
+      // Already matched by a watch → never probed against the relevance service.
+      expect(relevance.getRelevantClientsForPe).not.toHaveBeenCalled();
+    });
+
+    test('no relevance + no watch/capability leaves the delta un-boosted', async () => {
+      const prisma = makePrisma({
+        queryRawQueue: [],
+        deltas: [delta('PE_NONE', 0.7)],
+        tenantWatches: [],
+        tenantCaps: [],
+      });
+      const relevance = makeRelevanceService([]);
+      const service = new ProgramElementReadService(
+        prisma as never,
+        makeConferenceProbabilityService() as never,
+        relevance as never,
+      );
+
+      const result = await service.getNeedsAttention(ctx);
+      const row = (result.data as Array<{ clientRelevant: boolean; effectiveScore: number }>)[0];
+
+      expect(row?.clientRelevant).toBe(false);
+      expect(row?.effectiveScore).toBeCloseTo(0.7, 5);
+    });
+  });
 });
 
 function makeConferenceProbabilityService(
@@ -344,6 +434,10 @@ function makePrisma(options: {
   missingPe?: boolean;
   mvRows?: Array<Record<string, unknown>>;
   budgetPositions?: Array<Record<string, unknown>>;
+  // Step 1.4 / 2.3 — needs-attention feed inputs.
+  deltas?: Array<Record<string, unknown>>;
+  tenantWatches?: Array<{ peCode: string }>;
+  tenantCaps?: Array<{ peNumber: string | null }>;
 }) {
   const queue = [...options.queryRawQueue];
   const mock = {
@@ -412,10 +506,19 @@ function makePrisma(options: {
     programElementBudgetPosition: {
       findMany: jest.fn(async () => options.budgetPositions ?? []),
     },
+    // Step 1.4: cross-PE needs-attention feed reads live deltas globally.
+    programElementDelta: {
+      findMany: jest.fn(async () => options.deltas ?? []),
+    },
     withTenant: jest.fn(
       async (
         _tenantId: string,
-        fn: (tx: { $queryRaw: jest.Mock; auditLog: { create: jest.Mock } }) => Promise<unknown>,
+        fn: (tx: {
+          $queryRaw: jest.Mock;
+          auditLog: { create: jest.Mock };
+          programElementWatch: { findMany: jest.Mock };
+          clientCapability: { findMany: jest.Mock };
+        }) => Promise<unknown>,
       ) => {
         return fn({
           $queryRaw: jest.fn(async () => {
@@ -428,8 +531,30 @@ function makePrisma(options: {
               return data;
             }),
           },
+          // Tenant-scoped reads used by tenantRelevantPeCodes (Step 1.4 / 2.3).
+          programElementWatch: {
+            findMany: jest.fn(async () => options.tenantWatches ?? []),
+          },
+          clientCapability: {
+            findMany: jest.fn(async () => options.tenantCaps ?? []),
+          },
         });
       },
+    ),
+  };
+}
+
+/**
+ * Step 2.3 — ClientPeRelevanceService mock. `relevantPes` is the set of PE codes the relevance
+ * service reports as having at least one relevant client (≥0.5); any other PE returns [].
+ */
+function makeRelevanceService(relevantPes: string[] = []) {
+  const set = new Set(relevantPes);
+  return {
+    getRelevantClientsForPe: jest.fn(async (_ctx: TenantContext, peCode: string) =>
+      set.has(peCode)
+        ? [{ clientId: 'relev-client', clientName: 'Relevant Co', score: 0.8, paths: [] }]
+        : [],
     ),
   };
 }

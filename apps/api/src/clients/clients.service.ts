@@ -23,7 +23,16 @@ export interface CreateClientInput {
   profileStatus?: string;
 }
 
-export type UpdateClientInput = Partial<CreateClientInput> & { status?: string };
+export type UpdateClientInput = Partial<CreateClientInput> & {
+  status?: string;
+  // Step 2.3 — government identifiers + code arrays for procurement matching. These are
+  // update-only: create() never persists them, so they live on the update input alone
+  // (mirrors the controller's UpdateClientDto, which carries them while CreateClientDto does not).
+  uei?: string;
+  cageCode?: string;
+  naicsCodes?: string[];
+  pscCodes?: string[];
+};
 
 export interface ListClientsFilter {
   profileStatus?: string;
@@ -220,6 +229,10 @@ export class ClientsService {
           ...('submissionTracks' in input ? { submissionTracks: input.submissionTracks ?? [] } : {}),
           ...('issueCodes' in input ? { issueCodes: input.issueCodes ?? [] } : {}),
           ...('profileStatus' in input ? { profileStatus: input.profileStatus! } : {}),
+          ...('uei' in input ? { uei: input.uei ?? null } : {}),
+          ...('cageCode' in input ? { cageCode: input.cageCode ?? null } : {}),
+          ...('naicsCodes' in input ? { naicsCodes: input.naicsCodes ?? [] } : {}),
+          ...('pscCodes' in input ? { pscCodes: input.pscCodes ?? [] } : {}),
         },
       }),
     );

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import LRUCache = require('lru-cache');
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ClientPeRelevanceService } from '../intelligence/client-pe-relevance.service.js';
 import { EMBEDDING_MODEL } from '../embeddings/embedder.js';
 import { ConferenceProbabilityService } from './models/conference-probability.service.js';
 import { compareProofPackSources } from './proof-pack.js';
@@ -21,6 +22,14 @@ export interface ProgramElementListQuery {
   hasData?: string;
 }
 
+/**
+ * Cap on the number of not-already-matched candidate PEs the needs-attention feed probes
+ * against the relevance service per request. Each probe is its own withTenant transaction,
+ * so this bounds a new tenant's (no watches/caps) request to MAX_RELEVANCE_PROBES sequential
+ * scoring transactions instead of one per over-fetched PE.
+ */
+const MAX_RELEVANCE_PROBES = 50;
+
 @Injectable()
 export class ProgramElementReadService {
   private readonly detailCache = new LRUCache<string, Record<string, unknown>>({
@@ -31,6 +40,10 @@ export class ProgramElementReadService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly conferenceProbabilityService: ConferenceProbabilityService,
+    // Step 2.3 — explainable client⇄PE relevance. Optional only so the narrow
+    // reconciliation-resolve unit spec (which constructs this service directly and never
+    // touches the needs-attention path) keeps compiling; Nest always injects it in prod.
+    private readonly relevanceService?: ClientPeRelevanceService,
   ) {}
 
   async listProgramElements(query: ProgramElementListQuery, ctx?: TenantContext) {
@@ -735,19 +748,53 @@ export class ProgramElementReadService {
     return { data: decorated.slice(0, take), total: decorated.length, minScore };
   }
 
-  /** PEs (from the candidate set) the tenant watches or has a client capability for. Tenant-scoped. */
+  /**
+   * PEs (from the candidate set) the tenant is connected to. Tenant-scoped. A PE counts as
+   * relevant if EITHER:
+   *   (1) the tenant watches it, OR a client capability explicitly names it (legacy peNumber), OR
+   *   (2) Step 2.3 — a client is RELEVANT to it on any evidence path (keyword / prior-award /
+   *       facility-district / ecosystem) at/above 0.5, per the relevance service.
+   * (2) is ADDITIVE — it never removes a (1) hit. getNeedsAttention boosts whatever lands here.
+   */
   private async tenantRelevantPeCodes(ctx: TenantContext, peCodes: string[]): Promise<Set<string>> {
     if (peCodes.length === 0) return new Set<string>();
-    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+    const set = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const [watches, caps] = await Promise.all([
         tx.programElementWatch.findMany({ where: { peCode: { in: peCodes } }, select: { peCode: true } }),
         tx.clientCapability.findMany({ where: { peNumber: { in: peCodes } }, select: { peNumber: true } }),
       ]);
-      const set = new Set<string>();
-      for (const w of watches) set.add(w.peCode);
-      for (const c of caps) if (c.peNumber) set.add(c.peNumber);
-      return set;
+      const found = new Set<string>();
+      for (const w of watches) found.add(w.peCode);
+      for (const c of caps) if (c.peNumber) found.add(c.peNumber);
+      return found;
     });
+
+    // Step 2.3 — additively fold in evidence-path relevance for the candidate PEs NOT already
+    // matched by a watch/capability. Relevance is enrichment, never a gate: a failure leaves
+    // the watch/capability set intact.
+    if (this.relevanceService) {
+      // Each probe runs its own withTenant transaction, so an uncapped probe list (a brand-new
+      // tenant with no watches/caps probes every over-fetched PE) would fire hundreds of
+      // sequential transactions per request. peCodes derives from the materiality-sorted
+      // delta page, so slicing to MAX_RELEVANCE_PROBES keeps the most material PEs.
+      const probeCodes = peCodes
+        .filter((code) => !set.has(code))
+        .slice(0, MAX_RELEVANCE_PROBES);
+      await Promise.all(
+        probeCodes.map(async (peCode) => {
+          try {
+            const clients = await this.relevanceService!.getRelevantClientsForPe(ctx, peCode, {
+              minScore: 0.5,
+            });
+            if (clients.length > 0) set.add(peCode);
+          } catch {
+            // Non-fatal: a relevance probe failure simply omits this PE's relevance signal.
+          }
+        }),
+      );
+    }
+
+    return set;
   }
 
   /**

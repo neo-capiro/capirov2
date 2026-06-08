@@ -8,8 +8,15 @@ import { ReconciliationService } from './reconciliation/reconciliation.service.j
 import { ProgramsController } from './programs/programs.controller.js';
 import { ProgramsService } from './programs/programs.service.js';
 import { PeProgramMatcherService } from './matching/pe-program-matcher.service.js';
+import { DeltaEngineService } from './deltas/delta-engine.service.js';
+import { IntelligenceModule } from '../intelligence/intelligence.module.js';
 
+// Step 2.3 — the delta writer (DeltaEngineService) and the needs-attention read path
+// (ProgramElementReadService) inject ClientPeRelevanceService, exported by IntelligenceModule.
+// IntelligenceModule does NOT import ProgramElementModule (verified), so this is a plain,
+// one-directional import — no forwardRef / circular dependency is needed.
 @Module({
+  imports: [IntelligenceModule],
   controllers: [ProgramElementController, ProgramsController],
   providers: [
     ProgramElementReadService,
@@ -19,6 +26,7 @@ import { PeProgramMatcherService } from './matching/pe-program-matcher.service.j
     ReconciliationService,
     ProgramsService,
     PeProgramMatcherService,
+    DeltaEngineService,
   ],
   exports: [ProgramElementWriterService, ProgramElementReadService, ConferenceProbabilityService, ProgramsService],
 })

@@ -30,7 +30,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 1.5 | R-2A deep extraction | ⏳ SCAFFOLDED — needs richer extraction data |
 | 2.1 | Program / ProgramAlias / PEProgramMatch | ✅ done (backend+web); explorer-tab wiring deferred (hook added) |
 | 2.2 | ProgramOffice + PersonRole + guardrails | ✅ done — foundation (212790e) + follow-on (backfill, read+API roles hydration, matcher-records-PersonRole, web ProgramTeamPanel badges, staleness); adversarial review issues fixed. Backfill+matcher are tooling; live population deferred to deploy-time run |
-| 2.3 | Client relevance v2 | ⬜ pending |
+| 2.3 | Client relevance v2 | ✅ done — RLS inputs + pure scoring (194a7d9) + relevance service/API, facilities CRUD, writer+needs-attention wiring, web (card/panel/facilities editor); adversarial fixes applied. RLS hardening of client_capabilities/client_intel_mapping spawned as a task |
 | 2.4 | Committee report language capture | ⬜ pending |
 | 3.1 | SAM.gov opportunities ingestion | ⏳ needs SAM_GOV_API_KEY/data |
 | 3.2 | ActionRecommendation engine + Action Board | ⬜ pending |
@@ -122,6 +122,26 @@ Scaffold/partials interleaved: 0.4 (diag+docs), 0.3 / 1.1 / 1.5 (tooling+runbook
   `tsx scripts/backfill-program-offices.ts --commit` (after sync-peo-rosters) to populate offices/roles;
   schedule reconcile-person-role-staleness. Pre-existing fuzzy-search pagination total bug spawned as a
   separate task (out of scope).
+- **Step 2.3 done** (foundation 194a7d9 + an 8-agent Workflow follow-on + 2 fix-agent passes on adversarial
+  review). FOUNDATION: RLS migration (clients +uei/cage/naics[]/psc[]; client_capabilities +pe_numbers[]/keywords[];
+  new tenant-scoped client_facilities w/ RLS) + pure client-pe-relevance.scoring.ts (5 path scorers + diversity
+  combine, 23 specs; RLS behaviorally verified on scratch DB as capiro_app). FOLLOW-ON: ClientPeRelevanceService
+  (computeForClientPe/getRelevantPesForClient/getRelevantClientsForPe + system cross-tenant getRelevantTenantClientsForPe;
+  tenant signals via withTenant, global via prisma; keyword path acronym-expands + trigram>=0.65; prior-award by
+  UEI/name; facility-district; ecosystem) + 2 read endpoints under /intelligence; ClientFacility CRUD + client
+  identifier + capability peNumbers/keywords fields (clients module); delta-writer getAffectedTenants + needs-attention
+  tenantRelevantPeCodes additively include relevance>=0.5 clients (ProgramElement->Intelligence module import, NO
+  forwardRef cycle; relevance is an OPTIONAL ctor param so the CLI/spec hand-constructors still compile); web
+  DefenseBudgetExposureCard (client overview) + ClientRelevancePanel (PE page, lazy) + FacilitiesEditor tab + form
+  fields. ADVERSARIAL REVIEW (4 reviewers) caught + FIXED: withTenant tx timeouts (->timeoutMs 30s) + candidate caps
+  (MAX_CANDIDATE_CLIENTS/MAX_RELEVANCE_PROBES) for the uncapped N+1; award-join Cartesian bound; getAffectedTenants
+  now matches peNumbers[] too; CreateClientInput interface accuracy; tenant-scoped facilities spec mock writes; web
+  STEP_FIELDS/query-type/Capability-type/modal-reset fixes. RLS GAP (client_capabilities + client_intel_mapping lack
+  policies): the relevance service is already tenant-safe via a clientId-ownership guard through the RLS-protected
+  clients table (documented + spec'd); proper DB-level RLS hardening (needs converting cross-tenant system readers
+  first) SPAWNED AS A TASK. Verified: api+web typecheck clean; 22 suites/173 specs across the 2.3 areas; web 8/8.
+  **DEPLOY-TIME**: relevance computes on demand (no global storage); populate facilities/identifiers via the new
+  CRUD/forms.
 - **Step 1.4 web "What changed" panel done** (myself, to avoid another agent timeout): web
   `getProgramElementDeltas` api + `ProgramElementDelta`/`ProgramElementDeltaListResponse` types;
   `WhatChangedPanel.tsx` (top-N materiality-scored deltas — type badge, FY tag, `$Xm → $Ym (±%)`,
