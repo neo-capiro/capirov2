@@ -18,6 +18,7 @@ import {
   type ClioCitation,
   type ClioVerification,
   getActiveDraft,
+  getActiveWhitePaper,
   removeConversation,
   setAlerts,
   setActiveConversation,
@@ -102,6 +103,10 @@ function contextLabelFor(pathname: string): string {
     return `Editing: ${name}`;
   }
   if (pathname.startsWith('/engagement')) return 'Engagement Manager';
+  if (pathname.includes('/white-paper/')) {
+    const wp = getActiveWhitePaper();
+    return wp ? `White Paper: ${wp.title}` : 'White Paper editor';
+  }
   if (pathname.startsWith('/intelligence')) return 'Intelligence Center';
   if (pathname.startsWith('/workspace')) return 'Workspace';
   if (pathname.startsWith('/directory')) return 'Directory';
