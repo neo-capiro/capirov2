@@ -2166,24 +2166,27 @@ export class IntelligenceService {
     );
     if (!client) throw new NotFoundException('Client not found');
 
-    return this.prisma.clientIntelMapping.upsert({
-      where: {
-        clientId_source_externalId: {
+    return this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.upsert({
+        where: {
+          clientId_source_externalId: {
+            clientId,
+            source: input.source,
+            externalId: input.externalId,
+          },
+        },
+        update: { externalName: input.externalName, confirmed: true },
+        create: {
+          tenantId,
           clientId,
           source: input.source,
           externalId: input.externalId,
+          externalName: input.externalName,
+          confidence: 1,
+          confirmed: true,
         },
-      },
-      update: { externalName: input.externalName, confirmed: true },
-      create: {
-        clientId,
-        source: input.source,
-        externalId: input.externalId,
-        externalName: input.externalName,
-        confidence: 1,
-        confirmed: true,
-      },
-    });
+      }),
+    );
   }
 
   /** Resolve mappings by fuzzy matching a CRM client against all sources */
@@ -2250,32 +2253,36 @@ export class IntelligenceService {
       });
     }
 
-    // Upsert mappings
-    const mappings = [];
-    for (const r of results) {
-      const mapping = await this.prisma.clientIntelMapping.upsert({
-        where: {
-          clientId_source_externalId: {
+    // Upsert mappings (one tenant-scoped transaction for the whole loop)
+    const mappings = await this.prisma.withTenant(tenantId, async (tx) => {
+      const out = [];
+      for (const r of results) {
+        const mapping = await tx.clientIntelMapping.upsert({
+          where: {
+            clientId_source_externalId: {
+              clientId,
+              source: r.source,
+              externalId: r.externalId,
+            },
+          },
+          update: {
+            externalName: r.externalName,
+            confidence: r.confidence,
+          },
+          create: {
+            tenantId,
             clientId,
             source: r.source,
             externalId: r.externalId,
+            externalName: r.externalName,
+            confidence: r.confidence,
+            confirmed: r.confidence >= 0.6,
           },
-        },
-        update: {
-          externalName: r.externalName,
-          confidence: r.confidence,
-        },
-        create: {
-          clientId,
-          source: r.source,
-          externalId: r.externalId,
-          externalName: r.externalName,
-          confidence: r.confidence,
-          confirmed: r.confidence >= 0.6,
-        },
-      });
-      mappings.push(mapping);
-    }
+        });
+        out.push(mapping);
+      }
+      return out;
+    });
 
     return mappings;
   }
@@ -2340,12 +2347,16 @@ export class IntelligenceService {
     }
 
     const [ldaMapping, contractingMapping] = await Promise.all([
-      this.prisma.clientIntelMapping.findFirst({
-        where: { clientId, source: 'lda', confirmed: true },
-      }),
-      this.prisma.clientIntelMapping.findFirst({
-        where: { clientId, source: 'contracting', confirmed: true },
-      }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findFirst({
+          where: { clientId, source: 'lda', confirmed: true },
+        }),
+      ),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findFirst({
+          where: { clientId, source: 'contracting', confirmed: true },
+        }),
+      ),
     ]);
 
     let lobbySpend = 0;
@@ -2388,7 +2399,7 @@ export class IntelligenceService {
    * tracked:false when no committee is mapped yet, so the UI distinguishes
    * "no PAC mapped" from "PAC mapped, no giving". Read-only, tenant-scoped via mapping.
    */
-  private async getPacGiving(clientId: string): Promise<{
+  private async getPacGiving(clientId: string, tenantId: string): Promise<{
     tracked: boolean;
     committees: Array<{
       committeeId: string;
@@ -2399,10 +2410,12 @@ export class IntelligenceService {
     }>;
     summary: { totalAmount: number; disbursementCount: number; recipientCount: number };
   }> {
-    const committeeMappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId, source: 'fec_committee', confirmed: true },
-      select: { externalId: true },
-    });
+    const committeeMappings = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId, source: 'fec_committee', confirmed: true },
+        select: { externalId: true },
+      }),
+    );
     const committeeIds = Array.from(new Set(committeeMappings.map((m) => m.externalId.trim()).filter(Boolean)));
     if (committeeIds.length === 0) {
       return { tracked: false, committees: [], summary: { totalAmount: 0, disbursementCount: 0, recipientCount: 0 } };
@@ -2498,16 +2511,18 @@ export class IntelligenceService {
     }
 
     // Client's own PAC giving (Schedule B) — computed once, used in all paths below.
-    const pacGiving = await this.getPacGiving(clientId);
+    const pacGiving = await this.getPacGiving(clientId, tenantId);
 
     // Union ALL confirmed FEC-employer strings, not just one. A renamed/large org
     // files individual contributions under several employer spellings ("RAYTHEON",
     // "RTX", "RAYTHEON TECHNOLOGIES CORPORATION"); reading only the single top
     // mapping undercounted the footprint. Mirrors the LDA-registrant union.
-    const fecMappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId, source: 'fec_employer', confirmed: true },
-      orderBy: { confidence: 'desc' },
-    });
+    const fecMappings = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId, source: 'fec_employer', confirmed: true },
+        orderBy: { confidence: 'desc' },
+      }),
+    );
     const employers = Array.from(
       new Set(
         fecMappings
@@ -2731,10 +2746,12 @@ export class IntelligenceService {
   }
 
   /** Competitor surge detector: other registrants lobbying on same issue codes in last 90 days */
-  async getCompetitorBoard(clientId: string) {
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
+  async getCompetitorBoard(clientId: string, tenantId: string) {
+    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findFirst({
+        where: { clientId, source: 'lda', confirmed: true },
+      }),
+    );
     if (!ldaMapping) return { competitors: [], leaderboards: [] };
 
     const ldaClientId = Number(ldaMapping.externalId);
@@ -2786,19 +2803,12 @@ export class IntelligenceService {
   }
 
   /** Ex-staffers: lobbyists on this client's filings who have covered government positions */
-  async getExStaffers(clientId: string, tenantId?: string) {
-    // Scope: when tenantId is provided (profile-v1 path), verify clientId belongs to
-    // that tenant before reading the global client_intel_mapping table (no RLS).
-    if (tenantId) {
-      const belongs = await this.prisma.withTenant(tenantId, (tx) =>
-        tx.client.findFirst({ where: { id: clientId }, select: { id: true } }),
-      );
-      if (!belongs) return { lobbyists: [] };
-    }
-
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
+  async getExStaffers(clientId: string, tenantId: string) {
+    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findFirst({
+        where: { clientId, source: 'lda', confirmed: true },
+      }),
+    );
     if (!ldaMapping) return { lobbyists: [] };
 
     const ldaClientId = Number(ldaMapping.externalId);
@@ -2835,10 +2845,12 @@ export class IntelligenceService {
   }
 
   /** Relevant bills for a client, derived from their confirmed LDA issue codes */
-  async getClientBills(clientId: string) {
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
+  async getClientBills(clientId: string, tenantId: string) {
+    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findFirst({
+        where: { clientId, source: 'lda', confirmed: true },
+      }),
+    );
 
     let issueCodes: string[] = [];
     if (ldaMapping) {
@@ -2869,10 +2881,12 @@ export class IntelligenceService {
     if (!client) throw new NotFoundException('Client not found');
 
     const [confirmedMappings, caps] = await Promise.all([
-      this.prisma.clientIntelMapping.findMany({
-        where: { clientId, confirmed: true },
-        select: { source: true },
-      }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findMany({
+          where: { clientId, confirmed: true },
+          select: { source: true },
+        }),
+      ),
       this.prisma.withTenant(tenantId, (tx) =>
         tx.clientCapability.findMany({
           where: { clientId },
@@ -2978,10 +2992,12 @@ export class IntelligenceService {
    * legible so users can see and trust the intel.
    */
   async getIssueCodeSignal(clientId: string, tenantId: string) {
-    const ldaMappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId, source: 'lda', confirmed: true },
-      select: { externalId: true, externalName: true },
-    });
+    const ldaMappings = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId, source: 'lda', confirmed: true },
+        select: { externalId: true, externalName: true },
+      }),
+    );
     const ldaIds = ldaMappings
       .map((m) => Number(m.externalId))
       .filter((n) => Number.isFinite(n));
@@ -3058,10 +3074,14 @@ export class IntelligenceService {
     // "RTX CORPORATION", "RTX CORPORATION AND AFFILIATES", "RAYTHEON TECHNOLOGIES
     // CORPORATION", various FKA forms — and each is a distinct lda_client. Picking
     // a single one left big clients matching on a thin slice of their footprint.
-    const ldaMappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId, source: 'lda', confirmed: true },
-      select: { externalId: true },
-    });
+    const ldaMappings = tenantId
+      ? await this.prisma.withTenant(tenantId, (tx) =>
+          tx.clientIntelMapping.findMany({
+            where: { clientId, source: 'lda', confirmed: true },
+            select: { externalId: true },
+          }),
+        )
+      : [];
 
     // Manually pinned bills (explicit human picks) — always included regardless
     // of embedding similarity, and flagged so the UI can mark them. Tenant-scoped.
@@ -3826,10 +3846,12 @@ export class IntelligenceService {
   }
 
   /** Resolve a client's LDA issue codes (confirmed mapping) for competitor matching. */
-  private async getClientIssueCodes(clientId: string): Promise<string[]> {
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
+  private async getClientIssueCodes(clientId: string, tenantId: string): Promise<string[]> {
+    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findFirst({
+        where: { clientId, source: 'lda', confirmed: true },
+      }),
+    );
     if (!ldaMapping || !ldaMapping.externalId) return [];
     const ext = Number(ldaMapping.externalId);
     if (!Number.isFinite(ext)) return [];
@@ -4005,7 +4027,7 @@ export class IntelligenceService {
     since: Date,
   ): Promise<AlertRow[]> {
     try {
-      const issueCodes = await this.getClientIssueCodes(clientId);
+      const issueCodes = await this.getClientIssueCodes(clientId, tenantId);
       if (issueCodes.length === 0) return [];
 
       // The client's own LDA client name(s) so we exclude their own filings.
@@ -4068,10 +4090,12 @@ export class IntelligenceService {
     since: Date,
   ): Promise<AlertRow[]> {
     try {
-      const mapping = await this.prisma.clientIntelMapping.findFirst({
-        where: { clientId, source: 'contracting', confirmed: true },
-        select: { externalId: true },
-      });
+      const mapping = await this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findFirst({
+          where: { clientId, source: 'contracting', confirmed: true },
+          select: { externalId: true },
+        }),
+      );
       const contractorName = mapping?.externalId?.trim();
       if (!contractorName) return [];
 
@@ -4212,10 +4236,12 @@ export class IntelligenceService {
           select: { id: true, name: true, sectorTag: true },
         }),
       ),
-      this.prisma.clientIntelMapping.findMany({
-        where: { clientId },
-        orderBy: { confidence: 'desc' },
-      }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findMany({
+          where: { clientId },
+          orderBy: { confidence: 'desc' },
+        }),
+      ),
       // kg_walk is a server-side graph-traversal function that fans out to
       // depth=2 with LIMIT 500. On warm Aurora it usually finishes in 1-2s
       // but cold-cache or large graphs push it to 5-8s, which used to blow
@@ -4528,9 +4554,11 @@ export class IntelligenceService {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const fourteenDaysOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
+    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findFirst({
+        where: { clientId, source: 'lda', confirmed: true },
+      }),
+    );
 
     let issueCodes: string[] = [];
     if (ldaMapping) {
@@ -4664,10 +4692,12 @@ export class IntelligenceService {
     const clientIds = clients.map((c) => c.id);
     if (!clientIds.length) return [];
 
-    const mappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId: { in: clientIds } },
-      orderBy: { confidence: 'desc' },
-    });
+    const mappings = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId: { in: clientIds } },
+        orderBy: { confidence: 'desc' },
+      }),
+    );
 
     const clientMap = new Map(clients.map((c) => [c.id, c.name]));
     return mappings.map((m) => ({ ...m, clientName: clientMap.get(m.clientId) ?? '' }));
@@ -5496,10 +5526,12 @@ export class IntelligenceService {
           select: { id: true, profileStatus: true },
         }),
       ),
-      this.prisma.clientIntelMapping.findMany({
-        where: { confirmed: true, source: 'lda' },
-        select: { clientId: true, externalId: true },
-      }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findMany({
+          where: { confirmed: true, source: 'lda' },
+          select: { clientId: true, externalId: true },
+        }),
+      ),
     ]);
 
     const tenantClientIds = new Set(clients.map((c) => c.id));

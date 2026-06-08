@@ -63,9 +63,13 @@ describe('IntelligenceService — manual LDA mapping', () => {
 
     test('pins an exact id as a confirmed mapping (confidence=1)', async () => {
       const upsert = jest.fn(async (args: any) => ({ id: 'm1', ...args.create }));
+      // The upsert is now RLS-scoped via withTenant(tx), so expose it on the tx.
       const prisma: any = {
         withTenant: jest.fn(async (_t: string, run: (tx: any) => Promise<any>) =>
-          run({ client: { findFirst: jest.fn(async () => ({ id: clientId })) } }),
+          run({
+            client: { findFirst: jest.fn(async () => ({ id: clientId })) },
+            clientIntelMapping: { upsert },
+          }),
         ),
         clientIntelMapping: { upsert },
       };
@@ -101,13 +105,15 @@ describe('IntelligenceService — manual LDA mapping', () => {
 
   describe('getIssueCodeSignal', () => {
     test('unions LDA codes across registrants + override, with names and counts', async () => {
+      // getIssueCodeSignal's LDA-mapping read is now RLS-scoped via withTenant(tx).
+      const clientIntelMapping = {
+        findMany: jest.fn(async () => [
+          { externalId: '1', externalName: 'RTX CORPORATION' },
+          { externalId: '2', externalName: 'RAYTHEON COMPANY' },
+        ]),
+      };
       const prisma: any = {
-        clientIntelMapping: {
-          findMany: jest.fn(async () => [
-            { externalId: '1', externalName: 'RTX CORPORATION' },
-            { externalId: '2', externalName: 'RAYTHEON COMPANY' },
-          ]),
-        },
+        clientIntelMapping,
         $queryRaw: jest.fn(async (strings: any) => {
           const sql = Array.isArray(strings) ? strings.join(' ') : String(strings);
           if (sql.includes('unnest(issue_codes)')) return [{ code: 'DEF' }, { code: 'AVI' }];
@@ -125,6 +131,7 @@ describe('IntelligenceService — manual LDA mapping', () => {
             clientCapability: {
               findMany: jest.fn(async () => [{ tags: ['hypersonics'], description: 'Strike.' }]),
             },
+            clientIntelMapping,
           }),
         ),
       };

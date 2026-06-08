@@ -172,6 +172,7 @@ export class EntityResolutionService {
    */
   private async persistSourceCandidates(
     clientId: string,
+    tenantId: string,
     source: string,
     rows: MatchRow[],
     clientFp: string,
@@ -206,20 +207,23 @@ export class EntityResolutionService {
       // Only ever upgrade to confirmed; never silently un-confirm a human pick.
       if (autoConfirm) updateData.confirmed = true;
 
-      await this.prisma.clientIntelMapping.upsert({
-        where: {
-          clientId_source_externalId: { clientId, source, externalId: cand.externalId },
-        },
-        update: updateData,
-        create: {
-          clientId,
-          source,
-          externalId: cand.externalId,
-          externalName: cand.externalName,
-          confidence: cand.confidence,
-          confirmed: autoConfirm,
-        },
-      });
+      await this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.upsert({
+          where: {
+            clientId_source_externalId: { clientId, source, externalId: cand.externalId },
+          },
+          update: updateData,
+          create: {
+            tenantId,
+            clientId,
+            source,
+            externalId: cand.externalId,
+            externalName: cand.externalName,
+            confidence: cand.confidence,
+            confirmed: autoConfirm,
+          },
+        }),
+      );
 
       created++;
       if (autoConfirm) autoConfirmed++;
@@ -342,7 +346,7 @@ export class EntityResolutionService {
 
   // ── Public: resolve a single client ──────────────────────────────────────
 
-  async resolveClient(clientId: string, clientName: string): Promise<void> {
+  async resolveClient(clientId: string, tenantId: string, clientName: string): Promise<void> {
     const clientFp = this.fingerprint(clientName);
 
     const [ldaRows, contractorRows, secRows, fecRows, fecCommitteeRows, faraRows, lobbyRows] =
@@ -367,7 +371,7 @@ export class EntityResolutionService {
     ];
 
     for (const { source, rows } of groups) {
-      await this.persistSourceCandidates(clientId, source, rows, clientFp);
+      await this.persistSourceCandidates(clientId, tenantId, source, rows, clientFp);
     }
   }
 
@@ -406,7 +410,7 @@ export class EntityResolutionService {
       ];
 
       for (const { source, rows } of sourceGroups) {
-        const result = await this.persistSourceCandidates(client.id, source, rows, clientFp);
+        const result = await this.persistSourceCandidates(client.id, tenantId, source, rows, clientFp);
         mappingsCreated += result.created;
         autoConfirmed += result.autoConfirmed;
         needsReview += result.needsReview;

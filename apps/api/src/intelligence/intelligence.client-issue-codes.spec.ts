@@ -14,16 +14,19 @@ describe('IntelligenceService.getTrackedBills — client-level issue-code overri
     ldaMapping: { externalId: string } | null;
     ldaClientCodes?: string[];
   }) => {
+    const clientIntelMapping = {
+      findMany: jest.fn(async () => (opts.ldaMapping ? [opts.ldaMapping] : [])),
+    };
     const tenantTx = {
       trackedBill: { findMany: jest.fn(async () => []) },
       clientCapability: { findMany: jest.fn(async () => []) },
       client: { findFirst: jest.fn(async () => ({ issueCodes: opts.overrideCodes })) },
+      // getTrackedBills' LDA-mapping read is now RLS-scoped via withTenant(tx).
+      clientIntelMapping,
     };
     const prisma: any = {
       withTenant: jest.fn(async (_t: string, run: (tx: any) => Promise<any>) => run(tenantTx)),
-      clientIntelMapping: {
-        findMany: jest.fn(async () => (opts.ldaMapping ? [opts.ldaMapping] : [])),
-      },
+      clientIntelMapping,
       $queryRaw: jest.fn(async (strings: any) => {
         const sql = Array.isArray(strings) ? strings.join(' ') : String(strings);
         // Union of issue_codes across all confirmed LDA registrants.

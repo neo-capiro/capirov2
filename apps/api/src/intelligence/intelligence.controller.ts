@@ -215,18 +215,27 @@ export class IntelligenceController {
   }
 
   @Get('clients/:clientId/competitor-board')
-  getCompetitorBoard(@Param('clientId') clientId: string) {
-    return this.service.getCompetitorBoard(clientId);
+  getCompetitorBoard(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getCompetitorBoard(clientId, ctx.tenantId);
   }
 
   @Get('clients/:clientId/ex-staffers')
-  getExStaffers(@Param('clientId') clientId: string) {
-    return this.service.getExStaffers(clientId);
+  getExStaffers(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getExStaffers(clientId, ctx.tenantId);
   }
 
   @Get('clients/:clientId/bills')
-  getClientBills(@Param('clientId') clientId: string) {
-    return this.service.getClientBills(clientId);
+  getClientBills(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getClientBills(clientId, ctx.tenantId);
   }
 
   @Get('clients/:clientId/tracked-bills')
