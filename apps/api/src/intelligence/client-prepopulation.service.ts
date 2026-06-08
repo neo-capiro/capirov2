@@ -23,10 +23,7 @@ export class ClientPrepopulationService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async prepopulate(
-    tenantId: string,
-    clientId: string,
-  ): Promise<{ ldaClientIds: number[]; issueCodesAdded: number }> {
+  async prepopulate(tenantId: string, clientId: string): Promise<{ ldaClientIds: number[] }> {
     // 1. Confirmed LDA ids for this client (client_intel_mapping has no RLS).
     const confirmed = await this.prisma.clientIntelMapping.findMany({
       where: { clientId, source: 'lda', confirmed: true },
@@ -72,42 +69,61 @@ export class ClientPrepopulationService {
       lobbyingFirms = firmRows.length;
     }
 
-    // 3. Merge-write under tenant scope. Never clobber user-entered values.
-    const result = await this.prisma.withTenant(tenantId, async (tx) => {
-      const client = await tx.client.findUnique({
-        where: { id: clientId },
-        select: { issueCodes: true, description: true, intakeData: true },
-      });
-      if (!client) return { issueCodesAdded: 0 };
+    // 3. Atomic, race-free write under tenant scope (RLS confines the UPDATE to
+    //    this tenant's row; a wrong-tenant clientId simply matches 0 rows). A single
+    //    statement that references the CURRENT column values, so it cannot lose a
+    //    concurrent prepopulate or user edit:
+    //      - lda_client_ids is recomputed IN-SQL from the confirmed mappings (the
+    //        read path joins on this column — must reflect the latest confirmed set);
+    //      - issue_codes UNIONs the LDA codes with whatever is stored now (a
+    //        concurrent user edit is preserved, never clobbered);
+    //      - description is filled only when empty;
+    //      - ldaSignals is written via targeted jsonb_set (preserving other
+    //        intakeData keys) and REMOVED when the confirmed set is empty.
+    const signalsJson =
+      ldaClientIds.length > 0
+        ? JSON.stringify({
+            ldaClientIds,
+            totalSpend,
+            latestFilingYear,
+            lobbyingFirms,
+            refreshedAt: new Date().toISOString(),
+          })
+        : null;
+    const ldaCodesJson = JSON.stringify(ldaIssueCodes);
 
-      const before = client.issueCodes ?? [];
-      const mergedIssueCodes = Array.from(new Set([...before, ...ldaIssueCodes]));
-      const intake = (client.intakeData ?? {}) as Record<string, unknown>;
-      const ldaSignals =
-        ldaClientIds.length > 0
-          ? {
-              ldaClientIds,
-              totalSpend,
-              latestFilingYear,
-              lobbyingFirms,
-              refreshedAt: new Date().toISOString(),
-            }
-          : null;
+    await this.prisma.withTenant(tenantId, (tx) =>
+      tx.$executeRawUnsafe(
+        `UPDATE clients SET
+           lda_client_ids = (
+             SELECT coalesce(array_agg(DISTINCT m.external_id::int), '{}')
+             FROM client_intel_mapping m
+             WHERE m.client_id = $1::uuid AND m.source = 'lda' AND m.confirmed = true
+               AND m.external_id ~ '^[0-9]+$'
+           ),
+           issue_codes = (
+             SELECT array(
+               SELECT DISTINCT e
+               FROM unnest(issue_codes || ARRAY(SELECT jsonb_array_elements_text($2::jsonb))) AS e
+               WHERE e <> ''
+             )
+           ),
+           description = CASE
+             WHEN (description IS NULL OR description = '') AND $3::text IS NOT NULL THEN $3::text
+             ELSE description END,
+           intake_data_jsonb = CASE
+             WHEN $4::jsonb IS NULL THEN (coalesce(intake_data_jsonb, '{}'::jsonb) - 'ldaSignals')
+             ELSE jsonb_set(coalesce(intake_data_jsonb, '{}'::jsonb), '{ldaSignals}', $4::jsonb) END,
+           updated_at = now()
+         WHERE id = $1::uuid`,
+        clientId,
+        ldaCodesJson,
+        description,
+        signalsJson,
+      ),
+    );
 
-      await tx.client.update({
-        where: { id: clientId },
-        data: {
-          ldaClientIds,
-          issueCodes: mergedIssueCodes,
-          // Fill description only when the client has none (don't overwrite edits).
-          ...(!client.description && description ? { description } : {}),
-          intakeData: { ...intake, ...(ldaSignals ? { ldaSignals } : {}) } as object,
-        },
-      });
-      return { issueCodesAdded: mergedIssueCodes.length - before.length };
-    });
-
-    return { ldaClientIds, issueCodesAdded: result.issueCodesAdded };
+    return { ldaClientIds };
   }
 
   /**

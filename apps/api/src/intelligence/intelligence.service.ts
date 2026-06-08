@@ -2285,6 +2285,20 @@ export class IntelligenceService {
 
   /** Confirm or reject a mapping */
   async confirmMapping(mappingId: string, confirmed: boolean, tenantId: string) {
+    // Authorize: client_intel_mapping has no RLS, so a bare update-by-id is a
+    // cross-tenant IDOR. Gate the write on the mapping's client being visible
+    // under the caller's tenant (mirrors createManualMapping). A non-owned or
+    // missing mappingId is rejected before `confirmed` is ever written.
+    const existing = await this.prisma.clientIntelMapping.findUnique({
+      where: { id: mappingId },
+      select: { clientId: true },
+    });
+    if (!existing) throw new NotFoundException('Mapping not found');
+    const owned = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.client.findFirst({ where: { id: existing.clientId }, select: { id: true } }),
+    );
+    if (!owned) throw new NotFoundException('Mapping not found');
+
     const mapping = await this.prisma.clientIntelMapping.update({
       where: { id: mappingId },
       data: { confirmed },

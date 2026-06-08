@@ -173,6 +173,15 @@ export class FirmOnboardingService {
       }
       try {
         const result = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+          // Serialize concurrent imports of the same (tenant, lda id): the
+          // check-then-create dup guard below is not atomic, so a double-click /
+          // retry could otherwise create two Clients pinned to the same id. A
+          // per-(tenant,id) advisory xact lock makes the second request observe
+          // the first's committed row and skip it.
+          await tx.$executeRawUnsafe(
+            `SELECT pg_advisory_xact_lock(hashtextextended($1, 0::int8))`,
+            `${ctx.tenantId}:lda:${id}`,
+          );
           const dup = await tx.client.findFirst({
             where: { ldaClientIds: { has: id } },
             select: { name: true },

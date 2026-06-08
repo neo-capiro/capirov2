@@ -152,12 +152,13 @@ export class EntityResolutionService {
       confidence = Math.max(confidence, 0.7);
     }
 
-    // Registrant-anchored candidates come from THIS firm's own LDA filings, so the
-    // pool only contains clients the firm actually files for. An exact normalized-
-    // name match within that pool is essentially certain — promote it to auto-
-    // confirm even when single-token (which we keep at review-only for the global
-    // pool, where a lone token collapses unrelated firms).
-    if (opts?.anchored && fingerprintExact) {
+    // Registrant-anchored candidates come from THIS firm's own LDA filings, so a
+    // MULTI-TOKEN exact match within that pool is essentially certain — promote it
+    // to auto-confirm. Single-token exacts stay review-only even when anchored: a
+    // user can type a name the firm never filed for that suffix-strips to the same
+    // lone token as a genuinely different client (e.g. "Apple" vs "Apple Inc"),
+    // and auto-confirming would pin the wrong entity + drive prepopulation off it.
+    if (opts?.anchored && fingerprintExact && fingerprintMultiToken) {
       confidence = Math.max(confidence, 0.95);
     }
 
@@ -262,17 +263,24 @@ export class EntityResolutionService {
    * the write floor decide what persists.
    */
   private async matchLdaByRegistrant(clientName: string, registrantId: number): Promise<MatchRow[]> {
+    // DISTINCT ON requires client_id to lead the INNER order-by; we then re-rank
+    // the deduped rows by similarity in an OUTER query so the LIMIT keeps the most
+    // SIMILAR clients (not the numerically-lowest client_ids — a firm with >500
+    // distinct clients would otherwise silently drop high-id matches).
     return this.prisma.$queryRaw<MatchRow[]>`
-      SELECT DISTINCT ON (client_id)
-             client_id::text AS external_id,
-             client_name AS external_name,
-             similarity(client_name, ${clientName}) AS similarity,
-             client_state AS state
-      FROM lda_filing
-      WHERE registrant_id = ${registrantId}
-        AND client_id IS NOT NULL
-        AND client_name <> ''
-      ORDER BY client_id, similarity(client_name, ${clientName}) DESC
+      SELECT * FROM (
+        SELECT DISTINCT ON (client_id)
+               client_id::text AS external_id,
+               client_name AS external_name,
+               similarity(client_name, ${clientName}) AS similarity,
+               client_state AS state
+        FROM lda_filing
+        WHERE registrant_id = ${registrantId}
+          AND client_id IS NOT NULL
+          AND client_name <> ''
+        ORDER BY client_id, similarity(client_name, ${clientName}) DESC
+      ) d
+      ORDER BY d.similarity DESC
       LIMIT 500
     `;
   }

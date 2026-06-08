@@ -21,7 +21,10 @@ class SetRegistrantDto {
 class ImportClientsDto {
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(500)
+  // Each id creates a Client + runs the prepopulation cascade synchronously in
+  // the request (~several DB round trips each); 100 keeps a single import well
+  // under the ALB idle timeout. The UI chunks larger selections into batches.
+  @ArrayMaxSize(100)
   @IsInt({ each: true })
   ldaClientIds!: number[];
 }
