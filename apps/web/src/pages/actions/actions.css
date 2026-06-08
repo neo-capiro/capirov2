@@ -130,3 +130,96 @@
 .action-board-empty {
   margin-top: 64px;
 }
+
+/* Step 3.4 relationship-coverage sub-section (lives inside .action-card). */
+.action-card-coverage {
+  border-top: 1px solid var(--border-subtle, #f0f0f0);
+  padding-top: 8px;
+}
+
+.action-card-coverage-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #595959);
+}
+
+.action-card-coverage-toggle:hover {
+  color: var(--text-primary, #262626);
+}
+
+.coverage-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.coverage-whynow {
+  background: #fffbe6;
+  border-left: 3px solid #faad14;
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.coverage-band {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.coverage-band-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+}
+
+.coverage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border-left: 3px solid transparent;
+  background: var(--bg-subtle, #fafafa);
+}
+
+.coverage-row[data-band='strong'] {
+  border-left-color: #389e0d;
+}
+
+.coverage-row[data-band='weak'] {
+  border-left-color: #d48806;
+}
+
+.coverage-row[data-band='none'] {
+  border-left-color: #cf1322;
+}
+
+.coverage-row-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.coverage-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.coverage-row-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 2px;
+}

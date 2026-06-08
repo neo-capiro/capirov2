@@ -28,6 +28,8 @@ import {
   ClockCircleOutlined,
   DownOutlined,
   LinkOutlined,
+  RightOutlined,
+  TeamOutlined,
   UserOutlined,
   WarningOutlined,
 } from '@ant-design/icons';
@@ -47,6 +49,7 @@ import {
   useUpdateActionStatus,
   type TeamMemberOption,
 } from './actions-api.js';
+import { CoveragePanel } from './CoveragePanel.js';
 
 const { Text, Paragraph, Title } = Typography;
 
@@ -88,6 +91,11 @@ export function ActionCard({
 
   const [dismissOpen, setDismissOpen] = useState(false);
   const [dismissReason, setDismissReason] = useState('');
+  // Coverage is fetched LAZILY: only once the user expands this card's sub-section, so the
+  // board never fires one coverage request per card. `coverageEnabled` latches true on first
+  // expand and stays true so a collapse/re-expand reuses the cached query.
+  const [coverageOpen, setCoverageOpen] = useState(false);
+  const [coverageEnabled, setCoverageEnabled] = useState(false);
 
   const audience = Array.isArray(card.targetAudience) ? card.targetAudience : [];
   const evidence = Array.isArray(card.evidence) ? card.evidence : [];
@@ -127,6 +135,14 @@ export function ActionCard({
         onError: (err) => message.error(err.message || 'Could not dismiss action'),
       },
     );
+  }
+
+  function toggleCoverage() {
+    setCoverageOpen((open) => {
+      const next = !open;
+      if (next) setCoverageEnabled(true); // latch the lazy fetch on first expand
+      return next;
+    });
   }
 
   function handleOwnerChange(value: string | null) {
@@ -319,6 +335,22 @@ export function ActionCard({
             </div>
           </div>
         ) : null}
+
+        <div className="action-card-coverage">
+          <button
+            type="button"
+            className="action-card-coverage-toggle"
+            aria-expanded={coverageOpen}
+            onClick={toggleCoverage}
+          >
+            {coverageOpen ? <DownOutlined /> : <RightOutlined />}
+            <TeamOutlined />
+            <span>Relationship coverage</span>
+          </button>
+          {coverageOpen ? (
+            <CoveragePanel actionId={card.id} teamMembers={members} enabled={coverageEnabled} />
+          ) : null}
+        </div>
 
         {!compact ? (
           <div className="action-card-footer">
