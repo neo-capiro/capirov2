@@ -61,6 +61,11 @@ function classify(row: Row): { verdict: Verdict; ratio: number | null } {
 
 async function main(): Promise<void> {
   const commit = process.argv.includes('--commit');
+  // Also resolve artifact_canonical_raw rows. Use ONLY after verifying the LIVE
+  // program_element_year values are correct $M (so the snapshots are stale, not a
+  // real canonical that needs accept_conflicting). keep_current never changes a
+  // value, so this only clears stale rows.
+  const includeCanonRaw = process.argv.includes('--include-canonical-raw');
   const sourceFilter = argValue('source');
   const prisma = new PrismaClient();
   await prisma.$connect();
@@ -117,26 +122,49 @@ async function main(): Promise<void> {
     }
 
     if (!commit) {
-      console.log(`\nDRY RUN — pass --commit to resolve the ${totalKeep} artifact_keep row(s) as keep_current.`);
+      const extra = includeCanonRaw ? ` + ${totalCanonRaw} artifact_canonical_raw` : '';
+      console.log(`\nDRY RUN — pass --commit to resolve ${totalKeep} artifact_keep${extra} row(s) as keep_current.`);
+      if (!includeCanonRaw && totalCanonRaw > 0) {
+        console.log(`(add --include-canonical-raw to ALSO sweep the ${totalCanonRaw} canonical-raw rows — only after verifying live data is correct.)`);
+      }
       return;
     }
 
-    const ids = rows.filter((r) => classify(r).verdict === 'artifact_keep').map((r) => r.id);
-    if (ids.length === 0) {
-      console.log('\nNothing safe to auto-resolve.');
+    const keepIds = rows.filter((r) => classify(r).verdict === 'artifact_keep').map((r) => r.id);
+    const rawIds = includeCanonRaw
+      ? rows.filter((r) => classify(r).verdict === 'artifact_canonical_raw').map((r) => r.id)
+      : [];
+    if (keepIds.length === 0 && rawIds.length === 0) {
+      console.log('\nNothing to resolve.');
       return;
     }
-    const res = await prisma.reconciliationReviewQueue.updateMany({
-      where: { id: { in: ids }, status: 'open' },
-      data: {
-        status: 'resolved',
-        resolvedAt: new Date(),
-        resolutionNotes:
-          'auto-resolved (diag-reconciliation-units): unit-mismatch artifact — conflicting value in raw $ vs canonical $M; kept canonical (no value change).',
-      },
-    });
-    console.log(`\nResolved ${res.count} artifact_keep row(s) as keep_current.`);
-    if (totalCanonRaw > 0) console.log(`Left ${totalCanonRaw} CANONICAL-RAW row(s) open for manual review.`);
+    if (keepIds.length > 0) {
+      const res = await prisma.reconciliationReviewQueue.updateMany({
+        where: { id: { in: keepIds }, status: 'open' },
+        data: {
+          status: 'resolved',
+          resolvedAt: new Date(),
+          resolutionNotes:
+            'auto-resolved (diag-reconciliation-units): unit-mismatch artifact — conflicting value in raw $ vs canonical $M; kept canonical (no value change).',
+        },
+      });
+      console.log(`\nResolved ${res.count} artifact_keep row(s) as keep_current.`);
+    }
+    if (rawIds.length > 0) {
+      const res = await prisma.reconciliationReviewQueue.updateMany({
+        where: { id: { in: rawIds }, status: 'open' },
+        data: {
+          status: 'resolved',
+          resolvedAt: new Date(),
+          resolutionNotes:
+            'auto-resolved (diag-reconciliation-units --include-canonical-raw): stale snapshot from a pre-fix loader pass; live canonical verified correct in $M; kept canonical (no value change).',
+        },
+      });
+      console.log(`Resolved ${res.count} artifact_canonical_raw row(s) as keep_current (stale; live verified correct).`);
+    }
+    if (!includeCanonRaw && totalCanonRaw > 0) {
+      console.log(`Left ${totalCanonRaw} CANONICAL-RAW row(s) open (pass --include-canonical-raw to sweep, after verifying live data).`);
+    }
   } finally {
     await prisma.$disconnect();
   }
