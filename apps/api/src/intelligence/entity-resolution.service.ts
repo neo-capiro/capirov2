@@ -132,7 +132,7 @@ export class EntityResolutionService {
 
   // ── Stage C: Score a candidate ────────────────────────────────────────────
 
-  private scoreCandidate(clientFp: string, row: MatchRow): number {
+  private scoreCandidate(clientFp: string, row: MatchRow, opts?: { anchored?: boolean }): number {
     let confidence = row.similarity;
 
     // Exact normalized-name ("fingerprint") match is the strongest signal we
@@ -150,6 +150,15 @@ export class EntityResolutionService {
       confidence = Math.max(confidence, 0.9);
     } else if (fingerprintExact) {
       confidence = Math.max(confidence, 0.7);
+    }
+
+    // Registrant-anchored candidates come from THIS firm's own LDA filings, so the
+    // pool only contains clients the firm actually files for. An exact normalized-
+    // name match within that pool is essentially certain — promote it to auto-
+    // confirm even when single-token (which we keep at review-only for the global
+    // pool, where a lone token collapses unrelated firms).
+    if (opts?.anchored && fingerprintExact) {
+      confidence = Math.max(confidence, 0.95);
     }
 
     // Distinctiveness guard: a high raw trigram score driven only by a shared
@@ -175,12 +184,13 @@ export class EntityResolutionService {
     source: string,
     rows: MatchRow[],
     clientFp: string,
+    anchored = false,
   ): Promise<{ created: number; autoConfirmed: number; needsReview: number }> {
     const scored = rows
       .map((row) => ({
         externalId: row.external_id,
         externalName: row.external_name,
-        confidence: this.scoreCandidate(clientFp, row),
+        confidence: this.scoreCandidate(clientFp, row, { anchored }),
       }))
       .sort((a, b) => b.confidence - a.confidence);
 
@@ -241,6 +251,53 @@ export class EntityResolutionService {
       ORDER BY similarity DESC
       LIMIT 50
     `;
+  }
+
+  /**
+   * Registrant-anchored LDA candidates: the DISTINCT clients THIS firm has filed
+   * for (lda_filing.registrant_id), scored by name similarity to the target. The
+   * pool is tiny (the firm's own clients), which eliminates the cross-firm trigram
+   * noise ("GE AEROSPACE" vs "DELTA BLACK AEROSPACE") that floods the global pool.
+   * No similarity floor — the pool is already curated by firm; scoreCandidate and
+   * the write floor decide what persists.
+   */
+  private async matchLdaByRegistrant(clientName: string, registrantId: number): Promise<MatchRow[]> {
+    return this.prisma.$queryRaw<MatchRow[]>`
+      SELECT DISTINCT ON (client_id)
+             client_id::text AS external_id,
+             client_name AS external_name,
+             similarity(client_name, ${clientName}) AS similarity,
+             client_state AS state
+      FROM lda_filing
+      WHERE registrant_id = ${registrantId}
+        AND client_id IS NOT NULL
+        AND client_name <> ''
+      ORDER BY client_id, similarity(client_name, ${clientName}) DESC
+      LIMIT 500
+    `;
+  }
+
+  /**
+   * Pick the LDA candidate set: registrant-anchored when the tenant has a known
+   * LDA registrant AND that firm's filings contain a usable match; otherwise fall
+   * back to the global fuzzy pool so a client the firm hasn't filed for yet is not
+   * missed. Returns the rows + whether they are anchored (drives scoring).
+   */
+  private async ldaCandidates(
+    clientName: string,
+    clientFp: string,
+    ldaRegistrantId: number | null | undefined,
+  ): Promise<{ rows: MatchRow[]; anchored: boolean }> {
+    if (ldaRegistrantId != null) {
+      const rows = await this.matchLdaByRegistrant(clientName, ldaRegistrantId);
+      const usable = rows.some(
+        (r) =>
+          (clientFp.length > 0 && clientFp === this.fingerprint(r.external_name)) ||
+          r.similarity >= 0.4,
+      );
+      if (usable) return { rows, anchored: true };
+    }
+    return { rows: await this.matchLda(clientName), anchored: false };
   }
 
   private async matchContractor(clientName: string): Promise<MatchRow[]> {
@@ -342,12 +399,18 @@ export class EntityResolutionService {
 
   // ── Public: resolve a single client ──────────────────────────────────────
 
-  async resolveClient(clientId: string, clientName: string): Promise<void> {
+  async resolveClient(
+    clientId: string,
+    clientName: string,
+    opts?: { ldaRegistrantId?: number | null },
+  ): Promise<{ created: number; autoConfirmed: number; needsReview: number }> {
     const clientFp = this.fingerprint(clientName);
 
-    const [ldaRows, contractorRows, secRows, fecRows, fecCommitteeRows, faraRows, lobbyRows] =
+    // LDA uses the registrant-anchored pool when available (falls back to global);
+    // the other sources stay on the global fuzzy pool.
+    const lda = await this.ldaCandidates(clientName, clientFp, opts?.ldaRegistrantId);
+    const [contractorRows, secRows, fecRows, fecCommitteeRows, faraRows, lobbyRows] =
       await Promise.all([
-        this.matchLda(clientName),
         this.matchContractor(clientName),
         this.matchSec(clientName),
         this.matchFec(clientName),
@@ -356,65 +419,58 @@ export class EntityResolutionService {
         this.matchLobbyIntel(clientName),
       ]);
 
-    const groups: Array<{ source: string; rows: MatchRow[] }> = [
-      { source: 'lda', rows: ldaRows },
-      { source: 'contracting', rows: contractorRows },
-      { source: 'sec', rows: secRows },
-      { source: 'fec_employer', rows: fecRows },
-      { source: 'fec_committee', rows: fecCommitteeRows },
-      { source: 'fara', rows: faraRows },
-      { source: 'lobby_intel', rows: lobbyRows },
+    const groups: Array<{ source: string; rows: MatchRow[]; anchored: boolean }> = [
+      { source: 'lda', rows: lda.rows, anchored: lda.anchored },
+      { source: 'contracting', rows: contractorRows, anchored: false },
+      { source: 'sec', rows: secRows, anchored: false },
+      { source: 'fec_employer', rows: fecRows, anchored: false },
+      { source: 'fec_committee', rows: fecCommitteeRows, anchored: false },
+      { source: 'fara', rows: faraRows, anchored: false },
+      { source: 'lobby_intel', rows: lobbyRows, anchored: false },
     ];
 
-    for (const { source, rows } of groups) {
-      await this.persistSourceCandidates(clientId, source, rows, clientFp);
+    let created = 0;
+    let autoConfirmed = 0;
+    let needsReview = 0;
+    for (const { source, rows, anchored } of groups) {
+      const r = await this.persistSourceCandidates(clientId, source, rows, clientFp, anchored);
+      created += r.created;
+      autoConfirmed += r.autoConfirmed;
+      needsReview += r.needsReview;
     }
+    return { created, autoConfirmed, needsReview };
   }
 
   // ── Public: resolve all clients for a tenant ──────────────────────────────
 
   async resolveAllForTenant(tenantId: string): Promise<ResolutionSummary> {
-    const clients = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.client.findMany({ select: { id: true, name: true } }),
-    );
+    // Read the firm's LDA registrant anchor + its clients under tenant scope.
+    const { ldaRegistrantId, clients } = await this.prisma.withTenant(tenantId, async (tx) => ({
+      ldaRegistrantId:
+        (
+          await tx.tenant.findUnique({
+            where: { id: tenantId },
+            select: { ldaRegistrantId: true },
+          })
+        )?.ldaRegistrantId ?? null,
+      clients: await tx.client.findMany({ select: { id: true, name: true } }),
+    }));
 
     let mappingsCreated = 0;
     let autoConfirmed = 0;
     let needsReview = 0;
 
     for (const client of clients) {
-      const clientFp = this.fingerprint(client.name);
-      const [ldaRows, contractorRows, secRows, fecRows, fecCommitteeRows, faraRows, lobbyRows] =
-        await Promise.all([
-          this.matchLda(client.name),
-          this.matchContractor(client.name),
-          this.matchSec(client.name),
-          this.matchFec(client.name),
-          this.matchFecCommittee(client.name),
-          this.matchFara(client.name),
-          this.matchLobbyIntel(client.name),
-        ]);
-
-      const sourceGroups: { source: string; rows: MatchRow[] }[] = [
-        { source: 'lda', rows: ldaRows },
-        { source: 'contracting', rows: contractorRows },
-        { source: 'sec', rows: secRows },
-        { source: 'fec_employer', rows: fecRows },
-        { source: 'fec_committee', rows: fecCommitteeRows },
-        { source: 'fara', rows: faraRows },
-        { source: 'lobby_intel', rows: lobbyRows },
-      ];
-
-      for (const { source, rows } of sourceGroups) {
-        const result = await this.persistSourceCandidates(client.id, source, rows, clientFp);
-        mappingsCreated += result.created;
-        autoConfirmed += result.autoConfirmed;
-        needsReview += result.needsReview;
-      }
+      const result = await this.resolveClient(client.id, client.name, { ldaRegistrantId });
+      mappingsCreated += result.created;
+      autoConfirmed += result.autoConfirmed;
+      needsReview += result.needsReview;
     }
 
     this.logger.log(
-      `resolveAllForTenant(${tenantId}): ${clients.length} clients, ${mappingsCreated} mappings, ${autoConfirmed} auto-confirmed`,
+      `resolveAllForTenant(${tenantId}): ${clients.length} clients, ${mappingsCreated} mappings, ` +
+        `${autoConfirmed} auto-confirmed` +
+        (ldaRegistrantId != null ? ` (registrant-anchored: ${ldaRegistrantId})` : ' (global fuzzy)'),
     );
 
     return {
