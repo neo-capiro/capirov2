@@ -8,7 +8,7 @@
 // their own files; the rest are minimal screens that delegate the heavy
 // work to existing API endpoints under /api/engagement/outreach.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
 import {
@@ -38,7 +38,7 @@ import {
 } from '@ant-design/icons';
 import { useApi } from '../../../../lib/use-api.js';
 import type { Client } from '../../../clients/clientTypes.js';
-import type { OutreachRecipient } from '../../OutreachView.js';
+import type { OutreachRecipient, OutreachRecord } from '../../OutreachView.js';
 import { StepDirection } from './StepDirection.js';
 import { StepContext } from './StepContext.js';
 import { StepRecipients } from './StepRecipients.js';
@@ -61,6 +61,18 @@ interface Props {
   sendFrom: string | null;
   onCancel: () => void;
   onComplete: () => void;
+  /**
+   * When reopening a saved draft, the already-fetched record. The wizard
+   * hydrates its state from this once (guarded by a ref) so the user resumes
+   * where they left off instead of restarting at step 1.
+   */
+  initialRecord?: OutreachRecord | null;
+  /**
+   * The persisted record id of the draft being resumed. Seeds the wizard's
+   * `draftId` so subsequent "Save as draft" clicks PATCH the same record
+   * rather than creating duplicates.
+   */
+  initialDraftId?: string | null;
 }
 
 interface InsightsResponse {
@@ -149,6 +161,8 @@ export function NewOutreachWizard({
   sendFrom,
   onCancel,
   onComplete,
+  initialRecord,
+  initialDraftId,
 }: Props) {
   const api = useApi();
   const qc = useQueryClient();
@@ -166,8 +180,13 @@ export function NewOutreachWizard({
     clientId: selectedClientId,
   });
   // Persisted draft record id (set after first Save as draft, reused on
-  // subsequent saves so we PATCH instead of creating duplicates).
-  const [draftId, setDraftId] = useState<string | null>(null);
+  // subsequent saves so we PATCH instead of creating duplicates). When
+  // resuming a saved draft this is seeded from the loaded record so the very
+  // first save in the reopened session PATCHes rather than duplicating.
+  const [draftId, setDraftId] = useState<string | null>(initialDraftId ?? null);
+  // Guards the one-time hydration from a reopened draft (see effect below) so
+  // it never clobbers in-progress edits on a re-render or refetch.
+  const hydratedRef = useRef(false);
   // Confirmation shown after a real send completes.
   const [sentResult, setSentResult] = useState<{ sent: number; failed: number } | null>(null);
   // Recipient key currently being (re)generated individually, if any.
@@ -180,6 +199,103 @@ export function NewOutreachWizard({
   const step = WIZARD_STEPS[stepIdx] ?? WIZARD_STEPS[0]!;
   const next = () => setStepIdx((i) => Math.min(i + 1, WIZARD_STEPS.length - 1));
   const back = () => setStepIdx((i) => Math.max(i - 1, 0));
+
+  // ---- Resume a saved draft ----
+  // When OutreachView reopens a draft it passes the already-fetched record in.
+  // Map it back into wizard state exactly inverse to saveDraftMutation below,
+  // so subject/body/recipients/title/tone/template/context and the step all
+  // come back. Runs once (hydratedRef) so it can't stomp on edits made after
+  // the first paint, even if the record query refetches.
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    if (!initialRecord) return;
+    hydratedRef.current = true;
+
+    const record = initialRecord;
+    const metadata = (record.metadata ?? {}) as Record<string, unknown>;
+
+    // Per-recipient drafts were saved under metadata.perRecipientEmails as
+    // [{ recipientId, subject, body }] — the same array buildDrafts() emits.
+    const perRecipient = Array.isArray(metadata.perRecipientEmails)
+      ? (metadata.perRecipientEmails as Array<{
+          recipientId?: unknown;
+          subject?: unknown;
+          body?: unknown;
+        }>)
+      : [];
+    const generatedEmails: WizardV2State['generatedEmails'] = {};
+    for (const d of perRecipient) {
+      if (typeof d.recipientId !== 'string') continue;
+      generatedEmails[d.recipientId] = {
+        subject: typeof d.subject === 'string' ? d.subject : '',
+        body: typeof d.body === 'string' ? d.body : '',
+        status: 'ready',
+      };
+    }
+    // Fallback: if no per-recipient map was saved (older save), seed the first
+    // recipient from the top-level subject/body so the draft isn't blank.
+    if (Object.keys(generatedEmails).length === 0 && (record.subject || record.body)) {
+      const firstRecipient = Array.isArray(record.recipients) ? record.recipients[0] : undefined;
+      if (firstRecipient) {
+        generatedEmails[recipientKey(firstRecipient)] = {
+          subject: record.subject ?? '',
+          body: record.body ?? '',
+          status: 'ready',
+        };
+      }
+    }
+
+    // direction is persisted inside metadata (the API merges it there).
+    const rawDirection = metadata.direction;
+    const direction: WizardV2State['direction'] =
+      rawDirection === 'on-behalf' || rawDirection === 'to-clients' ? rawDirection : null;
+
+    const rawTone = metadata.tone;
+    const tone: WizardV2State['tone'] =
+      rawTone === 'Professional' ||
+      rawTone === 'Friendly' ||
+      rawTone === 'Formal' ||
+      rawTone === 'Concise'
+        ? rawTone
+        : INITIAL_V2_STATE.tone;
+
+    // Rich v2 context items are round-tripped losslessly under
+    // metadata.contextItems (the top-level contextPool the API also stores is
+    // a lossy projection used for generation, not for the wizard UI).
+    const contextItems = Array.isArray(metadata.contextItems)
+      ? (metadata.contextItems as WizardV2State['contextItems'])
+      : [];
+
+    const attachmentIds = Array.isArray(metadata.attachmentIds)
+      ? (metadata.attachmentIds as unknown[]).filter((a): a is string => typeof a === 'string')
+      : [];
+
+    setState((prev) => ({
+      ...prev,
+      direction,
+      clientId: record.clientId ?? prev.clientId,
+      campaignName: record.title ?? prev.campaignName,
+      recipients: Array.isArray(record.recipients) ? record.recipients : prev.recipients,
+      contextItems,
+      templateId: typeof metadata.templateId === 'string' ? metadata.templateId : prev.templateId,
+      tone,
+      generatedEmails:
+        Object.keys(generatedEmails).length > 0 ? generatedEmails : prev.generatedEmails,
+      attachmentIds: attachmentIds.length > 0 ? attachmentIds : prev.attachmentIds,
+    }));
+
+    // Resume step: prefer the persisted column, but fall back to
+    // metadata.lastStep for drafts written by the pre-fix build (which only
+    // ever advanced lastStep inside metadata). lastStep is 1-based; stepIdx is
+    // 0-based. Clamp so a bad value can't push past the last step.
+    const metadataStep = typeof metadata.lastStep === 'number' ? metadata.lastStep : undefined;
+    const resumeStep =
+      record.lastStep && record.lastStep > 1 ? record.lastStep : (metadataStep ?? record.lastStep);
+    if (resumeStep && resumeStep > 1) {
+      setStepIdx(Math.min(resumeStep - 1, WIZARD_STEPS.length - 1));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRecord]);
 
   // ---- Context pool ----
   // The Context Builder displays a multi-tab catalog (bills/intel/emails/
@@ -652,6 +768,21 @@ export function NewOutreachWizard({
     mutationFn: async () => {
       const drafts = buildDrafts();
       const first = drafts[0];
+      // The API stores `contextPool` at the top level (its own projection used
+      // for Clio generation), so map the wizard's rich SelectedContextItem
+      // shape onto the DTO's fields (kind→sourceType, body→summary, the per-
+      // recipient `scope` → recipientIds). The full v2 items also ride in
+      // metadata.contextItems below so the wizard can restore them losslessly.
+      const contextPool = state.contextItems.map((item) => ({
+        id: item.id,
+        sourceType: item.kind,
+        title: item.title,
+        summary: item.body,
+        note: item.note,
+        scope: item.scope,
+        recipientIds: item.scope && item.scope !== 'all' ? [item.scope] : undefined,
+        matches: item.matches,
+      }));
       const common = {
         clientId: state.clientId ?? undefined,
         direction: state.direction ?? undefined,
@@ -659,12 +790,24 @@ export function NewOutreachWizard({
         subject: first?.subject?.trim() || undefined,
         body: first?.body?.trim() || undefined,
         recipients: state.recipients,
+        // Top-level lastStep so the API persists the resume step in its own
+        // column (it clamps to 1 when absent — the original Bug B). 1-based.
+        lastStep: stepIdx + 1,
+        // Top-level contextPool so the API stores selected context where
+        // getOutreachRecord / Clio generation expect it.
+        contextPool,
         metadata: {
           source: 'v2-wizard',
+          // Kept in metadata too so drafts remain resumable even if the column
+          // is somehow stale, and to stay backward-compatible with prior saves.
           lastStep: stepIdx + 1,
           tone: state.tone,
           templateId: state.templateId,
           perRecipientEmails: drafts,
+          // Lossless copy of the rich v2 context items for wizard restore (the
+          // top-level contextPool projection drops kind/body/sub/tag detail).
+          contextItems: state.contextItems,
+          attachmentIds: state.attachmentIds,
         },
       };
       if (draftId) {
