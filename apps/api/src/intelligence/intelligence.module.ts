@@ -15,6 +15,8 @@ import { ProductMetricsService } from './metrics/product-metrics.service.js';
 import { ProductMetricsController } from './metrics/product-metrics.controller.js';
 import { CoverageGapService } from './coverage/coverage-gap.service.js';
 import { CoverageController } from './coverage/coverage.controller.js';
+import { FirmOnboardingService } from './firm-onboarding.service.js';
+import { FirmOnboardingController } from './firm-onboarding.controller.js';
 import { LdaIntelModule } from '../lda-intel/lda-intel.module.js';
 import { LobbyIntelModule } from '../lobby-intel/lobby-intel.module.js';
 import { FederalSpendingModule } from '../federal-spending/federal-spending.module.js';
@@ -29,11 +31,13 @@ import { FederalRegisterModule } from '../federal-register/federal-register.modu
     ArtifactController,
     ProductMetricsController,
     CoverageController,
+    FirmOnboardingController,
   ],
   providers: [
     IntelligenceService,
     InsightGeneratorService,
     EntityResolutionService,
+    FirmOnboardingService,
     ReportCardService,
     ClientPeRelevanceService,
     ActionRecommendationService,
