@@ -117,6 +117,11 @@ case "${1:-serve}" in
     echo "Running diag-lda-identity (read-only: LDA client_id stability vs name variation)"
     exec ./node_modules/.bin/tsx scripts/diag-lda-identity.ts
     ;;
+  diag-tenant-config)
+    shift
+    echo "Running diag-tenant-config (read-only: dump a tenant/client configured profile) $*"
+    exec ./node_modules/.bin/tsx scripts/diag-tenant-config.ts "$@"
+    ;;
   diag-profile-v1)
     shift
     echo "Running diag-profile-v1 (read-only Intelligence-tab per-source health + latency)"
