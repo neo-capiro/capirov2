@@ -12,6 +12,7 @@ import { classifyTrajectory } from './trajectory-classifier.model.js';
 import { addDateInZone, dateBoundsInZone, dayBoundsInZone } from './time-bounds.js';
 import { FEC_DISCLAIMER } from './fec-disclaimer.js';
 import { expandTerms, isKnownAcronym, MIN_KEYWORD_TOKEN_LENGTH } from './term-expansion.js';
+import { ClientPrepopulationService } from './client-prepopulation.service.js';
 
 /**
  * Normalized internal shape every "Top alerts" source emits. `_urgencyScore` and
@@ -76,7 +77,12 @@ export class IntelligenceService {
   // never saturate the pool and starve unrelated requests.
   private portfolioAlertsGate: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // Optional only so the many hand-built `new IntelligenceService(prisma)` unit
+    // tests keep compiling; NestJS always injects it in the app (it's a provider).
+    private readonly prepopulation?: ClientPrepopulationService,
+  ) {}
 
   private asFinite(value: unknown, fallback = 0): number {
     return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
@@ -2156,7 +2162,7 @@ export class IntelligenceService {
     );
     if (!client) throw new NotFoundException('Client not found');
 
-    return this.prisma.clientIntelMapping.upsert({
+    const mapping = await this.prisma.clientIntelMapping.upsert({
       where: {
         clientId_source_externalId: {
           clientId,
@@ -2174,6 +2180,13 @@ export class IntelligenceService {
         confirmed: true,
       },
     });
+
+    // Pinning an LDA entity changes the confirmed set → refresh the cascade
+    // (sync lda_client_ids + merge issue codes / signals).
+    if (input.source === 'lda') {
+      await this.prepopulation?.prepopulate(tenantId, clientId);
+    }
+    return mapping;
   }
 
   /** Resolve mappings by fuzzy matching a CRM client against all sources */
@@ -2271,11 +2284,17 @@ export class IntelligenceService {
   }
 
   /** Confirm or reject a mapping */
-  async confirmMapping(mappingId: string, confirmed: boolean) {
-    return this.prisma.clientIntelMapping.update({
+  async confirmMapping(mappingId: string, confirmed: boolean, tenantId: string) {
+    const mapping = await this.prisma.clientIntelMapping.update({
       where: { id: mappingId },
       data: { confirmed },
     });
+    // Re-run the cascade so lda_client_ids + issue codes reflect the new confirmed
+    // set (covers both confirm and un-confirm; idempotent).
+    if (mapping.source === 'lda') {
+      await this.prepopulation?.prepopulate(tenantId, mapping.clientId);
+    }
+    return mapping;
   }
 
   /** Mark an intelligence change as consumed/unconsumed */
