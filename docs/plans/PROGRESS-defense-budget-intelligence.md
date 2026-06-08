@@ -25,7 +25,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 0.4 | Ingestion scheduling truth-up | ⏳ partial — diag script + docs; CDK/AWS deferred |
 | 1.1 | P-1 procurement ingestion | ⏳ SCAFFOLDED — needs real P-1 PDF |
 | 1.2 | Surface projects + proof pack (API+UI) | ✅ done — API+web+tests green |
-| 1.3 | Budget-cycle (PB position) + FYDP outyears | ⬜ pending |
+| 1.3 | Budget-cycle (PB position) + FYDP outyears | ⏳ code done (schema+API+loader+specs); outyear/prior-PB DATA deferred |
 | 1.4 | Typed budget-delta engine + materiality | ⬜ pending |
 | 1.5 | R-2A deep extraction | ⏳ SCAFFOLDED — needs richer extraction data |
 | 2.1 | Program / ProgramAlias / PEProgramMatch | ✅ done (backend+web); explorer-tab wiring deferred (hook added) |
@@ -78,3 +78,12 @@ Scaffold/partials interleaved: 0.4 (diag+docs), 0.3 / 1.1 / 1.5 (tooling+runbook
   route. Verified: api+web typecheck clean; FULL suites green (API 99 suites/778, web all pass).
   Deferred (documented): explorer "Programs" search TAB (needs a new /api/explorer/programs facet
   endpoint + panel — risky to the finder); added the `getPrograms`/`useProgramSearch` building block.
+- **Step 1.3 code done** (sub-agent + my verification): `ProgramElementBudgetPosition` (global,
+  additive migration, natural-key unique, FK→PE cascade + →source_document set-null); pure tested
+  `computePbComparison` (new_in_pb/dropped_from_pb, null/zero handling); idempotent
+  `upsertBudgetPosition` + column→positions builder; `GET :peCode/positions` + `:peCode/pb-comparison`;
+  verify-budget-reconciliation extended to position cycles. Verified: api typecheck clean; 7
+  suites/98 specs green; migration applies clean on an independent fresh scratch DB.
+  **DATA-PENDING** (built to consume it): FYDP outyears (committed R-1 artifact has no $ columns —
+  needs real R-1 PDF re-extraction) + FY2026 prior-PB book (unavailable) → loader writes 0 rows
+  today + pb-comparison returns empty until data lands. Headline data criteria deferred by design.

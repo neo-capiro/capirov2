@@ -24,6 +24,8 @@ describe('ProgramElementController', () => {
       getContractors: jest.fn(),
       getProjects: jest.fn(),
       getSources: jest.fn(),
+      getBudgetPositions: jest.fn(),
+      getPbComparison: jest.fn(),
       getRelatedProgramElements: jest.fn(),
       getProgramsForPe: jest.fn(),
       setWatching: jest.fn(),
@@ -232,6 +234,47 @@ describe('ProgramElementController', () => {
 
     expect(service.getSources).toHaveBeenCalledWith('0601102A');
     expect(result[0]?.exhibitType).toBe('R-2A');
+  });
+
+  test('GET /api/program-elements/:peCode/positions delegates to the read service (Step 1.3)', async () => {
+    const { controller, service } = makeController();
+    service.getBudgetPositions.mockResolvedValue([
+      { positionCycle: 'pb_fy2027', assertedFy: 2027, amount: 278.5, valueKind: 'total', pageNumber: 12 },
+    ]);
+
+    const result = await controller.positions('0601102A');
+
+    // No ?fy → undefined fy passed through.
+    expect(service.getBudgetPositions).toHaveBeenCalledWith('0601102A', undefined);
+    expect(result).toHaveLength(1);
+    expect((result[0] as { positionCycle?: string }).positionCycle).toBe('pb_fy2027');
+  });
+
+  test('GET /api/program-elements/:peCode/positions parses ?fy= to a number', async () => {
+    const { controller, service } = makeController();
+    service.getBudgetPositions.mockResolvedValue([]);
+
+    await controller.positions('0601102A', '2028');
+    expect(service.getBudgetPositions).toHaveBeenCalledWith('0601102A', 2028);
+
+    // Non-numeric / empty fy is ignored (passed as undefined).
+    await controller.positions('0601102A', 'notanumber');
+    expect(service.getBudgetPositions).toHaveBeenLastCalledWith('0601102A', undefined);
+  });
+
+  test('GET /api/program-elements/:peCode/pb-comparison delegates to the read service (Step 1.3)', async () => {
+    const { controller, service } = makeController();
+    service.getPbComparison.mockResolvedValue({
+      peCode: '0601102A',
+      comparison: [
+        { assertedFy: 2027, pbCurrent: 250, pbPrior: 200, deltaAbs: 50, deltaPct: 0.25, newInPb: false, droppedFromPb: false },
+      ],
+    });
+
+    const result = await controller.pbComparison('0601102A');
+
+    expect(service.getPbComparison).toHaveBeenCalledWith('0601102A');
+    expect(result.comparison[0]?.deltaAbs).toBe(50);
   });
 
   test('POST /api/program-elements/:peCode/watch is tenant-scoped', async () => {

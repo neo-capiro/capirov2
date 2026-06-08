@@ -7,6 +7,7 @@ import { EMBEDDING_MODEL } from '../embeddings/embedder.js';
 import { ConferenceProbabilityService } from './models/conference-probability.service.js';
 import { compareProofPackSources } from './proof-pack.js';
 import { confidenceBand } from './matching/program-match-thresholds.js';
+import { computePbComparison, type BudgetPositionLike } from './budget-position.js';
 
 export interface ProgramElementListQuery {
   service?: string;
@@ -605,6 +606,70 @@ export class ProgramElementReadService {
     });
 
     return [...rows].sort((a, b) => compareProofPackSources(a, b));
+  }
+
+  /**
+   * Budget positions for a PE (Step 1.3) — every (positionCycle, assertedFy, valueKind)
+   * value a budget book asserts, optionally filtered to a single assertedFy. Each row
+   * carries its page-level citation so the UI can deep-link to the exhibit page. Empty
+   * array (never an error) when this PE has no loaded positions yet — which is the case
+   * today, since the committed R-1 artifact carries no per-line dollar columns
+   * (DATA-PENDING: see budget-position-writer.ts). Ordered by FY then cycle.
+   */
+  async getBudgetPositions(peCode: string, fy?: number) {
+    const exists = await this.prisma.programElement.findUnique({
+      where: { peCode },
+      select: { peCode: true },
+    });
+    if (!exists) throw new NotFoundException(`Program element ${peCode} not found`);
+
+    return this.prisma.programElementBudgetPosition.findMany({
+      where: { peCode, ...(fy !== undefined ? { assertedFy: fy } : {}) },
+      orderBy: [{ assertedFy: 'asc' }, { positionCycle: 'asc' }, { valueKind: 'asc' }],
+      select: {
+        positionCycle: true,
+        assertedFy: true,
+        amount: true,
+        quantity: true,
+        valueKind: true,
+        sourceUrl: true,
+        pageNumber: true,
+      },
+    });
+  }
+
+  /**
+   * PB-vs-prior-PB comparison for a PE (Step 1.3, plan §5). For each assertedFy present
+   * across the two most-recent PB cycles → {assertedFy, pbCurrent, pbPrior, deltaAbs,
+   * deltaPct, newInPb, droppedFromPb}. The math is a PURE, unit-tested helper
+   * (computePbComparison); this method only fetches the value_kind='total' positions and
+   * delegates. Returns [] (honest empty) when fewer than two PB books are loaded — which
+   * is the case today (DATA-PENDING: the FY2026 prior PB book is not yet loaded).
+   */
+  async getPbComparison(peCode: string) {
+    const exists = await this.prisma.programElement.findUnique({
+      where: { peCode },
+      select: { peCode: true },
+    });
+    if (!exists) throw new NotFoundException(`Program element ${peCode} not found`);
+
+    const positions = await this.prisma.programElementBudgetPosition.findMany({
+      where: { peCode, valueKind: 'total' },
+      select: { positionCycle: true, assertedFy: true, amount: true, valueKind: true },
+    });
+
+    // Decimal columns arrive as Prisma.Decimal; the pure helper coerces via Number().
+    const comparison = computePbComparison(
+      positions.map(
+        (p): BudgetPositionLike => ({
+          positionCycle: p.positionCycle,
+          assertedFy: p.assertedFy,
+          amount: p.amount as unknown as number | string | null,
+          valueKind: p.valueKind,
+        }),
+      ),
+    );
+    return { peCode, comparison };
   }
 
   /**

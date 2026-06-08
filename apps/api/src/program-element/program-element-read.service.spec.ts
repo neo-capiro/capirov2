@@ -236,6 +236,68 @@ describe('ProgramElementReadService', () => {
     });
   });
 
+  describe('budget positions (Step 1.3)', () => {
+    test('getBudgetPositions returns rows for an existing PE (no fy filter)', async () => {
+      const prisma = makePrisma({
+        queryRawQueue: [],
+        budgetPositions: [
+          { positionCycle: 'pb_fy2027', assertedFy: 2027, amount: '278.50', quantity: null, valueKind: 'total', sourceUrl: 'http://r1.pdf', pageNumber: 12 },
+        ],
+      });
+      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+
+      const rows = await service.getBudgetPositions('0603270A');
+      expect(rows).toHaveLength(1);
+      expect(prisma.programElementBudgetPosition.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { peCode: '0603270A' } }),
+      );
+    });
+
+    test('getBudgetPositions passes the fy filter through', async () => {
+      const prisma = makePrisma({ queryRawQueue: [], budgetPositions: [] });
+      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+
+      await service.getBudgetPositions('0603270A', 2028);
+      expect(prisma.programElementBudgetPosition.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { peCode: '0603270A', assertedFy: 2028 } }),
+      );
+    });
+
+    test('getBudgetPositions throws NotFound for unknown PE', async () => {
+      const prisma = makePrisma({ missingPe: true, queryRawQueue: [] });
+      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+      await expect(service.getBudgetPositions('BAD')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    test('getPbComparison delegates to the pure helper and shapes the response', async () => {
+      const prisma = makePrisma({
+        queryRawQueue: [],
+        budgetPositions: [
+          { positionCycle: 'pb_fy2026', assertedFy: 2027, amount: 200, valueKind: 'total' },
+          { positionCycle: 'pb_fy2027', assertedFy: 2027, amount: 250, valueKind: 'total' },
+        ],
+      });
+      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+
+      const result = await service.getPbComparison('0603270A');
+      expect(result.peCode).toBe('0603270A');
+      expect(result.comparison).toEqual([
+        { assertedFy: 2027, pbCurrent: 250, pbPrior: 200, deltaAbs: 50, deltaPct: 0.25, newInPb: false, droppedFromPb: false },
+      ]);
+    });
+
+    test('getPbComparison returns empty comparison with only one PB book loaded (DATA-PENDING)', async () => {
+      const prisma = makePrisma({
+        queryRawQueue: [],
+        budgetPositions: [{ positionCycle: 'pb_fy2027', assertedFy: 2027, amount: 250, valueKind: 'total' }],
+      });
+      const service = new ProgramElementReadService(prisma as never, makeConferenceProbabilityService() as never);
+
+      const result = await service.getPbComparison('0603270A');
+      expect(result.comparison).toEqual([]);
+    });
+  });
+
   describe('getTimeline conferenceProbability wiring', () => {
     test('attaches conferenceProbability prediction object to each year', async () => {
       const prisma = makePrisma({
@@ -281,6 +343,7 @@ function makePrisma(options: {
   queryRawQueue: Array<Array<Record<string, unknown>>>;
   missingPe?: boolean;
   mvRows?: Array<Record<string, unknown>>;
+  budgetPositions?: Array<Record<string, unknown>>;
 }) {
   const queue = [...options.queryRawQueue];
   const mock = {
@@ -344,6 +407,10 @@ function makePrisma(options: {
     },
     programElementSource: {
       count: jest.fn(async () => 0),
+    },
+    // Step 1.3: budget positions (PB cycle + FYDP outyears).
+    programElementBudgetPosition: {
+      findMany: jest.fn(async () => options.budgetPositions ?? []),
     },
     withTenant: jest.fn(
       async (

@@ -39,8 +39,18 @@ PE_RE = re.compile(r"\b([0-9]{7}[A-Z])\b")
 # A leading line number (col 1), then the PE code, then the title, then a 2-digit
 # budget activity, then a classification letter (U/etc). Dollars trail.
 LINE_RE = re.compile(
-    r"^\s*(?P<line>\d+)?\s*(?P<pe>[0-9]{7}[A-Z])\s+(?P<rest>.+?)\s+(?P<ba>\d{2})\s+[A-Z]\b"
+    r"^\s*(?P<line>\d+)?\s*(?P<pe>[0-9]{7}[A-Z])\s+(?P<rest>.+?)\s+(?P<ba>\d{2})\s+[A-Z]\b(?P<tail>.*)$"
 )
+# Step 1.3 (DATA-PENDING): one numeric money token in the TRAILING columns of an R-1
+# master-list row (the PY/CY/BY1..BY5 / FYDP dollar columns printed after the
+# classification letter). Captures plain integers, thousands-separated, and decimals;
+# a leading '-'/'(' marks a negative/parenthesized figure. These are captured POSITIONALLY
+# as `raw_trailing_amounts` only — mapping a column position to a specific fiscal year needs
+# the page's header row, which this line-by-line pass does NOT read, so we DO NOT assign FY
+# here (no fabricated assertedFy). A future header-aware pass (or the R-2 funding-table path)
+# turns these into {assertedFy: dollars} that the TS loader (buildPositionsFromFyColumns)
+# consumes. Empty for the committed FY2027 artifact, which predates this capture.
+MONEY_TOKEN_RE = re.compile(r"-?\(?\$?\d[\d,]*(?:\.\d+)?\)?")
 
 
 def extract(pdf_path: str, doc_type: str) -> dict:
@@ -61,15 +71,23 @@ def extract(pdf_path: str, doc_type: str) -> dict:
                 if m:
                     pe = m.group("pe")
                     title = re.sub(r"\s+", " ", m.group("rest")).strip()
-                    rows.append(
-                        {
-                            "peCode": pe,
-                            "title": title,
-                            "budgetActivity": m.group("ba"),
-                            "lineNumber": (m.group("line") or "").strip() or None,
-                            "page": idx,
-                        }
-                    )
+                    row = {
+                        "peCode": pe,
+                        "title": title,
+                        "budgetActivity": m.group("ba"),
+                        "lineNumber": (m.group("line") or "").strip() or None,
+                        "page": idx,
+                    }
+                    # Step 1.3 (DATA-PENDING): capture any trailing money tokens (the FYDP
+                    # dollar columns) POSITIONALLY. Additive — only emitted when present, so
+                    # the existing master-list output is unchanged. NOT mapped to fiscal years
+                    # here (needs the header row); a future pass assigns assertedFy.
+                    tail = (m.group("tail") or "").strip()
+                    if tail:
+                        amounts = MONEY_TOKEN_RE.findall(tail)
+                        if amounts:
+                            row["raw_trailing_amounts"] = amounts
+                    rows.append(row)
                     page_had_row = True
                     pages_with_rows.add(idx)
             # If the page clearly references PE codes but we parsed nothing,

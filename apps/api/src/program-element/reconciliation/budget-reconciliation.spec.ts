@@ -1,8 +1,11 @@
 import {
   checkBudgetReconciliation,
+  checkPositionReconciliation,
+  budgetCycleFromPositionCycle,
   componentForPeCode,
   computeGroupResult,
   summarizeExtractedTotals,
+  summarizePositionTotals,
   type ControlTotals,
   type ExtractedGroup,
 } from './budget-reconciliation.js';
@@ -117,5 +120,98 @@ describe('checkBudgetReconciliation', () => {
     expect(res.ok).toBe(true);
     expect(res.skipped).toBe(1);
     expect(res.checked).toBe(0);
+  });
+});
+
+describe('budgetCycleFromPositionCycle', () => {
+  it('strips the _fy<YYYY> suffix to the cycle prefix', () => {
+    expect(budgetCycleFromPositionCycle('pb_fy2027')).toBe('pb');
+    expect(budgetCycleFromPositionCycle('hasc_fy2027')).toBe('hasc');
+    expect(budgetCycleFromPositionCycle('hac_d_fy2026')).toBe('hac_d');
+    expect(budgetCycleFromPositionCycle('enacted_fy2026')).toBe('enacted');
+    expect(budgetCycleFromPositionCycle('weird')).toBe('weird');
+  });
+});
+
+describe('summarizePositionTotals', () => {
+  it('sums value_kind=total positions into (assertedFy, cycle, component) groups', () => {
+    const groups = summarizePositionTotals([
+      { peCode: '0601102A', positionCycle: 'pb_fy2027', assertedFy: 2027, amount: 100, valueKind: 'total' },
+      { peCode: '0601103A', positionCycle: 'pb_fy2027', assertedFy: 2027, amount: 50, valueKind: 'total' },
+      { peCode: '0601102A', positionCycle: 'pb_fy2027', assertedFy: 2027, amount: 4, valueKind: 'quantity' }, // ignored
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ fiscalYear: 2027, budgetCycle: 'pb', component: 'ARMY', sumMillions: 150, count: 2 });
+  });
+});
+
+describe('checkPositionReconciliation', () => {
+  const control: ControlTotals = {
+    groups: [{ fiscalYear: 2027, budgetCycle: 'pb', component: 'ARMY', field: 'request', totalMillions: 150 }],
+  };
+
+  it('is a graceful no-op (ok, empty) when the position delegate is absent', async () => {
+    const res = await checkPositionReconciliation({ programElementYear: { findMany: async () => [] } } as never, control);
+    expect(res).toMatchObject({ ok: true, checked: 0, results: [] });
+  });
+
+  it('is a graceful no-op when no positions are loaded (the case today)', async () => {
+    const res = await checkPositionReconciliation(
+      {
+        programElementYear: { findMany: async () => [] },
+        programElementBudgetPosition: { findMany: async () => [] },
+      } as never,
+      control,
+    );
+    expect(res.results).toHaveLength(0);
+    expect(res.ok).toBe(true);
+  });
+
+  it('PASS when loaded positions match the control total', async () => {
+    const res = await checkPositionReconciliation(
+      {
+        programElementYear: { findMany: async () => [] },
+        programElementBudgetPosition: {
+          findMany: async () => [
+            { peCode: '0601102A', positionCycle: 'pb_fy2027', assertedFy: 2027, amount: 100, valueKind: 'total' },
+            { peCode: '0601103A', positionCycle: 'pb_fy2027', assertedFy: 2027, amount: 50, valueKind: 'total' },
+          ],
+        },
+      } as never,
+      control,
+    );
+    expect(res.ok).toBe(true);
+    expect(res.passed).toBe(1);
+  });
+
+  it('FAILs when a loaded position cycle diverges from control', async () => {
+    const res = await checkPositionReconciliation(
+      {
+        programElementYear: { findMany: async () => [] },
+        programElementBudgetPosition: {
+          findMany: async () => [
+            { peCode: '0601102A', positionCycle: 'pb_fy2027', assertedFy: 2027, amount: 999, valueKind: 'total' },
+          ],
+        },
+      } as never,
+      control,
+    );
+    expect(res.ok).toBe(false);
+    expect(res.failed).toBe(1);
+  });
+
+  it('no-ops (does not throw) when the table is absent (findMany rejects)', async () => {
+    const res = await checkPositionReconciliation(
+      {
+        programElementYear: { findMany: async () => [] },
+        programElementBudgetPosition: {
+          findMany: async () => {
+            throw new Error('relation "program_element_budget_position" does not exist');
+          },
+        },
+      } as never,
+      control,
+    );
+    expect(res).toMatchObject({ ok: true, results: [] });
   });
 });

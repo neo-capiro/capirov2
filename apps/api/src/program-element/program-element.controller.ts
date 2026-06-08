@@ -121,6 +121,24 @@ export class ProgramElementController {
     return this.service.getProgramsForPe(peCode);
   }
 
+  // Step 1.3 — budget positions (PB cycle + FYDP outyears). Optional ?fy=<assertedFy>
+  // narrows to one fiscal year. Empty until per-FY dollar columns are loaded.
+  @Get(':peCode/positions')
+  positions(@Param('peCode') peCode: string, @Query('fy') fy?: string) {
+    const parsed = fy !== undefined && fy !== '' ? Number(fy) : undefined;
+    return this.service.getBudgetPositions(
+      peCode,
+      parsed !== undefined && Number.isFinite(parsed) ? parsed : undefined,
+    );
+  }
+
+  // Step 1.3 — PB-vs-prior-PB comparison (per assertedFy delta + new_in_pb /
+  // dropped_from_pb flags). Empty until two PB books are loaded.
+  @Get(':peCode/pb-comparison')
+  pbComparison(@Param('peCode') peCode: string) {
+    return this.service.getPbComparison(peCode);
+  }
+
   @Post(':peCode/watch')
   watch(
     @CurrentTenant() ctx: TenantContext,

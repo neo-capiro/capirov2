@@ -1779,26 +1779,26 @@ model CongressBillSubject {
 // ─────────────────────────────────────────────────────────────────────────
 
 model ProgramElement {
-  peCode             String   @id @map("pe_code") @db.VarChar(16)
+  peCode             String    @id @map("pe_code") @db.VarChar(16)
   service            String?
-  serviceCode        String?  @map("service_code")
-  appropriationType  String?  @map("appropriation_type")
-  budgetActivity     String?  @map("budget_activity")
-  budgetActivityName String?  @map("budget_activity_name")
-  lineNumber         String?  @map("line_number")
+  serviceCode        String?   @map("service_code")
+  appropriationType  String?   @map("appropriation_type")
+  budgetActivity     String?   @map("budget_activity")
+  budgetActivityName String?   @map("budget_activity_name")
+  lineNumber         String?   @map("line_number")
   title              String
-  description        String?  @db.Text
-  acatLevel          String?  @map("acat_level")
-  programOfRecord    String?  @map("program_of_record")
+  description        String?   @db.Text
+  acatLevel          String?   @map("acat_level")
+  programOfRecord    String?   @map("program_of_record")
   status             String?
-  rDocUrl            String?  @map("r_doc_url")
-  pDocUrl            String?  @map("p_doc_url")
-  oDocUrl            String?  @map("o_doc_url")
-  raw                Json     @default("{}") @map("raw_jsonb")
+  rDocUrl            String?   @map("r_doc_url")
+  pDocUrl            String?   @map("p_doc_url")
+  oDocUrl            String?   @map("o_doc_url")
+  raw                Json      @default("{}") @map("raw_jsonb")
   source             String
-  sourceConfidence   Float?   @map("source_confidence")
-  firstSeenFy        Int?     @map("first_seen_fy")
-  lastSyncedAt       DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  sourceConfidence   Float?    @map("source_confidence")
+  firstSeenFy        Int?      @map("first_seen_fy")
+  lastSyncedAt       DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
   // Soft-retire marker. Set by reconcile-stale-pes for PEs that exist ONLY because
   // of the old stanford spreadsheet (source='stanford_pe_directory_jan2026') and
   // carry no live signal (no linked person/award/bill/watch/year). Reads exclude
@@ -1810,6 +1810,7 @@ model ProgramElement {
   years                   ProgramElementYear[]
   milestones              ProgramElementMilestone[]
   yearSourceValues        ProgramElementYearSourceValue[]
+  budgetPositions         ProgramElementBudgetPosition[]
   watches                 ProgramElementWatch[]
   conferenceProbabilities ConferenceProbability[]
   sources                 ProgramElementSource[]
@@ -1829,23 +1830,23 @@ model ProgramElement {
 // the original exhibit. Mirrors AcquisitionPersonnelSource. Global table (no
 // tenant_id / RLS): J-book data is public-domain and read-only via API.
 model ProgramElementSource {
-  id          String   @id @default(uuid()) @db.Uuid
-  peCode      String   @map("pe_code") @db.VarChar(16)
-  docType     String   @map("doc_type") @db.VarChar(8) // R | P | O
-  exhibitType String?  @map("exhibit_type") @db.VarChar(16) // R-1 | R-2 | R-2A | P-1 | P-40
-  fy          Int?
-  sourceUrl   String   @map("source_url")
-  pageNumber  Int?     @map("page_number")
-  pageEnd     Int?     @map("page_end")
-  snippet     String?  @db.Text
-  publisher   String?  @db.VarChar(64) // e.g. "DoD Comptroller"
-  confidence  Float    @default(0.9)
-  metadata    Json     @default("{}") @map("metadata_jsonb")
-  observedAt  DateTime @default(now()) @map("observed_at") @db.Timestamptz(6)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id               String   @id @default(uuid()) @db.Uuid
+  peCode           String   @map("pe_code") @db.VarChar(16)
+  docType          String   @map("doc_type") @db.VarChar(8) // R | P | O
+  exhibitType      String?  @map("exhibit_type") @db.VarChar(16) // R-1 | R-2 | R-2A | P-1 | P-40
+  fy               Int?
+  sourceUrl        String   @map("source_url")
+  pageNumber       Int?     @map("page_number")
+  pageEnd          Int?     @map("page_end")
+  snippet          String?  @db.Text
+  publisher        String?  @db.VarChar(64) // e.g. "DoD Comptroller"
+  confidence       Float    @default(0.9)
+  metadata         Json     @default("{}") @map("metadata_jsonb")
+  observedAt       DateTime @default(now()) @map("observed_at") @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   // Registry link (Step 0.1): the fingerprinted source file this citation came from.
-  sourceDocumentId String? @map("source_document_id") @db.Uuid
+  sourceDocumentId String?  @map("source_document_id") @db.Uuid
 
   programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
   sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
@@ -1864,24 +1865,24 @@ model ProgramElementSource {
 // the originating exhibit. Global table (no tenant_id / RLS): J-book data is
 // public-domain and read-only via API. Mirrors ProgramElementSource conventions.
 model ProgramElementProject {
-  id             String   @id @default(uuid()) @db.Uuid
-  peCode         String   @map("pe_code") @db.VarChar(16)
-  projectCode    String   @map("project_code") @db.VarChar(8)
-  title          String
-  mission        String?  @db.Text
-  budgetActivity String?  @map("budget_activity")
-  fy             Int?
-  sourceUrl      String?  @map("source_url")
-  pageNumber     Int?     @map("page_number")
-  source         String   @default("comptroller_jbook_r2a")
-  confidence     Float    @default(0.9)
-  metadata       Json     @default("{}") @map("metadata_jsonb")
-  firstSeenAt    DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
-  lastSyncedAt   DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id               String   @id @default(uuid()) @db.Uuid
+  peCode           String   @map("pe_code") @db.VarChar(16)
+  projectCode      String   @map("project_code") @db.VarChar(8)
+  title            String
+  mission          String?  @db.Text
+  budgetActivity   String?  @map("budget_activity")
+  fy               Int?
+  sourceUrl        String?  @map("source_url")
+  pageNumber       Int?     @map("page_number")
+  source           String   @default("comptroller_jbook_r2a")
+  confidence       Float    @default(0.9)
+  metadata         Json     @default("{}") @map("metadata_jsonb")
+  firstSeenAt      DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSyncedAt     DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
   // Registry link (Step 0.1): the fingerprinted source file this project came from.
-  sourceDocumentId String? @map("source_document_id") @db.Uuid
+  sourceDocumentId String?  @map("source_document_id") @db.Uuid
 
   programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
   sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
@@ -1917,6 +1918,49 @@ model ProgramElementYear {
   @@map("program_element_year")
 }
 
+// Budget-cycle (PB position) dimension + FYDP outyears (Step 1.3, plan §5/§6).
+// ONE row per (PE, budget cycle, asserted FY, value kind): every fiscal year a
+// budget book *asserts* a value FOR, tagged with the book/stage that asserts it.
+// This single shape stores FY27 PB's FY27 request AND FY27 PB's FY28-31 outyears
+// AND FY26 PB's FY27 projection — exactly what PB-vs-prior-PB and outyear-delta
+// computation need. ADDITIVE: ProgramElementYear remains the "current consolidated
+// stage ladder" the profile UI renders today; nothing here changes that consumer.
+//
+// Global table (no tenant_id / RLS): public-domain budget data, same as
+// program_element / federal_award. Mirrors ProgramElementSource provenance
+// conventions (sourceUrl + pageNumber deep link, nullable source_document_id FK).
+//
+// positionCycle = the book/stage asserting the values, e.g.
+//   'pb_fy2026' | 'pb_fy2027' | 'hasc_fy2027' | 'enacted_fy2026' | ...
+// assertedFy    = the fiscal year the dollars/quantity are FOR (the FYDP column).
+// valueKind     = 'total' (dollars $M) | 'quantity' (units) | 'unit_cost' ($M/unit).
+// amount is in $ MILLIONS for 'total'/'unit_cost' (project money convention); for
+// 'quantity' rows amount carries the unit count and `quantity` may duplicate it.
+model ProgramElementBudgetPosition {
+  id               String   @id @default(uuid()) @db.Uuid
+  peCode           String   @map("pe_code") @db.VarChar(16)
+  positionCycle    String   @map("position_cycle")
+  assertedFy       Int      @map("asserted_fy")
+  amount           Decimal  @db.Decimal(14, 2)
+  quantity         Decimal? @db.Decimal(14, 2)
+  valueKind        String   @map("value_kind") // total | quantity | unit_cost
+  sourceUrl        String?  @map("source_url")
+  pageNumber       Int?     @map("page_number")
+  metadata         Json     @default("{}") @map("metadata_jsonb")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  // Registry link (Step 0.1): the fingerprinted source file this position came from.
+  sourceDocumentId String?  @map("source_document_id") @db.Uuid
+
+  programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([peCode, positionCycle, assertedFy, valueKind], map: "program_element_budget_position_natural_key")
+  @@index([peCode, assertedFy], map: "program_element_budget_position_pe_fy_idx")
+  @@index([positionCycle], map: "program_element_budget_position_cycle_idx")
+  @@index([sourceDocumentId], map: "program_element_budget_position_source_document_idx")
+  @@map("program_element_budget_position")
+}
+
 model ProgramElementMilestone {
   id            String    @id @default(uuid()) @db.Uuid
   peCode        String    @map("pe_code") @db.VarChar(16)
@@ -1946,22 +1990,22 @@ model ProgramElementQuarantine {
 }
 
 model ProgramElementYearSourceValue {
-  id           String   @id @default(uuid()) @db.Uuid
-  peCode       String   @map("pe_code") @db.VarChar(16)
-  fy           Int
-  fieldName    String   @map("field_name")
-  source       String
-  valueJsonb   Json     @default("null") @map("value_jsonb")
+  id               String   @id @default(uuid()) @db.Uuid
+  peCode           String   @map("pe_code") @db.VarChar(16)
+  fy               Int
+  fieldName        String   @map("field_name")
+  source           String
+  valueJsonb       Json     @default("null") @map("value_jsonb")
   // Per-field reconciliation values (Step 29 §4.1). value_decimal for numeric
   // marks/dollars, value_text for narrative fields. written_at mirrors recordedAt
   // for the reconciliation queue's naming.
-  valueDecimal Decimal? @map("value_decimal") @db.Decimal(18, 2)
-  valueText    String?  @map("value_text") @db.Text
-  writtenAt    DateTime @default(now()) @map("written_at") @db.Timestamptz(6)
-  isWinner     Boolean  @default(false) @map("is_winner")
-  recordedAt   DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  valueDecimal     Decimal? @map("value_decimal") @db.Decimal(18, 2)
+  valueText        String?  @map("value_text") @db.Text
+  writtenAt        DateTime @default(now()) @map("written_at") @db.Timestamptz(6)
+  isWinner         Boolean  @default(false) @map("is_winner")
+  recordedAt       DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
   // Registry link (Step 0.1): the fingerprinted source file this per-field value came from.
-  sourceDocumentId String? @map("source_document_id") @db.Uuid
+  sourceDocumentId String?  @map("source_document_id") @db.Uuid
 
   programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
   sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
@@ -1985,32 +2029,32 @@ model ProgramElementYearSourceValue {
 // artifact-loading sync/parse scripts (which upsert their document first) and by
 // backfill-source-documents.ts.
 model SourceDocument {
-  id                    String    @id @default(uuid()) @db.Uuid
+  id                     String    @id @default(uuid()) @db.Uuid
   // Stable human key, derived from the committed artifact filename (e.g. 'jbook_r1_fy2027').
-  sourceKey             String    @map("source_key")
-  fiscalYear            Int?      @map("fiscal_year")
+  sourceKey              String    @map("source_key")
+  fiscalYear             Int?      @map("fiscal_year")
   // pb | hasc | sasc | hac_d | sac_d | conference | enacted | supplemental
-  budgetCycle           String    @map("budget_cycle")
+  budgetCycle            String    @map("budget_cycle")
   // ARMY | NAVY | AF | SF | DW | ... (null for the all-component R-1 master list / committee docs)
-  component             String?
+  component              String?
   // r1 | r2 | r3 | p1 | p40 | committee_report | conference_report | public_law | other
-  documentType          String    @map("document_type")
-  title                 String
+  documentType           String    @map("document_type")
+  title                  String
   // Source PDF URL (J-books); the artifact's source filename when no URL exists (committee docs).
-  sourceUrl             String    @map("source_url")
-  sha256                String?   @db.Char(64)
-  byteSize              Int?      @map("byte_size")
-  pageCount             Int?      @map("page_count")
-  downloadedAt          DateTime? @map("downloaded_at") @db.Timestamptz(6)
+  sourceUrl              String    @map("source_url")
+  sha256                 String?   @db.Char(64)
+  byteSize               Int?      @map("byte_size")
+  pageCount              Int?      @map("page_count")
+  downloadedAt           DateTime? @map("downloaded_at") @db.Timestamptz(6)
   // Path under apps/api/scripts/__data__/ for the committed extraction artifact.
-  artifactPath          String?   @map("artifact_path")
+  artifactPath           String?   @map("artifact_path")
   // structured_import | deterministic_pdf | manual
-  extractionMethod      String    @map("extraction_method")
-  extractionToolVersion String?   @map("extraction_tool_version")
-  ingestedAt            DateTime  @default(now()) @map("ingested_at") @db.Timestamptz(6)
+  extractionMethod       String    @map("extraction_method")
+  extractionToolVersion  String?   @map("extraction_tool_version")
+  ingestedAt             DateTime  @default(now()) @map("ingested_at") @db.Timestamptz(6)
   // Version chain: set on the OLD head when a newer version of the same sourceKey is ingested.
-  supersededByDocumentId String?  @map("superseded_by_document_id") @db.Uuid
-  metadata              Json      @default("{}") @map("metadata_jsonb")
+  supersededByDocumentId String?   @map("superseded_by_document_id") @db.Uuid
+  metadata               Json      @default("{}") @map("metadata_jsonb")
 
   supersededBy SourceDocument?  @relation("SourceDocumentVersion", fields: [supersededByDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   supersedes   SourceDocument[] @relation("SourceDocumentVersion")
@@ -2019,6 +2063,7 @@ model SourceDocument {
   programElementProjects   ProgramElementProject[]
   programElementPerformers ProgramElementPerformer[]
   yearSourceValues         ProgramElementYearSourceValue[]
+  budgetPositions          ProgramElementBudgetPosition[]
 
   @@unique([sourceKey, sha256], map: "source_document_source_key_sha256_key")
   @@index([documentType, fiscalYear, budgetCycle, component], map: "source_document_type_fy_cycle_component_idx")
@@ -2066,20 +2111,20 @@ model ProgramElementWatch {
 }
 
 model AcquisitionPersonnel {
-  id               String   @id @default(uuid()) @db.Uuid
-  fullName         String   @map("full_name")
-  nameKey          String   @map("name_key")
-  service          String?  @db.VarChar(8)
+  id               String    @id @default(uuid()) @db.Uuid
+  fullName         String    @map("full_name")
+  nameKey          String    @map("name_key")
+  service          String?   @db.VarChar(8)
   organization     String?
   title            String?
   role             String?
-  programOfRecord  String?  @map("program_of_record")
-  pePrimary        String?  @map("pe_primary") @db.VarChar(16)
-  peSecondary      String[] @default([]) @map("pe_secondary")
-  emailDomain      String?  @map("email_domain")
-  publicProfileUrl String?  @map("public_profile_url")
-  confidence       Float    @default(0.5)
-  status           String   @default("active") @db.VarChar(16)
+  programOfRecord  String?   @map("program_of_record")
+  pePrimary        String?   @map("pe_primary") @db.VarChar(16)
+  peSecondary      String[]  @default([]) @map("pe_secondary")
+  emailDomain      String?   @map("email_domain")
+  publicProfileUrl String?   @map("public_profile_url")
+  confidence       Float     @default(0.5)
+  status           String    @default("active") @db.VarChar(16)
   // Soft-supersede marker. Set by reconcile-personnel-supersede when a person's
   // only provenance is a deprecated one-time directory load (e.g. the old
   // stanford_dow_* spreadsheet) and no current source re-asserts them. Reads
@@ -2087,11 +2132,11 @@ model AcquisitionPersonnel {
   // Distinct from status='departed', which is a real-world departure signal.
   supersededAt     DateTime? @map("superseded_at") @db.Timestamptz(6)
   supersededReason String?   @map("superseded_reason")
-  firstSeenAt      DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
-  lastSeenAt       DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
-  metadata         Json     @default("{}") @map("metadata_jsonb")
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  firstSeenAt      DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt       DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  metadata         Json      @default("{}") @map("metadata_jsonb")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   sources AcquisitionPersonnelSource[]
 
@@ -2783,25 +2828,25 @@ model ProgramElementProcurementLine {
 /// award with no resolvable PE keeps pe_code NULL (NOT quarantined). The Step 6
 /// /contractors endpoint reads contractor_name + amount + awarded_at + pe_code.
 model FederalAward {
-  id              String    @id @default(uuid()) @db.Uuid
+  id                             String    @id @default(uuid()) @db.Uuid
   // USAspending generated_unique_award_id — stable idempotency key.
-  awardUniqueId   String    @unique @map("award_unique_id")
-  piid            String?
-  fain            String?
-  awardingAgency  String?   @map("awarding_agency")
-  awardingSubTier String?   @map("awarding_sub_tier")
-  contractorName  String?   @map("contractor_name")
-  recipientUei    String?   @map("recipient_uei")
-  amount          Decimal?  @db.Decimal(18, 2)
-  description     String?   @db.Text
-  peCode          String?   @map("pe_code") @db.VarChar(16)
+  awardUniqueId                  String    @unique @map("award_unique_id")
+  piid                           String?
+  fain                           String?
+  awardingAgency                 String?   @map("awarding_agency")
+  awardingSubTier                String?   @map("awarding_sub_tier")
+  contractorName                 String?   @map("contractor_name")
+  recipientUei                   String?   @map("recipient_uei")
+  amount                         Decimal?  @db.Decimal(18, 2)
+  description                    String?   @db.Text
+  peCode                         String?   @map("pe_code") @db.VarChar(16)
   // How pe_code was resolved, for provenance/auditing and honest UI labeling.
   // Null when pe_code is null. Values: 'description_regex' (legacy text match),
   // 'dod_acquisition_program' (linked via the contract's DoD acquisition / MDAP
   // code through the reviewed program_element_acquisition_program map). Lets the
   // contractor panel state HOW a contractor was tied to a PE rather than implying
   // a precision the source does not have.
-  peCodeSource    String?   @map("pe_code_source")
+  peCodeSource                   String?   @map("pe_code_source")
   // ── USAspending File C (financial_accounts_by_awards) funding crosswalk ──────────
   // Populated by enrich-award-pe-tas from /api/v2/awards/funding/. The Treasury
   // Account Symbol + Program Activity are the federal mechanism that ties an award
@@ -2810,27 +2855,27 @@ model FederalAward {
   // from TAS+PA is intentionally LOWER precision than the R-3 named-prime link (one
   // account/PA funds many PEs), so peCodeConfidence + peCodeCandidateCount make the
   // ambiguity explicit and the UI never implies a false 1:1.
-  fundingTas              String?  @map("funding_tas")           // e.g. '057-3600' (federal_account) or full TAS label
-  fundingTasTitle         String?  @map("funding_tas_title")     // e.g. 'RDT&E, Air Force'
-  programActivityCode     String?  @map("program_activity_code") // e.g. '0001'
-  programActivityName     String?  @map("program_activity_name") // e.g. 'BASIC RESEARCH'
-  fundingFy               Int?     @map("funding_fy")            // reporting fiscal year of the dominant File C row
+  fundingTas                     String?   @map("funding_tas") // e.g. '057-3600' (federal_account) or full TAS label
+  fundingTasTitle                String?   @map("funding_tas_title") // e.g. 'RDT&E, Air Force'
+  programActivityCode            String?   @map("program_activity_code") // e.g. '0001'
+  programActivityName            String?   @map("program_activity_name") // e.g. 'BASIC RESEARCH'
+  fundingFy                      Int?      @map("funding_fy") // reporting fiscal year of the dominant File C row
   // 0..1 confidence of the pe_code attribution. 1.0 only when UEI-confirmed against an
   // R-3 named prime; ~0.5 when account+PA+FY resolve to a single PE; lower when ambiguous.
-  peCodeConfidence        Float?   @map("pe_code_confidence")
+  peCodeConfidence               Float?    @map("pe_code_confidence")
   // How many distinct PEs the award's (account + program activity + FY) could map to.
   // 1 = unambiguous; >1 = the UI shows "funded via <account> (N programs)" not a single PE.
-  peCodeCandidateCount    Int?     @map("pe_code_candidate_count")
+  peCodeCandidateCount           Int?      @map("pe_code_candidate_count")
   // When peCodeSource='uei_confirmed_r3_prime', the matched performer row id (audit trail).
-  matchedPerformerId      String?  @map("matched_performer_id") @db.Uuid
+  matchedPerformerId             String?   @map("matched_performer_id") @db.Uuid
   // DoD Major Defense Acquisition Program (MDAP) attribution straight off the
   // contract record (USAspending latest_transaction_contract_data). Always present
   // on contracts; '000'/'NONE' for services & non-program awards. This is the
   // zero-inference link between a contractor and a weapons program — e.g.
   // '198'/'F-35', '516'/'SSN 774'. PE attribution is derived from these via the
   // program_element_acquisition_program map, NOT fabricated.
-  dodAcqProgramCode String? @map("dod_acq_program_code")
-  dodAcqProgramName String? @map("dod_acq_program_name")
+  dodAcqProgramCode              String?   @map("dod_acq_program_code")
+  dodAcqProgramName              String?   @map("dod_acq_program_name")
   // Place of performance (where the work happens) — primary signal for district
   // nexus. Recipient location (where the company is HQ'd) kept as a fallback.
   // Two-letter state + congressional-district number as text ('02', 'AL'); null
@@ -2839,10 +2884,10 @@ model FederalAward {
   popCongressionalDistrict       String?   @map("pop_congressional_district")
   recipientState                 String?   @map("recipient_state")
   recipientCongressionalDistrict String?   @map("recipient_congressional_district")
-  actionDate      DateTime? @map("action_date") @db.Date
-  awardedAt       DateTime? @map("awarded_at") @db.Timestamptz(6)
-  raw             Json      @default("{}") @map("raw_jsonb")
-  lastSyncedAt    DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  actionDate                     DateTime? @map("action_date") @db.Date
+  awardedAt                      DateTime? @map("awarded_at") @db.Timestamptz(6)
+  raw                            Json      @default("{}") @map("raw_jsonb")
+  lastSyncedAt                   DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
 
   @@index([peCode], map: "federal_award_pe_code_idx")
   @@index([contractorName], map: "federal_award_contractor_name_idx")
@@ -2895,44 +2940,44 @@ model ProgramElementAcquisitionProgram {
 /// committed offline extraction artifact (scripts/__data__/jbook_performers_*.json);
 /// no PDF/Python at runtime. Idempotent: unique on the natural performer key.
 model ProgramElementPerformer {
-  id              String   @id @default(uuid()) @db.Uuid
-  peCode          String   @map("pe_code") @db.VarChar(16)
+  id                  String   @id @default(uuid()) @db.Uuid
+  peCode              String   @map("pe_code") @db.VarChar(16)
   /// Company name exactly as printed in the exhibit (e.g. 'LOCKHEED MARTIN CORPORATION').
-  performer       String
+  performer           String
   /// Uppercased/punctuation-stripped name for joins/dedup (e.g. 'LOCKHEED MARTIN CORP').
-  performerNormalized String @map("performer_normalized")
+  performerNormalized String   @map("performer_normalized")
   /// Performing location as printed (state code 'AL', 'Various', city, or country).
   /// NOT NULL ('' when absent) so the natural-key unique index is deterministic
   /// (Postgres treats NULLs as distinct, which would break idempotent upserts).
-  location        String   @default("") @map("location")
+  location            String   @default("") @map("location")
   /// Contract method & type token ('SS/IDIQ','C/CPAF','MIPR',...). '' when blank/Various.
-  contractMethod  String   @default("") @map("contract_method")
+  contractMethod      String   @default("") @map("contract_method")
   /// Cost-category item label from the exhibit row (e.g. 'THAAD Development - Capability').
-  costCategory    String   @default("") @map("cost_category")
+  costCategory        String   @default("") @map("cost_category")
   /// Total contract cost in $M as printed (TotalCost column). Null when not stated.
-  totalCostM      Decimal? @map("total_cost_m") @db.Decimal(18, 3)
+  totalCostM          Decimal? @map("total_cost_m") @db.Decimal(18, 3)
   /// R-3 table family this came from: 'product_development' | 'support' | 'management_services'.
-  tableType       String?  @map("table_type")
+  tableType           String?  @map("table_type")
   /// Project (R-2A) code/name when the table is under a specific project, else null.
-  projectCode     String?  @map("project_code")
-  projectName     String?  @map("project_name")
-  fy              Int
-  sourceUrl       String   @map("source_url")
-  pageNumber      Int      @map("page_number")
+  projectCode         String?  @map("project_code")
+  projectName         String?  @map("project_name")
+  fy                  Int
+  sourceUrl           String   @map("source_url")
+  pageNumber          Int      @map("page_number")
   /// Publishing component for provenance label (e.g. 'DoD Comptroller (Navy)').
-  publisher       String?
+  publisher           String?
   /// True when the performer is a real named company (has a legal suffix / not 'Various'/
   /// 'TBD'/government-internal MIPR). Lets the read path surface only real primes by default.
-  isNamedCompany  Boolean  @default(true) @map("is_named_company")
-  source          String   @default("comptroller_jbook_r3")
-  confidence      Float    @default(0.95)
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  lastSyncedAt    DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  isNamedCompany      Boolean  @default(true) @map("is_named_company")
+  source              String   @default("comptroller_jbook_r3")
+  confidence          Float    @default(0.95)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSyncedAt        DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
   // Registry link (Step 0.1): the fingerprinted source file this performer row came from.
-  sourceDocumentId String? @map("source_document_id") @db.Uuid
+  sourceDocumentId    String?  @map("source_document_id") @db.Uuid
 
-  programElement  ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
-  sourceDocument  SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   // Natural key: same prime can appear under different cost categories / projects / methods.
   @@unique([peCode, performerNormalized, location, contractMethod, costCategory, fy], map: "program_element_performer_natural_key")
@@ -3014,21 +3059,21 @@ model ProgramAlias {
 /// seed rows and reviewer confirmations (and the documented official+exact
 /// auto-accept rule). NEVER auto-accepted from a fuzzy path.
 model PeProgramMatch {
-  id          String  @id @default(uuid()) @db.Uuid
-  peCode      String  @map("pe_code") @db.VarChar(16)
+  id               String    @id @default(uuid()) @db.Uuid
+  peCode           String    @map("pe_code") @db.VarChar(16)
   /// Project (R-2A) code within the PE when the match is project-level, else null.
-  projectCode String? @map("project_code") @db.VarChar(8)
-  programId   String  @map("program_id") @db.Uuid
-  score       Float
+  projectCode      String?   @map("project_code") @db.VarChar(8)
+  programId        String    @map("program_id") @db.Uuid
+  score            Float
   /// 'exact_pe_number' | 'exact_project_title' | 'r2a_office_named' |
   /// 'other_funding_link' | 'official_office_page' | 'sar_msar' | 'sam_match' |
   /// 'award_match' | 'press_release' | 'news_only' | 'mdap_curated' (seed).
-  evidenceTier String  @map("evidence_tier")
+  evidenceTier     String    @map("evidence_tier")
   /// Array of evidence items: { kind, sourceUrl, pageNumber?, quote? }.
-  evidence     Json     @default("[]") @map("evidence_jsonb")
+  evidence         Json      @default("[]") @map("evidence_jsonb")
   /// 'accepted' | 'candidate' | 'quarantined' | 'rejected'. Default derived from
   /// score+tier per the plan thresholds (see deriveMatchStatus).
-  status       String   @default("candidate") @db.VarChar(20)
+  status           String    @default("candidate") @db.VarChar(20)
   /// True when score < 0.50 — stored as a weak signal, NEVER surfaced.
   weakSignal       Boolean   @default(false) @map("weak_signal")
   matchBasis       String?   @map("match_basis") @db.Text

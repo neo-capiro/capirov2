@@ -5,7 +5,12 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { ProgramElementWriterService } from '../src/program-element/program-element-writer.service.js';
-import { serviceFromPeCode, readR1UrlFromText, citationKey, PE_CODE_REGEX } from '../src/program-element/jbook/jbook-extract.js';
+import { serviceFromPeCode, readR1UrlFromText, citationKey, PE_CODE_REGEX, dollarsToMillions } from '../src/program-element/jbook/jbook-extract.js';
+import {
+  upsertBudgetPosition,
+  buildPositionsFromFyColumns,
+  type BudgetPositionClient,
+} from '../src/program-element/budget-position-writer.js';
 import {
   upsertSourceDocument,
   sha256OfFile,
@@ -47,6 +52,13 @@ interface R1Row {
   budgetActivity: string | null;
   lineNumber: string | null;
   page: number;
+  // Step 1.3 (DATA-PENDING): per-fiscal-year dollar columns the exhibit prints
+  // (PY/CY/BY1/BY2..BY5 i.e. FYDP outyears), keyed by assertedFy → full dollars.
+  // The CURRENT committed jbook_r1_fy2027.json does NOT carry this (only the master
+  // list), so it is absent today and NO budget positions are written. Once the R-1
+  // artifact is regenerated with FYDP columns (extract_jbook_r1.py extension), this
+  // populates and the loader writes positionCycle='pb_fy2027' rows.
+  fyColumns?: Record<string, number | null> | null;
 }
 
 interface ExtractResult {
@@ -106,6 +118,9 @@ async function main() {
     pe_updated: 0,
     pe_quarantined: 0,
     provenance_written: 0,
+    // Step 1.3: budget positions written from per-FY columns. 0 today (the committed
+    // R-1 artifact carries no dollar/outyear columns); populates once it is regenerated.
+    positions_written: 0,
     sourceDocument: null as null | { id: string; action: 'inserted' | 'deduped'; superseded: string | null },
   };
 
@@ -206,6 +221,28 @@ async function main() {
               },
             });
             stats.provenance_written++;
+          }
+
+          // Step 1.3 — budget positions (PB cycle + FYDP outyears). The R-1 funding
+          // table prints PY/CY/BY1..BY5 dollar columns; each becomes one
+          // positionCycle='pb_fy2027' position keyed by assertedFy. DATA-PENDING:
+          // the committed artifact carries no such columns, so row.fyColumns is
+          // absent and this writes nothing today — it activates the moment the R-1
+          // artifact is regenerated with FYDP columns. Idempotent upsert by natural key.
+          if (row.fyColumns && Object.keys(row.fyColumns).length > 0) {
+            const positions = buildPositionsFromFyColumns({
+              peCode: row.peCode,
+              positionCycle: 'pb_fy2027',
+              fyColumns: row.fyColumns,
+              toMillions: dollarsToMillions,
+              sourceUrl: url,
+              pageNumber: row.page,
+              sourceDocumentId: sourceDocumentId ?? null,
+            });
+            for (const pos of positions) {
+              await upsertBudgetPosition(prisma as unknown as BudgetPositionClient, pos);
+              stats.positions_written++;
+            }
           }
         } else {
           stats.pe_quarantined++;

@@ -165,6 +165,133 @@ export interface BudgetReconPrisma {
   programElementYear: {
     findMany(args: unknown): Promise<Array<Record<string, unknown>>>;
   };
+  // Step 1.3 — optional: when present, position cycles are ALSO reconciled to their
+  // control totals. Optional so the existing year-only callers/specs are untouched and
+  // a DB without the table degrades gracefully.
+  programElementBudgetPosition?: {
+    findMany(args: unknown): Promise<Array<Record<string, unknown>>>;
+  };
+}
+
+/**
+ * Step 1.3 — reconcile loaded BUDGET POSITIONS to control totals. Parallel to
+ * summarizeExtractedTotals but for the position dimension: sum value_kind='total'
+ * positions into (assertedFy, positionCycle→budgetCycle/fy, component) groups so each
+ * loaded cycle can be checked against its control total. Pure.
+ *
+ * positionCycle (e.g. 'pb_fy2027', 'hasc_fy2027', 'enacted_fy2026') splits into a
+ * budgetCycle prefix ('pb'|'hasc'|...) used for the control-total key; assertedFy is the
+ * fiscal year the dollars are FOR. Returns [] when no positions are loaded, so the
+ * harness is a graceful no-op until Step 1.3 data lands.
+ */
+export interface PositionExtractedGroup {
+  fiscalYear: number;
+  budgetCycle: string;
+  component: string;
+  sumMillions: number;
+  count: number;
+}
+
+/** Split 'pb_fy2027' → 'pb'; 'hac_d_fy2026' → 'hac_d'; unknown → the whole string. */
+export function budgetCycleFromPositionCycle(positionCycle: string): string {
+  return positionCycle.replace(/_fy\d{4}$/i, '');
+}
+
+export function summarizePositionTotals(rows: Array<Record<string, unknown>>): PositionExtractedGroup[] {
+  const acc = new Map<string, PositionExtractedGroup>();
+  for (const row of rows) {
+    if (String(row.valueKind ?? 'total') !== 'total') continue;
+    const peCode = String(row.peCode ?? '');
+    const fy = Number(row.assertedFy);
+    const cycle = String(row.positionCycle ?? '');
+    const amount = toNumber(row.amount);
+    if (!peCode || !Number.isFinite(fy) || !cycle || amount === null) continue;
+    const component = componentForPeCode(peCode);
+    const budgetCycle = budgetCycleFromPositionCycle(cycle);
+    const key = `${fy}|${budgetCycle}|${component}`;
+    const cur = acc.get(key) ?? { fiscalYear: fy, budgetCycle, component, sumMillions: 0, count: 0 };
+    cur.sumMillions += amount;
+    cur.count += 1;
+    acc.set(key, cur);
+  }
+  return [...acc.values()];
+}
+
+/**
+ * Compare a summarized position group to its control total. Control totals are keyed
+ * (fy, cycle, component, field) where field is the year-table field for that cycle
+ * (e.g. cycle 'pb' → field 'request'). We map cycle→field via FIELD_TO_CYCLE's inverse.
+ * Pure.
+ */
+const CYCLE_TO_FIELD: Record<string, string> = Object.fromEntries(
+  Object.entries(FIELD_TO_CYCLE).map(([field, cycle]) => [cycle, field]),
+);
+
+export function computePositionGroupResult(
+  group: PositionExtractedGroup,
+  controlMillions: number | null,
+): GroupResult {
+  const base = {
+    fiscalYear: group.fiscalYear,
+    budgetCycle: group.budgetCycle,
+    component: group.component,
+    field: CYCLE_TO_FIELD[group.budgetCycle] ?? group.budgetCycle,
+    extractedMillions: round2(group.sumMillions),
+  };
+  if (controlMillions === null) {
+    return { ...base, controlMillions: null, deltaMillions: null, deltaPct: null, status: 'SKIP', reason: 'no control total for position cycle' };
+  }
+  const deltaPct = relativeDelta(group.sumMillions, controlMillions);
+  return {
+    ...base,
+    controlMillions: round2(controlMillions),
+    deltaMillions: round2(group.sumMillions - controlMillions),
+    deltaPct: Math.round(deltaPct * 1e5) / 1e5,
+    status: deltaPct <= TOLERANCE_PCT ? 'PASS' : 'FAIL',
+  };
+}
+
+/**
+ * Reconcile loaded budget positions to control totals. Graceful no-op (empty result)
+ * when the table is absent or carries no positions, so the harness keeps passing until
+ * Step 1.3 data lands. DB-driven, same contract as checkBudgetReconciliation.
+ */
+export async function checkPositionReconciliation(
+  prisma: BudgetReconPrisma,
+  control: ControlTotals,
+): Promise<ReconResult> {
+  const empty: ReconResult = { ok: true, checked: 0, passed: 0, failed: 0, skipped: 0, results: [] };
+  if (!prisma.programElementBudgetPosition) return empty;
+
+  let rows: Array<Record<string, unknown>>;
+  try {
+    rows = await prisma.programElementBudgetPosition.findMany({
+      select: { peCode: true, positionCycle: true, assertedFy: true, amount: true, valueKind: true },
+    });
+  } catch {
+    // Table not present yet (migration not applied) — no-op rather than fail.
+    return empty;
+  }
+  if (rows.length === 0) return empty;
+
+  const idx = indexControl(control);
+  const results = summarizePositionTotals(rows)
+    .map((g) =>
+      computePositionGroupResult(
+        g,
+        idx.get(controlKey(g.fiscalYear, g.budgetCycle, g.component, CYCLE_TO_FIELD[g.budgetCycle] ?? g.budgetCycle)) ?? null,
+      ),
+    )
+    .sort((a, b) =>
+      a.fiscalYear - b.fiscalYear ||
+      a.component.localeCompare(b.component) ||
+      a.budgetCycle.localeCompare(b.budgetCycle),
+    );
+
+  const failed = results.filter((r) => r.status === 'FAIL').length;
+  const passed = results.filter((r) => r.status === 'PASS').length;
+  const skipped = results.filter((r) => r.status === 'SKIP').length;
+  return { ok: failed === 0, checked: passed + failed, passed, failed, skipped, results };
 }
 
 /**

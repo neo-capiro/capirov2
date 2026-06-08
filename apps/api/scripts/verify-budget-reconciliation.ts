@@ -21,6 +21,7 @@ import { PrismaClient } from '@prisma/client';
 import { dollarsToMillions, serviceFromPeCode } from '../src/program-element/jbook/jbook-extract.js';
 import {
   checkBudgetReconciliation,
+  checkPositionReconciliation,
   type ControlGroup,
   type ControlTotals,
   type GroupResult,
@@ -168,13 +169,26 @@ async function main(): Promise<void> {
   const prisma = new PrismaClient();
   await prisma.$connect();
   try {
+    // 1. Existing behavior: reconcile program_element_year (the consolidated stage ladder).
     const res = await checkBudgetReconciliation(prisma as never, control);
+    // 2. Step 1.3 additive: ALSO reconcile each loaded position cycle to its control total.
+    //    Graceful no-op (empty result) when no positions are loaded — which is the case
+    //    today — so this never destabilizes the existing PASS.
+    const posRes = await checkPositionReconciliation(prisma as never, control);
+
     if (values.json) {
-      console.log(JSON.stringify(res, null, 2));
+      console.log(JSON.stringify({ years: res, positions: posRes }, null, 2));
     } else {
       printTable(res);
+      if (posRes.results.length > 0) {
+        console.log('\n=== Position-cycle reconciliation (Step 1.3) ===');
+        printTable(posRes);
+      } else {
+        console.log('\n(Position-cycle reconciliation: no budget positions loaded yet — skipped.)');
+      }
     }
-    if (!res.ok) process.exit(1);
+    // Fail the run if EITHER pass has a failing group.
+    if (!res.ok || !posRes.ok) process.exit(1);
   } finally {
     await prisma.$disconnect();
   }
