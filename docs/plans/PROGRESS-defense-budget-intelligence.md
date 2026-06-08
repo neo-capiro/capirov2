@@ -38,7 +38,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 3.4 | Relationship coverage gaps | ✅ done — read-only engagement coverage service (66b940f) + API + web "Coverage" section in the action card (assign & create outreach). Writes only schedule_outreach cards; engagement untouched |
 | 3.5 | Unified analyst console | ✅ done — backend (982080c: review-counts/SLA, audit view, quarantine reprocess, alias manager + program-merge) + web /admin/analyst-console (9 tabs: 4 mounted queues + alias/quarantine/audit + honest provision/SAM placeholders) |
 | 4.1 | Accuracy harness, golden sets, metrics | ✅ harness done — pure §22 metric math + measure-accuracy CLI (CI gate; n/a on synthetic, never fake-greens) + product-metrics endpoint (§24, from existing data) + perf scaffold/runbook (§21). Real §22 numbers need human-curated golden sets (documented) |
-| 4.2 | End-to-end acceptance test + launch checklist | ⬜ pending |
+| 4.2 | End-to-end acceptance test + launch checklist | ✅ done — §27 e2e acceptance spec (81 asserts, full pipeline composes; artifact step it.todo for 3.3) + launch-readiness doc (alpha ✅ / beta ⚠️⛔ / §26 negative criteria) |
 
 ## Execution order (value + completability, deps respected)
 Code-completable first: 1.2 → 1.4 → 1.3 → 2.1 → 2.4 → 4.1 → 2.2 → 2.3 → 3.2 → 3.4 → 3.5 → 4.2.
