@@ -2194,6 +2194,7 @@ model AcquisitionPersonnel {
   updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   sources AcquisitionPersonnelSource[]
+  roles   PersonRole[]
 
   @@index([pePrimary], map: "acquisition_personnel_pe_primary_idx")
   @@index([nameKey], map: "acquisition_personnel_name_key_idx")
@@ -3070,8 +3071,10 @@ model Program {
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  aliases ProgramAlias[]
-  matches PeProgramMatch[]
+  aliases     ProgramAlias[]
+  matches     PeProgramMatch[]
+  personRoles PersonRole[]
+  officeLinks ProgramOfficeProgramLink[]
 
   @@index([mdapCode], map: "program_mdap_code_idx")
   @@index([component], map: "program_component_idx")
@@ -3149,4 +3152,97 @@ model PeProgramMatch {
   @@index([peCode], map: "pe_program_match_pe_code_idx")
   @@index([status], map: "pe_program_match_status_idx")
   @@map("pe_program_match")
+}
+
+/// A program/acquisition office (PEO, PM shop, CPE, contracting office, etc.).
+/// People hang off OFFICES and ROLES, never directly off PEs (plan §8/§14). Global
+/// reference data: no tenant_id / RLS, like program / acquisition_personnel.
+/// Time-versioned for reorgs via validFrom/validTo.
+model ProgramOffice {
+  id             String    @id @default(uuid()) @db.Uuid
+  name           String
+  /// 'peo' | 'pm' | 'cpe' | 'pae' | 'directorate' | 'command' | 'contracting_office' | 'other'
+  officeType     String    @map("office_type") @db.VarChar(24)
+  service        String?   @db.VarChar(8)
+  parentOfficeId String?   @map("parent_office_id") @db.Uuid
+  sourceUrl      String?   @map("source_url")
+  status         String    @default("active") @db.VarChar(16)
+  validFrom      DateTime? @map("valid_from") @db.Timestamptz(6)
+  validTo        DateTime? @map("valid_to") @db.Timestamptz(6)
+  metadata       Json      @default("{}") @map("metadata_jsonb")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  parentOffice ProgramOffice?             @relation("ProgramOfficeParent", fields: [parentOfficeId], references: [id], onDelete: SetNull)
+  childOffices ProgramOffice[]            @relation("ProgramOfficeParent")
+  roles        PersonRole[]
+  programLinks ProgramOfficeProgramLink[]
+
+  @@index([service], map: "program_office_service_idx")
+  @@index([officeType], map: "program_office_office_type_idx")
+  @@index([parentOfficeId], map: "program_office_parent_idx")
+  @@map("program_office")
+}
+
+/// A person's role at an office and/or on a program, with a compliance classification
+/// (contactUse) and review gate. Replaces the free-text person->PE shortcut (plan §8).
+/// Global reference data. staleAt set by the staleness job when observedAt > 180d
+/// without re-assertion (stale roles are excluded from recommendation surfaces).
+model PersonRole {
+  id             String    @id @default(uuid()) @db.Uuid
+  personId       String    @map("person_id") @db.Uuid
+  officeId       String?   @map("office_id") @db.Uuid
+  programId      String?   @map("program_id") @db.Uuid
+  roleTitle      String    @map("role_title")
+  /// 'peo' | 'pm' | 'deputy' | 'chief_engineer' | 'contracting_officer' | 'staff' | 'other'
+  roleType       String    @map("role_type") @db.VarChar(24)
+  source         String    @db.VarChar(64)
+  sourceUrl      String?   @map("source_url")
+  sourceQuote    String?   @map("source_quote") @db.Text
+  observedAt     DateTime  @map("observed_at") @db.Timestamptz(6)
+  effectiveStart DateTime? @map("effective_start") @db.Timestamptz(6)
+  effectiveEnd   DateTime? @map("effective_end") @db.Timestamptz(6)
+  confidence     Float     @default(0.5)
+  /// 'accepted' | 'candidate' | 'quarantined'
+  reviewStatus   String    @default("candidate") @map("review_status") @db.VarChar(20)
+  /// 'lobbying_contact' | 'program_ownership_context' | 'official_procurement_poc' |
+  /// 'internal_owner' | 'relationship_owner' | 'do_not_contact_procurement_sensitive' |
+  /// 'candidate' | 'quarantined'. Set by the contact-use policy module.
+  contactUse     String    @map("contact_use") @db.VarChar(40)
+  staleAt        DateTime? @map("stale_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  person  AcquisitionPersonnel @relation(fields: [personId], references: [id], onDelete: Cascade)
+  office  ProgramOffice?       @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  program Program?             @relation(fields: [programId], references: [id], onDelete: SetNull)
+
+  @@index([personId], map: "person_role_person_id_idx")
+  @@index([officeId], map: "person_role_office_id_idx")
+  @@index([programId], map: "person_role_program_id_idx")
+  @@index([reviewStatus], map: "person_role_review_status_idx")
+  @@index([contactUse], map: "person_role_contact_use_idx")
+  @@map("person_role")
+}
+
+/// Office -> Program link (which office manages/executes/supports a program). Review-gated;
+/// alias-derived links are 'candidate' only. Global reference data.
+model ProgramOfficeProgramLink {
+  id           String   @id @default(uuid()) @db.Uuid
+  officeId     String   @map("office_id") @db.Uuid
+  programId    String   @map("program_id") @db.Uuid
+  /// 'manages' | 'executes' | 'supports'
+  relation     String   @db.VarChar(16)
+  sourceUrl    String?  @map("source_url")
+  confidence   Float    @default(0.5)
+  reviewStatus String   @default("candidate") @map("review_status") @db.VarChar(20)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  office  ProgramOffice @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  program Program       @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([officeId, programId], map: "program_office_program_link_office_program_key")
+  @@index([programId], map: "program_office_program_link_program_id_idx")
+  @@map("program_office_program_link")
 }
