@@ -14261,6 +14261,149 @@ body {
   color: var(--ink-2);
 }
 
+/* ── White paper enhancements (variants, context, lint) ─────────────── */
+
+.wp-clio-hint {
+  font-size: 11px;
+  color: var(--ink-3);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+.wp-lint-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-1);
+  background: var(--bg-surface);
+  color: var(--ink-2);
+}
+
+.wp-lint-bar.has-issues {
+  background: color-mix(in srgb, var(--warning, #d48806) 12%, var(--bg-surface));
+  color: var(--ink-1);
+}
+
+.wp-lint-bar.clean {
+  background: color-mix(in srgb, var(--success, #389e0d) 10%, var(--bg-surface));
+}
+
+.wp-lint-dismiss {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--ink-3);
+}
+
+.wp-section-head-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wp-outline-item.reviewed .dot {
+  background: var(--success, #389e0d);
+}
+
+.wp-ctx-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.wp-ctx-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 8px;
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  font-size: 11px;
+  max-width: 100%;
+}
+
+.wp-ctx-chip .k {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.wp-ctx-chip .t {
+  color: var(--ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+.wp-ctx-chip button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink-3);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.wp-ctx-freeform {
+  margin-top: 8px;
+}
+
+.wp-variant-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.wp-variant-card {
+  text-align: left;
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.wp-variant-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+}
+
+.wp-variant-name {
+  font-weight: 600;
+  color: var(--ink-1);
+  margin-bottom: 4px;
+}
+
+.wp-variant-desc {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.wp-variant-meta {
+  font-size: 11px;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+
+.wp-variant-sections {
+  font-size: 11px;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
 @media (max-width: 1200px) {
   .wp-body {
     grid-template-columns: 220px minmax(0, 1fr);
