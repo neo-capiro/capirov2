@@ -1024,15 +1024,16 @@ model ClioNote {
   @@map("clio_notes")
 }
 
-enum ClioMemoryScope {
-  firm
-  user_private
-}
-
 model ClioMemory {
   id          String                 @id @default(uuid()) @db.Uuid
   tenantId    String                 @map("tenant_id") @db.Uuid
-  scope       ClioMemoryScope        @default(firm)
+  // Stored as TEXT in the DB with a CHECK constraint (scope IN ('firm','user_private'))
+  // per the 20260525103000_clio_memory_scope_hardening migration. Modeled as String
+  // (not a Prisma enum) so the generated client never casts to a "ClioMemoryScope"
+  // Postgres type — that type was never created, and the enum decl caused
+  // `type "public.ClioMemoryScope" does not exist` (42704) 500s on Clio memory reads.
+  // App-level union typing lives in clio/clio-memory.helpers.ts (ClioMemoryScope = 'firm' | 'user_private').
+  scope       String                 @default("firm")
   ownerUserId String?                @map("owner_user_id") @db.Uuid
   key         String                 @db.VarChar(200)
   value       String                 @db.Text
