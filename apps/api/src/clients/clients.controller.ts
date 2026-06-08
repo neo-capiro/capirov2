@@ -78,6 +78,30 @@ class CreateClientDto {
   @IsOptional()
   @IsString()
   profileStatus?: string;
+
+  // Step 2.3 — government identifiers for procurement matching. All OPTIONAL;
+  // only `name` is required to create a client. The Add Client form posts these,
+  // so they must be whitelisted here or the global ValidationPipe
+  // (forbidNonWhitelisted) rejects the whole request with 400.
+  @IsOptional()
+  @IsString()
+  @Length(0, 12)
+  uei?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 5)
+  cageCode?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  naicsCodes?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  pscCodes?: string[];
 }
 
 class BulkImportClientsDto {
