@@ -7,6 +7,7 @@ import type {
   ProgramElementProject,
   ProgramElementSourceItem,
   ProvisionItem,
+  OpportunityItem,
   ProgramElementListResponse,
   ProgramElementMarkupMonitorResponse,
   ProgramElementRelatedResponse,
@@ -76,6 +77,17 @@ export async function getProgramElementProvisions(
   return (
     await api.get<ProvisionItem[]>(
       `/api/program-elements/${encodeURIComponent(peCode)}/provisions`,
+    )
+  ).data;
+}
+
+export async function getProgramElementOpportunities(
+  api: AxiosInstance,
+  peCode: string,
+): Promise<OpportunityItem[]> {
+  return (
+    await api.get<OpportunityItem[]>(
+      `/api/program-elements/${encodeURIComponent(peCode)}/opportunities`,
     )
   ).data;
 }

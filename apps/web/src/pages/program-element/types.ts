@@ -371,6 +371,31 @@ export interface ProvisionItem {
   confidence: number;
 }
 
+// ── SAM.gov procurement opportunities (Step 3.1) ─────────────────────────────
+// One ACTIVE SAM.gov procurement notice linked to this PE. Backed by
+// GET /api/program-elements/:peCode/opportunities. `reviewStatus` is
+// accepted|candidate (quarantined never surfaced). `pocName`/`pocEmail` are the
+// OFFICIAL contracting POC — surfaced for provenance, NEVER an outreach target.
+// Dates are ISO strings over the wire (Date is JSON-serialized by the API).
+export interface OpportunityItem {
+  id: string;
+  noticeId: string;
+  title: string;
+  noticeType: string;
+  agency: string | null;
+  office: string | null;
+  pscCode: string | null;
+  naicsCode: string | null;
+  postedDate: string | null;
+  responseDeadline: string | null;
+  sourceUrl: string | null;
+  pocName: string | null;
+  pocEmail: string | null;
+  matchBasis: string;
+  reviewStatus: string;
+  confidence: number;
+}
+
 // ── CRM contact picker (link an acquisition-personnel record to a contact) ────
 export interface EngagementContactListItem {
   id: string;

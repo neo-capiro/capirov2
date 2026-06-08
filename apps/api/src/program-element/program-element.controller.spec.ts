@@ -31,6 +31,7 @@ describe('ProgramElementController', () => {
       getRelatedProgramElements: jest.fn(),
       getProgramsForPe: jest.fn(),
       getProvisionsForPe: jest.fn(),
+      getOpportunitiesForPe: jest.fn(),
       setWatching: jest.fn(),
       listReconciliationQueue: jest.fn(),
       resolveReconciliation: jest.fn(),
@@ -224,6 +225,37 @@ describe('ProgramElementController', () => {
     expect(service.getProvisionsForPe).toHaveBeenCalledWith('0604801F');
     expect(result).toHaveLength(1);
     expect(result[0]?.matchBasis).toBe('pe_code');
+    expect(result[0]?.reviewStatus).toBe('accepted');
+  });
+
+  test('GET /api/program-elements/:peCode/opportunities delegates to the read service (Step 3.1)', async () => {
+    const { controller, service } = makeController();
+    service.getOpportunitiesForPe.mockResolvedValue([
+      {
+        id: 'opp-1',
+        noticeId: 'SAM-NOTICE-1',
+        title: 'Long-Range Fires Components',
+        noticeType: 'Solicitation',
+        agency: 'Department of the Army',
+        office: 'ACC-RSA',
+        pscCode: '1410',
+        naicsCode: '336414',
+        postedDate: '2026-05-01T00:00:00.000Z',
+        responseDeadline: '2026-07-01T00:00:00.000Z',
+        sourceUrl: 'https://sam.gov/opp/abc',
+        pocName: 'Jane Contracting',
+        pocEmail: 'jane@army.mil',
+        matchBasis: 'description_pe_code',
+        reviewStatus: 'accepted',
+        confidence: 0.99,
+      },
+    ]);
+
+    const result = await controller.opportunities('0604801F');
+
+    expect(service.getOpportunitiesForPe).toHaveBeenCalledWith('0604801F');
+    expect(result).toHaveLength(1);
+    expect(result[0]?.noticeId).toBe('SAM-NOTICE-1');
     expect(result[0]?.reviewStatus).toBe('accepted');
   });
 

@@ -140,6 +140,14 @@ export class ProgramElementController {
     return this.service.getProvisionsForPe(peCode);
   }
 
+  // Step 3.1 — ACTIVE SAM.gov procurement notices linked to this PE (accepted +
+  // candidate matches on active notices only; quarantined never surfaced). Ordered
+  // by responseDeadline ascending, NULLs last (soonest-closing first).
+  @Get(':peCode/opportunities')
+  opportunities(@Param('peCode') peCode: string) {
+    return this.service.getOpportunitiesForPe(peCode);
+  }
+
   // Step 1.3 — budget positions (PB cycle + FYDP outyears). Optional ?fy=<assertedFy>
   // narrows to one fiscal year. Empty until per-FY dollar columns are loaded.
   @Get(':peCode/positions')

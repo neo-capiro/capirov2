@@ -17,6 +17,7 @@ import {
   getProgramElementPersonnel,
   getProgramElementProjects,
   getProgramElementProvisions,
+  getProgramElementOpportunities,
   getProgramElementRelated,
   getProgramElementSources,
   setProgramElementWatching,
@@ -28,6 +29,7 @@ import { ProjectsPanel } from './ProjectsPanel.js';
 import { ProofPackPanel } from './ProofPackPanel.js';
 import { WhatChangedPanel } from './WhatChangedPanel.js';
 import { ProvisionsPanel } from './ProvisionsPanel.js';
+import { ProcurementActivityPanel } from './ProcurementActivityPanel.js';
 import { RelatedPesPanel } from './RelatedPesPanel.js';
 import { ProgramsPanel } from './ProgramsPanel.js';
 import { getProgramsForPe } from './programs-api.js';
@@ -113,6 +115,7 @@ const LazyProgramsPanel = lazy(async () => ({ default: ProgramsPanel }));
 const LazyClientRelevancePanel = lazy(async () => ({ default: ClientRelevancePanel }));
 const LazyWhatChangedPanel = lazy(async () => ({ default: WhatChangedPanel }));
 const LazyProvisionsPanel = lazy(async () => ({ default: ProvisionsPanel }));
+const LazyProcurementActivityPanel = lazy(async () => ({ default: ProcurementActivityPanel }));
 
 function formatSyncedDate(value: string): string {
   const parsed = new Date(value);
@@ -256,6 +259,13 @@ export function ProgramElementWatchPage() {
   const provisionsQuery = useQuery({
     queryKey: ['program-element-provisions', normalizedPeCode],
     queryFn: () => getProgramElementProvisions(api, normalizedPeCode),
+    staleTime: 60 * 1000,
+    enabled: normalizedPeCode.length > 0,
+  });
+
+  const opportunitiesQuery = useQuery({
+    queryKey: ['program-element-opportunities', normalizedPeCode],
+    queryFn: () => getProgramElementOpportunities(api, normalizedPeCode),
     staleTime: 60 * 1000,
     enabled: normalizedPeCode.length > 0,
   });
@@ -552,6 +562,19 @@ export function ProgramElementWatchPage() {
         <LazyProvisionsPanel
           provisions={provisionsQuery.data}
           loading={provisionsQuery.isLoading}
+        />
+      </Suspense>
+
+      <Suspense
+        fallback={
+          <Card title="Procurement activity">
+            <Skeleton active paragraph={{ rows: 3 }} />
+          </Card>
+        }
+      >
+        <LazyProcurementActivityPanel
+          opportunities={opportunitiesQuery.data}
+          loading={opportunitiesQuery.isLoading}
         />
       </Suspense>
 

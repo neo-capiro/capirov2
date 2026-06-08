@@ -45,6 +45,32 @@ export interface ProvisionItem {
 }
 
 /**
+ * Step 3.1 — one SAM.gov procurement notice surfaced on a PE profile. Joins a
+ * SamOpportunityMatch (matchBasis/reviewStatus/confidence/peCode) to its SamOpportunity
+ * (the notice metadata + the public procurement POC). The shape the web "Procurement
+ * activity" panel renders. The POC is the OFFICIAL contracting contact — it is surfaced
+ * for provenance, NEVER as a lobbying/outreach target.
+ */
+export interface OpportunityItem {
+  id: string;
+  noticeId: string;
+  title: string;
+  noticeType: string;
+  agency: string | null;
+  office: string | null;
+  pscCode: string | null;
+  naicsCode: string | null;
+  postedDate: Date | null;
+  responseDeadline: Date | null;
+  sourceUrl: string | null;
+  pocName: string | null;
+  pocEmail: string | null;
+  matchBasis: string;
+  reviewStatus: string;
+  confidence: number;
+}
+
+/**
  * Cap on the number of not-already-matched candidate PEs the needs-attention feed probes
  * against the relevance service per request. Each probe is its own withTenant transaction,
  * so this bounds a new tenant's (no watches/caps) request to MAX_RELEVANCE_PROBES sequential
@@ -1175,6 +1201,84 @@ export class ProgramElementReadService {
     // Accepted first, then candidate; within a status, newest fiscal year first.
     const statusRank = (s: string) => (s === 'accepted' ? 0 : 1);
     items.sort((a, b) => statusRank(a.reviewStatus) - statusRank(b.reviewStatus) || b.fy - a.fy);
+    return items;
+  }
+
+  /**
+   * Step 3.1 — ACTIVE SAM.gov procurement notices linked to this PE.
+   *
+   * Joins SamOpportunityMatch (peCode) → SamOpportunity (notice metadata + procurement POC).
+   * Only surfaces matches that are BOTH (a) reviewStatus accepted OR candidate AND (b) on an
+   * active notice (active=true). QUARANTINED / rejected matches are NEVER returned — a PSC/
+   * NAICS-only match lands as 'quarantined' and must clear human review before it appears.
+   * Ordered by the notice's responseDeadline ASCENDING with NULL deadlines LAST (soonest-to-
+   * close first; undated notices after), so the panel's deadline countdown is most-urgent-first.
+   * These are GLOBAL tables (no RLS), so read via this.prisma directly. Empty array (never an
+   * error) when this PE has no active matched opportunities.
+   */
+  async getOpportunitiesForPe(peCode: string): Promise<OpportunityItem[]> {
+    const code = peCode.trim();
+    if (!code) return [];
+
+    const matches = await this.prisma.samOpportunityMatch.findMany({
+      // Quarantined/rejected are NEVER surfaced; only active notices are returned.
+      where: {
+        peCode: code,
+        reviewStatus: { in: ['accepted', 'candidate'] },
+        opportunity: { is: { active: true } },
+      },
+      select: {
+        matchBasis: true,
+        reviewStatus: true,
+        confidence: true,
+        opportunity: {
+          select: {
+            id: true,
+            noticeId: true,
+            title: true,
+            noticeType: true,
+            agency: true,
+            office: true,
+            pscCode: true,
+            naicsCode: true,
+            postedDate: true,
+            responseDeadline: true,
+            sourceUrl: true,
+            pocName: true,
+            pocEmail: true,
+          },
+        },
+      },
+    });
+
+    const items: OpportunityItem[] = matches.map((m) => ({
+      id: m.opportunity.id,
+      noticeId: m.opportunity.noticeId,
+      title: m.opportunity.title,
+      noticeType: m.opportunity.noticeType,
+      agency: m.opportunity.agency,
+      office: m.opportunity.office,
+      pscCode: m.opportunity.pscCode,
+      naicsCode: m.opportunity.naicsCode,
+      postedDate: m.opportunity.postedDate,
+      responseDeadline: m.opportunity.responseDeadline,
+      sourceUrl: m.opportunity.sourceUrl,
+      pocName: m.opportunity.pocName,
+      pocEmail: m.opportunity.pocEmail,
+      matchBasis: m.matchBasis,
+      reviewStatus: m.reviewStatus,
+      confidence: m.confidence,
+    }));
+
+    // responseDeadline ascending, NULLs last (soonest-closing notices first; undated last).
+    items.sort((a, b) => {
+      const at = a.responseDeadline ? new Date(a.responseDeadline).getTime() : null;
+      const bt = b.responseDeadline ? new Date(b.responseDeadline).getTime() : null;
+      if (at === null && bt === null) return 0;
+      if (at === null) return 1;
+      if (bt === null) return -1;
+      return at - bt;
+    });
     return items;
   }
 }
