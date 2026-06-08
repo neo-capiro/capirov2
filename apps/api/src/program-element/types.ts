@@ -51,6 +51,9 @@ export interface FieldDelta {
 }
 
 export const SOURCE_PRIORITY = [
+  // capiro_admin reconciliation decision — outranks every ingestion source so an
+  // accepted/manual value becomes (and stays) canonical across future syncs (Step 0.2).
+  'manual_override',
   'conference_report',
   'hac_d_report',
   'sac_d_report',
@@ -65,3 +68,6 @@ export const SOURCE_PRIORITY = [
 ] as const;
 
 export type SourcePriority = (typeof SOURCE_PRIORITY)[number];
+
+/** Source tag written when a capiro_admin resolves a reconciliation conflict. */
+export const MANUAL_OVERRIDE_SOURCE = 'manual_override';

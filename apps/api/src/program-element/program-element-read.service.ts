@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import LRUCache = require('lru-cache');
 import type { TenantContext } from '@capiro/shared';
@@ -696,4 +696,101 @@ export class ProgramElementReadService {
     ]);
     return { data: rows, total, page: Math.max(page, 1), limit: take };
   }
+
+  /**
+   * Resolve a reconciliation review-queue entry (Step 0.2, capiro_admin only — gated at the
+   * controller). `keep_current` only marks the entry resolved. `accept_conflicting` /
+   * `manual_value` write the chosen value (in $ millions) through `applyAccepted`, which must
+   * route through the writer's `upsertProgramElementYear(..., 'manual_override')` so the
+   * canonical program_element_year row updates and is_winner flips consistently (never bypass
+   * the writer). The queue-status update + AuditLog run inside withTenant so the RLS-protected
+   * AuditLog insert passes; the queue table itself is a global (RLS-exempt) table.
+   */
+  async resolveReconciliation(
+    id: string,
+    input: ResolveReconciliationInput,
+    ctx: TenantContext,
+    applyAccepted: (peCode: string, fy: number, fieldName: string, value: number) => Promise<void>,
+  ) {
+    const entry = await this.prisma.reconciliationReviewQueue.findUnique({ where: { id } });
+    if (!entry) throw new NotFoundException(`Reconciliation entry ${id} not found`);
+    if (entry.status !== 'open') {
+      throw new BadRequestException(`Reconciliation entry ${id} is already ${entry.status}`);
+    }
+
+    let appliedValue: number | null = null;
+    if (input.decision === 'accept_conflicting' || input.decision === 'manual_value') {
+      // Validate the RAW value before coercing — Number(null) is 0, which would otherwise
+      // slip past the guard and silently write $0 as the canonical value.
+      const rawSource: string | number | null | undefined =
+        input.decision === 'accept_conflicting' ? entry.conflictingValue : input.manualValue;
+      if (rawSource === null || rawSource === undefined || rawSource === '' || !Number.isFinite(Number(rawSource))) {
+        throw new BadRequestException(
+          input.decision === 'manual_value'
+            ? 'manualValue (number, in $ millions) is required for decision=manual_value'
+            : `Conflicting value for entry ${id} is not numeric and cannot be accepted`,
+        );
+      }
+      appliedValue = Number(rawSource);
+      // Apply through the writer path (manual_override source) BEFORE marking the entry
+      // resolved. This ordering is deliberately fail-safe + NOT atomic with the status/audit
+      // write below: if the resolve-and-audit transaction fails after the value is applied,
+      // the entry stays OPEN (visible + retryable) rather than resolved-without-applying, and
+      // a retry is idempotent (the writer no-ops on an identical canonical value).
+      await applyAccepted(entry.peCode, entry.fy, entry.fieldName, appliedValue);
+    }
+
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await tx.reconciliationReviewQueue.update({
+        where: { id },
+        data: {
+          status: 'resolved',
+          resolvedByUserId: ctx.userId,
+          resolvedAt: new Date(),
+          resolutionNotes: input.notes?.trim() || null,
+        },
+      });
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId,
+          actorUserId: ctx.userId,
+          actorRole: ctx.role,
+          action: 'program_element.reconciliation.resolve',
+          entityType: 'reconciliation_review_queue',
+          entityId: id,
+          before: {
+            status: entry.status,
+            currentValue: entry.currentValue,
+            conflictingValue: entry.conflictingValue,
+          },
+          after: {
+            decision: input.decision,
+            appliedValue,
+            peCode: entry.peCode,
+            fy: entry.fy,
+            fieldName: entry.fieldName,
+          },
+        },
+      });
+    });
+
+    return {
+      resolved: true as const,
+      id,
+      decision: input.decision,
+      peCode: entry.peCode,
+      fy: entry.fy,
+      fieldName: entry.fieldName,
+      appliedValue,
+    };
+  }
+}
+
+export type ReconciliationDecision = 'keep_current' | 'accept_conflicting' | 'manual_value';
+
+export interface ResolveReconciliationInput {
+  decision: ReconciliationDecision;
+  /** Numeric value in $ millions; required for decision=manual_value. */
+  manualValue?: number | null;
+  notes?: string | null;
 }

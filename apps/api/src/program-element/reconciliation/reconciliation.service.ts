@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { SOURCE_PRIORITY } from '../types.js';
+import { MANUAL_OVERRIDE_SOURCE, SOURCE_PRIORITY } from '../types.js';
 
 /**
  * Cross-source reconciliation (Step 29, Boss Plan §4.1).
@@ -120,9 +120,12 @@ export class ReconciliationService {
         : null;
 
       const decision = shouldQueue(fieldName, canonicalValue, incoming);
+      // A capiro_admin override (manual_override) is authoritative — it is logged for
+      // history above but is never itself queued for review (Step 0.2).
+      const queued = decision.queued && input.source !== MANUAL_OVERRIDE_SOURCE;
 
       // 3. Queue if over threshold. Dedup: don't re-queue an identical open entry.
-      if (decision.queued) {
+      if (queued) {
         const existingOpen = await this.prisma.reconciliationReviewQueue.findFirst({
           where: {
             peCode: input.peCode,
@@ -155,7 +158,7 @@ export class ReconciliationService {
       results.push({
         fieldName,
         logged: true,
-        queued: decision.queued,
+        queued,
         deltaPct: decision.deltaPct,
         reason: decision.reason,
       });

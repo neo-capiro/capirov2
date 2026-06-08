@@ -1,6 +1,9 @@
-import { NotFoundException } from '@nestjs/common';
+import { ExecutionContext, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import type { TenantContext } from '@capiro/shared';
 import { ProgramElementController } from './program-element.controller.js';
+import { RolesGuard } from '../auth/roles.guard.js';
+import { MANUAL_OVERRIDE_SOURCE } from './types.js';
 
 describe('ProgramElementController', () => {
   const ctx: TenantContext = {
@@ -10,6 +13,7 @@ describe('ProgramElementController', () => {
     clerkUserId: 'user_test',
     role: 'standard_user',
   };
+  const adminCtx: TenantContext = { ...ctx, role: 'capiro_admin' };
 
   const makeController = () => {
     const service = {
@@ -20,10 +24,13 @@ describe('ProgramElementController', () => {
       getContractors: jest.fn(),
       getRelatedProgramElements: jest.fn(),
       setWatching: jest.fn(),
+      listReconciliationQueue: jest.fn(),
+      resolveReconciliation: jest.fn(),
     };
+    const writer = { upsertProgramElementYear: jest.fn().mockResolvedValue({ inserted: false, changed: true }) };
 
-    const controller = new ProgramElementController(service as never);
-    return { controller, service };
+    const controller = new ProgramElementController(service as never, writer as never);
+    return { controller, service, writer };
   };
 
   test('GET /api/program-elements applies defaults and pagination shape', async () => {
@@ -203,5 +210,58 @@ describe('ProgramElementController', () => {
     service.setWatching.mockRejectedValue(new NotFoundException('Program element BAD not found'));
 
     await expect(controller.watch(ctx, 'BAD', { watching: false })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  test('POST resolve delegates to the service with the normalized body + an apply callback', async () => {
+    const { controller, service, writer } = makeController();
+    service.resolveReconciliation.mockResolvedValue({ resolved: true, id: 'r1', decision: 'keep_current' });
+
+    const res = await controller.resolveReconciliation(adminCtx, 'r1', { decision: 'keep_current' } as never);
+
+    expect(service.resolveReconciliation).toHaveBeenCalledWith(
+      'r1',
+      { decision: 'keep_current', manualValue: undefined, notes: undefined },
+      adminCtx,
+      expect.any(Function),
+    );
+    // keep_current never invokes the apply callback (the service decides), so no writer call.
+    expect(writer.upsertProgramElementYear).not.toHaveBeenCalled();
+    expect(res.resolved).toBe(true);
+  });
+
+  test('resolve apply-callback writes the accepted value through the manual_override source', async () => {
+    const { controller, service, writer } = makeController();
+    // Drive the callback the controller passes, as the real service would for accept/manual.
+    service.resolveReconciliation.mockImplementation(
+      async (_id: string, _input: unknown, _ctx: unknown, applyAccepted: (p: string, f: number, n: string, v: number) => Promise<void>) => {
+        await applyAccepted('0601102A', 2027, 'hascMark', 250.5);
+        return { resolved: true };
+      },
+    );
+
+    await controller.resolveReconciliation(adminCtx, 'r1', { decision: 'accept_conflicting' } as never);
+
+    expect(writer.upsertProgramElementYear).toHaveBeenCalledWith(
+      { peCode: '0601102A', fy: 2027, hascMark: 250.5 },
+      MANUAL_OVERRIDE_SOURCE,
+    );
+  });
+
+  test('admin reconciliation endpoints require capiro_admin → standard_user gets 403 (RolesGuard)', () => {
+    const guard = new RolesGuard(new Reflector());
+    const mkCtx = (role: TenantContext['role'], handler: unknown): ExecutionContext =>
+      ({
+        switchToHttp: () => ({ getRequest: () => ({ tenantContext: { ...ctx, role } }) }),
+        getHandler: () => handler,
+        getClass: () => ProgramElementController,
+      }) as unknown as ExecutionContext;
+
+    for (const handler of [
+      ProgramElementController.prototype.resolveReconciliation,
+      ProgramElementController.prototype.reconciliationQueue,
+    ]) {
+      expect(() => guard.canActivate(mkCtx('standard_user', handler))).toThrow(ForbiddenException);
+      expect(guard.canActivate(mkCtx('capiro_admin', handler))).toBe(true);
+    }
   });
 });

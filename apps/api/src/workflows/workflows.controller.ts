@@ -4,25 +4,36 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { CreateWorkflowInstanceDto } from './dto/create-workflow-instance.dto.js';
 import { UpdateWorkflowInstanceDto } from './dto/update-workflow-instance.dto.js';
+import {
+  GenerateWhitePaperDto,
+  GenerateWhitePaperSectionDto,
+} from './dto/whitepaper.dto.js';
 import { WorkflowsService } from './workflows.service.js';
+import { WhitePaperService } from './whitepaper.service.js';
 
 @Controller('workflows')
 @UseGuards(RolesGuard)
 @Roles('standard_user')
 export class WorkflowsController {
-  constructor(private readonly service: WorkflowsService) {}
+  constructor(
+    private readonly service: WorkflowsService,
+    private readonly whitePaper: WhitePaperService,
+  ) {}
 
   @Get('templates')
   listTemplates() {
@@ -91,7 +102,53 @@ export class WorkflowsController {
   }
 
   @Post('instances/:id/generate-document')
-  generateDocument(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
-    return this.service.generateDocument(ctx.tenantId, id);
+  generateDocument(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: GenerateWhitePaperDto,
+  ) {
+    return this.whitePaper.generateStructuredDocument(ctx.tenantId, id, {
+      variantSlug: body.variantSlug,
+      tone: body.tone,
+      steerNote: body.steerNote,
+      contextItems: body.contextItems,
+    });
+  }
+
+  @Post('instances/:id/generate-section')
+  generateSection(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: GenerateWhitePaperSectionDto,
+  ) {
+    return this.whitePaper.generateSection(ctx.tenantId, id, body);
+  }
+
+  @Get('whitepaper/variants')
+  whitePaperVariants() {
+    return this.whitePaper.variants();
+  }
+
+  @Get('instances/:id/context-candidates')
+  contextCandidates(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.whitePaper.contextCandidates(ctx.tenantId, id);
+  }
+
+  @Post('instances/:id/whitepaper-lint')
+  async whitePaperLint(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    const { sections, variantSlug } = await this.whitePaper.readSections(ctx.tenantId, id);
+    return this.whitePaper.lintSections(sections, variantSlug);
+  }
+
+  @Get('instances/:id/export.docx')
+  @Header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+  async exportDocx(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { buffer, filename } = await this.whitePaper.exportDocx(ctx.tenantId, id);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(buffer);
   }
 }

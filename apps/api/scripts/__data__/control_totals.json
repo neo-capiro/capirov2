@@ -1,0 +1,335 @@
+{
+  "_provenance": {
+    "note": "Control totals for extraction validation (Step 0.2). Derived by summing the committed committee artifacts' request (→PB) and mark (→chamber cycle) columns, $→millions. The R-1 artifact carries no per-line dollars, so PB totals come from the committee request column. Replace/augment with hand-entered R-1 summary-page totals when available. Regenerate via `verify:budget-reconciliation -- --seed`.",
+    "method": "summed_from_committee_artifacts",
+    "tolerancePct": 0.5,
+    "seededAtDate": "2026-06-08",
+    "artifacts": [
+      "armed_services_hasc_fy2026.json",
+      "armed_services_hasc_fy2027.json",
+      "armed_services_sasc_fy2026.json"
+    ]
+  },
+  "groups": [
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "hasc",
+      "component": "AF",
+      "field": "hascMark",
+      "totalMillions": 30770.14,
+      "source": "armed_services_hasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "pb",
+      "component": "AF",
+      "field": "request",
+      "totalMillions": 29712.18,
+      "source": "armed_services_hasc_fy2026.json:request"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "sasc",
+      "component": "AF",
+      "field": "sascMark",
+      "totalMillions": 33969.04,
+      "source": "armed_services_sasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "hasc",
+      "component": "ARMY",
+      "field": "hascMark",
+      "totalMillions": 14239.64,
+      "source": "armed_services_hasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "pb",
+      "component": "ARMY",
+      "field": "request",
+      "totalMillions": 14073.74,
+      "source": "armed_services_hasc_fy2026.json:request"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "sasc",
+      "component": "ARMY",
+      "field": "sascMark",
+      "totalMillions": 14854.61,
+      "source": "armed_services_sasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "hasc",
+      "component": "DARPA",
+      "field": "hascMark",
+      "totalMillions": 4570.79,
+      "source": "armed_services_hasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "pb",
+      "component": "DARPA",
+      "field": "request",
+      "totalMillions": 4565.79,
+      "source": "armed_services_hasc_fy2026.json:request"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "sasc",
+      "component": "DARPA",
+      "field": "sascMark",
+      "totalMillions": 4579.79,
+      "source": "armed_services_sasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "hasc",
+      "component": "DW",
+      "field": "hascMark",
+      "totalMillions": 10253.75,
+      "source": "armed_services_hasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "pb",
+      "component": "DW",
+      "field": "request",
+      "totalMillions": 10873.25,
+      "source": "armed_services_hasc_fy2026.json:request"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "sasc",
+      "component": "DW",
+      "field": "sascMark",
+      "totalMillions": 11197.45,
+      "source": "armed_services_sasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "hasc",
+      "component": "NAVY",
+      "field": "hascMark",
+      "totalMillions": 20530.79,
+      "source": "armed_services_hasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "pb",
+      "component": "NAVY",
+      "field": "request",
+      "totalMillions": 20434.49,
+      "source": "armed_services_hasc_fy2026.json:request"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "sasc",
+      "component": "NAVY",
+      "field": "sascMark",
+      "totalMillions": 21761.34,
+      "source": "armed_services_sasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "hasc",
+      "component": "SF",
+      "field": "hascMark",
+      "totalMillions": 12537.21,
+      "source": "armed_services_hasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "pb",
+      "component": "SF",
+      "field": "request",
+      "totalMillions": 12905.42,
+      "source": "armed_services_hasc_fy2026.json:request"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "sasc",
+      "component": "SF",
+      "field": "sascMark",
+      "totalMillions": 13280.42,
+      "source": "armed_services_sasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "hasc",
+      "component": "UNKNOWN",
+      "field": "hascMark",
+      "totalMillions": 638.59,
+      "source": "armed_services_hasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "pb",
+      "component": "UNKNOWN",
+      "field": "request",
+      "totalMillions": 633.59,
+      "source": "armed_services_hasc_fy2026.json:request"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "sasc",
+      "component": "UNKNOWN",
+      "field": "sascMark",
+      "totalMillions": 633.59,
+      "source": "armed_services_sasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "hasc",
+      "component": "USMC",
+      "field": "hascMark",
+      "totalMillions": 2646.69,
+      "source": "armed_services_hasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "pb",
+      "component": "USMC",
+      "field": "request",
+      "totalMillions": 2718.79,
+      "source": "armed_services_hasc_fy2026.json:request"
+    },
+    {
+      "fiscalYear": 2026,
+      "budgetCycle": "sasc",
+      "component": "USMC",
+      "field": "sascMark",
+      "totalMillions": 2747.79,
+      "source": "armed_services_sasc_fy2026.json:mark"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "hasc",
+      "component": "AF",
+      "field": "hascMark",
+      "totalMillions": 43497.58,
+      "source": "armed_services_hasc_fy2027.json:mark"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "pb",
+      "component": "AF",
+      "field": "request",
+      "totalMillions": 43821.98,
+      "source": "armed_services_hasc_fy2027.json:request"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "hasc",
+      "component": "ARMY",
+      "field": "hascMark",
+      "totalMillions": 18520.81,
+      "source": "armed_services_hasc_fy2027.json:mark"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "pb",
+      "component": "ARMY",
+      "field": "request",
+      "totalMillions": 18197.3,
+      "source": "armed_services_hasc_fy2027.json:request"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "hasc",
+      "component": "DARPA",
+      "field": "hascMark",
+      "totalMillions": 5039.37,
+      "source": "armed_services_hasc_fy2027.json:mark"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "pb",
+      "component": "DARPA",
+      "field": "request",
+      "totalMillions": 5039.37,
+      "source": "armed_services_hasc_fy2027.json:request"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "hasc",
+      "component": "DW",
+      "field": "hascMark",
+      "totalMillions": 16099.79,
+      "source": "armed_services_hasc_fy2027.json:mark"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "pb",
+      "component": "DW",
+      "field": "request",
+      "totalMillions": 16075.06,
+      "source": "armed_services_hasc_fy2027.json:request"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "hasc",
+      "component": "NAVY",
+      "field": "hascMark",
+      "totalMillions": 26082.91,
+      "source": "armed_services_hasc_fy2027.json:mark"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "pb",
+      "component": "NAVY",
+      "field": "request",
+      "totalMillions": 25848.56,
+      "source": "armed_services_hasc_fy2027.json:request"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "hasc",
+      "component": "SF",
+      "field": "hascMark",
+      "totalMillions": 21143.76,
+      "source": "armed_services_hasc_fy2027.json:mark"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "pb",
+      "component": "SF",
+      "field": "request",
+      "totalMillions": 21355.16,
+      "source": "armed_services_hasc_fy2027.json:request"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "hasc",
+      "component": "UNKNOWN",
+      "field": "hascMark",
+      "totalMillions": 831.15,
+      "source": "armed_services_hasc_fy2027.json:mark"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "pb",
+      "component": "UNKNOWN",
+      "field": "request",
+      "totalMillions": 831.15,
+      "source": "armed_services_hasc_fy2027.json:request"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "hasc",
+      "component": "USMC",
+      "field": "hascMark",
+      "totalMillions": 3739.72,
+      "source": "armed_services_hasc_fy2027.json:mark"
+    },
+    {
+      "fiscalYear": 2027,
+      "budgetCycle": "pb",
+      "component": "USMC",
+      "field": "request",
+      "totalMillions": 3782.22,
+      "source": "armed_services_hasc_fy2027.json:request"
+    }
+  ]
+}

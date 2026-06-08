@@ -8,6 +8,7 @@ import { SOURCE_PRIORITY } from './types.js';
 // Human-readable provenance shown in the FY drawer's "Source" column and the
 // timeline tooltip, keyed by the base source (service / _fyNN suffixes stripped).
 export const SOURCE_LABEL: Record<string, string> = {
+  manual_override: 'Manual override (admin)',
   conference_report: 'NDAA conference',
   hac_d_report: 'HAC-D report',
   sac_d_report: 'SAC-D report',
