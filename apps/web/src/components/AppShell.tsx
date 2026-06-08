@@ -51,12 +51,15 @@ const { Header, Sider, Content } = Layout;
 interface NavItem {
   key: AppSection;
   label: string;
-  path: string;
+  /** Leaf items navigate to a path; group items (with children) omit it. */
+  path?: string;
   icon: ReactNode;
   nested?: boolean;
   disabled?: boolean;
   /** When set, the item is only shown to callers at or above this role. */
   minRole?: TenantRole;
+  /** Sub-items rendered as an expandable submenu (e.g. the Program Elements group). */
+  children?: NavItem[];
 }
 
 type AppSection =
@@ -67,6 +70,7 @@ type AppSection =
   | 'planner'
   | 'intelligence'
   | 'actions'
+  | 'pe-group'
   | 'program-elements'
   | 'analyst-console'
   | 'directory'
@@ -135,23 +139,30 @@ const NAV: NavItem[] = [
     icon: <BulbOutlined />,
   },
   {
-    key: 'actions',
-    label: 'Action Board',
-    path: '/actions',
-    icon: <AimOutlined />,
-  },
-  {
-    key: 'program-elements',
+    key: 'pe-group',
     label: 'Program Elements',
-    path: '/program-elements',
     icon: <FundOutlined />,
-  },
-  {
-    key: 'analyst-console',
-    label: 'Analyst Console',
-    path: '/admin/analyst-console',
-    icon: <SafetyCertificateOutlined />,
-    minRole: 'capiro_admin',
+    children: [
+      {
+        key: 'program-elements',
+        label: 'Browse',
+        path: '/program-elements',
+        icon: <SearchOutlined />,
+      },
+      {
+        key: 'actions',
+        label: 'Action Board',
+        path: '/actions',
+        icon: <AimOutlined />,
+      },
+      {
+        key: 'analyst-console',
+        label: 'Analyst Console',
+        path: '/admin/analyst-console',
+        icon: <SafetyCertificateOutlined />,
+        minRole: 'capiro_admin',
+      },
+    ],
   },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
@@ -335,16 +346,12 @@ export function AppShell() {
 
   const role = me.data?.role;
   const items = useMemo(() => {
-    const result: NonNullable<MenuProps['items']> = [];
-    for (const n of NAV) {
-      // Role-gated nav entries (e.g. capiro_admin Analyst Console) are an
-      // affordance only; the API's RolesGuard is the security boundary.
-      if (n.minRole && (!role || ROLE_RANK[role] < ROLE_RANK[n.minRole])) {
-        continue;
-      }
-      if (n.key === 'clients') {
-        result.push({ type: 'divider' });
-      }
+    // Role-gated nav entries (e.g. capiro_admin Analyst Console) are an
+    // affordance only; the API's RolesGuard is the security boundary.
+    const isVisible = (n: NavItem) =>
+      !n.minRole || (role != null && ROLE_RANK[role] >= ROLE_RANK[n.minRole]);
+
+    const buildLeaf = (n: NavItem) => {
       const count = navCounts[n.key];
       const labelInner = (
         <span className="app-nav-label-row">
@@ -356,7 +363,7 @@ export function AppShell() {
           ) : null}
         </span>
       );
-      result.push({
+      return {
         key: n.key,
         icon: n.icon,
         title: n.label,
@@ -365,22 +372,48 @@ export function AppShell() {
           [n.nested ? 'app-nav-item--nested' : '', n.disabled ? 'app-nav-item--disabled' : '']
             .filter(Boolean)
             .join(' ') || undefined,
-        label: n.disabled ? (
-          labelInner
-        ) : (
-          <Link
-            to={n.path}
-            style={{ color: 'inherit' }}
-            onClick={(event) => {
-              if (!workflowLocked) return;
-              event.preventDefault();
-              message.info('Cancel or complete the outreach workflow before navigating away.');
-            }}
-          >
-            {labelInner}
-          </Link>
-        ),
-      });
+        label:
+          n.disabled || !n.path ? (
+            labelInner
+          ) : (
+            <Link
+              to={n.path}
+              style={{ color: 'inherit' }}
+              onClick={(event) => {
+                if (!workflowLocked) return;
+                event.preventDefault();
+                message.info('Cancel or complete the outreach workflow before navigating away.');
+              }}
+            >
+              {labelInner}
+            </Link>
+          ),
+      };
+    };
+
+    const result: NonNullable<MenuProps['items']> = [];
+    for (const n of NAV) {
+      if (!isVisible(n)) continue;
+      if (n.key === 'clients') {
+        result.push({ type: 'divider' });
+      }
+      if (n.children) {
+        const kids = n.children.filter(isVisible);
+        if (!kids.length) continue;
+        result.push({
+          key: n.key,
+          icon: n.icon,
+          title: n.label,
+          label: (
+            <span className="app-nav-label-row">
+              <span className="app-nav-label-text">{n.label}</span>
+            </span>
+          ),
+          children: kids.map(buildLeaf),
+        });
+      } else {
+        result.push(buildLeaf(n));
+      }
     }
     return result;
   }, [message, navCounts, role, workflowLocked]);
@@ -445,6 +478,7 @@ export function AppShell() {
             theme="dark"
             mode="inline"
             selectedKeys={[selectedKey]}
+            defaultOpenKeys={['pe-group']}
             items={items}
             inlineCollapsed={navCollapsed}
             inlineIndent={24}
@@ -860,6 +894,7 @@ function pageConfigFor(pathname: string): PageConfig {
     planner: 'Planner',
     intelligence: 'Intelligence Center',
     actions: 'Action Board',
+    'pe-group': 'Program Elements',
     'program-elements': 'Program Elements',
     'analyst-console': 'Analyst Console',
     directory: 'Directory',
