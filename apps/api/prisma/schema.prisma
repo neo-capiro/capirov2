@@ -176,6 +176,7 @@ model Tenant {
   clioMemories                 ClioMemory[]
   clioProactiveAlerts          ClioProactiveAlert[]
   programElementWatches        ProgramElementWatch[]
+  actionRecommendations        ActionRecommendation[]
 
   @@map("tenants")
 }
@@ -308,6 +309,7 @@ model Client {
   strategies              Strategy[]
   engagementCampaigns     EngagementCampaign[]
   clioProactiveAlerts     ClioProactiveAlert[]
+  actionRecommendations   ActionRecommendation[]
 
   @@index([tenantId], map: "clients_tenant_idx")
   @@index([tenantId, name], map: "clients_tenant_name_idx")
@@ -1246,6 +1248,44 @@ model ClientFacility {
   @@index([tenantId, clientId], map: "client_facilities_tenant_client_idx")
   @@index([state, congressionalDistrict], map: "client_facilities_district_idx")
   @@map("client_facilities")
+}
+
+/// Step 3.2 — materiality-gated, client-specific action card (plan §10 card spec,
+/// §19 workflow states). Tenant-scoped with RLS (mirrors ClientFacility). deltaId /
+/// programId / peCode / ownerUserId are plain ids (no FK), matching repo convention.
+model ActionRecommendation {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tenantId              String    @map("tenant_id") @db.Uuid
+  clientId              String    @map("client_id") @db.Uuid
+  peCode                String?   @map("pe_code") @db.VarChar(16)
+  programId             String?   @map("program_id") @db.Uuid
+  deltaId               String?   @map("delta_id") @db.Uuid
+  actionType            String    @map("action_type") @db.VarChar(40)
+  issueTitle            String    @map("issue_title") @db.Text
+  whatChanged           String    @map("what_changed") @db.Text
+  whyItMatters          String    @map("why_it_matters") @db.Text
+  recommendedAction     String    @map("recommended_action") @db.Text
+  targetAudience        Json      @default("[]") @map("target_audience_jsonb")
+  suggestedArtifactType String?   @map("suggested_artifact_type") @db.VarChar(40)
+  deadline              DateTime? @db.Date
+  deadlineSource        String?   @map("deadline_source") @db.VarChar(24)
+  ownerUserId           String?   @map("owner_user_id") @db.Uuid
+  priority              Int       @default(0)
+  confidence            Json      @default("{}") @map("confidence_jsonb")
+  uncertainty           String?   @db.Text
+  evidence              Json      @default("[]") @map("evidence_jsonb")
+  status                String    @default("new") @db.VarChar(24)
+  dismissalReason       String?   @map("dismissal_reason") @db.Text
+  outcome               String?   @db.Text
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status, deadline], map: "action_recommendation_tenant_status_deadline_idx")
+  @@index([tenantId, clientId], map: "action_recommendation_tenant_client_idx")
+  @@map("action_recommendation")
 }
 
 model Strategy {
