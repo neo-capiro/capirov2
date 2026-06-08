@@ -1,0 +1,132 @@
+/* Step 3.2 ActionBoard styles. Scoped to .action-board* so nothing here leaks into
+   the shared theme.css (which this chunk must not touch). */
+
+.action-board {
+  padding: 24px 32px;
+  height: 100%;
+  overflow: auto;
+  background: var(--bg-canvas, #f5f6f8);
+}
+
+.action-board-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.action-board-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+/* Kanban layout */
+.action-kanban {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  overflow-x: auto;
+  padding-bottom: 12px;
+}
+
+.action-kanban-column {
+  flex: 0 0 320px;
+  min-width: 320px;
+  background: var(--bg-subtle, #eef0f3);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: calc(100vh - 220px);
+}
+
+.action-kanban-column-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+
+.action-kanban-column-count {
+  font-size: 12px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 10px;
+  padding: 0 8px;
+  line-height: 18px;
+}
+
+.action-kanban-column-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+/* List layout */
+.action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* The card itself */
+.action-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.action-card .ant-card-body {
+  padding: 16px;
+}
+
+.action-card-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.action-card-section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary, #8c8c8c);
+  margin-bottom: 2px;
+}
+
+.action-card-uncertainty {
+  border-left: 3px solid #faad14;
+  background: #fffbe6;
+  padding: 8px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.action-card-deadline--none {
+  color: var(--text-tertiary, #8c8c8c);
+  font-style: italic;
+}
+
+.action-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.action-card-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.action-board-empty {
+  margin-top: 64px;
+}

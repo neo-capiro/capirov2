@@ -33,7 +33,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 2.3 | Client relevance v2 | ✅ done — RLS inputs + pure scoring (194a7d9) + relevance service/API, facilities CRUD, writer+needs-attention wiring, web (card/panel/facilities editor); adversarial fixes applied. RLS hardening of client_capabilities/client_intel_mapping spawned as a task |
 | 2.4 | Committee report language capture | ⬜ pending |
 | 3.1 | SAM.gov opportunities ingestion | ⏳ needs SAM_GOV_API_KEY/data |
-| 3.2 | ActionRecommendation engine + Action Board | ⬜ pending |
+| 3.2 | ActionRecommendation engine + Action Board | ✅ done — RLS model + pure cores (89dde05) + generator service, /intelligence/actions CRUD API, ActionBoard web; adversarial fixes applied. Procurement/SAM card types dormant until 2.4/3.1 data |
 | 3.3 | Source-backed artifact generation | ⏳ needs runtime LLM |
 | 3.4 | Relationship coverage gaps | ⬜ pending |
 | 3.5 | Unified analyst console | ⬜ pending |
@@ -142,6 +142,24 @@ Scaffold/partials interleaved: 0.4 (diag+docs), 0.3 / 1.1 / 1.5 (tooling+runbook
   first) SPAWNED AS A TASK. Verified: api+web typecheck clean; 22 suites/173 specs across the 2.3 areas; web 8/8.
   **DEPLOY-TIME**: relevance computes on demand (no global storage); populate facilities/identifiers via the new
   CRUD/forms.
+- **Step 3.2 done** (foundation 89dde05 + a 6-agent Workflow follow-on + 2 fix-agent passes on adversarial review).
+  FOUNDATION: ActionRecommendation RLS model + 4 pure cores (transitions/gating/audience-guardrail/card-assembly;
+  4 suites/29 specs; scratch-DB RLS forced + dedupe index). FOLLOW-ON: ActionRecommendationService.generate
+  (NEW material delta x relevance>=0.5 client -> gate -> selectAudience -> assembleCard -> idempotent upsert;
+  one card per (tenant,client,delta); human status/owner never reset) + generate-actions CLI; CRUD API under
+  /intelligence/actions (list deadline-first, get, PATCH status via validateTransition, PATCH owner, POST generate;
+  AuditLog; tenant-scoped); web ActionBoardPage (/actions: deadline list + kanban; ActionCard renders ALL section-10
+  fields incl audience contactUse badges, confidence, uncertainty, "No known deadline"; evidence chips deep-link;
+  owner assign; reason-required dismiss). ADVERSARIAL REVIEW (3 reviewers) caught + FIXED: (gen) dry-run silently
+  WROTE under Prisma v5 nested-tx -> real dryRun flag short-circuits the upsert; idempotency broke when actionType
+  changed -> lookup by (tenant,client,delta) + P2002-race fallback (one card per delta); escalate_uncertainty
+  over-forced -> pass only relied-on (accepted) match statuses; `as never` cast -> new getRelevantClientsForPeByTenantId;
+  O(K*200) N+1 -> hoisted to one relevance call per (tenant,delta) with a clientId->paths map; outreachEligible flag
+  on audience members (classifyContactUse never auto-promotes lobbying_contact -> auto audience is context-only).
+  (api) tenant-scoped updateMany writes; @IsOptional/@IsUUID DTO validation. (web) isolated team-members query key;
+  dismiss double-submit guard; outreachEligible context hint. Verified: api+web typecheck clean; 9 suites/99 specs
+  across the action+relevance areas; web 5/5. **DEPLOY-TIME**: schedule generate-actions after emit-changes.
+  procurement_watch/add_report_language card types stay dormant until SAM (3.1) + provisions (2.4) land.
 - **Step 1.4 web "What changed" panel done** (myself, to avoid another agent timeout): web
   `getProgramElementDeltas` api + `ProgramElementDelta`/`ProgramElementDeltaListResponse` types;
   `WhatChangedPanel.tsx` (top-N materiality-scored deltas — type badge, FY tag, `$Xm → $Ym (±%)`,

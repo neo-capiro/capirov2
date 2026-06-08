@@ -11,6 +11,7 @@
 
 import {
   isExcludedFromRecommendations,
+  isLobbyingEligible,
   type ContactUse,
 } from '../../acquisition-personnel/contact-use.policy.js';
 import type { AudienceMember } from './action-recommendation.types.js';
@@ -73,17 +74,27 @@ export function selectAudience(input: SelectAudienceInput): SelectAudienceResult
     if (role.staleAt) {
       continue;
     }
+    // Mark whether the person is actually lobbying/outreach-eligible vs context-only.
+    // NOTE: classifyContactUse never auto-produces 'lobbying_contact', so auto-generated
+    // person members are context-only (outreachEligible: false) until a human explicitly
+    // designates a lobbying contact — this is intentional.
     audience.push({
       kind: 'person_role',
       id: role.id,
       label: role.label,
       contactUse: role.contactUse,
+      outreachEligible: isLobbyingEligible(role.contactUse as ContactUse),
     });
   }
 
-  // Committees are always allowed.
+  // Committees are always allowed (treated as a valid outreach channel).
   for (const committee of input.committees) {
-    audience.push({ kind: 'committee', id: committee.id, label: committee.label });
+    audience.push({
+      kind: 'committee',
+      id: committee.id,
+      label: committee.label,
+      outreachEligible: true,
+    });
   }
 
   // §7: if the card leans on any unconfirmed match, escalate rather than recommend.

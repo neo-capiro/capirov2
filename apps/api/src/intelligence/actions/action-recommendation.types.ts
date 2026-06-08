@@ -59,6 +59,14 @@ export interface AudienceMember {
   id: string;
   label: string;
   contactUse?: string;
+  /**
+   * Whether this member is actually lobbying/outreach-eligible (`true`) vs context-only
+   * (`false`). Set for `person_role` members from the §17 contact-use policy. NOTE:
+   * `classifyContactUse` never auto-produces `'lobbying_contact'`, so auto-generated person
+   * audience members are context-only (`false`) until a human explicitly designates a
+   * lobbying contact — this is intentional. Absent => not assessed.
+   */
+  outreachEligible?: boolean;
 }
 
 /**

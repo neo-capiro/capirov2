@@ -519,11 +519,26 @@ export class ClientPeRelevanceService {
     peCode: string,
     opts: { minScore?: number } = {},
   ): Promise<Array<{ clientId: string; clientName: string; score: number; paths: PathResult[] }>> {
+    // Delegates to the bare-tenantId variant; only ctx.tenantId is used by the scoping logic.
+    return this.getRelevantClientsForPeByTenantId(ctx.tenantId, peCode, opts);
+  }
+
+  /**
+   * Same as {@link getRelevantClientsForPe} but takes a bare `tenantId` instead of a full
+   * {@link TenantContext}. Used by trusted server jobs (e.g. the Step 3.2 action generator)
+   * that have already resolved the tenant id from a SYSTEM cross-tenant fan-out and do not
+   * hold a request-scoped TenantContext. Runs the identical `withTenant` scoring logic.
+   */
+  async getRelevantClientsForPeByTenantId(
+    tenantId: string,
+    peCode: string,
+    opts: { minScore?: number } = {},
+  ): Promise<Array<{ clientId: string; clientName: string; score: number; paths: PathResult[] }>> {
     const minScore = opts.minScore ?? DEFAULT_MIN_RELEVANCE_SCORE;
     const code = peCode.trim().toUpperCase();
 
     return this.prisma.withTenant(
-      ctx.tenantId,
+      tenantId,
       async (tx) => {
         const candidateIds = await this.candidateClientIdsForPe(tx, code);
         const out: Array<{

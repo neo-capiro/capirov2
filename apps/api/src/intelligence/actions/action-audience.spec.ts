@@ -75,10 +75,39 @@ describe('action-audience (§17 contact-use guardrail + §7 quarantine)', () => 
     expect(result.uncertaintyNotes).toHaveLength(0);
 
     const person = result.audience.find((a) => a.id === 'p-lobby');
-    expect(person).toMatchObject({ kind: 'person_role', contactUse: 'lobbying_contact' });
+    // A human-designated lobbying_contact IS outreach-eligible.
+    expect(person).toMatchObject({
+      kind: 'person_role',
+      contactUse: 'lobbying_contact',
+      outreachEligible: true,
+    });
 
     const cmte = result.audience.find((a) => a.id === 'cmte-hasc');
     expect(cmte).toMatchObject({ kind: 'committee', label: committee.label });
+  });
+
+  test('person members carry outreachEligible: context-only roles are FALSE, lobbying_contact is TRUE', () => {
+    // program_ownership_context is the most permissive thing classifyContactUse ever produces
+    // for an auto-generated role — it is CONTEXT, never an auto-invitation to lobby, so it must
+    // be marked outreachEligible: false. Only a human-set lobbying_contact is true.
+    const contextRole: AudiencePersonRole = {
+      id: 'p-context',
+      label: 'Program Owner',
+      contactUse: 'program_ownership_context',
+      reviewStatus: 'accepted',
+      staleAt: null,
+    };
+    const { audience } = selectAudience({
+      personRoles: [contextRole, cleanLobbyist],
+      committees: [committee],
+      matchStatuses: ['accepted'],
+    });
+
+    const context = audience.find((a) => a.id === 'p-context');
+    expect(context).toMatchObject({ kind: 'person_role', outreachEligible: false });
+
+    const lobbyist = audience.find((a) => a.id === 'p-lobby');
+    expect(lobbyist).toMatchObject({ kind: 'person_role', outreachEligible: true });
   });
 
   test('committees are always allowed even when all people are excluded', () => {

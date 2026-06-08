@@ -6,6 +6,9 @@ import { EntityResolutionService } from './entity-resolution.service.js';
 import { ReportCardService } from './report-card.service.js';
 import { ClientPeRelevanceService } from './client-pe-relevance.service.js';
 import { ClientPeRelevanceController } from './client-pe-relevance.controller.js';
+import { ActionRecommendationService } from './actions/action-recommendation.service.js';
+import { ActionRecommendationReadService } from './actions/action-recommendation-read.service.js';
+import { ActionRecommendationController } from './action-recommendation.controller.js';
 import { LdaIntelModule } from '../lda-intel/lda-intel.module.js';
 import { LobbyIntelModule } from '../lobby-intel/lobby-intel.module.js';
 import { FederalSpendingModule } from '../federal-spending/federal-spending.module.js';
@@ -13,22 +16,31 @@ import { FederalRegisterModule } from '../federal-register/federal-register.modu
 
 @Module({
   imports: [LdaIntelModule, LobbyIntelModule, FederalSpendingModule, FederalRegisterModule],
-  controllers: [IntelligenceController, ClientPeRelevanceController],
+  controllers: [
+    IntelligenceController,
+    ClientPeRelevanceController,
+    ActionRecommendationController,
+  ],
   providers: [
     IntelligenceService,
     InsightGeneratorService,
     EntityResolutionService,
     ReportCardService,
     ClientPeRelevanceService,
+    ActionRecommendationService,
+    ActionRecommendationReadService,
   ],
   // ClientPeRelevanceService is EXPORTED so the program-element delta writer (Agent B)
   // and other modules can inject the cross-tenant relevance path without a DI cycle.
+  // ActionRecommendationService (Step 3.2 generator) is EXPORTED so the action-card
+  // CRUD API chunk (Agent B) can inject it for the manual "regenerate" endpoint.
   exports: [
     IntelligenceService,
     InsightGeneratorService,
     EntityResolutionService,
     ReportCardService,
     ClientPeRelevanceService,
+    ActionRecommendationService,
   ],
 })
 export class IntelligenceModule {}

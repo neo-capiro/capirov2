@@ -402,6 +402,26 @@ describe('ClientPeRelevanceService', () => {
       expect(out).toEqual([]);
     });
 
+    test('getRelevantClientsForPeByTenantId: same scoring via a bare tenantId (no full ctx)', async () => {
+      const prisma = makePrisma({
+        client: { id: 'client-1', name: 'Acme Defense', capabilities: [{ peNumbers: [PE] }] },
+        candidateClientIds: [{ clientId: 'client-1' }],
+        pe: { title: 'Some PE', description: null },
+        peTitles: [{ peCode: PE, title: 'Some PE' }],
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const out = await service.getRelevantClientsForPeByTenantId(ctx.tenantId, PE, {
+        minScore: 0.5,
+      });
+      expect(out).toHaveLength(1);
+      expect(out[0]!.clientId).toBe('client-1');
+      expect(out[0]!.score).toBe(1);
+      expect(out[0]!.paths[0]!.path).toBe('capability_pe_direct');
+      // It scopes by the bare tenantId (no TenantContext required).
+      expect(prisma.withTenant.mock.calls[0]![0]).toBe(ctx.tenantId);
+    });
+
     test('clientId-ownership guard: a wrong-tenant candidate (RLS clients read returns null) is skipped', async () => {
       // client_capabilities/client_facilities lack RLS, so the candidate enumeration can
       // surface a clientId that does not belong to this tenant. The RLS-protected `clients`

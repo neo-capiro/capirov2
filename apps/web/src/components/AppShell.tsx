@@ -4,6 +4,7 @@ import { ChatDrawer } from './chat/ChatDrawer.js';
 import { ChangesInboxBell } from './ChangesInboxBell.js';
 import { QuickLogButton } from './QuickLog.js';
 import {
+  AimOutlined,
   ApartmentOutlined,
   BulbOutlined,
   CalendarOutlined,
@@ -61,6 +62,7 @@ type AppSection =
   | 'workspace'
   | 'planner'
   | 'intelligence'
+  | 'actions'
   | 'program-elements'
   | 'directory'
   | 'stakeholders'
@@ -126,6 +128,12 @@ const NAV: NavItem[] = [
     label: 'Intelligence Center',
     path: '/intelligence-center',
     icon: <BulbOutlined />,
+  },
+  {
+    key: 'actions',
+    label: 'Action Board',
+    path: '/actions',
+    icon: <AimOutlined />,
   },
   {
     key: 'program-elements',
@@ -813,6 +821,7 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname.startsWith('/clients')) return 'clients';
   if (pathname.startsWith('/engagement')) return 'engagement';
   if (pathname.startsWith('/workspace')) return 'workspace';
+  if (pathname.startsWith('/actions')) return 'actions';
   if (pathname.startsWith('/explorer') || pathname.startsWith('/intelligence')) return 'intelligence';
   if (pathname.startsWith('/program-elements')) return 'program-elements';
   if (pathname.startsWith('/directory')) return 'directory';
@@ -831,6 +840,7 @@ function pageConfigFor(pathname: string): PageConfig {
     workspace: 'Workspace',
     planner: 'Planner',
     intelligence: 'Intelligence Center',
+    actions: 'Action Board',
     'program-elements': 'Program Elements',
     directory: 'Directory',
     stakeholders: 'Stakeholders',

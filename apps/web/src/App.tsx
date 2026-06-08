@@ -31,6 +31,7 @@ import { ChangesInboxPage } from './pages/intelligence/ChangesInboxPage.js';
 import { IntelligenceMappingsPage } from './pages/settings/IntelligenceMappingsPage.js';
 import { IssueLeaderboardPage } from './pages/intelligence/IssueLeaderboardPage.js';
 import { DataExplorerPage } from './pages/explorer/DataExplorerPage.js';
+import { ActionBoardPage } from './pages/actions/ActionBoardPage.js';
 
 const ProgramElementWatchPage = lazy(async () =>
   import('./pages/program-element/ProgramElementWatchPage.js').then((m) => ({
@@ -110,6 +111,7 @@ export function App() {
           <Route path="kanban" element={<Navigate to="/workspace/workflows" replace />} />
         </Route>
         <Route path="/explorer" element={<DataExplorerPage />} />
+        <Route path="/actions" element={<ActionBoardPage />} />
         <Route
           path="/program-elements"
           element={
