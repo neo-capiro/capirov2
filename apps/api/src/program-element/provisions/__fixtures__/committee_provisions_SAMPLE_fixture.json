@@ -1,0 +1,31 @@
+{
+  "_note": "SYNTHETIC TEST FIXTURE — not real extracted data; the real loader consumes committee_provisions_<report>_<fy>.json produced by the (deferred) pdfplumber language-extraction pass.",
+  "committee": "HASC",
+  "fy": 2027,
+  "provisions": [
+    {
+      "heading": "Briefing on hypersonic test infrastructure",
+      "text": "The committee directs the Secretary of the Air Force to provide a briefing to the congressional defense committees not later than March 1, 2027, on the plan to expand hypersonic ground-test infrastructure.",
+      "pageStart": 142,
+      "pageEnd": 142
+    },
+    {
+      "heading": "Increase for long-range fires development",
+      "text": "The committee recommends an increase of $25.0 million for the long-range fires program element to accelerate prototype development.",
+      "pageStart": 143,
+      "pageEnd": 144
+    },
+    {
+      "heading": "Limitation on retirement of legacy platform",
+      "text": "None of the funds authorized to be appropriated by this Act may be obligated or expended to retire the legacy platform until the Secretary certifies that a replacement capability has reached initial operational capability.",
+      "pageStart": 145,
+      "pageEnd": 145
+    },
+    {
+      "heading": "Program element overview",
+      "text": "This program element funds the continued development and integration of the next-generation sensor suite across the future years defense program.",
+      "pageStart": 146,
+      "pageEnd": 146
+    }
+  ]
+}

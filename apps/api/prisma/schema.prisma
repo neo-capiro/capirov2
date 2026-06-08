@@ -2193,6 +2193,7 @@ model SourceDocument {
   programElementPerformers ProgramElementPerformer[]
   yearSourceValues         ProgramElementYearSourceValue[]
   budgetPositions          ProgramElementBudgetPosition[]
+  provisions               CommitteeReportProvision[]
 
   @@unique([sourceKey, sha256], map: "source_document_source_key_sha256_key")
   @@index([documentType, fiscalYear, budgetCycle, component], map: "source_document_type_fy_cycle_component_idx")
@@ -3145,10 +3146,11 @@ model Program {
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  aliases     ProgramAlias[]
-  matches     PeProgramMatch[]
-  personRoles PersonRole[]
-  officeLinks ProgramOfficeProgramLink[]
+  aliases        ProgramAlias[]
+  matches        PeProgramMatch[]
+  personRoles    PersonRole[]
+  officeLinks    ProgramOfficeProgramLink[]
+  provisionLinks ProvisionPeLink[]
 
   @@index([mdapCode], map: "program_mdap_code_idx")
   @@index([component], map: "program_component_idx")
@@ -3226,6 +3228,70 @@ model PeProgramMatch {
   @@index([peCode], map: "pe_program_match_pe_code_idx")
   @@index([status], map: "pe_program_match_status_idx")
   @@map("pe_program_match")
+}
+
+/// A captured narrative PROVISION from a congressional committee report (HASC/SASC
+/// markup, HAC-D/SAC-D report, conference report) — the LANGUAGE that directs/adds/
+/// cuts/restricts, not just the dollar tables (Step 2.4, plan §4.1 / §6 / §10). GLOBAL
+/// public-domain congressional data (no tenant_id / RLS), like program /
+/// source_document. Populated by the (follow-on) language-extraction loader.
+model CommitteeReportProvision {
+  id               String   @id @default(uuid()) @db.Uuid
+  sourceDocumentId String?  @map("source_document_id") @db.Uuid
+  /// Issuing committee short code: 'HASC' | 'SASC' | 'HAC-D' | 'SAC-D' | 'CONF'.
+  committee        String   @db.VarChar(16)
+  fy               Int
+  /// The provision's heading / item title as it appears in the report.
+  heading          String   @db.Text
+  /// The full provision language (verbatim).
+  text             String   @db.Text
+  pageStart        Int?     @map("page_start")
+  pageEnd          Int?     @map("page_end")
+  /// Deterministic classifier output (see provision-action-classifier): 'directs_briefing'
+  /// | 'directs_report' | 'adds' | 'cuts' | 'transfers' | 'restricts' | 'encourages' |
+  /// 'expresses_concern'. Null when the language is ambiguous / unclassified.
+  actionType       String?  @map("action_type") @db.VarChar(24)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sourceDocument SourceDocument?   @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  links          ProvisionPeLink[]
+
+  @@index([committee, fy], map: "committee_report_provision_committee_fy_idx")
+  @@index([actionType], map: "committee_report_provision_action_type_idx")
+  @@index([sourceDocumentId], map: "committee_report_provision_source_document_idx")
+  @@map("committee_report_provision")
+}
+
+/// Review-gated link from a captured committee-report provision to a PE / project /
+/// program. matchBasis records HOW the link was found ('pe_code' from a verbatim PE
+/// number is accepted; fuzzy 'project_title' / 'program_alias' land as 'candidate').
+/// GLOBAL congressional data (no tenant_id / RLS).
+model ProvisionPeLink {
+  id           String   @id @default(uuid()) @db.Uuid
+  provisionId  String   @map("provision_id") @db.Uuid
+  peCode       String?  @map("pe_code") @db.VarChar(16)
+  projectCode  String?  @map("project_code") @db.VarChar(8)
+  programId    String?  @map("program_id") @db.Uuid
+  /// 'pe_code' | 'project_title' | 'program_alias' | 'manual' — how the link was found.
+  matchBasis   String   @map("match_basis") @db.VarChar(24)
+  confidence   Float    @default(0.5)
+  /// 'accepted' | 'candidate' | 'rejected'. Verbatim PE-code links are 'accepted';
+  /// fuzzy title/alias links land as 'candidate' for human review.
+  reviewStatus String   @default("candidate") @map("review_status") @db.VarChar(20)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  provision CommitteeReportProvision @relation(fields: [provisionId], references: [id], onDelete: Cascade)
+  program   Program?                 @relation(fields: [programId], references: [id], onDelete: SetNull)
+
+  // Unique on (provisionId, coalesce(peCode,''), coalesce(programId::text,'')): Postgres
+  // treats NULLs as distinct, so the coalesce()-based uniqueness is enforced via a raw
+  // expression index in the migration (Prisma cannot express a functional unique index).
+  @@index([peCode], map: "provision_pe_link_pe_code_idx")
+  @@index([programId], map: "provision_pe_link_program_id_idx")
+  @@index([reviewStatus], map: "provision_pe_link_review_status_idx")
+  @@map("provision_pe_link")
 }
 
 /// A program/acquisition office (PEO, PM shop, CPE, contracting office, etc.).

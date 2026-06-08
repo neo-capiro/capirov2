@@ -31,7 +31,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 2.1 | Program / ProgramAlias / PEProgramMatch | ✅ done (backend+web); explorer-tab wiring deferred (hook added) |
 | 2.2 | ProgramOffice + PersonRole + guardrails | ✅ done — foundation (212790e) + follow-on (backfill, read+API roles hydration, matcher-records-PersonRole, web ProgramTeamPanel badges, staleness); adversarial review issues fixed. Backfill+matcher are tooling; live population deferred to deploy-time run |
 | 2.3 | Client relevance v2 | ✅ done — RLS inputs + pure scoring (194a7d9) + relevance service/API, facilities CRUD, writer+needs-attention wiring, web (card/panel/facilities editor); adversarial fixes applied. RLS hardening of client_capabilities/client_intel_mapping spawned as a task |
-| 2.4 | Committee report language capture | ⬜ pending |
+| 2.4 | Committee report language capture | ⏳ foundation done (models+migration+pure provision-action classifier, 25 specs); follow-on (loader/linking/delta-type/panel) next; PDF extraction deferred |
 | 3.1 | SAM.gov opportunities ingestion | ⏳ needs SAM_GOV_API_KEY/data |
 | 3.2 | ActionRecommendation engine + Action Board | ✅ done — RLS model + pure cores (89dde05) + generator service, /intelligence/actions CRUD API, ActionBoard web; adversarial fixes applied. Procurement/SAM card types dormant until 2.4/3.1 data |
 | 3.3 | Source-backed artifact generation | ⏳ needs runtime LLM |
