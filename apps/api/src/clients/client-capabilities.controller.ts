@@ -95,7 +95,93 @@ class CreateCapabilityDto {
   sortOrder?: number;
 }
 
-class UpdateCapabilityDto extends CreateCapabilityDto {}
+// PATCH is partial, so every field — including `name` — must be optional.
+// We can't `extends CreateCapabilityDto` here: that DTO marks `name` required
+// (@IsString without @IsOptional), and because the global ValidationPipe runs
+// whitelist + forbidNonWhitelisted, a partial update that omits `name` (e.g.
+// editing only the description or tags) would be rejected with 400
+// ("name must be a string"). Declared standalone, mirroring UpdateHistoryDto.
+class UpdateCapabilityDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  sector?: string;
+
+  @IsOptional()
+  @IsArray()
+  tags?: unknown[];
+
+  @IsOptional()
+  @IsArray()
+  issueCodes?: unknown[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(9)
+  trl?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(10)
+  mrl?: number;
+
+  @IsOptional()
+  @IsString()
+  peNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  appropriationAccount?: string;
+
+  @IsOptional()
+  @IsString()
+  serviceBranch?: string;
+
+  @IsOptional()
+  @IsString()
+  targetSubcommittee?: string;
+
+  @IsOptional()
+  @IsNumber()
+  fundingAsk?: number;
+
+  @IsOptional()
+  @IsString()
+  fundingAskLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  justification?: string;
+
+  @IsOptional()
+  @IsString()
+  districtNexus?: string;
+
+  @IsOptional()
+  @IsString()
+  existingContracts?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
+}
 
 class CreateHistoryDto {
   @IsString()
