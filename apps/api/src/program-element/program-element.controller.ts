@@ -62,6 +62,17 @@ export class ProgramElementController {
     );
   }
 
+  // Step 1.4 — cross-PE "needs attention" delta feed (most material first, tenant-relevance
+  // boosted at read time). Static route declared before ':peCode' so 'deltas' isn't a peCode.
+  @Get('deltas/needs-attention')
+  needsAttention(@CurrentTenant() ctx: TenantContext, @Query() query: QueryProgramElementsDto) {
+    return this.service.getNeedsAttention(ctx, {
+      minScore: query.minScore,
+      fy: query.fy,
+      limit: query.limit,
+    });
+  }
+
   @Get()
   list(@CurrentTenant() ctx: TenantContext, @Query() query: QueryProgramElementsDto) {
     return this.service.listProgramElements(
@@ -137,6 +148,18 @@ export class ProgramElementController {
   @Get(':peCode/pb-comparison')
   pbComparison(@Param('peCode') peCode: string) {
     return this.service.getPbComparison(peCode);
+  }
+
+  // Step 1.4 — typed, materiality-scored budget deltas for this PE (live rows, most material
+  // first). Optional ?deltaType= and ?fy= filters.
+  @Get(':peCode/deltas')
+  deltas(@Param('peCode') peCode: string, @Query() query: QueryProgramElementsDto) {
+    return this.service.getDeltas(peCode, {
+      deltaType: query.deltaType,
+      fy: query.fy,
+      page: query.page,
+      limit: query.limit,
+    });
   }
 
   @Post(':peCode/watch')

@@ -1811,6 +1811,7 @@ model ProgramElement {
   milestones              ProgramElementMilestone[]
   yearSourceValues        ProgramElementYearSourceValue[]
   budgetPositions         ProgramElementBudgetPosition[]
+  deltas                  ProgramElementDelta[]
   watches                 ProgramElementWatch[]
   conferenceProbabilities ConferenceProbability[]
   sources                 ProgramElementSource[]
@@ -1959,6 +1960,60 @@ model ProgramElementBudgetPosition {
   @@index([positionCycle], map: "program_element_budget_position_cycle_idx")
   @@index([sourceDocumentId], map: "program_element_budget_position_source_document_idx")
   @@map("program_element_budget_position")
+}
+
+// Typed, materiality-scored budget delta (Step 1.4, plan §6). ONE row per
+// (PE, asserted FY, delta type, fromRef, toRef) — the engine recomputes it
+// idempotently from ProgramElementYear / ProgramElementBudgetPosition /
+// ProgramElementProcurementLine. Latest-wins: a recompute that finds a changed
+// magnitude stamps `supersededAt` on the prior live row (supersededAt IS NULL)
+// and inserts a fresh one, so history is preserved without breaking the natural
+// key. Global table (no tenant_id / RLS): the delta itself is public-domain budget
+// math; clientRelevance is computed PER-TENANT at read time and is NEVER stored.
+//
+// deltaType (text, enum-as-text — keep parsers tolerant of new types):
+//   pb_vs_prior_pb | mark_vs_request | mark_vs_mark | conference_vs_marks |
+//   enacted_vs_request | new_start | termination | zeroed | transfer_candidate |
+//   quantity_change | unit_cost_change | outyear_shift | project_level_change
+// fromRef / toRef = the positionCycle or field name each side reads (e.g.
+//   'request'→'hascMark', or 'pb_fy2026'→'pb_fy2027').
+// materialityScore (0..1) + materialityFactors (per-factor contributions) come
+// from the PURE scorer (deltas/materiality-scorer.ts); clientRelevance is layered
+// in at read time, never persisted.
+model ProgramElementDelta {
+  id                 String    @id @default(uuid()) @db.Uuid
+  peCode             String    @map("pe_code") @db.VarChar(16)
+  assertedFy         Int       @map("asserted_fy")
+  deltaType          String    @map("delta_type")
+  fromRef            String?   @map("from_ref")
+  toRef              String?   @map("to_ref")
+  amountFrom         Decimal?  @map("amount_from") @db.Decimal(14, 2)
+  amountTo           Decimal?  @map("amount_to") @db.Decimal(14, 2)
+  deltaAbs           Decimal?  @map("delta_abs") @db.Decimal(14, 2)
+  deltaPct           Float?    @map("delta_pct")
+  // Exact-copy change-summary narrative (Step 1.5 attaches it; never generated).
+  explanation        String?   @db.Text
+  // Source rows/pages used to compute this delta (provenance for the "evidence chip").
+  evidence           Json      @default("{}") @map("evidence_jsonb")
+  materialityScore   Float     @map("materiality_score")
+  materialityFactors Json      @default("{}") @map("materiality_factors_jsonb")
+  computedAt         DateTime  @default(now()) @map("computed_at") @db.Timestamptz(6)
+  // Set on the OLD row when a recompute supersedes it; NULL = current live delta.
+  supersededAt       DateTime? @map("superseded_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  // NOTE: the natural-key uniqueness is enforced by a PARTIAL functional unique index
+  // (WHERE superseded_at IS NULL, COALESCE-ing the nullable from/to refs) created in
+  // the migration raw SQL — Prisma 5 cannot express partial/functional unique indexes,
+  // so this is a plain compound index here (kept queryable) and the migration adds the
+  // partial unique constraint. Latest-wins: superseded rows share the natural key.
+  @@index([peCode, assertedFy, deltaType, fromRef, toRef], map: "program_element_delta_natural_key_idx")
+  @@index([peCode, assertedFy], map: "program_element_delta_pe_fy_idx")
+  @@index([deltaType], map: "program_element_delta_type_idx")
+  @@index([materialityScore(sort: Desc)], map: "program_element_delta_score_idx")
+  @@index([supersededAt], map: "program_element_delta_superseded_idx")
+  @@map("program_element_delta")
 }
 
 model ProgramElementMilestone {

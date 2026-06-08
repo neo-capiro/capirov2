@@ -26,6 +26,8 @@ describe('ProgramElementController', () => {
       getSources: jest.fn(),
       getBudgetPositions: jest.fn(),
       getPbComparison: jest.fn(),
+      getDeltas: jest.fn(),
+      getNeedsAttention: jest.fn(),
       getRelatedProgramElements: jest.fn(),
       getProgramsForPe: jest.fn(),
       setWatching: jest.fn(),
@@ -352,5 +354,44 @@ describe('ProgramElementController', () => {
       expect(() => guard.canActivate(mkCtx('standard_user', handler))).toThrow(ForbiddenException);
       expect(guard.canActivate(mkCtx('capiro_admin', handler))).toBe(true);
     }
+  });
+
+  test('GET /api/program-elements/:peCode/deltas delegates with filters', async () => {
+    const { controller, service } = makeController();
+    service.getDeltas.mockResolvedValue({
+      data: [{ id: 'd1', deltaType: 'mark_vs_request' }],
+      total: 1,
+      page: 1,
+      limit: 50,
+    });
+
+    const result = await controller.deltas('0601102A', {
+      deltaType: 'mark_vs_request',
+      fy: 2027,
+      page: 1,
+      limit: 50,
+    } as never);
+
+    expect(service.getDeltas).toHaveBeenCalledWith('0601102A', {
+      deltaType: 'mark_vs_request',
+      fy: 2027,
+      page: 1,
+      limit: 50,
+    });
+    expect(result.data[0]?.deltaType).toBe('mark_vs_request');
+  });
+
+  test('GET /api/program-elements/deltas/needs-attention delegates with tenant ctx', async () => {
+    const { controller, service } = makeController();
+    service.getNeedsAttention.mockResolvedValue({
+      data: [{ id: 'd1', materialityScore: 0.8 }],
+      total: 1,
+      minScore: 0.4,
+    });
+
+    const result = await controller.needsAttention(ctx, { minScore: 0.4, fy: 2027, limit: 100 } as never);
+
+    expect(service.getNeedsAttention).toHaveBeenCalledWith(ctx, { minScore: 0.4, fy: 2027, limit: 100 });
+    expect(result.data[0]?.materialityScore).toBe(0.8);
   });
 });

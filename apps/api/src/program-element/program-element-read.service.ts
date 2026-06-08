@@ -673,6 +673,84 @@ export class ProgramElementReadService {
   }
 
   /**
+   * Step 1.4 — typed, materiality-scored budget deltas for a PE (LIVE rows only — superseded
+   * history excluded), most material first. Paginated; optional deltaType / assertedFy filter.
+   */
+  async getDeltas(
+    peCode: string,
+    opts: { deltaType?: string; fy?: number; page?: number; limit?: number } = {},
+  ) {
+    const exists = await this.prisma.programElement.findUnique({ where: { peCode }, select: { peCode: true } });
+    if (!exists) throw new NotFoundException(`Program element ${peCode} not found`);
+
+    const take = Math.min(Math.max(opts.limit ?? 50, 1), 200);
+    const page = Math.max(opts.page ?? 1, 1);
+    const where = {
+      peCode,
+      supersededAt: null,
+      ...(opts.deltaType ? { deltaType: opts.deltaType } : {}),
+      ...(opts.fy !== undefined ? { assertedFy: opts.fy } : {}),
+    };
+    const [data, total] = await Promise.all([
+      this.prisma.programElementDelta.findMany({
+        where,
+        orderBy: [{ materialityScore: 'desc' }, { computedAt: 'desc' }],
+        skip: (page - 1) * take,
+        take,
+      }),
+      this.prisma.programElementDelta.count({ where }),
+    ]);
+    return { data, total, page, limit: take };
+  }
+
+  /**
+   * Step 1.4 — cross-PE "needs attention" feed: live deltas at/above minScore, sorted by
+   * materiality. clientRelevance is applied PER-TENANT at READ time (a delta on a PE the tenant
+   * watches or has a client capability for is flagged + floated up) and is NEVER stored globally.
+   */
+  async getNeedsAttention(
+    ctx: TenantContext,
+    opts: { minScore?: number; fy?: number; limit?: number } = {},
+  ) {
+    const minScore = opts.minScore ?? 0.4;
+    const take = Math.min(Math.max(opts.limit ?? 100, 1), 500);
+    const rows = await this.prisma.programElementDelta.findMany({
+      where: {
+        supersededAt: null,
+        materialityScore: { gte: minScore },
+        ...(opts.fy !== undefined ? { assertedFy: opts.fy } : {}),
+      },
+      orderBy: { materialityScore: 'desc' },
+      take: take * 2, // over-fetch so the per-tenant relevance re-sort has headroom
+    });
+
+    const relevant = await this.tenantRelevantPeCodes(ctx, [...new Set(rows.map((r) => r.peCode))]);
+    const decorated = rows.map((r) => {
+      const clientRelevant = relevant.has(r.peCode);
+      // Read-time boost: a relevant delta floats up without mutating the stored score.
+      const effectiveScore = Math.min(1, r.materialityScore + (clientRelevant ? 0.15 : 0));
+      return { ...r, clientRelevant, effectiveScore };
+    });
+    decorated.sort((a, b) => b.effectiveScore - a.effectiveScore || b.materialityScore - a.materialityScore);
+    return { data: decorated.slice(0, take), total: decorated.length, minScore };
+  }
+
+  /** PEs (from the candidate set) the tenant watches or has a client capability for. Tenant-scoped. */
+  private async tenantRelevantPeCodes(ctx: TenantContext, peCodes: string[]): Promise<Set<string>> {
+    if (peCodes.length === 0) return new Set<string>();
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const [watches, caps] = await Promise.all([
+        tx.programElementWatch.findMany({ where: { peCode: { in: peCodes } }, select: { peCode: true } }),
+        tx.clientCapability.findMany({ where: { peNumber: { in: peCodes } }, select: { peNumber: true } }),
+      ]);
+      const set = new Set<string>();
+      for (const w of watches) set.add(w.peCode);
+      for (const c of caps) if (c.peNumber) set.add(c.peNumber);
+      return set;
+    });
+  }
+
+  /**
    * "Related Program Elements" — SUGGESTIONS, not hard links.
    *
    * Reads this PE's stored mission embedding (context_embeddings,

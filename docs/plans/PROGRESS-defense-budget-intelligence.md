@@ -26,7 +26,7 @@ Driver: autonomous overnight run. Each completed step is its own commit; this fi
 | 1.1 | P-1 procurement ingestion | ⏳ SCAFFOLDED — needs real P-1 PDF |
 | 1.2 | Surface projects + proof pack (API+UI) | ✅ done — API+web+tests green |
 | 1.3 | Budget-cycle (PB position) + FYDP outyears | ⏳ code done (schema+API+loader+specs); outyear/prior-PB DATA deferred |
-| 1.4 | Typed budget-delta engine + materiality | ⬜ pending |
+| 1.4 | Typed budget-delta engine + materiality | ✅ engine+scorer+API+script done; web "What changed" panel + writer-severity rewire deferred |
 | 1.5 | R-2A deep extraction | ⏳ SCAFFOLDED — needs richer extraction data |
 | 2.1 | Program / ProgramAlias / PEProgramMatch | ✅ done (backend+web); explorer-tab wiring deferred (hook added) |
 | 2.2 | ProgramOffice + PersonRole + guardrails | ⬜ pending |
@@ -87,3 +87,15 @@ Scaffold/partials interleaved: 0.4 (diag+docs), 0.3 / 1.1 / 1.5 (tooling+runbook
   **DATA-PENDING** (built to consume it): FYDP outyears (committed R-1 artifact has no $ columns —
   needs real R-1 PDF re-extraction) + FY2026 prior-PB book (unavailable) → loader writes 0 rows
   today + pb-comparison returns empty until data lands. Headline data criteria deferred by design.
+- **Step 1.4 done** (sub-agent built the engine+scorer but STREAM-TIMED-OUT after ~1.9h; I salvaged
+  its typecheck-clean core — 37 specs green — and finished the rest): `ProgramElementDelta` (global,
+  additive, partial+functional unique latest-wins index); pure table-driven `materiality-scorer.ts`
+  (log-scaled $, pct, stage ordering, unusual-pattern boost; clientRelevance is read-time only) +
+  `delta-compute.ts` + `delta-engine.service.ts` (idempotent recompute, emits ONE IntelligenceChange
+  per NEW material delta — year-derived types REAL today; PB/procurement types dormant until data).
+  Added by me: `compute-budget-deltas.ts` script + `deltas:compute` alias; `GET :peCode/deltas`
+  (filter deltaType/fy) + `GET deltas/needs-attention?minScore=&fy=` (per-tenant clientRelevance
+  boost at read time) + controller delegation tests + DTO fields. Verified: api typecheck clean;
+  controller+deltas specs 59 green; 1.4 migration applies clean on fresh scratch DB.
+  **Deferred**: web "What changed" PE panel + the writer-emission severity rewire (the engine already
+  emits IntelligenceChange, so alerting works; the writer rewire was the timeout-risky part).

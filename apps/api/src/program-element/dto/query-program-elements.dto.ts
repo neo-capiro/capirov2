@@ -51,4 +51,22 @@ export class QueryProgramElementsDto {
   @IsString()
   @IsIn(['open', 'resolved', 'dismissed', 'all'])
   status?: string;
+
+  // Step 1.4 — budget-delta filters.
+  @IsOptional()
+  @IsString()
+  deltaType?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(2000)
+  @Max(2100)
+  fy?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @Min(0)
+  @Max(1)
+  minScore?: number;
 }
