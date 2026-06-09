@@ -205,10 +205,17 @@ case "${1:-serve}" in
   sync-fec-pac)           exec ./node_modules/.bin/tsx scripts/sync-fec-pac.ts ;;
   sync-entity-resolution) shift; exec ./node_modules/.bin/tsx scripts/sync-entity-resolution.ts "$@" ;;
   diag-client-resolution) shift; exec ./node_modules/.bin/tsx scripts/diag-client-resolution.ts "$@" ;;
+  # Read-only: dump stored status/profile_status for every client carrying LDA ids,
+  # to diagnose imported clients missing from the Portfolio list. No writes.
+  diag-phantom-imports) shift; exec ./node_modules/.bin/tsx scripts/diag-phantom-imports.ts "$@" ;;
   diag-pe-detail-coverage) shift; exec ./node_modules/.bin/tsx scripts/diag-pe-detail-coverage.ts "$@" ;;
   # Task A step 3: prepopulation backfill (recompute lda_client_ids + issue codes
   # + ldaSignals from CONFIRMED mappings). Creates NO new associations; idempotent.
   prepopulate-all) shift; exec ./node_modules/.bin/tsx scripts/prepopulate-all.ts "$@" ;;
+  # SAM gov-id backfill: fill clients.uei/cage_code/naics_codes/psc_codes from the
+  # SAM Entity API by legal name (+state). Fill-if-empty, conservative single-match.
+  # DRY RUN unless --commit; --tenant <uuid> / --delay <ms> supported.
+  fill-govids-all) shift; exec ./node_modules/.bin/tsx scripts/fill-govids-all.ts "$@" ;;
   enrich-award-districts) shift; exec ./node_modules/.bin/tsx scripts/enrich-award-districts.ts "$@" ;;
   # PE->contractor linkage: read the DoD acquisition (MDAP) program code off each
   # award detail, persist it, and resolve a PE via the curated acq-program map.
@@ -320,6 +327,9 @@ case "${1:-serve}" in
   sync-dod-press-personnel) shift; exec ./node_modules/.bin/tsx scripts/sync-dod-press-personnel.ts "$@" ;;
   sync-cpe-roster) shift; exec ./node_modules/.bin/tsx scripts/sync-cpe-roster.ts "$@" ;;
   recompute-conference-probability) shift; exec ./node_modules/.bin/tsx scripts/recompute-conference-probability.ts "$@" ;;
+  # Step 1.4 — recompute typed budget deltas (incl. procurement quantity/unit-cost
+  # from multi-FY procurement lines). --commit to persist; --fy to scope.
+  compute-budget-deltas) shift; exec ./node_modules/.bin/tsx scripts/compute-budget-deltas.ts "$@" ;;
   # One-time canonical PE-year repair: reassemble each program_element_year row from
   # the per-field source-value log (un-clobber multi-source rows + normalize stored
   # thousands → millions). DRY RUN by default; pass --commit to write. Run once,
@@ -339,7 +349,7 @@ case "${1:-serve}" in
     exec node dist/main.js
     ;;
   *)
-    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | embed-program-elements | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-federal-award | enrich-award-districts | enrich-award-pe | seed-acq-program-map | report-award-pe-coverage | extract-press-personnel | sync-sam-personnel | sync-fec-pac | sync-fara | sync-fara-enrichment | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | import-dow-directory-v6 | sync-dow-headshots | generate-pe-person-candidates | sync-peo-rosters | sync-dod-orgcharts | sync-dod-press-personnel | sync-cpe-roster | recompute-conference-probability | extract-bill-pe-codes | extract-gao-interviewees | extract-hearing-witnesses | parse-hasc-report | parse-sasc-report | parse-hac-d-report | parse-sac-d-report | parse-ndaa-conference | parse-defense-approps-public-law | parse-pdoc | rebuild-pe-years | normalize-pe-units | diag-stale-directory | reconcile-personnel-supersede | reconcile-stale-pes | repair-person-pe-links | diag-client-resolution | prepopulate-all)" >&2
+    echo "Unknown command: $1 (expected: serve | migrate | seed-workflows | bootstrap-capiro-admin | bootstrap-tenant | bootstrap-roles | emit-changes | emit-bill-alerts | backfill-sectors | generate-briefings | compute-health-scores | check-comment-periods | embed-backfill | embed-program-elements | sync-lda | sync-congress | sync-federal-register | sync-regulations | sync-hearings | sync-gao | sync-crs | sync-fec | sync-federal-award | enrich-award-districts | enrich-award-pe | seed-acq-program-map | report-award-pe-coverage | extract-press-personnel | sync-sam-personnel | sync-fec-pac | sync-fara | sync-fara-enrichment | sync-sec-edgar | sync-rss-intel | sync-openstates | sync-bls | sync-bea | sync-census | sync-grants | sync-openlobby | sync-openspending | sync-lobby-trending | refresh-lobby-intel-mv | sync-comptroller-jbooks | sync-jbook-r2 | import-dow-directory | import-dow-directory-v6 | sync-dow-headshots | generate-pe-person-candidates | sync-peo-rosters | sync-dod-orgcharts | sync-dod-press-personnel | sync-cpe-roster | recompute-conference-probability | extract-bill-pe-codes | extract-gao-interviewees | extract-hearing-witnesses | parse-hasc-report | parse-sasc-report | parse-hac-d-report | parse-sac-d-report | parse-ndaa-conference | parse-defense-approps-public-law | parse-pdoc | rebuild-pe-years | normalize-pe-units | diag-stale-directory | reconcile-personnel-supersede | reconcile-stale-pes | repair-person-pe-links | diag-client-resolution | diag-phantom-imports | prepopulate-all | fill-govids-all)" >&2
     exit 1
     ;;
 esac

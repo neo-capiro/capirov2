@@ -32,6 +32,13 @@ export const configSchema = z.object({
   // SAM.gov Contract Opportunities API key (api.data.gov). Stored in Secrets
   // Manager and injected as an env var; optional so non-prod boots without it.
   SAM_GOV_API_KEY: z.string().optional(),
+  // Kill-switch for SAM Entity-Management gov-id enrichment (UEI/CAGE/NAICS on
+  // client create/import). Defaults ON; set false/0/no/off to pause enrichment
+  // (e.g. if SAM is degraded or quota is exhausted) WITHOUT a code deploy.
+  SAM_ENRICHMENT_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
 
   // Clio chat brain (single Anthropic-native model + budgets). Env-driven so
   // the model and token ceiling are not hard-coded in service code.

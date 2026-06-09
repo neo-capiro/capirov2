@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ClientPrepopulationService } from './client-prepopulation.service.js';
+import { SamEntityEnrichmentService } from './sam-entity.service.js';
 
 /**
  * Firm-registrant onboarding + "import your clients" (Phase 2 of the client→data
@@ -39,6 +40,7 @@ export class FirmOnboardingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly prepopulation: ClientPrepopulationService,
+    private readonly samEntity: SamEntityEnrichmentService,
   ) {}
 
   /** Trigram search over LDA registrants so a firm can find itself. */
@@ -230,6 +232,16 @@ export class FirmOnboardingService {
             .catch((e: unknown) =>
               this.logger.warn(
                 `prepopulate after import failed for ${result.client.id}: ${e instanceof Error ? e.message : String(e)}`,
+              ),
+            );
+          // SAM gov-id enrichment is network-bound; fire-and-forget (NOT awaited)
+          // so a multi-client import doesn't serialize one SAM round-trip per
+          // client into the request. Fill-if-empty, fail-safe.
+          void this.samEntity
+            .enrichGovIds(ctx.tenantId, result.client.id)
+            .catch((e: unknown) =>
+              this.logger.warn(
+                `gov-id enrichment after import failed for ${result.client.id}: ${e instanceof Error ? e.message : String(e)}`,
               ),
             );
         }

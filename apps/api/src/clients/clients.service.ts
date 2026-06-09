@@ -8,6 +8,7 @@ import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EntityResolutionService } from '../intelligence/entity-resolution.service.js';
 import { ClientPrepopulationService } from '../intelligence/client-prepopulation.service.js';
+import { SamEntityEnrichmentService } from '../intelligence/sam-entity.service.js';
 
 export interface CreateClientInput {
   name: string;
@@ -65,6 +66,7 @@ export class ClientsService {
     config: ConfigService<AppConfig, true>,
     private readonly entityResolution: EntityResolutionService,
     private readonly prepopulation: ClientPrepopulationService,
+    private readonly samEntity: SamEntityEnrichmentService,
   ) {
     this.bucket = config.get('ASSETS_BUCKET', { infer: true });
     this.s3 = new S3Client({ region: config.get('AWS_REGION_DEFAULT', { infer: true }) });
@@ -136,6 +138,18 @@ export class ClientsService {
       .catch((e: unknown) =>
         this.logger.warn(
           `resolve-on-create failed for client ${client.id}: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
+
+    // SAM gov-id enrichment (UEI/CAGE/NAICS) is independent of LDA resolution and
+    // network-bound, so it runs as its own detached fire-and-forget. Fill-if-empty,
+    // never blocks or fails the create response. Skips silently when SAM has no
+    // confident single match or the key is unset.
+    void this.samEntity
+      .enrichGovIds(ctx.tenantId, client.id)
+      .catch((e: unknown) =>
+        this.logger.warn(
+          `gov-id enrichment failed for client ${client.id}: ${e instanceof Error ? e.message : String(e)}`,
         ),
       );
 
@@ -226,6 +240,19 @@ export class ClientsService {
         const message = (err as Error).message ?? 'Unknown error';
         errors.push({ row: i, message });
       }
+    }
+
+    // SAM gov-id enrichment for each imported client — fill-if-empty, fire-and-forget
+    // (network-bound), matching the single-create + LDA-import paths so CSV imports
+    // are not the odd one out. Never blocks or fails the import response.
+    for (const c of created) {
+      void this.samEntity
+        .enrichGovIds(ctx.tenantId, c.id)
+        .catch((e: unknown) =>
+          this.logger.warn(
+            `gov-id enrichment after bulk import failed for ${c.id}: ${e instanceof Error ? e.message : String(e)}`,
+          ),
+        );
     }
 
     return { created: createdCount, total: rows.length, errors, items: created };
