@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { confidenceBand } from '../matching/program-match-thresholds.js';
+import { isGenericAlias } from '../matching/alias-stoplist.js';
 import { PeProgramMatcherService } from '../matching/pe-program-matcher.service.js';
 
 /** Decisions a reviewer can make on a PeProgramMatch (Step 2.1 review queue). */
@@ -416,6 +417,11 @@ export class ProgramsService {
     if (!aliasNormalized) {
       throw new BadRequestException('alias normalizes to an empty string; provide alphanumeric text.');
     }
+    if (isGenericAlias(aliasNormalized)) {
+      throw new BadRequestException(
+        `'${aliasNormalized}' is a generic accounting category (e.g. Congressional Adds / Program-Wide Support / SBIR) and cannot be a program alias — it would false-match unrelated PEs.`,
+      );
+    }
 
     const existing = await this.prisma.programAlias.findFirst({
       where: { programId, aliasNormalized, aliasType: input.aliasType },
@@ -482,6 +488,11 @@ export class ProgramsService {
     const nextNormalized = this.matcher.normalizeAlias(nextAlias);
     if (!nextNormalized) {
       throw new BadRequestException('alias normalizes to an empty string; provide alphanumeric text.');
+    }
+    if (isGenericAlias(nextNormalized)) {
+      throw new BadRequestException(
+        `'${nextNormalized}' is a generic accounting category and cannot be a program alias.`,
+      );
     }
 
     // Reject a collision with a DIFFERENT alias row on the same program.

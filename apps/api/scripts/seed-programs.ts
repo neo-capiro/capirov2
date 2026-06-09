@@ -23,6 +23,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
+import { isGenericAlias } from '../src/program-element/matching/alias-stoplist.js';
 
 dotenvConfig();
 
@@ -192,6 +193,8 @@ async function main(): Promise<void> {
       for (const d of aliasDrafts) {
         const aliasNormalized = normalizeAlias(d.alias);
         if (!aliasNormalized) continue;
+        // Never seed a generic accounting category as an alias (would false-match PEs).
+        if (isGenericAlias(aliasNormalized)) continue;
         await prisma.programAlias.upsert({
           where: {
             programId_aliasNormalized_aliasType: {
