@@ -53,7 +53,10 @@ interface ImportCandidatesResponse {
 }
 
 interface ImportResult {
-  created: Array<{ id: string; name: string; ldaClientId: number }>;
+  // Server shape (POST /firm/import): created is a COUNT, items is the array of
+  // created clients, skipped lists the ones not created (already onboarded, etc).
+  created: number;
+  items: Array<{ id: string; name: string; ldaClientId: number }>;
   skipped: Array<{ ldaClientId: number; reason: string }>;
 }
 
@@ -139,14 +142,17 @@ export function FirmOnboardingWizard({ open, onClose, canManage }: FirmOnboardin
 
   const importClients = useMutation({
     mutationFn: async (ids: number[]) => {
-      // Chunk to respect the server's 100-id cap; merge results.
-      const merged: ImportResult = { created: [], skipped: [] };
+      // Chunk to respect the server's 100-id cap; merge results. The server
+      // returns { created: <count>, items: [...], skipped: [...] } — merge the
+      // arrays and re-derive the count from items so we never spread a number.
+      const merged: ImportResult = { created: 0, items: [], skipped: [] };
       for (let i = 0; i < ids.length; i += IMPORT_CHUNK) {
         const chunk = ids.slice(i, i + IMPORT_CHUNK);
         const res = (await api.post<ImportResult>('/api/firm/import', { ldaClientIds: chunk })).data;
-        merged.created.push(...res.created);
-        merged.skipped.push(...res.skipped);
+        merged.items.push(...(res.items ?? []));
+        merged.skipped.push(...(res.skipped ?? []));
       }
+      merged.created = merged.items.length;
       return merged;
     },
     onSuccess: (res) => {
@@ -156,10 +162,10 @@ export function FirmOnboardingWizard({ open, onClose, canManage }: FirmOnboardin
       qc.invalidateQueries({ queryKey: ['portfolio-summary'] });
       qc.invalidateQueries({ queryKey: ['firm', 'import-candidates'] });
       if (res.skipped.length === 0) {
-        message.success(`Imported ${res.created.length} client${res.created.length === 1 ? '' : 's'}`);
+        message.success(`Imported ${res.created} client${res.created === 1 ? '' : 's'}`);
       } else {
         message.warning(
-          `Imported ${res.created.length}. ${res.skipped.length} skipped (already onboarded or not your firm's).`,
+          `Imported ${res.created}. ${res.skipped.length} skipped (already onboarded or not your firm's).`,
         );
       }
     },
@@ -367,15 +373,15 @@ export function FirmOnboardingWizard({ open, onClose, canManage }: FirmOnboardin
       {stage === 'result' && result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <Alert
-            type={result.skipped.length === 0 ? 'success' : result.created.length === 0 ? 'warning' : 'info'}
+            type={result.skipped.length === 0 ? 'success' : result.created === 0 ? 'warning' : 'info'}
             showIcon
             message={
               result.skipped.length === 0
-                ? `Imported ${result.created.length} client${result.created.length === 1 ? '' : 's'} with federal data pre-linked.`
-                : `Imported ${result.created.length}. ${result.skipped.length} skipped.`
+                ? `Imported ${result.created} client${result.created === 1 ? '' : 's'} with federal data pre-linked.`
+                : `Imported ${result.created}. ${result.skipped.length} skipped.`
             }
           />
-          {result.created.length > 0 && (
+          {result.items.length > 0 && (
             <div>
               <Typography.Text strong style={{ fontSize: 13 }}>
                 Imported
@@ -383,7 +389,7 @@ export function FirmOnboardingWizard({ open, onClose, canManage }: FirmOnboardin
               <Table
                 size="small"
                 rowKey="id"
-                dataSource={result.created}
+                dataSource={result.items}
                 columns={[
                   { title: 'Client', dataIndex: 'name', key: 'name' },
                   { title: 'LDA id', dataIndex: 'ldaClientId', key: 'lda', width: 110 },
