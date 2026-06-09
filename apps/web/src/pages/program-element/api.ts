@@ -5,6 +5,7 @@ import type {
   ProgramElementDeltaListResponse,
   ProgramElementDetail,
   ProgramElementProject,
+  ProcurementLinesResponse,
   ProgramElementSourceItem,
   ProvisionItem,
   OpportunityItem,
@@ -55,6 +56,17 @@ export async function getProgramElementProjects(
   return (
     await api.get<ProgramElementProject[]>(
       `/api/program-elements/${encodeURIComponent(peCode)}/projects`,
+    )
+  ).data;
+}
+
+export async function getProgramElementProcurementLines(
+  api: AxiosInstance,
+  peCode: string,
+): Promise<ProcurementLinesResponse> {
+  return (
+    await api.get<ProcurementLinesResponse>(
+      `/api/program-elements/${encodeURIComponent(peCode)}/procurement-lines`,
     )
   ).data;
 }

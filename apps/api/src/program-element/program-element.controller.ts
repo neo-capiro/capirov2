@@ -115,6 +115,13 @@ export class ProgramElementController {
     return this.service.getProjects(peCode);
   }
 
+  // Secondary Distribution per-recipient procurement line items (P-40). Per
+  // (recipient × FY) quantity + obligation authority; empty for RDT&E PEs.
+  @Get(':peCode/procurement-lines')
+  procurementLines(@Param('peCode') peCode: string) {
+    return this.service.getProcurementLines(peCode);
+  }
+
   @Get(':peCode/sources')
   sources(@Param('peCode') peCode: string) {
     return this.service.getSources(peCode);

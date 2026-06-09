@@ -16,6 +16,7 @@ import {
   getProgramElementDetail,
   getProgramElementPersonnel,
   getProgramElementProjects,
+  getProgramElementProcurementLines,
   getProgramElementProvisions,
   getProgramElementOpportunities,
   getProgramElementRelated,
@@ -26,6 +27,7 @@ import { FyHistoryChart } from './FyHistoryChart.js';
 import { BillsTouchingPePanel } from './BillsTouchingPePanel.js';
 import { ContractorsPanel } from './ContractorsPanel.js';
 import { ProjectsPanel } from './ProjectsPanel.js';
+import { SecondaryDistributionPanel } from './SecondaryDistributionPanel.js';
 import { ProofPackPanel } from './ProofPackPanel.js';
 import { WhatChangedPanel } from './WhatChangedPanel.js';
 import { ProvisionsPanel } from './ProvisionsPanel.js';
@@ -224,6 +226,13 @@ export function ProgramElementWatchPage() {
   const projectsQuery = useQuery({
     queryKey: ['program-element-projects', normalizedPeCode],
     queryFn: () => getProgramElementProjects(api, normalizedPeCode),
+    staleTime: 60 * 1000,
+    enabled: normalizedPeCode.length > 0,
+  });
+
+  const procurementLinesQuery = useQuery({
+    queryKey: ['program-element-procurement-lines', normalizedPeCode],
+    queryFn: () => getProgramElementProcurementLines(api, normalizedPeCode),
     staleTime: 60 * 1000,
     enabled: normalizedPeCode.length > 0,
   });
@@ -518,6 +527,11 @@ export function ProgramElementWatchPage() {
       >
         <LazyProjectsPanel projects={projectsQuery.data} loading={projectsQuery.isLoading} />
       </Suspense>
+
+      <SecondaryDistributionPanel
+        data={procurementLinesQuery.data}
+        loading={procurementLinesQuery.isLoading}
+      />
 
       <Suspense
         fallback={

@@ -376,6 +376,33 @@ def _parse_secondary_distribution(rows, words, fy):
             w = _nearest_value(num_words, xc)
             return parse_num(w["text"]) if w else None
 
+        def pick_series(num_words):
+            """Map a recipient/dollar row's number tokens to {fy: value} across
+            ALL fiscal-year columns (prior actuals + request-year Total + FYDP
+            out-years), not just the request year. Positional: data tokens align
+            1:1 with sd_order columns. Bare-year columns map to that year; the
+            request-year split's first 'Total' (Base+OOC) maps to `fy`; Base/OOC
+            and the cumulative grand total are skipped. Multi-FY series is what
+            lets quantity_change / unit_cost_change deltas compute downstream."""
+            series = {}
+            if not num_words or not sd_order:
+                return series
+            if len(num_words) < len(sd_order):
+                return series  # malformed row → skip rather than misalign
+            for idx, key in enumerate(sd_order):
+                if idx >= len(num_words):
+                    break
+                if isinstance(key, int):
+                    year = key
+                elif key == ("TOTAL",):
+                    year = fy
+                else:
+                    continue  # BASE / OOC / GRANDTOTAL — not a standalone FY column
+                val = parse_num(num_words[idx]["text"])
+                if val is not None:
+                    series[year] = val
+            return series
+
         # Recipient rows: "<Recipient> Quantity <nums>" then "Total Obligation
         # Authority <nums>". We pair them by the recipient label preceding Quantity.
         m = re.match(r"^(.*?)\s+Quantity\b", line)
@@ -383,29 +410,58 @@ def _parse_secondary_distribution(rows, words, fy):
             recipient = m.group(1).strip()
             if recipient and recipient.lower() not in ("total",):
                 nums = [w for w in r if AMOUNT_RE.fullmatch(w["text"]) or w["text"] == "-"]
-                qty = pick_value(nums)
-                items.append({"_recipient": recipient, "quantity": qty, "dollars": None})
+                qty_req = pick_value(nums)        # request-year (back-compat)
+                qty_series = pick_series(nums)    # full FY series
+                items.append(
+                    {
+                        "_recipient": recipient,
+                        "quantity": qty_req,
+                        "dollars": None,
+                        "_qtySeries": qty_series,
+                        "_dolSeries": {},
+                    }
+                )
         elif low.startswith("total obligation authority") and items:
             nums = [w for w in r if AMOUNT_RE.fullmatch(w["text"]) or w["text"] == "-"]
-            d = pick_value(nums)
+            d_req = pick_value(nums)
+            d_series = pick_series(nums)
             # attach to the most recent recipient lacking dollars
             for it in reversed(items):
-                if it["dollars"] is None:
-                    # Secondary Distribution dollars are in MILLIONS -> the loader's
-                    # procurement-line `dollars` is stored as-is, so express full dollars.
-                    it["dollars"] = None if d is None else round(d * 1_000_000, 2)
+                if it["dollars"] is None and not it["_dolSeries"]:
+                    # Secondary Distribution dollars are in MILLIONS -> express full dollars.
+                    it["dollars"] = None if d_req is None else round(d_req * 1_000_000, 2)
+                    it["_dolSeries"] = {
+                        y: round(v * 1_000_000, 2) for y, v in d_series.items()
+                    }
                     break
 
     out = []
     for it in items:
-        out.append(
-            {
-                "description": it["_recipient"],
-                "fy": fy,
-                "quantity": it["quantity"],
-                "dollars": it["dollars"],
-            }
-        )
+        # Emit ONE line item per (recipient, fy) across the union of years seen in
+        # the quantity and dollar series — so the SD panel shows multi-year trends
+        # and the delta engine can diff consecutive FYs. The request-year row keeps
+        # carrying the scalar quantity/dollars for back-compat readers.
+        years = sorted(set(it["_qtySeries"]) | set(it["_dolSeries"]))
+        if not years:
+            # No series resolved (e.g. malformed) — fall back to the request-year row.
+            out.append(
+                {
+                    "description": it["_recipient"],
+                    "fy": fy,
+                    "quantity": it["quantity"],
+                    "dollars": it["dollars"],
+                }
+            )
+            continue
+        for y in years:
+            out.append(
+                {
+                    "description": it["_recipient"],
+                    "fy": y,
+                    "quantity": it["_qtySeries"].get(y),
+                    "dollars": it["_dolSeries"].get(y),
+                }
+            )
     return out
 
 

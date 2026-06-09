@@ -608,6 +608,62 @@ export class ProgramElementReadService {
   }
 
   /**
+   * Secondary Distribution per-recipient procurement line items for a PE (P-40).
+   * Each row is (recipient lineDescription × fiscal year) carrying quantity +
+   * obligation-authority dollars. Ordered by recipient then FY so the UI can
+   * render a per-recipient multi-year table. Empty array (never an error) when
+   * this PE has no procurement lines (e.g. RDT&E PEs, or PROC PEs whose book had
+   * no Secondary Distribution block). Returns the distinct fiscal years present
+   * so the panel can build a stable column header.
+   */
+  async getProcurementLines(peCode: string) {
+    const exists = await this.prisma.programElement.findUnique({
+      where: { peCode },
+      select: { peCode: true },
+    });
+    if (!exists) throw new NotFoundException(`Program element ${peCode} not found`);
+
+    const rows = await this.prisma.programElementProcurementLine.findMany({
+      where: { peCode },
+      orderBy: [{ lineDescription: 'asc' }, { fy: 'asc' }],
+      select: {
+        id: true,
+        lineDescription: true,
+        fy: true,
+        quantity: true,
+        dollars: true,
+        unitCost: true,
+        source: true,
+        sourceUrl: true,
+      },
+    });
+
+    // Convert Prisma Decimals to numbers for the wire; group by recipient.
+    const num = (d: Prisma.Decimal | null): number | null => (d == null ? null : Number(d));
+    const years = Array.from(new Set(rows.map((r) => r.fy))).sort((a, b) => a - b);
+    const byRecipient = new Map<
+      string,
+      Array<{ fy: number; quantity: number | null; dollars: number | null; unitCost: number | null }>
+    >();
+    for (const r of rows) {
+      if (!byRecipient.has(r.lineDescription)) byRecipient.set(r.lineDescription, []);
+      byRecipient.get(r.lineDescription)!.push({
+        fy: r.fy,
+        quantity: num(r.quantity),
+        dollars: num(r.dollars),
+        unitCost: num(r.unitCost),
+      });
+    }
+    const recipients = Array.from(byRecipient.entries()).map(([recipient, fyRows]) => ({
+      recipient,
+      fyRows,
+    }));
+    const sourceUrl = rows.find((r) => r.sourceUrl)?.sourceUrl ?? null;
+
+    return { peCode, years, recipients, sourceUrl, totalRows: rows.length };
+  }
+
+  /**
    * R-2A projects/sub-elements for a PE (Step 1.2). Ordered by project code; each carries
    * its own page-level citation (sourceUrl + pageNumber) so the UI can deep-link to the
    * exact exhibit page. Empty array (never an error) when this PE has no extracted projects.

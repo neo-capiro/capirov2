@@ -1404,9 +1404,9 @@
       "lineItems": [
         {
           "description": "Army",
-          "fy": 2027,
+          "fy": 2025,
           "quantity": null,
-          "dollars": null
+          "dollars": 214418000.0
         }
       ]
     },

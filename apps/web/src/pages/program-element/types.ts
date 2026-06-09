@@ -41,6 +41,25 @@ export interface ProgramElementProject {
   confidence: number | null;
 }
 
+/** Secondary Distribution per-recipient procurement line (P-40). */
+export interface ProcurementLineFyRow {
+  fy: number;
+  quantity: number | null;
+  dollars: number | null;
+  unitCost: number | null;
+}
+export interface ProcurementLineRecipient {
+  recipient: string;
+  fyRows: ProcurementLineFyRow[];
+}
+export interface ProcurementLinesResponse {
+  peCode: string;
+  years: number[];
+  recipients: ProcurementLineRecipient[];
+  sourceUrl: string | null;
+  totalRows: number;
+}
+
 /** One page-level citation in the proof pack (Step 1.2). */
 export interface ProgramElementSourceItem {
   id: string;
