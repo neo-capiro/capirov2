@@ -1460,6 +1460,21 @@ export class IntelligenceService {
   }
 
   /**
+   * Distinct issue codes unioned across a SET of LDA client ids (Phase 4c). One
+   * real company is a SET of lda_client ids (one per firm that lobbies for it);
+   * reading codes off a single id undercounts. Mirrors the union idiom already
+   * used by getCompetitorBoard / fetchLdaByIds. Returns [] for an empty set.
+   */
+  private async issueCodesForLdaIds(ldaClientIds: number[]): Promise<string[]> {
+    if (!ldaClientIds.length) return [];
+    const codeRows = await this.prisma.$queryRaw<Array<{ code: string }>>`
+      SELECT DISTINCT unnest(issue_codes) AS code
+      FROM lda_client WHERE id = ANY(${ldaClientIds}::int[]) AND issue_codes IS NOT NULL
+    `;
+    return codeRows.map((r) => r.code).filter(Boolean);
+  }
+
+  /**
    * Fetch a client's LDA profile aggregated across its FULL confirmed id set
    * (replaces the old single-id fetchLdaById, which undercounted to one of N firm
    * relationships — e.g. Boeing's 27 ids). Two-pass aggregate so id rows that have
@@ -2939,20 +2954,10 @@ export class IntelligenceService {
 
   /** Relevant bills for a client, derived from their confirmed LDA issue codes */
   async getClientBills(clientId: string, tenantId: string) {
-    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.clientIntelMapping.findFirst({
-        where: { clientId, source: 'lda', confirmed: true },
-      }),
-    );
-
-    let issueCodes: string[] = [];
-    if (ldaMapping) {
-      const clientRows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`
-        SELECT COALESCE(issue_codes, '{}') AS issue_codes FROM lda_client WHERE id = ${Number(ldaMapping.externalId)}
-      `;
-      issueCodes = clientRows[0]?.issue_codes ?? [];
-    }
-
+    // Phase 4c: read issue codes across the client's FULL confirmed LDA id set
+    // (one real company = a SET of lda_client ids), not a single firm relationship.
+    const ldaClientIds = await this.confirmedLdaIds(clientId, tenantId);
+    const issueCodes = await this.issueCodesForLdaIds(ldaClientIds);
     return this.findRelevantBills(issueCodes);
   }
 
@@ -3940,18 +3945,9 @@ export class IntelligenceService {
 
   /** Resolve a client's LDA issue codes (confirmed mapping) for competitor matching. */
   private async getClientIssueCodes(clientId: string, tenantId: string): Promise<string[]> {
-    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.clientIntelMapping.findFirst({
-        where: { clientId, source: 'lda', confirmed: true },
-      }),
-    );
-    if (!ldaMapping || !ldaMapping.externalId) return [];
-    const ext = Number(ldaMapping.externalId);
-    if (!Number.isFinite(ext)) return [];
-    const rows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`
-      SELECT COALESCE(issue_codes, '{}') AS issue_codes FROM lda_client WHERE id = ${ext}
-    `;
-    return rows[0]?.issue_codes ?? [];
+    // Phase 4c: union issue codes across the FULL confirmed LDA id set.
+    const ldaClientIds = await this.confirmedLdaIds(clientId, tenantId);
+    return this.issueCodesForLdaIds(ldaClientIds);
   }
 
   /**
@@ -4647,20 +4643,9 @@ export class IntelligenceService {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const fourteenDaysOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
-    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.clientIntelMapping.findFirst({
-        where: { clientId, source: 'lda', confirmed: true },
-      }),
-    );
-
-    let issueCodes: string[] = [];
-    if (ldaMapping) {
-      const codeRows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`
-        SELECT COALESCE(issue_codes, '{}') AS issue_codes
-        FROM lda_client WHERE id = ${Number(ldaMapping.externalId)}
-      `;
-      issueCodes = codeRows[0]?.issue_codes ?? [];
-    }
+    // Phase 4c: union issue codes across the client's FULL confirmed LDA id set.
+    const ldaClientIds = await this.confirmedLdaIds(clientId, tenantId);
+    const issueCodes = await this.issueCodesForLdaIds(ldaClientIds);
 
     // Tracked bills + upcoming hearings + recent changes + comment deadlines in parallel.
     // Comment-period emitters now populate `relatedIssues` via SECTOR_TO_LDA_CODES;
@@ -4734,11 +4719,10 @@ export class IntelligenceService {
     }
 
     // Lobbyist coverage check for recipientOffice
-    if (recipientOffice && ldaMapping) {
-      const ldaClientId = Number(ldaMapping.externalId);
+    if (recipientOffice && ldaClientIds.length) {
       const regRows = await this.prisma.$queryRaw<Array<{ registrant_id: number }>>`
         SELECT DISTINCT registrant_id FROM lda_filing
-        WHERE client_id = ${ldaClientId} AND registrant_id IS NOT NULL
+        WHERE client_id = ANY(${ldaClientIds}::int[]) AND registrant_id IS NOT NULL
       `;
       const registrantIds = regRows.map((r) => r.registrant_id);
       if (registrantIds.length) {

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
+  BankOutlined,
   FilterOutlined,
   LinkOutlined,
   PlusOutlined,
@@ -29,6 +30,7 @@ import {
 import { useApi } from '../../lib/use-api.js';
 import { useMe } from '../../lib/me.js';
 import { BulkImportClientsModal } from './BulkImportClientsModal.js';
+import { FirmOnboardingWizard } from './FirmOnboardingWizard.js';
 import { ClientFormModal } from './ClientFormModal.js';
 import { ClientProfilePage } from './ClientProfilePage.js';
 import type { Client, ClientFormSubmit } from './clientTypes.js';
@@ -48,6 +50,7 @@ export function ClientWorkspacePage() {
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null);
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [bulkImportOpen, setBulkImportOpen] = useState(false);
+  const [firmImportOpen, setFirmImportOpen] = useState(false);
   const [filters, setFilters] = useState<ClientFilterState>({ sectors: [], requestTypes: [] });
 
   const canCreateClients = Boolean(me.data && hasAtLeast(me.data.role, 'standard_user'));
@@ -370,6 +373,13 @@ export function ClientWorkspacePage() {
               Import CSV
             </Button>
             <Button
+              icon={<BankOutlined />}
+              disabled={!canCreateClients}
+              onClick={() => setFirmImportOpen(true)}
+            >
+              Import from LDA
+            </Button>
+            <Button
               type="primary"
               icon={<PlusOutlined />}
               disabled={!canCreateClients}
@@ -449,6 +459,12 @@ export function ClientWorkspacePage() {
       <BulkImportClientsModal
         open={bulkImportOpen}
         onClose={() => setBulkImportOpen(false)}
+      />
+
+      <FirmOnboardingWizard
+        open={firmImportOpen}
+        onClose={() => setFirmImportOpen(false)}
+        canManage={canManageClients}
       />
     </>
   );
