@@ -305,6 +305,12 @@ export function deltasFromProcurement(lines: ProcurementLineLike[]): DerivedDelt
   const out: DerivedDelta[] = [];
   for (const [desc, group] of byDesc) {
     const sorted = [...group].sort((a, b) => a.fy - b.fy);
+    // Encode the recipient (lineDescription) into from/to refs. The delta natural
+    // key is (peCode, assertedFy, deltaType, fromRef, toRef) and does NOT include
+    // the line description, so two recipients (e.g. Army + ANG) with the same
+    // FY transition would otherwise collide on that unique key. The recipient also
+    // stays in evidence.lineDescription for display.
+    const tag = `:${desc}`;
     for (let i = 1; i < sorted.length; i += 1) {
       const prev = sorted[i - 1]!;
       const cur = sorted[i]!;
@@ -316,8 +322,8 @@ export function deltasFromProcurement(lines: ProcurementLineLike[]): DerivedDelt
         out.push({
           assertedFy: cur.fy,
           deltaType: 'quantity_change',
-          fromRef: `fy${prev.fy}`,
-          toRef: `fy${cur.fy}`,
+          fromRef: `fy${prev.fy}${tag}`,
+          toRef: `fy${cur.fy}${tag}`,
           amountFrom: qFrom,
           amountTo: qTo,
           deltaAbs: round2(qTo - qFrom),
@@ -333,8 +339,8 @@ export function deltasFromProcurement(lines: ProcurementLineLike[]): DerivedDelt
         out.push({
           assertedFy: cur.fy,
           deltaType: 'unit_cost_change',
-          fromRef: `fy${prev.fy}`,
-          toRef: `fy${cur.fy}`,
+          fromRef: `fy${prev.fy}${tag}`,
+          toRef: `fy${cur.fy}${tag}`,
           amountFrom: uFrom,
           amountTo: uTo,
           deltaAbs: round2(uTo - uFrom),

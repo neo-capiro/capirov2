@@ -162,6 +162,26 @@ describe('deltasFromProcurement — quantity / unit-cost (dormant until P-1)', (
     ];
     expect(deltasFromProcurement(lines)).toEqual([]);
   });
+
+  test('two recipients with the same FY transition get distinct from/to refs (no natural-key collision)', () => {
+    // Army + ANG both move quantity 2026->2027. The delta natural key is
+    // (peCode, assertedFy, deltaType, fromRef, toRef) and excludes the recipient,
+    // so the refs MUST embed the recipient or the DB unique constraint collides.
+    const lines: ProcurementLineLike[] = [
+      { lineDescription: 'Army', fy: 2026, quantity: 26203, unitCost: null },
+      { lineDescription: 'Army', fy: 2027, quantity: 16132, unitCost: null },
+      { lineDescription: 'ANG', fy: 2026, quantity: 10094, unitCost: null },
+      { lineDescription: 'ANG', fy: 2027, quantity: 22009, unitCost: null },
+    ];
+    const d = deltasFromProcurement(lines).filter((x) => x.deltaType === 'quantity_change');
+    expect(d).toHaveLength(2);
+    const keys = d.map((x) => `${x.assertedFy}|${x.deltaType}|${x.fromRef}|${x.toRef}`);
+    expect(new Set(keys).size).toBe(2); // distinct natural keys
+    const army = d.find((x) => (x.fromRef ?? '').includes('Army'))!;
+    expect(army.fromRef).toBe('fy2026:Army');
+    expect(army.toRef).toBe('fy2027:Army');
+    expect(army.amountTo).toBe(16132);
+  });
 });
 
 describe('newStartFromYears', () => {
