@@ -1,0 +1,1976 @@
+{
+  "service": "ARMY",
+  "fy": 2027,
+  "sourceUrl": "",
+  "pes": [
+    {
+      "peCode": "2300M90101",
+      "title": "Base Defense Systems (BDS)",
+      "budgetActivity": "BA 03",
+      "lineNumber": "2300M90101",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 9,
+          "requestDollarsThousands": 32879.0,
+          "unitCostDollars": 3653222.0
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 143.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 143.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 144.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 144.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 143.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 144.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "4516M01001",
+      "title": "CBRN Defense",
+      "budgetActivity": "BA 03",
+      "lineNumber": "4516M01001",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 4779,
+          "requestDollarsThousands": 57408.0,
+          "unitCostDollars": 12013.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 9628,
+          "requestDollarsThousands": 69739.0,
+          "unitCostDollars": 7243.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 10095,
+          "requestDollarsThousands": 65020.0,
+          "unitCostDollars": 6441.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 11254,
+          "requestDollarsThousands": 85155.0,
+          "unitCostDollars": 7567.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 9907,
+          "requestDollarsThousands": 94350.0,
+          "unitCostDollars": 9524.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 9981,
+          "requestDollarsThousands": 92910.0,
+          "unitCostDollars": 9309.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 10687,
+          "requestDollarsThousands": 93848.0,
+          "unitCostDollars": 8782.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "3542MA8890",
+      "title": "Tactical Bridge, Float-Ribbon",
+      "budgetActivity": "BA 03",
+      "lineNumber": "3542MA8890",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 158,
+          "requestDollarsThousands": 97231.0,
+          "unitCostDollars": 615386.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 106,
+          "requestDollarsThousands": 69863.0,
+          "unitCostDollars": 659085.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 51,
+          "requestDollarsThousands": 35806.0,
+          "unitCostDollars": 702078.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 87,
+          "requestDollarsThousands": 59746.0,
+          "unitCostDollars": 686736.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 86,
+          "requestDollarsThousands": 60373.0,
+          "unitCostDollars": 702012.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 84,
+          "requestDollarsThousands": 60888.0,
+          "unitCostDollars": 724857.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 82,
+          "requestDollarsThousands": 61456.0,
+          "unitCostDollars": 749463.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "AR",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "2876R68200",
+      "title": "Handheld Standoff Minefield Detection Sys-HSTAMIDS",
+      "budgetActivity": "BA 03",
+      "lineNumber": "2876R68200",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 1478.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "4868W12002",
+      "title": "Robotics and Applique Systems",
+      "budgetActivity": "BA 03",
+      "lineNumber": "4868W12002",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 976,
+          "requestDollarsThousands": 71469.0,
+          "unitCostDollars": 73226.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 1488,
+          "requestDollarsThousands": 32428.0,
+          "unitCostDollars": 21793.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 929,
+          "requestDollarsThousands": 84303.0,
+          "unitCostDollars": 90746.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 610,
+          "requestDollarsThousands": 112141.0,
+          "unitCostDollars": 183838.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 1047,
+          "requestDollarsThousands": 123070.0,
+          "unitCostDollars": 117545.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 967,
+          "requestDollarsThousands": 144115.0,
+          "unitCostDollars": 149033.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 548,
+          "requestDollarsThousands": 143347.0,
+          "unitCostDollars": 261582.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "5913R63610",
+      "title": "Render Safe Sets kits Outfits",
+      "budgetActivity": "BA 03",
+      "lineNumber": "5913R63610",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 16440.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 14184.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": 112,
+          "requestDollarsThousands": 12461.0,
+          "unitCostDollars": 111259.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 230,
+          "requestDollarsThousands": 21229.0,
+          "unitCostDollars": 92300.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 247,
+          "requestDollarsThousands": 25338.0,
+          "unitCostDollars": 102583.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 124,
+          "requestDollarsThousands": 23894.0,
+          "unitCostDollars": 192694.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 58,
+          "requestDollarsThousands": 25539.0,
+          "unitCostDollars": 440328.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "8500R12001",
+      "title": "Family of Boats and Motors",
+      "budgetActivity": "BA 03",
+      "lineNumber": "8500R12001",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 57,
+          "requestDollarsThousands": 1922.0,
+          "unitCostDollars": 33719.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 231,
+          "requestDollarsThousands": 8028.0,
+          "unitCostDollars": 34753.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 232,
+          "requestDollarsThousands": 8019.0,
+          "unitCostDollars": 34565.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 231,
+          "requestDollarsThousands": 8028.0,
+          "unitCostDollars": 34753.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 231,
+          "requestDollarsThousands": 8037.0,
+          "unitCostDollars": 34792.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 231,
+          "requestDollarsThousands": 8046.0,
+          "unitCostDollars": 34831.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "AR",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "0100MF9000",
+      "title": "Heaters and ECU's",
+      "budgetActivity": "BA 03",
+      "lineNumber": "0100MF9000",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 39,
+          "requestDollarsThousands": 14355.0,
+          "unitCostDollars": 368077.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 103,
+          "requestDollarsThousands": 14288.0,
+          "unitCostDollars": 138718.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 202,
+          "requestDollarsThousands": 15021.0,
+          "unitCostDollars": 74361.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 223,
+          "requestDollarsThousands": 15592.0,
+          "unitCostDollars": 69919.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 268,
+          "requestDollarsThousands": 16402.0,
+          "unitCostDollars": 61201.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 186,
+          "requestDollarsThousands": 16386.0,
+          "unitCostDollars": 88097.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 330,
+          "requestDollarsThousands": 16550.0,
+          "unitCostDollars": 50152.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "8822G01101",
+      "title": "Personnel Recovery Support System (PRSS)",
+      "budgetActivity": "BA 03",
+      "lineNumber": "8822G01101",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 2960,
+          "requestDollarsThousands": 6503.0,
+          "unitCostDollars": 2197.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "8825R80501",
+      "title": "Ground Soldier System",
+      "budgetActivity": "BA 03",
+      "lineNumber": "8825R80501",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 3011,
+          "requestDollarsThousands": 151613.0,
+          "unitCostDollars": 50353.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 2785,
+          "requestDollarsThousands": 165779.0,
+          "unitCostDollars": 59526.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 2892,
+          "requestDollarsThousands": 193491.0,
+          "unitCostDollars": 66906.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 867,
+          "requestDollarsThousands": 24787.0,
+          "unitCostDollars": 28589.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 859,
+          "requestDollarsThousands": 24470.0,
+          "unitCostDollars": 28487.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 854,
+          "requestDollarsThousands": 24329.0,
+          "unitCostDollars": 28488.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 863,
+          "requestDollarsThousands": 24573.0,
+          "unitCostDollars": 28474.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "8827R80800",
+      "title": "Mobile Soldier Power",
+      "budgetActivity": "BA 03",
+      "lineNumber": "8827R80800",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 1150,
+          "requestDollarsThousands": 19929.0,
+          "unitCostDollars": 17330.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 475,
+          "requestDollarsThousands": 15729.0,
+          "unitCostDollars": 33114.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "8860M80200",
+      "title": "Force Provider",
+      "budgetActivity": "BA 03",
+      "lineNumber": "8860M80200",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 18,
+          "requestDollarsThousands": 20569.0,
+          "unitCostDollars": 1142722.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 4,
+          "requestDollarsThousands": 10000,
+          "unitCostDollars": 2500000
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "9120M65800",
+      "title": "Field Feeding Equipment",
+      "budgetActivity": "BA 03",
+      "lineNumber": "9120M65800",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2026,
+          "quantity": 42,
+          "requestDollarsThousands": 4500.0,
+          "unitCostDollars": 107143.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 26,
+          "requestDollarsThousands": 4708.0,
+          "unitCostDollars": 181077.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 17,
+          "requestDollarsThousands": 3178.0,
+          "unitCostDollars": 186941.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 12,
+          "requestDollarsThousands": 2475.0,
+          "unitCostDollars": 206250.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 12,
+          "requestDollarsThousands": 2475.0,
+          "unitCostDollars": 206250.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "AR",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "9140MA7804",
+      "title": "Cargo Aerial Del & Personnel Parachute Systems",
+      "budgetActivity": "BA 03",
+      "lineNumber": "9140MA7804",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 3252,
+          "requestDollarsThousands": 46662.0,
+          "unitCostDollars": 14349.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 4860,
+          "requestDollarsThousands": 61224.0,
+          "unitCostDollars": 12598.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 2518,
+          "requestDollarsThousands": 39505.0,
+          "unitCostDollars": 15689.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 2692,
+          "requestDollarsThousands": 56947.0,
+          "unitCostDollars": 21154.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 2342,
+          "requestDollarsThousands": 59151.0,
+          "unitCostDollars": 25257.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 2466,
+          "requestDollarsThousands": 69963.0,
+          "unitCostDollars": 28371.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 2222,
+          "requestDollarsThousands": 70657.0,
+          "unitCostDollars": 31799.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "9462R70001",
+      "title": "Family Of Engr Combat and Construction Sets",
+      "budgetActivity": "BA 03",
+      "lineNumber": "9462R70001",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 33,
+          "requestDollarsThousands": 9217.0,
+          "unitCostDollars": 279303.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "9530ML5301",
+      "title": "Items Less Than $5M (Eng Spt)",
+      "budgetActivity": "BA 03",
+      "lineNumber": "9530ML5301",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2027,
+          "quantity": 9,
+          "requestDollarsThousands": 4129.0,
+          "unitCostDollars": 458778.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 18,
+          "requestDollarsThousands": 4206.0,
+          "unitCostDollars": 233667.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "4700MA6000",
+      "title": "Distribution Systems, Petroleum & Water",
+      "budgetActivity": "BA 03",
+      "lineNumber": "4700MA6000",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 588,
+          "requestDollarsThousands": 78851.0,
+          "unitCostDollars": 134100.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 749,
+          "requestDollarsThousands": 96020.0,
+          "unitCostDollars": 128198.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 1369,
+          "requestDollarsThousands": 133881.0,
+          "unitCostDollars": 97795.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 1499,
+          "requestDollarsThousands": 145901.0,
+          "unitCostDollars": 97332.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 1536,
+          "requestDollarsThousands": 145880.0,
+          "unitCostDollars": 94974.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 1336,
+          "requestDollarsThousands": 107982.0,
+          "unitCostDollars": 80825.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 1320,
+          "requestDollarsThousands": 108810.0,
+          "unitCostDollars": 82432.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "7500MN1000",
+      "title": "Combat Support Medical",
+      "budgetActivity": "BA 03",
+      "lineNumber": "7500MN1000",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 2467,
+          "requestDollarsThousands": 72157.0,
+          "unitCostDollars": 29249.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 5090,
+          "requestDollarsThousands": 100567.0,
+          "unitCostDollars": 19758.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 6957,
+          "requestDollarsThousands": 93705.0,
+          "unitCostDollars": 13469.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 5532,
+          "requestDollarsThousands": 103991.0,
+          "unitCostDollars": 18798.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 5435,
+          "requestDollarsThousands": 109749.0,
+          "unitCostDollars": 20193.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 4701,
+          "requestDollarsThousands": 109922.0,
+          "unitCostDollars": 23383.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 3659,
+          "requestDollarsThousands": 111158.0,
+          "unitCostDollars": 30379.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "0639G05301",
+      "title": "Mobile Maintenance Equipment Systems",
+      "budgetActivity": "BA 03",
+      "lineNumber": "0639G05301",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 368,
+          "requestDollarsThousands": 128271.0,
+          "unitCostDollars": 348563.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 599,
+          "requestDollarsThousands": 143811.0,
+          "unitCostDollars": 240085.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 372,
+          "requestDollarsThousands": 58997.0,
+          "unitCostDollars": 158594.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 438,
+          "requestDollarsThousands": 91685.0,
+          "unitCostDollars": 209326.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 433,
+          "requestDollarsThousands": 94992.0,
+          "unitCostDollars": 219381.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 418,
+          "requestDollarsThousands": 100629.0,
+          "unitCostDollars": 240739.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 430,
+          "requestDollarsThousands": 107563.0,
+          "unitCostDollars": 250147.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "0387R02700",
+      "title": "CONSTRUCTION EQUIPMENT",
+      "budgetActivity": "BA 03",
+      "lineNumber": "0387R02700",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 73,
+          "requestDollarsThousands": 47109.0,
+          "unitCostDollars": 645329.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 147,
+          "requestDollarsThousands": 100299.0,
+          "unitCostDollars": 682306.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 93,
+          "requestDollarsThousands": 72582.0,
+          "unitCostDollars": 780452.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 85,
+          "requestDollarsThousands": 57555.0,
+          "unitCostDollars": 677118.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 138,
+          "requestDollarsThousands": 93953.0,
+          "unitCostDollars": 680819.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 147,
+          "requestDollarsThousands": 100553.0,
+          "unitCostDollars": 684034.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 145,
+          "requestDollarsThousands": 101313.0,
+          "unitCostDollars": 698710.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "3569M11101",
+      "title": "Army Watercraft Esp",
+      "budgetActivity": "BA 03",
+      "lineNumber": "3569M11101",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 2,
+          "requestDollarsThousands": 55459.0,
+          "unitCostDollars": 27729500.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 4,
+          "requestDollarsThousands": 57342.0,
+          "unitCostDollars": 14335500.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 5,
+          "requestDollarsThousands": 75717.0,
+          "unitCostDollars": 15143400.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 4,
+          "requestDollarsThousands": 49324.0,
+          "unitCostDollars": 12331000
+        },
+        {
+          "fy": 2029,
+          "quantity": 3,
+          "requestDollarsThousands": 28959.0,
+          "unitCostDollars": 9653000
+        },
+        {
+          "fy": 2030,
+          "quantity": 1,
+          "requestDollarsThousands": 28931.0,
+          "unitCostDollars": 28931000
+        },
+        {
+          "fy": 2031,
+          "quantity": 4,
+          "requestDollarsThousands": 29701.0,
+          "unitCostDollars": 7425250.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "8211R01001",
+      "title": "Maneuver Support Vessel (MSV)",
+      "budgetActivity": "BA 03",
+      "lineNumber": "8211R01001",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 88634.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 28949.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": 1,
+          "requestDollarsThousands": 104705.0,
+          "unitCostDollars": 104705000
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 44631.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 23615.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 21608.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 21824.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "9552ML5355",
+      "title": "Items Less Than $5.0M (Float/Rail)",
+      "budgetActivity": "BA 03",
+      "lineNumber": "9552ML5355",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 20036.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 13758.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 22021.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 65177.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 119632.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 115371.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 113965.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "0426MA9800",
+      "title": "Generators And Associated Equip",
+      "budgetActivity": "BA 03",
+      "lineNumber": "0426MA9800",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 1301,
+          "requestDollarsThousands": 94263.0,
+          "unitCostDollars": 72454.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 1577,
+          "requestDollarsThousands": 89073.0,
+          "unitCostDollars": 56483.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 1450,
+          "requestDollarsThousands": 79456.0,
+          "unitCostDollars": 54797.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 1276,
+          "requestDollarsThousands": 80278.0,
+          "unitCostDollars": 62914.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 1173,
+          "requestDollarsThousands": 80565.0,
+          "unitCostDollars": 68683.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 1142,
+          "requestDollarsThousands": 80325.0,
+          "unitCostDollars": 70337.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 900,
+          "requestDollarsThousands": 81230.0,
+          "unitCostDollars": 90256.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "5558G41001",
+      "title": "Family Of Forklifts",
+      "budgetActivity": "BA 03",
+      "lineNumber": "5558G41001",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 54,
+          "requestDollarsThousands": 7849.0,
+          "unitCostDollars": 145352.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 90,
+          "requestDollarsThousands": 12576.0,
+          "unitCostDollars": 139733.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 29,
+          "requestDollarsThousands": 6238.0,
+          "unitCostDollars": 215103.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 23,
+          "requestDollarsThousands": 6035.0,
+          "unitCostDollars": 262391.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 22,
+          "requestDollarsThousands": 6068.0,
+          "unitCostDollars": 275818.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 22,
+          "requestDollarsThousands": 6057.0,
+          "unitCostDollars": 275318.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 22,
+          "requestDollarsThousands": 6182.0,
+          "unitCostDollars": 281000
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "AR",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "1780MA6600",
+      "title": "Combat Training Centers Support",
+      "budgetActivity": "BA 03",
+      "lineNumber": "1780MA6600",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 3,
+          "requestDollarsThousands": 38682.0,
+          "unitCostDollars": 12894000
+        },
+        {
+          "fy": 2026,
+          "quantity": 57,
+          "requestDollarsThousands": 69025.0,
+          "unitCostDollars": 1210965.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 139,
+          "requestDollarsThousands": 141848.0,
+          "unitCostDollars": 1020489.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 187,
+          "requestDollarsThousands": 80462.0,
+          "unitCostDollars": 430278.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 205,
+          "requestDollarsThousands": 78240.0,
+          "unitCostDollars": 381659.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 208,
+          "requestDollarsThousands": 79421.0,
+          "unitCostDollars": 381832.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 260,
+          "requestDollarsThousands": 82697.0,
+          "unitCostDollars": 318065.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "2062NA0100",
+      "title": "Training Devices, Nonsystem",
+      "budgetActivity": "BA 03",
+      "lineNumber": "2062NA0100",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 534,
+          "requestDollarsThousands": 169843.0,
+          "unitCostDollars": 318058.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 1541,
+          "requestDollarsThousands": 171184.0,
+          "unitCostDollars": 111086.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 902,
+          "requestDollarsThousands": 140860.0,
+          "unitCostDollars": 156164.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 6306,
+          "requestDollarsThousands": 147880.0,
+          "unitCostDollars": 23451.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 10415,
+          "requestDollarsThousands": 150659.0,
+          "unitCostDollars": 14466.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 113,
+          "requestDollarsThousands": 134675.0,
+          "unitCostDollars": 1191814.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 694,
+          "requestDollarsThousands": 141119.0,
+          "unitCostDollars": 203341.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "2079NA2000",
+      "title": "Synthetic Training Environment (STE)",
+      "budgetActivity": "BA 03",
+      "lineNumber": "2079NA2000",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 383,
+          "requestDollarsThousands": 196889.0,
+          "unitCostDollars": 514070.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 34,
+          "requestDollarsThousands": 166402.0,
+          "unitCostDollars": 4894176.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 9,
+          "requestDollarsThousands": 115535.0,
+          "unitCostDollars": 12837222.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 1,
+          "requestDollarsThousands": 117043.0,
+          "unitCostDollars": 117043000
+        },
+        {
+          "fy": 2029,
+          "quantity": 1,
+          "requestDollarsThousands": 143693.0,
+          "unitCostDollars": 143693000
+        },
+        {
+          "fy": 2030,
+          "quantity": 1,
+          "requestDollarsThousands": 146973.0,
+          "unitCostDollars": 146973000
+        },
+        {
+          "fy": 2031,
+          "quantity": 1,
+          "requestDollarsThousands": 158527.0,
+          "unitCostDollars": 158527000
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "6860NA0176",
+      "title": "Gaming Technology In Support of Army Training",
+      "budgetActivity": "BA 03",
+      "lineNumber": "6860NA0176",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 14,
+          "requestDollarsThousands": 10172.0,
+          "unitCostDollars": 726571.0
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 7320.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 4180.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 4403.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 4231.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 1687.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 1731.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "AR",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "0200MB4000",
+      "title": "Integrated Family Of Test Equipment (IFTE)",
+      "budgetActivity": "BA 03",
+      "lineNumber": "0200MB4000",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 976,
+          "requestDollarsThousands": 49237.0,
+          "unitCostDollars": 50448.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 177,
+          "requestDollarsThousands": 38784.0,
+          "unitCostDollars": 219119.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 153,
+          "requestDollarsThousands": 18570.0,
+          "unitCostDollars": 121373.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 153,
+          "requestDollarsThousands": 18565.0,
+          "unitCostDollars": 121340.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 100,
+          "requestDollarsThousands": 4026.0,
+          "unitCostDollars": 40260.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 100,
+          "requestDollarsThousands": 4116.0,
+          "unitCostDollars": 41160.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 100,
+          "requestDollarsThousands": 4201.0,
+          "unitCostDollars": 42010.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "0605G02510",
+      "title": "Test Equipment Modernization (TEMOD)",
+      "budgetActivity": "BA 03",
+      "lineNumber": "0605G02510",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 251,
+          "requestDollarsThousands": 46128.0,
+          "unitCostDollars": 183777.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 502,
+          "requestDollarsThousands": 51119.0,
+          "unitCostDollars": 101831.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 904,
+          "requestDollarsThousands": 53597.0,
+          "unitCostDollars": 59289.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 1955,
+          "requestDollarsThousands": 58381.0,
+          "unitCostDollars": 29862.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 1862,
+          "requestDollarsThousands": 57649.0,
+          "unitCostDollars": 30961.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 1862,
+          "requestDollarsThousands": 57597.0,
+          "unitCostDollars": 30933.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 1793,
+          "requestDollarsThousands": 57814.0,
+          "unitCostDollars": 32244.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "0050MA0780",
+      "title": "Physical Security Systems (OPA3)",
+      "budgetActivity": "BA 03",
+      "lineNumber": "0050MA0780",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 4,
+          "requestDollarsThousands": 136459.0,
+          "unitCostDollars": 34114750.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 18,
+          "requestDollarsThousands": 137315.0,
+          "unitCostDollars": 7628611.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 28,
+          "requestDollarsThousands": 137271.0,
+          "unitCostDollars": 4902536.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 20,
+          "requestDollarsThousands": 145527.0,
+          "unitCostDollars": 7276350.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 21,
+          "requestDollarsThousands": 102456.0,
+          "unitCostDollars": 4878857.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 15,
+          "requestDollarsThousands": 103070.0,
+          "unitCostDollars": 6871333.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 4,
+          "requestDollarsThousands": 104099.0,
+          "unitCostDollars": 26024750.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "0312MB7000",
+      "title": "Base Level Common Equipment",
+      "budgetActivity": "BA 03",
+      "lineNumber": "0312MB7000",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 30443.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 19452.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": 1,
+          "requestDollarsThousands": 19889.0,
+          "unitCostDollars": 19889000
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 21036.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 20294.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 20902.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 21116.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "1110MA4500",
+      "title": "Modification Of In-Svc Equipment (OPA-3)",
+      "budgetActivity": "BA 03",
+      "lineNumber": "1110MA4500",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 54852.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 43452.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 41358.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 42578.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 47942.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 76109.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 90707.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "1220MA0450",
+      "title": "Production Base Support (OTH)",
+      "budgetActivity": "BA 03",
+      "lineNumber": "1220MA0450",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 362356.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 2680.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 17517.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 190262.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "1500MA9160",
+      "title": "BUILDING, PRE-FAB, RELOCATABLE",
+      "budgetActivity": "BA 03",
+      "lineNumber": "1500MA9160",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 14622.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 10490.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 10878.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 11170.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 11483.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 11643.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 11760.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "1573MA6820",
+      "title": "Special Equipment for Test and Evaluation",
+      "budgetActivity": "BA 03",
+      "lineNumber": "1573MA6820",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 47,
+          "requestDollarsThousands": 90705.0,
+          "unitCostDollars": 1929894.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 29,
+          "requestDollarsThousands": 93777.0,
+          "unitCostDollars": 3233690.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 21,
+          "requestDollarsThousands": 88721.0,
+          "unitCostDollars": 4224810.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 22,
+          "requestDollarsThousands": 88603.0,
+          "unitCostDollars": 4027409.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 20,
+          "requestDollarsThousands": 73247.0,
+          "unitCostDollars": 3662350.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 14,
+          "requestDollarsThousands": 23914.0,
+          "unitCostDollars": 1708143.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 12,
+          "requestDollarsThousands": 24152.0,
+          "unitCostDollars": 2012667.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "9900MA9999",
+      "title": "CLOSED ACCOUNT ADJUSTMENTS",
+      "budgetActivity": "BA 03",
+      "lineNumber": "9900MA9999",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 355.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "0200BS9100",
+      "title": "INITIAL SPARES - C&E",
+      "budgetActivity": "BA 04",
+      "lineNumber": "0200BS9100",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 234,
+          "requestDollarsThousands": 9810.0,
+          "unitCostDollars": 41923.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 419,
+          "requestDollarsThousands": 7254.0,
+          "unitCostDollars": 17313.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 312,
+          "requestDollarsThousands": 7323.0,
+          "unitCostDollars": 23471.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 258,
+          "requestDollarsThousands": 7112.0,
+          "unitCostDollars": 27566.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 250,
+          "requestDollarsThousands": 7118.0,
+          "unitCostDollars": 28472.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 250,
+          "requestDollarsThousands": 7034.0,
+          "unitCostDollars": 28136.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 250,
+          "requestDollarsThousands": 7105.0,
+          "unitCostDollars": 28420.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "AR",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    }
+  ]
+}

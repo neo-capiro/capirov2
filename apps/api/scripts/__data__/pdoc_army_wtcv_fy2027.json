@@ -1,0 +1,1418 @@
+{
+  "service": "ARMY",
+  "fy": 2027,
+  "sourceUrl": "",
+  "pes": [
+    {
+      "peCode": "2944G80819",
+      "title": "Armored Multi Purpose Vehicle (AMPV)",
+      "budgetActivity": "BA 01",
+      "lineNumber": "2944G80819",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 245,
+          "requestDollarsThousands": 1466011.0,
+          "unitCostDollars": 5983718.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 49,
+          "requestDollarsThousands": 415331.0,
+          "unitCostDollars": 8476143.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 196,
+          "requestDollarsThousands": 1150759.0,
+          "unitCostDollars": 5871219.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 191,
+          "requestDollarsThousands": 1150897.0,
+          "unitCostDollars": 6025639.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 187,
+          "requestDollarsThousands": 1151178.0,
+          "unitCostDollars": 6156032.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 183,
+          "requestDollarsThousands": 1151716.0,
+          "unitCostDollars": 6293530.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 180,
+          "requestDollarsThousands": 1153031.0,
+          "unitCostDollars": 6405728.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "4872G84900",
+      "title": "ASSAULT BREACHER VEHICLE (ABV)",
+      "budgetActivity": "BA 01",
+      "lineNumber": "4872G84900",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 10,
+          "requestDollarsThousands": 5681.0,
+          "unitCostDollars": 568100.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 1,
+          "requestDollarsThousands": 4079.0,
+          "unitCostDollars": 4079000
+        },
+        {
+          "fy": 2027,
+          "quantity": 8,
+          "requestDollarsThousands": 17807.0,
+          "unitCostDollars": 2225875.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 13,
+          "requestDollarsThousands": 28047.0,
+          "unitCostDollars": 2157462.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 14,
+          "requestDollarsThousands": 29082.0,
+          "unitCostDollars": 2077286.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 13,
+          "requestDollarsThousands": 28206.0,
+          "unitCostDollars": 2169692.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 12,
+          "requestDollarsThousands": 28465.0,
+          "unitCostDollars": 2372083.0
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "7181G80820",
+      "title": "M10 BOOKER",
+      "budgetActivity": "BA 01",
+      "lineNumber": "7181G80820",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 439111.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 6479.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "7241G86000",
+      "title": "XM30 MECHANIZED INFANTRY COMBAT VEHICLE (MICV)",
+      "budgetActivity": "BA 01",
+      "lineNumber": "7241G86000",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2027,
+          "quantity": 19,
+          "requestDollarsThousands": 546990.0,
+          "unitCostDollars": 28788947.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 48,
+          "requestDollarsThousands": 995047.0,
+          "unitCostDollars": 20730146.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 65,
+          "requestDollarsThousands": 1463575.0,
+          "unitCostDollars": 22516538.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 86,
+          "requestDollarsThousands": 1774080.0,
+          "unitCostDollars": 20628837.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 108,
+          "requestDollarsThousands": 2151128.0,
+          "unitCostDollars": 19917852.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "0230GM0100",
+      "title": "Stryker (Mod)",
+      "budgetActivity": "BA 01",
+      "lineNumber": "0230GM0100",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 52471.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "0363G85200",
+      "title": "Stryker Upgrade",
+      "budgetActivity": "BA 01",
+      "lineNumber": "0363G85200",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 418097.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 28558.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 45725.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": []
+    },
+    {
+      "peCode": "1382GZ3300",
+      "title": "BRADLEY FIRE SUPPORT TEAM (BFIST) VEHICLE",
+      "budgetActivity": "BA 01",
+      "lineNumber": "1382GZ3300",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 128,
+          "requestDollarsThousands": 7255.0,
+          "unitCostDollars": 56680.0
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 4684.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": 280,
+          "requestDollarsThousands": 4863.0,
+          "unitCostDollars": 17368.0
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 5010.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 5373.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 5457.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 5515.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "1678GZ2400",
+      "title": "Bradley Program (MOD)",
+      "budgetActivity": "BA 01",
+      "lineNumber": "1678GZ2400",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 439489.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 157183.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 161979.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 116960.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 102829.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 73174.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 73956.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "2072GA0400",
+      "title": "M109 FOV Modifications",
+      "budgetActivity": "BA 01",
+      "lineNumber": "2072GA0400",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 42574.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 82537.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 74070.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 83898.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 79164.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 25650.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "2073GZ0410",
+      "title": "Paladin Integrated Management (PIM)",
+      "budgetActivity": "BA 01",
+      "lineNumber": "2073GZ0410",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 39,
+          "requestDollarsThousands": 760361.0,
+          "unitCostDollars": 19496436.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 40,
+          "requestDollarsThousands": 715000,
+          "unitCostDollars": 17875000
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 84193.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "3700GA0570",
+      "title": "IMPROVED RECOVERY VEHICLE (M88 HERCULES)",
+      "budgetActivity": "BA 01",
+      "lineNumber": "3700GA0570",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 14,
+          "requestDollarsThousands": 240657.0,
+          "unitCostDollars": 17189786.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 6,
+          "requestDollarsThousands": 80770.0,
+          "unitCostDollars": 13461667.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 10,
+          "requestDollarsThousands": 106036.0,
+          "unitCostDollars": 10603600.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 14,
+          "requestDollarsThousands": 142557.0,
+          "unitCostDollars": 10182643.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 14,
+          "requestDollarsThousands": 143731.0,
+          "unitCostDollars": 10266500.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 14,
+          "requestDollarsThousands": 143620.0,
+          "unitCostDollars": 10258571.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 14,
+          "requestDollarsThousands": 133077.0,
+          "unitCostDollars": 9505500.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "5225GZ3001",
+      "title": "Joint Assault Bridge",
+      "budgetActivity": "BA 01",
+      "lineNumber": "5225GZ3001",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 28,
+          "requestDollarsThousands": 174779.0,
+          "unitCostDollars": 6242107.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 20,
+          "requestDollarsThousands": 129555.0,
+          "unitCostDollars": 6477750.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 18,
+          "requestDollarsThousands": 163354.0,
+          "unitCostDollars": 9075222.0
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 165422.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 94996.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 44472.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 40334.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "6500GA0750",
+      "title": "Abrams Upgrade Program",
+      "budgetActivity": "BA 01",
+      "lineNumber": "6500GA0750",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 30,
+          "requestDollarsThousands": 801096.0,
+          "unitCostDollars": 30117867.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 33,
+          "requestDollarsThousands": 778478.0,
+          "unitCostDollars": 23590242.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 22,
+          "requestDollarsThousands": 654969.0,
+          "unitCostDollars": 29771318.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 25,
+          "requestDollarsThousands": 926656.0,
+          "unitCostDollars": 37066240.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 25,
+          "requestDollarsThousands": 914435.0,
+          "unitCostDollars": 36577400.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 44,
+          "requestDollarsThousands": 1387248.0,
+          "unitCostDollars": 31528364.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 61,
+          "requestDollarsThousands": 1784001.0,
+          "unitCostDollars": 29245918.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "6652GM1900",
+      "title": "VEHICLE PROTECTION SYSTEMS (VPS)",
+      "budgetActivity": "BA 01",
+      "lineNumber": "6652GM1900",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 283,
+          "requestDollarsThousands": 133492.0,
+          "unitCostDollars": 471703.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 1917,
+          "requestDollarsThousands": 107833.0,
+          "unitCostDollars": 56251.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 389,
+          "requestDollarsThousands": 16134.0,
+          "unitCostDollars": 41476.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 389,
+          "requestDollarsThousands": 16458.0,
+          "unitCostDollars": 42308.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 515,
+          "requestDollarsThousands": 23094.0,
+          "unitCostDollars": 44843.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 515,
+          "requestDollarsThousands": 156812.0,
+          "unitCostDollars": 304489.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 515,
+          "requestDollarsThousands": 23778.0,
+          "unitCostDollars": 46171.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "0418GN0003",
+      "title": "PERSONAL DEFENSE WEAPON (ROLL)",
+      "budgetActivity": "BA 02",
+      "lineNumber": "0418GN0003",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 2311,
+          "requestDollarsThousands": 4869.0,
+          "unitCostDollars": 2107.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 477,
+          "requestDollarsThousands": 1002.0,
+          "unitCostDollars": 2101.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "AR",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "2472G13000",
+      "title": "M240 Medium Machine Gun (7.62mm)",
+      "budgetActivity": "BA 02",
+      "lineNumber": "2472G13000",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 0,
+          "requestDollarsThousands": 27851.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": 260,
+          "requestDollarsThousands": 6005.0,
+          "unitCostDollars": 23096.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "5000GB2000",
+      "title": "Machine Gun, Cal .50 M2 Roll",
+      "budgetActivity": "BA 02",
+      "lineNumber": "5000GB2000",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 3.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 4.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "6580G02200",
+      "title": "Mortar Systems",
+      "budgetActivity": "BA 02",
+      "lineNumber": "6580G02200",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 6,
+          "requestDollarsThousands": 73408.0,
+          "unitCostDollars": 12234667.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 3,
+          "requestDollarsThousands": 5807.0,
+          "unitCostDollars": 1935667.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 2,
+          "requestDollarsThousands": 3575.0,
+          "unitCostDollars": 1787500.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 38,
+          "requestDollarsThousands": 45098.0,
+          "unitCostDollars": 1186789.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 68,
+          "requestDollarsThousands": 67198.0,
+          "unitCostDollars": 988206.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 86,
+          "requestDollarsThousands": 102056.0,
+          "unitCostDollars": 1186698.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 98,
+          "requestDollarsThousands": 105857.0,
+          "unitCostDollars": 1080173.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "6659G08100",
+      "title": "LOCATION & AZIMUTH DETERMINATION SYSTEM (LADS)",
+      "budgetActivity": "BA 02",
+      "lineNumber": "6659G08100",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 2543.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 9477.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 10420.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 2082.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 1913.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 964.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "8181G01501",
+      "title": "XM320 Grenade Launcher Module (GLM)",
+      "budgetActivity": "BA 02",
+      "lineNumber": "8181G01501",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 20925.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 6000,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "8190G01506",
+      "title": "Precision Sniper Rifle",
+      "budgetActivity": "BA 02",
+      "lineNumber": "8190G01506",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 219,
+          "requestDollarsThousands": 5910.0,
+          "unitCostDollars": 26986.0
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 1853.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "8201G13501",
+      "title": "Carbine",
+      "budgetActivity": "BA 02",
+      "lineNumber": "8201G13501",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 8003.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "8205G14510",
+      "title": "Next Generation Squad Weapon",
+      "budgetActivity": "BA 02",
+      "lineNumber": "8205G14510",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": 41975,
+          "requestDollarsThousands": 394720.0,
+          "unitCostDollars": 9404.0
+        },
+        {
+          "fy": 2026,
+          "quantity": 36297,
+          "requestDollarsThousands": 358907.0,
+          "unitCostDollars": 9888.0
+        },
+        {
+          "fy": 2027,
+          "quantity": 38141,
+          "requestDollarsThousands": 372641.0,
+          "unitCostDollars": 9770.0
+        },
+        {
+          "fy": 2028,
+          "quantity": 37942,
+          "requestDollarsThousands": 372619.0,
+          "unitCostDollars": 9821.0
+        },
+        {
+          "fy": 2029,
+          "quantity": 36687,
+          "requestDollarsThousands": 365598.0,
+          "unitCostDollars": 9965.0
+        },
+        {
+          "fy": 2030,
+          "quantity": 36281,
+          "requestDollarsThousands": 365488.0,
+          "unitCostDollars": 10074.0
+        },
+        {
+          "fy": 2031,
+          "quantity": 36028,
+          "requestDollarsThousands": 369398.0,
+          "unitCostDollars": 10253.0
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "AR",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "8310G04700",
+      "title": "Common Remotely Operated Weapons Station",
+      "budgetActivity": "BA 02",
+      "lineNumber": "8310G04700",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 747.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 3000,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "8635G15325",
+      "title": "Handgun",
+      "budgetActivity": "BA 02",
+      "lineNumber": "8635G15325",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 34.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 7.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "3000GB3000",
+      "title": "MK-19 Grenade Machine Gun MODS",
+      "budgetActivity": "BA 02",
+      "lineNumber": "3000GB3000",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 44565.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "3005GZ1700",
+      "title": "M777 Mods",
+      "budgetActivity": "BA 02",
+      "lineNumber": "3005GZ1700",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 186998.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 2429.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 1569.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 1569.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 1586.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 1587.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 1604.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        },
+        {
+          "description": "ANG",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "3181GZ1500",
+      "title": "Sniper Rifles Modifications",
+      "budgetActivity": "BA 02",
+      "lineNumber": "3181GZ1500",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 1572.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 19.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "3640GC0401",
+      "title": "M119 Modifications",
+      "budgetActivity": "BA 02",
+      "lineNumber": "3640GC0401",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 12823.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 4642.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 4453.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 9139.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 9929.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 1602.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 1619.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "1862GL3200",
+      "title": "Items Less Than $5.0m (WOCV-WTCV)",
+      "budgetActivity": "BA 02",
+      "lineNumber": "1862GL3200",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 19617.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 469.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 512.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 497.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 520.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 520.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 525.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": [
+        {
+          "description": "Army",
+          "fy": 2027,
+          "quantity": null,
+          "dollars": null
+        }
+      ]
+    },
+    {
+      "peCode": "3270GC0050",
+      "title": "Production Base Support (WOCV-WTCV)",
+      "budgetActivity": "BA 02",
+      "lineNumber": "3270GC0050",
+      "programOfRecord": null,
+      "fyData": [
+        {
+          "fy": 2025,
+          "quantity": null,
+          "requestDollarsThousands": 119591.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2026,
+          "quantity": null,
+          "requestDollarsThousands": 94913.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2027,
+          "quantity": null,
+          "requestDollarsThousands": 308110.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2028,
+          "quantity": null,
+          "requestDollarsThousands": 345509.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2029,
+          "quantity": null,
+          "requestDollarsThousands": 365419.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2030,
+          "quantity": null,
+          "requestDollarsThousands": 79050.0,
+          "unitCostDollars": null
+        },
+        {
+          "fy": 2031,
+          "quantity": null,
+          "requestDollarsThousands": 79896.0,
+          "unitCostDollars": null
+        }
+      ],
+      "lineItems": []
+    }
+  ]
+}
