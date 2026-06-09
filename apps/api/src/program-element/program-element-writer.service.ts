@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { ProgramElementMetricsService } from './program-element-metrics.service.js';
 import { FieldDelta, PeMilestoneInput, PeRecordInput, PeYearInput } from './types.js';
 import { ReconciliationService, RECONCILE_FIELDS, type ReconcileField } from './reconciliation/reconciliation.service.js';
-import { isValidPeCode } from './jbook/jbook-extract.js';
+import { isValidProgramCode } from './jbook/jbook-extract.js';
 import { sourceLabel, sourceRank } from './source-priority.js';
 
 const MARK_FIELDS = new Set(['hascMark', 'sascMark', 'hacDMark', 'sacDMark', 'conference', 'enacted']);
@@ -349,8 +349,10 @@ export class ProgramElementWriterService {
     };
   }
 
+  // Accepts RDT&E PE codes AND procurement BLINs (appropriation_type distinguishes
+  // them downstream); the shared gate must let both land in program_element.
   private isValidPeCode(peCode: string): boolean {
-    return isValidPeCode(peCode);
+    return isValidProgramCode(peCode);
   }
 
   /**

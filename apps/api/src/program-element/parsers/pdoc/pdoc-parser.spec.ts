@@ -140,4 +140,23 @@ describe('PDocParserService.load', () => {
     expect(result.pesUpserted).toBe(2);
     expect(result.pesChanged).toBe(0);
   });
+
+  test('accepts real procurement BLIN codes (extractor format), not just PE-style codes', async () => {
+    const { svc, pes, quarantines } = makeService();
+    const blin: ProcurementPeRecord = {
+      peCode: '0102A12345', // 4 digits + 1 letter + 5 alnum = a valid BLIN (extract_pdoc BLIN_RE)
+      title: 'AH-64E APACHE',
+      service: 'ARMY',
+      budgetActivity: '01',
+      lineNumber: '0102A12345',
+      programOfRecord: null,
+      fyData: [{ fy: 2027, quantity: 12, requestDollarsThousands: 960000, unitCostDollars: null }],
+      lineItems: [],
+    };
+    const result = await svc.load([blin], 'ARMY', 2027);
+    expect(result.pesUpserted).toBe(1);
+    expect(result.quarantined).toBe(0);
+    expect(quarantines.length).toBe(0);
+    expect(pes[0]?.record.appropriationType).toBe('PROC');
+  });
 });
