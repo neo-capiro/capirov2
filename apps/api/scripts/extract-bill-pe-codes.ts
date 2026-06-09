@@ -23,7 +23,7 @@ dotenvConfig();
 
 async function main(): Promise<void> {
   const fetchFullText = !process.argv.includes('--no-full-text');
-  const prisma = new PrismaClient();
+  const prisma = new PrismaService();
   await prisma.$connect();
 
   // Minimal ConfigService over process.env so GovInfoService can read its key +
@@ -32,9 +32,9 @@ async function main(): Promise<void> {
     get: (k: keyof AppConfig) => process.env[k as string],
   } as unknown as ConfigService<AppConfig, true>;
 
-  // The extractor service only calls prisma model delegates that PrismaClient
-  // provides; reuse the live client as the PrismaService dependency.
-  const prismaService = prisma as unknown as PrismaService;
+  // PrismaService is a PrismaClient superset (adds withTenant/withSystem), so it
+  // works for plain delegate calls AND any RLS-aware helper the services use.
+  const prismaService = prisma;
   const govInfo = new GovInfoService(prismaService, config);
   const extractor = new BillPeExtractorService(prismaService, govInfo);
 

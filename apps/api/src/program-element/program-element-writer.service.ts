@@ -694,10 +694,16 @@ export class ProgramElementWriterService {
         where: { peCode },
         select: { tenantId: true },
       }),
-      this.prisma.clientCapability.findMany({
-        where: { peNumber: peCode },
-        select: { tenantId: true, clientId: true },
-      }),
+      // Cross-tenant BY DESIGN: a budget delta on a PE affects every tenant
+      // whose client capability names it, so this enumeration must bypass RLS
+      // (system path). client_capabilities is RLS-FORCED, so a plain read here
+      // would return zero rows for the non-super app role.
+      this.prisma.withSystem((tx) =>
+        tx.clientCapability.findMany({
+          where: { peNumber: peCode },
+          select: { tenantId: true, clientId: true },
+        }),
+      ),
     ]);
 
     const byTenant = new Map<string, Set<string>>();

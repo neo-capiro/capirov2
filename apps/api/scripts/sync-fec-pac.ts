@@ -58,9 +58,14 @@ async function main() {
     const t0 = Date.now();
     // Only sync committees that are CONFIRMED-linked to a client. external_id holds
     // the FEC committee_id (e.g. C00835926) for source='fec_committee' mappings.
-    const mappings = await prisma.clientIntelMapping.findMany({
-      where: { source: 'fec_committee', confirmed: true },
-      select: { externalId: true, externalName: true },
+    // client_intel_mapping is RLS-FORCED. This system sync enumerates confirmed
+    // committee mappings ACROSS all tenants, so the read must bypass RLS.
+    const mappings = await prisma.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL app.bypass_rls = 'on'`);
+      return tx.clientIntelMapping.findMany({
+        where: { source: 'fec_committee', confirmed: true },
+        select: { externalId: true, externalName: true },
+      });
     });
     const committeeIds = Array.from(new Set(mappings.map((m) => m.externalId.trim()).filter(Boolean)));
 

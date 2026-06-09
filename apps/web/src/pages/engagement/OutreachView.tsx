@@ -880,12 +880,22 @@ export function OutreachView({
   }
 
   if (mode === 'campaign') {
+    // When resuming a saved draft, hand the v2 wizard the record we already
+    // fetched (the same data feeding hydrateWorkflowFromRecord) plus its id,
+    // so the wizard reopens on the saved step with subject/body/recipients/
+    // context restored instead of starting fresh at step 1. The id is taken
+    // from the URL when present, falling back to the workflow record (set by
+    // openDraft) so both entry paths into a draft resume correctly.
+    const resumeRecord = draftRecordIdFromPath ? (draftRecord.data ?? null) : workflow.record;
+    const resumeDraftId = draftRecordIdFromPath ?? workflow.record?.id ?? null;
     return (
       <OutreachWizard
         clients={activeClients}
         selectedClientId={selectedClientId}
         aiConfigured={aiConfigured}
         emailConnected={emailConnected}
+        initialRecord={resumeRecord}
+        initialDraftId={resumeDraftId}
         sendFrom={
           (integrations.data ?? []).find(
             (connection) =>

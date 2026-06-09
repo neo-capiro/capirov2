@@ -22,7 +22,11 @@ describe('IntelligenceService — district spend wiring + manual bill tracking',
         findFirst: jest.fn(async () => ({ id: clientId, name: 'Acme Defense' })),
         findMany: jest.fn(async () => [{ id: clientId }]),
       },
-      clientIntelMapping: { findMany: jest.fn(async () => []) },
+      clientIntelMapping: {
+        findMany: jest.fn(async () => []),
+        // Compute-on-read alert builders read confirmed mappings via withTenant(tx).
+        findFirst: jest.fn(async () => null),
+      },
       meeting: { findMany: jest.fn(async () => []) },
       mailThread: { findMany: jest.fn(async () => []) },
       engagementTask: { findMany: jest.fn(async () => []) },
@@ -206,13 +210,19 @@ describe('IntelligenceService — district spend wiring + manual bill tracking',
     });
 
     const makeBillService = (manualBillIds: string[], queryRows: Record<string, any[]>) => {
+      // getTrackedBills' LDA-mapping read is now RLS-scoped via withTenant(tx).
+      // Share ONE clientIntelMapping mock between the tx and the top-level prisma
+      // so tests that reassign prisma.clientIntelMapping.findMany still take effect
+      // inside the withTenant(tx) call.
+      const clientIntelMapping = { findMany: jest.fn(async () => []) }; // no confirmed LDA mappings
       const tenantTx = {
         trackedBill: { findMany: jest.fn(async () => manualBillIds.map((billId) => ({ billId }))) },
         clientCapability: { findMany: jest.fn(async () => []) },
+        clientIntelMapping,
       };
       const prisma: any = {
         withTenant: jest.fn(async (_t: string, run: (tx: any) => Promise<any>) => run(tenantTx)),
-        clientIntelMapping: { findMany: jest.fn(async () => []) }, // no confirmed LDA mappings
+        clientIntelMapping,
         // $queryRaw is used for fetchBillsByIds; route by call shape.
         $queryRaw: jest.fn(async () => queryRows.fetchByIds ?? []),
         $queryRawUnsafe: jest.fn(async () => queryRows.embeddings ?? []),

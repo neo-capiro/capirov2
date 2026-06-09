@@ -29,23 +29,29 @@ export class EmbeddingsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async embedCapabilityImmediate(capabilityId: string): Promise<EmbedOutcome> {
-    const cap = await this.prisma.clientCapability.findUnique({
-      where: { id: capabilityId },
-      select: {
-        id: true,
-        tenantId: true,
-        clientId: true,
-        name: true,
-        type: true,
-        description: true,
-        justification: true,
-        districtNexus: true,
-        sector: true,
-        serviceBranch: true,
-        issueCodes: true,
-        tags: true,
-      },
-    });
+    // Fire-and-forget on-write embed: runs via setImmediate AFTER the request,
+    // so no tenant GUC is set on this connection. client_capabilities is
+    // RLS-FORCED, so read the row on the system (bypass) path; we then embed it
+    // strictly for ITS OWN tenant (embedAndUpsert below uses bypassRls:false).
+    const cap = await this.prisma.withSystem((tx) =>
+      tx.clientCapability.findUnique({
+        where: { id: capabilityId },
+        select: {
+          id: true,
+          tenantId: true,
+          clientId: true,
+          name: true,
+          type: true,
+          description: true,
+          justification: true,
+          districtNexus: true,
+          sector: true,
+          serviceBranch: true,
+          issueCodes: true,
+          tags: true,
+        },
+      }),
+    );
     if (!cap) return 'skipped';
     const text = buildCapabilityText(cap);
     return embedAndUpsert(this.prisma, {

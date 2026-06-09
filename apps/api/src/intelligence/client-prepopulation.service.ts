@@ -24,11 +24,15 @@ export class ClientPrepopulationService {
   constructor(private readonly prisma: PrismaService) {}
 
   async prepopulate(tenantId: string, clientId: string): Promise<{ ldaClientIds: number[] }> {
-    // 1. Confirmed LDA ids for this client (client_intel_mapping has no RLS).
-    const confirmed = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId, source: 'lda', confirmed: true },
-      select: { externalId: true },
-    });
+    // 1. Confirmed LDA ids for this client. client_intel_mapping now carries
+    //    tenant_id + forced RLS, so this read is tenant-scoped (a foreign clientId
+    //    yields nothing).
+    const confirmed = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId, source: 'lda', confirmed: true },
+        select: { externalId: true },
+      }),
+    );
     const ldaClientIds = Array.from(
       new Set(confirmed.map((m) => Number(m.externalId)).filter((n) => Number.isInteger(n))),
     );

@@ -465,9 +465,11 @@ export class InsightGeneratorService {
     }
 
     // Resolve LDA issue codes via confirmed mapping
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
+    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findFirst({
+        where: { clientId, source: 'lda', confirmed: true },
+      }),
+    );
     let issueCodes: string[] = [];
     if (ldaMapping) {
       const codeRows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`

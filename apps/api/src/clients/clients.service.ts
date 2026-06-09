@@ -125,11 +125,11 @@ export class ClientsService {
     });
 
     // Resolve-on-create: registrant-anchored entity resolution, fire-and-forget.
-    // client_intel_mapping is not RLS-scoped and resolveClient does not write the
-    // RLS-protected clients table, so this runs safely detached and never blocks
-    // or fails the create response.
+    // resolveClient persists client_intel_mapping under its own withTenant(tenantId)
+    // scope (the table is RLS-protected), so it runs safely detached and never
+    // blocks or fails the create response.
     void this.entityResolution
-      .resolveClient(client.id, client.name, { ldaRegistrantId })
+      .resolveClient(client.id, ctx.tenantId, client.name, { ldaRegistrantId })
       // After resolution (which may auto-confirm an LDA id), run the prepopulation
       // cascade to sync lda_client_ids + merge issue codes / signals.
       .then(() => this.prepopulation.prepopulate(ctx.tenantId, client.id))

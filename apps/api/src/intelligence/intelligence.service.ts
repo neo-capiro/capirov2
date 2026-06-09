@@ -1417,36 +1417,42 @@ export class IntelligenceService {
 
   /**
    * Tenant-safe LDA id-set resolution for callers that don't already hold the
-   * client + mappings. Verifies the client belongs to the tenant (clients is RLS-
-   * scoped) before falling back to the GLOBAL client_intel_mapping table.
+   * client + mappings. Prefers the clients.lda_client_ids cache, falling back to the
+   * confirmed source='lda' mappings — BOTH read under the same tenant scope (clients
+   * and client_intel_mapping are RLS-protected), so a foreign clientId yields [].
    */
   private async resolveLdaClientIds(clientId: string, tenantId: string): Promise<number[]> {
-    const client = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.client.findFirst({ where: { id: clientId }, select: { ldaClientIds: true } }),
-    );
-    if (!client) return [];
-    if ((client.ldaClientIds ?? []).length) return this.pickLdaClientIds(client.ldaClientIds, []);
-    const confirmed = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId, source: 'lda', confirmed: true },
-      select: { externalId: true },
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const client = await tx.client.findFirst({
+        where: { id: clientId },
+        select: { ldaClientIds: true },
+      });
+      if (!client) return [];
+      if ((client.ldaClientIds ?? []).length) return this.pickLdaClientIds(client.ldaClientIds, []);
+      const confirmed = await tx.clientIntelMapping.findMany({
+        where: { clientId, source: 'lda', confirmed: true },
+        select: { externalId: true },
+      });
+      return this.pickLdaClientIds(
+        [],
+        confirmed.map((m) => m.externalId),
+      );
     });
-    return this.pickLdaClientIds(
-      [],
-      confirmed.map((m) => m.externalId),
-    );
   }
 
   /**
-   * The client's confirmed source='lda' externalIds as an int set, read live from
-   * the GLOBAL (no-RLS) client_intel_mapping. For callers without a tenantId in
-   * scope whose clientId was already tenant-validated upstream. Functionally the
-   * same set as the clients.lda_client_ids cache (kept in sync by prepopulation).
+   * The client's confirmed source='lda' externalIds as an int set, tenant-scoped
+   * (client_intel_mapping now carries tenant_id + forced RLS, so a foreign clientId
+   * yields []). Functionally the same set as the clients.lda_client_ids cache
+   * (kept in sync by prepopulation).
    */
-  private async confirmedLdaIds(clientId: string): Promise<number[]> {
-    const mappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId, source: 'lda', confirmed: true },
-      select: { externalId: true },
-    });
+  private async confirmedLdaIds(clientId: string, tenantId: string): Promise<number[]> {
+    const mappings = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId, source: 'lda', confirmed: true },
+        select: { externalId: true },
+      }),
+    );
     return this.pickLdaClientIds(
       [],
       mappings.map((m) => m.externalId),
@@ -2105,11 +2111,21 @@ export class IntelligenceService {
     });
   }
 
-  /** Get client-to-intel source mappings */
-  async getMappings(clientId: string) {
-    return this.prisma.clientIntelMapping.findMany({
-      where: { clientId },
-      orderBy: { confidence: 'desc' },
+  /**
+   * Get client-to-intel source mappings. TENANT-SCOPED: the client must belong
+   * to the caller's tenant, otherwise this would be a cross-tenant read (the
+   * route is auth-guarded but not tenant-scoped, so we enforce ownership here).
+   * `clients` is RLS-isolated; the mapping read is additionally backstopped by
+   * RLS once client_intel_mapping carries tenant_id.
+   */
+  async getMappings(clientId: string, tenantId: string) {
+    return this.prisma.withTenant(tenantId, async (tx) => {
+      const client = await tx.client.findFirst({ where: { id: clientId }, select: { id: true } });
+      if (!client) throw new NotFoundException('Client not found');
+      return tx.clientIntelMapping.findMany({
+        where: { clientId },
+        orderBy: { confidence: 'desc' },
+      });
     });
   }
 
@@ -2229,24 +2245,27 @@ export class IntelligenceService {
     );
     if (!client) throw new NotFoundException('Client not found');
 
-    const mapping = await this.prisma.clientIntelMapping.upsert({
-      where: {
-        clientId_source_externalId: {
+    const mapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.upsert({
+        where: {
+          clientId_source_externalId: {
+            clientId,
+            source: input.source,
+            externalId: input.externalId,
+          },
+        },
+        update: { externalName: input.externalName, confirmed: true },
+        create: {
+          tenantId,
           clientId,
           source: input.source,
           externalId: input.externalId,
+          externalName: input.externalName,
+          confidence: 1,
+          confirmed: true,
         },
-      },
-      update: { externalName: input.externalName, confirmed: true },
-      create: {
-        clientId,
-        source: input.source,
-        externalId: input.externalId,
-        externalName: input.externalName,
-        confidence: 1,
-        confirmed: true,
-      },
-    });
+      }),
+    );
 
     // Pinning an LDA entity changes the confirmed set → refresh the cascade
     // (sync lda_client_ids + merge issue codes / signals).
@@ -2320,55 +2339,61 @@ export class IntelligenceService {
       });
     }
 
-    // Upsert mappings
-    const mappings = [];
-    for (const r of results) {
-      const mapping = await this.prisma.clientIntelMapping.upsert({
-        where: {
-          clientId_source_externalId: {
+    // Upsert mappings (one tenant-scoped transaction for the whole loop)
+    const mappings = await this.prisma.withTenant(tenantId, async (tx) => {
+      const out = [];
+      for (const r of results) {
+        const mapping = await tx.clientIntelMapping.upsert({
+          where: {
+            clientId_source_externalId: {
+              clientId,
+              source: r.source,
+              externalId: r.externalId,
+            },
+          },
+          update: {
+            externalName: r.externalName,
+            confidence: r.confidence,
+          },
+          create: {
+            tenantId,
             clientId,
             source: r.source,
             externalId: r.externalId,
+            externalName: r.externalName,
+            confidence: r.confidence,
+            confirmed: r.confidence >= 0.6,
           },
-        },
-        update: {
-          externalName: r.externalName,
-          confidence: r.confidence,
-        },
-        create: {
-          clientId,
-          source: r.source,
-          externalId: r.externalId,
-          externalName: r.externalName,
-          confidence: r.confidence,
-          confirmed: r.confidence >= 0.6,
-        },
-      });
-      mappings.push(mapping);
-    }
+        });
+        out.push(mapping);
+      }
+      return out;
+    });
 
     return mappings;
   }
 
-  /** Confirm or reject a mapping */
+  /**
+   * Confirm or reject a mapping. TENANT-SCOPED: the mapping's client must belong to
+   * the caller's tenant (the route is auth-guarded but not tenant-scoped). With
+   * client_intel_mapping now carrying tenant_id + forced RLS, the tx-scoped read of
+   * a foreign id returns null. After the flip, re-run the prepopulation cascade so
+   * lda_client_ids + issue codes reflect the new confirmed set (confirm + un-confirm).
+   */
   async confirmMapping(mappingId: string, confirmed: boolean, tenantId: string) {
-    // Authorize: client_intel_mapping has no RLS, so a bare update-by-id is a
-    // cross-tenant IDOR. Gate the write on the mapping's client being visible
-    // under the caller's tenant (mirrors createManualMapping). A non-owned or
-    // missing mappingId is rejected before `confirmed` is ever written.
-    const existing = await this.prisma.clientIntelMapping.findUnique({
-      where: { id: mappingId },
-      select: { clientId: true },
-    });
-    if (!existing) throw new NotFoundException('Mapping not found');
-    const owned = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.client.findFirst({ where: { id: existing.clientId }, select: { id: true } }),
-    );
-    if (!owned) throw new NotFoundException('Mapping not found');
-
-    const mapping = await this.prisma.clientIntelMapping.update({
-      where: { id: mappingId },
-      data: { confirmed },
+    const mapping = await this.prisma.withTenant(tenantId, async (tx) => {
+      const existing = await tx.clientIntelMapping.findUnique({
+        where: { id: mappingId },
+        select: { id: true, clientId: true },
+      });
+      const owned = existing
+        ? await tx.client.findFirst({ where: { id: existing.clientId }, select: { id: true } })
+        : null;
+      if (!existing || !owned) throw new NotFoundException('Mapping not found');
+      return tx.clientIntelMapping.update({
+        where: { id: mappingId },
+        data: { confirmed },
+      });
     });
     // Re-run the cascade so lda_client_ids + issue codes reflect the new confirmed
     // set (covers both confirm and un-confirm; idempotent).
@@ -2415,13 +2440,17 @@ export class IntelligenceService {
     }
 
     const [ldaMappings, contractingMapping] = await Promise.all([
-      this.prisma.clientIntelMapping.findMany({
-        where: { clientId, source: 'lda', confirmed: true },
-        select: { externalId: true },
-      }),
-      this.prisma.clientIntelMapping.findFirst({
-        where: { clientId, source: 'contracting', confirmed: true },
-      }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findMany({
+          where: { clientId, source: 'lda', confirmed: true },
+          select: { externalId: true },
+        }),
+      ),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findFirst({
+          where: { clientId, source: 'contracting', confirmed: true },
+        }),
+      ),
     ]);
     // Lobbying spend across the client's FULL LDA id set (all firm relationships),
     // not a single confirmed mapping.
@@ -2471,7 +2500,7 @@ export class IntelligenceService {
    * tracked:false when no committee is mapped yet, so the UI distinguishes
    * "no PAC mapped" from "PAC mapped, no giving". Read-only, tenant-scoped via mapping.
    */
-  private async getPacGiving(clientId: string): Promise<{
+  private async getPacGiving(clientId: string, tenantId: string): Promise<{
     tracked: boolean;
     committees: Array<{
       committeeId: string;
@@ -2482,10 +2511,12 @@ export class IntelligenceService {
     }>;
     summary: { totalAmount: number; disbursementCount: number; recipientCount: number };
   }> {
-    const committeeMappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId, source: 'fec_committee', confirmed: true },
-      select: { externalId: true },
-    });
+    const committeeMappings = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId, source: 'fec_committee', confirmed: true },
+        select: { externalId: true },
+      }),
+    );
     const committeeIds = Array.from(new Set(committeeMappings.map((m) => m.externalId.trim()).filter(Boolean)));
     if (committeeIds.length === 0) {
       return { tracked: false, committees: [], summary: { totalAmount: 0, disbursementCount: 0, recipientCount: 0 } };
@@ -2581,16 +2612,18 @@ export class IntelligenceService {
     }
 
     // Client's own PAC giving (Schedule B) — computed once, used in all paths below.
-    const pacGiving = await this.getPacGiving(clientId);
+    const pacGiving = await this.getPacGiving(clientId, tenantId);
 
     // Union ALL confirmed FEC-employer strings, not just one. A renamed/large org
     // files individual contributions under several employer spellings ("RAYTHEON",
     // "RTX", "RAYTHEON TECHNOLOGIES CORPORATION"); reading only the single top
     // mapping undercounted the footprint. Mirrors the LDA-registrant union.
-    const fecMappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId, source: 'fec_employer', confirmed: true },
-      orderBy: { confidence: 'desc' },
-    });
+    const fecMappings = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId, source: 'fec_employer', confirmed: true },
+        orderBy: { confidence: 'desc' },
+      }),
+    );
     const employers = Array.from(
       new Set(
         fecMappings
@@ -2814,9 +2847,9 @@ export class IntelligenceService {
   }
 
   /** Competitor surge detector: other registrants lobbying on same issue codes in last 90 days */
-  async getCompetitorBoard(clientId: string) {
-    // Resolve the client's FULL LDA id set (all firm relationships).
-    const ldaClientIds = await this.confirmedLdaIds(clientId);
+  async getCompetitorBoard(clientId: string, tenantId: string) {
+    // Resolve the client's FULL LDA id set (all firm relationships), tenant-scoped.
+    const ldaClientIds = await this.confirmedLdaIds(clientId, tenantId);
     if (!ldaClientIds.length) return { competitors: [], leaderboards: [] };
 
     const codeRows = await this.prisma.$queryRaw<Array<{ code: string }>>`
@@ -2867,17 +2900,10 @@ export class IntelligenceService {
   }
 
   /** Ex-staffers: lobbyists on this client's filings who have covered government positions */
-  async getExStaffers(clientId: string, tenantId?: string) {
-    // Scope: when tenantId is provided (profile-v1 path), verify clientId belongs to
-    // that tenant before reading the global client_intel_mapping table (no RLS).
-    if (tenantId) {
-      const belongs = await this.prisma.withTenant(tenantId, (tx) =>
-        tx.client.findFirst({ where: { id: clientId }, select: { id: true } }),
-      );
-      if (!belongs) return { lobbyists: [] };
-    }
-
-    const ldaClientIds = await this.confirmedLdaIds(clientId);
+  async getExStaffers(clientId: string, tenantId: string) {
+    // confirmedLdaIds is tenant-scoped (client_intel_mapping now has tenant_id + RLS),
+    // so a foreign clientId yields an empty set — no separate belongs-check needed.
+    const ldaClientIds = await this.confirmedLdaIds(clientId, tenantId);
     if (!ldaClientIds.length) return { lobbyists: [] };
 
     const regRows = await this.prisma.$queryRaw<Array<{ registrant_id: number }>>`
@@ -2912,10 +2938,12 @@ export class IntelligenceService {
   }
 
   /** Relevant bills for a client, derived from their confirmed LDA issue codes */
-  async getClientBills(clientId: string) {
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
+  async getClientBills(clientId: string, tenantId: string) {
+    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findFirst({
+        where: { clientId, source: 'lda', confirmed: true },
+      }),
+    );
 
     let issueCodes: string[] = [];
     if (ldaMapping) {
@@ -2946,10 +2974,12 @@ export class IntelligenceService {
     if (!client) throw new NotFoundException('Client not found');
 
     const [confirmedMappings, caps] = await Promise.all([
-      this.prisma.clientIntelMapping.findMany({
-        where: { clientId, confirmed: true },
-        select: { source: true },
-      }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findMany({
+          where: { clientId, confirmed: true },
+          select: { source: true },
+        }),
+      ),
       this.prisma.withTenant(tenantId, (tx) =>
         tx.clientCapability.findMany({
           where: { clientId },
@@ -3055,10 +3085,12 @@ export class IntelligenceService {
    * legible so users can see and trust the intel.
    */
   async getIssueCodeSignal(clientId: string, tenantId: string) {
-    const ldaMappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId, source: 'lda', confirmed: true },
-      select: { externalId: true, externalName: true },
-    });
+    const ldaMappings = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId, source: 'lda', confirmed: true },
+        select: { externalId: true, externalName: true },
+      }),
+    );
     const ldaIds = ldaMappings
       .map((m) => Number(m.externalId))
       .filter((n) => Number.isFinite(n));
@@ -3135,10 +3167,14 @@ export class IntelligenceService {
     // "RTX CORPORATION", "RTX CORPORATION AND AFFILIATES", "RAYTHEON TECHNOLOGIES
     // CORPORATION", various FKA forms — and each is a distinct lda_client. Picking
     // a single one left big clients matching on a thin slice of their footprint.
-    const ldaMappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId, source: 'lda', confirmed: true },
-      select: { externalId: true },
-    });
+    const ldaMappings = tenantId
+      ? await this.prisma.withTenant(tenantId, (tx) =>
+          tx.clientIntelMapping.findMany({
+            where: { clientId, source: 'lda', confirmed: true },
+            select: { externalId: true },
+          }),
+        )
+      : [];
 
     // Manually pinned bills (explicit human picks) — always included regardless
     // of embedding similarity, and flagged so the UI can mark them. Tenant-scoped.
@@ -3903,10 +3939,12 @@ export class IntelligenceService {
   }
 
   /** Resolve a client's LDA issue codes (confirmed mapping) for competitor matching. */
-  private async getClientIssueCodes(clientId: string): Promise<string[]> {
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
+  private async getClientIssueCodes(clientId: string, tenantId: string): Promise<string[]> {
+    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findFirst({
+        where: { clientId, source: 'lda', confirmed: true },
+      }),
+    );
     if (!ldaMapping || !ldaMapping.externalId) return [];
     const ext = Number(ldaMapping.externalId);
     if (!Number.isFinite(ext)) return [];
@@ -4082,7 +4120,7 @@ export class IntelligenceService {
     since: Date,
   ): Promise<AlertRow[]> {
     try {
-      const issueCodes = await this.getClientIssueCodes(clientId);
+      const issueCodes = await this.getClientIssueCodes(clientId, tenantId);
       if (issueCodes.length === 0) return [];
 
       // The client's own LDA client name(s) so we exclude their own filings.
@@ -4145,10 +4183,12 @@ export class IntelligenceService {
     since: Date,
   ): Promise<AlertRow[]> {
     try {
-      const mapping = await this.prisma.clientIntelMapping.findFirst({
-        where: { clientId, source: 'contracting', confirmed: true },
-        select: { externalId: true },
-      });
+      const mapping = await this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findFirst({
+          where: { clientId, source: 'contracting', confirmed: true },
+          select: { externalId: true },
+        }),
+      );
       const contractorName = mapping?.externalId?.trim();
       if (!contractorName) return [];
 
@@ -4289,10 +4329,12 @@ export class IntelligenceService {
           select: { id: true, name: true, sectorTag: true },
         }),
       ),
-      this.prisma.clientIntelMapping.findMany({
-        where: { clientId },
-        orderBy: { confidence: 'desc' },
-      }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findMany({
+          where: { clientId },
+          orderBy: { confidence: 'desc' },
+        }),
+      ),
       // kg_walk is a server-side graph-traversal function that fans out to
       // depth=2 with LIMIT 500. On warm Aurora it usually finishes in 1-2s
       // but cold-cache or large graphs push it to 5-8s, which used to blow
@@ -4605,9 +4647,11 @@ export class IntelligenceService {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const fourteenDaysOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
 
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
+    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findFirst({
+        where: { clientId, source: 'lda', confirmed: true },
+      }),
+    );
 
     let issueCodes: string[] = [];
     if (ldaMapping) {
@@ -4741,10 +4785,12 @@ export class IntelligenceService {
     const clientIds = clients.map((c) => c.id);
     if (!clientIds.length) return [];
 
-    const mappings = await this.prisma.clientIntelMapping.findMany({
-      where: { clientId: { in: clientIds } },
-      orderBy: { confidence: 'desc' },
-    });
+    const mappings = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findMany({
+        where: { clientId: { in: clientIds } },
+        orderBy: { confidence: 'desc' },
+      }),
+    );
 
     const clientMap = new Map(clients.map((c) => [c.id, c.name]));
     return mappings.map((m) => ({ ...m, clientName: clientMap.get(m.clientId) ?? '' }));
@@ -5573,10 +5619,12 @@ export class IntelligenceService {
           select: { id: true, profileStatus: true },
         }),
       ),
-      this.prisma.clientIntelMapping.findMany({
-        where: { confirmed: true, source: 'lda' },
-        select: { clientId: true, externalId: true },
-      }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findMany({
+          where: { confirmed: true, source: 'lda' },
+          select: { clientId: true, externalId: true },
+        }),
+      ),
     ]);
 
     const tenantClientIds = new Set(clients.map((c) => c.id));

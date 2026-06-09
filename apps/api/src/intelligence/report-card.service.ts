@@ -118,9 +118,9 @@ export class ReportCardService {
 
     // Intelligence metrics via confirmed mappings
     const [roi, trackedBillsCount, competitorCount] = await Promise.all([
-      this.getLobbyRoi(clientId),
-      this.getTrackedBillsCount(clientId),
-      this.getCompetitorCount(clientId),
+      this.getLobbyRoi(clientId, tenantId),
+      this.getTrackedBillsCount(clientId, tenantId),
+      this.getCompetitorCount(clientId, tenantId),
     ]);
 
     // Weekly engagement health trend
@@ -220,10 +220,14 @@ export class ReportCardService {
     };
   }
 
-  private async getLobbyRoi(clientId: string) {
+  private async getLobbyRoi(clientId: string, tenantId: string) {
     const [ldaMapping, contractingMapping] = await Promise.all([
-      this.prisma.clientIntelMapping.findFirst({ where: { clientId, source: 'lda', confirmed: true } }),
-      this.prisma.clientIntelMapping.findFirst({ where: { clientId, source: 'contracting', confirmed: true } }),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findFirst({ where: { clientId, source: 'lda', confirmed: true } }),
+      ),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.findFirst({ where: { clientId, source: 'contracting', confirmed: true } }),
+      ),
     ]);
 
     let lobbySpend = 0;
@@ -248,10 +252,12 @@ export class ReportCardService {
     return { lobbySpend, contractWins };
   }
 
-  private async getTrackedBillsCount(clientId: string) {
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
+  private async getTrackedBillsCount(clientId: string, tenantId: string) {
+    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findFirst({
+        where: { clientId, source: 'lda', confirmed: true },
+      }),
+    );
     if (!ldaMapping) return 0;
 
     const codeRows = await this.prisma.$queryRaw<Array<{ issue_codes: string[] }>>`
@@ -276,10 +282,12 @@ export class ReportCardService {
     return parseInt(countRows[0]?.count ?? '0', 10);
   }
 
-  private async getCompetitorCount(clientId: string) {
-    const ldaMapping = await this.prisma.clientIntelMapping.findFirst({
-      where: { clientId, source: 'lda', confirmed: true },
-    });
+  private async getCompetitorCount(clientId: string, tenantId: string) {
+    const ldaMapping = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.clientIntelMapping.findFirst({
+        where: { clientId, source: 'lda', confirmed: true },
+      }),
+    );
     if (!ldaMapping) return 0;
 
     const ldaClientId = Number(ldaMapping.externalId);

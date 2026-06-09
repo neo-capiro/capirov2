@@ -33,7 +33,7 @@ function makePrisma(opts: {
   capabilities?: Array<CapabilityRow>;
 }) {
   const capabilities = opts.capabilities ?? [];
-  return {
+  const db = {
     programElementWatch: {
       findMany: jest.fn(async () => opts.watches ?? []),
     },
@@ -57,6 +57,13 @@ function makePrisma(opts: {
         return matched.map((c) => ({ tenantId: c.tenantId, clientId: c.clientId }));
       }),
     },
+  };
+  return {
+    ...db,
+    // client_capabilities is RLS-FORCED; getAffectedTenants reads it cross-tenant
+    // via the bypass path (withSystem). The mock just runs the callback against
+    // the same stub client.
+    withSystem: jest.fn(async (fn: (tx: typeof db) => unknown) => fn(db)),
   };
 }
 

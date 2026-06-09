@@ -2427,11 +2427,14 @@ model IntelligenceInsight {
 
 // ─────────────────────────────────────────────────────────────────────────
 // Client-to-intelligence-source mapping (synthesis layer)
-// GLOBAL table, links CRM clients to external intelligence identities.
+// Links CRM clients to external intelligence identities. TENANT-SCOPED: every
+// row belongs to one tenant (via its client) and is RLS-isolated on tenant_id
+// (migration 20260608010000) — reads must go through withTenant/withSystem.
 // ─────────────────────────────────────────────────────────────────────────
 
 model ClientIntelMapping {
   id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
   clientId     String   @map("client_id") @db.Uuid
   source       String // 'lda', 'contracting', 'lobby_intel', 'fec'
   externalId   String   @map("external_id")
@@ -2443,6 +2446,7 @@ model ClientIntelMapping {
 
   @@unique([clientId, source, externalId])
   @@index([clientId])
+  @@index([tenantId])
   @@index([source, externalId])
   @@map("client_intel_mapping")
 }

@@ -202,10 +202,12 @@ export class FirmOnboardingService {
             },
             select: { id: true, name: true },
           });
-          // client_intel_mapping is not RLS-scoped; the confirmed mapping is the
-          // source of truth, clients.lda_client_ids is its denormalized cache.
+          // The confirmed mapping is the source of truth; clients.lda_client_ids is
+          // its denormalized cache. client_intel_mapping is RLS-scoped (tenant_id
+          // required); this create runs inside withTenant(ctx.tenantId).
           await tx.clientIntelMapping.create({
             data: {
+              tenantId: ctx.tenantId,
               clientId: client.id,
               source: 'lda',
               externalId: String(id),

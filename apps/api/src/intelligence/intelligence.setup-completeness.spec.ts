@@ -16,6 +16,9 @@ describe('IntelligenceService.getSetupCompleteness', () => {
     confirmed?: string[];
     caps?: Array<{ tags?: unknown; description?: string | null }>;
   }) => {
+    const clientIntelMapping = {
+      findMany: jest.fn(async () => (opts.confirmed ?? []).map((source) => ({ source }))),
+    };
     const tenantTx = {
       client: {
         findFirst: jest.fn(async () => ({
@@ -25,12 +28,12 @@ describe('IntelligenceService.getSetupCompleteness', () => {
         })),
       },
       clientCapability: { findMany: jest.fn(async () => opts.caps ?? []) },
+      // clientIntelMapping reads are now RLS-scoped via withTenant(tx).
+      clientIntelMapping,
     };
     const prisma: any = {
       withTenant: jest.fn(async (_t: string, run: (tx: any) => Promise<any>) => run(tenantTx)),
-      clientIntelMapping: {
-        findMany: jest.fn(async () => (opts.confirmed ?? []).map((source) => ({ source }))),
-      },
+      clientIntelMapping,
     };
     return new IntelligenceService(prisma);
   };

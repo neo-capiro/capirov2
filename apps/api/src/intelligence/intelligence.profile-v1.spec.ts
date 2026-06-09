@@ -13,6 +13,9 @@ describe('IntelligenceService.getClientProfileV1', () => {
       },
       clientIntelMapping: {
         findMany: jest.fn(async () => []),
+        // Compute-on-read alert builders (getContractAwardAlerts,
+        // getCompetitorLdaAlerts) read confirmed mappings via withTenant(tx).
+        findFirst: jest.fn(async () => null),
       },
       meeting: {
         findMany: jest.fn(async () => []),

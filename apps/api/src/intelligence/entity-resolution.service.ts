@@ -182,6 +182,7 @@ export class EntityResolutionService {
    */
   private async persistSourceCandidates(
     clientId: string,
+    tenantId: string,
     source: string,
     rows: MatchRow[],
     clientFp: string,
@@ -217,20 +218,23 @@ export class EntityResolutionService {
       // Only ever upgrade to confirmed; never silently un-confirm a human pick.
       if (autoConfirm) updateData.confirmed = true;
 
-      await this.prisma.clientIntelMapping.upsert({
-        where: {
-          clientId_source_externalId: { clientId, source, externalId: cand.externalId },
-        },
-        update: updateData,
-        create: {
-          clientId,
-          source,
-          externalId: cand.externalId,
-          externalName: cand.externalName,
-          confidence: cand.confidence,
-          confirmed: autoConfirm,
-        },
-      });
+      await this.prisma.withTenant(tenantId, (tx) =>
+        tx.clientIntelMapping.upsert({
+          where: {
+            clientId_source_externalId: { clientId, source, externalId: cand.externalId },
+          },
+          update: updateData,
+          create: {
+            tenantId,
+            clientId,
+            source,
+            externalId: cand.externalId,
+            externalName: cand.externalName,
+            confidence: cand.confidence,
+            confirmed: autoConfirm,
+          },
+        }),
+      );
 
       created++;
       if (autoConfirm) autoConfirmed++;
@@ -409,6 +413,7 @@ export class EntityResolutionService {
 
   async resolveClient(
     clientId: string,
+    tenantId: string,
     clientName: string,
     opts?: { ldaRegistrantId?: number | null },
   ): Promise<{ created: number; autoConfirmed: number; needsReview: number }> {
@@ -441,7 +446,7 @@ export class EntityResolutionService {
     let autoConfirmed = 0;
     let needsReview = 0;
     for (const { source, rows, anchored } of groups) {
-      const r = await this.persistSourceCandidates(clientId, source, rows, clientFp, anchored);
+      const r = await this.persistSourceCandidates(clientId, tenantId, source, rows, clientFp, anchored);
       created += r.created;
       autoConfirmed += r.autoConfirmed;
       needsReview += r.needsReview;
@@ -469,7 +474,7 @@ export class EntityResolutionService {
     let needsReview = 0;
 
     for (const client of clients) {
-      const result = await this.resolveClient(client.id, client.name, { ldaRegistrantId });
+      const result = await this.resolveClient(client.id, tenantId, client.name, { ldaRegistrantId });
       mappingsCreated += result.created;
       autoConfirmed += result.autoConfirmed;
       needsReview += result.needsReview;

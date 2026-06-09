@@ -88,17 +88,20 @@ describe('InsightGeneratorService.generateClientBriefing PE section', () => {
       model: 'gpt-4o-mini',
     }));
 
+    const clientIntelMapping = {
+      // generateClientBriefing's LDA-mapping read is now RLS-scoped via withTenant(tx).
+      findFirst: jest.fn(async () => null),
+    };
     const prisma: any = {
       withTenant: jest.fn(async (_tenantId: string, run: (tx: any) => Promise<any>) =>
         run({
           client: {
             findFirst: jest.fn(async () => client),
           },
+          clientIntelMapping,
         }),
       ),
-      clientIntelMapping: {
-        findFirst: jest.fn(async () => null),
-      },
+      clientIntelMapping,
       $queryRaw: jest.fn(async () => []),
       intelligenceChange: {
         findMany: jest.fn(async (args: any) => {
