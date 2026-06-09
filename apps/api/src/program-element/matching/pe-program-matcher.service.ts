@@ -5,6 +5,7 @@ import {
   type EvidenceTier,
   type MatchStatus,
 } from './program-match-thresholds.js';
+import { isGenericAlias } from './alias-stoplist.js';
 
 /**
  * PE/project -> Program matcher (Step 2.1).
@@ -238,23 +239,33 @@ export class PeProgramMatcherService {
     };
 
     // ── PE title vs aliases ──
-    const peTitleTg = this.trigrams(pe.title);
-    for (const a of aliasIndex) {
-      if (a.aliasNormalized.length < minAliasLen) continue;
-      const raw = this.simSet(peTitleTg, a.tg);
-      if (raw < trgmMin) continue;
-      consider(a.programId, null, raw, 'pe_title', a.aliasNormalized, a.aliasType, a.component, this.normalizeAlias(pe.title));
+    // Skip generic accounting categories on BOTH sides: a PE titled e.g.
+    // "Congressional Adds" matches nothing, and a generic alias is never evidence
+    // (defense-in-depth for any generic alias that predates the creation guard).
+    const peTitleNorm = this.normalizeAlias(pe.title);
+    if (!isGenericAlias(peTitleNorm)) {
+      const peTitleTg = this.trigrams(pe.title);
+      for (const a of aliasIndex) {
+        if (a.aliasNormalized.length < minAliasLen) continue;
+        if (isGenericAlias(a.aliasNormalized)) continue;
+        const raw = this.simSet(peTitleTg, a.tg);
+        if (raw < trgmMin) continue;
+        consider(a.programId, null, raw, 'pe_title', a.aliasNormalized, a.aliasType, a.component, peTitleNorm);
+      }
     }
 
     // ── Project titles vs aliases (project-level matches; projectCode set) ──
     for (const proj of projects) {
       if (!proj.title?.trim()) continue;
+      const projNorm = this.normalizeAlias(proj.title);
+      if (isGenericAlias(projNorm)) continue;
       const projTg = this.trigrams(proj.title);
       for (const a of aliasIndex) {
         if (a.aliasNormalized.length < minAliasLen) continue;
+        if (isGenericAlias(a.aliasNormalized)) continue;
         const raw = this.simSet(projTg, a.tg);
         if (raw < trgmMin) continue;
-        consider(a.programId, proj.projectCode, raw, 'project_title', a.aliasNormalized, a.aliasType, a.component, this.normalizeAlias(proj.title));
+        consider(a.programId, proj.projectCode, raw, 'project_title', a.aliasNormalized, a.aliasType, a.component, projNorm);
       }
     }
 

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { isValidPeCode, thousandsToMillions } from '../../jbook/jbook-extract.js';
+import { isValidProgramCode, thousandsToMillions } from '../../jbook/jbook-extract.js';
 import { ProgramElementWriterService } from '../../program-element-writer.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 
@@ -163,8 +163,8 @@ export class PDocParserService {
     let quarantined = 0;
 
     for (const rec of records) {
-      if (!isValidPeCode(rec.peCode) || !rec.title) {
-        await this.writer.quarantine(rec, `Invalid procurement PE in ${source}: ${rec.peCode}`, source);
+      if (!isValidProgramCode(rec.peCode) || !rec.title) {
+        await this.writer.quarantine(rec, `Invalid procurement code in ${source}: ${rec.peCode}`, source);
         quarantined += 1;
         continue;
       }

@@ -5,6 +5,8 @@ import {
   jbookDeepLink,
   citationKey,
   isValidPeCode,
+  isValidProcurementCode,
+  isValidProgramCode,
   r2PeSnippet,
   r2aProjectSnippet,
 } from './jbook-extract.js';
@@ -114,6 +116,33 @@ describe('isValidPeCode', () => {
   test('rejects null/undefined safely', () => {
     expect(isValidPeCode(null)).toBe(false);
     expect(isValidPeCode(undefined)).toBe(false);
+  });
+});
+
+describe('isValidProcurementCode / isValidProgramCode (Option A — procurement)', () => {
+  test('accepts procurement BLINs (4 digits + 1-2 letters + 4-5 alnum)', () => {
+    for (const blin of ['0102A12345', '0102AB1234', '1234A56789', '0708BB0001']) {
+      expect(isValidProcurementCode(blin)).toBe(true);
+    }
+  });
+
+  test('BLIN and PE-code formats never collide', () => {
+    expect(isValidProcurementCode('0601102A')).toBe(false); // a PE code is not a BLIN
+    expect(isValidPeCode('0102A12345')).toBe(false); // a BLIN is not a PE code
+  });
+
+  test('rejects malformed procurement codes', () => {
+    for (const bad of ['BADPROC99', '123A1234', 'ABCD123456', '01021234', '', '   ']) {
+      expect(isValidProcurementCode(bad)).toBe(false);
+    }
+  });
+
+  test('isValidProgramCode accepts either format, rejects neither', () => {
+    expect(isValidProgramCode('0601102A')).toBe(true); // PE code
+    expect(isValidProgramCode('0102A12345')).toBe(true); // BLIN
+    expect(isValidProgramCode('BADPROC99')).toBe(false);
+    expect(isValidProgramCode('BAD')).toBe(false);
+    expect(isValidProgramCode(null)).toBe(false);
   });
 });
 

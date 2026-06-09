@@ -107,6 +107,32 @@ export function isValidPeCode(peCode: string | null | undefined): boolean {
 }
 
 /**
+ * Procurement Budget Line Item Number (BLIN) format — the identifier procurement
+ * (P-1/P-40) exhibits use INSTEAD of an RDT&E PE code: 4 digits + 1-2 service
+ * letters + 4-5 alphanumerics (~9-11 chars). Mirrors the offline extractor's
+ * BLIN_RE (scripts/__tools__/extract_pdoc.py). Distinct from PE_CODE_REGEX (which
+ * requires 7 leading digits), so the two never collide in program_element.pe_code.
+ */
+export const PROCUREMENT_CODE_REGEX = /^[0-9]{4}[A-Z]{1,2}[0-9A-Z]{4,5}$/;
+
+/** Procurement BLIN validity check. Trims + upper-cases before testing. */
+export function isValidProcurementCode(code: string | null | undefined): boolean {
+  if (!code) return false;
+  return PROCUREMENT_CODE_REGEX.test(code.trim().toUpperCase());
+}
+
+/**
+ * Accept EITHER an RDT&E PE code OR a procurement BLIN. The shared program-element
+ * writer gate uses this so both appropriations land in program_element,
+ * distinguished by the appropriation_type column (RDT&E vs PROC), not the code
+ * format. RDT&E ingest paths only ever produce PE codes; procurement (pdoc) paths
+ * produce BLINs — they never cross.
+ */
+export function isValidProgramCode(code: string | null | undefined): boolean {
+  return isValidPeCode(code) || isValidProcurementCode(code);
+}
+
+/**
  * Program Element marks are stored + displayed in MILLIONS (the seed-fixture + UI
  * `$X.XXm` convention). Source artifacts arrive in different raw units, so each
  * ingestion path normalizes to millions at the boundary; 0 stays 0, null/NaN -> null.
