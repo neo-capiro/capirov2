@@ -105,20 +105,46 @@ def _is_p40_page(text):
 
 
 def _fy_header_columns(words):
-    """Map fiscal-year + the FY26 sub-columns to x-centres from the Resource
-    Summary header rows. Returns dict label -> x_center. Labels include integer
-    fiscal years ("2024".."2030"), plus "BASE"/"OOC"/"TOTAL" for the request year,
-    "PRIOR", "COMPLETE", and a final "GRANDTOTAL"."""
-    # Header tokens sit on two stacked rows (e.g. "FY"/"2026" and "Base").
+    """Map the Resource Summary header columns to {label: x_center}.
+
+    ANCHORED to the actual header row (the one carrying 'Years' + the request-year
+    'Base'/'Total' split) so stray 'FY 20xx' tokens in the narrative or on the
+    BLIN's other exhibit pages are ignored. Labels:
+      ('FY', '2025')           plain fiscal-year columns (prior actuals + FYDP)
+      ('BASE',)/('OOC',)/('TOTAL',)  the request-year split; ('TOTAL',) is the
+                               FIRST 'Total' (request-year total = Base+OOC),
+                               distinct from the rightmost grand total.
+      ('PRIOR',)/('COMPLETE',)/('GRANDTOTAL',)  cumulative columns (not emitted).
+    """
+    def xc(w):
+        return (w["x0"] + w["x1"]) / 2.0
+
+    hdr = None
+    for r in _group_rows(words):
+        s = {w["text"] for w in r}
+        if "Years" in s and "Base" in s and "Total" in s:
+            hdr = r
+            break
+    if hdr is None:
+        return {}
+
     cols = {}
-    for w in words:
-        txt = w["text"]
-        xc = (w["x0"] + w["x1"]) / 2.0
-        top = w["top"]
-        if re.fullmatch(r"20[0-9]{2}", txt):
-            cols.setdefault(("FY", txt, round(top)), xc)
-        elif txt in ("Base", "OOC", "Total", "Prior", "Complete", "Years"):
-            cols.setdefault((txt.upper(), round(top)), xc)
+    seen_total = 0
+    for w in sorted(hdr, key=lambda w: w["x0"]):
+        t = w["text"]
+        if re.fullmatch(r"20[0-9]{2}", t):
+            cols.setdefault(("FY", t), xc(w))
+        elif t == "Years":
+            cols.setdefault(("PRIOR",), xc(w))
+        elif t == "Base":
+            cols.setdefault(("BASE",), xc(w))
+        elif t == "OOC":
+            cols.setdefault(("OOC",), xc(w))
+        elif t == "Complete":
+            cols.setdefault(("COMPLETE",), xc(w))
+        elif t == "Total":
+            seen_total += 1
+            cols.setdefault(("TOTAL",) if seen_total == 1 else ("GRANDTOTAL",), xc(w))
     return cols
 
 
@@ -179,37 +205,19 @@ def _parse_p40(words, fy):
     # Years 2024+ each get a column; the request FY (== fy or fy+0) splits into
     # Base/OOC/Total. We map: request quantity/dollars come from the request-FY
     # "Total" column, prior years from their own year columns.
+    # Plain year columns (prior actuals + FYDP out-years) come from ('FY','YYYY').
+    # The request/budget year (fy) has NO plain year column — it is the Base/OOC/
+    # Total split, so key it off the request-year TOTAL column (Base+OOC). Fall
+    # back to a plain year column for books using the older single-column format.
     fycols = _fy_header_columns(words)
-    # Build a clean {fy_int: x_center} for plain year columns and capture the
-    # request-year Base/OOC/Total band.
-    year_centers = {}
-    base_x = ooc_x = total_x = None
+    emit_years = {}  # fy_int -> x_center used for quantity/dollars
     for key, xc in fycols.items():
         if key[0] == "FY":
-            year_centers[int(key[1])] = xc
-        elif key[0] == "BASE":
-            base_x = xc
-        elif key[0] == "OOC":
-            ooc_x = xc
-        elif key[0] == "TOTAL":
-            total_x = xc
-
-    # The request FY is the one with a Base/OOC/Total split (fy). The FY26 "Total"
-    # column carries the full request; if there's no split (older format), the
-    # plain year column is the request column.
-    request_total_x = total_x if total_x is not None else year_centers.get(fy)
-
-    # Which fiscal years do we emit? The request FY plus any neighbouring plain
-    # year columns the page exposes (these carry actuals/enacted/outyear).
-    emit_years = {}  # fy_int -> x_center used for quantity/dollars
-    if request_total_x is not None:
-        emit_years[fy] = request_total_x
-    for y, xc in year_centers.items():
-        if y == fy:
-            # request year: prefer the Total band centre over the bare "FY 2026"
-            emit_years.setdefault(y, request_total_x if request_total_x is not None else xc)
-        else:
-            emit_years[y] = xc
+            emit_years[int(key[1])] = xc
+    total_x = fycols.get(("TOTAL",))
+    request_x = total_x if total_x is not None else fycols.get(("FY", str(fy)))
+    if request_x is not None:
+        emit_years[fy] = request_x
 
     if not emit_years:
         return None
