@@ -107,3 +107,26 @@ should be > 0, and the PE pages should show procurement programs with sane $M.
   = FYDP. Change in `_parse_p40` (`total_x` → `BASE`) if Base-only is wanted.
 - Procurement PEs participate in PE→Program matching by title (the generic-alias
   stoplist protects against false matches).
+
+## Secondary Distribution per-recipient values (FY2027 — DONE 2026-06-09)
+`_parse_secondary_distribution` now captures per-recipient (Army/ANG/AR/…) quantity
++ obligation-authority for the request year. Two fixes vs. the original null-dropping
+parser: (1) resolve the request-year column from the SD block's OWN header (first
+'Total' = request-year Base+OOC; the columns usually share the 'Secondary
+Distribution' label row), page header as fallback; (2) select the value by POSITIONAL
+index in the header's ordered value-columns, NOT nearest-x — header labels and
+right-aligned data drift apart (e.g. a short quantity token lands ~24px off the
+'Total' header), which silently dropped quantities while dollars matched.
+
+Verified against the PDF before load: NGSW Army 16,132/$159.166M, ANG 22,009/$213.475M
+(WTCV p166); Lower Tier AMD Army qty 12/$2,036.358M (Missile p30). Re-extracted all 7
+books and LOADED TO PROD (capiro-dev) 2026-06-09 via `parse-pdoc` ECS tasks — 197 line
+items upserted, 0 quarantined across all 7. Per-book lineItems: aircraft 35, missile
+21, wtcv 37, ammo 1, op_ba1 12, op_ba2 59, op_ba3_4 32.
+
+KNOWN per-book coverage notes (NOT bugs):
+- **ammo**: only 1 line item — the Ammunition book has Secondary Distribution on just
+  1 of 921 pages (bulk-funded, no per-recipient split). Correct, not a parser gap.
+- **aircraft**: low quantity coverage (2/35 qty, 21/35 dol) — likely an SD layout
+  variant; revisit with the same dump+diagnose cycle if per-recipient aircraft
+  quantities are needed. Dollars populate fine.
