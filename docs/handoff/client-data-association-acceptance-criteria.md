@@ -66,13 +66,13 @@ Companion to `client-data-association.md`. Each item is independently testable.
 6.2 `lda_client_ids` is never stale vs. the confirmed mapping set after any confirm/un-confirm/import (recomputed in-SQL). **(SQL)**
 6.3 The 3 migrations applied cleanly to the populated prod DB: `client_intel_mapping.tenant_id` backfilled from `clients` (zero NULLs), orphan rows dropped, NOT NULL + FK + RLS in place. **(SQL: `prisma migrate status` + row checks)**
 
-## AC-7 · Backfill of existing data  `[needs A]` — without this, users see no new associations
+## AC-7 · Backfill of existing data  `[PARTIAL — prepopulate DONE 2026-06-09; resolve PENDING registrants]`
 
-7.1 After setting `tenants.lda_registrant_id` and running `resolveAllForTenant` + `prepopulateAllForTenant` for a tenant, existing clients have `lda_client_ids` populated wherever a confirmed LDA mapping exists. **(SQL)**
-7.2 New **candidate** (unconfirmed) mappings appear in the review queue for existing clients that previously had none. **(UI/SQL)**
-7.3 For a heavily-lobbied existing client, the Intel-tab lobbying spend is **higher** than the prior single-id value (now summed across the set). **(UI: before/after)**
-7.4 The backfill is safe to re-run (idempotent) and does not clobber any user-entered values (per AC-3.3/3.4). **(SQL)**
-7.5 A pre-flight diff (`diag-client-resolution`, BUILT 2026-06-09 — read-only ECS verb) reports, per existing client, the projected change (current confirmed mappings + lda_client_ids, registrant-anchored candidate count, projected auto-confirm set, projected lda_client_ids, net-new associations) before any write is committed. **(SQL)** — verb shipped as code; run on deploy.
+7.1 After setting `tenants.lda_registrant_id` and running `resolveAllForTenant` + `prepopulateAllForTenant` for a tenant, existing clients have `lda_client_ids` populated wherever a confirmed LDA mapping exists. **(SQL)** — `prepopulate-all` ran on all 4 tenants (0 failed); all 11 clients that had confirmed mappings with an empty cache now have `lda_client_ids` populated (verified via diag re-run: STALEcache 11→0). `resolveAllForTenant` NOT run — see 7.2.
+7.2 New **candidate** (unconfirmed) mappings appear in the review queue for existing clients that previously had none. **(UI/SQL)** — NOT DONE. Requires `resolveAllForTenant`, which is BLOCKED: all 4 tenants have NO `lda_registrant_id` (diag: `tenantsMissingRegistrantAnchor: 4`), so resolution would run low-quality GLOBAL-FUZZY, not registrant-anchored. Setting each tenant's real LDA registrant is a business decision (which firm each tenant IS) — not auto-derivable. OPEN for operator: set registrants (`PUT /firm/registrant` or the wizard) then run `sync-entity-resolution`.
+7.3 For a heavily-lobbied existing client, the Intel-tab lobbying spend is **higher** than the prior single-id value (now summed across the set). **(UI: before/after)** — DATA VERIFIED: RTX CORPORATION lda_client_ids now = 10 ids, META = 21 ids (were single/empty). Read path joins `= ANY(ids)`, so spend now sums across the set. Live-UI before/after screenshot still owed (needs an authed tenant session).
+7.4 The backfill is safe to re-run (idempotent) and does not clobber any user-entered values (per AC-3.3/3.4). **(SQL)** — DONE (prepopulate is a single atomic UPDATE recomputing from current confirmed set; ran clean, re-runnable).
+7.5 A pre-flight diff (`diag-client-resolution`) reports, per existing client, the projected change before any write. **(SQL)** — DONE (run twice: pre- and post-backfill, used to verify the cache flip).
 
 ## AC-8 · Firm-onboarding UI  `[shipped — code]` (verified 2026-06-09 tsc+vitest; live UI on deploy) — the visible experience
 
