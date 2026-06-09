@@ -173,7 +173,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 39000.0
         }
       ]
     },
@@ -509,8 +509,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 16,
+          "dollars": 33711000.0
         },
         {
           "description": "ANG",
@@ -575,7 +575,7 @@
           "description": "ANG",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 20187000.0
         }
       ]
     },
@@ -634,7 +634,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 5188000.0
         },
         {
           "description": "ANG",
@@ -715,7 +715,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 54428000.0
         }
       ]
     },
@@ -773,8 +773,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 528,
+          "dollars": 16382000.0
         }
       ]
     },
@@ -885,7 +885,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 853000.0
         },
         {
           "description": "ANG",
@@ -1008,7 +1008,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 65000.0
         }
       ]
     },
@@ -1268,7 +1268,7 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
+          "quantity": 60,
           "dollars": null
         }
       ]
@@ -1327,14 +1327,14 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 50,
+          "dollars": 3997000.0
         },
         {
           "description": "ANG",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 39,
+          "dollars": 734000.0
         }
       ]
     },
@@ -1416,7 +1416,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 1075000.0
         }
       ]
     },
@@ -1527,7 +1527,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 12441000.0
         }
       ]
     },
@@ -1608,8 +1608,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 80,
+          "dollars": 106497000.0
         }
       ]
     },
@@ -1684,8 +1684,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 37,
+          "dollars": 46570000.0
         }
       ]
     },
@@ -1796,7 +1796,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 8427000.0
         }
       ]
     },
@@ -1878,7 +1878,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 485840000.0
         }
       ]
     },
@@ -1988,7 +1988,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 1818000.0
         }
       ]
     },
@@ -2023,7 +2023,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 18000000
         }
       ]
     },
@@ -2133,14 +2133,14 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 290,
+          "dollars": 10456000.0
         },
         {
           "description": "ANG",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 77,
+          "dollars": 2772000.0
         }
       ]
     },
@@ -2186,8 +2186,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 2,
+          "dollars": 9848000.0
         }
       ]
     },
@@ -2245,8 +2245,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 79,
+          "dollars": 84134000.0
         }
       ]
     },
@@ -2305,7 +2305,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 994127000.0
         }
       ]
     },
@@ -2386,7 +2386,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 7663000.0
         }
       ]
     },
@@ -2444,8 +2444,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 240,
+          "dollars": 6382000.0
         }
       ]
     },
@@ -2503,8 +2503,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 20,
+          "dollars": 2391000.0
         }
       ]
     },
@@ -2563,7 +2563,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 7139000.0
         }
       ]
     },
@@ -2622,7 +2622,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 196522000.0
         }
       ]
     },
@@ -2783,13 +2783,13 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 30505000.0
         },
         {
           "description": "ANG",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 12,
+          "dollars": 30622000.0
         }
       ]
     },
@@ -2847,8 +2847,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 63,
+          "dollars": 1052868000.0
         }
       ]
     },
@@ -2906,8 +2906,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 3,
+          "dollars": 16446000.0
         }
       ]
     },
@@ -2966,7 +2966,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 5265000.0
         }
       ]
     },
@@ -3145,7 +3145,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 4303000.0
         }
       ]
     },
@@ -3271,8 +3271,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 3,
+          "dollars": 75004000.0
         }
       ]
     },

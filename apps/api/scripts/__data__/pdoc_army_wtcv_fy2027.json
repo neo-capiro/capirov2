@@ -178,7 +178,7 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
+          "quantity": 19,
           "dollars": null
         }
       ]
@@ -288,14 +288,14 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 280,
+          "dollars": 4863000.0
         },
         {
           "description": "ANG",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 4863000.0
         }
       ]
     },
@@ -354,7 +354,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 161979000.0
         }
       ]
     },
@@ -407,7 +407,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 74070000.0
         }
       ]
     },
@@ -442,7 +442,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 84193000.0
         },
         {
           "description": "ANG",
@@ -506,8 +506,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 10,
+          "dollars": 106036000.0
         }
       ]
     },
@@ -565,14 +565,14 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 15,
+          "dollars": 116741000.0
         },
         {
           "description": "ANG",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 3,
+          "dollars": 46613000.0
         }
       ]
     },
@@ -630,8 +630,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 22,
+          "dollars": 654969000.0
         }
       ]
     },
@@ -689,8 +689,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 389,
+          "dollars": 16134000.0
         }
       ]
     },
@@ -847,8 +847,8 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 2,
+          "dollars": 3575000.0
         }
       ]
     },
@@ -901,13 +901,13 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 10419000.0
         },
         {
           "description": "ANG",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 1000.0
         }
       ]
     },
@@ -1052,14 +1052,14 @@
         {
           "description": "Army",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 16132,
+          "dollars": 159166000.0
         },
         {
           "description": "ANG",
           "fy": 2027,
-          "quantity": null,
-          "dollars": null
+          "quantity": 22009,
+          "dollars": 213475000.0
         },
         {
           "description": "AR",
@@ -1205,13 +1205,13 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 1569000.0
         },
         {
           "description": "ANG",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 1569000.0
         }
       ]
     },
@@ -1299,7 +1299,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 4453000.0
         }
       ]
     },
@@ -1358,7 +1358,7 @@
           "description": "Army",
           "fy": 2027,
           "quantity": null,
-          "dollars": null
+          "dollars": 512000.0
         }
       ]
     },

@@ -268,37 +268,114 @@ def _parse_p40(words, fy):
         )
 
     # --- child line items: Secondary Distribution recipients ---------------
-    line_items = _parse_secondary_distribution(rows, fy)
+    line_items = _parse_secondary_distribution(rows, words, fy)
 
     return blin, title, fy_data, line_items
 
 
-def _parse_secondary_distribution(rows, fy):
+def _parse_secondary_distribution(rows, words, fy):
     """The 'Secondary Distribution' block lists per-recipient quantity +
     obligation authority for the request FY. Each named recipient row (e.g.
-    'ANG Quantity ...' / 'Army Quantity ...') becomes a child line item."""
+    'ANG Quantity ...' / 'Army Quantity ...') becomes a child line item.
+
+    Request-year column resolution mirrors the parent Resource Summary parser
+    (_fy_header_columns): the request/budget year (fy) has NO bare 'YYYY' token —
+    it is the unlabelled Base/OOC/Total split, and its value lives in the FIRST
+    'Total' column (Base+OOC), distinct from the rightmost grand total. The old
+    SD code looked only for a bare request-year token, so it never resolved the
+    request column and dropped every per-recipient quantity/dollar.
+
+    The SD block has its OWN header row with a different column layout than the
+    page's Resource Summary table (the request-FY label often sits on a separate
+    line above, and the columns read 'FY25 FY26 Base OOC Total FY28 ...'). So we
+    resolve the request-year column from the BLOCK's own header (primary), and
+    only fall back to the page-level anchored FY header if the block has none.
+    Crucially the header columns frequently share the same row as the
+    'Secondary Distribution' label, so we parse columns off that row too.
+    """
+    def parse_header_cols(r):
+        """Map a header row's columns -> (cols{key:x_center}, ordered[keys]).
+        First 'Total' is the request-year (Base+OOC); subsequent 'Total' is grand.
+        `ordered` is the left-to-right sequence of VALUE columns the data rows
+        align to: [YYYY..., 'BASE','OOC','TOTAL', YYYY..., 'GRANDTOTAL'?]. Lets us
+        pick the request column by POSITION (robust to header/value x-drift, which
+        breaks pure nearest-x matching for short quantity tokens)."""
+        cols = {}
+        ordered = []
+        seen_total = 0
+        for w in sorted(r, key=lambda w: w["x0"]):
+            t = w["text"]
+            xc = (w["x0"] + w["x1"]) / 2.0
+            if re.fullmatch(r"20[0-9]{2}", t):
+                cols.setdefault(int(t), xc); ordered.append(int(t))
+            elif t == "Base":
+                cols.setdefault(("BASE",), xc); ordered.append(("BASE",))
+            elif t == "OOC":
+                cols.setdefault(("OOC",), xc); ordered.append(("OOC",))
+            elif t == "Total":
+                seen_total += 1
+                key = ("TOTAL",) if seen_total == 1 else ("GRANDTOTAL",)
+                cols.setdefault(key, xc); ordered.append(key)
+        return cols, ordered
+
+    # Page-level anchored header (fallback only).
+    fycols = _fy_header_columns(words)
+    page_request_x = fycols.get(("TOTAL",)) or fycols.get(("FY", str(fy)))
+
     items = []
     in_block = False
-    sd_cols = {}  # fy_int -> x_center, parsed from the block's own header row
+    sd_cols = {}       # the block's OWN header columns (x-centers)
+    sd_order = []      # ordered value-column keys from the block header
     for r in rows:
         line = " ".join(w["text"] for w in r).strip()
         low = line.lower()
         if low.startswith("secondary distribution"):
             in_block = True
+            # The 'Secondary Distribution' label row usually CARRIES the column
+            # headers (Base/OOC/Total + neighbouring FY tokens). Parse them here.
+            if not sd_cols and any(w["text"] in ("Base", "Total") for w in r):
+                sd_cols, sd_order = parse_header_cols(r)
             continue
         if not in_block:
             continue
         if low.startswith("justification") or low.startswith("description"):
             break
-        # Header row inside the block: "... FY 2024 FY 2025 Base OOC Total FY 2027 ..."
-        years = [w for w in r if re.fullmatch(r"20[0-9]{2}", w["text"])]
-        if years and not sd_cols:
-            for w in r:
-                if re.fullmatch(r"20[0-9]{2}", w["text"]):
-                    sd_cols[int(w["text"])] = (w["x0"] + w["x1"]) / 2.0
-                elif w["text"] == "Total":
-                    sd_cols.setdefault(("TOTAL",), (w["x0"] + w["x1"]) / 2.0)
+        # A standalone header row inside the block (when the label row didn't
+        # carry the columns): "... FY 2025 FY 2026 Base OOC Total FY 2028 ...".
+        if not sd_cols and any(w["text"] in ("Base", "Total") for w in r) \
+                and not re.match(r"^.*\bQuantity\b", line) \
+                and not low.startswith("total obligation"):
+            sd_cols, sd_order = parse_header_cols(r)
             continue
+        # Request-year column x-center (geometry fallback): block first-Total,
+        # then the page-anchored header, then a bare request-FY column.
+        def _request_x():
+            return sd_cols.get(("TOTAL",)) or page_request_x or sd_cols.get(fy)
+
+        # Index of the request-year Total among the ordered value columns. Data
+        # rows align 1:1 with these columns, so picking by INDEX is robust to the
+        # x-drift between a header label and its right-aligned values.
+        request_idx = sd_order.index(("TOTAL",)) if ("TOTAL",) in sd_order else None
+
+        def pick_value(num_words):
+            """Request-year value from a recipient/dollar row's number tokens.
+            Prefer positional index (aligns with the header column order); fall
+            back to nearest-x if the token count doesn't match the header."""
+            if not num_words:
+                return None
+            if request_idx is not None and len(num_words) > request_idx:
+                # Heuristic guard: the data row should have at least as many value
+                # tokens as the header has value columns (it usually has exactly
+                # that many, sometimes +1 trailing grand total). If far fewer, the
+                # row is malformed → fall back to geometry.
+                if len(num_words) >= len(sd_order):
+                    return parse_num(num_words[request_idx]["text"])
+            xc = _request_x()
+            if xc is None:
+                return None
+            w = _nearest_value(num_words, xc)
+            return parse_num(w["text"]) if w else None
+
         # Recipient rows: "<Recipient> Quantity <nums>" then "Total Obligation
         # Authority <nums>". We pair them by the recipient label preceding Quantity.
         m = re.match(r"^(.*?)\s+Quantity\b", line)
@@ -306,26 +383,18 @@ def _parse_secondary_distribution(rows, fy):
             recipient = m.group(1).strip()
             if recipient and recipient.lower() not in ("total",):
                 nums = [w for w in r if AMOUNT_RE.fullmatch(w["text"]) or w["text"] == "-"]
-                # request-FY quantity: nearest to the FY26 Total band if known
-                xc = sd_cols.get(("TOTAL",)) or sd_cols.get(fy)
-                qty = None
-                if xc is not None and nums:
-                    w = _nearest_value(nums, xc)
-                    qty = parse_num(w["text"]) if w else None
+                qty = pick_value(nums)
                 items.append({"_recipient": recipient, "quantity": qty, "dollars": None})
         elif low.startswith("total obligation authority") and items:
             nums = [w for w in r if AMOUNT_RE.fullmatch(w["text"]) or w["text"] == "-"]
-            xc = sd_cols.get(("TOTAL",)) or sd_cols.get(fy)
-            if xc is not None and nums:
-                w = _nearest_value(nums, xc)
-                d = parse_num(w["text"]) if w else None
-                # attach to the most recent recipient lacking dollars
-                for it in reversed(items):
-                    if it["dollars"] is None:
-                        # Secondary Distribution dollars are in MILLIONS -> the loader's
-                        # procurement-line `dollars` is stored as-is, so express full dollars.
-                        it["dollars"] = None if d is None else round(d * 1_000_000, 2)
-                        break
+            d = pick_value(nums)
+            # attach to the most recent recipient lacking dollars
+            for it in reversed(items):
+                if it["dollars"] is None:
+                    # Secondary Distribution dollars are in MILLIONS -> the loader's
+                    # procurement-line `dollars` is stored as-is, so express full dollars.
+                    it["dollars"] = None if d is None else round(d * 1_000_000, 2)
+                    break
 
     out = []
     for it in items:
