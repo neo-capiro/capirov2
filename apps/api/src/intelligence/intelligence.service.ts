@@ -249,7 +249,7 @@ export class IntelligenceService {
     const [relevantBills, activeRegulations, competitors] = await Promise.all([
       this.findRelevantBills(issueCodes, capabilityFallbackTerms),
       this.findActiveRegulations(issueCodes, capabilityFallbackTerms),
-      this.findCompetitors(clientName, issueCodes),
+      this.findCompetitors(clientName, issueCodes, ldaClientIds),
     ]);
 
     return {
@@ -2020,8 +2020,21 @@ export class IntelligenceService {
   }
 
   /** Find competitors: other entities lobbying on the same issue codes */
-  private async findCompetitors(clientName: string, issueCodes: string[]) {
+  private async findCompetitors(
+    clientName: string,
+    issueCodes: string[],
+    ldaClientIds: number[] = [],
+  ) {
     if (!issueCodes.length) return { topBySpend: [], newEntrants: [] };
+
+    // Self-exclusion (AC-9.2): a RESOLVED client excludes its own LDA ids
+    // (c.id <> ALL(ids)) so its other-registrant filings never surface as its
+    // own competitor. An UNRESOLVED client (empty id set) has no ids to exclude,
+    // so we fall back to a name-similarity guard (< 0.6) — otherwise the client
+    // would appear as its own top competitor. Both branches are expressed in
+    // parameterized SQL (no dynamic string building); cardinality(ids) picks
+    // the active branch per-row.
+    const ids = ldaClientIds;
 
     // Find top spenders on the same issues (excluding the client itself)
     const topBySpend = await this.prisma.$queryRaw<
@@ -2031,7 +2044,10 @@ export class IntelligenceService {
              c.issue_codes as shared_issues
       FROM lda_client c
       WHERE c.issue_codes && ${issueCodes}::text[]
-        AND similarity(c.name, ${clientName}) < 0.6
+        AND (
+          (cardinality(${ids}::int[]) > 0 AND c.id <> ALL(${ids}::int[]))
+          OR (cardinality(${ids}::int[]) = 0 AND similarity(c.name, ${clientName}) < 0.6)
+        )
         AND c.total_spending IS NOT NULL
       ORDER BY c.total_spending DESC
       LIMIT 10
@@ -2047,7 +2063,10 @@ export class IntelligenceService {
       FROM lda_client c
       JOIN lda_filing f ON f.client_id = c.id
       WHERE c.issue_codes && ${issueCodes}::text[]
-        AND similarity(c.name, ${clientName}) < 0.6
+        AND (
+          (cardinality(${ids}::int[]) > 0 AND c.id <> ALL(${ids}::int[]))
+          OR (cardinality(${ids}::int[]) = 0 AND similarity(c.name, ${clientName}) < 0.6)
+        )
       GROUP BY c.id, c.name, c.issue_codes
       HAVING MIN(f.dt_posted) >= ${ninetyDaysAgo}
       ORDER BY MIN(f.dt_posted) DESC
