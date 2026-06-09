@@ -204,6 +204,8 @@ case "${1:-serve}" in
   extract-gao-interviewees)  shift; exec ./node_modules/.bin/tsx scripts/extract-gao-interviewees.ts "$@" ;;
   sync-fec-pac)           exec ./node_modules/.bin/tsx scripts/sync-fec-pac.ts ;;
   sync-entity-resolution) shift; exec ./node_modules/.bin/tsx scripts/sync-entity-resolution.ts "$@" ;;
+  diag-client-resolution) shift; exec ./node_modules/.bin/tsx scripts/diag-client-resolution.ts "$@" ;;
+  diag-pe-detail-coverage) shift; exec ./node_modules/.bin/tsx scripts/diag-pe-detail-coverage.ts "$@" ;;
   # Task A step 3: prepopulation backfill (recompute lda_client_ids + issue codes
   # + ldaSignals from CONFIRMED mappings). Creates NO new associations; idempotent.
   prepopulate-all) shift; exec ./node_modules/.bin/tsx scripts/prepopulate-all.ts "$@" ;;
