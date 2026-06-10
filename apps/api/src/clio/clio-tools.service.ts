@@ -40,6 +40,7 @@ import {
 } from './clio-schedule.helpers.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { buildSavedMemoryRecord } from './clio-memory.helpers.js';
+import { buildWebSearchRequest, normalizeWebResults } from './clio-websearch.helpers.js';
 
 const PRODUCT_NAME = 'Clio';
 
@@ -106,7 +107,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'search_public_web',
-    description: 'Search public internet sources for recent developments. Use this only as supplemental context after Capiro internal data tools for government-affairs answers.',
+    description: 'Search the public web (general results and news) for recent developments. Use this only as supplemental context after Capiro internal data tools for government-affairs answers.',
   },
   {
     name: 'scrape_web_page',
@@ -1673,10 +1674,43 @@ export class ClioToolsService {
   private async searchPublicWeb(input: Record<string, unknown>) {
     const query = requiredString(input, 'query', 240);
     const limit = clampInt(input.limit, 1, 12, 6);
+
+    // Real provider (Tavily/Serper) when configured; DDG fallback on any
+    // failure so the tool keeps today's behavior with no key set.
+    const provider = this.config.get('CLIO_WEB_SEARCH_PROVIDER', { infer: true });
+    if (provider === 'tavily' || provider === 'serper') {
+      const apiKey =
+        provider === 'tavily'
+          ? this.config.get('TAVILY_API_KEY', { infer: true })
+          : this.config.get('SERPER_API_KEY', { infer: true });
+      if (apiKey) {
+        try {
+          const request = buildWebSearchRequest(provider, query, limit, apiKey);
+          const response = await fetchWithTimeout(request.url, request.init, 10_000);
+          if (!response.ok) {
+            throw new Error(`provider responded ${response.status}`);
+          }
+          const results = normalizeWebResults(provider, await response.json()).slice(0, limit);
+          return {
+            tool: 'search_public_web',
+            generatedAt: new Date().toISOString(),
+            provider,
+            total: results.length,
+            results,
+          };
+        } catch (err) {
+          this.logger.warn(
+            `search_public_web via ${provider} failed, falling back to DuckDuckGo: ${(err as Error).message}`,
+          );
+        }
+      }
+    }
+
     const results = await queryDuckDuckGoNews(query, limit);
     return {
       tool: 'search_public_web',
       generatedAt: new Date().toISOString(),
+      provider: 'duckduckgo',
       total: results.length,
       results,
     };

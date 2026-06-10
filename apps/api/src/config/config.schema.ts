@@ -105,6 +105,15 @@ export const configSchema = z.object({
     .default('true')
     .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
 
+  // Clio public web search (search_public_web). 'duckduckgo' (default) keeps the
+  // existing scraped DDG behavior with zero new dependencies; 'tavily'/'serper'
+  // call the respective search API when its key is configured, with automatic
+  // DDG fallback on provider error or a missing key — so setting only the
+  // provider (without a key) never breaks the tool.
+  CLIO_WEB_SEARCH_PROVIDER: z.enum(['duckduckgo', 'tavily', 'serper']).default('duckduckgo'),
+  TAVILY_API_KEY: z.string().optional(),
+  SERPER_API_KEY: z.string().optional(),
+
   // Clio Deep Research (a heavier, multi-round agentic research run that produces
   // a long, cited report artifact). Separate budgets from the chat drawer because
   // research runs longer and writes a much larger output.
