@@ -220,6 +220,10 @@ const TOOL_DEFINITIONS = [
     name: 'search_sam_opportunities',
     description: 'Search SAM.gov federal contract opportunities (solicitations, sources sought, presolicitations) by keyword or NAICS code. Active notices by default, newest first, with response deadlines and points of contact.',
   },
+  {
+    name: 'query_debriefs',
+    description: 'List post-meeting debriefs for a client — outcomes, follow-ups, and commitments captured after meetings. Restricted (confidential) debrief bodies are withheld.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -565,6 +569,7 @@ export class ClioToolsService {
         includeInactive: { type: 'boolean', description: 'Include archived/inactive notices (default false)' },
         limit: int('Max results (1-50)'),
       }),
+      query_debriefs: obj({ clientId: str('Client UUID') }, ['clientId']),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -676,6 +681,8 @@ export class ClioToolsService {
         return this.queryRegulatoryDockets(input);
       case 'search_sam_opportunities':
         return this.searchSamOpportunities(input);
+      case 'query_debriefs':
+        return this.queryDebriefs(ctx, input);
       default:
         assertNever(name);
     }
@@ -2625,6 +2632,27 @@ export class ClioToolsService {
       results: result.data.map((opp) => ({
         ...opp,
         description: summarizeText(opp.description, 300),
+      })),
+    };
+  }
+
+  private async queryDebriefs(ctx: TenantContext, input: Record<string, unknown>) {
+    const clientId = requiredString(input, 'clientId', 80);
+    await this.ensureClientVisible(ctx, clientId);
+    const debriefs = await this.engagement.listClientDebriefs(ctx, clientId);
+    return {
+      tool: 'query_debriefs',
+      generatedAt: new Date().toISOString(),
+      clientId,
+      total: debriefs.length,
+      debriefs: debriefs.map((debrief) => ({
+        id: debrief.id,
+        meetingId: debrief.meetingId,
+        meeting: debrief.meeting,
+        body: debrief.restricted ? null : summarizeText(debrief.body, 1500),
+        restricted: debrief.restricted,
+        author: debrief.author,
+        createdAt: debrief.createdAt,
       })),
     };
   }
