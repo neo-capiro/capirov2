@@ -9,6 +9,7 @@ import { WorkflowsModule } from '../workflows/workflows.module.js';
 import { StrategiesModule } from '../strategies/strategies.module.js';
 import { IntelligenceModule } from '../intelligence/intelligence.module.js';
 import { ClientsModule } from '../clients/clients.module.js';
+import { RegulatoryDocketModule } from '../regulatory-docket/regulatory-docket.module.js';
 import { ClioController } from './clio.controller.js';
 import { ClioService } from './clio.service.js';
 import { ClioToolsService } from './clio-tools.service.js';
@@ -27,6 +28,7 @@ import { ClioDocgenService } from './clio-docgen.service.js';
     StrategiesModule,
     IntelligenceModule,
     ClientsModule,
+    RegulatoryDocketModule,
   ],
   controllers: [ClioController],
   providers: [ClioService, ClioToolsService, ClioResearchService, ClioDocgenService],

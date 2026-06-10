@@ -18,6 +18,7 @@ import type { ActionStatus } from '../intelligence/actions/action-recommendation
 import { ClientCapabilitiesService } from '../clients/client-capabilities.service.js';
 import { ClientPeopleService } from '../clients/client-people.service.js';
 import { ClientFacilitiesService } from '../clients/client-facilities.service.js';
+import { RegulatoryDocketService } from '../regulatory-docket/regulatory-docket.service.js';
 import { MicrosoftGraphSyncService } from '../engagement/microsoft/microsoft-graph-sync.service.js';
 import { LdaIntelService } from '../lda-intel/lda-intel.service.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
@@ -211,6 +212,10 @@ const TOOL_DEFINITIONS = [
     name: 'search_tracked_bills',
     description: 'List the bills the firm is actively tracking for a client, with each bill\'s latest status and the note attached when it was pinned.',
   },
+  {
+    name: 'query_regulatory_dockets',
+    description: 'List regulatory dockets / rulemaking documents from Regulations.gov, or upcoming open comment-period deadlines. Filter by agency or document type. Use for "what comment periods are closing soon".',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -275,6 +280,7 @@ export class ClioToolsService {
     private readonly strategies: StrategiesService,
     private readonly actionRecommendations: ActionRecommendationReadService,
     private readonly intelligence: IntelligenceService,
+    private readonly regulatoryDockets: RegulatoryDocketService,
     private readonly clientCapabilities: ClientCapabilitiesService,
     private readonly clientPeople: ClientPeopleService,
     private readonly clientFacilities: ClientFacilitiesService,
@@ -542,6 +548,13 @@ export class ClioToolsService {
         limit: int('Max results (1-50)'),
       }),
       search_tracked_bills: obj({ clientId: str('Client UUID') }, ['clientId']),
+      query_regulatory_dockets: obj({
+        agencyId: str('Optional agency identifier filter, e.g. DOD, EPA'),
+        documentType: str('Optional document type filter, e.g. Proposed Rule, Rule, Notice'),
+        upcomingOnly: { type: 'boolean', description: 'Only open comment periods closing within the window (default 30 days)' },
+        days: int('Window in days for upcomingOnly (1-365, default 30)'),
+        limit: int('Max results (1-50)'),
+      }),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -649,6 +662,8 @@ export class ClioToolsService {
         return this.queryActionItems(ctx, input);
       case 'search_tracked_bills':
         return this.searchTrackedBills(ctx, input);
+      case 'query_regulatory_dockets':
+        return this.queryRegulatoryDockets(input);
       default:
         assertNever(name);
     }
@@ -2543,6 +2558,38 @@ export class ClioToolsService {
       clientId,
       total: bills.length,
       bills,
+    };
+  }
+
+  private async queryRegulatoryDockets(input: Record<string, unknown>) {
+    const upcomingOnly = optionalBoolean(input, 'upcomingOnly');
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    if (upcomingOnly) {
+      const days = clampInt(input.days, 1, 365, 30);
+      const deadlines = await this.regulatoryDockets.getUpcomingDeadlines(days);
+      return {
+        tool: 'query_regulatory_dockets',
+        generatedAt: new Date().toISOString(),
+        windowDays: days,
+        total: deadlines.length,
+        results: deadlines.slice(0, limit),
+      };
+    }
+
+    const agencyId = optionalString(input, 'agencyId', 40);
+    const documentType = optionalString(input, 'documentType', 80);
+    const result = await this.regulatoryDockets.listDockets({
+      agencyId: agencyId ?? undefined,
+      documentType: documentType ?? undefined,
+      limit,
+    });
+
+    return {
+      tool: 'query_regulatory_dockets',
+      generatedAt: new Date().toISOString(),
+      total: result.total,
+      results: result.data,
     };
   }
 
