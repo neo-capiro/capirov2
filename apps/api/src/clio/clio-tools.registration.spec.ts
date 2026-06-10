@@ -1,0 +1,155 @@
+import { ClioToolsService, TOOL_DEFINITIONS } from './clio-tools.service.js';
+
+/**
+ * Tool-registration regression spec. Guards the whole Clio tool surface so a
+ * future change cannot silently drop a tool, orphan a schema, or lose a
+ * required-input constraint. EXPECTED_TOOLS is intentionally explicit: removing
+ * a tool (or renaming one) must fail loudly here and be a deliberate edit.
+ */
+
+const EXPECTED_TOOLS = [
+  // Engagement + research
+  'get_client_context',
+  'search_research_sources',
+  // Federal intelligence
+  'query_intelligence',
+  'search_congress_bills',
+  'search_lda_filings',
+  'search_sec_filings',
+  'search_fara_registrations',
+  'search_federal_grants',
+  'search_federal_awards',
+  'search_gao_reports',
+  'search_state_bills',
+  'search_intel_articles',
+  'search_committee_hearings',
+  'search_crs_reports',
+  'query_economic_data',
+  // Web
+  'search_public_web',
+  'scrape_web_page',
+  // Drafting / notes / email / memory
+  'create_meeting_brief',
+  'draft_policy_memo',
+  'save_note',
+  'send_email',
+  'list_emails',
+  'reply_email',
+  'save_memory',
+  // DoD program elements + acquisition personnel
+  'search_program_elements',
+  'get_program_element',
+  'get_pe_budget_timeline',
+  'get_pe_contractors',
+  'get_pe_bills',
+  'search_acquisition_personnel',
+  'get_acquisition_person',
+  // Document generation
+  'create_word',
+  'create_excel',
+  'create_powerpoint',
+  // Scheduling
+  'schedule_task',
+  'list_scheduled_tasks',
+  'cancel_scheduled_task',
+  // Firm operational data (tool-coverage expansion)
+  'query_workflows',
+  'query_tasks',
+  'query_strategies',
+  'query_action_items',
+  'search_tracked_bills',
+  'query_regulatory_dockets',
+  'search_sam_opportunities',
+  'query_debriefs',
+  'query_outreach',
+  // Approval-gated writes (tool-coverage expansion)
+  'create_task',
+  'update_task',
+  'update_workflow_field',
+] as const;
+
+/** Tools whose schema must enforce required inputs, and exactly which. */
+const REQUIRED_INPUTS: Record<string, string[]> = {
+  get_client_context: ['clientId'],
+  search_research_sources: ['query'],
+  search_public_web: ['query'],
+  scrape_web_page: ['url'],
+  create_meeting_brief: ['meetingId'],
+  draft_policy_memo: ['clientId'],
+  save_note: ['body'],
+  send_email: ['to', 'subject', 'body'],
+  reply_email: ['threadId', 'body'],
+  save_memory: ['content'],
+  get_program_element: ['peCode'],
+  get_pe_budget_timeline: ['peCode'],
+  get_pe_contractors: ['peCode'],
+  get_pe_bills: ['peCode'],
+  get_acquisition_person: ['id'],
+  create_word: ['title', 'sections'],
+  create_excel: ['title', 'sheets'],
+  create_powerpoint: ['title', 'slides'],
+  schedule_task: ['name', 'prompt', 'intervalMinutes'],
+  cancel_scheduled_task: ['taskId'],
+  search_tracked_bills: ['clientId'],
+  query_debriefs: ['clientId'],
+  create_task: ['title'],
+  update_task: ['taskId'],
+  update_workflow_field: ['instanceId', 'fieldKey', 'value'],
+};
+
+// anthropicToolSchemas() is self-contained (no constructor deps), so an
+// uninitialized prototype instance is enough to read the schema surface.
+function schemas() {
+  const service = Object.create(ClioToolsService.prototype) as ClioToolsService;
+  return service.anthropicToolSchemas();
+}
+
+describe('Clio tool registration', () => {
+  it('registers exactly the expected tool surface (drop/rename fails loudly)', () => {
+    const definedNames = TOOL_DEFINITIONS.map((tool) => tool.name);
+    expect([...definedNames].sort()).toEqual([...EXPECTED_TOOLS].sort());
+    // No duplicates.
+    expect(new Set(definedNames).size).toBe(definedNames.length);
+  });
+
+  it('emits one anthropic schema per tool definition (no orphans either way)', () => {
+    const toolSchemas = schemas();
+    expect(toolSchemas).toHaveLength(TOOL_DEFINITIONS.length);
+    expect(toolSchemas.map((schema) => schema.name)).toEqual(
+      TOOL_DEFINITIONS.map((tool) => tool.name),
+    );
+  });
+
+  it('every schema is a typed object schema with a non-empty description', () => {
+    for (const schema of schemas()) {
+      expect(schema.description.length).toBeGreaterThan(10);
+      expect(schema.input_schema.type).toBe('object');
+      expect(schema.input_schema.properties).toBeDefined();
+      expect(Array.isArray(schema.input_schema.required)).toBe(true);
+    }
+  });
+
+  it('enforces required inputs for every tool that has them', () => {
+    const byName = new Map(schemas().map((schema) => [schema.name, schema]));
+    for (const [tool, required] of Object.entries(REQUIRED_INPUTS)) {
+      const schema = byName.get(tool);
+      expect(schema).toBeDefined();
+      expect([...(schema!.input_schema.required as string[])].sort()).toEqual(
+        [...required].sort(),
+      );
+      // Every required field must exist in properties.
+      const properties = schema!.input_schema.properties as Record<string, unknown>;
+      for (const field of required) {
+        expect(properties[field]).toBeDefined();
+      }
+    }
+  });
+
+  it('tools without required inputs declare an empty required array', () => {
+    for (const schema of schemas()) {
+      if (!(schema.name in REQUIRED_INPUTS)) {
+        expect(schema.input_schema.required).toEqual([]);
+      }
+    }
+  });
+});

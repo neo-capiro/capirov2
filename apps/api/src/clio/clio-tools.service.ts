@@ -42,11 +42,11 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { buildSavedMemoryRecord } from './clio-memory.helpers.js';
 import { buildWebSearchRequest, normalizeWebResults } from './clio-websearch.helpers.js';
 import { looksLikePdf } from './clio-scrape.helpers.js';
-import { PDFParse } from 'pdf-parse';
 
 const PRODUCT_NAME = 'Clio';
 
-const TOOL_DEFINITIONS = [
+// Exported for the tool-registration regression spec (clio-tools.registration.spec.ts).
+export const TOOL_DEFINITIONS = [
   {
     name: 'get_client_context',
     description: 'Load authorized Capiro client context: recent meetings, threads, contacts, and tasks, plus the client profile (capabilities, key people, facilities, submission history).',
@@ -1827,6 +1827,9 @@ export class ClioToolsService {
       throw new BadRequestException('PDF too large to extract (limit 15MB)');
     }
 
+    // Lazy-loaded: pdf-parse pulls in pdfjs-dist, which is heavy at module
+    // load and only needed when a PDF is actually scraped.
+    const { PDFParse } = await import('pdf-parse');
     const parser = new PDFParse({ data: buffer });
     let rawText: string;
     let pages: number;
