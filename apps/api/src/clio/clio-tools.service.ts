@@ -188,6 +188,10 @@ const TOOL_DEFINITIONS = [
     name: 'query_workflows',
     description: 'List or inspect the firm\'s workflow/submission instances (e.g. white papers, appropriations requests in progress) by client and status. Pass instanceId for full detail. Use for "where do our submissions stand / what\'s in flight".',
   },
+  {
+    name: 'query_tasks',
+    description: 'List engagement tasks/to-dos for the firm or a client — filter by status and due date. Use for "what is due, overdue, or open".',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -494,6 +498,12 @@ export class ClioToolsService {
         status: str('Optional status filter: triage | in_progress | review | submitted | complete | cancelled'),
         limit: int('Max results (1-50)'),
       }),
+      query_tasks: obj({
+        clientId: str('Optional client UUID'),
+        status: str('Optional: open | overdue | todo | in_progress | done | blocked | canceled'),
+        dueBefore: str('Optional ISO date upper bound on due date'),
+        limit: int('Max results (1-50)'),
+      }),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -593,6 +603,8 @@ export class ClioToolsService {
         return this.cancelScheduledTask(ctx, input);
       case 'query_workflows':
         return this.queryWorkflows(ctx, input);
+      case 'query_tasks':
+        return this.queryTasks(ctx, input);
       default:
         assertNever(name);
     }
@@ -2284,6 +2296,71 @@ export class ClioToolsService {
         submissionMethod: instance.submissionMethod,
         completedAt: instance.completedAt,
         updatedAt: instance.updatedAt,
+      })),
+    };
+  }
+
+  private async queryTasks(ctx: TenantContext, input: Record<string, unknown>) {
+    const clientId = optionalString(input, 'clientId', 80);
+    const statusRaw = optionalString(input, 'status', 30)?.toLowerCase() ?? null;
+    const dueBeforeRaw = optionalString(input, 'dueBefore', 40);
+    const limit = clampInt(input.limit, 1, 50, 25);
+    if (clientId) await this.ensureClientVisible(ctx, clientId);
+
+    const taskStatuses = Object.values(EngagementTaskStatus) as string[];
+    let status: EngagementTaskStatus | undefined;
+    let openOnly = false;
+    let dueBefore: Date | undefined;
+    if (statusRaw === 'open') {
+      openOnly = true;
+    } else if (statusRaw === 'overdue') {
+      openOnly = true;
+      dueBefore = new Date();
+    } else if (statusRaw && taskStatuses.includes(statusRaw)) {
+      status = statusRaw as EngagementTaskStatus;
+    } else if (statusRaw) {
+      throw new BadRequestException(
+        `status must be one of: open, overdue, ${taskStatuses.join(', ')}`,
+      );
+    }
+
+    if (dueBeforeRaw) {
+      const parsed = new Date(dueBeforeRaw);
+      if (Number.isNaN(parsed.getTime())) {
+        throw new BadRequestException('dueBefore must be an ISO date');
+      }
+      dueBefore = parsed;
+    }
+
+    const tasks = await this.engagement.listTasks(ctx, {
+      clientId: clientId ?? undefined,
+      status,
+      openOnly,
+      dueBefore,
+      limit,
+    });
+
+    const now = Date.now();
+    return {
+      tool: 'query_tasks',
+      generatedAt: new Date().toISOString(),
+      total: tasks.length,
+      tasks: tasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        dueDate: task.dueDate,
+        overdue: Boolean(
+          task.dueDate &&
+            task.dueDate.getTime() < now &&
+            task.status !== EngagementTaskStatus.done &&
+            task.status !== EngagementTaskStatus.canceled,
+        ),
+        clientId: task.clientId,
+        clientName: task.client?.name ?? null,
+        meeting: task.meeting,
+        description: summarizeText(task.description, 240),
+        createdAt: task.createdAt,
       })),
     };
   }

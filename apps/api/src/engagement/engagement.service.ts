@@ -2023,19 +2023,40 @@ export class EngagementService {
     });
   }
 
-  listTasks(ctx: TenantContext, query: { clientId?: string }) {
+  listTasks(
+    ctx: TenantContext,
+    query: {
+      clientId?: string;
+      status?: EngagementTaskStatus;
+      openOnly?: boolean;
+      dueBefore?: Date;
+      limit?: number;
+    },
+  ) {
     return this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.engagementTask.findMany({
         where: {
           tenantId: ctx.tenantId,
           ...(query.clientId ? { clientId: query.clientId } : {}),
-          status: { not: EngagementTaskStatus.canceled },
+          status: query.status
+            ? query.status
+            : query.openOnly
+              ? {
+                  in: [
+                    EngagementTaskStatus.todo,
+                    EngagementTaskStatus.in_progress,
+                    EngagementTaskStatus.blocked,
+                  ],
+                }
+              : { not: EngagementTaskStatus.canceled },
+          ...(query.dueBefore ? { dueDate: { lte: query.dueBefore } } : {}),
         },
         include: {
           client: clientSummarySelect(),
           meeting: { select: { id: true, subject: true } },
         },
         orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
+        ...(query.limit ? { take: Math.min(50, Math.max(1, query.limit)) } : {}),
       }),
     );
   }
