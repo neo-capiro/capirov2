@@ -6,10 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EngagementTaskStatus, Prisma } from '@prisma/client';
+import { EngagementTaskStatus, Prisma, WorkflowStatus } from '@prisma/client';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { EngagementService } from '../engagement/engagement.service.js';
+import { WorkflowsService } from '../workflows/workflows.service.js';
 import { MicrosoftGraphSyncService } from '../engagement/microsoft/microsoft-graph-sync.service.js';
 import { LdaIntelService } from '../lda-intel/lda-intel.service.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
@@ -183,6 +184,10 @@ const TOOL_DEFINITIONS = [
     name: 'cancel_scheduled_task',
     description: 'Cancel (disable) a recurring scheduled Clio task by its id.',
   },
+  {
+    name: 'query_workflows',
+    description: 'List or inspect the firm\'s workflow/submission instances (e.g. white papers, appropriations requests in progress) by client and status. Pass instanceId for full detail. Use for "where do our submissions stand / what\'s in flight".',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -243,6 +248,7 @@ export class ClioToolsService {
     private readonly programElement: ProgramElementReadService,
     private readonly acquisitionPersonnel: AcquisitionPersonnelReadService,
     private readonly docgen: ClioDocgenService,
+    private readonly workflows: WorkflowsService,
   ) {}
 
   manifest() {
@@ -482,6 +488,12 @@ export class ClioToolsService {
       }, ['name', 'prompt', 'intervalMinutes']),
       list_scheduled_tasks: obj({}),
       cancel_scheduled_task: obj({ taskId: str('Scheduled task UUID') }, ['taskId']),
+      query_workflows: obj({
+        instanceId: str('Optional workflow instance UUID for full detail'),
+        clientId: str('Optional client UUID filter'),
+        status: str('Optional status filter: triage | in_progress | review | submitted | complete | cancelled'),
+        limit: int('Max results (1-50)'),
+      }),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -579,6 +591,8 @@ export class ClioToolsService {
         return this.listScheduledTasks(ctx);
       case 'cancel_scheduled_task':
         return this.cancelScheduledTask(ctx, input);
+      case 'query_workflows':
+        return this.queryWorkflows(ctx, input);
       default:
         assertNever(name);
     }
@@ -2224,6 +2238,54 @@ export class ClioToolsService {
       return { tool: 'cancel_scheduled_task', canceled: false, error: 'Task not found.' };
     }
     return { tool: 'cancel_scheduled_task', canceled: true, taskId };
+  }
+
+  // ── Firm operational data (workflows / tasks / strategies / actions) ──
+
+  private async queryWorkflows(ctx: TenantContext, input: Record<string, unknown>) {
+    const instanceId = optionalString(input, 'instanceId', 80);
+    if (instanceId) {
+      const instance = await this.workflows.getInstance(ctx.tenantId, instanceId);
+      return {
+        tool: 'query_workflows',
+        generatedAt: new Date().toISOString(),
+        instance,
+      };
+    }
+
+    const clientId = optionalString(input, 'clientId', 80);
+    const status = optionalString(input, 'status', 40);
+    const limit = clampInt(input.limit, 1, 50, 20);
+    if (clientId) await this.ensureClientVisible(ctx, clientId);
+    if (status && !(Object.values(WorkflowStatus) as string[]).includes(status)) {
+      throw new BadRequestException(
+        `status must be one of: ${Object.values(WorkflowStatus).join(', ')}`,
+      );
+    }
+
+    const instances = await this.workflows.listInstances(ctx.tenantId, {
+      clientId: clientId ?? undefined,
+      status: status ?? undefined,
+    });
+
+    return {
+      tool: 'query_workflows',
+      generatedAt: new Date().toISOString(),
+      total: instances.length,
+      results: instances.slice(0, limit).map((instance) => ({
+        id: instance.id,
+        title: instance.title,
+        status: instance.status,
+        templateSlug: instance.template?.slug ?? null,
+        templateName: instance.template?.name ?? null,
+        clientId: instance.clientId,
+        clientName: instance.client?.name ?? null,
+        submissionDeadline: instance.submissionDeadline,
+        submissionMethod: instance.submissionMethod,
+        completedAt: instance.completedAt,
+        updatedAt: instance.updatedAt,
+      })),
+    };
   }
 
   /** Regenerate a document binary from a stored spec (for the download route). */
