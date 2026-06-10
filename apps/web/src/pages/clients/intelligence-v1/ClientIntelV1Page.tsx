@@ -178,31 +178,55 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
           <Space direction="vertical" size={18} style={{ width: '100%' }}>
             <SetupChecklist clientId={clientId} />
             <IssueCodeSignal clientId={clientId} />
-            <SnapshotSection
-              clientId={clientId}
-              clientName={clientName}
-              profile={profileQuery.data ?? null}
-              aggregate={profileV1Query.data ?? undefined}
-            />
+            {/* The aggregate-fed sections are gated on profile-v1. Rendering
+                them with an undefined aggregate while the call is in flight
+                (legitimately ~10-15s on a cold load) showed affirmatively
+                false empty states — "No relevant bills yet" / "0 rules
+                tracked" next to a broad-universe bill count — so we hold them
+                behind skeletons until the data lands, and suppress them
+                entirely under the load-error alert above. */}
+            {profileV1Query.isPending ? (
+              <>
+                <Alert
+                  type="info"
+                  showIcon
+                  message="Compiling intelligence profile…"
+                  description="Aggregating alerts, financial footprint, the bill pipeline, and relationships for this client. A cold load can take ~15 seconds."
+                />
+                <Skeleton active paragraph={{ rows: 5 }} />
+                <Skeleton active paragraph={{ rows: 5 }} />
+                <Skeleton active paragraph={{ rows: 5 }} />
+                <Skeleton active paragraph={{ rows: 5 }} />
+              </>
+            ) : profileV1Query.data ? (
+              <>
+                <SnapshotSection
+                  clientId={clientId}
+                  clientName={clientName}
+                  profile={profileQuery.data ?? null}
+                  aggregate={profileV1Query.data ?? undefined}
+                />
 
-            <FinancialFootprintSection
-              aggregate={profileV1Query.data ?? undefined}
-              runFecEnabled={false}
-              runFecHref="/explorer"
-            />
+                <FinancialFootprintSection
+                  aggregate={profileV1Query.data ?? undefined}
+                  runFecEnabled={false}
+                  runFecHref="/explorer"
+                />
 
-            <LegislativeRegulatorySection
-              aggregate={profileV1Query.data ?? undefined}
-              clientId={clientId}
-              billDrillHref={profileV1Query.data?.links.billDetailBase ?? '/explorer'}
-            />
+                <LegislativeRegulatorySection
+                  aggregate={profileV1Query.data ?? undefined}
+                  clientId={clientId}
+                  billDrillHref={profileV1Query.data?.links.billDetailBase ?? '/explorer'}
+                />
 
-            <RelationshipsSection
-              aggregate={profileV1Query.data ?? undefined}
-              clientId={clientId}
-              issueHref={issueHref}
-              expandEnabled={Boolean(issueHref)}
-            />
+                <RelationshipsSection
+                  aggregate={profileV1Query.data ?? undefined}
+                  clientId={clientId}
+                  issueHref={issueHref}
+                  expandEnabled={Boolean(issueHref)}
+                />
+              </>
+            ) : null}
           </Space>
         </main>
       </div>

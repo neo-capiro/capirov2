@@ -106,7 +106,15 @@ export class ClientFacilitiesService {
           ...('congressionalDistrict' in input
             ? { congressionalDistrict: input.congressionalDistrict ?? null }
             : {}),
-          ...('districtSource' in input ? { districtSource: input.districtSource ?? null } : {}),
+          // A hand-edited district no longer reflects a geocode: when the PATCH
+          // touches congressionalDistrict without an explicit districtSource,
+          // stamp provenance back to 'user'. Explicit districtSource still wins
+          // (the geocoder PATCHes both fields together).
+          ...('districtSource' in input
+            ? { districtSource: input.districtSource ?? null }
+            : 'congressionalDistrict' in input
+              ? { districtSource: 'user' }
+              : {}),
           ...('employeeCount' in input ? { employeeCount: input.employeeCount ?? null } : {}),
           ...('notes' in input ? { notes: input.notes ?? null } : {}),
         },

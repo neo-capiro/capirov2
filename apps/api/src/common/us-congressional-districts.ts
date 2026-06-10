@@ -80,7 +80,8 @@ export const US_STATE_CODES: readonly string[] = Object.keys(US_HOUSE_SEATS);
  *
  * Convention (matches the rest of the app): districts are bare 1-2 digit
  * strings; "00" is the at-large sentinel for single-district states.
- *  - At-large states (1 seat): accept "00" or "01" only.
+ *  - At-large states (1 seat): accept "00", "01", or "1" only (a bare "0" is
+ *    rejected — "00" is the at-large sentinel's only zero form).
  *  - Multi-district states: accept "01".."NN" (the at-large "00" is invalid).
  *
  * Returns true when either argument is absent — callers that only know one of
@@ -96,6 +97,6 @@ export function isValidDistrictForState(
   if (seats == null) return false; // unknown state — invalid pairing
   if (!/^[0-9]{1,2}$/.test(district)) return false;
   const n = Number(district);
-  if (seats === 1) return n === 0 || n === 1; // at-large
+  if (seats === 1) return district === '00' || district === '01' || district === '1'; // at-large
   return n >= 1 && n <= seats; // numbered districts; "00" not valid here
 }

@@ -60,7 +60,12 @@ function renderWithClient(ui: React.ReactElement) {
 
 describe('DowDirectoryTab', () => {
   beforeAll(setupAntdBrowserMocks);
-  beforeEach(() => apiGetMock.mockReset());
+  // Braces matter: mockReset() returns the mock, and a function returned from
+  // beforeEach is run by vitest as an after-test cleanup hook — i.e. the api
+  // mock itself would get CALLED (and awaited) after every test.
+  beforeEach(() => {
+    apiGetMock.mockReset();
+  });
 
   test('renders personnel for the client PE codes', async () => {
     apiGetMock.mockResolvedValue({
@@ -84,6 +89,28 @@ describe('DowDirectoryTab', () => {
       screen.getByText('No defense program capabilities linked to this client yet'),
     ).toBeInTheDocument();
     expect(apiGetMock).not.toHaveBeenCalled();
+  });
+
+  test('skeleton (not the empty state) while the capabilities list is still loading', () => {
+    const { container } = renderWithClient(
+      <DowDirectoryTab client={{ id: 'c1' }} capabilities={[]} capabilitiesLoading />,
+    );
+    expect(container.querySelector('.ant-skeleton')).toBeTruthy();
+    expect(
+      screen.queryByText('No defense program capabilities linked to this client yet'),
+    ).not.toBeInTheDocument();
+    expect(apiGetMock).not.toHaveBeenCalled();
+  });
+
+  test('error state (not "no personnel match") when the personnel query fails', async () => {
+    apiGetMock.mockRejectedValue(new Error('network down'));
+    renderWithClient(
+      <DowDirectoryTab client={{ id: 'c1' }} capabilities={[{ peNumber: '0604201A' }]} />,
+    );
+    expect(
+      await screen.findByText("Couldn't load the DoW directory. Refresh to retry."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('No personnel match these filters')).not.toBeInTheDocument();
   });
 
   test('role filter narrows the visible list', async () => {

@@ -14,6 +14,8 @@ export interface DefenseBudgetExposureCardProps {
   /** The PEs-for-client response (already filtered to minScore by the API). */
   relevance: RelevantPesForClientResponse | null | undefined;
   loading?: boolean;
+  /** When the relevance query failed — renders a retry hint instead of the empty state. */
+  error?: boolean;
 }
 
 /**
@@ -21,12 +23,14 @@ export interface DefenseBudgetExposureCardProps {
  *
  * Lists the Program Elements this client is most relevant to (score >= the API floor, default
  * 0.5), each with a score badge and the per-path evidence chips that explain WHY. PE codes deep-
- * link to the PE profile. Honest empty state when nothing clears the floor. Guards against non-
- * array / malformed data with Array.isArray so an error payload never throws.
+ * link to the PE profile. Honest empty state when nothing clears the floor (and a distinct error
+ * state when the query failed, so a fetch failure never masquerades as "no exposure"). Guards
+ * against non-array / malformed data with Array.isArray so an error payload never throws.
  */
 export function DefenseBudgetExposureCard({
   relevance,
   loading = false,
+  error = false,
 }: DefenseBudgetExposureCardProps) {
   const navigate = useNavigate();
 
@@ -43,6 +47,11 @@ export function DefenseBudgetExposureCard({
       <div style={{ padding: '6px 14px 14px' }}>
         {loading ? (
           <Skeleton active paragraph={{ rows: 3 }} />
+        ) : error ? (
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="Couldn't load budget exposure. Refresh to retry."
+          />
         ) : rows.length === 0 ? (
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}

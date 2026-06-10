@@ -17,6 +17,7 @@ import {
 import { useApi } from '../../lib/use-api.js';
 import {
   DISTRICT_PATTERN,
+  US_HOUSE_SEATS,
   US_STATE_CODES,
   createClientFacility,
   deleteClientFacility,
@@ -37,8 +38,10 @@ interface FacilitiesEditorProps {
  *
  * Mirrors the client-people editor UX: a header with an Add button, a grid of facility cards,
  * and an add/edit modal. The congressional district is a BARE number ("12") validated like the
- * server (/^[0-9]{1,2}$/); the state is a separate two-letter dropdown. Cards show the combined
- * "ST-NN" district form. Talks to Agent C's /api/clients/:clientId/facilities endpoints.
+ * server: format (/^[0-9]{1,2}$/) AND cross-checked against the selected state's House seat
+ * count (US_HOUSE_SEATS), so e.g. CA-99 fails inline instead of as a server 400. The state is a
+ * separate two-letter dropdown. Cards show the combined "ST-NN" district form. Talks to Agent
+ * C's /api/clients/:clientId/facilities endpoints.
  */
 export function FacilitiesEditor({ clientId, canManage = true }: FacilitiesEditorProps) {
   const api = useApi();
@@ -322,11 +325,39 @@ function FacilityModal({
             label="Congressional district"
             tooltip='Bare district number (e.g. "12"), or "00" for at-large. The state is set above; together they read as "ST-NN".'
             style={{ flex: 1 }}
+            dependencies={['state']}
             rules={[
               {
                 pattern: DISTRICT_PATTERN,
                 message: 'Use a 1-2 digit number (e.g. "12" or "00").',
               },
+              // Cross-field check mirroring the server's IsDistrictValidForState: the
+              // district must exist for the selected state ("00" only for at-large
+              // states; at-large states also accept "01"). Skips when either field is
+              // empty or the format rule above already fails.
+              ({ getFieldValue }) => ({
+                validator: (_rule, value) => {
+                  const st = String(getFieldValue('state') ?? '')
+                    .trim()
+                    .toUpperCase();
+                  const dist = typeof value === 'string' ? value.trim() : '';
+                  if (!st || !dist || !DISTRICT_PATTERN.test(dist)) return Promise.resolve();
+                  const seats = US_HOUSE_SEATS[st];
+                  if (seats == null) return Promise.resolve();
+                  const n = Number(dist);
+                  // String equality for at-large, matching the server exactly:
+                  // it accepts '00'/'01'/'1' but rejects a bare '0'.
+                  const valid =
+                    seats === 1
+                      ? dist === '00' || dist === '01' || dist === '1'
+                      : n >= 1 && n <= seats;
+                  return valid
+                    ? Promise.resolve()
+                    : Promise.reject(
+                        new Error(`"${dist}" is not a valid district for state ${st}`),
+                      );
+                },
+              }),
             ]}
           >
             <Input placeholder="12" maxLength={2} />

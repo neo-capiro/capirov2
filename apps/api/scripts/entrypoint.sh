@@ -209,6 +209,9 @@ case "${1:-serve}" in
   # to diagnose imported clients missing from the Portfolio list. No writes.
   diag-phantom-imports) shift; exec ./node_modules/.bin/tsx scripts/diag-phantom-imports.ts "$@" ;;
   diag-pe-detail-coverage) shift; exec ./node_modules/.bin/tsx scripts/diag-pe-detail-coverage.ts "$@" ;;
+  # Read-only: audit client_facilities state/district data across all tenants (QA Bug 4
+  # back-test): unknown states, invalid (state, district) pairs, orphan districts. No writes.
+  diag-facility-districts) shift; exec ./node_modules/.bin/tsx scripts/diag-facility-districts.ts "$@" ;;
   # Task A step 3: prepopulation backfill (recompute lda_client_ids + issue codes
   # + ldaSignals from CONFIRMED mappings). Creates NO new associations; idempotent.
   prepopulate-all) shift; exec ./node_modules/.bin/tsx scripts/prepopulate-all.ts "$@" ;;

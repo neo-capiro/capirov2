@@ -239,6 +239,13 @@ class AppendClientNoteDto {
   body!: string;
 }
 
+class UpdateProfileNotesDto {
+  // Empty string is valid — it clears the notes.
+  @IsString()
+  @Length(0, 20000)
+  notes!: string;
+}
+
 /**
  * Clients API, the lobbying firm's customer records.
  *
@@ -295,6 +302,19 @@ export class ClientsController {
   @Roles('standard_user')
   archive(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.archive(ctx, id);
+  }
+
+  // Targeted save for the profile Notes editor. Unlike PUT :id (which replaces
+  // the whole intakeData object), this merges ONLY intakeData.profileNotes so a
+  // stale editor can't clobber sibling intakeData keys written concurrently.
+  @Put(':id/profile-notes')
+  @Roles('user_admin')
+  updateProfileNotes(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: UpdateProfileNotesDto,
+  ) {
+    return this.service.updateProfileNotes(ctx, id, body.notes);
   }
 
   // Quick Log: append a timestamped personal note to the client's profile

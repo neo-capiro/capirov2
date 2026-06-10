@@ -305,6 +305,34 @@ export interface OutreachQuery {
 }
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+
+// Engagement attachment uploads: the union of what the advertised upload flows
+// send — client Documents ("PDF, DOC, DOCX, TXT, images") plus the meeting
+// debrief/transcript flow (.txt/.docx/audio/video + in-app voice recordings),
+// which shares these endpoints. Notably EXCLUDES application/octet-stream (the
+// FE fallback for unknown drag-dropped types), so unsupported files fail fast
+// with a clear message instead of landing as un-openable blobs.
+const ALLOWED_ATTACHMENT_MIME = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+]);
+const ALLOWED_ATTACHMENT_MIME_PREFIXES = ['image/', 'audio/', 'video/'];
+// SVG is scriptable: a stored image/svg+xml replays from S3 with its declared
+// Content-Type and would execute embedded <script> when opened inline, so it
+// is excluded despite matching the image/ prefix.
+const BLOCKED_ATTACHMENT_MIME = new Set(['image/svg+xml']);
+export const ALLOWED_ATTACHMENT_TYPES_LABEL = 'PDF, DOC, DOCX, TXT, images, audio, or video';
+
+export function isAllowedAttachmentContentType(contentType: string): boolean {
+  const normalized = contentType.trim().toLowerCase();
+  if (BLOCKED_ATTACHMENT_MIME.has(normalized)) return false;
+  return (
+    ALLOWED_ATTACHMENT_MIME.has(normalized) ||
+    ALLOWED_ATTACHMENT_MIME_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+  );
+}
 const REPORT_STATUSES: ReportStatus[] = ['auto', 'not_started', 'in_progress', 'complete'];
 const OUTBOUND_CAMPAIGN_VARIABLES = [
   'current_date_time',
@@ -3407,6 +3435,11 @@ export class EngagementService {
 
   async createAttachmentUploadUrl(ctx: TenantContext, input: AttachmentUploadInput) {
     if (!this.bucket) throw new ServiceUnavailableException('ASSETS_BUCKET is not configured');
+    if (!isAllowedAttachmentContentType(input.contentType)) {
+      throw new BadRequestException(
+        `Unsupported attachment type "${input.contentType}". Accepted: ${ALLOWED_ATTACHMENT_TYPES_LABEL}.`,
+      );
+    }
     if (input.contentLength > MAX_ATTACHMENT_BYTES) {
       throw new BadRequestException(`Attachment must be <= ${MAX_ATTACHMENT_BYTES} bytes`);
     }
@@ -3435,6 +3468,13 @@ export class EngagementService {
 
   async confirmAttachment(ctx: TenantContext, input: ConfirmAttachmentInput) {
     if (!this.bucket) throw new ServiceUnavailableException('ASSETS_BUCKET is not configured');
+    // Re-checked here (not just at presign) — confirm is a separate call and
+    // must not record a contentType the presign path would have rejected.
+    if (!isAllowedAttachmentContentType(input.contentType)) {
+      throw new BadRequestException(
+        `Unsupported attachment type "${input.contentType}". Accepted: ${ALLOWED_ATTACHMENT_TYPES_LABEL}.`,
+      );
+    }
     if (!input.s3Key.startsWith(`tenants/${ctx.tenantId}/engagement/`)) {
       throw new BadRequestException('Attachment key is outside tenant engagement prefix');
     }

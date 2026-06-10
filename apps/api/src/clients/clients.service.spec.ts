@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { ClientsService } from './clients.service.js';
 
 describe('ClientsService.list — archived filtering', () => {
@@ -57,5 +58,79 @@ describe('ClientsService.list — archived filtering', () => {
         where: { profileStatus: 'ACTIVE', sectorTag: 'defense', status: { not: 'archived' } },
       }),
     );
+  });
+});
+
+describe('ClientsService.updateProfileNotes — targeted intakeData merge', () => {
+  const ctx = { tenantId: 'tenant-1', userId: 'user-1' } as never;
+
+  const makeService = (row: Record<string, unknown> | null) => {
+    const tenantTx = {
+      client: {
+        findUnique: jest.fn(async () => row),
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          ...row,
+          ...data,
+        })),
+      },
+    };
+    const prisma = {
+      withTenant: jest.fn(async (_tenantId: string, run: (tx: unknown) => Promise<unknown>) =>
+        run(tenantTx),
+      ),
+    };
+    const config = { get: jest.fn(() => undefined) };
+    const entityResolution = { resolveClient: jest.fn() };
+    const prepopulation = { prepopulate: jest.fn() };
+    const samEntity = { enrichGovIds: jest.fn() };
+    const service = new ClientsService(
+      prisma as never,
+      config as never,
+      entityResolution as never,
+      prepopulation as never,
+      samEntity as never,
+    );
+    return { service, tenantTx };
+  };
+
+  test('merges profileNotes without clobbering sibling intakeData keys', async () => {
+    const { service, tenantTx } = makeService({
+      id: 'client-1',
+      intakeData: { profileNotes: 'old notes', ldaSignals: { totalSpend: 5 }, custom: 'kept' },
+      logoS3Key: null,
+    });
+
+    await service.updateProfileNotes(ctx, 'client-1', 'new notes');
+
+    expect(tenantTx.client.update).toHaveBeenCalledWith({
+      where: { id: 'client-1' },
+      data: {
+        intakeData: { profileNotes: 'new notes', ldaSignals: { totalSpend: 5 }, custom: 'kept' },
+      },
+    });
+  });
+
+  test('allows clearing notes with an empty string and tolerates null intakeData', async () => {
+    const { service, tenantTx } = makeService({
+      id: 'client-1',
+      intakeData: null,
+      logoS3Key: null,
+    });
+
+    await service.updateProfileNotes(ctx, 'client-1', '');
+
+    expect(tenantTx.client.update).toHaveBeenCalledWith({
+      where: { id: 'client-1' },
+      data: { intakeData: { profileNotes: '' } },
+    });
+  });
+
+  test('throws NotFound for an unknown client (no write attempted)', async () => {
+    const { service, tenantTx } = makeService(null);
+
+    await expect(service.updateProfileNotes(ctx, 'missing', 'x')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(tenantTx.client.update).not.toHaveBeenCalled();
   });
 });

@@ -61,6 +61,18 @@ const MAX_CANDIDATE_CLIENTS = 200;
 /** Cap on the (tenant, client) pairs the system cross-tenant writer path will score. */
 const MAX_SYSTEM_CLIENT_PAIRS = 2000;
 
+/**
+ * Normalize a congressional-district code for comparison. Facilities store the app's
+ * BARE convention ('5') but federal_award keeps USAspending's raw ZERO-PADDED codes
+ * ('05'), so exact equality silently misses single-digit districts. Stripping leading
+ * zeros makes both sides comparable; '' (everything stripped) means the at-large
+ * district ('00'/'0'). JS twin of the LTRIM(x, '0') applied on both sides of the SQL
+ * district joins; USAspending's '90'/'98' sentinels are untouched and still never match.
+ */
+export function normalizeDistrictForComparison(district: string): string {
+  return district.trim().replace(/^0+/, '');
+}
+
 interface ClientSignalContext {
   uei: string | null;
   name: string;
@@ -340,14 +352,16 @@ export class ClientPeRelevanceService {
     `);
     if (awardDistricts.length === 0) return null;
 
-    // Intersect the client's facility districts with the award districts. Compare on the
-    // BARE district number stored on both sides ("12"); the evidence string prints "ST-NN".
-    const awardKeys = new Set(
-      awardDistricts.map((d) => `${d.state.trim().toUpperCase()}-${d.district.trim()}`),
-    );
+    // Intersect the client's facility districts with the award districts. Facilities
+    // store the BARE district ("5") but federal_award keeps USAspending's ZERO-PADDED
+    // raw code ("05"), so both sides are normalized (leading zeros stripped; "" means
+    // at-large, keyed back as "00") before comparison; the evidence string prints "ST-NN".
+    const districtKey = (state: string, district: string): string =>
+      `${state.trim().toUpperCase()}-${normalizeDistrictForComparison(district) || '00'}`;
+    const awardKeys = new Set(awardDistricts.map((d) => districtKey(d.state, d.district)));
     const matched = new Set<string>();
     for (const f of signals.facilityDistricts) {
-      const key = `${f.state.toUpperCase()}-${f.district}`;
+      const key = districtKey(f.state, f.district);
       if (awardKeys.has(key)) matched.add(key);
     }
     return scoreFacilityDistrict({ matchedDistricts: [...matched].sort() });
@@ -435,8 +449,11 @@ export class ClientPeRelevanceService {
       const facilityRows = await this.prisma.$queryRaw<Array<{ peCode: string }>>(Prisma.sql`
         SELECT DISTINCT fa.pe_code AS "peCode"
         FROM federal_award fa
+        -- Facility districts are BARE ('5'); award codes are zero-padded ('05') —
+        -- LTRIM both sides ('' = at-large '00').
         JOIN unnest(${states}::text[], ${districts}::text[]) AS d(state, district)
-          ON upper(fa.pop_state) = d.state AND fa.pop_congressional_district = d.district
+          ON upper(fa.pop_state) = d.state
+          AND LTRIM(fa.pop_congressional_district, '0') = LTRIM(d.district, '0')
         WHERE fa.pe_code IS NOT NULL
         LIMIT ${MAX_CANDIDATE_PES}
       `);
@@ -621,7 +638,8 @@ export class ClientPeRelevanceService {
         JOIN federal_award fa ON fa.pe_code = ${code}
         WHERE f.state IS NOT NULL AND f.congressional_district IS NOT NULL
           AND upper(fa.pop_state) = upper(f.state)
-          AND fa.pop_congressional_district = f.congressional_district
+          -- BARE facility district vs zero-padded award code — LTRIM both ('' = at-large).
+          AND LTRIM(fa.pop_congressional_district, '0') = LTRIM(f.congressional_district, '0')
         LIMIT ${MAX_SYSTEM_CLIENT_PAIRS}
       `);
       return rows;
@@ -676,7 +694,8 @@ export class ClientPeRelevanceService {
         JOIN federal_award fa ON fa.pe_code = ${peCode}
         WHERE f.state IS NOT NULL AND f.congressional_district IS NOT NULL
           AND upper(fa.pop_state) = upper(f.state)
-          AND fa.pop_congressional_district = f.congressional_district
+          -- BARE facility district vs zero-padded award code — LTRIM both ('' = at-large).
+          AND LTRIM(fa.pop_congressional_district, '0') = LTRIM(f.congressional_district, '0')
       ) candidates
       LIMIT ${MAX_CANDIDATE_CLIENTS}
     `);

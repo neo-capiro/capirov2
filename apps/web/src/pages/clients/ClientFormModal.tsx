@@ -145,6 +145,29 @@ export function ClientFormModal({
     });
   }
 
+  // The final form.submit() validates ALL steps, but a failed field on a hidden
+  // (display:none) step would otherwise give zero feedback. Jump to the step
+  // that owns the first errored field, then focus/scroll it once visible.
+  function handleFinishFailed({
+    errorFields,
+  }: {
+    errorFields: Array<{ name: Array<string | number> }>;
+  }) {
+    const firstName = errorFields[0]?.name;
+    const fieldKey = firstName?.[0];
+    if (firstName === undefined || fieldKey === undefined) return;
+    const ownerStep = STEP_FIELDS.findIndex((fields) =>
+      (fields as ReadonlyArray<string | number>).includes(fieldKey),
+    );
+    if (ownerStep >= 0) setCurrentStep(ownerStep);
+    // Defer until after the owning step re-renders out of display:none.
+    setTimeout(() => {
+      form.scrollToField(firstName, { block: 'center' });
+      const instance = form.getFieldInstance(firstName) as { focus?: () => void } | undefined;
+      instance?.focus?.();
+    }, 0);
+  }
+
   return (
     <Modal
       title={mode === 'create' ? 'Add client' : 'Edit client'}
@@ -178,7 +201,12 @@ export function ClientFormModal({
         with `display: none` rather than unmounting, so field values + validation
         state survive Back/Next without re-initialising the controls.
       */}
-      <Form form={form} layout="vertical" onFinish={handleSubmit}>
+      <Form
+        form={form}
+        layout="vertical"
+        onFinish={handleSubmit}
+        onFinishFailed={handleFinishFailed}
+      >
         <div style={{ display: currentStep === 0 ? 'block' : 'none' }}>
           <CompanyInfoStep />
         </div>

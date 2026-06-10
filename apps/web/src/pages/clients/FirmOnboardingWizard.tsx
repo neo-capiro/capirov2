@@ -60,6 +60,13 @@ interface ImportResult {
   skipped: Array<{ ldaClientId: number; reason: string }>;
 }
 
+// Client-side merge of the per-chunk server responses. `interrupted` is set when
+// a later chunk failed AFTER earlier chunks had already created clients
+// server-side — the partial result must be surfaced, not discarded.
+interface ImportRunResult extends ImportResult {
+  interrupted?: { completedChunks: number; totalChunks: number; message: string };
+}
+
 interface FirmOnboardingWizardProps {
   open: boolean;
   onClose: () => void;
@@ -89,7 +96,7 @@ export function FirmOnboardingWizard({ open, onClose, canManage }: FirmOnboardin
   const [search, setSearch] = useState('');
   const [submittedSearch, setSubmittedSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [result, setResult] = useState<ImportResult | null>(null);
+  const [result, setResult] = useState<ImportRunResult | null>(null);
   // One-shot guard so the open-time auto-advance to the select step fires once.
   const [didInitStage, setDidInitStage] = useState(false);
 
@@ -145,16 +152,33 @@ export function FirmOnboardingWizard({ open, onClose, canManage }: FirmOnboardin
       // Chunk to respect the server's 100-id cap; merge results. The server
       // returns { created: <count>, items: [...], skipped: [...] } — merge the
       // arrays and re-derive the count from items so we never spread a number.
-      const merged: ImportResult = { created: 0, items: [], skipped: [] };
+      const merged: ImportRunResult = { created: 0, items: [], skipped: [] };
+      const totalChunks = Math.ceil(ids.length / IMPORT_CHUNK);
+      let completedChunks = 0;
       for (let i = 0; i < ids.length; i += IMPORT_CHUNK) {
         const chunk = ids.slice(i, i + IMPORT_CHUNK);
-        const res = (await api.post<ImportResult>('/api/firm/import', { ldaClientIds: chunk })).data;
-        // Defensive: only ever spread real arrays. `?? []` alone guards
-        // null/undefined but NOT a non-array value (e.g. an object/number from
-        // a drifted response), which would throw "Spread syntax requires
-        // ...iterable[Symbol.iterator] to be a function".
-        merged.items.push(...(Array.isArray(res.items) ? res.items : []));
-        merged.skipped.push(...(Array.isArray(res.skipped) ? res.skipped : []));
+        try {
+          const res = (await api.post<ImportResult>('/api/firm/import', { ldaClientIds: chunk }))
+            .data;
+          // Defensive: only ever spread real arrays. `?? []` alone guards
+          // null/undefined but NOT a non-array value (e.g. an object/number from
+          // a drifted response), which would throw "Spread syntax requires
+          // ...iterable[Symbol.iterator] to be a function".
+          merged.items.push(...(Array.isArray(res.items) ? res.items : []));
+          merged.skipped.push(...(Array.isArray(res.skipped) ? res.skipped : []));
+          completedChunks += 1;
+        } catch (err) {
+          // Nothing landed yet → plain failure (onError). Otherwise earlier chunks
+          // already created clients server-side, so resolve with the partial result
+          // instead of discarding that progress.
+          if (completedChunks === 0) throw err;
+          merged.interrupted = {
+            completedChunks,
+            totalChunks,
+            message: apiErr(err, 'Request failed'),
+          };
+          break;
+        }
       }
       merged.created = merged.items.length;
       return merged;
@@ -162,10 +186,16 @@ export function FirmOnboardingWizard({ open, onClose, canManage }: FirmOnboardin
     onSuccess: (res) => {
       setResult(res);
       setStage('result');
+      // Reached on a full run OR an interrupted one with >=1 chunk landed — in
+      // both cases clients were created server-side, so always refresh.
       qc.invalidateQueries({ queryKey: ['clients'] });
       qc.invalidateQueries({ queryKey: ['portfolio-summary'] });
       qc.invalidateQueries({ queryKey: ['firm', 'import-candidates'] });
-      if (res.skipped.length === 0) {
+      if (res.interrupted) {
+        message.warning(
+          `Import interrupted after ${res.interrupted.completedChunks} of ${res.interrupted.totalChunks} batches — already-imported clients are skipped on retry.`,
+        );
+      } else if (res.skipped.length === 0) {
         message.success(`Imported ${res.created} client${res.created === 1 ? '' : 's'}`);
       } else {
         message.warning(
@@ -376,15 +406,24 @@ export function FirmOnboardingWizard({ open, onClose, canManage }: FirmOnboardin
 
       {stage === 'result' && result && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <Alert
-            type={result.skipped.length === 0 ? 'success' : result.created === 0 ? 'warning' : 'info'}
-            showIcon
-            message={
-              result.skipped.length === 0
-                ? `Imported ${result.created} client${result.created === 1 ? '' : 's'} with federal data pre-linked.`
-                : `Imported ${result.created}. ${result.skipped.length} skipped.`
-            }
-          />
+          {result.interrupted ? (
+            <Alert
+              type="warning"
+              showIcon
+              message={`Import interrupted after ${result.interrupted.completedChunks} of ${result.interrupted.totalChunks} batches — already-imported clients are skipped on retry.`}
+              description={`Imported ${result.created} client${result.created === 1 ? '' : 's'} before the failure: ${result.interrupted.message}`}
+            />
+          ) : (
+            <Alert
+              type={result.skipped.length === 0 ? 'success' : result.created === 0 ? 'warning' : 'info'}
+              showIcon
+              message={
+                result.skipped.length === 0
+                  ? `Imported ${result.created} client${result.created === 1 ? '' : 's'} with federal data pre-linked.`
+                  : `Imported ${result.created}. ${result.skipped.length} skipped.`
+              }
+            />
+          )}
           {result.items.length > 0 && (
             <div>
               <Typography.Text strong style={{ fontSize: 13 }}>

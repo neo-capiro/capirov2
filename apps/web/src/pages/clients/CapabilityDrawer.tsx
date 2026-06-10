@@ -180,13 +180,28 @@ export function CapabilityDrawer({ capability, clientId, onClose, onUpdated, onD
         </div>
       </div>
 
-      <div className="cap-drawer-tabs">
+      <div className="cap-drawer-tabs" role="tablist" aria-label="Capability sections">
         {(['profile', 'documents'] as const).map((tab) => (
           <div
             key={tab}
             className={`cap-drawer-tab${drawerTab === tab ? ' active' : ''}`}
             onClick={() => setDrawerTab(tab)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setDrawerTab(tab);
+              } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                // Two tabs only — either arrow activates (and focuses) the other one.
+                event.preventDefault();
+                setDrawerTab(tab === 'profile' ? 'documents' : 'profile');
+                const sibling = (event.currentTarget.nextElementSibling ??
+                  event.currentTarget.previousElementSibling) as HTMLElement | null;
+                sibling?.focus();
+              }
+            }}
             role="tab"
+            aria-selected={drawerTab === tab}
+            tabIndex={drawerTab === tab ? 0 : -1}
           >
             {tab === 'profile' ? 'Profile' : 'Documents'}
           </div>
@@ -827,7 +842,7 @@ function InlineTags({ tags, onSave }: { tags: string[]; onSave: (tags: string[])
 
   // Keep local draft in sync when the underlying capability changes (e.g. after
   // a successful save re-fetches), unless the user is mid-edit.
-  if (!dirty && draft !== tags && draft.join(' ') !== tags.join(' ')) {
+  if (!dirty && draft !== tags && draft.join('\0') !== tags.join('\0')) {
     setDraft(tags);
   }
 

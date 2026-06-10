@@ -82,6 +82,27 @@ describe('DefenseBudgetExposureCard', () => {
     expect(container.querySelector('.ant-skeleton')).toBeTruthy();
   });
 
+  test('shows an error state (not the empty state) when the query failed', () => {
+    renderCard(<DefenseBudgetExposureCard relevance={undefined} error />);
+
+    expect(
+      screen.getByText("Couldn't load budget exposure. Refresh to retry."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/No Program Elements clear the relevance floor yet/),
+    ).not.toBeInTheDocument();
+  });
+
+  test('loading wins over error (skeleton while a refetch is in flight)', () => {
+    const { container } = renderCard(
+      <DefenseBudgetExposureCard relevance={undefined} loading error />,
+    );
+    expect(container.querySelector('.ant-skeleton')).toBeTruthy();
+    expect(
+      screen.queryByText("Couldn't load budget exposure. Refresh to retry."),
+    ).not.toBeInTheDocument();
+  });
+
   test('guards against non-array / malformed data without throwing', () => {
     // data missing entirely (e.g. an error payload).
     renderCard(

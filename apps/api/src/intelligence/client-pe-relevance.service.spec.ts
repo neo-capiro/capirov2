@@ -1,5 +1,8 @@
 import type { TenantContext } from '@capiro/shared';
-import { ClientPeRelevanceService } from './client-pe-relevance.service.js';
+import {
+  ClientPeRelevanceService,
+  normalizeDistrictForComparison,
+} from './client-pe-relevance.service.js';
 import {
   ECOSYSTEM_SCORE,
   FACILITY_DISTRICT_SCORE,
@@ -148,6 +151,24 @@ function sqlText(sql: { strings?: string[]; sql?: string; values?: unknown[] }):
   return JSON.stringify(sql ?? '');
 }
 
+describe('normalizeDistrictForComparison', () => {
+  test('strips leading zeros so BARE and zero-padded codes compare equal', () => {
+    expect(normalizeDistrictForComparison('05')).toBe('5');
+    expect(normalizeDistrictForComparison('5')).toBe('5');
+    expect(normalizeDistrictForComparison('52')).toBe('52');
+  });
+
+  test('all-zero codes normalize to "" (the at-large district)', () => {
+    expect(normalizeDistrictForComparison('00')).toBe('');
+    expect(normalizeDistrictForComparison('0')).toBe('');
+  });
+
+  test('USAspending "90"/"98" sentinels keep their zeros and never collapse', () => {
+    expect(normalizeDistrictForComparison('90')).toBe('90');
+    expect(normalizeDistrictForComparison('98')).toBe('98');
+  });
+});
+
 describe('ClientPeRelevanceService', () => {
   describe('computeForClientPe — per-path isolation', () => {
     test('capability_pe_direct only → full score, evidence lists the PE', async () => {
@@ -238,6 +259,37 @@ describe('ClientPeRelevanceService', () => {
       expect(result.paths[0]!.path).toBe('facility_district');
       expect(result.score).toBe(FACILITY_DISTRICT_SCORE);
       expect(result.paths[0]!.evidence.join(' ')).toContain('TX-12');
+    });
+
+    test('facility_district: BARE facility district matches the zero-padded award code', async () => {
+      const prisma = makePrisma({
+        // facility stores the BARE "5" (app convention); USAspending awards keep "05".
+        client: { facilities: [{ state: 'CA', congressionalDistrict: '5' }] },
+        pe: { title: 'Some PE', description: null },
+        awardDistricts: [{ state: 'CA', district: '05' }],
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+
+      expect(result.paths).toHaveLength(1);
+      expect(result.paths[0]!.path).toBe('facility_district');
+      expect(result.score).toBe(FACILITY_DISTRICT_SCORE);
+    });
+
+    test('facility_district: at-large "00" matches an at-large award district', async () => {
+      const prisma = makePrisma({
+        client: { facilities: [{ state: 'WY', congressionalDistrict: '00' }] },
+        pe: { title: 'Some PE', description: null },
+        awardDistricts: [{ state: 'WY', district: '00' }],
+      });
+      const service = new ClientPeRelevanceService(prisma as never);
+
+      const result = await service.computeForClientPe(prisma.__tx as never, 'client-1', PE);
+      expect(result.paths[0]!.path).toBe('facility_district');
+      expect(result.score).toBe(FACILITY_DISTRICT_SCORE);
+      // The at-large key stays in the documented "ST-NN" evidence shape.
+      expect(result.paths[0]!.evidence.join(' ')).toContain('WY-00');
     });
 
     test('facility_district: no district overlap → path absent', async () => {

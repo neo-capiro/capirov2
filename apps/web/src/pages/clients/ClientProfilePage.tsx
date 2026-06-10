@@ -85,19 +85,21 @@ type ProfileTab =
   | 'intelligence'
   | 'dow-directory';
 
+const PROFILE_TABS: ProfileTab[] = [
+  'overview',
+  'capabilities',
+  'people',
+  'facilities',
+  'workflows',
+  'documents',
+  'intelligence',
+  'dow-directory',
+];
+
 const STATUS_COLOR: Record<string, string> = {
   active: '#52c41a',
   inactive: '#faad14',
   archived: '#8c8c8c',
-};
-
-const WORKFLOW_STATUS_COLORS: Record<string, string> = {
-  triage: 'orange',
-  in_progress: 'blue',
-  review: 'purple',
-  submitted: 'cyan',
-  complete: 'green',
-  cancelled: 'default',
 };
 
 interface Props {
@@ -160,7 +162,9 @@ export function ClientProfilePage({
   });
 
   const docsCount = useQuery<{ id: string }[]>({
-    queryKey: ['client-attachments-count', client.id],
+    // Same key as DocumentsTab so upload/delete invalidations refresh the badge
+    // and React Query dedupes the duplicate fetch.
+    queryKey: ['client-attachments', client.id],
     queryFn: async () =>
       (
         await api.get<{ id: string }[]>('/api/engagement/attachments', {
@@ -341,18 +345,7 @@ export function ClientProfilePage({
 
       {/* Tab nav */}
       <div className="cp-tabs" role="tablist" aria-label="Client profile sections">
-        {(
-          [
-            'overview',
-            'capabilities',
-            'people',
-            'facilities',
-            'workflows',
-            'documents',
-            'intelligence',
-            'dow-directory',
-          ] as ProfileTab[]
-        ).map((tab) => {
+        {PROFILE_TABS.map((tab) => {
           const badge =
             tab === 'capabilities'
               ? capabilities.data?.length
@@ -368,17 +361,37 @@ export function ClientProfilePage({
           return (
             <div
               key={tab}
+              id={`cp-tab-${tab}`}
               className={`cp-tab${activeTab === tab ? ' active' : ''}`}
               onClick={() => setActiveTab(tab)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
                   event.preventDefault();
                   setActiveTab(tab);
+                  return;
+                }
+                // WAI-ARIA tabs pattern: arrows/Home/End move focus AND selection.
+                const idx = PROFILE_TABS.indexOf(tab);
+                const next =
+                  event.key === 'ArrowRight'
+                    ? PROFILE_TABS[(idx + 1) % PROFILE_TABS.length]
+                    : event.key === 'ArrowLeft'
+                      ? PROFILE_TABS[(idx - 1 + PROFILE_TABS.length) % PROFILE_TABS.length]
+                      : event.key === 'Home'
+                        ? PROFILE_TABS[0]
+                        : event.key === 'End'
+                          ? PROFILE_TABS[PROFILE_TABS.length - 1]
+                          : undefined;
+                if (next) {
+                  event.preventDefault();
+                  setActiveTab(next);
+                  document.getElementById(`cp-tab-${next}`)?.focus();
                 }
               }}
               role="tab"
               aria-selected={activeTab === tab}
-              tabIndex={0}
+              aria-controls="cp-tabpanel"
+              tabIndex={activeTab === tab ? 0 : -1}
             >
               <span>
                 {tab === 'overview'
@@ -409,6 +422,9 @@ export function ClientProfilePage({
       <div className={`cp-body${selectedCapability ? ' cp-body--with-drawer' : ''}`}>
         <div
           className="cp-content"
+          role="tabpanel"
+          id="cp-tabpanel"
+          aria-labelledby={`cp-tab-${activeTab}`}
           style={selectedCapability ? { flex: 1, overflowY: 'auto' } : {}}
         >
           {activeTab === 'overview' && (
@@ -441,7 +457,8 @@ export function ClientProfilePage({
               onDeleteCap={(id) => {
                 modal.confirm({
                   title: 'Remove this capability?',
-                  content: 'This will also remove all submission history for this capability.',
+                  content:
+                    'Submission history is kept but will no longer be linked to this capability.',
                   okText: 'Remove',
                   okButtonProps: { danger: true },
                   onOk: () => deleteCapability.mutateAsync(id),
@@ -481,7 +498,11 @@ export function ClientProfilePage({
             <IntelligenceTab clientId={client.id} clientName={client.name} />
           )}
           {activeTab === 'dow-directory' && (
-            <DowDirectoryTab client={{ id: client.id }} capabilities={capabilities.data ?? []} />
+            <DowDirectoryTab
+              client={{ id: client.id }}
+              capabilities={capabilities.data ?? []}
+              capabilitiesLoading={capabilities.isLoading}
+            />
           )}
         </div>
 
@@ -498,7 +519,8 @@ export function ClientProfilePage({
               if (!cap) return;
               modal.confirm({
                 title: 'Remove this capability?',
-                content: 'This will also remove all submission history for this capability.',
+                content:
+                  'Submission history is kept but will no longer be linked to this capability.',
                 okText: 'Remove',
                 okButtonProps: { danger: true },
                 onOk: () => deleteCapability.mutateAsync(cap.id),
@@ -691,7 +713,7 @@ function OverviewTab({
               value={engagementStart ? formatDate(engagementStart) : null}
             />
             <InfoRow
-              label="Engagement"
+              label="Status"
               value={
                 <span>
                   <span
@@ -746,7 +768,11 @@ function OverviewTab({
         ) : null}
 
         {/* Defense budget exposure: explainable client ⇄ PE relevance (Step 2.3). */}
-        <DefenseBudgetExposureCard relevance={exposure.data} loading={exposure.isLoading} />
+        <DefenseBudgetExposureCard
+          relevance={exposure.data}
+          loading={exposure.isLoading}
+          error={exposure.isError}
+        />
 
       </div>
 
@@ -930,15 +956,6 @@ function avatarColor(seed: string): string {
   return AVATAR_PALETTE[h % AVATAR_PALETTE.length] ?? AVATAR_PALETTE[0]!;
 }
 
-function formatCompactDollars(value: number): string {
-  if (!Number.isFinite(value) || value === 0) return '$0';
-  const abs = Math.abs(value);
-  if (abs >= 1_000_000_000) return `$${(value / 1_000_000_000).toFixed(1)}B`;
-  if (abs >= 1_000_000) return `$${(value / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000) return `$${Math.round(value / 1_000)}K`;
-  return `$${Math.round(value)}`;
-}
-
 /* ── Capabilities Tab ────────────────────────────────────────────────────── */
 
 function CapabilitiesTab({
@@ -1100,9 +1117,14 @@ function WorkflowsTab({ workflows, loading }: { workflows: WorkflowInstance[]; l
             Active engagement work, drafts, requests, outreach, intel runs. Status moves the card.
           </p>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} size="small" disabled>
-          New workflow
-        </Button>
+        <Tooltip title="Workflow creation is coming to client profiles — use the Workspace catalog for now.">
+          {/* span wrapper: disabled buttons swallow pointer events, so the tooltip needs it */}
+          <span>
+            <Button type="primary" icon={<PlusOutlined />} size="small" disabled>
+              New workflow
+            </Button>
+          </span>
+        </Tooltip>
       </header>
 
       <div className="kanban">
@@ -1183,12 +1205,10 @@ function DocumentsTab({
   });
 
   const saveNotes = useMutation({
+    // Dedicated endpoint merges the note server-side; a wholesale intakeData PUT
+    // from a stale prop would silently drop concurrent edits.
     mutationFn: async (value: string) =>
-      (
-        await api.put(`/api/clients/${client.id}`, {
-          intakeData: { ...toRecord(client.intakeData), profileNotes: value },
-        })
-      ).data,
+      (await api.put(`/api/clients/${client.id}/profile-notes`, { notes: value })).data,
     onSuccess: () => {
       message.success('Notes saved');
       setNotesDirty(false);
@@ -1584,17 +1604,6 @@ function PersonCard({ person, onDelete }: { person: ClientPerson; onDelete: () =
   );
 }
 
-function ProfileField({ label, value }: { label: string; value?: ReactNode | string | null }) {
-  return (
-    <div className="ps-field">
-      <span className="ps-key">{label}</span>
-      <span className="ps-val">
-        {value == null || value === '' ? <span className="ps-val-empty">Not provided</span> : value}
-      </span>
-    </div>
-  );
-}
-
 /* ── Modals ──────────────────────────────────────────────────────────────── */
 
 function AddCapabilityModal({
@@ -1685,6 +1694,9 @@ function AddCapabilityModal({
   );
 }
 
+// Empty antd Inputs submit '' which the server rejects (@IsOptional skips only null/undefined).
+const orNull = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? null : (v ?? null));
+
 function AddPersonModal({
   open,
   onCancel,
@@ -1716,11 +1728,11 @@ function AddPersonModal({
         onFinish={(values) => {
           onSubmit({
             name: values.name,
-            title: values.title ?? null,
-            email: values.email ?? null,
-            phone: values.phone ?? null,
+            title: orNull(values.title),
+            email: orNull(values.email),
+            phone: orNull(values.phone),
             role: values.role ?? null,
-            notes: values.notes ?? null,
+            notes: orNull(values.notes),
           });
         }}
       >

@@ -9,6 +9,7 @@ export interface CreateCapabilityInput {
   description?: string;
   sector?: string;
   tags?: unknown[];
+  issueCodes?: unknown[];
   trl?: number;
   mrl?: number;
   peNumber?: string;
@@ -25,7 +26,6 @@ export interface CreateCapabilityInput {
   notes?: string;
   sortOrder?: number;
 }
-
 
 export type UpdateCapabilityInput = Partial<CreateCapabilityInput>;
 
@@ -53,6 +53,26 @@ function normalizeCapabilityTags(raw: unknown): string[] {
   for (const value of raw) {
     if (typeof value !== 'string') continue;
     const cleaned = value.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (!cleaned || seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    out.push(cleaned);
+  }
+  return out;
+}
+
+/**
+ * Normalize capability LDA issue codes the same way tags are normalized,
+ * except codes are canonically UPPERCASE ('DEF', 'BUD') — matching how
+ * client-prepopulation merges LDA codes into clients.issue_codes. Trims,
+ * dedupes, drops non-strings; preserves order of first occurrence.
+ */
+function normalizeCapabilityIssueCodes(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const value of raw) {
+    if (typeof value !== 'string') continue;
+    const cleaned = value.trim().toUpperCase().replace(/\s+/g, ' ');
     if (!cleaned || seen.has(cleaned)) continue;
     seen.add(cleaned);
     out.push(cleaned);
@@ -100,6 +120,7 @@ export class ClientCapabilitiesService {
           description: input.description ?? null,
           sector: input.sector ?? null,
           tags: normalizeCapabilityTags(input.tags) as object,
+          issueCodes: normalizeCapabilityIssueCodes(input.issueCodes) as object,
           trl: input.trl ?? null,
           mrl: input.mrl ?? null,
           peNumber: input.peNumber ?? null,
@@ -144,6 +165,9 @@ export class ClientCapabilitiesService {
           ...('description' in input ? { description: input.description ?? null } : {}),
           ...('sector' in input ? { sector: input.sector ?? null } : {}),
           ...('tags' in input ? { tags: normalizeCapabilityTags(input.tags) as object } : {}),
+          ...('issueCodes' in input
+            ? { issueCodes: normalizeCapabilityIssueCodes(input.issueCodes) as object }
+            : {}),
           ...('trl' in input ? { trl: input.trl ?? null } : {}),
           ...('mrl' in input ? { mrl: input.mrl ?? null } : {}),
           ...('peNumber' in input ? { peNumber: input.peNumber ?? null } : {}),

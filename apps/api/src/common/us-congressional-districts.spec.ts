@@ -27,8 +27,14 @@ describe('isValidDistrictForState', () => {
   it('accepts the at-large sentinel for single-district states', () => {
     expect(isValidDistrictForState('WY', '00')).toBe(true);
     expect(isValidDistrictForState('WY', '01')).toBe(true);
+    expect(isValidDistrictForState('WY', '1')).toBe(true);
     expect(isValidDistrictForState('WY', '02')).toBe(false);
     expect(isValidDistrictForState('AK', '00')).toBe(true);
+  });
+
+  it('rejects the bare "0" for at-large states ("00" is the only zero form)', () => {
+    expect(isValidDistrictForState('WY', '0')).toBe(false);
+    expect(isValidDistrictForState('DC', '0')).toBe(false);
   });
 
   it('treats DC and territories as single at-large delegations', () => {

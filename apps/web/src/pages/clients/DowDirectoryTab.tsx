@@ -41,6 +41,8 @@ export interface DowDirectoryTabCapability {
 export interface DowDirectoryTabProps {
   client: { id: string };
   capabilities: DowDirectoryTabCapability[];
+  /** True while the capabilities list is still loading — keeps the "no capabilities" empty honest. */
+  capabilitiesLoading?: boolean;
   onSelectPerson?: (id: string) => void;
 }
 
@@ -50,7 +52,12 @@ type ConfidenceFilter = ConfidenceBand | 'all';
 
 const ROLE_OPTIONS = ['PEO', 'PM', 'PCO', 'KO'];
 
-export function DowDirectoryTab({ client, capabilities, onSelectPerson }: DowDirectoryTabProps) {
+export function DowDirectoryTab({
+  client,
+  capabilities,
+  capabilitiesLoading = false,
+  onSelectPerson,
+}: DowDirectoryTabProps) {
   const api = useApi();
 
   const peCodes = useMemo(
@@ -109,7 +116,11 @@ export function DowDirectoryTab({ client, capabilities, onSelectPerson }: DowDir
   if (peCodes.length === 0) {
     return (
       <Card title="DoW Directory">
-        <Empty description="No defense program capabilities linked to this client yet" />
+        {capabilitiesLoading ? (
+          <Skeleton active paragraph={{ rows: 5 }} />
+        ) : (
+          <Empty description="No defense program capabilities linked to this client yet" />
+        )}
       </Card>
     );
   }
@@ -150,6 +161,8 @@ export function DowDirectoryTab({ client, capabilities, onSelectPerson }: DowDir
 
       {personnelQuery.isLoading ? (
         <Skeleton active paragraph={{ rows: 5 }} />
+      ) : personnelQuery.isError ? (
+        <Empty description="Couldn't load the DoW directory. Refresh to retry." />
       ) : filtered.length === 0 ? (
         <Empty description="No personnel match these filters" />
       ) : (

@@ -728,7 +728,7 @@ function ClientDropdown({
                 onClick={() => handleSelect(client.id)}
               >
                 <span className="app-client-menu-name">
-                  <Avatar size={22} src={client.logoUrl || undefined}>
+                  <Avatar size={22} src={client.logoUrl || undefined} alt={`${client.name} logo`}>
                     {initials(client.name)}
                   </Avatar>
                   <span>{client.name}</span>
@@ -770,7 +770,11 @@ function ClientDropdown({
       <button className="app-client-dropdown-trigger" type="button">
         {selectedClient ? (
           <>
-            <Avatar size={24} src={selectedClient.logoUrl || undefined}>
+            <Avatar
+              size={24}
+              src={selectedClient.logoUrl || undefined}
+              alt={`${selectedClient.name} logo`}
+            >
               {initials(selectedClient.name)}
             </Avatar>
             <span>{selectedClient.name}</span>
@@ -788,7 +792,7 @@ function ClientContextBanner({ client, onClear }: { client: Client; onClear: () 
   return (
     <div className="app-client-context-banner">
       <span className="app-client-context-label">Viewing:</span>
-      <Avatar size={22} src={client.logoUrl || undefined}>
+      <Avatar size={22} src={client.logoUrl || undefined} alt={`${client.name} logo`}>
         {initials(client.name)}
       </Avatar>
       <strong>{client.name}</strong>

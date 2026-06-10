@@ -331,6 +331,26 @@ export class ClientsService {
     });
   }
 
+  /**
+   * Targeted save for the profile Notes editor: merges ONLY
+   * intakeData.profileNotes via read-modify-write inside the tenant
+   * transaction, so a stale full-intakeData PUT from another tab can never
+   * clobber sibling keys (ldaSignals, wizard fields) — and vice versa.
+   * Empty string is allowed (clears the notes).
+   */
+  async updateProfileNotes(ctx: TenantContext, id: string, notes: string) {
+    const client = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const existing = await tx.client.findUnique({ where: { id } });
+      if (!existing) throw new NotFoundException('Client not found');
+      const intake = (existing.intakeData ?? {}) as Record<string, unknown>;
+      return tx.client.update({
+        where: { id },
+        data: { intakeData: { ...intake, profileNotes: notes } as object },
+      });
+    });
+    return this.withLogoUrl(client);
+  }
+
   async createLogoUploadUrl(
     ctx: TenantContext,
     clientId: string,

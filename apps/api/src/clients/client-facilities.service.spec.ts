@@ -335,6 +335,65 @@ describe('ClientFacilitiesService — single-field PATCH cross-validates against
   });
 });
 
+describe('ClientFacilitiesService — districtSource provenance on PATCH', () => {
+  function svcWith(facility: Row) {
+    const prisma = makePrisma({
+      clients: [seedClient(TENANT_A)],
+      facilities: [{ id: 'f1', tenantId: TENANT_A, clientId: 'client-1', ...facility }],
+    });
+    return { svc: new ClientFacilitiesService(prisma as never), prisma };
+  }
+
+  test('a district PATCH without districtSource flips a geocoded row to "user"', async () => {
+    // The stored value no longer reflects a geocode once hand-edited.
+    const { svc } = svcWith({
+      name: 'HQ',
+      state: 'CA',
+      congressionalDistrict: '12',
+      districtSource: 'geocoded',
+    });
+
+    const updated = (await svc.updateFacility(ctx(TENANT_A), 'client-1', 'f1', {
+      congressionalDistrict: '52',
+    })) as Row;
+
+    expect(updated.congressionalDistrict).toBe('52');
+    expect(updated.districtSource).toBe('user');
+  });
+
+  test('an explicit districtSource in the PATCH wins over the implicit "user" stamp', async () => {
+    // The geocoder PATCHes district + source together; it must stay 'geocoded'.
+    const { svc } = svcWith({
+      name: 'HQ',
+      state: 'CA',
+      congressionalDistrict: '12',
+      districtSource: 'user',
+    });
+
+    const updated = (await svc.updateFacility(ctx(TENANT_A), 'client-1', 'f1', {
+      congressionalDistrict: '52',
+      districtSource: 'geocoded',
+    })) as Row;
+
+    expect(updated.districtSource).toBe('geocoded');
+  });
+
+  test('a PATCH that does not touch the district leaves districtSource alone', async () => {
+    const { svc } = svcWith({
+      name: 'HQ',
+      state: 'CA',
+      congressionalDistrict: '12',
+      districtSource: 'geocoded',
+    });
+
+    const updated = (await svc.updateFacility(ctx(TENANT_A), 'client-1', 'f1', {
+      employeeCount: 7,
+    })) as Row;
+
+    expect(updated.districtSource).toBe('geocoded');
+  });
+});
+
 describe('ClientFacility DTO validation — districtSource + congressionalDistrict', () => {
   async function errorsFor(cls: typeof CreateFacilityDto | typeof UpdateFacilityDto, payload: Row) {
     const dto = plainToInstance(cls, payload);
