@@ -7,6 +7,7 @@ import { ProgramElementModule } from '../program-element/program-element.module.
 import { AcquisitionPersonnelModule } from '../acquisition-personnel/acquisition-personnel.module.js';
 import { WorkflowsModule } from '../workflows/workflows.module.js';
 import { StrategiesModule } from '../strategies/strategies.module.js';
+import { IntelligenceModule } from '../intelligence/intelligence.module.js';
 import { ClioController } from './clio.controller.js';
 import { ClioService } from './clio.service.js';
 import { ClioToolsService } from './clio-tools.service.js';
@@ -23,6 +24,7 @@ import { ClioDocgenService } from './clio-docgen.service.js';
     AcquisitionPersonnelModule,
     WorkflowsModule,
     StrategiesModule,
+    IntelligenceModule,
   ],
   controllers: [ClioController],
   providers: [ClioService, ClioToolsService, ClioResearchService, ClioDocgenService],

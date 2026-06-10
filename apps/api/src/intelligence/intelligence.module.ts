@@ -67,6 +67,8 @@ import { FederalRegisterModule } from '../federal-register/federal-register.modu
     // Exported so ClientsService (create) and FirmOnboardingService (import) can
     // fire-and-forget SAM gov-id enrichment.
     SamEntityEnrichmentService,
+    // Exported so Clio's query_action_items tool can read Needs-Attention cards.
+    ActionRecommendationReadService,
   ],
 })
 export class IntelligenceModule {}

@@ -12,6 +12,8 @@ import type { AppConfig } from '../config/config.schema.js';
 import { EngagementService } from '../engagement/engagement.service.js';
 import { WorkflowsService } from '../workflows/workflows.service.js';
 import { StrategiesService } from '../strategies/strategies.service.js';
+import { ActionRecommendationReadService } from '../intelligence/actions/action-recommendation-read.service.js';
+import type { ActionStatus } from '../intelligence/actions/action-recommendation.types.js';
 import { MicrosoftGraphSyncService } from '../engagement/microsoft/microsoft-graph-sync.service.js';
 import { LdaIntelService } from '../lda-intel/lda-intel.service.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
@@ -197,6 +199,10 @@ const TOOL_DEFINITIONS = [
     name: 'query_strategies',
     description: 'List the firm\'s government-affairs strategies and their targets/deadlines, or upcoming strategy deadlines. Use to ground answers in the firm\'s actual game plan. Pass strategyId for full detail or deadlinesOnly for the deadline calendar.',
   },
+  {
+    name: 'query_action_items',
+    description: 'List the firm\'s "Needs Attention" action recommendations for a client or across all clients — each card says what changed, why it matters, and the recommended action with deadline and priority.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -259,6 +265,7 @@ export class ClioToolsService {
     private readonly docgen: ClioDocgenService,
     private readonly workflows: WorkflowsService,
     private readonly strategies: StrategiesService,
+    private readonly actionRecommendations: ActionRecommendationReadService,
   ) {}
 
   manifest() {
@@ -516,6 +523,12 @@ export class ClioToolsService {
         deadlinesOnly: { type: 'boolean', description: 'Return upcoming deadlines across strategies (next 30 days)' },
         limit: int('Max results (1-50)'),
       }),
+      query_action_items: obj({
+        clientId: str('Optional client UUID filter'),
+        status: str('Optional status: new | triaged | assigned | drafting | ready_for_review | sent_to_client | outreach_completed | monitoring | dismissed | archived'),
+        sort: str('Sort order: deadline (default) | priority'),
+        limit: int('Max results (1-50)'),
+      }),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -619,6 +632,8 @@ export class ClioToolsService {
         return this.queryTasks(ctx, input);
       case 'query_strategies':
         return this.queryStrategies(ctx, input);
+      case 'query_action_items':
+        return this.queryActionItems(ctx, input);
       default:
         assertNever(name);
     }
@@ -2426,6 +2441,28 @@ export class ClioToolsService {
         description: summarizeText(strategy.description, 300),
         createdAt: strategy.createdAt,
       })),
+    };
+  }
+
+  private async queryActionItems(ctx: TenantContext, input: Record<string, unknown>) {
+    const clientId = optionalString(input, 'clientId', 80);
+    const status = optionalString(input, 'status', 40);
+    const sort = optionalString(input, 'sort', 20);
+    const limit = clampInt(input.limit, 1, 50, 20);
+    if (clientId) await this.ensureClientVisible(ctx, clientId);
+
+    const result = await this.actionRecommendations.list(ctx, {
+      clientId: clientId ?? undefined,
+      status: (status as ActionStatus | null) ?? undefined,
+      sort: sort === 'priority' ? 'priority' : 'deadline',
+      limit,
+    });
+
+    return {
+      tool: 'query_action_items',
+      generatedAt: new Date().toISOString(),
+      total: result.total,
+      actions: result.data,
     };
   }
 
