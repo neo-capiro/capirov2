@@ -12,6 +12,7 @@ import type { AppConfig } from '../config/config.schema.js';
 import { EngagementService } from '../engagement/engagement.service.js';
 import { WorkflowsService } from '../workflows/workflows.service.js';
 import { StrategiesService } from '../strategies/strategies.service.js';
+import { IntelligenceService } from '../intelligence/intelligence.service.js';
 import { ActionRecommendationReadService } from '../intelligence/actions/action-recommendation-read.service.js';
 import type { ActionStatus } from '../intelligence/actions/action-recommendation.types.js';
 import { ClientCapabilitiesService } from '../clients/client-capabilities.service.js';
@@ -206,6 +207,10 @@ const TOOL_DEFINITIONS = [
     name: 'query_action_items',
     description: 'List the firm\'s "Needs Attention" action recommendations for a client or across all clients — each card says what changed, why it matters, and the recommended action with deadline and priority.',
   },
+  {
+    name: 'search_tracked_bills',
+    description: 'List the bills the firm is actively tracking for a client, with each bill\'s latest status and the note attached when it was pinned.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -269,6 +274,7 @@ export class ClioToolsService {
     private readonly workflows: WorkflowsService,
     private readonly strategies: StrategiesService,
     private readonly actionRecommendations: ActionRecommendationReadService,
+    private readonly intelligence: IntelligenceService,
     private readonly clientCapabilities: ClientCapabilitiesService,
     private readonly clientPeople: ClientPeopleService,
     private readonly clientFacilities: ClientFacilitiesService,
@@ -535,6 +541,7 @@ export class ClioToolsService {
         sort: str('Sort order: deadline (default) | priority'),
         limit: int('Max results (1-50)'),
       }),
+      search_tracked_bills: obj({ clientId: str('Client UUID') }, ['clientId']),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -640,6 +647,8 @@ export class ClioToolsService {
         return this.queryStrategies(ctx, input);
       case 'query_action_items':
         return this.queryActionItems(ctx, input);
+      case 'search_tracked_bills':
+        return this.searchTrackedBills(ctx, input);
       default:
         assertNever(name);
     }
@@ -2521,6 +2530,19 @@ export class ClioToolsService {
       generatedAt: new Date().toISOString(),
       total: result.total,
       actions: result.data,
+    };
+  }
+
+  private async searchTrackedBills(ctx: TenantContext, input: Record<string, unknown>) {
+    const clientId = requiredString(input, 'clientId', 80);
+    await this.ensureClientVisible(ctx, clientId);
+    const bills = await this.intelligence.listTrackedBills(clientId, ctx.tenantId);
+    return {
+      tool: 'search_tracked_bills',
+      generatedAt: new Date().toISOString(),
+      clientId,
+      total: bills.length,
+      bills,
     };
   }
 
