@@ -41,6 +41,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { buildSavedMemoryRecord } from './clio-memory.helpers.js';
 import { buildWebSearchRequest, normalizeWebResults } from './clio-websearch.helpers.js';
+import { looksLikePdf } from './clio-scrape.helpers.js';
+import { PDFParse } from 'pdf-parse';
 
 const PRODUCT_NAME = 'Clio';
 
@@ -111,7 +113,7 @@ const TOOL_DEFINITIONS = [
   },
   {
     name: 'scrape_web_page',
-    description: 'Fetch and extract readable text from a public webpage URL for grounded analysis. Blocks localhost/private-network targets.',
+    description: 'Fetch and extract readable text from a public webpage or PDF URL for grounded analysis (gov sources are PDF-heavy). Blocks localhost/private-network targets.',
   },
   {
     name: 'create_meeting_brief',
@@ -1726,7 +1728,7 @@ export class ClioToolsService {
       method: 'GET',
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; Capiro-Clio/1.0; +https://capiro.ai)',
-        Accept: 'text/html,application/xhtml+xml',
+        Accept: 'text/html,application/xhtml+xml,application/pdf',
       },
       redirect: 'follow',
     }, 10000);
@@ -1739,6 +1741,11 @@ export class ClioToolsService {
     const finalParsed = parseAndValidatePublicUrl(finalUrl);
 
     const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+
+    if (looksLikePdf(contentType, finalParsed.toString())) {
+      return this.extractPdfText(response, finalParsed.toString(), contentType, maxChars);
+    }
+
     if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
       throw new BadRequestException(`Unsupported content type for scraping: ${contentType || 'unknown'}`);
     }
@@ -1758,6 +1765,56 @@ export class ClioToolsService {
       totalChars: text.length,
       truncated: text.length >= maxChars,
       links,
+    };
+  }
+
+  /**
+   * PDF branch of scrape_web_page. The response already passed the SSRF guard
+   * (parseAndValidatePublicUrl on the original AND final URL) before we get
+   * here; this only buffers (size-capped) and extracts text.
+   */
+  private async extractPdfText(
+    response: Response,
+    url: string,
+    contentType: string,
+    maxChars: number,
+  ) {
+    const MAX_PDF_BYTES = 15 * 1024 * 1024;
+    const declaredLength = Number(response.headers.get('content-length') ?? 0);
+    if (declaredLength > MAX_PDF_BYTES) {
+      throw new BadRequestException('PDF too large to extract (limit 15MB)');
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (buffer.byteLength > MAX_PDF_BYTES) {
+      throw new BadRequestException('PDF too large to extract (limit 15MB)');
+    }
+
+    const parser = new PDFParse({ data: buffer });
+    let rawText: string;
+    let pages: number;
+    try {
+      const parsed = await parser.getText();
+      rawText = parsed.text ?? '';
+      pages = parsed.total ?? 0;
+    } catch (err) {
+      throw new BadGatewayException(`PDF text extraction failed: ${(err as Error).message}`);
+    } finally {
+      await parser.destroy().catch(() => {});
+    }
+
+    const text = summarizeText(rawText, maxChars);
+    return {
+      tool: 'scrape_web_page',
+      generatedAt: new Date().toISOString(),
+      kind: 'pdf',
+      url,
+      title: null,
+      contentType,
+      pages,
+      text,
+      totalChars: text.length,
+      truncated: text.length >= maxChars,
+      links: [],
     };
   }
 
