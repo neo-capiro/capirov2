@@ -158,6 +158,9 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   // report can show Download Word / Open as page actions.
   const [researchReports, setResearchReports] = useState<Record<string, string>>({});
   const [learnedMemories, setLearnedMemories] = useState<Array<{ id: string; key: string; value: string; scope: string }>>([]);
+  // Learned-memory panel is collapsed by default so it doesn't dominate the
+  // drawer; the user can expand to review/acknowledge what Clio remembers.
+  const [learnedExpanded, setLearnedExpanded] = useState(false);
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const resizingRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const [drawerWidth, setDrawerWidth] = useState(420);
@@ -932,7 +935,10 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         />
         <div className="chat-header">
           <span className="chat-header-title">
-            <span className="chat-header-dot" aria-hidden="true" />
+            <span className="chat-header-logo" aria-hidden="true">
+              <img src={clioBubbleImage} alt="" className="chat-header-logo-img" />
+              <span className="chat-header-dot" aria-hidden="true" />
+            </span>
             Clio
           </span>
           <div className="chat-header-actions">
@@ -1013,33 +1019,48 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           {metaError && <div className="chat-session-error">{metaError}</div>}
           {learnedMemories.length > 0 && (
             <div className="chat-learned-memories" aria-label="Things Clio learned">
-              {learnedMemories.map((mem) => (
-                <span
-                  key={mem.id}
-                  className={`chat-learned-pill chat-learned-pill--${mem.scope === 'firm' ? 'firm' : 'private'}`}
-                  title={mem.value}
-                >
-                  Clio learned: {mem.value.length > 80 ? `${mem.value.slice(0, 77)}…` : mem.value}
-                  <button
-                    type="button"
-                    className="chat-learned-undo"
-                    aria-label="Edit this memory"
-                    title="Edit"
-                    onClick={() => void submitMemoryEdit(mem.id, mem.value)}
-                  >
-                    edit
-                  </button>
-                  <button
-                    type="button"
-                    className="chat-learned-undo"
-                    aria-label="Undo (forget this)"
-                    title="Forget this"
-                    onClick={() => void forgetMemory(mem.id)}
-                  >
-                    undo
-                  </button>
+              <button
+                type="button"
+                className="chat-learned-header"
+                onClick={() => setLearnedExpanded((v) => !v)}
+                aria-expanded={learnedExpanded}
+              >
+                <span className="chat-learned-header-label">
+                  <span className="chat-learned-spark" aria-hidden="true">✦</span>
+                  Clio learned {learnedMemories.length} thing{learnedMemories.length === 1 ? '' : 's'}
                 </span>
-              ))}
+                <span className="chat-learned-chevron" aria-hidden="true">
+                  {learnedExpanded ? '▾' : '▸'}
+                </span>
+              </button>
+              {learnedExpanded &&
+                learnedMemories.map((mem) => (
+                  <span
+                    key={mem.id}
+                    className={`chat-learned-pill chat-learned-pill--${mem.scope === 'firm' ? 'firm' : 'private'}`}
+                    title={mem.value}
+                  >
+                    Clio learned: {mem.value.length > 80 ? `${mem.value.slice(0, 77)}…` : mem.value}
+                    <button
+                      type="button"
+                      className="chat-learned-undo"
+                      aria-label="Edit this memory"
+                      title="Edit"
+                      onClick={() => void submitMemoryEdit(mem.id, mem.value)}
+                    >
+                      edit
+                    </button>
+                    <button
+                      type="button"
+                      className="chat-learned-undo"
+                      aria-label="Undo (forget this)"
+                      title="Forget this"
+                      onClick={() => void forgetMemory(mem.id)}
+                    >
+                      undo
+                    </button>
+                  </span>
+                ))}
             </div>
           )}
           {orchestratorConflict && (

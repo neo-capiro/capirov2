@@ -47,56 +47,61 @@ export function ChatInput({
 
   return (
     <div className="chat-input-row">
-      <textarea
-        className={`chat-input-textarea${writeMode ? ' chat-input-textarea--write' : ''}${
-          researchMode ? ' chat-input-textarea--research' : ''
-        }`}
-        value={value}
-        placeholder={placeholder}
-        disabled={disabled}
-        rows={1}
-        onInput={(e) => {
-          const el = e.currentTarget;
-          el.style.height = 'auto';
-          el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
-        }}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={handleKeyDown}
-      />
-      {onToggleResearchMode ? (
-        <button
-          type="button"
-          className={`chat-mode-toggle chat-research-toggle${researchMode ? ' is-active' : ''}`}
-          onClick={onToggleResearchMode}
+      <div className="chat-composer">
+        <textarea
+          className={`chat-input-textarea${writeMode ? ' chat-input-textarea--write' : ''}${
+            researchMode ? ' chat-input-textarea--research' : ''
+          }`}
+          value={value}
+          placeholder={placeholder}
           disabled={disabled}
-          aria-label={researchMode ? 'Disable deep research' : 'Enable deep research'}
-          title={researchMode ? 'Deep research on' : 'Deep research'}
-        >
-          <ExperimentOutlined />
-          <span>Research</span>
-        </button>
-      ) : null}
-      {onToggleWriteMode ? (
-        <button
-          type="button"
-          className={`chat-mode-toggle chat-write-toggle${writeMode ? ' is-active' : ''}`}
-          onClick={onToggleWriteMode}
-          disabled={disabled}
-          aria-label={writeMode ? 'Disable write mode' : 'Enable write mode'}
-          title={writeMode ? 'Write mode on' : 'Write mode off'}
-        >
-          Write
-        </button>
-      ) : null}
-      <Button
-        type="primary"
-        shape="circle"
-        icon={<SendOutlined />}
-        disabled={disabled || !value.trim()}
-        onClick={submit}
-        className="chat-input-send"
-        aria-label="Send message"
-      />
+          rows={1}
+          onInput={(e) => {
+            const el = e.currentTarget;
+            el.style.height = 'auto';
+            el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
+          }}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+        <div className="chat-composer-actions">
+          {onToggleResearchMode ? (
+            <button
+              type="button"
+              className={`chat-mode-toggle chat-research-toggle${researchMode ? ' is-active' : ''}`}
+              onClick={onToggleResearchMode}
+              disabled={disabled}
+              aria-label={researchMode ? 'Disable deep research' : 'Enable deep research'}
+              title={researchMode ? 'Deep research on' : 'Deep research'}
+            >
+              <ExperimentOutlined />
+              <span>Research</span>
+            </button>
+          ) : null}
+          {onToggleWriteMode ? (
+            <button
+              type="button"
+              className={`chat-mode-toggle chat-write-toggle${writeMode ? ' is-active' : ''}`}
+              onClick={onToggleWriteMode}
+              disabled={disabled}
+              aria-label={writeMode ? 'Disable write mode' : 'Enable write mode'}
+              title={writeMode ? 'Write mode on' : 'Write mode off'}
+            >
+              Write
+            </button>
+          ) : null}
+          <span className="chat-composer-spacer" />
+          <Button
+            type="primary"
+            shape="circle"
+            icon={<SendOutlined />}
+            disabled={disabled || !value.trim()}
+            onClick={submit}
+            className="chat-input-send"
+            aria-label="Send message"
+          />
+        </div>
+      </div>
     </div>
   );
 }

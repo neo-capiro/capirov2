@@ -219,6 +219,33 @@
   box-shadow: 0 0 6px rgba(63, 180, 99, 0.8);
 }
 
+/* Top-left Clio logo mark (navy square) with the presence dot overlaid. */
+.chat-header-logo {
+  position: relative;
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border-radius: 7px;
+  overflow: hidden;
+  background: #101e61;
+}
+.chat-header-logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.chat-header-logo .chat-header-dot {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--bg-dark);
+  box-sizing: content-box;
+}
+
 .chat-header-actions {
   display: flex;
   gap: 2px;
@@ -707,43 +734,69 @@
 
 .chat-input-row {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
+}
+
+/* Composer: a single bordered surface with the textarea on top and a toolbar
+   (Research / Write / Send) below it — buttons live INSIDE the box, not beside. */
+.chat-composer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--r-xl);
+  background: var(--bg-surface);
+  padding: 8px 8px 8px 4px;
+  transition: border-color 0.12s, box-shadow 0.12s;
+}
+.chat-composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.chat-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+}
+.chat-composer-spacer {
+  flex: 1;
 }
 
 .chat-input-textarea {
   flex: 1;
   resize: none;
-  border: 1px solid var(--border-2);
-  border-radius: var(--r-xl);
-  padding: 8px 12px;
+  border: none;
+  border-radius: 0;
+  padding: 4px 8px 0;
   font-size: 13.5px;
   line-height: 1.5;
   font-family: inherit;
   color: var(--ink-1);
-  background: var(--bg-surface);
+  background: transparent;
   outline: none;
-  transition: border-color 0.12s, box-shadow 0.12s, background 0.12s;
+  transition: background 0.12s;
   min-height: 38px;
   max-height: 160px;
   overflow-y: auto;
 }
 
 .chat-input-textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow);
-  background: var(--bg-surface);
+  border: none;
+  box-shadow: none;
+  background: transparent;
 }
 
 .chat-input-textarea:disabled {
-  background: var(--bg-sunken);
+  background: transparent;
   color: var(--ink-4);
   cursor: not-allowed;
 }
 
 .chat-input-textarea--write {
-  border-color: var(--success);
-  box-shadow: 0 0 0 3px rgba(46, 107, 67, 0.15);
+  border: none;
+  box-shadow: none;
 }
 
 .chat-write-toggle {
@@ -809,8 +862,8 @@
 }
 .chat-input-textarea--research:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  border: none;
+  box-shadow: none;
 }
 
 /* Export actions under a finished research report message. */
@@ -973,31 +1026,32 @@
   height: 52px;
   border-radius: 50%;
   border: none;
-  /* Cobalt-gradient identity disc; the square wordmark sits centered inside
-     (contain, not cover) with no cropping/offset artifacts. */
-  background: linear-gradient(135deg, #4e78d8, #1a3f9f);
+  /* Background matches the logo's own navy (#101e61) so the square wordmark
+     image blends seamlessly into the disc — no lighter halo ring around it. */
+  background: #101e61;
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(26, 63, 159, 0.32);
+  box-shadow: 0 4px 16px rgba(16, 30, 97, 0.32);
   transition: opacity 200ms, transform 200ms, box-shadow 0.12s;
   font-size: 20px;
   overflow: hidden;
 }
 
 .chat-toggle-fab:hover {
-  background: linear-gradient(135deg, #4e78d8, #15347f);
-  box-shadow: 0 6px 22px rgba(26, 63, 159, 0.42);
+  background: #15246f;
+  box-shadow: 0 6px 22px rgba(16, 30, 97, 0.42);
   transform: translateY(-1px);
 }
 
 .chat-toggle-fab-logo {
   width: 100%;
   height: 100%;
-  /* contain (not cover) so the full square logo is visible, centered. */
-  object-fit: contain;
+  /* cover so the navy logo fills the disc edge-to-edge (it's a square on the
+     same navy, so cropping the margins just removes the halo gap). */
+  object-fit: cover;
   display: block;
 }
 
@@ -1623,6 +1677,39 @@
   flex-wrap: wrap;
   gap: 6px;
   margin: 6px 0;
+}
+/* Collapsible header: shows the count; click to reveal/hide the pills so the
+   panel doesn't dominate the drawer. */
+.chat-learned-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 1px solid var(--accent-soft);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.chat-learned-header:hover {
+  border-color: var(--accent);
+}
+.chat-learned-header-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chat-learned-spark {
+  color: var(--accent);
+}
+.chat-learned-chevron {
+  font-size: 10px;
+  opacity: 0.7;
 }
 .chat-learned-pill {
   display: inline-flex;
