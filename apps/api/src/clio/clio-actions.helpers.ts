@@ -20,6 +20,8 @@ const WRITE_TOOLS = new Set([
   'create_word',
   'create_excel',
   'create_powerpoint',
+  'schedule_task',
+  'cancel_scheduled_task',
 ]);
 
 export function classifyToolAction(tool: string): ToolActionKind {
@@ -43,6 +45,8 @@ const VERBS: Record<string, string> = {
   create_word: 'generated a Word document',
   create_excel: 'generated an Excel workbook',
   create_powerpoint: 'generated a PowerPoint deck',
+  schedule_task: 'scheduled a recurring task',
+  cancel_scheduled_task: 'canceled a scheduled task',
 };
 
 /** Human-readable past-tense description of an action, for surfacing/audit. */

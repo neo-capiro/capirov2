@@ -181,6 +181,7 @@ model Tenant {
   outreachAiTemplates          OutreachAiTemplate[]
   clioMemories                 ClioMemory[]
   clioProactiveAlerts          ClioProactiveAlert[]
+  clioScheduledTasks           ClioScheduledTask[]
   programElementWatches        ProgramElementWatch[]
   actionRecommendations        ActionRecommendation[]
 
@@ -1061,6 +1062,41 @@ model ClioMemory {
   @@index([tenantId, scope, ownerUserId, updatedAt(sort: Desc)], map: "clio_memory_scope_owner_updated_idx")
   @@index([tenantId, scope, updatedAt(sort: Desc)], map: "clio_memory_scope_updated_idx")
   @@map("clio_memory")
+}
+
+/// Clio self-scheduled recurring task (W3). A user asks Clio to run something on
+/// a cadence (e.g. a weekly research brief). The runner (scripts/run-clio-scheduled-tasks.ts)
+/// executes due rows through the Clio tool engine with the task's tool allow-list.
+/// Scope mirrors ClioMemory ('firm' shared | 'user_private' owner-only). Tenant-cascade.
+model ClioScheduledTask {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  ownerUserId   String   @map("owner_user_id") @db.Uuid
+  // 'firm' | 'user_private' (TEXT + app-level union, same rationale as ClioMemory).
+  scope         String   @default("user_private")
+  name          String   @db.VarChar(200)
+  // The instruction Clio runs each tick (a natural-language prompt).
+  prompt        String   @db.Text
+  // Cadence in minutes between runs (>=60 enforced at the tool layer).
+  intervalMinutes Int    @map("interval_minutes")
+  // JSON array of tool names this task is allowed to call. Defaults to read-only
+  // research tools; side-effecting tools require explicit opt-in + confirm.
+  toolAllowList Json     @default("[]") @map("tool_allow_list")
+  enabled       Boolean  @default(true)
+  lastRunAt     DateTime? @map("last_run_at") @db.Timestamptz(6)
+  nextRunAt     DateTime @map("next_run_at") @db.Timestamptz(6)
+  lastStatus    String?  @map("last_status") @db.VarChar(20)
+  runCount      Int      @default(0) @map("run_count")
+  createdBy     String   @default("clio") @map("created_by") @db.VarChar(40)
+  metadata      Json     @default("{}") @map("metadata_jsonb")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ownerUserId, createdAt(sort: Desc)], map: "clio_scheduled_task_tenant_owner_idx")
+  @@index([enabled, nextRunAt], map: "clio_scheduled_task_due_idx")
+  @@map("clio_scheduled_task")
 }
 
 model ClioProactiveAlert {

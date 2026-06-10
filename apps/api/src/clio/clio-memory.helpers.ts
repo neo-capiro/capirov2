@@ -67,3 +67,59 @@ export function buildSavedMemoryRecord(opts: {
     source: 'user_requested',
   };
 }
+
+/** Extract lowercase keyword tokens (>=5 chars) from a query for memory matching. */
+export function extractMemoryKeywords(text: string): string[] {
+  return Array.from(
+    new Set(
+      (text ?? '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((word) => word.length >= 5),
+    ),
+  ).slice(0, 20);
+}
+
+export interface RankableMemory {
+  key: string;
+  value: string;
+}
+
+/**
+ * Keyword-rank a set of memories against a query, used as the fallback when the
+ * semantic (embedding) search is unavailable or returns nothing — so a stored
+ * memory is NEVER silently invisible just because embeddings failed.
+ *
+ * Behaviour:
+ *  - Score each memory by how many distinct query keywords appear in its
+ *    `key + value`; higher overlap ranks first, ties broken by input order
+ *    (callers pass memories already sorted newest-first).
+ *  - If NOTHING matches (no keywords, or no overlap), fall back to the most
+ *    recent `limit` memories rather than returning an empty list. Recent firm
+ *    knowledge is better than nothing and matches user expectation that Clio
+ *    "remembers".
+ */
+export function rankMemoriesByKeyword<T extends RankableMemory>(
+  memories: T[],
+  query: string,
+  limit = 8,
+): T[] {
+  const words = extractMemoryKeywords(query);
+  if (words.length === 0) return memories.slice(0, limit);
+
+  const scored = memories
+    .map((m, index) => {
+      const haystack = `${m.key} ${m.value}`.toLowerCase();
+      let score = 0;
+      for (const w of words) if (haystack.includes(w)) score++;
+      return { m, score, index };
+    })
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((s) => s.m);
+
+  if (scored.length > 0) return scored.slice(0, limit);
+  // Nothing matched — never go fully blind; return the most recent memories.
+  return memories.slice(0, limit);
+}

@@ -1,8 +1,45 @@
 import {
   buildSavedMemoryRecord,
+  extractMemoryKeywords,
   memoryKeySlug,
+  rankMemoriesByKeyword,
   userScopedMemoryKey,
 } from './clio-memory.helpers.js';
+
+describe('rankMemoriesByKeyword (W2 memory fallback)', () => {
+  const mems = [
+    { key: 'nickname', value: 'The user prefers to be called Ninja' },
+    { key: 'billing-cadence', value: 'Invoices monthly on the first' },
+    { key: 'reporting-style', value: 'Wants brutally honest analysis' },
+  ];
+
+  it('ranks memories by keyword overlap with the query', () => {
+    const out = rankMemoriesByKeyword(mems, 'what is the billing invoice cadence', 8);
+    expect(out[0]!.key).toBe('billing-cadence');
+  });
+
+  it('never returns empty when memories exist but nothing matches (recency fallback)', () => {
+    const out = rankMemoriesByKeyword(mems, 'zzzzz qqqqq', 8);
+    expect(out.length).toBeGreaterThan(0);
+    // Falls back to the input order (callers pass newest-first).
+    expect(out[0]!.key).toBe('nickname');
+  });
+
+  it('returns most-recent when the query has no usable keywords', () => {
+    const out = rankMemoriesByKeyword(mems, 'a an of', 2);
+    expect(out).toHaveLength(2);
+    expect(out[0]!.key).toBe('nickname');
+  });
+
+  it('respects the limit', () => {
+    const out = rankMemoriesByKeyword(mems, 'user analysis invoices', 1);
+    expect(out).toHaveLength(1);
+  });
+
+  it('extractMemoryKeywords keeps tokens >=5 chars and dedupes', () => {
+    expect(extractMemoryKeywords('Budget budget tiny FY2027 the')).toEqual(['budget', 'fy2027']);
+  });
+});
 
 describe('memoryKeySlug', () => {
   it('slugifies and bounds a topic', () => {

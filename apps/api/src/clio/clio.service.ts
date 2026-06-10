@@ -19,6 +19,7 @@ import {
   emptyUsage,
   type SystemTextBlock,
 } from './clio-prompt.helpers.js';
+import { rankMemoriesByKeyword } from './clio-memory.helpers.js';
 import { runToolsConcurrently } from './clio-tool-exec.helpers.js';
 import {
   extractCitationsFromToolResult,
@@ -1484,13 +1485,9 @@ export class ClioService {
           select: { key: true, value: true },
         }),
       );
-      const words = extractKeywords(query);
-      return memories
-        .filter((m) => {
-          const combined = `${m.key} ${m.value}`.toLowerCase();
-          return words.some((w) => combined.includes(w));
-        })
-        .slice(0, 8);
+      // Keyword-rank with a recency fallback so a stored memory is never
+      // silently invisible when embeddings are unavailable (W2 M1).
+      return rankMemoriesByKeyword(memories, query, 8).map(({ key, value }) => ({ key, value }));
     } catch {
       return [];
     }
@@ -2084,18 +2081,6 @@ function truncateText(text: string, maxChars: number): string {
   if (cut <= 0) cut = maxChars;
   const omitted = text.length - cut;
   return `${text.slice(0, cut)}\n... [truncated ${omitted} chars at a safe boundary]`;
-}
-
-function extractKeywords(text: string): string[] {
-  return Array.from(
-    new Set(
-      text
-        .toLowerCase()
-        .replace(/[^a-z0-9\s]/g, ' ')
-        .split(/\s+/)
-        .filter((word) => word.length >= 5),
-    ),
-  ).slice(0, 20);
 }
 
 /**

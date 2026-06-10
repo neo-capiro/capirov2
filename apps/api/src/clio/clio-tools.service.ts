@@ -25,6 +25,10 @@ import {
   slugifyDocName,
   type DocFormat,
 } from './clio-docgen.helpers.js';
+import {
+  computeNextRunAt,
+  validateScheduleRequest,
+} from './clio-schedule.helpers.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { buildSavedMemoryRecord } from './clio-memory.helpers.js';
 
@@ -167,6 +171,18 @@ const TOOL_DEFINITIONS = [
     name: 'create_powerpoint',
     description: 'Generate a downloadable Microsoft PowerPoint (.pptx) deck from a structured spec (title slide plus content slides with bullets and an optional table per slide). Use when the user asks for a slide deck or presentation.',
   },
+  {
+    name: 'schedule_task',
+    description: 'Schedule a recurring task for Clio to run automatically on a cadence (e.g. a weekly research brief). Requires a name, an instruction prompt, and intervalMinutes (>=60). Scheduled runs are READ-ONLY research only — they cannot send email or write data. Use when the user asks Clio to do something "every week / daily / on a schedule".',
+  },
+  {
+    name: 'list_scheduled_tasks',
+    description: 'List the caller\'s recurring scheduled Clio tasks (name, cadence, next run, enabled state).',
+  },
+  {
+    name: 'cancel_scheduled_task',
+    description: 'Cancel (disable) a recurring scheduled Clio task by its id.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -186,6 +202,8 @@ const SIDE_EFFECTING_TOOLS: ReadonlySet<string> = new Set<string>([
   'create_word',
   'create_excel',
   'create_powerpoint',
+  'schedule_task',
+  'cancel_scheduled_task',
 ]);
 
 interface ToolArtifactInput {
@@ -452,6 +470,18 @@ export class ClioToolsService {
         },
         clientId: str('Optional client UUID to associate'),
       }, ['title', 'slides']),
+      schedule_task: obj({
+        name: str('Short name for the recurring task'),
+        prompt: str('The instruction Clio runs each time the task fires'),
+        intervalMinutes: int('Minutes between runs (minimum 60)'),
+        toolAllowList: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional read-only research tools the task may call; defaults to all read-only tools. Side-effecting tools are rejected.',
+        },
+      }, ['name', 'prompt', 'intervalMinutes']),
+      list_scheduled_tasks: obj({}),
+      cancel_scheduled_task: obj({ taskId: str('Scheduled task UUID') }, ['taskId']),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -543,6 +573,12 @@ export class ClioToolsService {
         return this.createDocument(ctx, input, 'xlsx');
       case 'create_powerpoint':
         return this.createDocument(ctx, input, 'pptx');
+      case 'schedule_task':
+        return this.scheduleTask(ctx, input);
+      case 'list_scheduled_tasks':
+        return this.listScheduledTasks(ctx);
+      case 'cancel_scheduled_task':
+        return this.cancelScheduledTask(ctx, input);
       default:
         assertNever(name);
     }
@@ -2109,6 +2145,85 @@ export class ClioToolsService {
       filename,
       mimeType: mimeForFormat(format),
     };
+  }
+
+  // ── Scheduled tasks (W3) ────────────────────
+
+  private async scheduleTask(ctx: TenantContext, input: Record<string, unknown>) {
+    const existingTaskCount = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioScheduledTask.count({ where: { tenantId: ctx.tenantId, ownerUserId: ctx.userId } }),
+    );
+    const validation = validateScheduleRequest({
+      name: input.name,
+      prompt: input.prompt,
+      intervalMinutes: input.intervalMinutes,
+      toolAllowList: input.toolAllowList,
+      existingTaskCount,
+    });
+    if (!validation.ok) {
+      return { tool: 'schedule_task', scheduled: false, error: validation.error };
+    }
+    const intervalMinutes = validation.intervalMinutes!;
+    const allowList = validation.allowList!;
+    const nextRunAt = computeNextRunAt(new Date(), intervalMinutes);
+    const task = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioScheduledTask.create({
+        data: {
+          tenantId: ctx.tenantId,
+          ownerUserId: ctx.userId,
+          scope: 'user_private',
+          name: String(input.name).slice(0, 200),
+          prompt: String(input.prompt).slice(0, 8000),
+          intervalMinutes,
+          toolAllowList: allowList,
+          nextRunAt,
+          createdBy: 'clio',
+          metadata: { createdVia: 'schedule_task_tool' },
+        },
+        select: { id: true, name: true, intervalMinutes: true, nextRunAt: true },
+      }),
+    );
+    return {
+      tool: 'schedule_task',
+      scheduled: true,
+      task,
+      note: 'Scheduled as a READ-ONLY recurring research task (no email/writes). It will run automatically; use list_scheduled_tasks to review or cancel_scheduled_task to stop it.',
+    };
+  }
+
+  private async listScheduledTasks(ctx: TenantContext) {
+    const tasks = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioScheduledTask.findMany({
+        where: { tenantId: ctx.tenantId, ownerUserId: ctx.userId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          name: true,
+          intervalMinutes: true,
+          enabled: true,
+          lastRunAt: true,
+          nextRunAt: true,
+          lastStatus: true,
+          runCount: true,
+        },
+      }),
+    );
+    return { tool: 'list_scheduled_tasks', count: tasks.length, tasks };
+  }
+
+  private async cancelScheduledTask(ctx: TenantContext, input: Record<string, unknown>) {
+    const taskId = requiredString(input, 'taskId', 80);
+    const result = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioScheduledTask.updateMany({
+        where: { id: taskId, tenantId: ctx.tenantId, ownerUserId: ctx.userId },
+        data: { enabled: false, lastStatus: 'canceled' },
+      }),
+    );
+    if (result.count === 0) {
+      return { tool: 'cancel_scheduled_task', canceled: false, error: 'Task not found.' };
+    }
+    return { tool: 'cancel_scheduled_task', canceled: true, taskId };
   }
 
   /** Regenerate a document binary from a stored spec (for the download route). */
