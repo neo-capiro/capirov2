@@ -14,6 +14,9 @@ import { WorkflowsService } from '../workflows/workflows.service.js';
 import { StrategiesService } from '../strategies/strategies.service.js';
 import { ActionRecommendationReadService } from '../intelligence/actions/action-recommendation-read.service.js';
 import type { ActionStatus } from '../intelligence/actions/action-recommendation.types.js';
+import { ClientCapabilitiesService } from '../clients/client-capabilities.service.js';
+import { ClientPeopleService } from '../clients/client-people.service.js';
+import { ClientFacilitiesService } from '../clients/client-facilities.service.js';
 import { MicrosoftGraphSyncService } from '../engagement/microsoft/microsoft-graph-sync.service.js';
 import { LdaIntelService } from '../lda-intel/lda-intel.service.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
@@ -41,7 +44,7 @@ const PRODUCT_NAME = 'Clio';
 const TOOL_DEFINITIONS = [
   {
     name: 'get_client_context',
-    description: 'Load authorized Capiro client context, recent meetings, threads, contacts, and tasks.',
+    description: 'Load authorized Capiro client context: recent meetings, threads, contacts, and tasks, plus the client profile (capabilities, key people, facilities, submission history).',
   },
   {
     name: 'search_research_sources',
@@ -266,6 +269,9 @@ export class ClioToolsService {
     private readonly workflows: WorkflowsService,
     private readonly strategies: StrategiesService,
     private readonly actionRecommendations: ActionRecommendationReadService,
+    private readonly clientCapabilities: ClientCapabilitiesService,
+    private readonly clientPeople: ClientPeopleService,
+    private readonly clientFacilities: ClientFacilitiesService,
   ) {}
 
   manifest() {
@@ -735,11 +741,63 @@ export class ClioToolsService {
   private async getClientContext(ctx: TenantContext, input: Record<string, unknown>) {
     const clientId = requiredString(input, 'clientId', 80);
     await this.ensureClientVisible(ctx, clientId);
-    const context = await this.engagement.clientContext(ctx, clientId);
+    // Profile depth (capabilities/people/facilities/submission history) is
+    // additive and best-effort — a failure there never blocks the engagement
+    // context that existing consumers (briefs, memos, research) depend on.
+    const [context, capabilities, people, facilities, submissionHistory] = await Promise.all([
+      this.engagement.clientContext(ctx, clientId),
+      this.clientCapabilities.listCapabilities(ctx, clientId).catch(() => []),
+      this.clientPeople.listPeople(ctx, clientId).catch(() => []),
+      this.clientFacilities.listFacilities(ctx, clientId).catch(() => []),
+      this.clientCapabilities.listClientHistory(ctx, clientId).catch(() => []),
+    ]);
     return {
       tool: 'get_client_context',
       generatedAt: new Date().toISOString(),
       context,
+      profile: {
+        capabilities: capabilities.slice(0, 25).map((cap) => ({
+          id: cap.id,
+          name: cap.name,
+          type: cap.type,
+          sector: cap.sector,
+          description: summarizeText(cap.description, 300),
+          trl: cap.trl,
+          peNumber: cap.peNumber,
+          peNumbers: cap.peNumbers,
+          appropriationAccount: cap.appropriationAccount,
+          serviceBranch: cap.serviceBranch,
+          targetSubcommittee: cap.targetSubcommittee,
+          fundingAsk: cap.fundingAsk,
+          fundingAskLabel: cap.fundingAskLabel,
+          districtNexus: summarizeText(cap.districtNexus, 200),
+        })),
+        people: people.slice(0, 25).map((person) => ({
+          id: person.id,
+          name: person.name,
+          title: person.title,
+          email: person.email,
+          phone: person.phone,
+          role: person.role,
+          lastContact: person.lastContact,
+        })),
+        facilities: facilities.slice(0, 25).map((facility) => ({
+          id: facility.id,
+          name: facility.name,
+          city: facility.city,
+          state: facility.state,
+          congressionalDistrict: facility.congressionalDistrict,
+          employeeCount: facility.employeeCount,
+        })),
+        submissionHistory: submissionHistory.slice(0, 25).map((entry) => ({
+          id: entry.id,
+          capabilityId: entry.capabilityId,
+          fiscalYear: entry.fiscalYear,
+          title: entry.title,
+          outcomeType: entry.outcomeType,
+          outcome: summarizeText(entry.outcome, 240),
+        })),
+      },
     };
   }
 

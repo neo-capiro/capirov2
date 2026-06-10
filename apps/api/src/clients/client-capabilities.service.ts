@@ -222,6 +222,18 @@ export class ClientCapabilitiesService {
     });
   }
 
+  /** All submission history rows for a client across capabilities (read-only, for Clio context). */
+  async listClientHistory(ctx: TenantContext, clientId: string) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await this.assertClient(ctx.tenantId, clientId, tx as any);
+      return tx.clientSubmissionHistory.findMany({
+        where: { tenantId: ctx.tenantId, clientId },
+        orderBy: { fiscalYear: 'desc' },
+        take: 50,
+      });
+    });
+  }
+
   async listHistory(ctx: TenantContext, clientId: string, capabilityId: string) {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const cap = await tx.clientCapability.findFirst({

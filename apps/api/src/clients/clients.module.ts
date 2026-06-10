@@ -24,5 +24,7 @@ import { IntelligenceModule } from '../intelligence/intelligence.module.js';
     ClientPeopleService,
     ClientFacilitiesService,
   ],
+  // Exported so Clio's get_client_context tool can read full client profiles.
+  exports: [ClientCapabilitiesService, ClientPeopleService, ClientFacilitiesService],
 })
 export class ClientsModule {}
