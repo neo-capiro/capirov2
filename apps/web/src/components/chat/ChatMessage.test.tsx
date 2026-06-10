@@ -57,6 +57,33 @@ describe('ChatMessage citations', () => {
   });
 });
 
+describe('ChatMessage markdown tables (GFM)', () => {
+  test('renders a pipe table as a real <table>, not raw pipes', () => {
+    const md = ['| Program | FY2027 |', '| --- | ---: |', '| Aircraft | 291.4 |'].join('\n');
+    const { container } = render(<ChatMessage role="assistant" content={md} />);
+    const table = container.querySelector('table.chat-md-table');
+    expect(table).toBeTruthy();
+    expect(screen.getByText('Program')).toBeTruthy();
+    expect(screen.getByText('Aircraft')).toBeTruthy();
+    expect(screen.getByText('291.4')).toBeTruthy();
+    // raw markdown pipe row must not survive as literal text
+    expect(container.textContent).not.toContain('| Aircraft |');
+  });
+
+  test('renders citation chips inside table cells', () => {
+    const md = ['| Item | Source |', '| --- | --- |', '| Defense Act | see [1] |'].join('\n');
+    render(<ChatMessage role="assistant" content={md} citations={citations} />);
+    expect(screen.getByRole('button', { name: '[1]' })).toBeTruthy();
+  });
+
+  test('sanitizes injected html in markdown (no script execution)', () => {
+    const { container } = render(
+      <ChatMessage role="assistant" content={'Hello <script>alert(1)</script> world'} />,
+    );
+    expect(container.querySelector('script')).toBeNull();
+  });
+});
+
 const lowConfidenceVerification: ClioVerification = {
   claims: [
     { claim: 'HR1 cleared committee', supported: true, sourceIds: [1] },

@@ -227,6 +227,40 @@ describe('clio-research helpers', () => {
       const html = markdownToHtml('[x](javascript:alert(1))');
       expect(html).not.toContain('href="javascript');
     });
+    it('renders a GFM pipe table as a real <table>', () => {
+      const md = [
+        '| Program | FY2027 |',
+        '| --- | ---: |',
+        '| Aircraft | 291.4 |',
+        '| Missiles | 88.0 |',
+      ].join('\n');
+      const html = markdownToHtml(md);
+      expect(html).toContain('<table>');
+      expect(html).toContain('<thead>');
+      expect(html).toContain('<th>Program</th>');
+      expect(html).toContain('<th>FY2027</th>');
+      expect(html).toContain('<td>Aircraft</td>');
+      expect(html).toContain('<td>291.4</td>');
+      expect(html).toContain('<td>Missiles</td>');
+      // raw pipes must not leak into the output
+      expect(html).not.toContain('| Aircraft |');
+    });
+    it('keeps surrounding prose when a table is embedded', () => {
+      const md = ['Intro line.', '', '| A | B |', '| - | - |', '| 1 | 2 |', '', 'Outro line.'].join(
+        '\n',
+      );
+      const html = markdownToHtml(md);
+      expect(html).toContain('<p>Intro line.</p>');
+      expect(html).toContain('<table>');
+      expect(html).toContain('<td>1</td>');
+      expect(html).toContain('<p>Outro line.</p>');
+    });
+    it('escapes html inside table cells (no injection via tables)', () => {
+      const md = ['| Col |', '| --- |', '| <script>x</script> |'].join('\n');
+      const html = markdownToHtml(md);
+      expect(html).not.toContain('<script>');
+      expect(html).toContain('&lt;script&gt;');
+    });
   });
 
   describe('renderReportToWordHtml', () => {

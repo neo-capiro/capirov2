@@ -17,6 +17,9 @@ const WRITE_TOOLS = new Set([
   'save_memory',
   'draft_policy_memo',
   'create_meeting_brief',
+  'create_word',
+  'create_excel',
+  'create_powerpoint',
 ]);
 
 export function classifyToolAction(tool: string): ToolActionKind {
@@ -37,6 +40,9 @@ const VERBS: Record<string, string> = {
   save_memory: 'updated memory',
   draft_policy_memo: 'drafted a policy memo',
   create_meeting_brief: 'created a meeting brief',
+  create_word: 'generated a Word document',
+  create_excel: 'generated an Excel workbook',
+  create_powerpoint: 'generated a PowerPoint deck',
 };
 
 /** Human-readable past-tense description of an action, for surfacing/audit. */

@@ -16,6 +16,15 @@ import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
 import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
 import { ProgramElementReadService } from '../program-element/program-element-read.service.js';
 import { AcquisitionPersonnelReadService } from '../acquisition-personnel/acquisition-personnel-read.service.js';
+import { ClioDocgenService } from './clio-docgen.service.js';
+import {
+  mimeForFormat,
+  normalizeExcelSpec,
+  normalizePptxSpec,
+  normalizeWordSpec,
+  slugifyDocName,
+  type DocFormat,
+} from './clio-docgen.helpers.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { buildSavedMemoryRecord } from './clio-memory.helpers.js';
 
@@ -146,6 +155,18 @@ const TOOL_DEFINITIONS = [
     name: 'get_acquisition_person',
     description: 'Get a single DoD acquisition person\'s full detail by id: name, service, organization, title, role, program of record, linked Program Elements, public profile, and the source citations behind each fact.',
   },
+  {
+    name: 'create_word',
+    description: 'Generate a downloadable Microsoft Word (.docx) document from a structured spec (title, optional subtitle, and sections with paragraphs, bullets, and tables). Use when the user asks for a Word doc, memo, report, or briefing as a file.',
+  },
+  {
+    name: 'create_excel',
+    description: 'Generate a downloadable Microsoft Excel (.xlsx) workbook from a structured spec (one or more sheets, each with headers and rows). Use when the user asks for a spreadsheet, data export, or table as a file. Numeric-looking cells are stored as numbers.',
+  },
+  {
+    name: 'create_powerpoint',
+    description: 'Generate a downloadable Microsoft PowerPoint (.pptx) deck from a structured spec (title slide plus content slides with bullets and an optional table per slide). Use when the user asks for a slide deck or presentation.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -162,6 +183,9 @@ const SIDE_EFFECTING_TOOLS: ReadonlySet<string> = new Set<string>([
   'send_email',
   'reply_email',
   'save_memory',
+  'create_word',
+  'create_excel',
+  'create_powerpoint',
 ]);
 
 interface ToolArtifactInput {
@@ -200,6 +224,7 @@ export class ClioToolsService {
     private readonly federalSpending: FederalSpendingService,
     private readonly programElement: ProgramElementReadService,
     private readonly acquisitionPersonnel: AcquisitionPersonnelReadService,
+    private readonly docgen: ClioDocgenService,
   ) {}
 
   manifest() {
@@ -375,6 +400,58 @@ export class ClioToolsService {
         page: int('Page number'),
       }),
       get_acquisition_person: obj({ id: str('Acquisition personnel UUID') }, ['id']),
+      create_word: obj({
+        title: str('Document title'),
+        subtitle: str('Optional subtitle'),
+        sections: {
+          type: 'array',
+          description: 'Document sections, each with a heading and content',
+          items: obj({
+            heading: str('Section heading'),
+            paragraphs: { type: 'array', items: { type: 'string' }, description: 'Prose paragraphs' },
+            bullets: { type: 'array', items: { type: 'string' }, description: 'Bulleted list items' },
+            tables: {
+              type: 'array',
+              description: 'Tables in this section',
+              items: obj({
+                headers: { type: 'array', items: { type: 'string' } },
+                rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+              }),
+            },
+          }),
+        },
+        clientId: str('Optional client UUID to associate'),
+      }, ['title', 'sections']),
+      create_excel: obj({
+        title: str('Workbook title'),
+        sheets: {
+          type: 'array',
+          description: 'Worksheets, each with headers and rows',
+          items: obj({
+            name: str('Sheet name (<=31 chars)'),
+            headers: { type: 'array', items: { type: 'string' } },
+            rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+          }),
+        },
+        clientId: str('Optional client UUID to associate'),
+      }, ['title', 'sheets']),
+      create_powerpoint: obj({
+        title: str('Deck title'),
+        subtitle: str('Optional subtitle for the title slide'),
+        slides: {
+          type: 'array',
+          description: 'Content slides',
+          items: obj({
+            title: str('Slide title'),
+            bullets: { type: 'array', items: { type: 'string' } },
+            table: obj({
+              headers: { type: 'array', items: { type: 'string' } },
+              rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+            }),
+          }),
+        },
+        clientId: str('Optional client UUID to associate'),
+      }, ['title', 'slides']),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -460,6 +537,12 @@ export class ClioToolsService {
         return this.searchAcquisitionPersonnel(ctx, input);
       case 'get_acquisition_person':
         return this.getAcquisitionPerson(ctx, input);
+      case 'create_word':
+        return this.createDocument(ctx, input, 'docx');
+      case 'create_excel':
+        return this.createDocument(ctx, input, 'xlsx');
+      case 'create_powerpoint':
+        return this.createDocument(ctx, input, 'pptx');
       default:
         assertNever(name);
     }
@@ -1923,6 +2006,118 @@ export class ClioToolsService {
   }
 
   // ── Artifact persistence ────────────────────────────────────────────
+
+  // ── Document generation (Word / Excel / PowerPoint) ──
+
+  /**
+   * Generate a downloadable Office document. The validated spec is normalized,
+   * then a binary is produced ONCE to prove it builds; the spec (JSON) is stored
+   * on the artifact so the download endpoint regenerates the binary statelessly
+   * (no blob storage needed), mirroring the research-export pattern.
+   */
+  private async createDocument(
+    ctx: TenantContext,
+    input: Record<string, unknown>,
+    format: DocFormat,
+  ) {
+    const clientId = optionalString(input, 'clientId', 80) ?? null;
+    const conversationId = optionalString(input, 'conversationId', 80);
+    if (clientId) await this.ensureClientVisible(ctx, clientId);
+
+    let title: string;
+    let normalized: unknown;
+    if (format === 'docx') {
+      const spec = normalizeWordSpec(input);
+      title = spec.title;
+      normalized = spec;
+      await this.docgen.buildDocx(spec);
+    } else if (format === 'xlsx') {
+      const spec = normalizeExcelSpec(input);
+      title = spec.title;
+      normalized = spec;
+      await this.docgen.buildXlsx(spec);
+    } else {
+      const spec = normalizePptxSpec(input);
+      title = spec.title;
+      normalized = spec;
+      await this.docgen.buildPptx(spec);
+    }
+
+    const toolName =
+      format === 'docx' ? 'create_word' : format === 'xlsx' ? 'create_excel' : 'create_powerpoint';
+    const kind =
+      format === 'docx' ? 'word_document' : format === 'xlsx' ? 'excel_workbook' : 'powerpoint_deck';
+    const filename = `${slugifyDocName(title)}.${format}`;
+    const artifact = await this.persistArtifact(ctx, {
+      conversationId,
+      clientId,
+      title,
+      kind,
+      bodyText: JSON.stringify(normalized),
+      metadata: {
+        source: 'clio_tool',
+        tool: toolName,
+        docFormat: format,
+        mimeType: mimeForFormat(format),
+        filename,
+        generatedAt: new Date().toISOString(),
+      },
+    });
+
+    const artifactId =
+      artifact && typeof artifact === 'object' && 'id' in artifact
+        ? (artifact as { id: string }).id
+        : null;
+
+    return {
+      tool: toolName,
+      format,
+      title,
+      filename,
+      mimeType: mimeForFormat(format),
+      artifact,
+      downloadUrl: artifactId ? `/api/clio/artifacts/${artifactId}/download` : null,
+      note: artifactId
+        ? 'Document generated and available for download.'
+        : 'Document generated but not persisted (no conversation context); ask the user to retry within a chat.',
+    };
+  }
+
+  /**
+   * Load a generated document artifact (tenant + user scoped) and return the
+   * stored spec JSON + format + filename so the controller can regenerate and
+   * stream the binary. Returns null when not found / not a document artifact.
+   */
+  async getDocumentArtifact(
+    ctx: TenantContext,
+    artifactId: string,
+  ): Promise<{ format: DocFormat; specJson: string; filename: string; mimeType: string } | null> {
+    const artifact = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioArtifact.findFirst({
+        where: { id: artifactId, tenantId: ctx.tenantId, userId: ctx.userId },
+        select: { bodyText: true, metadata: true },
+      }),
+    );
+    if (!artifact || !artifact.bodyText) return null;
+    const meta = (artifact.metadata ?? {}) as Record<string, unknown>;
+    const format = meta.docFormat;
+    if (format !== 'docx' && format !== 'xlsx' && format !== 'pptx') return null;
+    const filename = typeof meta.filename === 'string' ? meta.filename : `document.${format}`;
+    return {
+      format,
+      specJson: artifact.bodyText,
+      filename,
+      mimeType: mimeForFormat(format),
+    };
+  }
+
+  /** Regenerate a document binary from a stored spec (for the download route). */
+  async renderStoredDocument(format: DocFormat, specJson: string): Promise<Buffer> {
+    const parsed: unknown = JSON.parse(specJson);
+    if (format === 'docx') return this.docgen.buildDocx(normalizeWordSpec(parsed));
+    if (format === 'xlsx') return this.docgen.buildXlsx(normalizeExcelSpec(parsed));
+    return this.docgen.buildPptx(normalizePptxSpec(parsed));
+  }
 
   private async persistArtifact(ctx: TenantContext, input: ToolArtifactInput) {
     if (!input.conversationId) {

@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  NotFoundException,
   Query,
   Req,
   Res,
@@ -335,6 +336,24 @@ export class ClioController {
     const html = renderReportToBrowserHtml({ title, markdown });
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.send(html);
+  }
+
+  // Download a Clio-generated Office document (.docx/.xlsx/.pptx). The binary is
+  // regenerated on demand from the spec stored on the artifact — no blob storage.
+  @Get('artifacts/:id/download')
+  async downloadArtifact(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const doc = await this.tools.getDocumentArtifact(ctx, id);
+    if (!doc) {
+      throw new NotFoundException('Document artifact not found');
+    }
+    const buffer = await this.tools.renderStoredDocument(doc.format, doc.specJson);
+    res.setHeader('Content-Type', doc.mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${doc.filename}"`);
+    res.send(buffer);
   }
 
   @Post('research/:id/plan/stream')

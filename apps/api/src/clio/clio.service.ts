@@ -15,6 +15,7 @@ import {
   applyRoundUsageEvent,
   applyToolCacheControl,
   buildClioSystemBlocks,
+  clioCapabilityBlock,
   emptyUsage,
   type SystemTextBlock,
 } from './clio-prompt.helpers.js';
@@ -1212,6 +1213,8 @@ export class ClioService {
     const base = [
       'You are Clio, an elite AI chief of staff designed exclusively for government affairs professionals.',
       'Your purpose is to maximize a lobbyist\'s efficiency, preparation, and strategic leverage.',
+      '',
+      clioCapabilityBlock(),
       '',
       'Tone and style requirements:',
       '- Ultra-concise, analytical, objective, authoritative.',

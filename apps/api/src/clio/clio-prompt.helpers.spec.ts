@@ -3,9 +3,30 @@ import {
   applyRoundUsageEvent,
   applyToolCacheControl,
   buildClioSystemBlocks,
+  clioCapabilityBlock,
+  CLIO_CAPABILITY_LINES,
   emptyUsage,
   readUsageFromStreamEvent,
 } from './clio-prompt.helpers.js';
+
+describe('clioCapabilityBlock (self-description correctness)', () => {
+  it('states persistent memory, document generation, and table formatting', () => {
+    const block = clioCapabilityBlock().toLowerCase();
+    expect(block).toContain('persistent memory');
+    expect(block).toContain('.docx');
+    expect(block).toContain('.xlsx');
+    expect(block).toContain('.pptx');
+    expect(block).toContain('table');
+  });
+  it('forbids the "just a chatbot / no memory" framing and warns against overstating', () => {
+    const block = clioCapabilityBlock();
+    expect(block).toContain('never claim you are "just a chatbot"');
+    expect(block.toLowerCase()).toContain('only claim a capability you actually have');
+  });
+  it('joins the capability lines verbatim', () => {
+    expect(clioCapabilityBlock()).toBe(CLIO_CAPABILITY_LINES.join('\n'));
+  });
+});
 
 describe('buildClioSystemBlocks', () => {
   it('puts a single cache breakpoint on the static base block when caching is enabled', () => {

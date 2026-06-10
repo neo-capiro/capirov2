@@ -1,3 +1,35 @@
+/* ── Clio chat design tokens (mirror apps/web/src/main.tsx brand palette) ── */
+:root {
+  --clio-navy: #1c2e4a;
+  --clio-navy-deep: #111f33;
+  --clio-surface: #eef1f7;
+  --clio-bg: #f4f6f8;
+  --clio-border: #d7dfea;
+  --clio-muted: #6b7280;
+  --clio-text: #111827;
+  --clio-radius: 10px;
+  --clio-font: 'Public Sans', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+}
+
+/* Citation chips rendered by ChatMessage (react-markdown injects these). */
+.chat-msg-markdown .chat-citation {
+  color: var(--clio-navy);
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0 1px;
+  font: inherit;
+  font-size: 0.85em;
+  font-weight: 600;
+  vertical-align: super;
+}
+.chat-msg-markdown .chat-citation:hover { text-decoration: underline; }
+.chat-msg-markdown .chat-citation:focus-visible {
+  outline: 2px solid var(--clio-navy);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+
 /* ── Chat Drawer ─────────────────────────────────────────────── */
 
 .chat-drawer {
@@ -228,7 +260,7 @@
 .chat-source-pill {
   border: 1px solid #dbeafe;
   background: #eff6ff;
-  color: #1d4ed8;
+  color: var(--clio-navy);
   border-radius: 999px;
   padding: 2px 8px;
   font-size: 11px;
@@ -244,7 +276,7 @@
 .chat-source-pill--medium {
   border-color: #bfdbfe;
   background: #eff6ff;
-  color: #1d4ed8;
+  color: var(--clio-navy);
 }
 
 .chat-source-pill--low {
@@ -426,7 +458,7 @@
 }
 
 .chat-msg--user .chat-msg-bubble {
-  background: #1677ff;
+  background: var(--clio-navy);
   color: #fff;
   border-bottom-right-radius: 4px;
 }
@@ -494,9 +526,11 @@
 /* ── Markdown styles (inside assistant bubbles) ───────────────── */
 
 .chat-msg-markdown {
-  font-size: 13.5px;
-  line-height: 1.62;
+  font-size: 14px;
+  line-height: 1.65;
   color: inherit;
+  /* Calm, Claude-like reading column on wide drawers. */
+  max-width: 720px;
   /* Defensive: collapse any accidental leading/trailing whitespace nodes. */
   word-break: break-word;
 }
@@ -558,7 +592,7 @@
 }
 
 .chat-msg-markdown a {
-  color: #1d4ed8;
+  color: var(--clio-navy);
   text-decoration: none;
 }
 .chat-msg-markdown a:hover {
@@ -607,7 +641,7 @@
 }
 
 .chat-input-textarea:focus {
-  border-color: #1677ff;
+  border-color: var(--clio-navy);
   box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.12);
   background: #fff;
 }
@@ -1557,3 +1591,53 @@
 .chat-tp-footnote { margin: 10px 0 0; font-size: 10px; color: #9ca3af; line-height: 1.4; }
 
 
+
+/* GFM tables (react-markdown + remark-gfm) */
+.chat-msg-markdown .chat-md-table-wrap {
+  overflow-x: auto;
+  margin: 10px 0;
+  border-radius: 8px;
+}
+.chat-msg-markdown .chat-md-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.chat-msg-markdown .chat-md-table th,
+.chat-msg-markdown .chat-md-table td {
+  border: 1px solid #d7dfea;
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.chat-msg-markdown .chat-md-table th {
+  background: #eef1f7;
+  color: #1c2e4a;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.chat-msg-markdown .chat-md-table tbody tr:nth-child(even) {
+  background: #fafbfc;
+}
+
+/* Heading levels + blockquote for the new react-markdown renderer */
+.chat-msg-markdown .chat-md-h1 { font-size: 16px; margin-top: 4px; }
+.chat-msg-markdown .chat-md-h2 { font-size: 14.5px; }
+.chat-msg-markdown .chat-md-h3 { font-size: 13.5px; }
+.chat-msg-markdown .chat-md-h4 { font-size: 12.5px; }
+.chat-msg-markdown .chat-md-quote {
+  border-left: 3px solid #c3cee0;
+  margin: 10px 0;
+  padding: 2px 0 2px 12px;
+  color: #475569;
+}
+
+/* Respect reduced-motion: disable streaming/bounce animations + drawer slide. */
+@media (prefers-reduced-motion: reduce) {
+  .chat-msg-cursor,
+  .chat-drawer {
+    animation: none !important;
+    transition: none !important;
+  }
+}

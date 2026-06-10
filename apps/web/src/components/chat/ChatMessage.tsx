@@ -1,6 +1,10 @@
-import { useMemo, useState, type MouseEvent } from 'react';
+import { Children, useMemo, useState, type ReactNode } from 'react';
 import { Alert, Drawer, Tag, Tooltip, Typography } from 'antd';
 import { ExportOutlined } from '@ant-design/icons';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeSanitize from 'rehype-sanitize';
+import type { Components } from 'react-markdown';
 import type { ClioCitation, ClioVerification } from './chat-store.js';
 import clioBubbleImage from '../../assets/chat/clio-bubble.png';
 
@@ -34,16 +38,14 @@ export function ChatMessage({
     return map;
   }, [citations]);
 
-  const html = useMemo(() => renderMarkdown(content, citationMap), [content, citationMap]);
-
-  // Event delegation: clicking a rendered [N] citation chip opens the drawer.
-  const handleClick = (event: MouseEvent<HTMLDivElement>) => {
-    const el = (event.target as HTMLElement).closest('[data-cite]');
-    if (!el) return;
-    const n = Number(el.getAttribute('data-cite'));
-    const citation = citationMap.get(n);
-    if (citation) setActiveCitation(citation);
-  };
+  // Markdown rendering is done with react-markdown + remark-gfm (real GFM tables,
+  // task lists, strikethrough) and rehype-sanitize (AI text can't inject script).
+  // [N] citation markers are turned into clickable chips inside every text node so
+  // the click-to-open-source behavior is preserved across all block types.
+  const components = useMemo<Components>(
+    () => buildMarkdownComponents(citationMap, setActiveCitation),
+    [citationMap],
+  );
 
   return (
     <div className={`chat-msg chat-msg--${role}`}>
@@ -56,31 +58,18 @@ export function ChatMessage({
         {isUser ? (
           <span className="chat-msg-text">{content}</span>
         ) : (
-          <div
-            className="chat-msg-markdown"
-            onClick={handleClick}
-            // Content is AI-generated, not from user input
-            // eslint-disable-next-line react/no-danger
-            dangerouslySetInnerHTML={{ __html: html }}
-          />
+          <div className="chat-msg-markdown">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeSanitize]}
+              components={components}
+            >
+              {content}
+            </ReactMarkdown>
+          </div>
         )}
         {!isUser && content !== '' && !isStreaming && (
-          <button
-            type="button"
-            className="chat-msg-copy"
-            aria-label="Copy message"
-            onClick={handleCopy}
-            style={{
-              marginTop: 6,
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              fontSize: 12,
-              color: '#1677ff',
-              padding: 0,
-              opacity: 0.7,
-            }}
-          >
+          <button type="button" className="chat-msg-copy" aria-label="Copy message" onClick={handleCopy}>
             {copied ? '✓ Copied' : 'Copy'}
           </button>
         )}
@@ -183,137 +172,109 @@ function citationTypeLabel(type: string): string {
     .join(' ');
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
-/** Replace `[N]` markers that map to a real citation with clickable chips. */
-function renderCitations(html: string, citationMap: Map<number, ClioCitation>): string {
-  if (citationMap.size === 0) return html;
-  return html.replace(/\[(\d{1,3})\]/g, (whole, digits: string) => {
-    const n = Number(digits);
-    if (!citationMap.has(n)) return whole;
-    const style =
-      'color:#1677ff;cursor:pointer;background:none;border:none;padding:0 1px;' +
-      'font:inherit;font-size:0.85em;font-weight:600;vertical-align:super';
-    return `<button type="button" class="chat-citation" data-cite="${n}" title="View source ${n}" style="${style}">[${n}]</button>`;
-  });
-}
-
-/** Inline spans only (bold, italic, code, links) — operates on escaped text. */
-function renderInline(text: string, citationMap: Map<number, ClioCitation>): string {
-  const withSpans = text
-    .replace(/`([^`\n]+)`/g, '<code class="chat-md-code">$1</code>')
-    .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
-    // [label](http…) — only http(s) to avoid javascript: injection
-    .replace(
-      /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
-    );
-  // Citation chips run last so they don't clobber markdown links (which require
-  // a trailing "(url)" that a bare [N] marker never has).
-  return renderCitations(withSpans, citationMap);
-}
-
 /**
- * Block-aware markdown → HTML for assistant bubbles.
- *
- * Spacing comes ONLY from block-element CSS margins — we never emit a <br> per
- * newline (the previous renderer did, which produced erratic double spacing
- * after headings and between list items). Blocks are separated by blank lines;
- * consecutive list lines group into one <ul>/<ol>; everything else is a <p>.
+ * Walk rendered markdown children and replace `[N]` markers (where N maps to a
+ * real citation) with clickable chips. Non-string children pass through
+ * unchanged so nested formatting (bold, links) is preserved.
  */
-function renderMarkdown(text: string, citationMap: Map<number, ClioCitation> = new Map()): string {
-  const escaped = escapeHtml((text ?? '').replace(/\r\n/g, '\n').replace(/\r/g, '\n'));
-
-  // Fenced code blocks first — pull them out so their contents aren't parsed.
-  const codeBlocks: string[] = [];
-  const withoutCode = escaped.replace(/```(?:\w+\n)?([\s\S]*?)```/g, (_m, code: string) => {
-    codeBlocks.push(`<pre class="chat-md-pre"><code>${code.replace(/\n+$/, '')}</code></pre>`);
-    return ` CODE${codeBlocks.length - 1} `;
+function injectCitations(
+  children: ReactNode,
+  citationMap: Map<number, ClioCitation>,
+  onOpen: (c: ClioCitation) => void,
+): ReactNode {
+  if (citationMap.size === 0) return children;
+  return Children.map(children, (child) => {
+    if (typeof child === 'string') {
+      return splitCitations(child, citationMap, onOpen);
+    }
+    return child;
   });
+}
 
-  const lines = withoutCode.split('\n');
-  const out: string[] = [];
-  let para: string[] = [];
-  let list: { type: 'ul' | 'ol'; items: string[] } | null = null;
-
-  const flushPara = () => {
-    if (para.length) {
-      out.push(`<p class="chat-md-p">${renderInline(para.join(' '), citationMap)}</p>`);
-      para = [];
-    }
-  };
-  const flushList = () => {
-    if (list) {
-      const items = list.items.map((it) => `<li>${renderInline(it, citationMap)}</li>`).join('');
-      out.push(`<${list.type} class="chat-md-list">${items}</${list.type}>`);
-      list = null;
-    }
-  };
-
-  for (const raw of lines) {
-    const line = raw.trimEnd();
-    const trimmed = line.trim();
-
-    // Code-block placeholder is its own block.
-    const codeMatch = /^ CODE(\d+) $/.exec(trimmed);
-    if (codeMatch) {
-      flushPara();
-      flushList();
-      out.push(codeBlocks[Number(codeMatch[1])]!);
-      continue;
-    }
-
-    if (!trimmed) {
-      flushPara();
-      flushList();
-      continue;
-    }
-    if (/^---+$/.test(trimmed)) {
-      flushPara();
-      flushList();
-      out.push('<hr class="chat-md-hr" />');
-      continue;
-    }
-    const heading = /^(#{1,6})\s+(.*)$/.exec(trimmed);
-    if (heading) {
-      flushPara();
-      flushList();
-      out.push(`<div class="chat-md-h">${renderInline(heading[2]!, citationMap)}</div>`);
-      continue;
-    }
-    const bullet = /^[-*+]\s+(.*)$/.exec(trimmed);
-    if (bullet) {
-      flushPara();
-      if (!list || list.type !== 'ul') {
-        flushList();
-        list = { type: 'ul', items: [] };
-      }
-      list.items.push(bullet[1]!);
-      continue;
-    }
-    const numbered = /^\d+[.)]\s+(.*)$/.exec(trimmed);
-    if (numbered) {
-      flushPara();
-      if (!list || list.type !== 'ol') {
-        flushList();
-        list = { type: 'ol', items: [] };
-      }
-      list.items.push(numbered[1]!);
-      continue;
-    }
-    // Plain text — accumulate into the current paragraph (soft-wrap join).
-    flushList();
-    para.push(trimmed);
+function splitCitations(
+  text: string,
+  citationMap: Map<number, ClioCitation>,
+  onOpen: (c: ClioCitation) => void,
+): ReactNode[] {
+  const parts: ReactNode[] = [];
+  const re = /\[(\d{1,3})\]/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    const n = Number(m[1]);
+    const citation = citationMap.get(n);
+    if (!citation) continue;
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    parts.push(
+      <button
+        key={`cite-${key++}`}
+        type="button"
+        className="chat-citation"
+        data-cite={n}
+        title={`View source ${n}`}
+        onClick={() => onOpen(citation)}
+      >
+        [{n}]
+      </button>,
+    );
+    last = m.index + m[0].length;
   }
-  flushPara();
-  flushList();
+  if (last < text.length) parts.push(text.slice(last));
+  return parts.length ? parts : [text];
+}
 
-  return out.join('');
+/** Recursively inject citations into a node's children for block elements. */
+function kids(
+  children: ReactNode,
+  citationMap: Map<number, ClioCitation>,
+  onOpen: (c: ClioCitation) => void,
+): ReactNode {
+  return injectCitations(children, citationMap, onOpen);
+}
+
+function buildMarkdownComponents(
+  citationMap: Map<number, ClioCitation>,
+  onOpen: (c: ClioCitation) => void,
+): Components {
+  return {
+    p: ({ children }) => <p className="chat-md-p">{kids(children, citationMap, onOpen)}</p>,
+    li: ({ children }) => <li>{kids(children, citationMap, onOpen)}</li>,
+    h1: ({ children }) => <div className="chat-md-h chat-md-h1">{kids(children, citationMap, onOpen)}</div>,
+    h2: ({ children }) => <div className="chat-md-h chat-md-h2">{kids(children, citationMap, onOpen)}</div>,
+    h3: ({ children }) => <div className="chat-md-h chat-md-h3">{kids(children, citationMap, onOpen)}</div>,
+    h4: ({ children }) => <div className="chat-md-h chat-md-h4">{kids(children, citationMap, onOpen)}</div>,
+    h5: ({ children }) => <div className="chat-md-h chat-md-h4">{kids(children, citationMap, onOpen)}</div>,
+    h6: ({ children }) => <div className="chat-md-h chat-md-h4">{kids(children, citationMap, onOpen)}</div>,
+    ul: ({ children }) => <ul className="chat-md-list">{children}</ul>,
+    ol: ({ children }) => <ol className="chat-md-list">{children}</ol>,
+    hr: () => <hr className="chat-md-hr" />,
+    blockquote: ({ children }) => (
+      <blockquote className="chat-md-quote">{kids(children, citationMap, onOpen)}</blockquote>
+    ),
+    a: ({ href, children }) => (
+      <a href={href} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    ),
+    code: ({ children, className }) => {
+      // Block code carries a language- className; inline code does not.
+      const isBlock = typeof className === 'string' && className.includes('language-');
+      if (isBlock) return <code className={className}>{children}</code>;
+      return <code className="chat-md-code">{children}</code>;
+    },
+    pre: ({ children }) => <pre className="chat-md-pre">{children}</pre>,
+    table: ({ children }) => (
+      <div className="chat-md-table-wrap">
+        <table className="chat-md-table">{children}</table>
+      </div>
+    ),
+    thead: ({ children }) => <thead>{children}</thead>,
+    tbody: ({ children }) => <tbody>{children}</tbody>,
+    tr: ({ children }) => <tr>{children}</tr>,
+    th: ({ children }) => <th>{kids(children, citationMap, onOpen)}</th>,
+    td: ({ children }) => <td>{kids(children, citationMap, onOpen)}</td>,
+    strong: ({ children }) => <strong>{kids(children, citationMap, onOpen)}</strong>,
+    em: ({ children }) => <em>{kids(children, citationMap, onOpen)}</em>,
+  };
 }

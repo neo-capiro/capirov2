@@ -90,7 +90,7 @@ function generateId(): string {
 const turnActionStyle = {
   background: 'none',
   border: 'none',
-  color: '#1677ff',
+  color: '#1c2e4a',
   cursor: 'pointer',
   fontSize: 12,
   padding: '2px 4px',
@@ -1170,7 +1170,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                           border: '1px solid #d9d9d9',
                           borderRadius: 14,
                           background: '#fafafa',
-                          color: '#1677ff',
+                          color: '#1c2e4a',
                           cursor: 'pointer',
                         }}
                       >
@@ -1266,7 +1266,12 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         </div>
 
         {activeArtifact && (
-          <ClioCanvas artifact={activeArtifact} onClose={() => setActiveArtifact(null)} />
+          <ClioCanvas
+            artifact={activeArtifact}
+            onClose={() => setActiveArtifact(null)}
+            apiBaseUrl={config.apiBaseUrl}
+            getAuthHeaders={authHeaders}
+          />
         )}
 
         <div className="chat-input-area">

@@ -9,10 +9,11 @@ import { ClioController } from './clio.controller.js';
 import { ClioService } from './clio.service.js';
 import { ClioToolsService } from './clio-tools.service.js';
 import { ClioResearchService } from './clio-research.service.js';
+import { ClioDocgenService } from './clio-docgen.service.js';
 
 @Module({
   imports: [EngagementModule, LdaIntelModule, LobbyIntelModule, FederalSpendingModule, ProgramElementModule, AcquisitionPersonnelModule],
   controllers: [ClioController],
-  providers: [ClioService, ClioToolsService, ClioResearchService],
+  providers: [ClioService, ClioToolsService, ClioResearchService, ClioDocgenService],
 })
 export class ClioModule {}

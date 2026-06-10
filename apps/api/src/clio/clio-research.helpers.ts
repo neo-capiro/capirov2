@@ -395,6 +395,9 @@ export function renderReportToWordHtml(input: { title: string; markdown: string 
   hr { border: none; border-top: 1px solid #d6dbe7; margin: 14pt 0; }
   .doc-meta { color: #6b7280; font-size: 9.5pt; margin: 0 0 14pt; }
   code { font-family: 'Consolas', monospace; background: #f3f4f6; padding: 0 2pt; }
+  table { border-collapse: collapse; width: 100%; margin: 8pt 0; font-size: 10.5pt; }
+  th, td { border: 1px solid #b8c0d0; padding: 4pt 7pt; text-align: left; vertical-align: top; }
+  th { background: #eef1f7; color: #00236e; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -434,6 +437,10 @@ export function renderReportToBrowserHtml(input: { title: string; markdown: stri
   hr { border:none; border-top:1px solid var(--line); margin:22px 0; }
   .doc-meta { color:var(--muted); font-size:13px; margin:0 0 22px; }
   code { font-family:Consolas,monospace; background:#f3f4f6; padding:1px 4px; border-radius:4px; font-size:.92em; }
+  table { border-collapse:collapse; width:100%; margin:14px 0; font-size:14px; }
+  th,td { border:1px solid var(--line); padding:8px 12px; text-align:left; vertical-align:top; }
+  th { background:#eef1f7; color:var(--navy); font-weight:600; }
+  tbody tr:nth-child(even) { background:#fafbfc; }
   @media print { .topbar{position:static} .paper{border:none;box-shadow:none;padding:0;border-radius:0} body{background:#fff} .wrap{padding:0} }
 </style>
 </head>
@@ -470,13 +477,25 @@ export function markdownToHtml(markdown: string): string {
     }
   };
 
-  for (const rawLine of lines) {
-    const line = rawLine.replace(/\r$/, '');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.replace(/\r$/, '');
     const trimmed = line.trim();
 
     if (!trimmed) {
       flushParagraph();
       closeList();
+      continue;
+    }
+    // GFM table: a header row of pipes followed by a delimiter row like
+    // | --- | :--: |. Detect and consume the whole block here so cells render as
+    // a real <table> instead of raw pipes. All cell text goes through inlineMd
+    // (which only runs on already-escaped text), so this stays injection-safe.
+    if (isTableHeader(trimmed, lines[i + 1])) {
+      flushParagraph();
+      closeList();
+      const consumed = renderTable(lines, i);
+      out.push(consumed.html);
+      i = consumed.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
     if (/^---+$/.test(trimmed) || /^\*\*\*+$/.test(trimmed)) {
@@ -522,6 +541,53 @@ export function markdownToHtml(markdown: string): string {
   flushParagraph();
   closeList();
   return out.join('\n');
+}
+
+/**
+ * GFM table support. A table is a header row of `| a | b |` immediately
+ * followed by a delimiter row of dashes/colons (`| --- | :--: |`). Returns the
+ * rendered <table> HTML and the index of the first line AFTER the table.
+ * Cell text is run through inlineMd (escaped-text-only), so it stays XSS-safe.
+ */
+function isTableHeader(headerLine: string, delimLine: string | undefined): boolean {
+  if (delimLine === undefined) return false;
+  if (!headerLine.includes('|')) return false;
+  const d = delimLine.trim();
+  // delimiter row: pipes, dashes, optional colons, spaces only; at least one dash
+  return /^\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?$/.test(d) && d.includes('-');
+}
+
+function splitTableRow(row: string): string[] {
+  let s = row.trim();
+  if (s.startsWith('|')) s = s.slice(1);
+  if (s.endsWith('|')) s = s.slice(0, -1);
+  // split on unescaped pipes
+  return s.split(/\s*(?<!\\)\|\s*/).map((c) => c.replace(/\\\|/g, '|').trim());
+}
+
+function renderTable(lines: string[], start: number): { html: string; nextIndex: number } {
+  const headers = splitTableRow(lines[start]!);
+  const cols = headers.length;
+  let i = start + 2; // skip header + delimiter
+  const bodyRows: string[][] = [];
+  for (; i < lines.length; i++) {
+    const t = lines[i]!.trim();
+    if (!t || !t.includes('|')) break;
+    const cells = splitTableRow(lines[i]!);
+    while (cells.length < cols) cells.push('');
+    bodyRows.push(cells.slice(0, cols));
+  }
+  const thead =
+    '<thead><tr>' +
+    headers.map((h) => `<th>${inlineMd(h)}</th>`).join('') +
+    '</tr></thead>';
+  const tbody =
+    '<tbody>' +
+    bodyRows
+      .map((r) => `<tr>${r.map((c) => `<td>${inlineMd(c)}</td>`).join('')}</tr>`)
+      .join('') +
+    '</tbody>';
+  return { html: `<table>${thead}${tbody}</table>`, nextIndex: i };
 }
 
 /** Inline markdown: bold, italic, code, links. Operates on already-escaped text. */

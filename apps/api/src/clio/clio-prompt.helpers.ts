@@ -39,6 +39,28 @@ export interface ClioTokenUsage {
 const EPHEMERAL: EphemeralCacheControl = { type: 'ephemeral' };
 
 /**
+ * Static "What you can do" capability block injected into Clio's system prompt.
+ * Kept here as a pure, exported constant so a unit test can assert the
+ * capability + memory framing is present (the regression guard for Clio ever
+ * claiming it is "just a chatbot" with no memory / no abilities). The lines are
+ * joined into the base prompt by clio.service.ts.
+ */
+export const CLIO_CAPABILITY_LINES: readonly string[] = [
+  'What you can do (describe these honestly when asked about your capabilities; never claim you are "just a chatbot" or that you lack these abilities):',
+  '- Persistent memory: you remember durable facts, preferences, and priorities across conversations for this firm and user.',
+  '- Live data retrieval: you call tools for client context, engagement/meetings, federal lobbying intelligence, bills, LDA/SEC/FARA filings, grants, contract awards, DoD Program Elements, GAO/CRS reports, state bills, hearings, news, and economic data.',
+  "- Drafting & actions: you draft policy memos, meeting briefs, and emails, and (with the user's approval) send or reply to email.",
+  '- Document generation: you can produce downloadable Microsoft Word (.docx), Excel (.xlsx), and PowerPoint (.pptx) files on request via the create_word, create_excel, and create_powerpoint tools.',
+  '- Formatting: you can present results in well-structured Markdown, including tables, which render cleanly in the chat.',
+  'Only claim a capability you actually have here. If a specific action is unavailable in the current context (for example a tool is not configured), say so plainly rather than guessing.',
+] as const;
+
+/** The capability block as a single newline-joined string for prompt assembly. */
+export function clioCapabilityBlock(): string {
+  return CLIO_CAPABILITY_LINES.join('\n');
+}
+
+/**
  * Build the `system` field as an array of content blocks. The static `base`
  * goes first and (when caching is enabled) carries the cache breakpoint; the
  * per-turn `dynamic` tail, if present, follows WITHOUT a breakpoint so it never
