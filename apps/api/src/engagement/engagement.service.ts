@@ -3575,7 +3575,7 @@ export class EngagementService {
     const bytes = await this.readAttachmentBytes(attachment.s3Key);
     const contentType = attachment.contentType || 'application/octet-stream';
     const fileName = attachment.fileName || 'attachment';
-    let source: 'text' | 'docx' | 'transcription';
+    let source: 'text' | 'docx' | 'pdf' | 'transcription';
     let text: string;
 
     if (isPlainTextAttachment(fileName, contentType)) {
@@ -3585,12 +3585,15 @@ export class EngagementService {
       source = 'docx';
       const result = await mammoth.extractRawText({ buffer: bytes });
       text = result.value.trim();
+    } else if (isPdfAttachment(fileName, contentType)) {
+      source = 'pdf';
+      text = await extractPdfBuffer(bytes);
     } else if (isTranscribableAttachment(fileName, contentType)) {
       source = 'transcription';
       text = await this.transcribeAttachmentWithOpenAi(bytes, fileName, contentType);
     } else {
       throw new BadRequestException(
-        'Unsupported debrief source. Upload .txt, .docx, audio, or video.',
+        'Unsupported source. Upload .txt, .docx, .pdf, audio, or video.',
       );
     }
 
@@ -4447,6 +4450,22 @@ function isDocxAttachment(fileName: string, contentType: string): boolean {
     /\.docx$/i.test(fileName) ||
     normalized === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   );
+}
+
+function isPdfAttachment(fileName: string, contentType: string): boolean {
+  return contentType.toLowerCase() === 'application/pdf' || /\.pdf$/i.test(fileName);
+}
+
+/** Extract text from a PDF buffer. Lazy-loads pdf-parse (heavy at module load). */
+async function extractPdfBuffer(buffer: Buffer): Promise<string> {
+  const { PDFParse } = await import('pdf-parse');
+  const parser = new PDFParse({ data: buffer });
+  try {
+    const parsed = await parser.getText();
+    return (parsed.text ?? '').trim();
+  } finally {
+    await parser.destroy().catch(() => {});
+  }
 }
 
 function isTranscribableAttachment(fileName: string, contentType: string): boolean {

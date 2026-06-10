@@ -61,6 +61,7 @@ const EXPECTED_TOOLS = [
   'query_regulatory_dockets',
   'search_sam_opportunities',
   'query_debriefs',
+  'read_client_documents',
   'query_outreach',
   // Approval-gated writes (tool-coverage expansion)
   'create_task',
@@ -92,6 +93,7 @@ const REQUIRED_INPUTS: Record<string, string[]> = {
   cancel_scheduled_task: ['taskId'],
   search_tracked_bills: ['clientId'],
   query_debriefs: ['clientId'],
+  read_client_documents: ['clientId'],
   create_task: ['title'],
   update_task: ['taskId'],
   update_workflow_field: ['instanceId', 'fieldKey', 'value'],

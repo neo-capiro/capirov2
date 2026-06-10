@@ -1733,6 +1733,21 @@ export class ClioService {
     } else if (validation.kind === 'docx') {
       const result = await mammoth.extractRawText({ buffer });
       raw = result.value;
+    } else if (validation.kind === 'pdf') {
+      // Lazy-loaded: pdf-parse pulls in pdfjs-dist (heavy at module load) and is
+      // only needed when a PDF is actually attached.
+      const { PDFParse } = await import('pdf-parse');
+      const parser = new PDFParse({ data: buffer });
+      try {
+        const parsed = await parser.getText();
+        raw = parsed.text ?? '';
+      } catch (err) {
+        raw = `[Could not extract text from the PDF "${filename}": ${
+          err instanceof Error ? err.message : 'unknown error'
+        }. Paste the relevant text or describe it.]`;
+      } finally {
+        await parser.destroy().catch(() => {});
+      }
     } else {
       raw = `[A ${validation.kind} file was attached; automatic text extraction for ${validation.kind} files is not yet available — paste the relevant text or describe it.]`;
     }

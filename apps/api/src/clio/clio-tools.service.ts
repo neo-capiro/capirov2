@@ -232,6 +232,10 @@ export const TOOL_DEFINITIONS = [
     description: 'List outreach campaigns and their status (draft, sent, responses) for the firm or a client, or fetch a single outreach record\'s full detail by outreachId.',
   },
   {
+    name: 'read_client_documents',
+    description: 'List the documents uploaded in a client\'s Documents tab, and (when documentId is given) extract and return the text content of one document so you can read, summarize, or quote it. Supports .txt, .docx, .pdf, and audio/video transcription. Use when the user references "the document/file I uploaded", a contract, a brief, or asks you to read/summarize an attached file for a client.',
+  },
+  {
     name: 'create_task',
     description: 'Create an engagement task/follow-up (title, optional client, due date, description). Requires user approval.',
   },
@@ -592,6 +596,13 @@ export class ClioToolsService {
         limit: int('Max results (1-50)'),
       }),
       query_debriefs: obj({ clientId: str('Client UUID') }, ['clientId']),
+      read_client_documents: obj(
+        {
+          clientId: str('Client UUID whose Documents-tab files to list/read'),
+          documentId: str('Optional attachment UUID. When provided, extract and return that document\'s text content instead of just listing.'),
+        },
+        ['clientId'],
+      ),
       query_outreach: obj({
         outreachId: str('Optional outreach record UUID for full detail'),
         clientId: str('Optional client UUID filter'),
@@ -728,6 +739,8 @@ export class ClioToolsService {
         return this.searchSamOpportunities(input);
       case 'query_debriefs':
         return this.queryDebriefs(ctx, input);
+      case 'read_client_documents':
+        return this.readClientDocuments(ctx, input);
       case 'query_outreach':
         return this.queryOutreach(ctx, input);
       case 'create_task':
@@ -2797,6 +2810,59 @@ export class ClioToolsService {
         restricted: debrief.restricted,
         author: debrief.author,
         createdAt: debrief.createdAt,
+      })),
+    };
+  }
+
+  /**
+   * Read a client's Documents-tab files. Without documentId: lists the client's
+   * attachments (id, filename, type, size, when). With documentId: extracts and
+   * returns that document's text so Clio can read/summarize/quote it. Reuses the
+   * tenant-scoped engagement attachment service (RLS-safe).
+   */
+  private async readClientDocuments(ctx: TenantContext, input: Record<string, unknown>) {
+    const clientId = requiredString(input, 'clientId', 80);
+    await this.ensureClientVisible(ctx, clientId);
+    const documentId = optionalString(input, 'documentId', 80);
+
+    if (documentId) {
+      try {
+        const extracted = await this.engagement.extractAttachmentText(ctx, documentId);
+        return {
+          tool: 'read_client_documents',
+          generatedAt: new Date().toISOString(),
+          clientId,
+          document: {
+            id: extracted.attachmentId,
+            fileName: extracted.fileName,
+            contentType: extracted.contentType,
+            source: extracted.source,
+            text: summarizeText(extracted.text, 12000),
+          },
+        };
+      } catch (err) {
+        return {
+          tool: 'read_client_documents',
+          clientId,
+          documentId,
+          error: err instanceof Error ? err.message : 'Could not read this document',
+        };
+      }
+    }
+
+    const attachments = await this.engagement.listAttachments(ctx, { clientId });
+    return {
+      tool: 'read_client_documents',
+      generatedAt: new Date().toISOString(),
+      clientId,
+      total: attachments.length,
+      note: 'Pass a documentId to read a specific file\'s contents.',
+      documents: attachments.map((a) => ({
+        id: a.id,
+        fileName: a.fileName,
+        contentType: a.contentType,
+        byteSize: a.byteSize,
+        createdAt: a.createdAt,
       })),
     };
   }

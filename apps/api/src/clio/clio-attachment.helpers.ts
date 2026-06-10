@@ -27,7 +27,7 @@ export function detectAttachmentKind(contentType: string, filename = ''): Attach
 
 /** True for kinds whose text we can currently extract server-side. */
 export function isExtractableKind(kind: AttachmentKind): boolean {
-  return kind === 'docx' || kind === 'text';
+  return kind === 'docx' || kind === 'text' || kind === 'pdf';
 }
 
 export interface AttachmentValidation {

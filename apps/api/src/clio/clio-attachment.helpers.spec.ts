@@ -27,10 +27,10 @@ describe('detectAttachmentKind', () => {
 });
 
 describe('isExtractableKind', () => {
-  test('docx + text are extractable; pdf/image/unsupported are not (yet)', () => {
+  test('docx + text + pdf are extractable; image/unsupported are not', () => {
     expect(isExtractableKind('docx')).toBe(true);
     expect(isExtractableKind('text')).toBe(true);
-    expect(isExtractableKind('pdf')).toBe(false);
+    expect(isExtractableKind('pdf')).toBe(true);
     expect(isExtractableKind('image')).toBe(false);
   });
 });
