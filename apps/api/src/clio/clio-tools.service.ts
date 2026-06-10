@@ -224,6 +224,10 @@ const TOOL_DEFINITIONS = [
     name: 'query_debriefs',
     description: 'List post-meeting debriefs for a client — outcomes, follow-ups, and commitments captured after meetings. Restricted (confidential) debrief bodies are withheld.',
   },
+  {
+    name: 'query_outreach',
+    description: 'List outreach campaigns and their status (draft, sent, responses) for the firm or a client, or fetch a single outreach record\'s full detail by outreachId.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -570,6 +574,12 @@ export class ClioToolsService {
         limit: int('Max results (1-50)'),
       }),
       query_debriefs: obj({ clientId: str('Client UUID') }, ['clientId']),
+      query_outreach: obj({
+        outreachId: str('Optional outreach record UUID for full detail'),
+        clientId: str('Optional client UUID filter'),
+        status: str('Optional status filter, e.g. draft | sent'),
+        limit: int('Max results (1-50)'),
+      }),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -683,6 +693,8 @@ export class ClioToolsService {
         return this.searchSamOpportunities(input);
       case 'query_debriefs':
         return this.queryDebriefs(ctx, input);
+      case 'query_outreach':
+        return this.queryOutreach(ctx, input);
       default:
         assertNever(name);
     }
@@ -2653,6 +2665,50 @@ export class ClioToolsService {
         restricted: debrief.restricted,
         author: debrief.author,
         createdAt: debrief.createdAt,
+      })),
+    };
+  }
+
+  private async queryOutreach(ctx: TenantContext, input: Record<string, unknown>) {
+    const outreachId = optionalString(input, 'outreachId', 80);
+    if (outreachId) {
+      const record = await this.engagement.getOutreachRecord(ctx, outreachId);
+      return {
+        tool: 'query_outreach',
+        generatedAt: new Date().toISOString(),
+        record: {
+          ...record,
+          body: summarizeText(record.body, 2000),
+        },
+      };
+    }
+
+    const clientId = optionalString(input, 'clientId', 80);
+    const status = optionalString(input, 'status', 40);
+    const limit = clampInt(input.limit, 1, 50, 20);
+    if (clientId) await this.ensureClientVisible(ctx, clientId);
+
+    const campaigns = await this.engagement.listCampaigns(ctx, {
+      clientId: clientId ?? undefined,
+      status: status ?? undefined,
+    });
+
+    return {
+      tool: 'query_outreach',
+      generatedAt: new Date().toISOString(),
+      total: campaigns.length,
+      campaigns: campaigns.slice(0, limit).map((campaign) => ({
+        id: campaign.id,
+        name: campaign.name,
+        type: campaign.type,
+        status: campaign.status,
+        subject: campaign.subject,
+        clientId: campaign.clientId,
+        clientName: campaign.client?.name ?? null,
+        recipientCount: campaign.recipients.length,
+        createdBy: campaign.createdBy?.email ?? null,
+        sentAt: campaign.sentAt,
+        createdAt: campaign.createdAt,
       })),
     };
   }
