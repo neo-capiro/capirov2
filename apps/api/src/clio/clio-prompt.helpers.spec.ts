@@ -18,6 +18,11 @@ describe('clioCapabilityBlock (self-description correctness)', () => {
     expect(block).toContain('.pptx');
     expect(block).toContain('table');
   });
+  it('affirms it IS a conversational AI (regression: must not deny chatting)', () => {
+    const block = clioCapabilityBlock().toLowerCase();
+    expect(block).toContain('conversational ai');
+    expect(block).toContain('the answer is yes');
+  });
   it('forbids the "just a chatbot / no memory" framing and warns against overstating', () => {
     const block = clioCapabilityBlock();
     expect(block).toContain('never claim you are "just a chatbot"');
