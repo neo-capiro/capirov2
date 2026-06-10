@@ -46,6 +46,17 @@ export const DEFAULT_SCHEDULED_TOOL_ALLOWLIST: readonly string[] = [
   'get_pe_bills',
   'search_acquisition_personnel',
   'get_acquisition_person',
+  // Firm operational data reads (tool-coverage expansion) — read-only, so
+  // unattended scheduled research may use them.
+  'query_workflows',
+  'query_tasks',
+  'query_strategies',
+  'query_action_items',
+  'search_tracked_bills',
+  'query_regulatory_dockets',
+  'search_sam_opportunities',
+  'query_debriefs',
+  'query_outreach',
 ] as const;
 
 /**

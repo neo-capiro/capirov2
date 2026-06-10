@@ -13,5 +13,8 @@ module.exports = {
   },
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.js$': '$1',
+    // Jest cannot resolve package-`imports` subpaths; map @clerk/backend's
+    // #crypto to its node CJS runtime (needed by the AppModule DI smoke test).
+    '^#crypto$': '@clerk/backend/dist/runtime/node/crypto.js',
   },
 };

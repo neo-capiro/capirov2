@@ -28,6 +28,20 @@ describe('clioCapabilityBlock (self-description correctness)', () => {
     expect(block).toContain('never claim you are "just a chatbot"');
     expect(block.toLowerCase()).toContain('only claim a capability you actually have');
   });
+  it('advertises firm operational data + approval-gated task/workflow writes', () => {
+    const block = clioCapabilityBlock().toLowerCase();
+    expect(block).toContain("firm's own work");
+    expect(block).toContain('workflows');
+    expect(block).toContain('strategies');
+    expect(block).toContain('needs-attention');
+    expect(block).toContain('tracked bills');
+    expect(block).toContain('regulatory dockets');
+    expect(block).toContain('sam.gov');
+    expect(block).toContain('client profiles');
+    expect(block).toContain('debrief');
+    expect(block).toContain('outreach');
+    expect(block).toContain("with the user's approval");
+  });
   it('joins the capability lines verbatim', () => {
     expect(clioCapabilityBlock()).toBe(CLIO_CAPABILITY_LINES.join('\n'));
   });
