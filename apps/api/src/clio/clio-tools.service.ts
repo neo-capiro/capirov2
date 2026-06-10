@@ -216,6 +216,10 @@ const TOOL_DEFINITIONS = [
     name: 'query_regulatory_dockets',
     description: 'List regulatory dockets / rulemaking documents from Regulations.gov, or upcoming open comment-period deadlines. Filter by agency or document type. Use for "what comment periods are closing soon".',
   },
+  {
+    name: 'search_sam_opportunities',
+    description: 'Search SAM.gov federal contract opportunities (solicitations, sources sought, presolicitations) by keyword or NAICS code. Active notices by default, newest first, with response deadlines and points of contact.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -555,6 +559,12 @@ export class ClioToolsService {
         days: int('Window in days for upcomingOnly (1-365, default 30)'),
         limit: int('Max results (1-50)'),
       }),
+      search_sam_opportunities: obj({
+        query: str('Keyword search across title/description/agency/solicitation number'),
+        naics: str('Optional NAICS code prefix filter, e.g. 3364'),
+        includeInactive: { type: 'boolean', description: 'Include archived/inactive notices (default false)' },
+        limit: int('Max results (1-50)'),
+      }),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -664,6 +674,8 @@ export class ClioToolsService {
         return this.searchTrackedBills(ctx, input);
       case 'query_regulatory_dockets':
         return this.queryRegulatoryDockets(input);
+      case 'search_sam_opportunities':
+        return this.searchSamOpportunities(input);
       default:
         assertNever(name);
     }
@@ -2590,6 +2602,30 @@ export class ClioToolsService {
       generatedAt: new Date().toISOString(),
       total: result.total,
       results: result.data,
+    };
+  }
+
+  private async searchSamOpportunities(input: Record<string, unknown>) {
+    const query = optionalString(input, 'query', 240);
+    const naics = optionalString(input, 'naics', 12);
+    const includeInactive = optionalBoolean(input, 'includeInactive');
+    const limit = clampInt(input.limit, 1, 50, 20);
+
+    const result = await this.programElement.listSamOpportunities({
+      query: query ?? undefined,
+      naics: naics ?? undefined,
+      includeInactive: includeInactive ?? undefined,
+      limit,
+    });
+
+    return {
+      tool: 'search_sam_opportunities',
+      generatedAt: new Date().toISOString(),
+      total: result.total,
+      results: result.data.map((opp) => ({
+        ...opp,
+        description: summarizeText(opp.description, 300),
+      })),
     };
   }
 

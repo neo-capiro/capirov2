@@ -1272,6 +1272,61 @@ export class ProgramElementReadService {
    * These are GLOBAL tables (no RLS), so read via this.prisma directly. Empty array (never an
    * error) when this PE has no active matched opportunities.
    */
+  /**
+   * Keyword/NAICS search over the raw SAM.gov opportunity feed (GLOBAL table, no
+   * RLS — read via this.prisma directly, same as getOpportunitiesForPe). Active
+   * notices by default, newest-posted first. Backs Clio's
+   * search_sam_opportunities tool.
+   */
+  async listSamOpportunities(filters: {
+    query?: string;
+    naics?: string;
+    includeInactive?: boolean;
+    limit?: number;
+  }) {
+    const limit = Math.min(50, Math.max(1, filters.limit ?? 20));
+    const where: Prisma.SamOpportunityWhereInput = {};
+    if (!filters.includeInactive) where.active = true;
+    if (filters.naics) where.naicsCode = { startsWith: filters.naics.trim() };
+    const query = filters.query?.trim();
+    if (query) {
+      where.OR = [
+        { title: { contains: query, mode: 'insensitive' } },
+        { description: { contains: query, mode: 'insensitive' } },
+        { agency: { contains: query, mode: 'insensitive' } },
+        { office: { contains: query, mode: 'insensitive' } },
+        { solicitationNumber: { contains: query, mode: 'insensitive' } },
+      ];
+    }
+
+    const [data, total] = await Promise.all([
+      this.prisma.samOpportunity.findMany({
+        where,
+        orderBy: { postedDate: 'desc' },
+        take: limit,
+        select: {
+          id: true,
+          noticeId: true,
+          solicitationNumber: true,
+          title: true,
+          noticeType: true,
+          agency: true,
+          office: true,
+          pscCode: true,
+          naicsCode: true,
+          postedDate: true,
+          responseDeadline: true,
+          description: true,
+          sourceUrl: true,
+          active: true,
+        },
+      }),
+      this.prisma.samOpportunity.count({ where }),
+    ]);
+
+    return { data, total };
+  }
+
   async getOpportunitiesForPe(peCode: string): Promise<OpportunityItem[]> {
     const code = peCode.trim();
     if (!code) return [];
