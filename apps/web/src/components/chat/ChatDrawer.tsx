@@ -90,7 +90,7 @@ function generateId(): string {
 const turnActionStyle = {
   background: 'none',
   border: 'none',
-  color: '#1c2e4a',
+  color: 'var(--accent-ink)',
   cursor: 'pointer',
   fontSize: 12,
   padding: '2px 4px',
@@ -1163,16 +1163,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                         type="button"
                         onClick={() => sendMessage(s)}
                         aria-label={`Ask: ${s}`}
-                        style={{
-                          font: 'inherit',
-                          fontSize: 12,
-                          padding: '4px 10px',
-                          border: '1px solid #d9d9d9',
-                          borderRadius: 14,
-                          background: '#fafafa',
-                          color: '#1c2e4a',
-                          cursor: 'pointer',
-                        }}
+                        className="chat-suggestion-chip"
                       >
                         {s}
                       </button>
@@ -1284,12 +1275,12 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                 alignSelf: 'center',
                 marginBottom: 8,
                 padding: '4px 16px',
-                borderRadius: 14,
-                border: '1px solid #d9d9d9',
-                background: '#fff',
+                borderRadius: 999,
+                border: '1px solid var(--border-2)',
+                background: 'var(--bg-surface)',
                 cursor: 'pointer',
                 fontSize: 13,
-                color: '#cf1322',
+                color: 'var(--critical)',
               }}
             >
               ■ Stop

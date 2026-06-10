@@ -94,45 +94,31 @@ export function ClioCanvas({ artifact, onClose, apiBaseUrl, getAuthHeaders }: Cl
 
   const download = isOfficeDoc ? downloadOfficeDoc : downloadMarkdown;
 
-  const btn: CSSProperties = {
-    font: 'inherit',
-    fontSize: 12,
-    padding: '4px 10px',
-    border: '1px solid #d9d9d9',
-    borderRadius: 6,
-    background: '#fff',
-    cursor: 'pointer',
+  const layout: CSSProperties = {
+    position: 'fixed',
+    top: 0,
+    right: 0,
+    height: '100vh',
+    width: 'min(460px, 92vw)',
+    display: 'flex',
+    flexDirection: 'column',
+    zIndex: 1100,
   };
 
   return (
-    <aside
-      aria-label="Document canvas"
-      style={{
-        position: 'fixed',
-        top: 0,
-        right: 0,
-        height: '100vh',
-        width: 'min(460px, 92vw)',
-        background: '#fff',
-        borderLeft: '1px solid #e5e5e5',
-        boxShadow: '-8px 0 24px rgba(0,0,0,0.12)',
-        display: 'flex',
-        flexDirection: 'column',
-        zIndex: 1100,
-      }}
-    >
+    <aside aria-label="Document canvas" className="clio-canvas" style={layout}>
       <header
+        className="clio-canvas-header"
         style={{
           display: 'flex',
           alignItems: 'center',
           gap: 8,
           padding: '12px 14px',
-          borderBottom: '1px solid #eee',
         }}
       >
         <span
+          className="clio-canvas-title"
           style={{
-            fontWeight: 600,
             flex: 1,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
@@ -141,23 +127,24 @@ export function ClioCanvas({ artifact, onClose, apiBaseUrl, getAuthHeaders }: Cl
         >
           {title}
         </span>
-        <button type="button" onClick={copy} style={btn} aria-label="Copy document">
+        <button type="button" onClick={copy} className="clio-canvas-btn" aria-label="Copy document">
           {copied ? 'Copied' : 'Copy'}
         </button>
         <button
           type="button"
           onClick={download}
-          style={btn}
+          className="clio-canvas-btn clio-canvas-btn--primary"
           aria-label="Download document"
           disabled={downloading}
         >
           {downloading ? 'Downloading…' : isOfficeDoc ? `Download .${docKind!.ext}` : 'Download'}
         </button>
-        <button type="button" onClick={onClose} style={btn} aria-label="Close canvas">
+        <button type="button" onClick={onClose} className="clio-canvas-btn" aria-label="Close canvas">
           ✕
         </button>
       </header>
       <div
+        className="clio-canvas-body"
         style={{
           flex: 1,
           overflowY: 'auto',

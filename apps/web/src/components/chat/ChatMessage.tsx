@@ -120,7 +120,7 @@ export function ChatMessage({
                           style={{
                             textDecoration: 'underline',
                             textDecorationStyle: 'wavy',
-                            textDecorationColor: '#faad14',
+                            textDecorationColor: 'var(--notable, #a26913)',
                           }}
                         >
                           {claim.claim}
