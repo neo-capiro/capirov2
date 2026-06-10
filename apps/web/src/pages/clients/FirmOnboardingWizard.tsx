@@ -149,8 +149,12 @@ export function FirmOnboardingWizard({ open, onClose, canManage }: FirmOnboardin
       for (let i = 0; i < ids.length; i += IMPORT_CHUNK) {
         const chunk = ids.slice(i, i + IMPORT_CHUNK);
         const res = (await api.post<ImportResult>('/api/firm/import', { ldaClientIds: chunk })).data;
-        merged.items.push(...(res.items ?? []));
-        merged.skipped.push(...(res.skipped ?? []));
+        // Defensive: only ever spread real arrays. `?? []` alone guards
+        // null/undefined but NOT a non-array value (e.g. an object/number from
+        // a drifted response), which would throw "Spread syntax requires
+        // ...iterable[Symbol.iterator] to be a function".
+        merged.items.push(...(Array.isArray(res.items) ? res.items : []));
+        merged.skipped.push(...(Array.isArray(res.skipped) ? res.skipped : []));
       }
       merged.created = merged.items.length;
       return merged;

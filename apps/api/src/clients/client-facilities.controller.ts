@@ -1,15 +1,60 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
-import { IsIn, IsInt, IsOptional, IsString, Length, Matches, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Min,
+  registerDecorator,
+  type ValidationArguments,
+  type ValidationOptions,
+  ValidatorConstraint,
+  type ValidatorConstraintInterface,
+} from 'class-validator';
+import { Transform } from 'class-transformer';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { ClientFacilitiesService } from './client-facilities.service.js';
+import { US_STATE_CODES, isValidDistrictForState } from '../common/us-congressional-districts.js';
 
 // Bare district number ("12") or the at-large sentinel "00"; the state is
 // carried separately. `/^[0-9]{1,2}$/` admits "00" already, so a single
 // regex covers both the numbered-district and at-large cases.
 const DISTRICT_PATTERN = /^[0-9]{1,2}$/;
+
+// Cross-field check: a district is only valid in the context of its state
+// (e.g. CA has 52 districts, so "99" is impossible). Reads the sibling `state`
+// off the DTO. Skips when either field is absent — a PATCH that touches only
+// one of them can't be cross-validated here.
+@ValidatorConstraint({ name: 'isDistrictValidForState', async: false })
+class IsDistrictValidForStateConstraint implements ValidatorConstraintInterface {
+  validate(district: unknown, args: ValidationArguments): boolean {
+    const state = (args.object as { state?: string }).state;
+    return isValidDistrictForState(state, district == null ? null : String(district));
+  }
+  defaultMessage(args: ValidationArguments): string {
+    const state = (args.object as { state?: string }).state;
+    return `congressionalDistrict "${String(args.value)}" is not a valid district for state ${state ?? '(unknown)'}`;
+  }
+}
+function IsDistrictValidForState(options?: ValidationOptions) {
+  return (object: object, propertyName: string): void => {
+    registerDecorator({
+      target: object.constructor,
+      propertyName,
+      options,
+      validator: IsDistrictValidForStateConstraint,
+    });
+  };
+}
+
+// Normalize a 2-letter state code to uppercase before validation so "ca" and
+// "CA" are treated alike.
+const upperState = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string' ? value.toUpperCase() : value;
 
 export class CreateFacilityDto {
   @IsString()
@@ -25,7 +70,10 @@ export class CreateFacilityDto {
 
   @IsOptional()
   @IsString()
-  @Length(2, 2)
+  @Transform(upperState)
+  @IsIn(US_STATE_CODES, {
+    message: 'state must be a valid 2-letter US state or territory code',
+  })
   state?: string;
 
   @IsOptional()
@@ -37,6 +85,7 @@ export class CreateFacilityDto {
   @Matches(DISTRICT_PATTERN, {
     message: 'congressionalDistrict must be a 1-2 digit number (bare, e.g. "12" or "00")',
   })
+  @IsDistrictValidForState()
   congressionalDistrict?: string;
 
   @IsOptional()
@@ -68,7 +117,10 @@ export class UpdateFacilityDto {
 
   @IsOptional()
   @IsString()
-  @Length(2, 2)
+  @Transform(upperState)
+  @IsIn(US_STATE_CODES, {
+    message: 'state must be a valid 2-letter US state or territory code',
+  })
   state?: string;
 
   @IsOptional()
@@ -80,6 +132,7 @@ export class UpdateFacilityDto {
   @Matches(DISTRICT_PATTERN, {
     message: 'congressionalDistrict must be a 1-2 digit number (bare, e.g. "12" or "00")',
   })
+  @IsDistrictValidForState()
   congressionalDistrict?: string;
 
   @IsOptional()

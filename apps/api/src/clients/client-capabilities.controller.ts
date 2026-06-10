@@ -79,6 +79,7 @@ class CreateCapabilityDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
   fundingAsk?: number;
 
   @IsOptional()
@@ -178,6 +179,7 @@ class UpdateCapabilityDto {
 
   @IsOptional()
   @IsNumber()
+  @Min(0)
   fundingAsk?: number;
 
   @IsOptional()

@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { json, raw } from 'express';
 import { AppModule } from './app.module.js';
+import { PrismaClientExceptionFilter } from './common/prisma-exception.filter.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -38,6 +39,11 @@ async function bootstrap() {
       transformOptions: { enableImplicitConversion: false },
     }),
   );
+
+  // Map known Prisma errors (e.g. malformed UUID path params) to 4xx instead
+  // of a generic 500. Registered after the pipes; only catches Prisma errors,
+  // so HttpExceptions still flow through Nest's default handler.
+  app.useGlobalFilters(new PrismaClientExceptionFilter());
 
   const allowedOrigins = new Set(
     [

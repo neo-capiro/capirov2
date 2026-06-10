@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { isValidDistrictForState } from '../common/us-congressional-districts.js';
 
 export interface CreateFacilityInput {
   name: string;
@@ -72,9 +73,28 @@ export class ClientFacilitiesService {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const existing = await tx.clientFacility.findFirst({
         where: { id, tenantId: ctx.tenantId, clientId },
-        select: { id: true },
+        select: { id: true, state: true, congressionalDistrict: true },
       });
       if (!existing) throw new NotFoundException('Facility not found');
+      // The DTO's cross-field check only sees fields present in the PATCH
+      // body, so a single-field update (state-only or district-only) pairs
+      // with a stored sibling it was never validated against. Re-check the
+      // EFFECTIVE pair — stored values merged with the incoming change —
+      // before writing, so e.g. district "52" can't land on a WY row. Only
+      // when the PATCH touches one of the pair: a legacy row whose STORED
+      // pair predates validation must stay editable on unrelated fields.
+      if ('state' in input || 'congressionalDistrict' in input) {
+        const effectiveState = 'state' in input ? (input.state ?? null) : existing.state;
+        const effectiveDistrict =
+          'congressionalDistrict' in input
+            ? (input.congressionalDistrict ?? null)
+            : existing.congressionalDistrict;
+        if (!isValidDistrictForState(effectiveState, effectiveDistrict)) {
+          throw new BadRequestException(
+            `congressionalDistrict "${effectiveDistrict}" is not a valid district for state ${effectiveState}`,
+          );
+        }
+      }
       return tx.clientFacility.update({
         where: { id },
         data: {

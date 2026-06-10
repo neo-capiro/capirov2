@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, expect, jest, test } from '@jest/globals';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ClientFacilitiesService } from './client-facilities.service.js';
 import { CreateFacilityDto, UpdateFacilityDto } from './client-facilities.controller.js';
 
@@ -250,6 +250,88 @@ describe('ClientFacilitiesService — RLS isolation', () => {
     );
     // Tenant B's row survives untouched.
     expect((prisma.__store.facilities[0] as Row).name).toBe('B-HQ');
+  });
+});
+
+describe('ClientFacilitiesService — single-field PATCH cross-validates against the stored row', () => {
+  // The DTO-level cross-field check only sees fields present in the PATCH
+  // body; these tests pin the service-level re-check of the merged
+  // (stored + input) state/district pair.
+  function svcWith(facility: Row) {
+    const prisma = makePrisma({
+      clients: [seedClient(TENANT_A)],
+      facilities: [{ id: 'f1', tenantId: TENANT_A, clientId: 'client-1', ...facility }],
+    });
+    return { svc: new ClientFacilitiesService(prisma as never), prisma };
+  }
+
+  test('district-only PATCH is rejected when it is invalid for the STORED state', async () => {
+    const { svc, prisma } = svcWith({ name: 'HQ', state: 'WY', congressionalDistrict: '00' });
+
+    await expect(
+      svc.updateFacility(ctx(TENANT_A), 'client-1', 'f1', { congressionalDistrict: '52' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    // Row untouched.
+    expect((prisma.__store.facilities[0] as Row).congressionalDistrict).toBe('00');
+  });
+
+  test('state-only PATCH is rejected when the STORED district is invalid for it', async () => {
+    const { svc, prisma } = svcWith({ name: 'HQ', state: 'CA', congressionalDistrict: '52' });
+
+    await expect(
+      svc.updateFacility(ctx(TENANT_A), 'client-1', 'f1', { state: 'WY' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect((prisma.__store.facilities[0] as Row).state).toBe('CA');
+  });
+
+  test('district-only PATCH succeeds when valid for the stored state', async () => {
+    const { svc } = svcWith({ name: 'HQ', state: 'CA', congressionalDistrict: '12' });
+
+    const updated = (await svc.updateFacility(ctx(TENANT_A), 'client-1', 'f1', {
+      congressionalDistrict: '52',
+    })) as Row;
+
+    expect(updated.congressionalDistrict).toBe('52');
+    expect(updated.state).toBe('CA');
+  });
+
+  test('clearing the state while a district remains stays accepted (orphan district unchanged)', async () => {
+    // Pre-existing behavior the cross-check must NOT tighten: a district with
+    // no state is inert downstream but allowed (UI state Select has allowClear).
+    // At runtime an explicit-clear arrives as `state: null` on the DTO
+    // instance; `undefined` here exercises the same `'state' in input` path.
+    const { svc } = svcWith({ name: 'HQ', state: 'CA', congressionalDistrict: '12' });
+
+    const updated = (await svc.updateFacility(ctx(TENANT_A), 'client-1', 'f1', {
+      state: undefined,
+    })) as Row;
+
+    expect(updated.state).toBeNull();
+    expect(updated.congressionalDistrict).toBe('12');
+  });
+
+  test('a legacy row with an invalid STORED pair still accepts unrelated PATCHes', async () => {
+    // Rows written before validation existed (e.g. CA/99) must stay editable:
+    // the cross-check only fires when the PATCH touches state or district.
+    const { svc } = svcWith({ name: 'HQ', state: 'CA', congressionalDistrict: '99' });
+
+    const updated = (await svc.updateFacility(ctx(TENANT_A), 'client-1', 'f1', {
+      name: 'Renamed',
+      employeeCount: 7,
+    })) as Row;
+
+    expect(updated.name).toBe('Renamed');
+    expect(updated.employeeCount).toBe(7);
+  });
+
+  test('a legacy invalid pair can be repaired by PATCHing the district to a valid one', async () => {
+    const { svc } = svcWith({ name: 'HQ', state: 'CA', congressionalDistrict: '99' });
+
+    const updated = (await svc.updateFacility(ctx(TENANT_A), 'client-1', 'f1', {
+      congressionalDistrict: '12',
+    })) as Row;
+
+    expect(updated.congressionalDistrict).toBe('12');
   });
 });
 

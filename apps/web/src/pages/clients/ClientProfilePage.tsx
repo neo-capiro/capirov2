@@ -291,7 +291,9 @@ export function ClientProfilePage({
                 void message.error('Logo must be 2 MB or smaller.');
                 return Upload.LIST_IGNORE;
               }
-              void onUploadLogo(client, file as File).then(() => onClientUpdated());
+              void onUploadLogo(client, file as File)
+                .then(() => onClientUpdated())
+                .catch((err) => message.error(errorMessage(err)));
               return false;
             }}
           >
@@ -338,7 +340,7 @@ export function ClientProfilePage({
       </div>
 
       {/* Tab nav */}
-      <div className="cp-tabs">
+      <div className="cp-tabs" role="tablist" aria-label="Client profile sections">
         {(
           [
             'overview',
@@ -368,7 +370,15 @@ export function ClientProfilePage({
               key={tab}
               className={`cp-tab${activeTab === tab ? ' active' : ''}`}
               onClick={() => setActiveTab(tab)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setActiveTab(tab);
+                }
+              }}
               role="tab"
+              aria-selected={activeTab === tab}
+              tabIndex={0}
             >
               <span>
                 {tab === 'overview'

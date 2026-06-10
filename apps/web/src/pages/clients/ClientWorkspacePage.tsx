@@ -489,6 +489,7 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
           shape="square"
           size={48}
           src={client.logoUrl || undefined}
+          alt={client.name}
           className="client-avatar"
         >
           {initials(client.name)}
