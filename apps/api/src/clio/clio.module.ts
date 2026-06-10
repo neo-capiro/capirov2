@@ -6,6 +6,7 @@ import { FederalSpendingModule } from '../federal-spending/federal-spending.modu
 import { ProgramElementModule } from '../program-element/program-element.module.js';
 import { AcquisitionPersonnelModule } from '../acquisition-personnel/acquisition-personnel.module.js';
 import { WorkflowsModule } from '../workflows/workflows.module.js';
+import { StrategiesModule } from '../strategies/strategies.module.js';
 import { ClioController } from './clio.controller.js';
 import { ClioService } from './clio.service.js';
 import { ClioToolsService } from './clio-tools.service.js';
@@ -21,6 +22,7 @@ import { ClioDocgenService } from './clio-docgen.service.js';
     ProgramElementModule,
     AcquisitionPersonnelModule,
     WorkflowsModule,
+    StrategiesModule,
   ],
   controllers: [ClioController],
   providers: [ClioService, ClioToolsService, ClioResearchService, ClioDocgenService],

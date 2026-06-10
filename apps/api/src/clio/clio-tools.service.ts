@@ -11,6 +11,7 @@ import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { EngagementService } from '../engagement/engagement.service.js';
 import { WorkflowsService } from '../workflows/workflows.service.js';
+import { StrategiesService } from '../strategies/strategies.service.js';
 import { MicrosoftGraphSyncService } from '../engagement/microsoft/microsoft-graph-sync.service.js';
 import { LdaIntelService } from '../lda-intel/lda-intel.service.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
@@ -192,6 +193,10 @@ const TOOL_DEFINITIONS = [
     name: 'query_tasks',
     description: 'List engagement tasks/to-dos for the firm or a client — filter by status and due date. Use for "what is due, overdue, or open".',
   },
+  {
+    name: 'query_strategies',
+    description: 'List the firm\'s government-affairs strategies and their targets/deadlines, or upcoming strategy deadlines. Use to ground answers in the firm\'s actual game plan. Pass strategyId for full detail or deadlinesOnly for the deadline calendar.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -253,6 +258,7 @@ export class ClioToolsService {
     private readonly acquisitionPersonnel: AcquisitionPersonnelReadService,
     private readonly docgen: ClioDocgenService,
     private readonly workflows: WorkflowsService,
+    private readonly strategies: StrategiesService,
   ) {}
 
   manifest() {
@@ -504,6 +510,12 @@ export class ClioToolsService {
         dueBefore: str('Optional ISO date upper bound on due date'),
         limit: int('Max results (1-50)'),
       }),
+      query_strategies: obj({
+        strategyId: str('Optional strategy UUID for full detail'),
+        clientId: str('Optional client UUID filter'),
+        deadlinesOnly: { type: 'boolean', description: 'Return upcoming deadlines across strategies (next 30 days)' },
+        limit: int('Max results (1-50)'),
+      }),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -605,6 +617,8 @@ export class ClioToolsService {
         return this.queryWorkflows(ctx, input);
       case 'query_tasks':
         return this.queryTasks(ctx, input);
+      case 'query_strategies':
+        return this.queryStrategies(ctx, input);
       default:
         assertNever(name);
     }
@@ -2361,6 +2375,56 @@ export class ClioToolsService {
         meeting: task.meeting,
         description: summarizeText(task.description, 240),
         createdAt: task.createdAt,
+      })),
+    };
+  }
+
+  private async queryStrategies(ctx: TenantContext, input: Record<string, unknown>) {
+    const deadlinesOnly = optionalBoolean(input, 'deadlinesOnly');
+    if (deadlinesOnly) {
+      const deadlines = await this.strategies.getDeadlines(ctx.tenantId);
+      return {
+        tool: 'query_strategies',
+        generatedAt: new Date().toISOString(),
+        total: deadlines.length,
+        deadlines,
+      };
+    }
+
+    const strategyId = optionalString(input, 'strategyId', 80);
+    if (strategyId) {
+      const strategy = await this.strategies.get(ctx.tenantId, strategyId);
+      return {
+        tool: 'query_strategies',
+        generatedAt: new Date().toISOString(),
+        strategy,
+      };
+    }
+
+    const clientId = optionalString(input, 'clientId', 80);
+    const limit = clampInt(input.limit, 1, 50, 20);
+    if (clientId) await this.ensureClientVisible(ctx, clientId);
+
+    const strategies = await this.strategies.list(ctx.tenantId, {
+      clientId: clientId ?? undefined,
+    });
+
+    return {
+      tool: 'query_strategies',
+      generatedAt: new Date().toISOString(),
+      total: strategies.length,
+      results: strategies.slice(0, limit).map((strategy) => ({
+        id: strategy.id,
+        name: strategy.name,
+        status: strategy.status,
+        fiscalYear: strategy.fiscalYear,
+        clientId: strategy.clientId,
+        clientName: strategy.client?.name ?? null,
+        capability: strategy.capability,
+        targetsCount: strategy.targets.length,
+        instancesCount: strategy._count.instances,
+        description: summarizeText(strategy.description, 300),
+        createdAt: strategy.createdAt,
       })),
     };
   }
