@@ -231,6 +231,18 @@ const TOOL_DEFINITIONS = [
     name: 'query_outreach',
     description: 'List outreach campaigns and their status (draft, sent, responses) for the firm or a client, or fetch a single outreach record\'s full detail by outreachId.',
   },
+  {
+    name: 'create_task',
+    description: 'Create an engagement task/follow-up (title, optional client, due date, description). Requires user approval.',
+  },
+  {
+    name: 'update_task',
+    description: 'Update an engagement task\'s status, due date, or title (e.g. mark done). Requires user approval.',
+  },
+  {
+    name: 'update_workflow_field',
+    description: 'Write an approved value into a single field of a workflow/submission instance\'s form data. Requires user approval.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -252,6 +264,9 @@ const SIDE_EFFECTING_TOOLS: ReadonlySet<string> = new Set<string>([
   'create_powerpoint',
   'schedule_task',
   'cancel_scheduled_task',
+  'create_task',
+  'update_task',
+  'update_workflow_field',
 ]);
 
 interface ToolArtifactInput {
@@ -583,6 +598,23 @@ export class ClioToolsService {
         status: str('Optional status filter, e.g. draft | sent'),
         limit: int('Max results (1-50)'),
       }),
+      create_task: obj({
+        title: str('Task title'),
+        clientId: str('Optional client UUID'),
+        dueDate: str('Optional ISO due date'),
+        description: str('Optional task description'),
+      }, ['title']),
+      update_task: obj({
+        taskId: str('Task UUID'),
+        status: str('Optional new status: todo | in_progress | done | blocked | canceled'),
+        dueDate: str('Optional new ISO due date'),
+        title: str('Optional new title'),
+      }, ['taskId']),
+      update_workflow_field: obj({
+        instanceId: str('Workflow instance UUID'),
+        fieldKey: str('Form-data field key to set'),
+        value: str('Approved value to write'),
+      }, ['instanceId', 'fieldKey', 'value']),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -698,6 +730,12 @@ export class ClioToolsService {
         return this.queryDebriefs(ctx, input);
       case 'query_outreach':
         return this.queryOutreach(ctx, input);
+      case 'create_task':
+        return this.createEngagementTask(ctx, input);
+      case 'update_task':
+        return this.updateEngagementTask(ctx, input);
+      case 'update_workflow_field':
+        return this.updateWorkflowField(ctx, input);
       default:
         assertNever(name);
     }
@@ -2801,6 +2839,101 @@ export class ClioToolsService {
         sentAt: campaign.sentAt,
         createdAt: campaign.createdAt,
       })),
+    };
+  }
+
+  // ── P2 write tools (approval-gated; engagement/workflow domain only) ──
+
+  private async createEngagementTask(ctx: TenantContext, input: Record<string, unknown>) {
+    const title = requiredString(input, 'title', 240);
+    const clientId = optionalString(input, 'clientId', 80);
+    const dueDate = optionalString(input, 'dueDate', 40);
+    const description = optionalString(input, 'description', 2000);
+    if (clientId) await this.ensureClientVisible(ctx, clientId);
+
+    const task = await this.engagement.createTask(ctx, {
+      title,
+      clientId: clientId ?? undefined,
+      dueDate: dueDate ?? undefined,
+      description: description ?? undefined,
+    });
+
+    return {
+      tool: 'create_task',
+      generatedAt: new Date().toISOString(),
+      created: true,
+      task: {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        dueDate: task.dueDate,
+        clientId: task.clientId,
+        createdAt: task.createdAt,
+      },
+    };
+  }
+
+  private async updateEngagementTask(ctx: TenantContext, input: Record<string, unknown>) {
+    const taskId = requiredString(input, 'taskId', 80);
+    const statusRaw = optionalString(input, 'status', 30)?.toLowerCase() ?? null;
+    const dueDate = optionalString(input, 'dueDate', 40);
+    const title = optionalString(input, 'title', 240);
+
+    const dto: { status?: EngagementTaskStatus; dueDate?: string; title?: string } = {};
+    if (statusRaw) {
+      const mapped = statusRaw === 'open' ? 'todo' : statusRaw;
+      const valid = Object.values(EngagementTaskStatus) as string[];
+      if (!valid.includes(mapped)) {
+        throw new BadRequestException(`status must be one of: ${valid.join(', ')}`);
+      }
+      dto.status = mapped as EngagementTaskStatus;
+    }
+    if (dueDate) dto.dueDate = dueDate;
+    if (title) dto.title = title;
+    if (!Object.keys(dto).length) {
+      throw new BadRequestException('Provide at least one of status, dueDate, or title');
+    }
+
+    const task = await this.engagement.updateTask(ctx, taskId, dto);
+    return {
+      tool: 'update_task',
+      generatedAt: new Date().toISOString(),
+      updated: true,
+      task: {
+        id: task.id,
+        title: task.title,
+        status: task.status,
+        dueDate: task.dueDate,
+        clientId: task.clientId,
+        updatedAt: task.updatedAt,
+      },
+    };
+  }
+
+  private async updateWorkflowField(ctx: TenantContext, input: Record<string, unknown>) {
+    const instanceId = requiredString(input, 'instanceId', 80);
+    const fieldKey = requiredString(input, 'fieldKey', 120);
+    const value = requiredString(input, 'value', 20_000);
+
+    // getInstance 404s outside the tenant, so the read-merge-write below can
+    // never touch another tenant's instance.
+    const instance = await this.workflows.getInstance(ctx.tenantId, instanceId);
+    const existing =
+      instance.formData && typeof instance.formData === 'object' && !Array.isArray(instance.formData)
+        ? (instance.formData as Record<string, unknown>)
+        : {};
+    const formData = { ...existing, [fieldKey]: value };
+
+    const updated = await this.workflows.updateInstance(ctx.tenantId, instanceId, { formData });
+    return {
+      tool: 'update_workflow_field',
+      generatedAt: new Date().toISOString(),
+      updated: true,
+      instanceId,
+      fieldKey,
+      value,
+      instanceStatus: updated.status,
+      instanceTitle: updated.title,
     };
   }
 

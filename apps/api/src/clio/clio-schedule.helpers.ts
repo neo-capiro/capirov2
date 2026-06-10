@@ -63,6 +63,9 @@ export const FORBIDDEN_SCHEDULED_TOOLS: ReadonlySet<string> = new Set<string>([
   'create_excel',
   'create_powerpoint',
   'scrape_web_page',
+  'create_task',
+  'update_task',
+  'update_workflow_field',
 ]);
 
 export interface ScheduleValidationResult {
