@@ -105,6 +105,46 @@ export const configSchema = z.object({
     .default('true')
     .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
 
+  // Extended thinking on the deep tier (assistant-parity F3). When enabled,
+  // deep-tier chat turns and deep-research gather/synthesize calls request
+  // model reasoning, streamed to the UI timeline as it happens. 'adaptive'
+  // mode (default, recommended on the Claude 4.6-family models Clio runs on,
+  // where fixed thinking budgets are deprecated) lets the model decide when
+  // and how much to think; 'budget' mode sends a fixed budget_tokens for
+  // pinned older models. Thinking text is ephemeral UI: never persisted to
+  // messages/artifacts, never fed to the confidence checker. Kill-switch: set
+  // false/0/no/off to restore exact baseline requests with no deploy.
+  CLIO_EXTENDED_THINKING: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  CLIO_THINKING_MODE: z.enum(['adaptive', 'budget']).default('adaptive'),
+  // Budget mode: the fixed thinking budget. Adaptive mode: extra max_tokens
+  // headroom granted so thinking never crowds out the visible answer.
+  CLIO_THINKING_BUDGET_TOKENS: z.coerce.number().int().positive().default(8000),
+  CLIO_RESEARCH_THINKING_BUDGET_TOKENS: z.coerce.number().int().positive().default(16_000),
+
+  // Long-conversation compaction (assistant-parity F2). An after-turn async
+  // job folds turns older than the verbatim tail into a rolling per-
+  // conversation summary (small intent-tier model) once the un-summarized
+  // text reaches the trigger budget; turn assembly then sends
+  // [summary block] + last-N verbatim turns instead of replaying everything.
+  // Kill-switch: set CLIO_COMPACTION_ENABLED=false to stop compacting (the
+  // stored summary keeps being injected for already-compacted threads).
+  CLIO_COMPACTION_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  CLIO_COMPACTION_TRIGGER_TOKENS: z.coerce.number().int().positive().default(5000),
+  CLIO_COMPACTION_TAIL_MESSAGES: z.coerce.number().int().positive().default(12),
+  // Conversation-history search index (F2): embeds chat messages into
+  // context_embeddings (sourceType 'clio_message') after each turn. Search
+  // degrades to keyword ILIKE when embeddings are unavailable or disabled.
+  CLIO_MESSAGE_INDEX_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+
   // Clio public web search (search_public_web). 'duckduckgo' (default) keeps the
   // existing scraped DDG behavior with zero new dependencies; 'tavily'/'serper'
   // call the respective search API when its key is configured, with automatic

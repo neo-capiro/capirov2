@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  BulbOutlined,
   CheckCircleFilled,
   DownOutlined,
   LoadingOutlined,
@@ -27,6 +28,11 @@ interface ThoughtProcessProps {
   planSteps?: string[];
   /** True while the assistant turn is still streaming. */
   isStreaming: boolean;
+  /**
+   * Accumulated model reasoning for the in-flight turn (deep-tier `thinking`
+   * SSE deltas). Ephemeral — never persisted, absent after a reload.
+   */
+  reasoningText?: string;
 }
 
 const INTENT_LABELS: Record<string, string> = {
@@ -52,11 +58,28 @@ function confidenceDot(c?: 'high' | 'medium' | 'low'): string {
  * collapses to a one-line summary when done, expandable to the full step list
  * with data sources and their confidence.
  */
-export function ThoughtProcess({ intent, tier, steps, planSteps, isStreaming }: ThoughtProcessProps) {
+export function ThoughtProcess({
+  intent,
+  tier,
+  steps,
+  planSteps,
+  isStreaming,
+  reasoningText,
+}: ThoughtProcessProps) {
   const [expanded, setExpanded] = useState(false);
+  // Reasoning accordion: collapsed by default; live-appends while streaming.
+  const [reasoningOpen, setReasoningOpen] = useState(false);
+  const reasoningBodyRef = useRef<HTMLDivElement | null>(null);
+
+  // Auto-scroll the reasoning pane to the bottom while text is streaming in.
+  useEffect(() => {
+    if (!reasoningOpen || !isStreaming) return;
+    const el = reasoningBodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [reasoningText, reasoningOpen, isStreaming]);
 
   // Nothing to show until the agent does something beyond plain text.
-  if (!isStreaming && steps.length === 0) return null;
+  if (!isStreaming && steps.length === 0 && !reasoningText) return null;
 
   const toolCount = steps.length;
   const sourceCount = steps.reduce((acc, s) => acc + (typeof s.count === 'number' ? s.count : 0), 0);
@@ -95,6 +118,29 @@ export function ThoughtProcess({ intent, tier, steps, planSteps, isStreaming }: 
 
       {expanded && (
         <div className="chat-tp-body">
+          {reasoningText ? (
+            <div className="chat-tp-reasoning">
+              <button
+                type="button"
+                className="chat-tp-reasoning-header"
+                onClick={() => setReasoningOpen((v) => !v)}
+                aria-expanded={reasoningOpen}
+              >
+                <span className="chat-tp-reasoning-icon" aria-hidden="true">
+                  <BulbOutlined />
+                </span>
+                <span className="chat-tp-reasoning-label">Reasoning</span>
+                <span className="chat-tp-chevron" aria-hidden="true">
+                  {reasoningOpen ? <DownOutlined /> : <RightOutlined />}
+                </span>
+              </button>
+              {reasoningOpen && (
+                <div className="chat-tp-reasoning-body" ref={reasoningBodyRef}>
+                  {reasoningText}
+                </div>
+              )}
+            </div>
+          ) : null}
           {planSteps && planSteps.length > 0 ? (
             <div className="chat-tp-plan">
               <span className="chat-tp-plan-label">Plan</span>

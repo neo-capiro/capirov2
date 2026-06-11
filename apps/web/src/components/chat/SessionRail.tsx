@@ -81,11 +81,31 @@ export function SessionRail() {
         const msgs = await res.json();
         if (Array.isArray(msgs)) {
           for (const m of msgs) {
+            // Persisted attachment chips live in metadata.attachments
+            // as [{ id, filename, kind, status }].
+            const rawAttachments = Array.isArray(m?.metadata?.attachments)
+              ? m.metadata.attachments
+              : null;
+            const attachments = rawAttachments
+              ? rawAttachments
+                  .filter(
+                    (a: unknown): a is Record<string, unknown> =>
+                      Boolean(a) && typeof a === 'object',
+                  )
+                  .map((a: Record<string, unknown>) => ({
+                    id: String(a.id ?? ''),
+                    filename: String(a.filename ?? ''),
+                    kind: String(a.kind ?? 'text'),
+                    status: String(a.status ?? 'parsed'),
+                  }))
+                  .filter((a: { id: string }) => Boolean(a.id))
+              : [];
             appendChatMessage({
               id: m.id || `${Date.now()}-${Math.random().toString(36).slice(2)}`,
               role: m.role === 'user' ? 'user' : 'assistant',
               content: m.body || '',
               createdAt: new Date(m.createdAt),
+              ...(attachments.length > 0 ? { attachments } : {}),
             });
           }
         }

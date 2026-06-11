@@ -996,6 +996,148 @@
   font-size: 13px;
 }
 
+/* ── Attachments (F1): paperclip button + staged chips in the composer ── */
+.chat-attach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid var(--border-2);
+  background: var(--bg-surface);
+  color: var(--ink-2);
+  font-size: 15px;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    border-color 0.12s,
+    color 0.12s;
+}
+.chat-attach-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.chat-attach-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Staged chip row sits above the textarea, inside the composer surface. */
+.chat-attach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 8px 0;
+}
+.chat-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  border: 1px solid var(--border-1);
+  border-radius: 999px;
+  background: var(--bg-surface-2);
+  color: var(--ink-2);
+  padding: 3px 8px;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.chat-attach-chip--error {
+  border-color: var(--critical-soft);
+  background: var(--critical-soft);
+  color: var(--critical);
+}
+.chat-attach-chip-icon {
+  display: inline-flex;
+  font-size: 12px;
+  color: var(--accent-ink);
+}
+.chat-attach-chip--error .chat-attach-chip-icon {
+  color: var(--critical);
+}
+.chat-attach-chip-name {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.chat-attach-chip-status {
+  display: inline-flex;
+  font-size: 11px;
+}
+.chat-attach-chip-status--ok {
+  color: var(--success);
+}
+.chat-attach-chip-status--uploading {
+  color: var(--accent);
+}
+.chat-attach-chip-status--error {
+  color: var(--critical);
+}
+.chat-attach-tag {
+  border-radius: 999px;
+  background: var(--notable-soft);
+  color: var(--notable);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 6px;
+  cursor: default;
+}
+.chat-attach-chip-remove {
+  border: none;
+  background: none;
+  color: var(--ink-4);
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 0 0 2px;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+.chat-attach-chip-remove:hover {
+  color: var(--critical);
+}
+.chat-attach-notice {
+  padding: 2px 8px 0;
+  font-size: 11px;
+  color: var(--notable);
+}
+
+/* In-bubble attachment chips (user messages; also restored on reload). */
+.chat-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.chat-msg-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(26, 63, 159, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--accent-ink);
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 2px 8px;
+}
+.chat-msg-attachment-icon {
+  display: inline-flex;
+  font-size: 11px;
+}
+.chat-msg-attachment-name {
+  overflow: hidden;
+  white-space: nowrap;
+}
+.chat-msg-attachment-flag {
+  border-radius: 999px;
+  background: var(--notable-soft);
+  color: var(--notable);
+  font-size: 9.5px;
+  font-weight: 600;
+  padding: 0 5px;
+}
+
 .chat-input-send {
   flex-shrink: 0;
   width: 36px !important;
@@ -1815,6 +1957,53 @@
 .chat-tp-dot--medium { background: var(--notable); }
 .chat-tp-dot--low { background: var(--critical); }
 .chat-tp-footnote { margin: 10px 0 0; font-size: 10px; color: var(--ink-4); line-height: 1.4; }
+
+/* Reasoning accordion (F3) — sits above the plan/steps inside the tp body.
+   Ephemeral stream of model thinking: dim, small, pre-wrap, scrollable. */
+.chat-tp-reasoning {
+  margin: 8px 0 2px;
+  border: 1px solid var(--border-1);
+  border-radius: var(--r-sm);
+  background: var(--bg-surface);
+  overflow: hidden;
+}
+.chat-tp-reasoning-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-2);
+  text-align: left;
+  transition: background 0.12s;
+}
+.chat-tp-reasoning-header:hover {
+  background: rgba(16, 18, 24, 0.03);
+}
+.chat-tp-reasoning-icon {
+  display: inline-flex;
+  color: var(--notable);
+  font-size: 12px;
+}
+.chat-tp-reasoning-label {
+  flex: 1;
+}
+.chat-tp-reasoning-body {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--border-1);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 
 

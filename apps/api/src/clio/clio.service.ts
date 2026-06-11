@@ -38,7 +38,48 @@ import { COMPLIANCE_GUARDRAILS, screenComplianceRisk } from './clio-compliance.h
 import { confidenceLevel } from './clio-confidence.helpers.js';
 import { classifyToolAction, isSideEffectingTool } from './clio-actions.helpers.js';
 import mammoth from 'mammoth';
-import { validateAttachment, formatAttachmentContext } from './clio-attachment.helpers.js';
+import { extractPdfText } from './clio-attachment-extract.js';
+import {
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  MAX_IMAGE_BYTES,
+  attachmentMetaRef,
+  attachmentRefsFromMetadata,
+  formatAttachmentContext,
+  imageHistoryPlaceholder,
+  imageMediaTypeFromSniff,
+  resolveDocumentStatus,
+  validateAttachment,
+  validateVisionSet,
+  verifyMagicBytes,
+  type AttachmentMetaRef,
+  type AttachmentStatus,
+} from './clio-attachment.helpers.js';
+import {
+  applyThinkingStreamEvent,
+  createThinkingState,
+  thinkingReplayBlocks,
+  thinkingRequestParams,
+  type ThinkingSettings,
+} from './clio-thinking.helpers.js';
+import {
+  buildCompactionPrompt,
+  estimateTokens,
+  formatSummaryBlockForPrompt,
+  planCompaction,
+  sanitizeSummaryOutput,
+} from './clio-compaction.helpers.js';
+import {
+  buildMessageEmbeddingText,
+  groupHitsByConversation,
+  type HistorySearchHit,
+} from './clio-history-search.helpers.js';
+import {
+  EMBEDDING_MODEL,
+  embedText,
+  normalize as normalizeForEmbedding,
+  sha256 as embeddingHash,
+  vectorLiteral,
+} from '../embeddings/embedder.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -340,6 +381,7 @@ export class ClioService {
     sse: { write: (data: string) => void },
     clientSignal?: AbortSignal,
     mode: 'new' | 'regenerate' | 'resend' = 'new',
+    attachmentIds: string[] = [],
   ) {
     const conversation = await this.ensureConversation(ctx, conversationId);
     const streamControl = this.extractStreamControl(body);
@@ -356,10 +398,41 @@ export class ClioService {
     let content: string;
     if (mode === 'new') {
       content = streamControl.cleanContent.trim();
-      if (!content) throw new BadRequestException('Message body is empty');
-      // Persist the new user message.
-      await this.prisma.withTenant(ctx.tenantId, (tx) =>
-        tx.clioMessage.create({
+      if (!content && !attachmentIds.length) throw new BadRequestException('Message body is empty');
+      if (!content) content = '(See the attached file(s).)';
+      if (attachmentIds.length > MAX_ATTACHMENTS_PER_MESSAGE) {
+        throw new BadRequestException(
+          `At most ${MAX_ATTACHMENTS_PER_MESSAGE} attachments per message`,
+        );
+      }
+      // Persist the new user message; claim referenced attachments (F1) in the
+      // same transaction so a validation failure never leaves a dangling turn.
+      await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+        let attachmentRows: Array<{
+          id: string;
+          filename: string;
+          kind: string;
+          status: string;
+          byteSize: number;
+        }> = [];
+        if (attachmentIds.length) {
+          attachmentRows = await tx.clioAttachment.findMany({
+            where: { id: { in: attachmentIds }, tenantId: ctx.tenantId, userId: ctx.userId },
+            select: { id: true, filename: true, kind: true, status: true, byteSize: true },
+          });
+          if (attachmentRows.length !== new Set(attachmentIds).size) {
+            throw new BadRequestException(
+              'One or more attachments were not found (they may have expired) — re-upload and try again',
+            );
+          }
+          const vision = validateVisionSet(
+            attachmentRows
+              .filter((r) => r.kind === 'image')
+              .map((r) => ({ byteSize: r.byteSize, filename: r.filename })),
+          );
+          if (!vision.ok) throw new BadRequestException(vision.reason ?? 'Invalid image set');
+        }
+        const userMessage = await tx.clioMessage.create({
           data: {
             tenantId: ctx.tenantId,
             userId: ctx.userId,
@@ -367,10 +440,20 @@ export class ClioService {
             conversationId,
             role: 'user',
             body: content,
-            metadata: {},
+            metadata: attachmentRows.length
+              ? ({
+                  attachments: attachmentRows.map(attachmentMetaRef),
+                } as unknown as Prisma.InputJsonValue)
+              : {},
           },
-        }),
-      );
+        });
+        if (attachmentRows.length) {
+          await tx.clioAttachment.updateMany({
+            where: { id: { in: attachmentIds }, tenantId: ctx.tenantId, userId: ctx.userId },
+            data: { messageId: userMessage.id },
+          });
+        }
+      });
     } else {
       // Regenerate / edit-and-resend (P0-4): re-run the last user turn, discarding
       // the assistant turn(s) after it. No new user message is persisted; for
@@ -403,15 +486,93 @@ export class ClioService {
       });
     }
 
-    // Load recent history
-    const history = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+    // Load recent history (F2): with a compaction summary, replay only the
+    // messages newer than the summary boundary and inject the summary block;
+    // otherwise fall back to the most recent turns.
+    const summaryBoundary = conversation.summaryUpToMessageId
+      ? await this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.clioMessage.findFirst({
+            where: { id: conversation.summaryUpToMessageId ?? undefined, conversationId },
+            select: { createdAt: true },
+          }),
+        )
+      : null;
+    const conversationSummary = summaryBoundary ? (conversation.summary ?? null) : null;
+    const historyDesc = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.clioMessage.findMany({
-        where: { conversationId, role: { in: ['user', 'assistant'] } },
-        orderBy: { createdAt: 'asc' },
-        take: 20,
-        select: { role: true, body: true },
+        where: {
+          conversationId,
+          role: { in: ['user', 'assistant'] },
+          ...(summaryBoundary ? { createdAt: { gt: summaryBoundary.createdAt } } : {}),
+        },
+        orderBy: { createdAt: 'desc' },
+        take: summaryBoundary ? 60 : 20,
+        select: { id: true, role: true, body: true, metadata: true },
       }),
     );
+    const history = historyDesc.reverse();
+
+    // Resolve attachment context for replay (F1): documents re-inject their
+    // extracted text on every turn; images attach as native vision blocks on
+    // the current turn only (older turns get a placeholder line so the model
+    // knows they existed).
+    const attachmentRefsByMessage = new Map<string, AttachmentMetaRef[]>();
+    for (const m of history) {
+      const refs = attachmentRefsFromMetadata(m.metadata);
+      if (refs.length) attachmentRefsByMessage.set(m.id, refs);
+    }
+    const lastUserMessage = [...history].reverse().find((m) => m.role === 'user') ?? null;
+    const docTextById = new Map<string, { filename: string; text: string }>();
+    const currentTurnImages: Array<{ filename: string; mediaType: string; dataBase64: string }> =
+      [];
+    if (attachmentRefsByMessage.size) {
+      const allRefIds = [...attachmentRefsByMessage.values()].flat().map((r) => r.id);
+      const docRows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.clioAttachment.findMany({
+          where: { id: { in: allRefIds }, kind: { not: 'image' }, textContent: { not: null } },
+          select: { id: true, filename: true, textContent: true },
+        }),
+      );
+      for (const row of docRows) {
+        docTextById.set(row.id, { filename: row.filename, text: row.textContent ?? '' });
+      }
+      const lastUserImageIds = (
+        (lastUserMessage && attachmentRefsByMessage.get(lastUserMessage.id)) ??
+        []
+      )
+        .filter((r) => r.kind === 'image')
+        .map((r) => r.id);
+      if (lastUserImageIds.length) {
+        const imageRows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.clioAttachment.findMany({
+            where: { id: { in: lastUserImageIds }, kind: 'image' },
+            select: { id: true, filename: true, mediaType: true, data: true },
+          }),
+        );
+        for (const row of imageRows) {
+          if (row.data && row.mediaType) {
+            currentTurnImages.push({
+              filename: row.filename,
+              mediaType: row.mediaType,
+              dataBase64: Buffer.from(row.data).toString('base64'),
+            });
+          }
+        }
+      }
+    }
+    const replayHistory = history.map((m) => {
+      const refs = attachmentRefsByMessage.get(m.id) ?? [];
+      if (!refs.length) return { role: m.role as 'user' | 'assistant', body: m.body };
+      const parts = [m.body];
+      for (const ref of refs) {
+        const doc = docTextById.get(ref.id);
+        if (doc) parts.push(formatAttachmentContext(doc.filename, doc.text));
+        else if (ref.kind === 'image' && m.id !== lastUserMessage?.id) {
+          parts.push(imageHistoryPlaceholder(ref.filename));
+        }
+      }
+      return { role: m.role as 'user' | 'assistant', body: parts.join('\n\n') };
+    });
 
     // Classify intent
     const intent = await this.classifyIntent(content);
@@ -425,6 +586,7 @@ export class ClioService {
       orchestration.context,
       orchestration.template,
       promptCacheEnabled,
+      conversationSummary,
     );
 
     sse.write(`data: ${JSON.stringify({ type: 'start', intent, tier: orchestration.policy.tier })}\n\n`);
@@ -458,10 +620,7 @@ export class ClioService {
     // Trim history to a char budget (oldest-first) so long sessions don't
     // silently exceed the model context window and 400.
     const historyBudget = this.config.get('CLIO_HISTORY_CHAR_BUDGET', { infer: true });
-    const trimmedHistory = trimHistoryToBudget(
-      history.map((m) => ({ role: m.role as 'user' | 'assistant', body: m.body })),
-      historyBudget,
-    );
+    const trimmedHistory = trimHistoryToBudget(replayHistory, historyBudget);
 
     let assistantContent = '';
     const producedArtifacts: Array<{
@@ -489,6 +648,18 @@ export class ClioService {
 
       const model = this.config.get('CLIO_MODEL', { infer: true });
       const maxTokens = this.config.get('CLIO_MAX_TOKENS', { infer: true });
+      // Extended thinking on the deep tier (F3): fast-tier turns are untouched;
+      // the kill-switch (CLIO_EXTENDED_THINKING=off) restores baseline behavior.
+      const thinkingSettings: ThinkingSettings = {
+        enabled: this.config.get('CLIO_EXTENDED_THINKING', { infer: true }),
+        mode: this.config.get('CLIO_THINKING_MODE', { infer: true }),
+        budgetTokens: this.config.get('CLIO_THINKING_BUDGET_TOKENS', { infer: true }),
+      };
+      const thinking = thinkingRequestParams(
+        thinkingSettings,
+        orchestration.policy.tier,
+        maxTokens,
+      );
       const timeoutMs = this.config.get('CLIO_REQUEST_TIMEOUT_MS', { infer: true });
       const maxRounds = this.config.get('CLIO_MAX_TOOL_ROUNDS', { infer: true });
       const turnBudgetMs = this.config.get('CLIO_TURN_BUDGET_MS', { infer: true });
@@ -502,6 +673,21 @@ export class ClioService {
         role: m.role,
         content: m.body,
       }));
+
+      // Attach current-turn images as native Anthropic vision blocks (F1): the
+      // Messages API reads them directly, no extraction step.
+      if (currentTurnImages.length && messages.length) {
+        const last = messages[messages.length - 1];
+        if (last && last.role === 'user' && typeof last.content === 'string') {
+          last.content = [
+            ...currentTurnImages.map((img) => ({
+              type: 'image',
+              source: { type: 'base64', media_type: img.mediaType, data: img.dataBase64 },
+            })),
+            { type: 'text', text: last.content },
+          ];
+        }
+      }
 
       for (let round = 0; ; round += 1) {
         // Raised round cap + wall-clock turn budget (P2-3): stop and wrap up
@@ -541,6 +727,7 @@ export class ClioService {
 
         // Accumulators for this round's assistant turn.
         const toolUseById = new Map<number, { id: string; name: string; jsonParts: string[] }>();
+        const thinkingState = createThinkingState();
         const roundUsage = emptyUsage();
         let stopReason: string | null = null;
         const roundStartMs = Date.now();
@@ -555,7 +742,8 @@ export class ClioService {
             },
             body: JSON.stringify({
               model,
-              max_tokens: maxTokens,
+              max_tokens: thinking.maxTokens,
+              ...(thinking.thinking ? { thinking: thinking.thinking } : {}),
               stream: true,
               system: systemBlocks,
               tools: toolSchemas,
@@ -585,6 +773,15 @@ export class ClioService {
               try {
                 const evt = JSON.parse(payload);
                 applyRoundUsageEvent(roundUsage, evt);
+                // Extended thinking (F3): relay reasoning deltas to the UI
+                // timeline; the accumulated blocks replay in the agentic loop
+                // but never persist (redaction guarantee, spec-covered).
+                const thinkingDelta = applyThinkingStreamEvent(thinkingState, evt);
+                if (thinkingDelta.thinkingTextDelta) {
+                  sse.write(
+                    `data: ${JSON.stringify({ type: 'thinking', text: thinkingDelta.thinkingTextDelta })}\n\n`,
+                  );
+                }
                 if (evt.type === 'content_block_start') {
                   const block = evt.content_block ?? {};
                   if (block.type === 'tool_use') {
@@ -634,8 +831,12 @@ export class ClioService {
         // Reconstruct the assistant turn (text + tool_use blocks) and append it,
         // then execute each tool in-process and feed results back as a user turn.
         const orderedTools = [...toolUseById.entries()].sort((a, b) => a[0] - b[0]).map(([, v]) => v);
-        // Assistant content blocks: include any streamed text, then tool_use blocks.
-        const assistantTurn: Array<Record<string, unknown>> = [];
+        // Assistant content blocks: thinking blocks first (the API requires
+        // them replayed with signatures when tools are used — F3), then
+        // tool_use blocks.
+        const assistantTurn: Array<Record<string, unknown>> = [
+          ...thinkingReplayBlocks(thinkingState),
+        ];
         // Note: we cannot perfectly reconstruct interleaved text positions from
         // the stream, so we emit accumulated text (if any new this round) as one
         // block followed by the tool_use blocks. Anthropic accepts this ordering.
@@ -923,7 +1124,293 @@ export class ClioService {
       void this.maybeLearnFromConversation(ctx.tenantId, ctx.userId, conversationId, content, assistantContent).catch(() => {});
     }
 
+    // After-turn maintenance (F2): index this turn's messages for history
+    // search and run compaction when the conversation outgrows its budget.
+    // Scheduled off the response cycle and fail-open — it never blocks or
+    // breaks the streaming reply.
+    setImmediate(() => {
+      this.afterTurnMaintenance(ctx, conversationId).catch((err) => {
+        this.logger.warn(
+          `Clio after-turn maintenance failed [conv ${conversationId}]: ${err instanceof Error ? err.message : err}`,
+        );
+      });
+    });
+
     sse.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+  }
+
+  // ── Long-conversation compaction + history search (F2) ───────────────────
+
+  private async afterTurnMaintenance(ctx: TenantContext, conversationId: string): Promise<void> {
+    await this.indexRecentMessagesForSearch(ctx, conversationId).catch((err) => {
+      // Embeddings degrade silently to the ILIKE fallback at query time.
+      this.logger.debug(
+        `Clio message indexing skipped: ${err instanceof Error ? err.message : err}`,
+      );
+    });
+    await this.maybeCompactConversation(ctx, conversationId);
+  }
+
+  /**
+   * Embed the newest turns into context_embeddings (sourceType
+   * 'clio_message') for history search. Hash-skip makes re-runs free; the
+   * Bedrock call runs outside any transaction. Encrypted meeting notes never
+   * enter this index — only clio_messages bodies are read.
+   */
+  private async indexRecentMessagesForSearch(
+    ctx: TenantContext,
+    conversationId: string,
+  ): Promise<void> {
+    if (!this.config.get('CLIO_MESSAGE_INDEX_ENABLED', { infer: true })) return;
+    const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMessage.findMany({
+        where: { conversationId, role: { in: ['user', 'assistant'] } },
+        orderBy: { createdAt: 'desc' },
+        take: 4,
+        select: {
+          id: true,
+          role: true,
+          body: true,
+          clientId: true,
+          conversation: { select: { title: true } },
+        },
+      }),
+    );
+    for (const row of rows) {
+      if (!row.body || row.body.length < 10) continue;
+      const text = normalizeForEmbedding(
+        buildMessageEmbeddingText({
+          conversationTitle: row.conversation?.title ?? null,
+          role: row.role,
+          body: row.body,
+        }),
+      );
+      const hash = embeddingHash(text);
+      const existing = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.$queryRawUnsafe<Array<{ content_hash: string }>>(
+          `SELECT content_hash FROM context_embeddings
+             WHERE tenant_id = $1::uuid AND source_type = 'clio_message'
+               AND source_id = $2 AND model = $3
+             LIMIT 1`,
+          ctx.tenantId,
+          row.id,
+          EMBEDDING_MODEL,
+        ),
+      );
+      if (existing[0]?.content_hash === hash) continue;
+      // Bedrock call outside the transaction (it can take seconds).
+      const vector = await embedText(text);
+      const literal = vectorLiteral(vector);
+      await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.$executeRawUnsafe(
+          `INSERT INTO context_embeddings
+             (tenant_id, client_id, source_type, source_id, model, content_text, content_hash, embedding)
+           VALUES ($1::uuid, $2::uuid, 'clio_message', $3, $4, $5, $6, '${literal}'::vector)
+           ON CONFLICT (tenant_id, source_type, source_id, model)
+             DO UPDATE SET content_text = EXCLUDED.content_text,
+                           content_hash = EXCLUDED.content_hash,
+                           embedding    = EXCLUDED.embedding,
+                           updated_at   = NOW()`,
+          ctx.tenantId,
+          row.clientId ?? null,
+          row.id,
+          EMBEDDING_MODEL,
+          text,
+          hash,
+        ),
+      );
+    }
+  }
+
+  /**
+   * Rolling-summary compaction (F2). When the un-summarized text beyond the
+   * verbatim tail reaches the trigger budget, fold it into the conversation's
+   * running summary with the small intent-tier model and advance the
+   * boundary. Incremental: old summary + turns since → new summary.
+   */
+  private async maybeCompactConversation(
+    ctx: TenantContext,
+    conversationId: string,
+  ): Promise<void> {
+    if (!this.config.get('CLIO_COMPACTION_ENABLED', { infer: true })) return;
+    const conversation = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioConversation.findFirst({
+        where: { id: conversationId, tenantId: ctx.tenantId },
+        select: { summary: true, summaryUpToMessageId: true },
+      }),
+    );
+    if (!conversation) return;
+    const boundary = conversation.summaryUpToMessageId
+      ? await this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.clioMessage.findFirst({
+            where: { id: conversation.summaryUpToMessageId ?? undefined, conversationId },
+            select: { createdAt: true },
+          }),
+        )
+      : null;
+    const since = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMessage.findMany({
+        where: {
+          conversationId,
+          role: { in: ['user', 'assistant'] },
+          ...(boundary ? { createdAt: { gt: boundary.createdAt } } : {}),
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 200,
+        select: { id: true, role: true, body: true },
+      }),
+    );
+    const existingSummary = boundary ? conversation.summary : null;
+    const plan = planCompaction({
+      messages: since,
+      existingSummary,
+      triggerTokens: this.config.get('CLIO_COMPACTION_TRIGGER_TOKENS', { infer: true }),
+      tailMessages: this.config.get('CLIO_COMPACTION_TAIL_MESSAGES', { infer: true }),
+    });
+    if (!plan.compact || !plan.upToMessageId) return;
+    const prompt = buildCompactionPrompt({
+      existingSummary,
+      turns: plan.toSummarize.map((m) => ({ role: m.role, body: m.body })),
+    });
+    const raw = await this.completeWithIntentModel(prompt.system, prompt.user, 1200);
+    const summary = raw ? sanitizeSummaryOutput(raw) : null;
+    if (!summary) return;
+    await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioConversation.update({
+        where: { id: conversationId },
+        data: {
+          summary,
+          summaryUpToMessageId: plan.upToMessageId,
+          summaryTokens: estimateTokens(summary),
+        },
+      }),
+    );
+    this.logger.log(
+      `Clio compaction [conv ${conversationId}]: folded ${plan.toSummarize.length} messages into the running summary (~${estimateTokens(summary)} tokens)`,
+    );
+  }
+
+  /** One cheap, non-streaming intent-model completion. Fail-open (null). */
+  private async completeWithIntentModel(
+    system: string,
+    user: string,
+    maxTokens = 800,
+  ): Promise<string | null> {
+    try {
+      const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
+      if (!anthropicKey) return null;
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: this.config.get('CLIO_INTENT_MODEL', { infer: true }),
+          max_tokens: maxTokens,
+          system,
+          messages: [{ role: 'user', content: user }],
+        }),
+      });
+      if (!res.ok) return null;
+      const json = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
+      const text = (json.content ?? [])
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text ?? '')
+        .join('');
+      return text || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * History search (F2): pgvector cosine over indexed messages, keyword ILIKE
+   * fallback (same degrade pattern as memory recall). Tenant + user scoped;
+   * archived conversations excluded.
+   */
+  async searchConversations(ctx: TenantContext, query: string, limit = 10) {
+    const q = (query ?? '').trim();
+    if (q.length < 2) return [];
+    try {
+      const vector = await embedText(normalizeForEmbedding(q));
+      const literal = vectorLiteral(vector);
+      const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.$queryRawUnsafe<
+          Array<{
+            conversation_id: string;
+            message_id: string;
+            title: string;
+            client_id: string | null;
+            body: string;
+            created_at: Date;
+            score: number;
+          }>
+        >(
+          `SELECT m.conversation_id, m.id AS message_id, c.title, c.client_id, m.body, m.created_at,
+                  1 - (ce.embedding <=> '${literal}'::vector) AS score
+             FROM context_embeddings ce
+             JOIN clio_messages m ON m.id::text = ce.source_id
+             JOIN clio_conversations c ON c.id = m.conversation_id
+            WHERE ce.source_type = 'clio_message'
+              AND ce.tenant_id = $1::uuid
+              AND m.tenant_id = $1::uuid
+              AND m.user_id = $2::uuid
+              AND c.archived_at IS NULL
+            ORDER BY ce.embedding <=> '${literal}'::vector
+            LIMIT 30`,
+          ctx.tenantId,
+          ctx.userId,
+        ),
+      );
+      const hits: HistorySearchHit[] = rows
+        .filter((r) => Number(r.score) > 0.25)
+        .map((r) => ({
+          conversationId: r.conversation_id,
+          messageId: r.message_id,
+          title: r.title,
+          clientId: r.client_id,
+          body: r.body,
+          createdAt: new Date(r.created_at),
+          score: Number(r.score),
+        }));
+      if (hits.length) return groupHitsByConversation(hits, q, limit);
+    } catch (err) {
+      this.logger.debug(
+        `Semantic history search unavailable, falling back to keywords: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+    const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioMessage.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          role: { in: ['user', 'assistant'] },
+          body: { contains: q, mode: 'insensitive' },
+          conversation: { archivedAt: null },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+        select: {
+          conversationId: true,
+          id: true,
+          body: true,
+          createdAt: true,
+          conversation: { select: { title: true, clientId: true } },
+        },
+      }),
+    );
+    const hits: HistorySearchHit[] = rows.map((r) => ({
+      conversationId: r.conversationId,
+      messageId: r.id,
+      title: r.conversation.title,
+      clientId: r.conversation.clientId,
+      body: r.body,
+      createdAt: r.createdAt,
+      score: null,
+    }));
+    return groupHitsByConversation(hits, q, limit);
   }
 
   private async orchestrateContext(
@@ -1210,6 +1697,7 @@ export class ClioService {
     intent: string,
     context: string,
     template: { heading: string; sections: string[] } | null,
+    conversationSummary: string | null = null,
   ): { base: string; dynamic: string } {
     const base = [
       'You are Clio, an elite AI chief of staff designed exclusively for government affairs professionals.',
@@ -1270,6 +1758,9 @@ export class ClioService {
       tail.push(`Output template: ${template.heading}`);
       tail.push(`Required sections: ${template.sections.join(' | ')}`);
     }
+    // Compaction summary (F2) sits in the dynamic tail — never the cached
+    // base — so the prompt-cache split (P0-1) is preserved.
+    if (conversationSummary) tail.push(formatSummaryBlockForPrompt(conversationSummary));
     if (context) tail.push(`Context:\n${context}`);
     return { base, dynamic: tail.join('\n\n') };
   }
@@ -1283,8 +1774,14 @@ export class ClioService {
     context: string,
     template: { heading: string; sections: string[] } | null,
     cacheEnabled: boolean,
+    conversationSummary: string | null = null,
   ): SystemTextBlock[] {
-    const { base, dynamic } = this.composeSystemParts(intent, context, template);
+    const { base, dynamic } = this.composeSystemParts(
+      intent,
+      context,
+      template,
+      conversationSummary,
+    );
     return buildClioSystemBlocks({ base, dynamic, cacheEnabled });
   }
 
@@ -1715,44 +2212,173 @@ export class ClioService {
   }
 
   /**
-   * Extract text from an uploaded document for use as chat context (P2-7).
-   * docx (mammoth) + plain text are extracted; pdf/image return a placeholder
-   * note (no PDF parser / OCR in deps yet). Stateless — the caller injects the
-   * returned text into the next message (which is tenant-scoped).
+   * Ingest an uploaded attachment for chat use (P2-7 + assistant-parity F1).
+   *
+   * Validates (size cap, type allowlist, magic-byte sniff — a `.pdf` that is
+   * actually HTML is rejected), extracts text for documents (pdf via unpdf,
+   * docx via mammoth, plain text verbatim) with page/char caps and an explicit
+   * truncation marker, detects scanned PDFs, and stores the result as a
+   * tenant-scoped ClioAttachment row the stream request references by id.
+   * Image bytes are stored raw so vision blocks can be rebuilt on regenerate.
+   *
+   * Extraction happens here — on the upload request, off the chat streaming
+   * path — and the pdf page loop awaits between pages so the event loop is
+   * never blocked for the whole document.
+   *
+   * Unusable files (unsupported / scanned / spoofed) return an explicit
+   * user-visible status + reason instead of an opaque 4xx, and are not stored.
    */
-  async extractAttachmentText(
-    buffer: Buffer,
-    contentType: string,
-    filename: string,
-  ): Promise<{ filename: string; kind: string; text: string }> {
-    const validation = validateAttachment({ contentType, byteSize: buffer.length, filename });
-    if (!validation.ok) throw new BadRequestException(validation.reason ?? 'Invalid attachment');
-    let raw = '';
-    if (validation.kind === 'text') {
-      raw = buffer.toString('utf8');
-    } else if (validation.kind === 'docx') {
-      const result = await mammoth.extractRawText({ buffer });
-      raw = result.value;
-    } else if (validation.kind === 'pdf') {
-      // Lazy-loaded: pdf-parse pulls in pdfjs-dist (heavy at module load) and is
-      // only needed when a PDF is actually attached.
-      const { PDFParse } = await import('pdf-parse');
-      const parser = new PDFParse({ data: buffer });
-      try {
-        const parsed = await parser.getText();
-        raw = parsed.text ?? '';
-      } catch (err) {
-        raw = `[Could not extract text from the PDF "${filename}": ${
-          err instanceof Error ? err.message : 'unknown error'
-        }. Paste the relevant text or describe it.]`;
-      } finally {
-        await parser.destroy().catch(() => {});
-      }
-    } else {
-      raw = `[A ${validation.kind} file was attached; automatic text extraction for ${validation.kind} files is not yet available — paste the relevant text or describe it.]`;
+  async uploadAttachment(
+    ctx: TenantContext,
+    file: { buffer: Buffer; mimetype: string; originalname: string; size: number },
+  ): Promise<{
+    id: string | null;
+    filename: string;
+    kind: string;
+    status: AttachmentStatus;
+    pages: number | null;
+    truncated: boolean;
+    reason: string | null;
+    chars: number;
+  }> {
+    const filename = file.originalname || 'untitled';
+    const reject = (kind: string, reason: string) => ({
+      id: null,
+      filename,
+      kind,
+      status: 'unsupported' as AttachmentStatus,
+      pages: null,
+      truncated: false,
+      reason,
+      chars: 0,
+    });
+
+    const validation = validateAttachment({
+      contentType: file.mimetype,
+      byteSize: file.buffer.length,
+      filename,
+    });
+    if (!validation.ok) {
+      return reject(validation.kind, validation.reason ?? 'Invalid attachment');
     }
-    return { filename, kind: validation.kind, text: formatAttachmentContext(filename, raw) };
+    const magic = verifyMagicBytes(validation.kind, new Uint8Array(file.buffer.subarray(0, 256)));
+    if (!magic.ok) {
+      return reject(validation.kind, magic.reason ?? 'File contents do not match its type');
+    }
+
+    // Opportunistic sweep: unconsumed uploads older than 24h are dead weight.
+    await this.prisma
+      .withTenant(ctx.tenantId, (tx) =>
+        tx.clioAttachment.deleteMany({
+          where: {
+            tenantId: ctx.tenantId,
+            userId: ctx.userId,
+            messageId: null,
+            createdAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          },
+        }),
+      )
+      .catch(() => {});
+
+    if (validation.kind === 'image') {
+      if (file.buffer.length > MAX_IMAGE_BYTES) {
+        return reject(
+          'image',
+          `Images must be at most ${Math.round(MAX_IMAGE_BYTES / 1024 / 1024)}MB for vision input`,
+        );
+      }
+      const mediaType = imageMediaTypeFromSniff(magic.sniffed);
+      const row = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.clioAttachment.create({
+          data: {
+            tenantId: ctx.tenantId,
+            userId: ctx.userId,
+            filename,
+            kind: 'image',
+            status: 'image_ready',
+            mediaType,
+            byteSize: file.buffer.length,
+            data: file.buffer,
+          },
+          select: { id: true },
+        }),
+      );
+      return {
+        id: row.id,
+        filename,
+        kind: 'image',
+        status: 'image_ready',
+        pages: null,
+        truncated: false,
+        reason: null,
+        chars: 0,
+      };
+    }
+
+    let raw = '';
+    let pages: number | null = null;
+    try {
+      if (validation.kind === 'text') {
+        raw = file.buffer.toString('utf8');
+      } else if (validation.kind === 'docx') {
+        raw = (await mammoth.extractRawText({ buffer: file.buffer })).value;
+      } else if (validation.kind === 'pdf') {
+        const extracted = await extractPdfText(file.buffer);
+        raw = extracted.text;
+        pages = extracted.pages;
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Attachment extraction failed [${validation.kind}] ${filename}: ${err instanceof Error ? err.message : err}`,
+      );
+      return reject(
+        validation.kind,
+        `Could not read this ${validation.kind === 'pdf' ? 'PDF' : 'document'} — it may be corrupted, encrypted, or password-protected.`,
+      );
+    }
+
+    const resolved = resolveDocumentStatus(validation.kind, raw);
+    if (resolved.status === 'scanned' || resolved.status === 'unsupported') {
+      return {
+        id: null,
+        filename,
+        kind: validation.kind,
+        status: resolved.status,
+        pages,
+        truncated: false,
+        reason: resolved.reason,
+        chars: 0,
+      };
+    }
+    const row = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioAttachment.create({
+        data: {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          filename,
+          kind: validation.kind,
+          status: resolved.status,
+          mediaType: file.mimetype || null,
+          byteSize: file.buffer.length,
+          pages,
+          textContent: resolved.text,
+          reason: resolved.reason,
+        },
+        select: { id: true },
+      }),
+    );
+    return {
+      id: row.id,
+      filename,
+      kind: validation.kind,
+      status: resolved.status,
+      pages,
+      truncated: resolved.truncated,
+      reason: resolved.reason,
+      chars: resolved.text?.length ?? 0,
+    };
   }
+
 
   // ── Proactive Alert Generation ────────────────────────────────────────
   // INTENTIONALLY NOT called on the chat hot path (it previously ran a full

@@ -8,7 +8,9 @@ import {
   SaveOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '@clerk/clerk-react';
+import axios from 'axios';
 import { config } from '../../env.js';
+import { useApi } from '../../lib/use-api.js';
 import { useClientFilter } from '../../state/client-filter.js';
 import { useImpersonation } from '../../state/impersonation.js';
 import {
@@ -36,7 +38,7 @@ import {
   upsertConversation,
   useChatStore,
 } from './chat-store.js';
-import { ChatInput } from './ChatInput.js';
+import { ChatInput, isUsableAttachment, type StagedAttachment } from './ChatInput.js';
 import { ChatMessage } from './ChatMessage.js';
 import { SessionRail } from './SessionRail.js';
 import { ThoughtProcess, type TrustStep } from './ThoughtProcess.js';
@@ -63,6 +65,7 @@ type SseEvent =
       confidence?: { level: 'high' | 'medium' | 'low' | 'unknown'; label: string };
     }
   | { type: 'text'; text: string }
+  | { type: 'thinking'; text: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
   | { type: 'draft_updated'; engagementId: string; recipientId?: string; subject: string; body: string }
@@ -76,6 +79,7 @@ type ResearchSseEvent =
   | { type: 'plan'; plan: string[] }
   | { type: 'clarify'; questions: string[] }
   | { type: 'text'; text: string }
+  | { type: 'thinking'; text: string }
   | { type: 'step'; tool: string; label?: string }
   | { type: 'source'; source: { tool: string; label: string; count?: number | null; summary: string; confidence: 'low' | 'high' } }
   | { type: 'report'; artifactId?: string; body?: string }
@@ -84,6 +88,40 @@ type ResearchSseEvent =
 
 function generateId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+// ── Chat attachments (F1) ────────────────────────────────────────────────
+// Server limits (also enforced here with a friendly message before upload).
+const MAX_ATTACHMENTS = 8;
+const MAX_IMAGE_ATTACHMENTS = 4;
+
+/** Response shape of POST /api/clio/attachments. id === null ⇒ unusable. */
+interface AttachmentUploadResponse {
+  id: string | null;
+  filename: string;
+  kind: 'pdf' | 'docx' | 'image' | 'text' | 'unsupported';
+  status: 'parsed' | 'truncated' | 'scanned' | 'image_ready' | 'unsupported';
+  pages: number | null;
+  truncated: boolean;
+  reason: string | null;
+  chars: number;
+}
+
+/** Best-effort kind guess for the uploading chip; the server response wins. */
+function guessAttachmentKind(file: File): StagedAttachment['kind'] {
+  const name = file.name.toLowerCase();
+  if (file.type === 'application/pdf' || name.endsWith('.pdf')) return 'pdf';
+  if (name.endsWith('.docx')) return 'docx';
+  if (file.type.startsWith('image/')) return 'image';
+  if (
+    file.type.startsWith('text/') ||
+    name.endsWith('.txt') ||
+    name.endsWith('.md') ||
+    name.endsWith('.csv')
+  ) {
+    return 'text';
+  }
+  return 'unsupported';
 }
 
 // Subtle inline action button (Regenerate / Edit / Save / Cancel).
@@ -127,6 +165,7 @@ interface ChatDrawerProps {
 export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const { isOpen, messages, sessionId, isStreaming, alertsBadge, conversations, activeConversationId } = useChatStore();
   const { getToken } = useAuth();
+  const api = useApi();
   const { actAsTenantSlug } = useImpersonation();
   const { selectedClientId } = useClientFilter();
   const location = useLocation();
@@ -140,6 +179,12 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const [orchestratorIntent, setOrchestratorIntent] = useState<string | null>(null);
   const [trustSteps, setTrustSteps] = useState<TrustStep[]>([]);
   const [planSteps, setPlanSteps] = useState<string[]>([]);
+  // Accumulated `thinking` SSE deltas for the in-flight turn (F3). Ephemeral:
+  // same lifecycle as trustSteps — cleared on each new send, never persisted.
+  const [reasoningText, setReasoningText] = useState('');
+  // Files staged in the composer (F1). Lives here because sendMessage needs it.
+  const [stagedAttachments, setStagedAttachments] = useState<StagedAttachment[]>([]);
+  const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
   const [activeArtifact, setActiveArtifact] = useState<CanvasArtifact | null>(null);
   const [orchestratorConflict, setOrchestratorConflict] = useState<{ title: string; detail: string } | null>(null);
   const [orchestratorTemplate, setOrchestratorTemplate] = useState<{ heading: string; sections: string[] } | null>(null);
@@ -243,6 +288,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   useEffect(() => {
     if (!messages.length) {
       setTrustSteps([]);
+      setReasoningText('');
       setOrchestratorIntent(null);
       setOrchestratorTier(null);
       setOrchestratorConflict(null);
@@ -337,12 +383,104 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     abortRef.current?.abort();
     clearChatSession();
     setTrustSteps([]);
+    setReasoningText('');
     setOrchestratorIntent(null);
     setOrchestratorTier(null);
     setOrchestratorConflict(null);
     setOrchestratorTemplate(null);
+    setStagedAttachments([]);
+    setAttachmentNotice(null);
     await doCreateSession();
   }, [doCreateSession]);
+
+  // ── Chat attachments (F1) ──────────────────────────────────────────────
+  // Upload one file immediately; the chip starts as "uploading" and resolves
+  // to the server's verdict (parsed/truncated/image_ready, or unusable).
+  const uploadAttachment = useCallback(
+    async (file: File) => {
+      const localId = generateId();
+      setStagedAttachments((prev) => [
+        ...prev,
+        {
+          localId,
+          id: null,
+          filename: file.name,
+          kind: guessAttachmentKind(file),
+          status: 'uploading',
+          reason: null,
+        },
+      ]);
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        // Axios sets the multipart boundary itself; generous timeout for big PDFs.
+        const { data } = await api.post<AttachmentUploadResponse>('/api/clio/attachments', form, {
+          timeout: 120_000,
+        });
+        setStagedAttachments((prev) =>
+          prev.map((att) =>
+            att.localId === localId
+              ? {
+                  ...att,
+                  id: data.id,
+                  filename: data.filename || att.filename,
+                  kind: data.kind,
+                  status: data.status,
+                  reason: data.reason,
+                }
+              : att,
+          ),
+        );
+      } catch (err) {
+        const serverMessage = axios.isAxiosError(err)
+          ? (err.response?.data as { message?: string } | undefined)?.message
+          : undefined;
+        setStagedAttachments((prev) =>
+          prev.map((att) =>
+            att.localId === localId
+              ? { ...att, status: 'error', reason: serverMessage || 'Upload failed — try again.' }
+              : att,
+          ),
+        );
+      }
+    },
+    [api],
+  );
+
+  // Stage newly picked files, enforcing the 8-file / 4-image caps client-side
+  // (failed chips don't count — they'll never be sent).
+  const handleAttachFiles = useCallback(
+    (files: FileList) => {
+      setAttachmentNotice(null);
+      const active = stagedAttachments.filter(
+        (att) => att.status === 'uploading' || isUsableAttachment(att),
+      );
+      let total = active.length;
+      let images = active.filter((att) => att.kind === 'image').length;
+      let notice: string | null = null;
+      for (const file of Array.from(files)) {
+        if (total >= MAX_ATTACHMENTS) {
+          notice = `You can attach up to ${MAX_ATTACHMENTS} files per message — the rest were skipped.`;
+          break;
+        }
+        const isImage = file.type.startsWith('image/');
+        if (isImage && images >= MAX_IMAGE_ATTACHMENTS) {
+          notice = `Up to ${MAX_IMAGE_ATTACHMENTS} images per message — “${file.name}” was skipped.`;
+          continue;
+        }
+        total += 1;
+        if (isImage) images += 1;
+        void uploadAttachment(file);
+      }
+      if (notice) setAttachmentNotice(notice);
+    },
+    [stagedAttachments, uploadAttachment],
+  );
+
+  const removeStagedAttachment = useCallback((localId: string) => {
+    setStagedAttachments((prev) => prev.filter((att) => att.localId !== localId));
+    setAttachmentNotice(null);
+  }, []);
 
   // ── Deep Research (in-chat) ────────────────────────────────────────────
   // Reads an SSE stream from a research endpoint, dispatching each event.
@@ -398,6 +536,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         if (!researchSessionRef.current) {
           // ── Phase 1: topic → plan + clarifying questions ──
           setTrustSteps([]);
+          setReasoningText('');
           setOrchestratorIntent('deep_research');
           setOrchestratorTier('deep');
           const created = await fetch(`${config.apiBaseUrl}/api/clio/research`, {
@@ -420,6 +559,8 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
               updateChatMessage(assistantId, planText);
             } else if (e.type === 'clarify') {
               questions = e.questions;
+            } else if (e.type === 'thinking') {
+              setReasoningText((prev) => prev + e.text);
             } else if (e.type === 'error') {
               updateChatMessage(assistantId, `Error: ${e.message}`);
             }
@@ -472,6 +613,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         appendChatMessage({ id: assistantId, role: 'assistant', content: '', createdAt: new Date() });
       }
       setTrustSteps([]);
+      setReasoningText('');
       let report = '';
       await consumeResearchStream(`/api/clio/research/${id}/stream`, controller, (e) => {
         if (e.type === 'step') {
@@ -496,6 +638,8 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             }
             return next;
           });
+        } else if (e.type === 'thinking') {
+          setReasoningText((prev) => prev + e.text);
         } else if (e.type === 'text') {
           report += e.text;
           updateChatMessage(assistantId, report);
@@ -563,11 +707,37 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     }
     if (!sid) return;
 
+    // Staged attachments ride along on new turns only (regenerate/resend re-run
+    // the already-persisted user turn server-side). Unusable chips (id === null)
+    // are never sent.
+    const turnAttachments = mode ? [] : stagedAttachments.filter(isUsableAttachment);
+    const attachmentIds = turnAttachments
+      .map((att) => att.id)
+      .filter((id): id is string => Boolean(id));
+
     // A new turn appends the user message. For regenerate/edit-and-resend the
     // caller has already trimmed (and for resend, edited) the local messages,
     // and the server re-runs the last user turn (P0-4).
     if (!mode) {
-      appendChatMessage({ id: generateId(), role: 'user', content, createdAt: new Date() });
+      appendChatMessage({
+        id: generateId(),
+        role: 'user',
+        content,
+        createdAt: new Date(),
+        ...(turnAttachments.length > 0
+          ? {
+              attachments: turnAttachments.map((att) => ({
+                id: att.id as string,
+                filename: att.filename,
+                kind: att.kind,
+                status: att.status,
+              })),
+            }
+          : {}),
+      });
+      // Clear the staging row (including any failed chips) as the send starts.
+      setStagedAttachments([]);
+      setAttachmentNotice(null);
     }
 
     const assistantId = generateId();
@@ -578,10 +748,14 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     abortRef.current = controller;
 
     try {
+      const streamPayload: Record<string, unknown> = mode
+        ? { body: outgoing, mode }
+        : { body: outgoing };
+      if (!mode && attachmentIds.length > 0) streamPayload.attachmentIds = attachmentIds;
       const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${sid}/stream`, {
         method: 'POST',
         headers: await authHeaders(),
-        body: JSON.stringify(mode ? { body: outgoing, mode } : { body: outgoing }),
+        body: JSON.stringify(streamPayload),
         signal: controller.signal,
       });
 
@@ -625,6 +799,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             setOrchestratorIntent(event.intent ?? null);
             setTrustSteps([]);
             setPlanSteps([]);
+            setReasoningText('');
           } else if (event.type === 'trace') {
             if (event.policy?.tier) setOrchestratorTier(event.policy.tier);
           } else if (event.type === 'plan') {
@@ -644,6 +819,9 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           } else if (event.type === 'text') {
             accumulated += event.text;
             updateChatMessage(assistantId, accumulated);
+          } else if (event.type === 'thinking') {
+            // Deep-tier reasoning delta — feeds the ThoughtProcess accordion.
+            setReasoningText((prev) => prev + event.text);
           } else if (event.type === 'sources') {
             const sources = Array.isArray(event.sources) ? event.sources : [];
             // Resolve the most recent running step (the tool that just finished)
@@ -731,7 +909,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     } finally {
       setStreaming(false);
     }
-  }, [isStreaming, sessionId, doCreateSession, authHeaders, selectedClientId, selectedClientName, location.pathname, researchMode, writeMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isStreaming, sessionId, doCreateSession, authHeaders, selectedClientId, selectedClientName, location.pathname, researchMode, writeMode, stagedAttachments]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleClose = () => setChatOpen(false);
 
@@ -1102,6 +1280,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     steps={trustSteps}
                     planSteps={planSteps}
                     isStreaming={isStreaming}
+                    reasoningText={reasoningText}
                   />
                 )}
                 <ChatMessage
@@ -1109,6 +1288,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                   content={msg.content}
                   citations={msg.citations}
                   verification={msg.verification}
+                  attachments={msg.attachments}
                   isStreaming={
                     isStreaming &&
                     i === messages.length - 1 &&
@@ -1310,6 +1490,11 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           <ChatInput
             disabled={isStreaming}
             onSend={(c) => void sendMessage(c)}
+            attachments={stagedAttachments}
+            onAttachFiles={handleAttachFiles}
+            onRemoveAttachment={removeStagedAttachment}
+            uploadsInFlight={stagedAttachments.some((att) => att.status === 'uploading')}
+            attachmentNotice={attachmentNotice}
             writeMode={writeMode}
             onToggleWriteMode={() => {
               setWriteMode((current) => !current);

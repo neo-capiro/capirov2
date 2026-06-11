@@ -16,7 +16,17 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { IsIn, IsObject, IsOptional, IsString, IsUUID, Length, ValidateIf } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
+  IsObject,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Length,
+  ValidateIf,
+} from 'class-validator';
 import type { Request, Response } from 'express';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
@@ -50,6 +60,14 @@ class SendClioMessageDto {
   @IsOptional()
   @IsIn(['regenerate', 'resend'])
   mode?: 'regenerate' | 'resend';
+
+  // ClioAttachment ids previously uploaded via POST /clio/attachments (F1).
+  // Documents inject their extracted text; images attach as vision blocks.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(8)
+  @IsUUID(undefined, { each: true })
+  attachmentIds?: string[];
 }
 
 class UpdateClioConversationDto {
@@ -110,6 +128,18 @@ export class ClioController {
     return this.service.createConversation(ctx, body);
   }
 
+  // History search (F2). Declared before `conversations/:id` so the literal
+  // segment wins route matching.
+  @Get('conversations/search')
+  searchConversations(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('q') q?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? Math.min(Math.max(parseInt(limit, 10) || 10, 1), 25) : 10;
+    return this.service.searchConversations(ctx, q ?? '', parsedLimit);
+  }
+
   @Get('conversations/:id')
   conversation(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.getConversation(ctx, id);
@@ -156,7 +186,15 @@ export class ClioController {
     const abort = new AbortController();
     req.on('close', () => abort.abort());
     res.on('error', () => { /* swallow socket errors on client disconnect */ });
-    await this.service.streamMessage(ctx, id, body.body, res, abort.signal, body.mode ?? 'new');
+    await this.service.streamMessage(
+      ctx,
+      id,
+      body.body,
+      res,
+      abort.signal,
+      body.mode ?? 'new',
+      body.attachmentIds ?? [],
+    );
     res.end();
   }
 
@@ -232,16 +270,17 @@ export class ClioController {
     return this.service.recordMessageFeedback(ctx, id, body);
   }
 
-  // ── Multimodal / document input (P2-7) ──
+  // ── Multimodal / document input (P2-7 + F1) ──
 
   @Post('attachments')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
   async uploadAttachment(
+    @CurrentTenant() ctx: TenantContext,
     @UploadedFile()
     file: { buffer: Buffer; mimetype: string; originalname: string; size: number } | undefined,
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
-    return this.service.extractAttachmentText(file.buffer, file.mimetype, file.originalname);
+    return this.service.uploadAttachment(ctx, file);
   }
 
   // ── Learned-memory surface (Clio learned X + one-click undo) ──

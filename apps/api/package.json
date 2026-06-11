@@ -10,6 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "jest --detectOpenHandles --forceExit",
     "eval:clio": "tsx scripts/eval-clio.ts",
+    "eval:clio:attachments": "tsx scripts/eval-clio-attachments.ts",
+    "eval:clio:compaction": "tsx scripts/eval-clio-compaction.ts",
+    "eval:clio:thinking": "tsx scripts/eval-clio-thinking.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",
@@ -121,6 +124,7 @@
     "simple-statistics": "^7.8.8",
     "svix": "^1.36.0",
     "tsx": "^4.19.1",
+    "unpdf": "^1.6.2",
     "zod": "^3.23.8"
   },
   "devDependencies": {

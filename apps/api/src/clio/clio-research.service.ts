@@ -18,6 +18,13 @@ import {
   summarizeToolResultForTrust,
   type PlanProposal,
 } from './clio-research.helpers.js';
+import {
+  applyThinkingStreamEvent,
+  createThinkingState,
+  thinkingReplayBlocks,
+  thinkingRequestParams,
+  type ThinkingSettings,
+} from './clio-thinking.helpers.js';
 
 const PRODUCT_NAME = 'Clio';
 
@@ -251,6 +258,14 @@ export class ClioResearchService {
 
     const model = this.config.get('CLIO_RESEARCH_MODEL', { infer: true });
     const maxTokens = this.config.get('CLIO_RESEARCH_MAX_TOKENS', { infer: true });
+    // Extended thinking (F3): research gather/synthesize is deep work by
+    // definition, so it always qualifies when the feature is enabled.
+    const thinkingSettings: ThinkingSettings = {
+      enabled: this.config.get('CLIO_EXTENDED_THINKING', { infer: true }),
+      mode: this.config.get('CLIO_THINKING_MODE', { infer: true }),
+      budgetTokens: this.config.get('CLIO_RESEARCH_THINKING_BUDGET_TOKENS', { infer: true }),
+    };
+    const thinking = thinkingRequestParams(thinkingSettings, 'deep', maxTokens);
     // Deep research uses its OWN (much longer) per-request timeout, not the
     // short interactive-chat one — a single gather/synthesis turn runs minutes.
     const timeoutMs = this.config.get('CLIO_RESEARCH_TIMEOUT_MS', { infer: true });
@@ -286,6 +301,7 @@ export class ClioResearchService {
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), timeoutMs);
         const toolUseById = new Map<number, { id: string; name: string; jsonParts: string[] }>();
+        const thinkingState = createThinkingState();
         let stopReason: string | null = null;
 
         try {
@@ -298,7 +314,8 @@ export class ClioResearchService {
             },
             body: JSON.stringify({
               model,
-              max_tokens: maxTokens,
+              max_tokens: thinking.maxTokens,
+              ...(thinking.thinking ? { thinking: thinking.thinking } : {}),
               stream: true,
               system,
               tools: toolSchemas,
@@ -329,6 +346,12 @@ export class ClioResearchService {
               if (!payload || payload === '[DONE]') continue;
               try {
                 const evt = JSON.parse(payload);
+                // Extended thinking (F3): relay reasoning to the research
+                // timeline; blocks replay in the loop but never persist.
+                const thinkingDelta = applyThinkingStreamEvent(thinkingState, evt);
+                if (thinkingDelta.thinkingTextDelta) {
+                  sse.write(sseEvent({ type: 'thinking', text: thinkingDelta.thinkingTextDelta }));
+                }
                 if (evt.type === 'content_block_start') {
                   const block = evt.content_block ?? {};
                   if (block.type === 'tool_use') {
@@ -386,7 +409,11 @@ export class ClioResearchService {
           .sort((a, b) => a[0] - b[0])
           .map(([, v]) => v);
 
-        const assistantTurn: Array<Record<string, unknown>> = [];
+        // Thinking blocks first (the API requires them replayed with
+        // signatures when tools are used — F3), then tool_use blocks.
+        const assistantTurn: Array<Record<string, unknown>> = [
+          ...thinkingReplayBlocks(thinkingState),
+        ];
         for (const t of orderedTools) {
           let parsedInput: Record<string, unknown> = {};
           const raw = t.jsonParts.join('');
@@ -484,7 +511,8 @@ export class ClioResearchService {
             },
             body: JSON.stringify({
               model,
-              max_tokens: maxTokens,
+              max_tokens: thinking.maxTokens,
+              ...(thinking.thinking ? { thinking: thinking.thinking } : {}),
               stream: true,
               system,
               // No `tools` key → the model cannot call tools and must answer.
@@ -516,6 +544,14 @@ export class ClioResearchService {
               try {
                 const evt = JSON.parse(payload);
                 if (
+                  evt.type === 'content_block_delta' &&
+                  evt.delta?.type === 'thinking_delta' &&
+                  typeof evt.delta.thinking === 'string'
+                ) {
+                  // Thinking from the forced pass streams to the timeline only;
+                  // it never enters reportBody (redaction guarantee, F3).
+                  sse.write(sseEvent({ type: 'thinking', text: evt.delta.thinking }));
+                } else if (
                   evt.type === 'content_block_delta' &&
                   evt.delta?.type === 'text_delta' &&
                   typeof evt.delta.text === 'string'

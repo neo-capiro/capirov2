@@ -182,6 +182,9 @@ model Tenant {
   clioMemories                 ClioMemory[]
   clioProactiveAlerts          ClioProactiveAlert[]
   clioScheduledTasks           ClioScheduledTask[]
+  clioAttachments              ClioAttachment[]
+  clioMcpServers               ClioMcpServer[]
+  clioFirmSkills               ClioFirmSkill[]
   programElementWatches        ProgramElementWatch[]
   actionRecommendations        ActionRecommendation[]
 
@@ -217,6 +220,7 @@ model User {
   clioArtifacts             ClioArtifact[]                 @relation("ClioArtifactUser")
   clioNotes                 ClioNote[]                     @relation("ClioNoteUser")
   clioResearchSessions      ClioResearchSession[]          @relation("ClioResearchSessionUser")
+  clioAttachments           ClioAttachment[]               @relation("ClioAttachmentUser")
   workflowInstances         WorkflowInstance[]             @relation("WorkflowInstanceCreator")
   strategies                Strategy[]                     @relation("StrategyCreator")
   createdCampaigns          EngagementCampaign[]           @relation("CampaignCreator")
@@ -904,6 +908,12 @@ model ClioConversation {
   nanoclawPlatformId   String?   @map("nanoclaw_platform_id")
   nanoclawAgentGroupId String?   @map("nanoclaw_agent_group_id")
   metadata             Json      @default("{}") @map("metadata_jsonb")
+  /// Rolling compaction summary of turns older than summaryUpToMessageId (F2).
+  /// Injected ahead of the verbatim history tail in turn assembly; regenerated
+  /// incrementally (old summary + turns since) by an after-turn async job.
+  summary              String?   @db.Text
+  summaryUpToMessageId String?   @map("summary_up_to_message_id") @db.Uuid
+  summaryTokens        Int?      @map("summary_tokens")
   createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   archivedAt           DateTime? @map("archived_at") @db.Timestamptz(6)
@@ -971,6 +981,41 @@ model ClioArtifact {
   @@index([tenantId, userId, createdAt(sort: Desc)], map: "clio_artifacts_tenant_user_created_idx")
   @@index([conversationId, createdAt(sort: Desc)], map: "clio_artifacts_conversation_created_idx")
   @@map("clio_artifacts")
+}
+
+/// Chat attachment uploaded via POST /clio/attachments (F1). The stream
+/// request references rows by id; documents store extracted text, images
+/// store the raw bytes so vision blocks can be rebuilt on regenerate.
+/// messageId is a plain column (no FK) so resend-mode message deletion never
+/// trips a constraint; unconsumed rows (messageId null) older than 24h are
+/// swept opportunistically on the next upload.
+model ClioAttachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  messageId   String?  @map("message_id") @db.Uuid
+  filename    String   @db.VarChar(300)
+  /// pdf | docx | image | text
+  kind        String   @db.VarChar(20)
+  /// parsed | truncated | scanned | image_ready | unsupported
+  status      String   @db.VarChar(20)
+  mediaType   String?  @map("media_type") @db.VarChar(100)
+  byteSize    Int      @map("byte_size")
+  pages       Int?
+  /// Extracted text for document kinds (clamped server-side).
+  textContent String?  @map("text_content") @db.Text
+  /// Human-readable reason when status is scanned/unsupported.
+  reason      String?  @db.VarChar(300)
+  /// Raw image bytes (image kind only) for vision-block assembly.
+  data        Bytes?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation("ClioAttachmentUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, createdAt(sort: Desc)], map: "clio_attachments_tenant_user_created_idx")
+  @@index([messageId], map: "clio_attachments_message_idx")
+  @@map("clio_attachments")
 }
 
 /// Deep Research sessions. A lobbyist starts a research session with a topic;
@@ -1097,6 +1142,67 @@ model ClioScheduledTask {
   @@index([tenantId, ownerUserId, createdAt(sort: Desc)], map: "clio_scheduled_task_tenant_owner_idx")
   @@index([enabled, nextRunAt], map: "clio_scheduled_task_due_idx")
   @@map("clio_scheduled_task")
+}
+
+/// Tenant-configured MCP server (F6a). Bearer tokens for streamable-HTTP
+/// servers are AES-256-GCM encrypted at rest (same pattern as
+/// IntegrationConnectionToken) and never stored or returned in plaintext.
+/// Tools are bridged as mcp__<name>__<tool>; only allowlisted tools register,
+/// and every bridged tool is treated as side-effecting unless listed in
+/// readOnlyTools.
+model ClioMcpServer {
+  id                  String    @id @default(uuid()) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  name                String    @db.VarChar(64)
+  /// http (streamable HTTP) | stdio (ops-managed local child process)
+  transport           String    @db.VarChar(10)
+  endpoint            String?   @db.VarChar(500)
+  command             String?   @db.VarChar(500)
+  args                Json      @default("[]")
+  envJson             Json      @default("{}") @map("env_jsonb")
+  authTokenCiphertext String?   @map("auth_token_ciphertext")
+  authTokenIv         String?   @map("auth_token_iv")
+  authTokenAuthTag    String?   @map("auth_token_auth_tag")
+  authKeyVersion      String?   @map("auth_key_version")
+  toolAllowlist       Json      @default("[]") @map("tool_allowlist")
+  readOnlyTools       Json      @default("[]") @map("read_only_tools")
+  enabled             Boolean   @default(true)
+  lastSyncAt          DateTime? @map("last_sync_at") @db.Timestamptz(6)
+  lastError           String?   @map("last_error")
+  createdByUserId     String?   @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name], map: "clio_mcp_servers_tenant_name_unique")
+  @@index([tenantId, enabled], map: "clio_mcp_servers_tenant_enabled_idx")
+  @@map("clio_mcp_servers")
+}
+
+/// Firm-authored Clio skill (F6b). skillJson holds the validated FirmSkill
+/// shape (id, name, triggers, systemAddendum, requiredTools, template);
+/// versions holds prior skillJson snapshots (newest first) for restore.
+/// Built-in skills always win on trigger conflict via the registry safe-merge.
+model ClioFirmSkill {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  skillId         String   @map("skill_id") @db.VarChar(48)
+  name            String   @db.VarChar(80)
+  skillJson       Json     @map("skill_jsonb")
+  version         Int      @default(1)
+  versions        Json     @default("[]") @map("versions_jsonb")
+  enabled         Boolean  @default(true)
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, skillId], map: "clio_firm_skills_tenant_skill_unique")
+  @@index([tenantId, enabled, updatedAt(sort: Desc)], map: "clio_firm_skills_tenant_enabled_idx")
+  @@map("clio_firm_skills")
 }
 
 model ClioProactiveAlert {

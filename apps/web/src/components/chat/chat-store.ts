@@ -25,6 +25,14 @@ export interface ClioVerification {
   confidence?: { level: 'high' | 'medium' | 'low' | 'unknown'; label: string };
 }
 
+/** File chip attached to a (user) message — mirrors message metadata.attachments. */
+export interface ChatMessageAttachment {
+  id: string;
+  filename: string;
+  kind: string;
+  status: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -34,6 +42,7 @@ export interface ChatMessage {
   verification?: ClioVerification;
   suggestions?: string[];
   feedback?: 'up' | 'down' | null;
+  attachments?: ChatMessageAttachment[];
 }
 
 export interface ActiveDraftContext {

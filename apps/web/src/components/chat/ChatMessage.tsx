@@ -5,7 +5,8 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
 import type { Components } from 'react-markdown';
-import type { ClioCitation, ClioVerification } from './chat-store.js';
+import type { ChatMessageAttachment, ClioCitation, ClioVerification } from './chat-store.js';
+import { attachmentKindIcon, truncateFilenameMiddle } from './ChatInput.js';
 import clioBubbleImage from '../../assets/chat/clio-bubble.png';
 
 interface ChatMessageProps {
@@ -14,6 +15,7 @@ interface ChatMessageProps {
   isStreaming?: boolean;
   citations?: ClioCitation[];
   verification?: ClioVerification;
+  attachments?: ChatMessageAttachment[];
 }
 
 export function ChatMessage({
@@ -22,6 +24,7 @@ export function ChatMessage({
   isStreaming,
   citations,
   verification,
+  attachments,
 }: ChatMessageProps) {
   const isUser = role === 'user';
   const [activeCitation, setActiveCitation] = useState<ClioCitation | null>(null);
@@ -55,6 +58,23 @@ export function ChatMessage({
         </div>
       )}
       <div className="chat-msg-bubble">
+        {attachments && attachments.length > 0 && (
+          <div className="chat-msg-attachments" aria-label="Attached files">
+            {attachments.map((att, i) => (
+              <span key={`${att.id}-${i}`} className="chat-msg-attachment" title={att.filename}>
+                <span className="chat-msg-attachment-icon" aria-hidden="true">
+                  {attachmentKindIcon(att.kind)}
+                </span>
+                <span className="chat-msg-attachment-name">
+                  {truncateFilenameMiddle(att.filename, 24)}
+                </span>
+                {att.status === 'truncated' && (
+                  <span className="chat-msg-attachment-flag">truncated</span>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
         {isUser ? (
           <span className="chat-msg-text">{content}</span>
         ) : (
