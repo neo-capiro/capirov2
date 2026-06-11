@@ -35,3 +35,5 @@ EXPOSE 4100
 CMD ["node", "dist/server.js"]
 
 # rebuild trigger: ECR repo capiro/dev/clio-sandbox provisioned
+
+# retrigger: capiro-gha-api ECR policy now allows clio-sandbox push
