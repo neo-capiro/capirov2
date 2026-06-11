@@ -20,10 +20,14 @@ WORKDIR /app
 COPY package.json tsconfig.json ./
 COPY src ./src
 
-RUN npm install -g typescript@5.6.2 \
-  && tsc -p tsconfig.json \
+# Install devDependencies (typescript + @types/node) so tsc can resolve the
+# 'node' type lib declared in tsconfig, build, copy the python harness, then
+# strip node_modules so the runtime image carries no build deps (the runner
+# only needs the compiled dist/ + the node runtime + python).
+RUN npm install --no-audit --no-fund \
+  && ./node_modules/.bin/tsc -p tsconfig.json \
   && cp src/harness.py dist/harness.py \
-  && npm uninstall -g typescript
+  && rm -rf node_modules
 
 ENV NODE_ENV=production
 USER node
