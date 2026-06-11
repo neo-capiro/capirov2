@@ -217,6 +217,13 @@ export const configSchema = z.object({
   OAUTH_TOKEN_ENCRYPTION_KEY: z.string().optional(),
   OAUTH_TOKEN_ENCRYPTION_KEY_VERSION: z.string().default('v1'),
 
+  // 32-byte base64 or hex key for AES-256-GCM at-rest encryption of
+  // per-tenant AI provider keys (tenant_ai_credentials). Dedicated key —
+  // do not reuse the notes/OAuth keys, so a compromise stays contained.
+  // Unset = bring-your-own-key feature inactive (global env keys only).
+  AI_CREDENTIAL_ENCRYPTION_KEY: z.string().optional(),
+  AI_CREDENTIAL_ENCRYPTION_KEY_VERSION: z.string().default('v1'),
+
   // 32+ byte secret used to HMAC-sign the `state` parameter in OAuth flows so
   // a callback can be tied back to the connection that started it.
   OAUTH_STATE_SECRET: z.string().optional(),
