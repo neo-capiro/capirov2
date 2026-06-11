@@ -187,6 +187,7 @@ model Tenant {
   clioFirmSkills               ClioFirmSkill[]
   programElementWatches        ProgramElementWatch[]
   actionRecommendations        ActionRecommendation[]
+  aiUsageEvents                AiUsageEvent[]
 
   @@map("tenants")
 }
@@ -1203,6 +1204,32 @@ model ClioFirmSkill {
   @@unique([tenantId, skillId], map: "clio_firm_skills_tenant_skill_unique")
   @@index([tenantId, enabled, updatedAt(sort: Desc)], map: "clio_firm_skills_tenant_enabled_idx")
   @@map("clio_firm_skills")
+}
+
+/// One row per AI generation: tenant, workflow, provider/model, token counts
+/// and the ESTIMATED cost (computeAiCostUsd, hand-maintained pricing table).
+/// usedTenantKey marks generations billed to the tenant's own provider key
+/// rather than Capiro's shared key. Metering writes are best-effort — a
+/// failed insert never fails the user's generation.
+model AiUsageEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  /// 'outreach_campaign' | 'meeting_prep' | 'meeting_debrief' | 'campaign_email' | 'talking_points' | ...
+  workflow      String   @db.VarChar(48)
+  /// 'openai' | 'anthropic'
+  provider      String   @db.VarChar(16)
+  model         String   @db.VarChar(80)
+  inputTokens   Int      @map("input_tokens")
+  outputTokens  Int      @map("output_tokens")
+  costUsd       Decimal  @map("cost_usd") @db.Decimal(12, 6)
+  usedTenantKey Boolean  @default(false) @map("used_tenant_key")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt], map: "ai_usage_events_tenant_created_idx")
+  @@map("ai_usage_events")
 }
 
 model ClioProactiveAlert {
