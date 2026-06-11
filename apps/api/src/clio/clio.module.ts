@@ -18,6 +18,7 @@ import { ClioResearchService } from './clio-research.service.js';
 import { ClioDocgenService } from './clio-docgen.service.js';
 import { ClioMcpService } from './clio-mcp.service.js';
 import { ClioFirmSkillsService } from './clio-firm-skills.service.js';
+import { ClioFeatureFlagsService } from './clio-feature-flags.service.js';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { ClioFirmSkillsService } from './clio-firm-skills.service.js';
     ClioDocgenService,
     ClioMcpService,
     ClioFirmSkillsService,
+    ClioFeatureFlagsService,
   ],
 })
 export class ClioModule {}

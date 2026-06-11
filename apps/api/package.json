@@ -15,6 +15,7 @@
     "eval:clio:thinking": "tsx scripts/eval-clio-thinking.ts",
     "eval:clio:kb": "tsx scripts/eval-clio-kb.ts",
     "eval:clio:mcp-injection": "tsx scripts/eval-clio-mcp-injection.ts",
+    "eval:clio:analysis": "tsx scripts/eval-clio-analysis.ts",
     "backfill:client-kb": "tsx scripts/backfill-client-kb.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",

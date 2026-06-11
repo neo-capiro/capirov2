@@ -29,6 +29,7 @@ import { WhitePaperEditorPage } from './pages/workspace/WhitePaperEditorPage.js'
 import { ComingSoonIntelligence } from './pages/intelligence/ComingSoonIntelligence.js';
 import { ChangesInboxPage } from './pages/intelligence/ChangesInboxPage.js';
 import { IntelligenceMappingsPage } from './pages/settings/IntelligenceMappingsPage.js';
+import { SkillsPage } from './pages/settings/SkillsPage.js';
 import { IssueLeaderboardPage } from './pages/intelligence/IssueLeaderboardPage.js';
 import { DataExplorerPage } from './pages/explorer/DataExplorerPage.js';
 import { ActionBoardPage } from './pages/actions/ActionBoardPage.js';
@@ -206,6 +207,7 @@ export function App() {
           <Route path="integrations" element={<IntegrationsPage />} />
           <Route path="billing" element={<BillingPage />} />
           <Route path="intelligence-mappings" element={<IntelligenceMappingsPage />} />
+          <Route path="skills" element={<SkillsPage />} />
           <Route path="tenants" element={<CapiroAdminPage />} />
         </Route>
 

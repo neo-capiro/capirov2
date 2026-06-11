@@ -76,6 +76,7 @@ function makeMocks() {
     clientPeople as never,
     clientFacilities as never,
     { search: jest.fn().mockResolvedValue([]) } as never, // clientKb
+    { isEnabled: jest.fn().mockResolvedValue(false) } as never, // featureFlags
   );
 
   return {

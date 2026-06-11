@@ -10,6 +10,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import {
   Document,
   HeadingLevel,
+  ImageRun,
   Packer,
   Paragraph,
   Table,
@@ -67,6 +68,20 @@ export class ClioDocgenService {
       for (const table of section.tables) {
         children.push(this.docxTable(table));
         children.push(new Paragraph({ children: [] }));
+      }
+      // Embedded analysis charts (F4) — resolved PNGs only.
+      for (const image of section.images) {
+        children.push(
+          new Paragraph({
+            children: [
+              new ImageRun({
+                type: 'png',
+                data: Buffer.from(image.dataBase64, 'base64'),
+                transformation: { width: 540, height: 340 },
+              }),
+            ],
+          }),
+        );
       }
     }
 
@@ -199,6 +214,18 @@ export class ClioDocgenService {
           fontSize: 12,
           border: { type: 'solid', pt: 1, color: 'D7DFEA' },
         });
+        y += 1.5;
+      }
+      // Embedded analysis charts (F4) — resolved PNGs only.
+      for (const image of slide.images) {
+        s.addImage({
+          data: `image/png;base64,${image.dataBase64}`,
+          x: 1.5,
+          y: Math.min(y, 4.2),
+          w: 7.5,
+          h: 4.6,
+        });
+        y += 4.8;
       }
     }
 

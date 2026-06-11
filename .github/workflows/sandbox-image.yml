@@ -1,0 +1,62 @@
+# Builds the Clio analysis-sandbox container image and pushes it to ECR
+# (assistant-parity F4). Mirrors api-image.yml: build artifact only — deploys
+# run interactively via cdk per the architecture doc. The runtime requirements
+# are in docs/adr/0001-clio-analysis-sandbox-isolation.md: deploy as its own
+# Fargate service with a NO-EGRESS security group, a zero-permission task
+# role, readonlyRootFilesystem + tmpfs /tmp, and CLIO_SANDBOX_TOKEN shared
+# with the API service.
+
+name: sandbox-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/clio-sandbox/**'
+      - '.github/workflows/sandbox-image.yml'
+  workflow_dispatch:
+    inputs:
+      env:
+        description: 'Target env (dev|staging|prod)'
+        required: true
+        default: 'dev'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  TARGET_ENV: ${{ github.event.inputs.env || 'dev' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GHA_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push (arm64 — prod Fargate is ARM64)
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/clio-sandbox
+          platforms: linux/arm64
+          push: true
+          tags: |
+            ${{ steps.ecr.outputs.registry }}/capiro/${{ env.TARGET_ENV }}/clio-sandbox:latest
+            ${{ steps.ecr.outputs.registry }}/capiro/${{ env.TARGET_ENV }}/clio-sandbox:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeftOutlined,
   CloudUploadOutlined,
+  DatabaseOutlined,
   DeleteOutlined,
   DownOutlined,
   RightOutlined,
@@ -13,6 +14,7 @@ import {
   FileTextOutlined,
   LinkOutlined,
   MailOutlined,
+  MessageOutlined,
   PhoneOutlined,
   PlusOutlined,
   UploadOutlined,
@@ -35,6 +37,12 @@ import {
   Upload,
 } from 'antd';
 import { useApi } from '../../lib/use-api.js';
+import { useClientFilter } from '../../state/client-filter.js';
+import {
+  clearChatSession,
+  setActiveConversation,
+  setChatOpen,
+} from '../../components/chat/chat-store.js';
 import {
   CAPABILITY_TAG_SUGGESTIONS,
   SECTOR_LABELS,
@@ -126,7 +134,19 @@ export function ClientProfilePage({
   const api = useApi();
   const qc = useQueryClient();
   const { message, modal } = AntApp.useApp();
+  const { setSelectedClientId } = useClientFilter();
   const [activeTab, setActiveTab] = useState<ProfileTab>('overview');
+
+  // "Ask Clio about this client": scope the global client filter to this
+  // client and open the chat drawer with a fresh session. ChatDrawer creates
+  // its next conversation with the selected client as the conversation's
+  // clientId (on open, or lazily on first send if it is already open).
+  const askClioAboutClient = () => {
+    setSelectedClientId(client.id);
+    clearChatSession();
+    setActiveConversation(null);
+    setChatOpen(true);
+  };
   // Track the SELECTED CAPABILITY BY ID, not by snapshot object. The drawer edits
   // capabilities inline; if we held a snapshot, an edit would refetch the list but
   // leave the drawer pointing at the stale object, so the just-edited value would
@@ -287,6 +307,21 @@ export function ClientProfilePage({
         </div>
 
         <div className="cp-actions">
+          <Tooltip title="Ask Clio about this client">
+            <Button
+              size="small"
+              icon={<MessageOutlined />}
+              onClick={askClioAboutClient}
+              aria-label="Ask Clio about this client"
+              style={{
+                borderColor: 'rgba(255,255,255,.25)',
+                color: 'rgba(255,255,255,.8)',
+                background: 'transparent',
+              }}
+            >
+              Ask Clio
+            </Button>
+          </Tooltip>
           <Upload
             accept="image/png,image/jpeg,image/svg+xml,image/webp"
             showUploadList={false}
@@ -1164,6 +1199,65 @@ function WorkflowsTab({ workflows, loading }: { workflows: WorkflowInstance[]; l
 
 /* ── Documents Tab ──────────────────────────────────────────────────────── */
 
+/** GET /api/clio/kb/:clientId/status — Clio knowledge-base index status (F5). */
+interface KbStatusResponse {
+  counts: {
+    client_profile?: number;
+    client_person?: number;
+    client_facility?: number;
+    client_doc_chunk?: number;
+  };
+  lastIndexedAt: string | null;
+}
+
+const KB_KIND_LABELS: Array<{ key: keyof KbStatusResponse['counts']; label: string }> = [
+  { key: 'client_profile', label: 'Profile' },
+  { key: 'client_person', label: 'People' },
+  { key: 'client_facility', label: 'Facilities' },
+  { key: 'client_doc_chunk', label: 'Document chunks' },
+];
+
+function kbRelativeTime(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(dateStr).toLocaleDateString([], { month: 'short', day: 'numeric' });
+}
+
+function KbStatusChip({ status }: { status: KbStatusResponse }) {
+  const counts = status.counts ?? {};
+  const total = KB_KIND_LABELS.reduce((sum, kind) => sum + (counts[kind.key] ?? 0), 0);
+  if (total === 0) {
+    return (
+      <Tooltip title="No knowledge-base entries indexed for this client yet.">
+        <Tag icon={<DatabaseOutlined />}>Not indexed yet</Tag>
+      </Tooltip>
+    );
+  }
+  const breakdown = (
+    <div>
+      {KB_KIND_LABELS.map((kind) => (
+        <div key={kind.key}>
+          {kind.label}: {counts[kind.key] ?? 0}
+        </div>
+      ))}
+    </div>
+  );
+  return (
+    <Tooltip title={breakdown}>
+      <Tag icon={<DatabaseOutlined />} color="blue">
+        Clio knowledge: {total} item{total === 1 ? '' : 's'} indexed
+        {status.lastIndexedAt ? ` · updated ${kbRelativeTime(status.lastIndexedAt)}` : ''}
+      </Tag>
+    </Tooltip>
+  );
+}
+
 function DocumentsTab({
   client,
   canManage,
@@ -1193,6 +1287,13 @@ function DocumentsTab({
           params: { clientId: client.id },
         })
       ).data,
+  });
+
+  const kbStatus = useQuery<KbStatusResponse>({
+    queryKey: ['client-kb-status', client.id],
+    queryFn: async () =>
+      (await api.get<KbStatusResponse>(`/api/clio/kb/${client.id}/status`)).data,
+    staleTime: 60_000,
   });
 
   const deleteDoc = useMutation({
@@ -1274,8 +1375,11 @@ function DocumentsTab({
             Capiro auto-parses every upload and routes findings into the Intelligence tab.
           </p>
         </div>
-        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-          {docs.data?.length ?? 0} file{(docs.data?.length ?? 0) === 1 ? '' : 's'}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {kbStatus.data ? <KbStatusChip status={kbStatus.data} /> : null}
+          <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+            {docs.data?.length ?? 0} file{(docs.data?.length ?? 0) === 1 ? '' : 's'}
+          </span>
         </span>
       </header>
 

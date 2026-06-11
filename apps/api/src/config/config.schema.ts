@@ -171,6 +171,18 @@ export const configSchema = z.object({
     .string()
     .default('true')
     .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  // Analysis sandbox (assistant-parity F4). The run_analysis tool registers
+  // only for tenants that opted in (settings_jsonb.clioFeatureFlags
+  // .runAnalysis = true — pilot default OFF) AND while this env kill-switch
+  // is on; flipping it off removes the tool from the registry instantly.
+  // The runner is a separate no-egress Fargate service (apps/clio-sandbox,
+  // ADR 0001); URL + bearer token configure the VPC-internal hop.
+  CLIO_ANALYSIS_SANDBOX_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  CLIO_SANDBOX_URL: z.string().url().optional(),
+  CLIO_SANDBOX_TOKEN: z.string().optional(),
 
   // Clio public web search (search_public_web). 'duckduckgo' (default) keeps the
   // existing scraped DDG behavior with zero new dependencies; 'tavily'/'serper'

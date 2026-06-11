@@ -38,8 +38,10 @@ import {
   computeNextRunAt,
   validateScheduleRequest,
 } from './clio-schedule.helpers.js';
+import { createHash } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ClientKbService } from '../embeddings/client-kb.service.js';
+import { ClioFeatureFlagsService } from './clio-feature-flags.service.js';
 import { buildSavedMemoryRecord } from './clio-memory.helpers.js';
 import { buildWebSearchRequest, normalizeWebResults } from './clio-websearch.helpers.js';
 import { looksLikePdf } from './clio-scrape.helpers.js';
@@ -55,6 +57,10 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'search_research_sources',
     description: 'Search authorized Capiro clients, meetings, mail, notes, and directory notes.',
+  },
+  {
+    name: 'run_analysis',
+    description: 'Execute Python (pandas/numpy/matplotlib) in a locked-down sandbox for real computation: aggregations, year-over-year deltas, joins, and charts over data you already retrieved with other tools. Pass small datasets inline as rows; read them in code from ./data/<name>.csv. print() findings, assign a `results` dict/list/DataFrame for tables, and matplotlib figures are returned as chart artifacts. No network, no filesystem outside the working directory.',
   },
   {
     name: 'search_client_knowledge',
@@ -324,6 +330,7 @@ export class ClioToolsService {
     private readonly clientPeople: ClientPeopleService,
     private readonly clientFacilities: ClientFacilitiesService,
     private readonly clientKb: ClientKbService,
+    private readonly featureFlags: ClioFeatureFlagsService,
   ) {}
 
   manifest() {
@@ -361,6 +368,30 @@ export class ClioToolsService {
         kind: str('Optional filter: client_profile | client_person | client_facility | client_doc_chunk'),
         limit: int('Max results (1-20)'),
       }, ['query']),
+      run_analysis: {
+        type: 'object',
+        properties: {
+          code: {
+            type: 'string',
+            description:
+              'Python to run. Read inline datasets from ./data/<name>.csv; print() findings; assign `results` for a table; matplotlib figures become chart artifacts.',
+          },
+          datasets: {
+            type: 'array',
+            description: 'Small datasets to mount read-only (rows from prior tool results).',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'File name (without extension)' },
+                rows: { type: 'array', items: { type: 'object' }, description: 'Row objects (<=5000)' },
+              },
+              required: ['name', 'rows'],
+            },
+          },
+          purpose: { type: 'string', description: 'One line on what the analysis answers' },
+        },
+        required: ['code'],
+      },
       query_intelligence: obj({
         clientName: str('Optional client name to add federal contracting context'),
       }),
@@ -709,6 +740,143 @@ export class ClioToolsService {
     }
   }
 
+  // ── run_analysis (F4): sandboxed Python over the no-egress runner ────────
+
+  /** Per-tenant sliding-window rate limit for sandbox runs. */
+  private readonly analysisRuns = new Map<string, number[]>();
+  private static readonly ANALYSIS_RUNS_PER_HOUR = 20;
+
+  /** Whether run_analysis is live for this tenant (env kill-switch AND
+   *  explicit tenant opt-in; pilot default OFF). */
+  async analysisSandboxEnabled(tenantId: string): Promise<boolean> {
+    if (!this.config.get('CLIO_ANALYSIS_SANDBOX_ENABLED', { infer: true })) return false;
+    if (!this.config.get('CLIO_SANDBOX_URL', { infer: true })) return false;
+    return this.featureFlags.isEnabled(tenantId, 'runAnalysis', false);
+  }
+
+  private async runAnalysis(ctx: TenantContext, input: Record<string, unknown>) {
+    const generatedAt = new Date().toISOString();
+    if (!(await this.analysisSandboxEnabled(ctx.tenantId))) {
+      return {
+        tool: 'run_analysis',
+        generatedAt,
+        ok: false,
+        error: 'The analysis sandbox is not enabled for this workspace.',
+      };
+    }
+    const code = typeof input.code === 'string' ? input.code : '';
+    if (!code.trim()) throw new BadRequestException('code is required');
+
+    // Rate limit (the tool is read-only but compute-expensive).
+    const now = Date.now();
+    const windowStart = now - 60 * 60 * 1000;
+    const stamps = (this.analysisRuns.get(ctx.tenantId) ?? []).filter((t) => t > windowStart);
+    if (stamps.length >= ClioToolsService.ANALYSIS_RUNS_PER_HOUR) {
+      return {
+        tool: 'run_analysis',
+        generatedAt,
+        ok: false,
+        error: `Analysis rate limit reached (${ClioToolsService.ANALYSIS_RUNS_PER_HOUR}/hour). Try again later.`,
+      };
+    }
+    stamps.push(now);
+    this.analysisRuns.set(ctx.tenantId, stamps);
+
+    const codeHash = createHash('sha256').update(code).digest('hex');
+    const datasets = Array.isArray(input.datasets)
+      ? (input.datasets as Array<Record<string, unknown>>)
+          .filter((d) => d && typeof d.name === 'string' && Array.isArray(d.rows))
+          .slice(0, 8)
+          .map((d) => ({ name: d.name as string, rows: d.rows as Array<Record<string, unknown>> }))
+      : [];
+
+    const url = this.config.get('CLIO_SANDBOX_URL', { infer: true });
+    const token = this.config.get('CLIO_SANDBOX_TOKEN', { infer: true });
+    interface SandboxOutcome {
+      ok: boolean;
+      exitCode: number | null;
+      timedOut: boolean;
+      durationMs: number;
+      stdout: string;
+      stderr: string;
+      results: unknown;
+      images: Array<{ filename: string; dataBase64: string }>;
+    }
+    let outcome: SandboxOutcome | null = null;
+    let failure: string | null = null;
+    try {
+      const res = await fetch(`${url}/run`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(token ? { authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ code, datasets }),
+        signal: AbortSignal.timeout(45_000),
+      });
+      if (!res.ok) {
+        failure = `sandbox HTTP ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`;
+      } else {
+        outcome = (await res.json()) as SandboxOutcome;
+      }
+    } catch (err) {
+      failure = err instanceof Error ? err.message : 'sandbox unreachable';
+    }
+
+    // Audit 100% of runs (success or failure), with the code hash — never the code.
+    await this.prisma
+      .withTenant(ctx.tenantId, (tx) =>
+        tx.auditLog.create({
+          data: {
+            tenantId: ctx.tenantId,
+            actorUserId: ctx.userId,
+            actorRole: ctx.role,
+            action: 'clio.run_analysis',
+            entityType: 'clio_sandbox_run',
+            entityId: null,
+            after: {
+              codeSha256: codeHash,
+              datasetNames: datasets.map((d) => d.name),
+              ok: outcome?.ok ?? false,
+              timedOut: outcome?.timedOut ?? false,
+              durationMs: outcome?.durationMs ?? null,
+              failure,
+            } as Prisma.InputJsonValue,
+          },
+        }),
+      )
+      .catch((err) => this.logger.warn(`run_analysis audit failed: ${(err as Error).message}`));
+
+    if (failure || !outcome) {
+      return {
+        tool: 'run_analysis',
+        generatedAt,
+        ok: false,
+        error: `The analysis sandbox is unavailable (${failure ?? 'no result'}). Summarize the data without code execution.`,
+      };
+    }
+
+    const artifacts = outcome.images.map((img, index) => ({
+      title: `Analysis chart ${index + 1}`,
+      kind: 'analysis_chart',
+      contentType: 'image/png',
+      metadata: { imageBase64: img.dataBase64, filename: img.filename, codeSha256: codeHash },
+    }));
+    return {
+      tool: 'run_analysis',
+      generatedAt,
+      ok: outcome.ok,
+      exitCode: outcome.exitCode,
+      timedOut: outcome.timedOut,
+      durationMs: outcome.durationMs,
+      stdout: outcome.stdout.slice(0, 12_000),
+      stderr: outcome.ok ? undefined : outcome.stderr.slice(0, 4_000),
+      results: outcome.results,
+      chartCount: artifacts.length,
+      ...(artifacts.length ? { artifacts } : {}),
+    };
+  }
+
   executeFromAuthenticatedUser(ctx: TenantContext, rawName: string, rawInput: unknown) {
     return this.execute(ctx, normalizeToolName(rawName), objectInput(rawInput));
   }
@@ -721,6 +889,8 @@ export class ClioToolsService {
         return this.searchResearchSources(ctx, input);
       case 'search_client_knowledge':
         return this.searchClientKnowledge(ctx, input);
+      case 'run_analysis':
+        return this.runAnalysis(ctx, input);
       case 'query_intelligence':
         return this.queryIntelligence(input);
       case 'search_congress_bills':
@@ -2445,6 +2615,15 @@ export class ClioToolsService {
     let normalized: unknown;
     if (format === 'docx') {
       const spec = normalizeWordSpec(input);
+      // Resolve referenced analysis-chart artifacts into embedded PNGs (F4)
+      // so the stored spec re-renders identically on download.
+      for (const section of spec.sections) {
+        section.images = [
+          ...section.images,
+          ...(await this.resolveChartImages(ctx, section.imageArtifactIds)),
+        ];
+        section.imageArtifactIds = [];
+      }
       title = spec.title;
       normalized = spec;
       await this.docgen.buildDocx(spec);
@@ -2455,6 +2634,13 @@ export class ClioToolsService {
       await this.docgen.buildXlsx(spec);
     } else {
       const spec = normalizePptxSpec(input);
+      for (const slide of spec.slides) {
+        slide.images = [
+          ...slide.images,
+          ...(await this.resolveChartImages(ctx, slide.imageArtifactIds)),
+        ];
+        slide.imageArtifactIds = [];
+      }
       title = spec.title;
       normalized = spec;
       await this.docgen.buildPptx(spec);
@@ -3072,6 +3258,27 @@ export class ClioToolsService {
       instanceStatus: updated.status,
       instanceTitle: updated.title,
     };
+  }
+
+  /** Resolve analysis-chart artifact ids to embedded PNG payloads (F4). */
+  private async resolveChartImages(
+    ctx: TenantContext,
+    artifactIds: string[],
+  ): Promise<Array<{ dataBase64: string }>> {
+    const out: Array<{ dataBase64: string }> = [];
+    for (const id of artifactIds) {
+      const artifact = await this.prisma
+        .withTenant(ctx.tenantId, (tx) =>
+          tx.clioArtifact.findFirst({
+            where: { id, tenantId: ctx.tenantId },
+            select: { metadata: true },
+          }),
+        )
+        .catch(() => null);
+      const meta = artifact?.metadata as Record<string, unknown> | null;
+      if (typeof meta?.imageBase64 === 'string') out.push({ dataBase64: meta.imageBase64 });
+    }
+    return out;
   }
 
   /** Regenerate a document binary from a stored spec (for the download route). */

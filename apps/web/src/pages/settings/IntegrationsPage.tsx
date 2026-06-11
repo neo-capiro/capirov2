@@ -9,6 +9,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Form, Input, Modal, Space, Tag, Typography } from 'antd';
 import { useApi } from '../../lib/use-api.js';
+import { McpServersCard } from './McpServersCard.js';
 
 type Provider = 'microsoft_365' | 'google_workspace' | 'imap_caldav';
 
@@ -264,6 +265,10 @@ export function IntegrationsPage() {
           );
         })}
       </div>
+
+      {/* Clio MCP servers (F6a) — admin-gated; the card hides itself for
+          non-admins (the API enforces user_admin on every endpoint). */}
+      <McpServersCard />
 
       <Modal
         title={

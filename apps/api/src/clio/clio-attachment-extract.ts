@@ -24,7 +24,7 @@ export async function extractPdfText(buffer: Buffer | Uint8Array): Promise<PdfEx
   const pageCount = Math.min(pdf.numPages, PDF_MAX_PAGES);
   const parts: string[] = [];
   let chars = 0;
-  for (let i = 1; i <= pageCount && chars <= DOC_TEXT_MAX_CHARS; i += 1) {
+  for (let i = 1; i <= pageCount && chars < DOC_TEXT_MAX_CHARS; i += 1) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
     const pageText = (content.items as Array<{ str?: string }>)

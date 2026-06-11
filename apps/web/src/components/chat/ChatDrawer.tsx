@@ -14,6 +14,7 @@ import { useApi } from '../../lib/use-api.js';
 import { useClientFilter } from '../../state/client-filter.js';
 import { useImpersonation } from '../../state/impersonation.js';
 import {
+  addChatMessageChartArtifact,
   appendChatMessage,
   clearChatSession,
   ClioSourceAttribution,
@@ -38,6 +39,7 @@ import {
   upsertConversation,
   useChatStore,
 } from './chat-store.js';
+import { AnalysisChartCard } from './AnalysisChartCard.js';
 import { ChatInput, isUsableAttachment, type StagedAttachment } from './ChatInput.js';
 import { ChatMessage } from './ChatMessage.js';
 import { SessionRail } from './SessionRail.js';
@@ -860,7 +862,19 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
               Array.isArray(event.suggestions) ? event.suggestions : [],
             );
           } else if (event.type === 'artifact') {
-            if (event.artifact?.bodyText) setActiveArtifact(event.artifact);
+            if (event.artifact?.kind === 'analysis_chart') {
+              // F4 analysis charts stream with an empty bodyText and render
+              // inline under the assistant turn; the card lazy-fetches the
+              // PNG from /api/clio/artifacts/:id/image.
+              if (event.artifact.id) {
+                addChatMessageChartArtifact(assistantId, {
+                  id: event.artifact.id,
+                  title: event.artifact.title?.trim() || 'Analysis chart',
+                });
+              }
+            } else if (event.artifact?.bodyText) {
+              setActiveArtifact(event.artifact);
+            }
           } else if (event.type === 'done') {
             break outer;
           } else if (event.type === 'error') {
@@ -1296,6 +1310,13 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     msg.content !== ''
                   }
                 />
+                {msg.role === 'assistant' && msg.chartArtifacts && msg.chartArtifacts.length > 0 && (
+                  <div className="chat-chart-cards" aria-label="Analysis charts">
+                    {msg.chartArtifacts.map((chart) => (
+                      <AnalysisChartCard key={chart.id} artifactId={chart.id} title={chart.title} />
+                    ))}
+                  </div>
+                )}
                 {msg.role === 'assistant' &&
                   msg.content !== '' &&
                   !(isStreaming && i === messages.length - 1) && (

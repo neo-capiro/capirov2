@@ -514,6 +514,21 @@ export class ClioController {
     res.send(buffer);
   }
 
+  // PNG body for an analysis-chart artifact (F4): rendered inline in chat and
+  // embedded into generated Word/PPT documents.
+  @Get('artifacts/:id/image')
+  async artifactImage(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const image = await this.service.getArtifactImage(ctx, id);
+    if (!image) throw new NotFoundException('Image artifact not found');
+    res.setHeader('Content-Type', image.contentType);
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.send(image.buffer);
+  }
+
   @Post('research/:id/plan/stream')
   async streamResearchPlan(
     @CurrentTenant() ctx: TenantContext,

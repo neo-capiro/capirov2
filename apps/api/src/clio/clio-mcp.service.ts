@@ -158,11 +158,17 @@ export class ClioMcpService {
     this.registry.delete(tenantId);
   }
 
-  /** Bridged tool schemas for a tenant (cached, 15-minute TTL). */
+  /** Bridged tool schemas for a tenant (cached, 15-minute TTL). Tools whose
+   *  server's circuit breaker is currently open are filtered out so the model
+   *  is never offered a tool that would immediately error — degrade quietly. */
   async bridgedSchemasForTenant(tenantId: string): Promise<BridgedTool[]> {
     if (!this.enabled()) return [];
     try {
-      return (await this.registryForTenant(tenantId)).schemas;
+      const registry = await this.registryForTenant(tenantId);
+      return registry.schemas.filter((schema) => {
+        const entry = registry.byBridgedName.get(schema.name);
+        return !entry || !this.breaker.isOpen(`${tenantId}:mcp:${entry.serverId}`);
+      });
     } catch (err) {
       this.logger.warn(`MCP registry unavailable [tenant ${tenantId}]: ${(err as Error).message}`);
       return [];

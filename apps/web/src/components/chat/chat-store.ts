@@ -33,6 +33,15 @@ export interface ChatMessageAttachment {
   status: string;
 }
 
+/**
+ * Inline analysis chart (F4) attached to an assistant message. The PNG body
+ * is fetched lazily from GET /api/clio/artifacts/:id/image by the card.
+ */
+export interface ChatMessageChartArtifact {
+  id: string;
+  title: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -43,6 +52,7 @@ export interface ChatMessage {
   suggestions?: string[];
   feedback?: 'up' | 'down' | null;
   attachments?: ChatMessageAttachment[];
+  chartArtifacts?: ChatMessageChartArtifact[];
 }
 
 export interface ActiveDraftContext {
@@ -164,6 +174,15 @@ export function setChatMessageSuggestions(id: string, suggestions: string[]): vo
 
 export function setChatMessageFeedback(id: string, feedback: 'up' | 'down' | null): void {
   const messages = state.messages.map((m) => (m.id === id ? { ...m, feedback } : m));
+  state = { ...state, messages };
+  notify();
+}
+
+/** Append one analysis chart (F4) to a message — used as artifact SSE events stream in. */
+export function addChatMessageChartArtifact(id: string, chart: ChatMessageChartArtifact): void {
+  const messages = state.messages.map((m) =>
+    m.id === id ? { ...m, chartArtifacts: [...(m.chartArtifacts ?? []), chart] } : m,
+  );
   state = { ...state, messages };
   notify();
 }

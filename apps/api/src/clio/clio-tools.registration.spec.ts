@@ -13,6 +13,8 @@ const EXPECTED_TOOLS = [
   'search_research_sources',
   // Client knowledge base (assistant-parity F5)
   'search_client_knowledge',
+  // Analysis sandbox (assistant-parity F4; pilot-gated per tenant)
+  'run_analysis',
   // Federal intelligence
   'query_intelligence',
   'search_congress_bills',
@@ -76,6 +78,7 @@ const REQUIRED_INPUTS: Record<string, string[]> = {
   get_client_context: ['clientId'],
   search_research_sources: ['query'],
   search_client_knowledge: ['query'],
+  run_analysis: ['code'],
   search_public_web: ['query'],
   scrape_web_page: ['url'],
   create_meeting_brief: ['meetingId'],

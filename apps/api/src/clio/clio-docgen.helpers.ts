@@ -17,6 +17,11 @@ export interface DocTable {
   rows: string[][];
 }
 
+export interface DocImage {
+  /** PNG bytes, base64. Embedded at generation time (F4 analysis charts). */
+  dataBase64: string;
+}
+
 export interface DocSection {
   heading: string;
   /** Paragraph blocks of prose. */
@@ -25,6 +30,10 @@ export interface DocSection {
   bullets: string[];
   /** Optional tables in this section. */
   tables: DocTable[];
+  /** Chart-artifact ids to embed (resolved to `images` by the tool layer). */
+  imageArtifactIds: string[];
+  /** Embedded images (resolved; also present in stored specs on re-render). */
+  images: DocImage[];
 }
 
 export interface WordSpec {
@@ -48,6 +57,10 @@ export interface SlideSpec {
   title: string;
   bullets: string[];
   table: DocTable | null;
+  /** Chart-artifact ids to embed (resolved to `images` by the tool layer). */
+  imageArtifactIds: string[];
+  /** Embedded images (resolved; also present in stored specs on re-render). */
+  images: DocImage[];
 }
 
 export interface PptxSpec {
@@ -67,6 +80,32 @@ export const MAX_TABLE_COLS = 24;
 export const MAX_SHEETS = 20;
 export const MAX_SLIDES = 60;
 export const MAX_CELL_CHARS = 8000;
+export const MAX_IMAGES_PER_BLOCK = 4;
+/** ~3MB of base64 ≈ 2.2MB PNG — matches the sandbox per-image cap. */
+export const MAX_IMAGE_BASE64_CHARS = 3 * 1024 * 1024;
+
+const UUID_ISH = /^[0-9a-fA-F-]{8,64}$/;
+
+function imageIdList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((v): v is string => typeof v === 'string' && UUID_ISH.test(v.trim()))
+    .map((v) => v.trim())
+    .slice(0, MAX_IMAGES_PER_BLOCK);
+}
+
+function imageList(value: unknown): DocImage[] {
+  if (!Array.isArray(value)) return [];
+  const out: DocImage[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const data = (item as Record<string, unknown>).dataBase64;
+    if (typeof data !== 'string' || !data || data.length > MAX_IMAGE_BASE64_CHARS) continue;
+    out.push({ dataBase64: data });
+    if (out.length >= MAX_IMAGES_PER_BLOCK) break;
+  }
+  return out;
+}
 
 function str(value: unknown, max: number, fallback = ''): string {
   if (typeof value !== 'string') return fallback;
@@ -124,10 +163,19 @@ function normalizeSection(value: unknown): DocSection | null {
   const paragraphs = strList(v.paragraphs, MAX_PARAGRAPHS, MAX_CELL_CHARS);
   const bullets = strList(v.bullets, MAX_BULLETS, MAX_CELL_CHARS);
   const tables = normalizeTables(v.tables);
-  if (!heading && paragraphs.length === 0 && bullets.length === 0 && tables.length === 0) {
+  const imageArtifactIds = imageIdList(v.imageArtifactIds);
+  const images = imageList(v.images);
+  if (
+    !heading &&
+    paragraphs.length === 0 &&
+    bullets.length === 0 &&
+    tables.length === 0 &&
+    imageArtifactIds.length === 0 &&
+    images.length === 0
+  ) {
     return null;
   }
-  return { heading: heading || 'Section', paragraphs, bullets, tables };
+  return { heading: heading || 'Section', paragraphs, bullets, tables, imageArtifactIds, images };
 }
 
 /** Validate + normalize a Word document spec. Throws if there's no usable content. */
@@ -201,8 +249,11 @@ export function normalizePptxSpec(input: unknown): PptxSpec {
     const slideTitle = str(sv.title, MAX_DOC_TITLE);
     const bullets = strList(sv.bullets, MAX_BULLETS, MAX_CELL_CHARS);
     const table = normalizeTable(sv.table);
-    if (!slideTitle && bullets.length === 0 && !table) continue;
-    slides.push({ title: slideTitle || 'Slide', bullets, table });
+    const imageArtifactIds = imageIdList(sv.imageArtifactIds);
+    const images = imageList(sv.images);
+    if (!slideTitle && bullets.length === 0 && !table && !imageArtifactIds.length && !images.length)
+      continue;
+    slides.push({ title: slideTitle || 'Slide', bullets, table, imageArtifactIds, images });
     if (slides.length >= MAX_SLIDES) break;
   }
   if (slides.length === 0) {

@@ -687,10 +687,16 @@ export class ClioService {
       const toolRetries = this.config.get('CLIO_TOOL_RETRIES', { infer: true });
       // Bridged MCP tools (F6a) merge into the tool surface per tenant at
       // request time. Tenants with no MCP servers keep the exact baseline
-      // tool list (and its shared prompt-cache prefix).
+      // tool list (and its shared prompt-cache prefix). run_analysis (F4) is
+      // pilot-gated: it registers only for opted-in tenants and disappears
+      // instantly under the env kill-switch.
+      const analysisEnabled = await this.tools.analysisSandboxEnabled(ctx.tenantId);
+      const nativeSchemas = this.tools
+        .anthropicToolSchemas()
+        .filter((schema) => analysisEnabled || schema.name !== 'run_analysis');
       const mcpSchemas = await this.mcp.bridgedSchemasForTenant(ctx.tenantId);
       const toolSchemas = applyToolCacheControl(
-        [...this.tools.anthropicToolSchemas(), ...mcpSchemas],
+        [...nativeSchemas, ...mcpSchemas],
         promptCacheEnabled,
       );
 
@@ -1139,12 +1145,16 @@ export class ClioService {
             ...art,
           },
         });
-        if (art.bodyText && art.bodyText.trim()) {
+        const artMeta = art.metadata as Record<string, unknown> | null;
+        const isImageArtifact = typeof artMeta?.imageBase64 === 'string';
+        if ((art.bodyText && art.bodyText.trim()) || isImageArtifact) {
+          // Image artifacts (F4 charts) stream with an empty body; the UI
+          // fetches the PNG from GET /clio/artifacts/:id/image by kind.
           createdDeliverables.push({
             id: createdArtifact.id,
             title: art.title,
             kind: art.kind,
-            bodyText: art.bodyText,
+            bodyText: art.bodyText ?? '',
           });
         }
       }
@@ -1174,6 +1184,26 @@ export class ClioService {
     });
 
     sse.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+  }
+
+  /** PNG bytes for an analysis-chart artifact (F4 chat/docgen rendering). */
+  async getArtifactImage(
+    ctx: TenantContext,
+    id: string,
+  ): Promise<{ buffer: Buffer; contentType: string } | null> {
+    const artifact = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.clioArtifact.findFirst({
+        where: { id, tenantId: ctx.tenantId },
+        select: { contentType: true, metadata: true },
+      }),
+    );
+    const meta = artifact?.metadata as Record<string, unknown> | null;
+    const b64 = typeof meta?.imageBase64 === 'string' ? (meta.imageBase64 as string) : null;
+    if (!b64) return null;
+    return {
+      buffer: Buffer.from(b64, 'base64'),
+      contentType: artifact?.contentType ?? 'image/png',
+    };
   }
 
   // ── Long-conversation compaction + history search (F2) ───────────────────
@@ -2930,16 +2960,20 @@ function extractToolArtifacts(value: unknown): Array<{
       typeof a.body === 'string' ? a.body :
       typeof a.content === 'string' ? a.content : null;
     const s3Key = typeof a.s3Key === 'string' ? a.s3Key : null;
-    if (!bodyText && !s3Key) continue;
+    const metadata = a.metadata && typeof a.metadata === 'object' && !Array.isArray(a.metadata)
+      ? (a.metadata as Prisma.InputJsonObject)
+      : {};
+    // Image artifacts (F4 analysis charts) carry their PNG in metadata
+    // instead of bodyText/s3Key.
+    const hasImage = typeof (metadata as Record<string, unknown>).imageBase64 === 'string';
+    if (!bodyText && !s3Key && !hasImage) continue;
     out.push({
       title: typeof a.title === 'string' && a.title.trim() ? a.title.trim() : 'Clio artifact',
       kind: typeof a.kind === 'string' && a.kind.trim() ? a.kind.trim() : 'document',
       contentType: typeof a.contentType === 'string' ? a.contentType : 'text/markdown',
       bodyText,
       s3Key,
-      metadata: a.metadata && typeof a.metadata === 'object' && !Array.isArray(a.metadata)
-        ? (a.metadata as Prisma.InputJsonObject)
-        : {},
+      metadata,
     });
   }
   return out;

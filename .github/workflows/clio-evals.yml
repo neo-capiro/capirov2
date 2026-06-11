@@ -1,0 +1,119 @@
+# Nightly Clio eval gate (assistant-parity rollout & measurement).
+#
+# Two layers:
+#   1. `fixtures` (always): typecheck + every CI-safe eval-fixture/grader spec
+#      — fixture validity, grader behavior, sandbox pen-testable helpers —
+#      no tokens spent.
+#   2. `live-evals` (nightly cron + manual): the per-feature live eval suites
+#      against the real model. Each runner enforces its own gate and exits
+#      non-zero on regression; a red night blocks default-on promotion of the
+#      corresponding feature flag. Requires the ANTHROPIC_API_KEY secret (and
+#      AWS credentials for the embedding-backed KB eval; that runner degrades
+#      to keyword scoring without them).
+#
+# Eval reports upload as artifacts (test/evals/clio/*-last-report.json).
+
+name: clio-evals
+
+on:
+  schedule:
+    - cron: '17 7 * * *' # nightly, 07:17 UTC
+  workflow_dispatch:
+    inputs:
+      suites:
+        description: 'Comma list: core,attachments,compaction,thinking,kb,mcp-injection,analysis (default all)'
+        required: false
+        default: 'core,attachments,compaction,thinking,kb,mcp-injection,analysis'
+
+permissions:
+  contents: read
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @capiro/api exec prisma generate
+      - run: pnpm --filter @capiro/api typecheck
+      - name: Eval fixture + grader + helper specs (no tokens)
+        run: >-
+          pnpm --filter @capiro/api test --
+          fixtures.spec.ts eval-grader.spec.ts
+          attachment-fixtures.spec.ts compaction-fixtures.spec.ts
+          kb-fixtures.spec.ts analysis-fixtures.spec.ts
+          clio-attachment.helpers.spec.ts clio-thinking.helpers.spec.ts
+          clio-compaction.helpers.spec.ts clio-history-search.helpers.spec.ts
+          client-kb.helpers.spec.ts clio-mcp.helpers.spec.ts
+          clio-firm-skills.helpers.spec.ts clio-firm-skills.service.spec.ts
+
+  live-evals:
+    # Live model calls cost tokens: nightly + manual only, never on push.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    needs: fixtures
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      CLIO_MODEL: claude-sonnet-4-6
+      CLIO_INTENT_MODEL: claude-haiku-4-5-20251001
+      SUITES: ${{ github.event.inputs.suites || 'core,attachments,compaction,thinking,kb,mcp-injection,analysis' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install pandas==2.2.3 numpy==2.1.3 matplotlib==3.9.2
+      - run: pnpm install --frozen-lockfile
+      - name: Skip when no API key secret is configured
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "ANTHROPIC_API_KEY secret missing — live evals skipped" >> "$GITHUB_STEP_SUMMARY"
+            echo "SKIP_LIVE=1" >> "$GITHUB_ENV"
+          fi
+      - name: Sandbox pen-test (containment checklist, no tokens)
+        if: env.SKIP_LIVE != '1'
+        run: pnpm --filter @capiro/clio-sandbox pentest
+      - name: Core grounded-answer eval
+        if: env.SKIP_LIVE != '1' && contains(env.SUITES, 'core')
+        run: pnpm --filter @capiro/api eval:clio
+      - name: Attachment Q&A + vision eval (F1)
+        if: env.SKIP_LIVE != '1' && contains(env.SUITES, 'attachments')
+        run: pnpm --filter @capiro/api eval:clio:attachments
+      - name: Compaction needle-retention eval (F2)
+        if: env.SKIP_LIVE != '1' && contains(env.SUITES, 'compaction')
+        run: pnpm --filter @capiro/api eval:clio:compaction
+      - name: Extended-thinking pairwise eval (F3)
+        if: env.SKIP_LIVE != '1' && contains(env.SUITES, 'thinking')
+        run: pnpm --filter @capiro/api eval:clio:thinking
+      - name: Client KB retrieval eval (F5)
+        if: env.SKIP_LIVE != '1' && contains(env.SUITES, 'kb')
+        run: pnpm --filter @capiro/api eval:clio:kb
+      - name: MCP injection eval (F6a)
+        if: env.SKIP_LIVE != '1' && contains(env.SUITES, 'mcp-injection')
+        run: pnpm --filter @capiro/api eval:clio:mcp-injection
+      - name: Analysis sandbox eval (F4)
+        if: env.SKIP_LIVE != '1' && contains(env.SUITES, 'analysis')
+        run: pnpm --filter @capiro/api eval:clio:analysis
+      - name: Upload eval reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clio-eval-reports
+          path: apps/api/test/evals/clio/*-last-report.json
+          if-no-files-found: ignore
