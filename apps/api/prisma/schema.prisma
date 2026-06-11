@@ -188,6 +188,7 @@ model Tenant {
   programElementWatches        ProgramElementWatch[]
   actionRecommendations        ActionRecommendation[]
   aiUsageEvents                AiUsageEvent[]
+  aiCredentials                TenantAiCredential[]
 
   @@map("tenants")
 }
@@ -1230,6 +1231,36 @@ model AiUsageEvent {
 
   @@index([tenantId, createdAt], map: "ai_usage_events_tenant_created_idx")
   @@map("ai_usage_events")
+}
+
+/// Per-tenant AI provider key, AES-256-GCM encrypted at rest with
+/// AI_CREDENTIAL_ENCRYPTION_KEY (same envelope pattern as
+/// engagement_connection_tokens). Write-only through the API: the plaintext
+/// key is never returned — only keyLast4 for display. One credential per
+/// (tenant, provider); the resolver falls back to the global env key when no
+/// active row exists.
+model TenantAiCredential {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  /// 'openai' | 'anthropic'
+  provider        String    @db.VarChar(16)
+  keyCiphertext   String    @map("key_ciphertext")
+  keyIv           String    @map("key_iv")
+  keyAuthTag      String    @map("key_auth_tag")
+  keyVersion      String    @default("v1") @map("key_version")
+  keyLast4        String    @map("key_last4") @db.VarChar(4)
+  modelOverride   String?   @map("model_override") @db.VarChar(80)
+  /// 'active' | 'invalid' | 'disabled'
+  status          String    @default("active") @db.VarChar(16)
+  lastValidatedAt DateTime? @map("last_validated_at") @db.Timestamptz(6)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider], map: "tenant_ai_credentials_tenant_provider_key")
+  @@map("tenant_ai_credentials")
 }
 
 model ClioProactiveAlert {
