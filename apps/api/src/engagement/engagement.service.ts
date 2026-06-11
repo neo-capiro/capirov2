@@ -1800,69 +1800,82 @@ export class EngagementService {
       ? `Shared context (every recipient):\n${formatItems(sharedItems)}`
       : null;
 
-    const results: Array<{ recipientId: string; subject: string; body: string }> = [];
+    // Generate per-recipient drafts with bounded concurrency. This was a
+    // sequential await-loop, so a campaign's wall-clock was sum-of-all-calls
+    // and large batches timed out before every draft came back. Running a few
+    // at a time keeps total latency roughly batch/CONCURRENCY while staying
+    // well under the AI provider's rate limits. Results stay in recipient
+    // order (mapWithConcurrency guarantees it) and every recipient still gets
+    // an entry, because the worker catches its own errors and yields a blank
+    // draft — identical to the old per-iteration try/catch behavior.
+    const OUTREACH_GEN_CONCURRENCY = 4;
+    const results = await mapWithConcurrency(
+      recipients,
+      OUTREACH_GEN_CONCURRENCY,
+      async (recipient, index) => {
+        // Must match the frontend's recipientKey() chain (id first) so generated
+        // drafts land under the key the wizard looks them up by. Previously this
+        // started at directoryContactId, so to-clients recipients (which have
+        // `id` but no directoryContactId) got keyed by email and the wizard
+        // showed "no draft". The final fallback is the recipient's original
+        // index (was `results.length` in the old sequential loop — identical
+        // value, but stable now that generation runs concurrently).
+        const recipientId =
+          (recipient as Record<string, unknown>).id?.toString() ||
+          (recipient as Record<string, unknown>).directoryContactId?.toString() ||
+          (recipient as Record<string, unknown>).email?.toString() ||
+          String(index);
 
-    for (const recipient of recipients) {
-      // Must match the frontend's recipientKey() chain (id first) so generated
-      // drafts land under the key the wizard looks them up by. Previously this
-      // started at directoryContactId, so to-clients recipients (which have
-      // `id` but no directoryContactId) got keyed by email and the wizard
-      // showed "no draft".
-      const recipientId =
-        (recipient as Record<string, unknown>).id?.toString() ||
-        (recipient as Record<string, unknown>).directoryContactId?.toString() ||
-        (recipient as Record<string, unknown>).email?.toString() ||
-        String(results.length);
-
-      // Per-recipient scoped context, drawn from contextItems[].scope == this
-      // recipient's stable key. The wizard's recipient key is the same fallback
-      // chain used by recipientKey() on the frontend, so look up by every
-      // identifier we have rather than guessing.
-      const recipientKeyCandidates = [
-        (recipient as Record<string, unknown>).id?.toString(),
-        (recipient as Record<string, unknown>).directoryContactId?.toString(),
-        (recipient as Record<string, unknown>).email?.toString(),
-        (recipient as Record<string, unknown>).name?.toString(),
-      ].filter((s): s is string => Boolean(s));
-      const personalItems = recipientKeyCandidates.flatMap(
-        (k) => recipientScopedItems.get(k) ?? [],
-      );
-      const personalContextText = personalItems.length
-        ? `Personalized context for this recipient:\n${formatItems(personalItems)}`
-        : null;
-      const combinedContextNotes = [sharedContextText, personalContextText]
-        .filter((s): s is string => Boolean(s))
-        .join('\n\n');
-
-      try {
-        const context: Record<string, unknown> = {
-          tone: tone ?? 'professional',
-          ...(direction ? { direction } : {}),
-          ...(senderName ? { senderName } : {}),
-          ...(senderSignature ? { senderSignature } : {}),
-          ...(insightsContext ? { insights: insightsContext } : {}),
-          ...(additionalContext ? { additionalContext } : {}),
-          ...(combinedContextNotes ? { contextItems: combinedContextNotes } : {}),
-          ...(clientContextForCampaign ? { clientContext: clientContextForCampaign } : {}),
-        };
-
-        const generated = await this.ai.generateOutreachDraft({
-          workflow: 'campaign',
-          client,
-          recipients: [recipient as unknown as Record<string, unknown>],
-          context,
-          promptTemplate: 'custom',
-          objective: templatePrompt,
-        });
-
-        results.push({ recipientId, subject: generated.subject, body: generated.body });
-      } catch (err) {
-        this.logger.warn(
-          `Batch email generation failed for recipient ${recipientId}: ${(err as Error).message}`,
+        // Per-recipient scoped context, drawn from contextItems[].scope == this
+        // recipient's stable key. The wizard's recipient key is the same fallback
+        // chain used by recipientKey() on the frontend, so look up by every
+        // identifier we have rather than guessing.
+        const recipientKeyCandidates = [
+          (recipient as Record<string, unknown>).id?.toString(),
+          (recipient as Record<string, unknown>).directoryContactId?.toString(),
+          (recipient as Record<string, unknown>).email?.toString(),
+          (recipient as Record<string, unknown>).name?.toString(),
+        ].filter((s): s is string => Boolean(s));
+        const personalItems = recipientKeyCandidates.flatMap(
+          (k) => recipientScopedItems.get(k) ?? [],
         );
-        results.push({ recipientId, subject: '', body: '' });
-      }
-    }
+        const personalContextText = personalItems.length
+          ? `Personalized context for this recipient:\n${formatItems(personalItems)}`
+          : null;
+        const combinedContextNotes = [sharedContextText, personalContextText]
+          .filter((s): s is string => Boolean(s))
+          .join('\n\n');
+
+        try {
+          const context: Record<string, unknown> = {
+            tone: tone ?? 'professional',
+            ...(direction ? { direction } : {}),
+            ...(senderName ? { senderName } : {}),
+            ...(senderSignature ? { senderSignature } : {}),
+            ...(insightsContext ? { insights: insightsContext } : {}),
+            ...(additionalContext ? { additionalContext } : {}),
+            ...(combinedContextNotes ? { contextItems: combinedContextNotes } : {}),
+            ...(clientContextForCampaign ? { clientContext: clientContextForCampaign } : {}),
+          };
+
+          const generated = await this.ai.generateOutreachDraft({
+            workflow: 'campaign',
+            client,
+            recipients: [recipient as unknown as Record<string, unknown>],
+            context,
+            promptTemplate: 'custom',
+            objective: templatePrompt,
+          });
+
+          return { recipientId, subject: generated.subject, body: generated.body };
+        } catch (err) {
+          this.logger.warn(
+            `Batch email generation failed for recipient ${recipientId}: ${(err as Error).message}`,
+          );
+          return { recipientId, subject: '', body: '' };
+        }
+      },
+    );
 
     return { results };
   }
@@ -5492,4 +5505,39 @@ function compactThreadText(value: string, max = 220): string {
 function safeFileName(value: string): string {
   const cleaned = value.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
   return cleaned || 'attachment';
+}
+
+/**
+ * Run `worker` over `items` with at most `concurrency` in flight at once,
+ * returning results in the SAME ORDER as the input (results[i] corresponds to
+ * items[i]), regardless of which finished first. The worker receives the item
+ * and its original index. Used to parallelize per-recipient AI generation:
+ * batch generation was a sequential await-loop, so wall-clock scaled linearly
+ * with recipient count and large campaigns blew past the request timeout.
+ *
+ * Order preservation is essential here — callers key results by the recipient's
+ * original index as a last-resort fallback, so out-of-order writes would
+ * mis-assign drafts. The worker is expected to handle its own errors (this
+ * helper does not catch); a throwing worker rejects the whole batch.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  const limit = Math.max(1, Math.min(concurrency, items.length || 1));
+  let nextIndex = 0;
+
+  async function runner(): Promise<void> {
+    // Each runner pulls the next unclaimed index until the queue drains.
+    while (true) {
+      const current = nextIndex++;
+      if (current >= items.length) return;
+      results[current] = await worker(items[current] as T, current);
+    }
+  }
+
+  await Promise.all(Array.from({ length: limit }, () => runner()));
+  return results;
 }
