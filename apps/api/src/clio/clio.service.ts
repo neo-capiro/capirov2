@@ -27,7 +27,12 @@ import {
   validateCitationMarkers,
   type ClioCitation,
 } from './clio-citations.helpers.js';
-import { matchSkill } from './skills/skill-registry.js';
+import { CLIO_SKILLS, matchSkill } from './skills/skill-registry.js';
+import type { ClioSkill } from './skills/skill.types.js';
+import { matchFirmSkillForTurn } from './clio-firm-skills.helpers.js';
+import { ClioFirmSkillsService } from './clio-firm-skills.service.js';
+import { ClioMcpService } from './clio-mcp.service.js';
+import { parseBridgedToolName } from './clio-mcp.helpers.js';
 import { summarizeTurnTrace, traceLogLine, type ClioRoundTrace } from './clio-trace.helpers.js';
 import { buildPlanSteps } from './clio-plan.helpers.js';
 import { ToolCircuitBreaker, CircuitOpenError } from './clio-circuit-breaker.js';
@@ -80,6 +85,7 @@ import {
   sha256 as embeddingHash,
   vectorLiteral,
 } from '../embeddings/embedder.js';
+import { ClientKbService } from '../embeddings/client-kb.service.js';
 import {
   parseVerifierClaims,
   summarizeVerification,
@@ -161,6 +167,9 @@ export class ClioService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<AppConfig, true>,
     private readonly tools: ClioToolsService,
+    private readonly clientKb: ClientKbService,
+    private readonly mcp: ClioMcpService,
+    private readonly firmSkills: ClioFirmSkillsService,
   ) {}
 
   async status(ctx: TenantContext) {
@@ -578,15 +587,26 @@ export class ClioService {
     const intent = await this.classifyIntent(content);
     this.logger.debug(`Stream intent: ${intent}`);
 
+    // Firm-authored skills (F6b): tenant skills fire by intent or literal
+    // trigger phrase; built-ins always win on conflict (registry safe-merge).
+    let firmSkill: ClioSkill | null = null;
+    if (this.skillsEnabled()) {
+      const tenantSkills = await this.firmSkills.skillsForTenant(ctx.tenantId).catch(() => []);
+      firmSkill = matchFirmSkillForTurn(intent, content, tenantSkills, CLIO_SKILLS);
+      if (firmSkill) this.logger.debug(`Firm skill matched: ${firmSkill.id}`);
+    }
+
     const orchestration = await this.orchestrateContext(ctx, conversation.clientId, intent, content);
+    const effectiveTemplate = firmSkill?.template ?? orchestration.template;
     const promptCacheEnabled = this.config.get('CLIO_PROMPT_CACHE_ENABLED', { infer: true });
     const citationsEnabled = this.config.get('CLIO_CITATIONS_ENABLED', { infer: true });
     const systemBlocks = this.buildSystemBlocks(
       intent,
       orchestration.context,
-      orchestration.template,
+      effectiveTemplate,
       promptCacheEnabled,
       conversationSummary,
+      firmSkill,
     );
 
     sse.write(`data: ${JSON.stringify({ type: 'start', intent, tier: orchestration.policy.tier })}\n\n`);
@@ -613,8 +633,8 @@ export class ClioService {
     if (orchestration.conflict) {
       sse.write(`data: ${JSON.stringify({ type: 'conflict', conflict: orchestration.conflict })}\n\n`);
     }
-    if (orchestration.template) {
-      sse.write(`data: ${JSON.stringify({ type: 'template', template: orchestration.template })}\n\n`);
+    if (effectiveTemplate) {
+      sse.write(`data: ${JSON.stringify({ type: 'template', template: effectiveTemplate })}\n\n`);
     }
 
     // Trim history to a char budget (oldest-first) so long sessions don't
@@ -665,7 +685,14 @@ export class ClioService {
       const turnBudgetMs = this.config.get('CLIO_TURN_BUDGET_MS', { infer: true });
       const toolTimeoutMs = this.config.get('CLIO_TOOL_TIMEOUT_MS', { infer: true });
       const toolRetries = this.config.get('CLIO_TOOL_RETRIES', { infer: true });
-      const toolSchemas = applyToolCacheControl(this.tools.anthropicToolSchemas(), promptCacheEnabled);
+      // Bridged MCP tools (F6a) merge into the tool surface per tenant at
+      // request time. Tenants with no MCP servers keep the exact baseline
+      // tool list (and its shared prompt-cache prefix).
+      const mcpSchemas = await this.mcp.bridgedSchemasForTenant(ctx.tenantId);
+      const toolSchemas = applyToolCacheControl(
+        [...this.tools.anthropicToolSchemas(), ...mcpSchemas],
+        promptCacheEnabled,
+      );
 
       // Anthropic message turns. content can be a string (history) or an array
       // of blocks (assistant tool_use / user tool_result) during the agentic loop.
@@ -865,7 +892,12 @@ export class ClioService {
           }
           toolsUsed.push(t.name);
           sse.write(`data: ${JSON.stringify({ type: 'tool_call', tool: t.name, label: humanToolLabel(t.name), input: redactToolInput(parsedInput) })}\n\n`);
-          return { index, tool: t, parsedInput, concurrencySafe: this.tools.isConcurrencySafe(t.name) };
+          // Bridged MCP tools (F6a) are side-effecting (serialized) unless the
+          // admin explicitly allowlisted them read-only.
+          const concurrencySafe = parseBridgedToolName(t.name)
+            ? this.mcp.isBridgedToolReadOnly(ctx.tenantId, t.name)
+            : this.tools.isConcurrencySafe(t.name);
+          return { index, tool: t, parsedInput, concurrencySafe };
         });
 
         // Phase 2: execute concurrently — read-only tools in parallel, side-effecting
@@ -880,9 +912,14 @@ export class ClioService {
         );
         const outcomes = await runToolsConcurrently(
           preparedTools,
-          (item) => {
+          (item): Promise<unknown> => {
             if (this.toolBreaker.isOpen(`${ctx.tenantId}:${item.tool.name}`)) {
               throw new CircuitOpenError(item.tool.name);
+            }
+            // Route bridged MCP tools to their server (F6a); the MCP service
+            // wraps results as untrusted data and audits write calls.
+            if (parseBridgedToolName(item.tool.name)) {
+              return this.mcp.executeBridged(ctx, item.tool.name, item.parsedInput);
             }
             return this.tools.execute(ctx, item.tool.name as never, item.parsedInput);
           },
@@ -1039,7 +1076,7 @@ export class ClioService {
     // client only when the user opted into the trace view (#trace).
     const turnTrace = summarizeTurnTrace({
       intent,
-      skill: this.skillsEnabled() ? (matchSkill(intent)?.id ?? null) : null,
+      skill: firmSkill?.id ?? (this.skillsEnabled() ? (matchSkill(intent)?.id ?? null) : null),
       rounds: traceRounds,
       totalUsage: usageTotals,
       totalDurationMs: Date.now() - turnStartMs,
@@ -1426,26 +1463,56 @@ export class ClioService {
 
     if (clientId) {
       trace.push({ tool: 'client_profile', action: 'selected', reason: 'Client-linked conversation has priority context.' });
+      // Always-on KB snapshot (F5): profile digest, top people, facility
+      // footprint by district, recent documents — built fresh each turn, with
+      // a plain profile fallback when the KB is disabled or unavailable.
+      let snapshotLoaded = false;
       try {
-        const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-          tx.client.findFirst({
-            where: { id: clientId },
-            select: { name: true, description: true, productDescription: true },
-          }),
-        );
-        if (client) {
-          contextParts.push(`Client: ${client.name}`);
-          if (client.description) contextParts.push(`Description: ${client.description}`);
-          if (client.productDescription) contextParts.push(`Product/service: ${client.productDescription}`);
+        const snapshot = await this.clientKb.buildSnapshot(ctx.tenantId, clientId);
+        if (snapshot) {
+          contextParts.push(snapshot);
           sources.push({
-            tool: 'client_profile',
+            tool: 'client_kb',
             count: 1,
-            summary: `Client profile loaded for ${client.name}`,
+            summary: 'Client knowledge-base snapshot loaded',
             confidence: 'high',
           });
+          trace.push({
+            tool: 'client_kb',
+            action: 'selected',
+            reason: 'Injected KB snapshot (profile, people, facilities, recent docs).',
+          });
+          snapshotLoaded = true;
         }
       } catch {
-        trace.push({ tool: 'client_profile', action: 'skipped', reason: 'Client profile fetch failed.' });
+        trace.push({
+          tool: 'client_kb',
+          action: 'skipped',
+          reason: 'KB snapshot build failed; falling back to plain profile.',
+        });
+      }
+      if (!snapshotLoaded) {
+        try {
+          const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+            tx.client.findFirst({
+              where: { id: clientId },
+              select: { name: true, description: true, productDescription: true },
+            }),
+          );
+          if (client) {
+            contextParts.push(`Client: ${client.name}`);
+            if (client.description) contextParts.push(`Description: ${client.description}`);
+            if (client.productDescription) contextParts.push(`Product/service: ${client.productDescription}`);
+            sources.push({
+              tool: 'client_profile',
+              count: 1,
+              summary: `Client profile loaded for ${client.name}`,
+              confidence: 'high',
+            });
+          }
+        } catch {
+          trace.push({ tool: 'client_profile', action: 'skipped', reason: 'Client profile fetch failed.' });
+        }
       }
     } else {
       trace.push({ tool: 'client_profile', action: 'skipped', reason: 'Conversation is not attached to a client.' });
@@ -1698,6 +1765,7 @@ export class ClioService {
     context: string,
     template: { heading: string; sections: string[] } | null,
     conversationSummary: string | null = null,
+    firmSkill: ClioSkill | null = null,
   ): { base: string; dynamic: string } {
     const base = [
       'You are Clio, an elite AI chief of staff designed exclusively for government affairs professionals.',
@@ -1748,8 +1816,10 @@ export class ClioService {
     // Skill registry (P0-5) is the source of truth for migrated intents; fall
     // back to the legacy inline guidance for the rest. The migrated skills are
     // byte-identical to these entries (skill-registry.spec.ts), so this never
-    // changes output regardless of the CLIO_SKILLS_ENABLED toggle.
-    const skill = this.skillsEnabled() ? matchSkill(intent) : null;
+    // changes output regardless of the CLIO_SKILLS_ENABLED toggle. A matched
+    // firm skill (F6b) takes precedence — built-ins already won any trigger
+    // conflict in the safe merge upstream.
+    const skill = firmSkill ?? (this.skillsEnabled() ? matchSkill(intent) : null);
     const guidance = skill?.systemAddendum ?? intentGuidance[intent];
 
     const tail: string[] = [];
@@ -1775,12 +1845,14 @@ export class ClioService {
     template: { heading: string; sections: string[] } | null,
     cacheEnabled: boolean,
     conversationSummary: string | null = null,
+    firmSkill: ClioSkill | null = null,
   ): SystemTextBlock[] {
     const { base, dynamic } = this.composeSystemParts(
       intent,
       context,
       template,
       conversationSummary,
+      firmSkill,
     );
     return buildClioSystemBlocks({ base, dynamic, cacheEnabled });
   }

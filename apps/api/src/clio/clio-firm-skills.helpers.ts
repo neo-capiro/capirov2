@@ -122,3 +122,30 @@ export function mergeSkills(
   }
   return out;
 }
+
+/**
+ * Match a firm skill for one turn (F6b). Built-in skills resolve by classified
+ * intent elsewhere; firm skills additionally fire when the user literally says
+ * a trigger phrase ("earmark request memo"), since the intent classifier only
+ * knows the built-in intents. Safe-merge semantics apply first, so a firm
+ * skill whose triggers collide with a built-in can never match.
+ */
+export function matchFirmSkillForTurn(
+  intent: string,
+  message: string,
+  firmSkills: readonly ClioSkill[],
+  builtIn: readonly ClioSkill[],
+): ClioSkill | null {
+  if (!firmSkills.length) return null;
+  const merged = mergeSkills(builtIn, firmSkills);
+  const builtInIds = new Set(builtIn.map((s) => s.id));
+  const survivors = merged.filter((s) => !builtInIds.has(s.id));
+  const byIntent = survivors.find((s) => s.triggers.includes(intent));
+  if (byIntent) return byIntent;
+  const lower = message.toLowerCase();
+  return (
+    survivors.find((s) =>
+      s.triggers.some((t) => t.length >= 4 && lower.includes(t.toLowerCase())),
+    ) ?? null
+  );
+}

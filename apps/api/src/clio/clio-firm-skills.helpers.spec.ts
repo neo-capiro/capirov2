@@ -1,5 +1,9 @@
 import { describe, expect, test } from '@jest/globals';
-import { mergeSkills, validateFirmSkill } from './clio-firm-skills.helpers.js';
+import {
+  matchFirmSkillForTurn,
+  mergeSkills,
+  validateFirmSkill,
+} from './clio-firm-skills.helpers.js';
 import type { ClioSkill } from './skills/skill.types.js';
 
 const ALLOWED = ['query_intelligence', 'search_congress_bills', 'search_public_web'];
@@ -91,5 +95,60 @@ describe('mergeSkills', () => {
     ];
     const merged = mergeSkills(builtIn, firm);
     expect(merged.map((s) => s.id)).toEqual(['briefing']); // evil dropped
+  });
+});
+
+describe('matchFirmSkillForTurn (F6b trigger routing)', () => {
+  const builtIn: ClioSkill[] = [
+    {
+      id: 'briefing',
+      name: 'Briefing',
+      triggers: ['generate_briefing'],
+      systemAddendum: 'built-in',
+      requiredTools: [],
+      template: null,
+    },
+  ];
+  const earmarkMemo: ClioSkill = {
+    id: 'earmark_request_memo',
+    name: 'Earmark Request Memo',
+    triggers: ['earmark_request_memo', 'earmark request memo'],
+    systemAddendum: 'Produce the firm-standard earmark memo.',
+    requiredTools: [],
+    template: { heading: 'Earmark Request Memo', sections: ['Eligibility', 'Member Fit', 'Ask'] },
+  };
+
+  test('fires when the classified intent matches a firm trigger', () => {
+    const matched = matchFirmSkillForTurn(
+      'earmark_request_memo',
+      'whatever',
+      [earmarkMemo],
+      builtIn,
+    );
+    expect(matched?.id).toBe('earmark_request_memo');
+  });
+
+  test('fires when the user literally says the trigger phrase', () => {
+    const matched = matchFirmSkillForTurn(
+      'general_question',
+      'Can you put together an Earmark Request Memo for the water district?',
+      [earmarkMemo],
+      builtIn,
+    );
+    expect(matched?.id).toBe('earmark_request_memo');
+  });
+
+  test('never matches a firm skill that collides with a built-in trigger', () => {
+    const hijacker: ClioSkill = {
+      ...earmarkMemo,
+      id: 'hijack',
+      triggers: ['generate_briefing'],
+    };
+    expect(matchFirmSkillForTurn('generate_briefing', 'generate_briefing', [hijacker], builtIn)).toBeNull();
+  });
+
+  test('returns null when nothing matches', () => {
+    expect(matchFirmSkillForTurn('general_question', 'hello there', [earmarkMemo], builtIn)).toBeNull();
+    expect(matchFirmSkillForTurn('general_question', 'hello', [], builtIn)).toBeNull();
   });
 });

@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { EntityResolutionService } from '../intelligence/entity-resolution.service.js';
 import { ClientPrepopulationService } from '../intelligence/client-prepopulation.service.js';
 import { SamEntityEnrichmentService } from '../intelligence/sam-entity.service.js';
+import { ClientKbService } from '../embeddings/client-kb.service.js';
 
 export interface CreateClientInput {
   name: string;
@@ -67,6 +68,7 @@ export class ClientsService {
     private readonly entityResolution: EntityResolutionService,
     private readonly prepopulation: ClientPrepopulationService,
     private readonly samEntity: SamEntityEnrichmentService,
+    private readonly clientKb: ClientKbService,
   ) {
     this.bucket = config.get('ASSETS_BUCKET', { infer: true });
     this.s3 = new S3Client({ region: config.get('AWS_REGION_DEFAULT', { infer: true }) });
@@ -292,6 +294,8 @@ export class ClientsService {
         },
       }),
     );
+    // Client KB (F5): keep the profile (Overview tab) index in sync.
+    this.clientKb.indexClientProfileFireAndForget(ctx.tenantId, id);
     return this.withLogoUrl(client);
   }
 

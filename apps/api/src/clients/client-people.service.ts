@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ClientKbService } from '../embeddings/client-kb.service.js';
 
 export interface CreatePersonInput {
   name: string;
@@ -16,7 +17,10 @@ export type UpdatePersonInput = Partial<CreatePersonInput>;
 
 @Injectable()
 export class ClientPeopleService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly clientKb: ClientKbService,
+  ) {}
 
   async listPeople(ctx: TenantContext, clientId: string) {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
@@ -33,7 +37,7 @@ export class ClientPeopleService {
   }
 
   async createPerson(ctx: TenantContext, clientId: string, input: CreatePersonInput) {
-    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+    const person = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const client = await tx.client.findFirst({
         where: { id: clientId, tenantId: ctx.tenantId, status: { not: 'archived' } },
         select: { id: true },
@@ -53,10 +57,13 @@ export class ClientPeopleService {
         },
       });
     });
+    // Client KB (F5): keep retrieval in sync with the People tab.
+    this.clientKb.indexPersonFireAndForget(ctx.tenantId, person.id);
+    return person;
   }
 
   async updatePerson(ctx: TenantContext, clientId: string, id: string, input: UpdatePersonInput) {
-    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+    const person = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const existing = await tx.clientPerson.findFirst({
         where: { id, tenantId: ctx.tenantId, clientId },
         select: { id: true },
@@ -77,10 +84,12 @@ export class ClientPeopleService {
         },
       });
     });
+    this.clientKb.indexPersonFireAndForget(ctx.tenantId, person.id);
+    return person;
   }
 
   async deletePerson(ctx: TenantContext, clientId: string, id: string) {
-    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+    const result = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const existing = await tx.clientPerson.findFirst({
         where: { id, tenantId: ctx.tenantId, clientId },
         select: { id: true },
@@ -89,5 +98,7 @@ export class ClientPeopleService {
       await tx.clientPerson.delete({ where: { id } });
       return { deleted: true };
     });
+    this.clientKb.purgeFireAndForget(ctx.tenantId, 'client_person', id);
+    return result;
   }
 }

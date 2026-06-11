@@ -144,6 +144,33 @@ export const configSchema = z.object({
     .string()
     .default('true')
     .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  // Client knowledge base (assistant-parity F5): indexes client profile,
+  // people, facilities, and uploaded documents into context_embeddings for
+  // the search_client_knowledge tool + the always-on client-chat snapshot.
+  // Kill-switch: set false/0/no/off to stop indexing and snapshot injection
+  // (the retrieval tool degrades to empty results).
+  CLIO_CLIENT_KB_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  // Tenant-configured MCP servers (assistant-parity F6a). Kill-switch: set
+  // false/0/no/off and no bridged tools register or execute, instantly.
+  CLIO_MCP_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
+  // stdio MCP servers spawn a child process ON THE API HOST, so the exact
+  // command must be allowlisted here by the platform operator (comma-
+  // separated). Empty (default) = stdio servers refuse to start; tenant
+  // admins can only configure streamable-HTTP servers on their own.
+  CLIO_MCP_STDIO_ALLOWED_COMMANDS: z.string().optional(),
+  // Firm-authored skills (assistant-parity F6b). Kill-switch: set
+  // false/0/no/off and tenant skills stop loading at turn time (rows are
+  // retained; CRUD still works).
+  CLIO_FIRM_SKILLS_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
 
   // Clio public web search (search_public_web). 'duckduckgo' (default) keeps the
   // existing scraped DDG behavior with zero new dependencies; 'tavily'/'serper'

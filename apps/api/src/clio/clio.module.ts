@@ -10,11 +10,14 @@ import { StrategiesModule } from '../strategies/strategies.module.js';
 import { IntelligenceModule } from '../intelligence/intelligence.module.js';
 import { ClientsModule } from '../clients/clients.module.js';
 import { RegulatoryDocketModule } from '../regulatory-docket/regulatory-docket.module.js';
+import { EmbeddingsModule } from '../embeddings/embeddings.module.js';
 import { ClioController } from './clio.controller.js';
 import { ClioService } from './clio.service.js';
 import { ClioToolsService } from './clio-tools.service.js';
 import { ClioResearchService } from './clio-research.service.js';
 import { ClioDocgenService } from './clio-docgen.service.js';
+import { ClioMcpService } from './clio-mcp.service.js';
+import { ClioFirmSkillsService } from './clio-firm-skills.service.js';
 
 @Module({
   imports: [
@@ -29,8 +32,16 @@ import { ClioDocgenService } from './clio-docgen.service.js';
     IntelligenceModule,
     ClientsModule,
     RegulatoryDocketModule,
+    EmbeddingsModule,
   ],
   controllers: [ClioController],
-  providers: [ClioService, ClioToolsService, ClioResearchService, ClioDocgenService],
+  providers: [
+    ClioService,
+    ClioToolsService,
+    ClioResearchService,
+    ClioDocgenService,
+    ClioMcpService,
+    ClioFirmSkillsService,
+  ],
 })
 export class ClioModule {}

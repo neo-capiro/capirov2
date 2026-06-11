@@ -75,6 +75,7 @@ function makeMocks() {
     clientCapabilities as never,
     clientPeople as never,
     clientFacilities as never,
+    { search: jest.fn().mockResolvedValue([]) } as never, // clientKb
   );
 
   return {

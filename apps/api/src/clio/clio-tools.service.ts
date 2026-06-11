@@ -39,6 +39,7 @@ import {
   validateScheduleRequest,
 } from './clio-schedule.helpers.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ClientKbService } from '../embeddings/client-kb.service.js';
 import { buildSavedMemoryRecord } from './clio-memory.helpers.js';
 import { buildWebSearchRequest, normalizeWebResults } from './clio-websearch.helpers.js';
 import { looksLikePdf } from './clio-scrape.helpers.js';
@@ -54,6 +55,10 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'search_research_sources',
     description: 'Search authorized Capiro clients, meetings, mail, notes, and directory notes.',
+  },
+  {
+    name: 'search_client_knowledge',
+    description: 'Semantic search over one client\'s knowledge base: profile/overview facts, key people (titles, roles, contact history), facilities (locations, congressional districts, headcount), and uploaded document contents. Use this FIRST for questions about a specific client ("who at X handles Y", "summarize the uploaded doc", "which districts have X facilities"). Returns typed, citable knowledge-base entries.',
   },
   {
     name: 'query_intelligence',
@@ -318,6 +323,7 @@ export class ClioToolsService {
     private readonly clientCapabilities: ClientCapabilitiesService,
     private readonly clientPeople: ClientPeopleService,
     private readonly clientFacilities: ClientFacilitiesService,
+    private readonly clientKb: ClientKbService,
   ) {}
 
   manifest() {
@@ -348,6 +354,12 @@ export class ClioToolsService {
         query: str('Free-text search across clients, meetings, mail, notes'),
         clientId: str('Optional client UUID to scope the search'),
         limit: int('Max records (1-25)'),
+      }, ['query']),
+      search_client_knowledge: obj({
+        query: str('What to look up in the client knowledge base'),
+        clientId: str('Client UUID (defaults to the conversation client)'),
+        kind: str('Optional filter: client_profile | client_person | client_facility | client_doc_chunk'),
+        limit: int('Max results (1-20)'),
       }, ['query']),
       query_intelligence: obj({
         clientName: str('Optional client name to add federal contracting context'),
@@ -643,6 +655,60 @@ export class ClioToolsService {
     return !SIDE_EFFECTING_TOOLS.has(name);
   }
 
+  /**
+   * Semantic retrieval over one client's knowledge base (F5). Tenant + client
+   * scoped; rows come back typed (client_profile / client_person /
+   * client_facility / client_doc_chunk) and citable as `client_kb` chips.
+   * Fail-soft: an embeddings outage returns an explicit note, never a hang.
+   */
+  private async searchClientKnowledge(ctx: TenantContext, input: Record<string, unknown>) {
+    const query = typeof input.query === 'string' ? input.query.trim() : '';
+    if (!query) throw new BadRequestException('query is required');
+    const clientId = typeof input.clientId === 'string' && input.clientId ? input.clientId : null;
+    const generatedAt = new Date().toISOString();
+    if (!clientId) {
+      return {
+        tool: 'search_client_knowledge',
+        generatedAt,
+        results: [],
+        note: 'No client is linked to this conversation. Ask the user which client, or pass clientId.',
+      };
+    }
+    const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.client.findFirst({ where: { id: clientId }, select: { id: true, name: true } }),
+    );
+    if (!client) throw new NotFoundException('Client not found');
+    try {
+      const results = await this.clientKb.search(ctx.tenantId, {
+        query,
+        clientId,
+        kind: typeof input.kind === 'string' ? input.kind : undefined,
+        limit: typeof input.limit === 'number' ? input.limit : undefined,
+      });
+      return {
+        tool: 'search_client_knowledge',
+        generatedAt,
+        clientId,
+        clientName: client.name,
+        query,
+        results,
+      };
+    } catch (err) {
+      this.logger.warn(
+        `search_client_knowledge failed [${clientId}]: ${err instanceof Error ? err.message : err}`,
+      );
+      return {
+        tool: 'search_client_knowledge',
+        generatedAt,
+        clientId,
+        clientName: client.name,
+        query,
+        results: [],
+        note: 'Knowledge-base search is temporarily unavailable; fall back to get_client_context.',
+      };
+    }
+  }
+
   executeFromAuthenticatedUser(ctx: TenantContext, rawName: string, rawInput: unknown) {
     return this.execute(ctx, normalizeToolName(rawName), objectInput(rawInput));
   }
@@ -653,6 +719,8 @@ export class ClioToolsService {
         return this.getClientContext(ctx, input);
       case 'search_research_sources':
         return this.searchResearchSources(ctx, input);
+      case 'search_client_knowledge':
+        return this.searchClientKnowledge(ctx, input);
       case 'query_intelligence':
         return this.queryIntelligence(input);
       case 'search_congress_bills':

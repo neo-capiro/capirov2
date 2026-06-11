@@ -6,6 +6,8 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ClientFacilitiesService } from './client-facilities.service.js';
 import { CreateFacilityDto, UpdateFacilityDto } from './client-facilities.controller.js';
 
+const kbStub = { indexFacilityFireAndForget: () => {}, purgeFireAndForget: () => {} };
+
 const TENANT_A = '00000000-0000-0000-0000-00000000000a';
 const TENANT_B = '00000000-0000-0000-0000-00000000000b';
 
@@ -110,7 +112,7 @@ describe('ClientFacilitiesService — CRUD', () => {
         { id: 'f2', tenantId: TENANT_A, clientId: 'client-1', name: 'Plant 2' },
       ],
     });
-    const svc = new ClientFacilitiesService(prisma as never);
+    const svc = new ClientFacilitiesService(prisma as never, kbStub as never);
 
     const result = await svc.listFacilities(ctx(TENANT_A), 'client-1');
 
@@ -119,7 +121,7 @@ describe('ClientFacilitiesService — CRUD', () => {
 
   test('listFacilities throws NotFound when the client is missing', async () => {
     const prisma = makePrisma({ clients: [], facilities: [] });
-    const svc = new ClientFacilitiesService(prisma as never);
+    const svc = new ClientFacilitiesService(prisma as never, kbStub as never);
 
     await expect(svc.listFacilities(ctx(TENANT_A), 'client-1')).rejects.toBeInstanceOf(
       NotFoundException,
@@ -128,7 +130,7 @@ describe('ClientFacilitiesService — CRUD', () => {
 
   test('createFacility persists tenant + client scope and defaults districtSource to "user"', async () => {
     const prisma = makePrisma({ clients: [seedClient(TENANT_A)] });
-    const svc = new ClientFacilitiesService(prisma as never);
+    const svc = new ClientFacilitiesService(prisma as never, kbStub as never);
 
     const created = (await svc.createFacility(ctx(TENANT_A), 'client-1', {
       name: 'Huntsville',
@@ -148,7 +150,7 @@ describe('ClientFacilitiesService — CRUD', () => {
 
   test('createFacility honors an explicit districtSource of "geocoded"', async () => {
     const prisma = makePrisma({ clients: [seedClient(TENANT_A)] });
-    const svc = new ClientFacilitiesService(prisma as never);
+    const svc = new ClientFacilitiesService(prisma as never, kbStub as never);
 
     const created = (await svc.createFacility(ctx(TENANT_A), 'client-1', {
       name: 'Geo HQ',
@@ -160,7 +162,7 @@ describe('ClientFacilitiesService — CRUD', () => {
 
   test('createFacility throws NotFound for an unknown client', async () => {
     const prisma = makePrisma({ clients: [] });
-    const svc = new ClientFacilitiesService(prisma as never);
+    const svc = new ClientFacilitiesService(prisma as never, kbStub as never);
 
     await expect(
       svc.createFacility(ctx(TENANT_A), 'client-1', { name: 'X' }),
@@ -181,7 +183,7 @@ describe('ClientFacilitiesService — CRUD', () => {
         },
       ],
     });
-    const svc = new ClientFacilitiesService(prisma as never);
+    const svc = new ClientFacilitiesService(prisma as never, kbStub as never);
 
     const updated = (await svc.updateFacility(ctx(TENANT_A), 'client-1', 'f1', {
       employeeCount: 42,
@@ -194,7 +196,7 @@ describe('ClientFacilitiesService — CRUD', () => {
 
   test('updateFacility throws NotFound when the facility does not exist', async () => {
     const prisma = makePrisma({ clients: [seedClient(TENANT_A)], facilities: [] });
-    const svc = new ClientFacilitiesService(prisma as never);
+    const svc = new ClientFacilitiesService(prisma as never, kbStub as never);
 
     await expect(
       svc.updateFacility(ctx(TENANT_A), 'client-1', 'nope', { name: 'Y' }),
@@ -206,7 +208,7 @@ describe('ClientFacilitiesService — CRUD', () => {
       clients: [seedClient(TENANT_A)],
       facilities: [{ id: 'f1', tenantId: TENANT_A, clientId: 'client-1', name: 'HQ' }],
     });
-    const svc = new ClientFacilitiesService(prisma as never);
+    const svc = new ClientFacilitiesService(prisma as never, kbStub as never);
 
     const result = await svc.deleteFacility(ctx(TENANT_A), 'client-1', 'f1');
 
@@ -225,7 +227,7 @@ describe('ClientFacilitiesService — RLS isolation', () => {
         { id: 'fb', tenantId: TENANT_B, clientId: 'client-1', name: 'B-HQ' },
       ],
     });
-    const svc = new ClientFacilitiesService(prisma as never);
+    const svc = new ClientFacilitiesService(prisma as never, kbStub as never);
 
     const tenantAView = (await svc.listFacilities(ctx(TENANT_A), 'client-1')) as Row[];
     expect(tenantAView.map((f) => f.name)).toEqual(['A-HQ']);
@@ -238,7 +240,7 @@ describe('ClientFacilitiesService — RLS isolation', () => {
       clients: [seedClient(TENANT_A), seedClient(TENANT_B)],
       facilities: [{ id: 'fb', tenantId: TENANT_B, clientId: 'client-1', name: 'B-HQ' }],
     });
-    const svc = new ClientFacilitiesService(prisma as never);
+    const svc = new ClientFacilitiesService(prisma as never, kbStub as never);
 
     // Tenant B's facility id is invisible under tenant A → the existence check
     // fails and the service refuses with NotFound (RLS, not a 200 silent no-op).
@@ -262,7 +264,7 @@ describe('ClientFacilitiesService — single-field PATCH cross-validates against
       clients: [seedClient(TENANT_A)],
       facilities: [{ id: 'f1', tenantId: TENANT_A, clientId: 'client-1', ...facility }],
     });
-    return { svc: new ClientFacilitiesService(prisma as never), prisma };
+    return { svc: new ClientFacilitiesService(prisma as never, kbStub as never), prisma };
   }
 
   test('district-only PATCH is rejected when it is invalid for the STORED state', async () => {
@@ -341,7 +343,7 @@ describe('ClientFacilitiesService — districtSource provenance on PATCH', () =>
       clients: [seedClient(TENANT_A)],
       facilities: [{ id: 'f1', tenantId: TENANT_A, clientId: 'client-1', ...facility }],
     });
-    return { svc: new ClientFacilitiesService(prisma as never), prisma };
+    return { svc: new ClientFacilitiesService(prisma as never, kbStub as never), prisma };
   }
 
   test('a district PATCH without districtSource flips a geocoded row to "user"', async () => {

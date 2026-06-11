@@ -36,6 +36,7 @@ import { ClientAssociationService } from './client-association.service.js';
 import { EngagementAiService } from './engagement-ai.service.js';
 import { MeetingNotesCryptoService } from './meeting-notes-crypto.service.js';
 import { MicrosoftGraphSyncService } from './microsoft/microsoft-graph-sync.service.js';
+import { ClientKbService } from '../embeddings/client-kb.service.js';
 
 export interface CreateIntegrationInput {
   provider: EngagementProvider;
@@ -594,6 +595,7 @@ export class EngagementService {
     private readonly lobbyIntel: LobbyIntelService,
     private readonly federalSpending: FederalSpendingService,
     private readonly microsoftGraph: MicrosoftGraphSyncService,
+    private readonly clientKb: ClientKbService,
     config: ConfigService<AppConfig, true>,
   ) {
     this.bucket = config.get('ASSETS_BUCKET', { infer: true });
@@ -3505,7 +3507,7 @@ export class EngagementService {
     if (!head) throw new BadRequestException('Uploaded attachment not found in S3');
     await this.validateAttachmentParents(ctx, input);
 
-    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+    const attachment = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.engagementAttachment.create({
         data: {
           tenantId: ctx.tenantId,
@@ -3523,6 +3525,11 @@ export class EngagementService {
         },
       }),
     );
+    // Client KB (F5): client-linked documents become retrievable knowledge.
+    if (attachment.clientId) {
+      this.clientKb.indexAttachmentFireAndForget(ctx.tenantId, attachment.id);
+    }
+    return attachment;
   }
 
   async listAttachments(
@@ -3633,6 +3640,10 @@ export class EngagementService {
     await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.engagementAttachment.delete({ where: { id } }),
     );
+    // Client KB (F5): deleting a document removes its chunks from retrieval.
+    if (attachment.clientId) {
+      this.clientKb.purgeFireAndForget(ctx.tenantId, 'client_doc_chunk', id);
+    }
     return { ok: true };
   }
 

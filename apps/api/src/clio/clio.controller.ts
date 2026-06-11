@@ -35,6 +35,9 @@ import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { ClioService } from './clio.service.js';
 import { ClioToolsService } from './clio-tools.service.js';
 import { ClioResearchService } from './clio-research.service.js';
+import { ClientKbService } from '../embeddings/client-kb.service.js';
+import { ClioMcpService, type McpServerInput } from './clio-mcp.service.js';
+import { ClioFirmSkillsService } from './clio-firm-skills.service.js';
 import { renderReportToBrowserHtml, renderReportToWordHtml } from './clio-research.helpers.js';
 
 class CreateClioConversationDto {
@@ -111,6 +114,9 @@ export class ClioController {
     private readonly service: ClioService,
     private readonly tools: ClioToolsService,
     private readonly research: ClioResearchService,
+    private readonly kb: ClientKbService,
+    private readonly mcp: ClioMcpService,
+    private readonly firmSkills: ClioFirmSkillsService,
   ) {}
 
   @Get('status')
@@ -281,6 +287,119 @@ export class ClioController {
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
     return this.service.uploadAttachment(ctx, file);
+  }
+
+  // ── MCP servers (F6a) — admin-gated; secrets are write-only ──
+
+  @Get('mcp-servers')
+  @Roles('user_admin')
+  listMcpServers(@CurrentTenant() ctx: TenantContext) {
+    return this.mcp.listServers(ctx);
+  }
+
+  @Post('mcp-servers')
+  @Roles('user_admin')
+  createMcpServer(@CurrentTenant() ctx: TenantContext, @Body() body: McpServerInput) {
+    return this.mcp.createServer(ctx, body ?? {});
+  }
+
+  @Patch('mcp-servers/:id')
+  @Roles('user_admin')
+  updateMcpServer(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: McpServerInput,
+  ) {
+    return this.mcp.updateServer(ctx, id, body ?? {});
+  }
+
+  @Delete('mcp-servers/:id')
+  @Roles('user_admin')
+  deleteMcpServer(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.mcp.deleteServer(ctx, id);
+  }
+
+  @Post('mcp-servers/refresh')
+  @Roles('user_admin')
+  refreshMcpServers(@CurrentTenant() ctx: TenantContext) {
+    return this.mcp.refreshNow(ctx);
+  }
+
+  // ── Firm-authored skills (F6b) — admin-gated authoring ──
+
+  @Get('firm-skills')
+  @Roles('user_admin')
+  listFirmSkills(@CurrentTenant() ctx: TenantContext) {
+    return this.firmSkills.list(ctx);
+  }
+
+  @Post('firm-skills')
+  @Roles('user_admin')
+  createFirmSkill(@CurrentTenant() ctx: TenantContext, @Body() body: Record<string, unknown>) {
+    return this.firmSkills.create(ctx, body ?? {});
+  }
+
+  @Patch('firm-skills/:id')
+  @Roles('user_admin')
+  updateFirmSkill(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: Record<string, unknown>,
+  ) {
+    return this.firmSkills.update(ctx, id, body ?? {});
+  }
+
+  @Patch('firm-skills/:id/enabled')
+  @Roles('user_admin')
+  setFirmSkillEnabled(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: { enabled?: unknown },
+  ) {
+    return this.firmSkills.setEnabled(ctx, id, Boolean(body?.enabled));
+  }
+
+  @Delete('firm-skills/:id')
+  @Roles('user_admin')
+  deleteFirmSkill(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.firmSkills.remove(ctx, id);
+  }
+
+  @Post('firm-skills/:id/restore')
+  @Roles('user_admin')
+  restoreFirmSkill(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('id') id: string,
+    @Body() body: { version?: unknown },
+  ) {
+    const version = Number(body?.version);
+    if (!Number.isInteger(version) || version < 1) {
+      throw new BadRequestException('version must be a positive integer');
+    }
+    return this.firmSkills.restore(ctx, id, version);
+  }
+
+  // Dry run: returns the resolved addendum/template without executing tools.
+  @Post('firm-skills/:id/test')
+  @Roles('user_admin')
+  testFirmSkill(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.firmSkills.testRun(ctx, id);
+  }
+
+  // ── Client knowledge base (F5) ──
+
+  // Index status for the Documents-tab chip (counts per source type).
+  @Get('kb/:clientId/status')
+  kbStatus(@CurrentTenant() ctx: TenantContext, @Param('clientId') clientId: string) {
+    return this.kb.indexStatus(ctx.tenantId, clientId);
+  }
+
+  // Manual re-index for one client (admin affordance / repair). Runs inline so
+  // the caller sees real counts; bounded by the per-client chunk quota.
+  @Post('kb/:clientId/reindex')
+  @Roles('user_admin')
+  kbReindex(@CurrentTenant() ctx: TenantContext, @Param('clientId') clientId: string) {
+    return this.kb.backfillClient(ctx.tenantId, clientId);
   }
 
   // ── Learned-memory surface (Clio learned X + one-click undo) ──

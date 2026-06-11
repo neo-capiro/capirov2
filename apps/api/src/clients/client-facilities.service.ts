@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { TenantContext } from '@capiro/shared';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { ClientKbService } from '../embeddings/client-kb.service.js';
 import { isValidDistrictForState } from '../common/us-congressional-districts.js';
 
 export interface CreateFacilityInput {
@@ -23,7 +24,10 @@ export type UpdateFacilityInput = Partial<CreateFacilityInput>;
 
 @Injectable()
 export class ClientFacilitiesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly clientKb: ClientKbService,
+  ) {}
 
   async listFacilities(ctx: TenantContext, clientId: string) {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
@@ -40,7 +44,7 @@ export class ClientFacilitiesService {
   }
 
   async createFacility(ctx: TenantContext, clientId: string, input: CreateFacilityInput) {
-    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+    const facility = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const client = await tx.client.findFirst({
         where: { id: clientId, tenantId: ctx.tenantId, status: { not: 'archived' } },
         select: { id: true },
@@ -62,6 +66,9 @@ export class ClientFacilitiesService {
         },
       });
     });
+    // Client KB (F5): keep retrieval in sync with the Facilities tab.
+    this.clientKb.indexFacilityFireAndForget(ctx.tenantId, facility.id);
+    return facility;
   }
 
   async updateFacility(
@@ -70,7 +77,7 @@ export class ClientFacilitiesService {
     id: string,
     input: UpdateFacilityInput,
   ) {
-    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+    const facility = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const existing = await tx.clientFacility.findFirst({
         where: { id, tenantId: ctx.tenantId, clientId },
         select: { id: true, state: true, congressionalDistrict: true },
@@ -120,10 +127,12 @@ export class ClientFacilitiesService {
         },
       });
     });
+    this.clientKb.indexFacilityFireAndForget(ctx.tenantId, facility.id);
+    return facility;
   }
 
   async deleteFacility(ctx: TenantContext, clientId: string, id: string) {
-    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+    const result = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const existing = await tx.clientFacility.findFirst({
         where: { id, tenantId: ctx.tenantId, clientId },
         select: { id: true },
@@ -132,5 +141,7 @@ export class ClientFacilitiesService {
       await tx.clientFacility.delete({ where: { id } });
       return { deleted: true };
     });
+    this.clientKb.purgeFireAndForget(ctx.tenantId, 'client_facility', id);
+    return result;
   }
 }

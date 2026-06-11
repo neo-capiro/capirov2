@@ -48,6 +48,7 @@ const TOOL_CITATION_TYPE: Readonly<Record<string, string>> = {
   scrape_web_page: 'web',
   search_research_sources: 'internal',
   get_client_context: 'client',
+  search_client_knowledge: 'client_kb',
 };
 
 const TITLE_FIELDS = [

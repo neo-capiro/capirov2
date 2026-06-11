@@ -19,12 +19,14 @@ describe('ClientsService.list — archived filtering', () => {
     const entityResolution = { resolveClient: jest.fn(async () => ({ created: 0, autoConfirmed: 0, needsReview: 0 })) };
     const prepopulation = { prepopulate: jest.fn(async () => ({ ldaClientIds: [], issueCodesAdded: 0 })) };
     const samEntity = { enrichGovIds: jest.fn(async () => ({ filled: [], matched: false })) };
+    const clientKb = { indexClientProfileFireAndForget: jest.fn() };
     const service = new ClientsService(
       prisma as never,
       config as never,
       entityResolution as never,
       prepopulation as never,
       samEntity as never,
+      clientKb as never,
     );
     return { service, tenantTx };
   };
@@ -83,12 +85,14 @@ describe('ClientsService.updateProfileNotes — targeted intakeData merge', () =
     const entityResolution = { resolveClient: jest.fn() };
     const prepopulation = { prepopulate: jest.fn() };
     const samEntity = { enrichGovIds: jest.fn() };
+    const clientKb = { indexClientProfileFireAndForget: jest.fn() };
     const service = new ClientsService(
       prisma as never,
       config as never,
       entityResolution as never,
       prepopulation as never,
       samEntity as never,
+      clientKb as never,
     );
     return { service, tenantTx };
   };
