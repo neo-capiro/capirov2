@@ -1,9 +1,14 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
 import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
 import { parseProviderUsage, type ProviderUsage } from './ai-usage-parse.js';
+import {
+  AiCredentialResolverService,
+  type ResolvedAiCredential,
+} from './ai-credential-resolver.service.js';
 
 const AI_TIMEOUT_MS = 90_000;
 
@@ -44,6 +49,7 @@ export interface MeetingPrepResult {
   provider: 'openai' | 'anthropic';
   model: string;
   usage?: ProviderUsage;
+  usedTenantKey?: boolean;
   raw: unknown;
 }
 
@@ -125,6 +131,7 @@ export interface OutreachDraftResult {
   provider: 'openai' | 'anthropic';
   model: string;
   usage?: ProviderUsage;
+  usedTenantKey?: boolean;
   raw: unknown;
 }
 
@@ -148,6 +155,7 @@ export interface MeetingDebriefDraftResult {
   provider: 'openai' | 'anthropic';
   model: string;
   usage?: ProviderUsage;
+  usedTenantKey?: boolean;
   raw: unknown;
 }
 
@@ -168,6 +176,7 @@ export interface CampaignEmailResult {
   provider: 'openai' | 'anthropic';
   model: string;
   usage?: ProviderUsage;
+  usedTenantKey?: boolean;
   raw: unknown;
 }
 
@@ -194,6 +203,7 @@ export interface TalkingPointsResult {
   provider: 'openai' | 'anthropic';
   model: string;
   usage?: ProviderUsage;
+  usedTenantKey?: boolean;
 }
 
 const meetingPrepJsonSchema = {
@@ -255,7 +265,12 @@ export class EngagementAiService {
     config: ConfigService<AppConfig, true>,
     private readonly lobbyIntel: LobbyIntelService,
     private readonly federalSpending: FederalSpendingService,
+    private readonly credentials: AiCredentialResolverService,
   ) {
+    // Global env keys/models are kept ONLY for capabilities() reporting.
+    // Actual per-call credentials (key + model + usedTenantKey) come from the
+    // resolver, which prefers an active tenant key and falls back to these
+    // same globals — so paths without a tenant key behave exactly as before.
     this.openaiKey = config.get('OPENAI_API_KEY', { infer: true });
     this.anthropicKey = config.get('ANTHROPIC_API_KEY', { infer: true });
     this.preferredProvider = config.get('AI_PROVIDER', { infer: true });
@@ -364,7 +379,10 @@ export class EngagementAiService {
     };
   }
 
-  async generateMeetingPrep(input: MeetingPrepInput): Promise<MeetingPrepResult> {
+  async generateMeetingPrep(
+    input: MeetingPrepInput,
+    ctx?: TenantContext | null,
+  ): Promise<MeetingPrepResult> {
     const federalContext = await this.buildFederalContextBlock(this.extractClientName(input));
     const enriched: MeetingPrepInput = federalContext
       ? {
@@ -372,36 +390,43 @@ export class EngagementAiService {
           meeting: { ...input.meeting, federalLobbyIntel: federalContext },
         }
       : input;
-    return this.withProviderFallback('AI meeting prep', (provider) =>
-      provider === 'openai'
-        ? this.generateWithOpenAi(enriched)
-        : this.generateWithAnthropic(enriched),
+    return this.withCredentialFallback('AI meeting prep', ctx, (cred) =>
+      cred.provider === 'openai'
+        ? this.generateWithOpenAi(enriched, cred)
+        : this.generateWithAnthropic(enriched, cred),
     );
   }
 
-  async generateOutreachDraft(input: OutreachDraftInput): Promise<OutreachDraftResult> {
+  async generateOutreachDraft(
+    input: OutreachDraftInput,
+    ctx?: TenantContext | null,
+  ): Promise<OutreachDraftResult> {
     const federalContext = await this.buildFederalContextBlock(this.extractClientName(input));
     const enriched = federalContext
       ? { ...input, context: { ...input.context, federalLobbyIntel: federalContext } }
       : input;
-    return this.withProviderFallback('AI outreach drafting', (provider) =>
-      provider === 'openai'
-        ? this.generateOutreachWithOpenAi(enriched)
-        : this.generateOutreachWithAnthropic(enriched),
+    return this.withCredentialFallback('AI outreach drafting', ctx, (cred) =>
+      cred.provider === 'openai'
+        ? this.generateOutreachWithOpenAi(enriched, cred)
+        : this.generateOutreachWithAnthropic(enriched, cred),
     );
   }
 
   async generateMeetingDebrief(
     input: MeetingDebriefDraftInput,
+    ctx?: TenantContext | null,
   ): Promise<MeetingDebriefDraftResult> {
-    return this.withProviderFallback('AI debrief generation', (provider) =>
-      provider === 'openai'
-        ? this.generateDebriefWithOpenAi(input)
-        : this.generateDebriefWithAnthropic(input),
+    return this.withCredentialFallback('AI debrief generation', ctx, (cred) =>
+      cred.provider === 'openai'
+        ? this.generateDebriefWithOpenAi(input, cred)
+        : this.generateDebriefWithAnthropic(input, cred),
     );
   }
 
-  async generateBatchEmail(input: BatchOutreachInput): Promise<OutreachDraftResult> {
+  async generateBatchEmail(
+    input: BatchOutreachInput,
+    ctx?: TenantContext | null,
+  ): Promise<OutreachDraftResult> {
     const federalContext = await this.buildFederalContextBlock(this.extractClientName(input));
     const insightBlock = input.insights.length
       ? `Selected intelligence insights:\n${input.insights.map((s) => `- ${s}`).join('\n')}`
@@ -422,14 +447,17 @@ export class EngagementAiService {
       objective: input.templatePrompt,
       ...(input.tone ? { existingBody: `Tone preference: ${input.tone}` } : {}),
     };
-    return this.withProviderFallback('AI batch email generation', (provider) =>
-      provider === 'openai'
-        ? this.generateOutreachWithOpenAi(draftInput)
-        : this.generateOutreachWithAnthropic(draftInput),
+    return this.withCredentialFallback('AI batch email generation', ctx, (cred) =>
+      cred.provider === 'openai'
+        ? this.generateOutreachWithOpenAi(draftInput, cred)
+        : this.generateOutreachWithAnthropic(draftInput, cred),
     );
   }
 
-  async generateTalkingPoints(input: TalkingPointsInput): Promise<TalkingPointsResult> {
+  async generateTalkingPoints(
+    input: TalkingPointsInput,
+    ctx?: TenantContext | null,
+  ): Promise<TalkingPointsResult> {
     const prompt = [
       'Generate 3-5 sharp, specific talking points for a federal lobbying outreach campaign.',
       'Each talking point should be a single, persuasive sentence that a lobbyist could use in a congressional meeting or email.',
@@ -452,18 +480,17 @@ export class EngagementAiService {
       properties: { points: { type: 'array', items: { type: 'string' } } },
     };
 
-    return this.withProviderFallback('AI talking points', async (provider) => {
+    return this.withCredentialFallback('AI talking points', ctx, async (cred) => {
       let raw: Record<string, unknown>;
-      if (provider === 'openai') {
-        if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY not configured');
+      if (cred.provider === 'openai') {
         const res = await fetchWithTimeout('https://api.openai.com/v1/responses', {
           method: 'POST',
           headers: {
-            Authorization: `Bearer ${this.openaiKey}`,
+            Authorization: `Bearer ${cred.apiKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: this.openaiModel,
+            model: cred.model,
             input: prompt,
             text: { format: { type: 'json_schema', name: 'talking_points', strict: true, schema } },
           }),
@@ -476,22 +503,21 @@ export class EngagementAiService {
         const parsed = parseJsonObject(extractOpenAiText(raw));
         return {
           points: toStringList(parsed.points),
-          provider: 'openai',
-          model: this.openaiModel,
+          provider: 'openai' as const,
+          model: cred.model,
           usage: parseProviderUsage(raw),
+          usedTenantKey: cred.usedTenantKey,
         };
       } else {
-        if (!this.anthropicKey)
-          throw new ServiceUnavailableException('ANTHROPIC_API_KEY not configured');
         const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
           method: 'POST',
           headers: {
-            'x-api-key': this.anthropicKey,
+            'x-api-key': cred.apiKey,
             'anthropic-version': '2023-06-01',
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: this.anthropicModel,
+            model: cred.model,
             max_tokens: 800,
             system:
               'You are a federal lobbying expert. Generate precise talking points from the supplied context. Return only valid JSON.',
@@ -508,15 +534,19 @@ export class EngagementAiService {
         const parsed = parseJsonObject(extractAnthropicText(raw));
         return {
           points: toStringList(parsed.points),
-          provider: 'anthropic',
-          model: this.anthropicModel,
+          provider: 'anthropic' as const,
+          model: cred.model,
           usage: parseProviderUsage(raw),
+          usedTenantKey: cred.usedTenantKey,
         };
       }
     });
   }
 
-  async generateCampaignEmail(input: CampaignEmailInput): Promise<CampaignEmailResult> {
+  async generateCampaignEmail(
+    input: CampaignEmailInput,
+    ctx?: TenantContext | null,
+  ): Promise<CampaignEmailResult> {
     const federalContext = await this.buildFederalContextBlock(this.extractClientName(input));
     const enriched = federalContext
       ? {
@@ -526,10 +556,10 @@ export class EngagementAiService {
             : federalContext,
         }
       : input;
-    return this.withProviderFallback('AI campaign email generation', (provider) =>
-      provider === 'openai'
-        ? this.generateCampaignWithOpenAi(enriched)
-        : this.generateCampaignWithAnthropic(enriched),
+    return this.withCredentialFallback('AI campaign email generation', ctx, (cred) =>
+      cred.provider === 'openai'
+        ? this.generateCampaignWithOpenAi(enriched, cred)
+        : this.generateCampaignWithAnthropic(enriched, cred),
     );
   }
 
@@ -541,39 +571,33 @@ export class EngagementAiService {
     return null;
   }
 
-  private providerOrder(): Array<'openai' | 'anthropic'> {
-    const providers: Array<'openai' | 'anthropic'> = [];
-    const add = (provider: 'openai' | 'anthropic') => {
-      const configured = provider === 'openai' ? this.openaiKey : this.anthropicKey;
-      if (configured && !providers.includes(provider)) providers.push(provider);
-    };
-    if (this.preferredProvider) add(this.preferredProvider);
-    add('openai');
-    add('anthropic');
-    return providers;
-  }
-
-  private async withProviderFallback<T>(
+  /**
+   * Resolve the per-call credential order (tenant key first when ctx is
+   * supplied and one exists, else global env keys) and try each provider in
+   * turn — same fallback semantics the old providerOrder loop had.
+   */
+  private async withCredentialFallback<T>(
     operation: string,
-    invoke: (provider: 'openai' | 'anthropic') => Promise<T>,
+    ctx: TenantContext | null | undefined,
+    invoke: (cred: ResolvedAiCredential) => Promise<T>,
   ): Promise<T> {
-    const providers = this.providerOrder();
-    if (!providers.length) {
+    const creds = await this.credentials.resolveOrder(ctx ?? null);
+    if (!creds.length) {
       throw new ServiceUnavailableException(
         `${operation} is not configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY.`,
       );
     }
 
     const failures: string[] = [];
-    for (const provider of providers) {
+    for (const cred of creds) {
       try {
-        return await invoke(provider);
+        return await invoke(cred);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'provider request failed';
-        failures.push(`${provider}: ${message}`);
-        if (provider !== providers[providers.length - 1]) {
+        failures.push(`${cred.provider}: ${message}`);
+        if (cred !== creds[creds.length - 1]) {
           this.logger.warn(
-            `${operation} failed with ${provider}; trying fallback provider. ${message}`,
+            `${operation} failed with ${cred.provider}; trying fallback provider. ${message}`,
           );
         }
       }
@@ -584,17 +608,18 @@ export class EngagementAiService {
     );
   }
 
-  private async generateWithOpenAi(input: MeetingPrepInput): Promise<MeetingPrepResult> {
-    if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
-
+  private async generateWithOpenAi(
+    input: MeetingPrepInput,
+    cred: ResolvedAiCredential,
+  ): Promise<MeetingPrepResult> {
     const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.openaiKey}`,
+        Authorization: `Bearer ${cred.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.openaiModel,
+        model: cred.model,
         input: this.buildPrompt(input),
         text: {
           format: {
@@ -623,26 +648,26 @@ export class EngagementAiService {
       summary: typeof parsed.summary === 'string' ? parsed.summary : '',
       emailEvidence: toStringList(parsed.emailEvidence),
       provider: 'openai',
-      model: this.openaiModel,
+      model: cred.model,
       usage: parseProviderUsage(json),
+      usedTenantKey: cred.usedTenantKey,
       raw: json,
     };
   }
 
-  private async generateWithAnthropic(input: MeetingPrepInput): Promise<MeetingPrepResult> {
-    if (!this.anthropicKey) {
-      throw new ServiceUnavailableException('ANTHROPIC_API_KEY is not configured');
-    }
-
+  private async generateWithAnthropic(
+    input: MeetingPrepInput,
+    cred: ResolvedAiCredential,
+  ): Promise<MeetingPrepResult> {
     const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'x-api-key': this.anthropicKey,
+        'x-api-key': cred.apiKey,
         'anthropic-version': '2023-06-01',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.anthropicModel,
+        model: cred.model,
         max_tokens: 1600,
         system:
           'You generate concise lobbying meeting preparation. Return only valid JSON that matches the requested schema.',
@@ -673,25 +698,25 @@ export class EngagementAiService {
       summary: typeof parsed.summary === 'string' ? parsed.summary : '',
       emailEvidence: toStringList(parsed.emailEvidence),
       provider: 'anthropic',
-      model: this.anthropicModel,
+      model: cred.model,
       usage: parseProviderUsage(json),
+      usedTenantKey: cred.usedTenantKey,
       raw: json,
     };
   }
 
   private async generateOutreachWithOpenAi(
     input: OutreachDraftInput,
+    cred: ResolvedAiCredential,
   ): Promise<OutreachDraftResult> {
-    if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
-
     const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.openaiKey}`,
+        Authorization: `Bearer ${cred.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.openaiModel,
+        model: cred.model,
         input: this.buildOutreachPrompt(input),
         text: {
           format: {
@@ -717,28 +742,26 @@ export class EngagementAiService {
       body: typeof parsed.body === 'string' ? parsed.body.trim() : '',
       contextNote: typeof parsed.contextNote === 'string' ? parsed.contextNote.trim() : '',
       provider: 'openai',
-      model: this.openaiModel,
+      model: cred.model,
       usage: parseProviderUsage(json),
+      usedTenantKey: cred.usedTenantKey,
       raw: json,
     };
   }
 
   private async generateOutreachWithAnthropic(
     input: OutreachDraftInput,
+    cred: ResolvedAiCredential,
   ): Promise<OutreachDraftResult> {
-    if (!this.anthropicKey) {
-      throw new ServiceUnavailableException('ANTHROPIC_API_KEY is not configured');
-    }
-
     const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'x-api-key': this.anthropicKey,
+        'x-api-key': cred.apiKey,
         'anthropic-version': '2023-06-01',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.anthropicModel,
+        model: cred.model,
         max_tokens: 2400,
         system:
           'You draft precise lobbying outreach from supplied CRM context. Return only valid JSON that matches the requested schema.',
@@ -766,25 +789,25 @@ export class EngagementAiService {
       body: typeof parsed.body === 'string' ? parsed.body.trim() : '',
       contextNote: typeof parsed.contextNote === 'string' ? parsed.contextNote.trim() : '',
       provider: 'anthropic',
-      model: this.anthropicModel,
+      model: cred.model,
       usage: parseProviderUsage(json),
+      usedTenantKey: cred.usedTenantKey,
       raw: json,
     };
   }
 
   private async generateDebriefWithOpenAi(
     input: MeetingDebriefDraftInput,
+    cred: ResolvedAiCredential,
   ): Promise<MeetingDebriefDraftResult> {
-    if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
-
     const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.openaiKey}`,
+        Authorization: `Bearer ${cred.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.openaiModel,
+        model: cred.model,
         input: this.buildDebriefPrompt(input),
         text: {
           format: {
@@ -810,28 +833,26 @@ export class EngagementAiService {
       actionItems: toStringList(parsed.actionItems),
       notes: typeof parsed.notes === 'string' ? parsed.notes.trim() : '',
       provider: 'openai',
-      model: this.openaiModel,
+      model: cred.model,
       usage: parseProviderUsage(json),
+      usedTenantKey: cred.usedTenantKey,
       raw: json,
     };
   }
 
   private async generateDebriefWithAnthropic(
     input: MeetingDebriefDraftInput,
+    cred: ResolvedAiCredential,
   ): Promise<MeetingDebriefDraftResult> {
-    if (!this.anthropicKey) {
-      throw new ServiceUnavailableException('ANTHROPIC_API_KEY is not configured');
-    }
-
     const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'x-api-key': this.anthropicKey,
+        'x-api-key': cred.apiKey,
         'anthropic-version': '2023-06-01',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.anthropicModel,
+        model: cred.model,
         max_tokens: 1800,
         system:
           'You generate accurate lobbying meeting debriefs from supplied tenant CRM context. Return only valid JSON that matches the requested schema.',
@@ -859,23 +880,25 @@ export class EngagementAiService {
       actionItems: toStringList(parsed.actionItems),
       notes: typeof parsed.notes === 'string' ? parsed.notes.trim() : '',
       provider: 'anthropic',
-      model: this.anthropicModel,
+      model: cred.model,
       usage: parseProviderUsage(json),
+      usedTenantKey: cred.usedTenantKey,
       raw: json,
     };
   }
 
-  private async generateCampaignWithOpenAi(input: CampaignEmailInput): Promise<CampaignEmailResult> {
-    if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY is not configured');
-
+  private async generateCampaignWithOpenAi(
+    input: CampaignEmailInput,
+    cred: ResolvedAiCredential,
+  ): Promise<CampaignEmailResult> {
     const response = await fetchWithTimeout('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${this.openaiKey}`,
+        Authorization: `Bearer ${cred.apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.openaiModel,
+        model: cred.model,
         input: this.buildCampaignPrompt(input),
         text: {
           format: {
@@ -900,26 +923,26 @@ export class EngagementAiService {
       subject: typeof parsed.subject === 'string' ? parsed.subject.trim() : '',
       body: typeof parsed.body === 'string' ? parsed.body.trim() : '',
       provider: 'openai',
-      model: this.openaiModel,
+      model: cred.model,
       usage: parseProviderUsage(json),
+      usedTenantKey: cred.usedTenantKey,
       raw: json,
     };
   }
 
-  private async generateCampaignWithAnthropic(input: CampaignEmailInput): Promise<CampaignEmailResult> {
-    if (!this.anthropicKey) {
-      throw new ServiceUnavailableException('ANTHROPIC_API_KEY is not configured');
-    }
-
+  private async generateCampaignWithAnthropic(
+    input: CampaignEmailInput,
+    cred: ResolvedAiCredential,
+  ): Promise<CampaignEmailResult> {
     const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
-        'x-api-key': this.anthropicKey,
+        'x-api-key': cred.apiKey,
         'anthropic-version': '2023-06-01',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: this.anthropicModel,
+        model: cred.model,
         max_tokens: 2400,
         system:
           'You draft professional government affairs follow-up emails from lobbying CRM context. Return only valid JSON that matches the requested schema.',
@@ -946,8 +969,9 @@ export class EngagementAiService {
       subject: typeof parsed.subject === 'string' ? parsed.subject.trim() : '',
       body: typeof parsed.body === 'string' ? parsed.body.trim() : '',
       provider: 'anthropic',
-      model: this.anthropicModel,
+      model: cred.model,
       usage: parseProviderUsage(json),
+      usedTenantKey: cred.usedTenantKey,
       raw: json,
     };
   }

@@ -1109,7 +1109,7 @@ export class EngagementService {
       promptTemplate,
       existingSubject: record.subject,
       existingBody: outboundTemplateBody(record, requestMetadata) ?? record.body,
-    });
+    }, ctx);
     await this.recordAiUsage(ctx, 'outreach_draft', generated);
 
     const nextMetadata = mergeJsonObjects(
@@ -1600,7 +1600,7 @@ export class EngagementService {
       context: { preview: true, templateName },
       promptTemplate: 'custom',
       objective: templatePrompt,
-    });
+    }, ctx);
     await this.recordAiUsage(ctx, 'template_preview', generated);
 
     return { subject: generated.subject, body: generated.body, templateName };
@@ -1727,11 +1727,14 @@ export class EngagementService {
       clientName = client?.name ?? null;
     }
 
-    const talkingPoints = await this.ai.generateTalkingPoints({
-      client: clientName ? { name: clientName } : null,
-      selectedInsights: input.insights,
-      additionalContext: input.additionalContext,
-    });
+    const talkingPoints = await this.ai.generateTalkingPoints(
+      {
+        client: clientName ? { name: clientName } : null,
+        selectedInsights: input.insights,
+        additionalContext: input.additionalContext,
+      },
+      ctx,
+    );
     await this.recordAiUsage(ctx, 'talking_points', talkingPoints);
 
     return { talkingPoints };
@@ -1887,7 +1890,7 @@ export class EngagementService {
             context,
             promptTemplate: 'custom',
             objective: templatePrompt,
-          });
+          }, ctx);
           // One usage event per recipient draft; rides inside the concurrent
           // worker so metering overlaps generation instead of serializing it.
           await this.recordAiUsage(ctx, 'outreach_campaign', generated);
@@ -2824,7 +2827,7 @@ export class EngagementService {
       congressionalDirectoryMatches: directoryProfiles.map(pruneForAi),
       recentMeetings: context.recentMeetings.map(pruneForAi),
       recentThreads: context.recentThreads.map(prepareThreadForAi),
-    });
+    }, ctx);
     await this.recordAiUsage(ctx, 'meeting_debrief', generated);
     return generated;
   }
@@ -3084,7 +3087,7 @@ export class EngagementService {
       additionalContext: additionalContext?.trim() || null,
     };
     const promptHash = createHash('sha256').update(JSON.stringify(promptContext)).digest('hex');
-    const generated = await this.ai.generateMeetingPrep(promptContext);
+    const generated = await this.ai.generateMeetingPrep(promptContext, ctx);
     await this.recordAiUsage(ctx, 'meeting_prep', generated);
 
     const correctClientId = context.client?.id || context.meeting.clientId;
@@ -4340,7 +4343,7 @@ export class EngagementService {
       })),
       campaignType: campaign.type,
       customContext,
-    });
+    }, ctx);
     await this.recordAiUsage(ctx, 'campaign_email', result);
 
     return this.prisma.withTenant(ctx.tenantId, (tx) =>

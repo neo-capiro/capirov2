@@ -5,6 +5,7 @@ import { LobbyIntelModule } from '../lobby-intel/lobby-intel.module.js';
 import { FederalSpendingModule } from '../federal-spending/federal-spending.module.js';
 import { EmbeddingsModule } from '../embeddings/embeddings.module.js';
 import { EngagementController } from './engagement.controller.js';
+import { AiCredentialResolverService } from './ai-credential-resolver.service.js';
 import { ClientAssociationService } from './client-association.service.js';
 import { EngagementAiService } from './engagement-ai.service.js';
 import { EngagementService } from './engagement.service.js';
@@ -21,11 +22,12 @@ import { TokenCryptoService } from './microsoft/token-crypto.service.js';
     EngagementService,
     ClientAssociationService,
     EngagementAiService,
+    AiCredentialResolverService,
     MeetingNotesCryptoService,
     MicrosoftGraphSyncService,
     MicrosoftOAuthService,
     TokenCryptoService,
   ],
-  exports: [EngagementService, MicrosoftGraphSyncService],
+  exports: [EngagementService, MicrosoftGraphSyncService, AiCredentialResolverService],
 })
 export class EngagementModule {}
