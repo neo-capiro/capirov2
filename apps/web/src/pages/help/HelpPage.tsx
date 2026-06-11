@@ -168,6 +168,8 @@ export function HelpPage() {
             poster={activeVideo.thumbnailUrl ?? undefined}
             controls
             autoPlay
+            muted
+            playsInline
             style={{ width: '100%', borderRadius: 8 }}
           />
         ) : null}
