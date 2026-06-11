@@ -34,6 +34,7 @@ import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
 import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
 import { ClientAssociationService } from './client-association.service.js';
 import { EngagementAiService } from './engagement-ai.service.js';
+import { recordAiUsageEvent, type AiGenerationUsageLike } from './ai-usage-record.js';
 import { MeetingNotesCryptoService } from './meeting-notes-crypto.service.js';
 import { MicrosoftGraphSyncService } from './microsoft/microsoft-graph-sync.service.js';
 import { ClientKbService } from '../embeddings/client-kb.service.js';
@@ -604,6 +605,24 @@ export class EngagementService {
   }
 
   /**
+   * Persist one AiUsageEvent per successful generation (spend metering).
+   * Best-effort by contract: recordAiUsageEvent swallows + logs every error,
+   * so awaiting this can never fail the user's generation.
+   */
+  private recordAiUsage(
+    ctx: TenantContext,
+    workflow: string,
+    generated: AiGenerationUsageLike,
+  ): Promise<void> {
+    return recordAiUsageEvent(
+      { prisma: this.prisma, logger: this.logger },
+      { tenantId: ctx.tenantId, userId: ctx.userId },
+      workflow,
+      generated,
+    );
+  }
+
+  /**
    * Tenant-wide list of CRM engagement contacts, used by pickers that link an
    * external record (e.g. an acquisition-personnel profile on the Program
    * Element page) to a known contact. Tenant-scoped via RLS; optional fuzzy
@@ -1091,6 +1110,7 @@ export class EngagementService {
       existingSubject: record.subject,
       existingBody: outboundTemplateBody(record, requestMetadata) ?? record.body,
     });
+    await this.recordAiUsage(ctx, 'outreach_draft', generated);
 
     const nextMetadata = mergeJsonObjects(
       mergeJsonObjects(record.metadata, {
@@ -1581,6 +1601,7 @@ export class EngagementService {
       promptTemplate: 'custom',
       objective: templatePrompt,
     });
+    await this.recordAiUsage(ctx, 'template_preview', generated);
 
     return { subject: generated.subject, body: generated.body, templateName };
   }
@@ -1711,6 +1732,7 @@ export class EngagementService {
       selectedInsights: input.insights,
       additionalContext: input.additionalContext,
     });
+    await this.recordAiUsage(ctx, 'talking_points', talkingPoints);
 
     return { talkingPoints };
   }
@@ -1866,6 +1888,9 @@ export class EngagementService {
             promptTemplate: 'custom',
             objective: templatePrompt,
           });
+          // One usage event per recipient draft; rides inside the concurrent
+          // worker so metering overlaps generation instead of serializing it.
+          await this.recordAiUsage(ctx, 'outreach_campaign', generated);
 
           return { recipientId, subject: generated.subject, body: generated.body };
         } catch (err) {
@@ -2788,7 +2813,7 @@ export class EngagementService {
       this.directoryProfilesForMeeting(context.meeting).catch(() => []),
     ]);
 
-    return this.ai.generateMeetingDebrief({
+    const generated = await this.ai.generateMeetingDebrief({
       meeting: pruneForAi(context.meeting),
       client: context.client ? pruneForAi(context.client) : null,
       attendees: context.meeting.attendees.map(pruneForAi),
@@ -2800,6 +2825,8 @@ export class EngagementService {
       recentMeetings: context.recentMeetings.map(pruneForAi),
       recentThreads: context.recentThreads.map(prepareThreadForAi),
     });
+    await this.recordAiUsage(ctx, 'meeting_debrief', generated);
+    return generated;
   }
 
   async listMeetingNotes(ctx: TenantContext, meetingId: string) {
@@ -3058,6 +3085,7 @@ export class EngagementService {
     };
     const promptHash = createHash('sha256').update(JSON.stringify(promptContext)).digest('hex');
     const generated = await this.ai.generateMeetingPrep(promptContext);
+    await this.recordAiUsage(ctx, 'meeting_prep', generated);
 
     const correctClientId = context.client?.id || context.meeting.clientId;
     return this.prisma.withTenant(ctx.tenantId, (tx) =>
@@ -4313,6 +4341,7 @@ export class EngagementService {
       campaignType: campaign.type,
       customContext,
     });
+    await this.recordAiUsage(ctx, 'campaign_email', result);
 
     return this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.engagementCampaign.update({

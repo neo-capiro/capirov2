@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/config.schema.js';
 import { LobbyIntelService } from '../lobby-intel/lobby-intel.service.js';
 import { FederalSpendingService } from '../federal-spending/federal-spending.service.js';
+import { parseProviderUsage, type ProviderUsage } from './ai-usage-parse.js';
 
 const AI_TIMEOUT_MS = 90_000;
 
@@ -42,6 +43,7 @@ export interface MeetingPrepResult {
   emailEvidence: string[];
   provider: 'openai' | 'anthropic';
   model: string;
+  usage?: ProviderUsage;
   raw: unknown;
 }
 
@@ -122,6 +124,7 @@ export interface OutreachDraftResult {
   contextNote: string;
   provider: 'openai' | 'anthropic';
   model: string;
+  usage?: ProviderUsage;
   raw: unknown;
 }
 
@@ -144,6 +147,7 @@ export interface MeetingDebriefDraftResult {
   notes: string;
   provider: 'openai' | 'anthropic';
   model: string;
+  usage?: ProviderUsage;
   raw: unknown;
 }
 
@@ -163,6 +167,7 @@ export interface CampaignEmailResult {
   body: string;
   provider: 'openai' | 'anthropic';
   model: string;
+  usage?: ProviderUsage;
   raw: unknown;
 }
 
@@ -188,6 +193,7 @@ export interface TalkingPointsResult {
   points: string[];
   provider: 'openai' | 'anthropic';
   model: string;
+  usage?: ProviderUsage;
 }
 
 const meetingPrepJsonSchema = {
@@ -468,7 +474,12 @@ export class EngagementAiService {
             `OpenAI talking points failed: ${readProviderError(raw, res.status)}`,
           );
         const parsed = parseJsonObject(extractOpenAiText(raw));
-        return { points: toStringList(parsed.points), provider: 'openai', model: this.openaiModel };
+        return {
+          points: toStringList(parsed.points),
+          provider: 'openai',
+          model: this.openaiModel,
+          usage: parseProviderUsage(raw),
+        };
       } else {
         if (!this.anthropicKey)
           throw new ServiceUnavailableException('ANTHROPIC_API_KEY not configured');
@@ -499,6 +510,7 @@ export class EngagementAiService {
           points: toStringList(parsed.points),
           provider: 'anthropic',
           model: this.anthropicModel,
+          usage: parseProviderUsage(raw),
         };
       }
     });
@@ -612,6 +624,7 @@ export class EngagementAiService {
       emailEvidence: toStringList(parsed.emailEvidence),
       provider: 'openai',
       model: this.openaiModel,
+      usage: parseProviderUsage(json),
       raw: json,
     };
   }
@@ -661,6 +674,7 @@ export class EngagementAiService {
       emailEvidence: toStringList(parsed.emailEvidence),
       provider: 'anthropic',
       model: this.anthropicModel,
+      usage: parseProviderUsage(json),
       raw: json,
     };
   }
@@ -704,6 +718,7 @@ export class EngagementAiService {
       contextNote: typeof parsed.contextNote === 'string' ? parsed.contextNote.trim() : '',
       provider: 'openai',
       model: this.openaiModel,
+      usage: parseProviderUsage(json),
       raw: json,
     };
   }
@@ -752,6 +767,7 @@ export class EngagementAiService {
       contextNote: typeof parsed.contextNote === 'string' ? parsed.contextNote.trim() : '',
       provider: 'anthropic',
       model: this.anthropicModel,
+      usage: parseProviderUsage(json),
       raw: json,
     };
   }
@@ -795,6 +811,7 @@ export class EngagementAiService {
       notes: typeof parsed.notes === 'string' ? parsed.notes.trim() : '',
       provider: 'openai',
       model: this.openaiModel,
+      usage: parseProviderUsage(json),
       raw: json,
     };
   }
@@ -843,6 +860,7 @@ export class EngagementAiService {
       notes: typeof parsed.notes === 'string' ? parsed.notes.trim() : '',
       provider: 'anthropic',
       model: this.anthropicModel,
+      usage: parseProviderUsage(json),
       raw: json,
     };
   }
@@ -883,6 +901,7 @@ export class EngagementAiService {
       body: typeof parsed.body === 'string' ? parsed.body.trim() : '',
       provider: 'openai',
       model: this.openaiModel,
+      usage: parseProviderUsage(json),
       raw: json,
     };
   }
@@ -928,6 +947,7 @@ export class EngagementAiService {
       body: typeof parsed.body === 'string' ? parsed.body.trim() : '',
       provider: 'anthropic',
       model: this.anthropicModel,
+      usage: parseProviderUsage(json),
       raw: json,
     };
   }
