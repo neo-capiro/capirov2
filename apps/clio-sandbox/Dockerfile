@@ -33,3 +33,5 @@ ENV NODE_ENV=production
 USER node
 EXPOSE 4100
 CMD ["node", "dist/server.js"]
+
+# rebuild trigger: ECR repo capiro/dev/clio-sandbox provisioned
