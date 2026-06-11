@@ -671,9 +671,17 @@ export function NewOutreachWizard({
       // The wizard previously read data.drafts and silently no-op'd because
       // that key didn't exist on the response, the request actually
       // succeeded but no drafts ever landed in state.
+      //
+      // Batch generation runs one AI call per recipient sequentially on the
+      // server, so wall-clock scales with recipient count. The global axios
+      // instance times out at 20s (api-client.ts), which silently aborted
+      // mass-email batches partway through ("not all emails generate"). Give
+      // this call generous headroom just under the 180s ALB idle timeout so
+      // the whole batch can complete. (Anything beyond ~180s of total
+      // generation still hits the ALB ceiling — see the throughput note.)
       const res = await api.post<{
         results: Array<{ recipientId: string; subject: string; body: string }>;
-      }>('/api/engagement/outreach/generate-batch', payload);
+      }>('/api/engagement/outreach/generate-batch', payload, { timeout: 175_000 });
       return res.data;
     },
     onSuccess: (data) => {

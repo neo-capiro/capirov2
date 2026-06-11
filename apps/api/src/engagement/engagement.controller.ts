@@ -10,7 +10,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -36,6 +36,25 @@ import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { EngagementService } from './engagement.service.js';
+
+/**
+ * Coerce empty/whitespace-only strings to `undefined` BEFORE validation runs.
+ *
+ * Many optional recipient/context fields are declared `@IsOptional() @Length(1, N)`.
+ * class-validator's `@IsOptional()` only skips `null`/`undefined` — an empty
+ * string `''` still hits `@Length(1, N)` and fails min-length, which (under the
+ * global `forbidNonWhitelisted` ValidationPipe) 400s the entire save/generate
+ * request. The wizard legitimately emits `''` for fields like `relevanceReason`
+ * when a recipient has no committee/focus area, so saving an in-progress
+ * outreach failed. Stacking this transform makes `''` become `undefined` so
+ * `@IsOptional()` correctly skips it, while genuinely-provided non-empty values
+ * still get the `@Length(1, N)` check. Applied via `transform: true` in main.ts.
+ */
+function EmptyToUndefined() {
+  return Transform(({ value }) =>
+    typeof value === 'string' && value.trim() === '' ? undefined : value,
+  );
+}
 
 class CreateIntegrationDto {
   @IsEnum(EngagementProvider)
@@ -571,6 +590,7 @@ class OutreachContextPoolItemDto {
 class OutreachRecipientDto {
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 240)
   id?: string;
 
@@ -584,6 +604,7 @@ class OutreachRecipientDto {
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 160)
   name?: string;
 
@@ -593,46 +614,55 @@ class OutreachRecipientDto {
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 240)
   office?: string;
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 160)
   title?: string;
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 80)
   chamber?: string;
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 80)
   state?: string;
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 80)
   district?: string;
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 80)
   party?: string;
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 240)
   directoryContactId?: string;
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 240)
   directoryContactName?: string;
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 160)
   committee?: string;
 
@@ -643,6 +673,7 @@ class OutreachRecipientDto {
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 240)
   relevanceReason?: string;
 
@@ -657,6 +688,7 @@ class OutreachRecipientDto {
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 500)
   personalNote?: string;
 
@@ -678,11 +710,13 @@ class OutreachRecipientDto {
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 240)
   meetingSubject?: string;
 
   @IsOptional()
   @IsString()
+  @EmptyToUndefined()
   @Length(1, 120)
   meetingDateTime?: string;
 
