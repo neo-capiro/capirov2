@@ -41,8 +41,17 @@ Plan: `.hermes/plans/2026-06-11_per-tenant-ai-keys-and-spend.md`. Built 2026-06-
 
 ## Verification run (2026-06-11, local)
 
-- `apps/api`: `npx tsc --noEmit` clean; full `npx jest` green (see final session note for counts).
-- `apps/web`: `tsc -p tsconfig.json --noEmit` clean; full `vitest run` green.
+- `apps/api`: `npx tsc --noEmit` clean. Full `npx jest`: 167/167 suites,
+  1551 passed + 1 todo. (One pre-existing failure unrelated to this feature —
+  the reconciliation writer-path spec's prisma mock lacked `withSystem` —
+  fixed in `a9cd052` and re-verified 7/7.)
+- `apps/web`: `tsc -p tsconfig.json --noEmit` clean. Full `npm run test`
+  (repo flags incl. `--testTimeout=20000`): 178/179 tests, 40/41 files. The
+  single failure (`ProgramElementWatchPage` fy-chart testid) is a
+  pre-existing load-sensitive flake — untouched by this branch (diff = 0)
+  and passes 3/3 deterministically when run alone. Both new feature test
+  files pass inside the full run.
+- `prettier --check` clean on all feature files (formatted in `0ba7321`).
 - Migrations: fresh scratch DB (`capiro_scratch` on local pgvector pg16) —
   `prisma migrate deploy` applies all 92+2 cleanly, `prisma migrate status`
   clean, `prisma migrate diff` drift signature identical to sibling
