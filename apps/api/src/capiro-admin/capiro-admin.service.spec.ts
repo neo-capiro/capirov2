@@ -46,6 +46,8 @@ describe('CapiroAdminService — analyst console (Step 3.5)', () => {
       {} as never,
       peWriter as never,
       personnelWriter as never,
+      {} as never,
+      {} as never,
     );
   });
 
@@ -367,6 +369,109 @@ describe('CapiroAdminService — analyst console (Step 3.5)', () => {
   });
 });
 
+describe('CapiroAdminService — AI keys & usage console', () => {
+  const TENANT_B = '00000000-0000-0000-0000-0000000000b1';
+  const SECRET_KEY = 'sk-proj-supersecret-9876';
+
+  let mock: ReturnType<typeof createPrismaMock>;
+  let aiUsage: {
+    adminAllTenantsSummary: ReturnType<typeof jest.fn>;
+    tenantSummaryByTenantId: ReturnType<typeof jest.fn>;
+  };
+  let aiCredentials: {
+    list: ReturnType<typeof jest.fn>;
+    upsert: ReturnType<typeof jest.fn>;
+    remove: ReturnType<typeof jest.fn>;
+  };
+  let service: CapiroAdminService;
+
+  beforeEach(() => {
+    mock = createPrismaMock();
+    mock.store.tenant.push({ id: TENANT_B, name: 'Bravo Strategies' });
+    aiUsage = {
+      adminAllTenantsSummary: jest.fn(async () => [
+        { tenantId: TENANT_B, tenantName: 'Bravo Strategies', totalCostUsd: 1.5, totalTokens: 100, eventCount: 2, tenantKeyEventCount: 0 },
+      ]),
+      tenantSummaryByTenantId: jest.fn(async () => ({ totalCostUsd: 1.5, byWorkflow: [] })),
+    };
+    aiCredentials = {
+      list: jest.fn(async () => []),
+      upsert: jest.fn(async () => ({
+        provider: 'openai',
+        last4: '9876',
+        modelOverride: null,
+        status: 'active',
+      })),
+      remove: jest.fn(async () => ({ removed: true })),
+    };
+    service = new CapiroAdminService(
+      mock as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      aiUsage as never,
+      aiCredentials as never,
+    );
+  });
+
+  test('setTenantAiCredential saves via the shared store and audit-logs WITHOUT the key', async () => {
+    const result = await service.setTenantAiCredential(CTX, TENANT_B, {
+      provider: 'openai',
+      apiKey: SECRET_KEY,
+      modelOverride: 'gpt-4.1',
+    });
+
+    expect(aiCredentials.upsert).toHaveBeenCalledWith(TENANT_B, {
+      provider: 'openai',
+      apiKey: SECRET_KEY,
+      modelOverride: 'gpt-4.1',
+      createdByUserId: CTX.userId,
+    });
+    expect(result).toMatchObject({ provider: 'openai', last4: '9876' });
+
+    expect(mock.store.auditLog).toHaveLength(1);
+    expect(mock.store.auditLog[0]).toMatchObject({
+      action: 'ai_credential.set',
+      entityType: 'tenant_ai_credential',
+      entityId: `${TENANT_B}:openai`,
+      actorRole: 'capiro_admin',
+    });
+    // The audit row must never contain key material — last4 only.
+    expect(JSON.stringify(mock.store.auditLog)).not.toContain('supersecret');
+  });
+
+  test('removeTenantAiCredential removes and audit-logs', async () => {
+    await expect(service.removeTenantAiCredential(CTX, TENANT_B, 'openai')).resolves.toEqual({
+      removed: true,
+    });
+    expect(aiCredentials.remove).toHaveBeenCalledWith(TENANT_B, 'openai');
+    expect(mock.store.auditLog[0]).toMatchObject({ action: 'ai_credential.remove' });
+  });
+
+  test('per-tenant usage drill-down 404s an unknown tenant', async () => {
+    await expect(
+      service.getTenantAiUsage('00000000-0000-0000-0000-00000000dead', {}),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(aiUsage.tenantSummaryByTenantId).not.toHaveBeenCalled();
+  });
+
+  test('all-tenants summary parses the date range', async () => {
+    await service.getAiUsageAllTenants({ from: '2026-06-01T00:00:00Z', to: 'not-a-date' });
+    expect(aiUsage.adminAllTenantsSummary).toHaveBeenCalledWith({
+      from: new Date('2026-06-01T00:00:00Z'),
+      to: undefined,
+    });
+  });
+
+  test('the admin console routes stay behind the capiro_admin controller guard', async () => {
+    const { CapiroAdminController } = await import('./capiro-admin.controller.js');
+    const { ROLES_KEY } = await import('../auth/roles.decorator.js');
+    expect(Reflect.getMetadata(ROLES_KEY, CapiroAdminController)).toEqual(['capiro_admin']);
+  });
+});
+
 /**
  * Minimal Prisma mock covering the model methods the analyst-console service
  * calls: count({where}), aggregate({where,_min}), findMany, findUnique, delete,
@@ -384,6 +489,7 @@ function createPrismaMock() {
     programElementQuarantine: [] as Array<Record<string, unknown>>,
     acquisitionPersonnelQuarantine: [] as Array<Record<string, unknown>>,
     auditLog: [] as Array<Record<string, unknown>>,
+    tenant: [] as Array<Record<string, unknown>>,
   };
 
   const matchesWhere = (row: Record<string, unknown>, where?: Record<string, unknown>): boolean => {
@@ -469,9 +575,15 @@ function createPrismaMock() {
     async <T>(_tenantId: string, fn: (tx: unknown) => Promise<T>): Promise<T> => fn(client),
   );
 
+  const withSystem = jest.fn(
+    async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn(client),
+  );
+
   const client = {
     store,
     withTenant,
+    withSystem,
+    tenant: tableApi(store.tenant),
     reconciliationReviewQueue: tableApi(store.reconciliationReviewQueue),
     peProgramMatch: tableApi(store.peProgramMatch),
     programElementPersonCandidate: tableApi(store.programElementPersonCandidate),

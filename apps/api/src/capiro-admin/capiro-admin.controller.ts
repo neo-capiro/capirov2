@@ -5,6 +5,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   UseGuards,
@@ -14,6 +15,8 @@ import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { CapiroAdminService } from './capiro-admin.service.js';
+import { AI_PROVIDERS } from '../ai-usage/ai-credential-store.service.js';
+import type { AiProvider } from '../engagement/ai-credential-resolver.service.js';
 import {
   IsEmail,
   IsIn,
@@ -28,7 +31,14 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+
+/** '' / whitespace → undefined before validation (optional-string DTO pitfall). */
+function EmptyToUndefined() {
+  return Transform(({ value }) =>
+    typeof value === 'string' && value.trim() === '' ? undefined : value,
+  );
+}
 
 class CreateTenantDto {
   @IsString()
@@ -113,6 +123,31 @@ class AuditLogQueryDto {
   limit?: number;
 }
 
+class AiUsageRangeQueryDto {
+  @IsOptional()
+  @IsISO8601()
+  from?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  to?: string;
+}
+
+class SetTenantAiCredentialDto {
+  @IsIn(AI_PROVIDERS as readonly string[])
+  provider!: AiProvider;
+
+  @IsString()
+  @Length(8, 400)
+  apiKey!: string;
+
+  @IsOptional()
+  @IsString()
+  @EmptyToUndefined()
+  @Length(1, 80)
+  modelOverride?: string;
+}
+
 class QuarantineListQueryDto {
   @IsIn(['program_element', 'acquisition_personnel'])
   type!: 'program_element' | 'acquisition_personnel';
@@ -190,6 +225,51 @@ export class CapiroAdminController {
   @Post('impersonate/end')
   endImpersonation(@CurrentTenant() ctx: TenantContext) {
     return this.service.endImpersonation(ctx.userId);
+  }
+
+  // --- AI keys & usage console ----------------------------------------------
+
+  @Get('ai-usage')
+  getAiUsageAllTenants(@Query() query: AiUsageRangeQueryDto) {
+    return this.service.getAiUsageAllTenants(query);
+  }
+
+  @Get('tenants/:tenantId/ai-usage')
+  getTenantAiUsage(
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Query() query: AiUsageRangeQueryDto,
+  ) {
+    return this.service.getTenantAiUsage(tenantId, query);
+  }
+
+  @Get('tenants/:tenantId/ai-credential')
+  listTenantAiCredentials(@Param('tenantId', ParseUUIDPipe) tenantId: string) {
+    return this.service.listTenantAiCredentials(tenantId);
+  }
+
+  @Post('tenants/:tenantId/ai-credential')
+  setTenantAiCredential(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Body() body: SetTenantAiCredentialDto,
+  ) {
+    return this.service.setTenantAiCredential(ctx, tenantId, {
+      provider: body.provider,
+      apiKey: body.apiKey,
+      modelOverride: body.modelOverride,
+    });
+  }
+
+  @Delete('tenants/:tenantId/ai-credential/:provider')
+  removeTenantAiCredential(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('tenantId', ParseUUIDPipe) tenantId: string,
+    @Param('provider') provider: string,
+  ) {
+    if (!(AI_PROVIDERS as readonly string[]).includes(provider)) {
+      throw new BadRequestException(`provider must be one of: ${AI_PROVIDERS.join(', ')}`);
+    }
+    return this.service.removeTenantAiCredential(ctx, tenantId, provider as AiProvider);
   }
 
   // --- Step 3.5: analyst console -------------------------------------------

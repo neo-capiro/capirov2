@@ -123,10 +123,22 @@ export class AiUsageService {
   constructor(private readonly prisma: PrismaService) {}
 
   async tenantSummary(ctx: TenantContext, range: UsageDateRange = {}): Promise<TenantUsageSummary> {
+    return this.tenantSummaryByTenantId(ctx.tenantId, range);
+  }
+
+  /**
+   * Same summary keyed by explicit tenantId — the capiro-admin drill-down.
+   * Still runs through withTenant (RLS GUC = that tenant); only reachable
+   * behind the capiro_admin guard.
+   */
+  async tenantSummaryByTenantId(
+    tenantId: string,
+    range: UsageDateRange = {},
+  ): Promise<TenantUsageSummary> {
     const { from, to } = resolveUsageRange(range);
-    const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+    const rows = await this.prisma.withTenant(tenantId, (tx) =>
       tx.aiUsageEvent.findMany({
-        where: { tenantId: ctx.tenantId, createdAt: { gte: from, lte: to } },
+        where: { tenantId, createdAt: { gte: from, lte: to } },
       }),
     );
     return { from, to, ...aggregateUsageRows(rows) };

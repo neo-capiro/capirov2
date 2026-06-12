@@ -11,6 +11,12 @@ import { isValidPeCode } from '../program-element/jbook/jbook-extract.js';
 import type { PeRecordInput } from '../program-element/types.js';
 import { AcquisitionPersonnelWriterService } from '../acquisition-personnel/acquisition-personnel-writer.service.js';
 import type { PersonRecordInput } from '../acquisition-personnel/types.js';
+import { AiUsageService } from '../ai-usage/ai-usage.service.js';
+import {
+  AiCredentialStoreService,
+  type UpsertAiCredentialInput,
+} from '../ai-usage/ai-credential-store.service.js';
+import type { AiProvider } from '../engagement/ai-credential-resolver.service.js';
 
 /** Quarantine table discriminator shared by the browse/discard/reprocess routes. */
 export type QuarantineType = 'program_element' | 'acquisition_personnel';
@@ -67,6 +73,8 @@ export class CapiroAdminService {
     private readonly config: ConfigService<AppConfig, true>,
     private readonly peWriter: ProgramElementWriterService,
     private readonly personnelWriter: AcquisitionPersonnelWriterService,
+    private readonly aiUsage: AiUsageService,
+    private readonly aiCredentials: AiCredentialStoreService,
   ) {}
 
   async listTenants() {
@@ -602,6 +610,73 @@ export class CapiroAdminService {
     return { reprocessed: true, accepted: true };
   }
 
+  // --- AI keys & usage console ----------------------------------------------
+
+  /** All-tenants spend table for the admin console (range-clamped). */
+  async getAiUsageAllTenants(query: { from?: string; to?: string }) {
+    return this.aiUsage.adminAllTenantsSummary(parseUsageDates(query));
+  }
+
+  /** Per-tenant usage drill-down. 404s unknown tenants. */
+  async getTenantAiUsage(tenantId: string, query: { from?: string; to?: string }) {
+    await this.requireTenant(tenantId);
+    return this.aiUsage.tenantSummaryByTenantId(tenantId, parseUsageDates(query));
+  }
+
+  async listTenantAiCredentials(tenantId: string) {
+    await this.requireTenant(tenantId);
+    return this.aiCredentials.list(tenantId);
+  }
+
+  /**
+   * Set/rotate a tenant's AI key on their behalf. Validation + encryption
+   * happen in the shared store; the audit row records last4 only — the
+   * plaintext key never reaches the audit log.
+   */
+  async setTenantAiCredential(
+    ctx: TenantContext,
+    tenantId: string,
+    input: Omit<UpsertAiCredentialInput, 'createdByUserId'>,
+  ) {
+    await this.requireTenant(tenantId);
+    const saved = await this.aiCredentials.upsert(tenantId, {
+      ...input,
+      createdByUserId: ctx.userId,
+    });
+    await this.writeAudit(ctx, {
+      action: 'ai_credential.set',
+      entityType: 'tenant_ai_credential',
+      entityId: `${tenantId}:${input.provider}`,
+      after: {
+        tenantId,
+        provider: saved.provider,
+        last4: saved.last4,
+        modelOverride: saved.modelOverride,
+        status: saved.status,
+      },
+    });
+    return saved;
+  }
+
+  async removeTenantAiCredential(ctx: TenantContext, tenantId: string, provider: AiProvider) {
+    await this.requireTenant(tenantId);
+    const result = await this.aiCredentials.remove(tenantId, provider);
+    await this.writeAudit(ctx, {
+      action: 'ai_credential.remove',
+      entityType: 'tenant_ai_credential',
+      entityId: `${tenantId}:${provider}`,
+      after: { tenantId, provider, removed: result.removed },
+    });
+    return result;
+  }
+
+  private async requireTenant(tenantId: string): Promise<void> {
+    const tenant = await this.prisma.withSystem((tx) =>
+      tx.tenant.findUnique({ where: { id: tenantId }, select: { id: true } }),
+    );
+    if (!tenant) throw new NotFoundException('Tenant not found');
+  }
+
   // --- helpers -------------------------------------------------------------
 
   private toIso(value: Date | null | undefined): string | null {
@@ -683,4 +758,14 @@ export class CapiroAdminService {
       });
     });
   }
+}
+
+/** Parse optional ISO date strings into the usage range shape (invalid → undefined). */
+function parseUsageDates(query: { from?: string; to?: string }): { from?: Date; to?: Date } {
+  const parse = (value?: string) => {
+    if (!value) return undefined;
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? undefined : d;
+  };
+  return { from: parse(query.from), to: parse(query.to) };
 }
