@@ -1,4 +1,4 @@
-import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from 'antd';
@@ -49,13 +49,6 @@ const SUMMARY = {
       outputTokens: 80_000,
       count: 30,
     },
-    {
-      workflow: 'meeting_prep',
-      costUsd: 2.3456,
-      inputTokens: 100_000,
-      outputTokens: 20_000,
-      count: 12,
-    },
   ],
   byModel: [
     {
@@ -66,10 +59,7 @@ const SUMMARY = {
       count: 42,
     },
   ],
-  byDay: [
-    { day: '2026-06-09', costUsd: 4.0, inputTokens: 1, outputTokens: 1, count: 10 },
-    { day: '2026-06-10', costUsd: 8.3456, inputTokens: 1, outputTokens: 1, count: 32 },
-  ],
+  byDay: [{ day: '2026-06-10', costUsd: 12.3456, inputTokens: 1, outputTokens: 1, count: 42 }],
 };
 
 const CREDENTIALS = [
@@ -83,7 +73,12 @@ const CREDENTIALS = [
   },
 ];
 
-function renderPage() {
+function renderPage(credentials: unknown[] = CREDENTIALS) {
+  apiGetMock.mockImplementation(async (url: string) => {
+    if (url === '/api/ai-usage/summary') return { data: SUMMARY };
+    if (url === '/api/ai-usage/credential') return { data: credentials };
+    throw new Error(`unexpected GET ${url}`);
+  });
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -101,11 +96,6 @@ describe('AiUsagePage', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    apiGetMock.mockImplementation(async (url: string) => {
-      if (url === '/api/ai-usage/summary') return { data: SUMMARY };
-      if (url === '/api/ai-usage/credential') return { data: CREDENTIALS };
-      throw new Error(`unexpected GET ${url}`);
-    });
   });
 
   test('renders spend cards, breakdowns, and the masked key — never the full key', async () => {
@@ -116,59 +106,33 @@ describe('AiUsagePage', () => {
     const spendLabel = await screen.findByText('Estimated spend');
     expect(spendLabel.closest('.ant-statistic')?.textContent).toContain('$12.35');
     expect(screen.getByText('Generations')).toBeInTheDocument();
-    // 'Tokens' also appears as a table header — pick the Statistic instance.
-    const tokensStat = screen
-      .getAllByText('Tokens')
-      .map((el) => el.closest('.ant-statistic'))
-      .find(Boolean);
-    expect(tokensStat?.textContent).toContain('1,000,000');
-    expect(screen.getByText('5 billed to your own key')).toBeInTheDocument();
-
-    // Breakdown rows.
     expect(screen.getByText('outreach_campaign')).toBeInTheDocument();
     expect(screen.getByText('gpt-4.1-mini')).toBeInTheDocument();
 
-    // The saved key shows masked last-4 only.
+    // The configured key shows masked last-4 only.
     expect(await screen.findByText('•••• 9876')).toBeInTheDocument();
     expect(document.body.textContent).not.toContain('sk-');
   });
 
-  test('saving a bad key surfaces the provider validation error and keeps nothing', async () => {
-    apiPostMock.mockRejectedValue({
-      response: { data: { message: 'API key validation failed: Incorrect API key provided' } },
-    });
+  test('key management is READ-ONLY: no key input, no save, no remove', async () => {
     renderPage();
     await screen.findByText('•••• 9876');
 
-    fireEvent.change(screen.getByPlaceholderText('Paste API key (write-only)'), {
-      target: { value: 'sk-bad-key-000000' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: /validate & save/i }));
-
-    await waitFor(() =>
-      expect(apiPostMock).toHaveBeenCalledWith(
-        '/api/ai-usage/credential',
-        expect.objectContaining({ provider: 'openai', apiKey: 'sk-bad-key-000000' }),
-        expect.anything(),
-      ),
-    );
-    expect(
-      await screen.findByText(/API key validation failed: Incorrect API key provided/),
-    ).toBeInTheDocument();
+    // Customers never enter keys — Capiro manages them from the admin console.
+    expect(screen.queryByPlaceholderText(/api key/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /save/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /remove/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/managed by Capiro/i)).toBeInTheDocument();
+    expect(apiPostMock).not.toHaveBeenCalled();
+    expect(apiDeleteMock).not.toHaveBeenCalled();
   });
 
-  test('removing a key calls the delete endpoint for that provider', async () => {
-    apiDeleteMock.mockResolvedValue({ data: { removed: true } });
-    renderPage();
-    await screen.findByText('•••• 9876');
-
-    fireEvent.click(screen.getByRole('button', { name: /remove/i }));
-    // antd Popconfirm renders OK/Cancel; confirm.
-    fireEvent.click(await screen.findByRole('button', { name: /ok/i }));
-
-    await waitFor(() =>
-      expect(apiDeleteMock).toHaveBeenCalledWith('/api/ai-usage/credential/openai'),
-    );
+  test('without a configured key, points at the Capiro shared key + account manager', async () => {
+    renderPage([]);
+    expect(
+      await screen.findByText(/Generations run on the Capiro shared key/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(/api key/i)).not.toBeInTheDocument();
   });
 });
 

@@ -1,36 +1,22 @@
 /**
- * Tenant-facing AI usage + bring-your-own-key endpoints (/api/ai-usage).
- * Gated to tenant admins (user_admin and above). Every read/write is scoped
- * to the caller's own tenant via ctx — there is no tenantId input anywhere
- * on this surface. Credentials are write-only: responses carry last4 only.
+ * Tenant-facing AI usage endpoints (/api/ai-usage). Gated to tenant admins
+ * (user_admin and above). Every read is scoped to the caller's own tenant via
+ * ctx — there is no tenantId input anywhere on this surface.
+ *
+ * READ-ONLY by design: tenants can see their spend and that a key is
+ * configured (masked last-4), but key set/rotate/remove lives EXCLUSIVELY on
+ * the capiro-admin console (capiro-admin.controller) — Capiro manages
+ * customer keys on their behalf, customers never enter keys themselves.
  */
-import {
-  BadRequestException,
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Post,
-  Query,
-  UseGuards,
-} from '@nestjs/common';
-import { Transform, Type } from 'class-transformer';
-import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Length, Max, Min } from 'class-validator';
+import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Type } from 'class-transformer';
+import { IsInt, IsISO8601, IsOptional, Max, Min } from 'class-validator';
 import type { TenantContext } from '@capiro/shared';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { AiUsageService } from './ai-usage.service.js';
-import { AiCredentialStoreService, AI_PROVIDERS } from './ai-credential-store.service.js';
-import type { AiProvider } from '../engagement/ai-credential-resolver.service.js';
-
-/** '' / whitespace → undefined before validation (same pitfall as outreach DTOs). */
-function EmptyToUndefined() {
-  return Transform(({ value }) =>
-    typeof value === 'string' && value.trim() === '' ? undefined : value,
-  );
-}
+import { AiCredentialStoreService } from './ai-credential-store.service.js';
 
 class UsageRangeQueryDto {
   @IsOptional()
@@ -49,21 +35,6 @@ class UsageEventsQueryDto {
   @Min(1)
   @Max(100)
   limit?: number;
-}
-
-class SaveAiCredentialDto {
-  @IsIn(AI_PROVIDERS as readonly string[])
-  provider!: AiProvider;
-
-  @IsString()
-  @Length(8, 400)
-  apiKey!: string;
-
-  @IsOptional()
-  @IsString()
-  @EmptyToUndefined()
-  @Length(1, 80)
-  modelOverride?: string;
 }
 
 function parseRange(query: { from?: string; to?: string }) {
@@ -92,26 +63,9 @@ export class AiUsageController {
     return this.usage.tenantRecentEvents(ctx, { limit: query.limit });
   }
 
+  /** Masked presence only (provider + last4) — never key material. */
   @Get('credential')
   listCredentials(@CurrentTenant() ctx: TenantContext) {
     return this.store.list(ctx.tenantId);
-  }
-
-  @Post('credential')
-  saveCredential(@CurrentTenant() ctx: TenantContext, @Body() body: SaveAiCredentialDto) {
-    return this.store.upsert(ctx.tenantId, {
-      provider: body.provider,
-      apiKey: body.apiKey,
-      modelOverride: body.modelOverride,
-      createdByUserId: ctx.userId,
-    });
-  }
-
-  @Delete('credential/:provider')
-  removeCredential(@CurrentTenant() ctx: TenantContext, @Param('provider') provider: string) {
-    if (!(AI_PROVIDERS as readonly string[]).includes(provider)) {
-      throw new BadRequestException(`provider must be one of: ${AI_PROVIDERS.join(', ')}`);
-    }
-    return this.store.remove(ctx.tenantId, provider as AiProvider);
   }
 }
