@@ -18,6 +18,7 @@ import { HelpPage } from './pages/help/HelpPage.js';
 import { HomePage } from './pages/HomePage.js';
 import { EngagementPage } from './pages/engagement/EngagementPage.js';
 import { IntegrationsPage } from './pages/settings/IntegrationsPage.js';
+import { AiUsagePage } from './pages/settings/AiUsagePage.js';
 import { WorkspaceLayout } from './pages/workspace/WorkspaceLayout.js';
 import { CatalogView } from './pages/workspace/CatalogView.js';
 import { WorkflowsView } from './pages/workspace/WorkflowsView.js';
@@ -206,6 +207,7 @@ export function App() {
           <Route path="clients" element={<ClientsPage />} />
           <Route path="integrations" element={<IntegrationsPage />} />
           <Route path="billing" element={<BillingPage />} />
+          <Route path="ai-usage" element={<AiUsagePage />} />
           <Route path="intelligence-mappings" element={<IntelligenceMappingsPage />} />
           <Route path="skills" element={<SkillsPage />} />
           <Route path="tenants" element={<CapiroAdminPage />} />

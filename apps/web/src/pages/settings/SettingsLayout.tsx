@@ -18,6 +18,7 @@ const TABS: Tab[] = [
   { key: '/settings/clients', label: 'Clients', minRole: 'user_admin' },
   { key: '/settings/integrations', label: 'Integrations' },
   { key: '/settings/billing', label: 'Billing', minRole: 'user_admin' },
+  { key: '/settings/ai-usage', label: 'AI Usage', minRole: 'user_admin' },
   { key: '/settings/intelligence-mappings', label: 'Intelligence', minRole: 'user_admin' },
   { key: '/settings/skills', label: 'Skills', minRole: 'user_admin' },
   { key: '/settings/tenants', label: 'Tenants', minRole: 'capiro_admin' },
