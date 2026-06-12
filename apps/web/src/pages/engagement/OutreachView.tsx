@@ -1061,7 +1061,10 @@ export function OutreachView({
   }
 
   const rows = (outreach.data ?? [])
-    .filter((record) => record.type !== 'outbound_campaign')
+    // The outbound-campaign creation flow is de-entry-pointed, so hide its
+    // stale drafts — but anything that actually went out (sent / failed /
+    // opened) must stay visible in the Sent section regardless of type.
+    .filter((record) => record.type !== 'outbound_campaign' || record.status !== 'draft')
     .filter((record) => directionFilter === 'all' || recordDirection(record) === directionFilter)
     .sort((left, right) => outreachRecordTimestamp(right) - outreachRecordTimestamp(left));
   const drafts = rows.filter((record) => record.status === 'draft');

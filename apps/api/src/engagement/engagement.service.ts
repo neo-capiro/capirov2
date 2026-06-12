@@ -906,7 +906,7 @@ export class EngagementService {
   listOutreachRecords(ctx: TenantContext, query: OutreachQuery) {
     const type = normalizeOutreachType(query.type);
     const limit = clampInt(query.limit, 50, 1, 100);
-    const createdAt =
+    const dateWindow =
       query.from || query.to
         ? {
             ...(query.from ? { gte: parseDate(query.from, 'from') } : {}),
@@ -921,7 +921,10 @@ export class EngagementService {
           deletedAt: null,
           ...(query.clientId ? { clientId: query.clientId } : {}),
           ...(type ? { type } : {}),
-          ...(createdAt ? { createdAt } : {}),
+          // A record belongs to the window if it was created OR sent within it:
+          // drafts sent days after creation must keep showing as sent once the
+          // creation date scrolls out of the range filter.
+          ...(dateWindow ? { OR: [{ createdAt: dateWindow }, { sentAt: dateWindow }] } : {}),
         },
         include: outreachInclude(),
         orderBy: { createdAt: 'desc' },

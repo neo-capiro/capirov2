@@ -3015,6 +3015,13 @@ function ReportsView({
                 { value: 'pending-desc', label: 'Sort: Pending Actions' },
               ]}
             />
+            <Button
+              icon={<DownloadOutlined />}
+              disabled={!rows.length}
+              onClick={() => exportEngagementReportCsv(rows, report?.cycle)}
+            >
+              Export CSV
+            </Button>
           </Space>
         </div>
 
@@ -3641,6 +3648,54 @@ function exportEngagementReportPdf(report: EngagementReport) {
   const link = document.createElement('a');
   link.href = url;
   link.download = `engagement-report-${report.cycle.period}.pdf`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** Export the Office Engagement Tracker as CSV, matching the visible table
+ *  (rows arrive already filtered + sorted). */
+function exportEngagementReportCsv(rows: EngagementReportRow[], cycle?: EngagementReport['cycle']) {
+  const escape = (value: string | number | null | undefined): string => {
+    const text = String(value ?? '');
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const header = [
+    'Member / Principal',
+    'Client',
+    'Committee',
+    'Staffer',
+    'Building',
+    'Lead',
+    'Meetings Held',
+    'Prep Done',
+    'Outreach Sent',
+    'Submission Filed',
+    'Pending Actions',
+  ];
+  const lines = rows.map((row) =>
+    [
+      row.memberPrincipal,
+      row.clientName,
+      row.committee,
+      row.staffer,
+      row.building,
+      row.leadOwner,
+      row.meetingsHeld,
+      reportStatusLabel(row.prepStatus),
+      reportStatusLabel(row.outreachStatus),
+      reportStatusLabel(row.submissionStatus),
+      row.pendingActions,
+    ]
+      .map(escape)
+      .join(','),
+  );
+  const csv = [header.map(escape).join(','), ...lines].join('\r\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `engagement-report-${cycle?.period ?? 'export'}.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();

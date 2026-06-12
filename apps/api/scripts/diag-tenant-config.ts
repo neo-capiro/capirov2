@@ -23,6 +23,10 @@ const CHILD_TABLES = [
   'client_intel_mapping',
   'client_association_overrides',
   'client_submission_history',
+  // Engagement activity: status fields here diagnose "sent outreach not
+  // showing as sent" class issues (type/status/sent_at vs created_at).
+  'outreach_records',
+  'engagement_campaigns',
 ];
 
 async function run(tx: Prisma.TransactionClient): Promise<void> {
