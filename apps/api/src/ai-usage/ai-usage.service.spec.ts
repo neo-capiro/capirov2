@@ -52,11 +52,13 @@ function makePrisma(rows: Row[]) {
     return true;
   };
   const delegate = (visible: () => Row[]) => ({
-    findMany: async (args: {
-      where?: Record<string, unknown>;
-      orderBy?: { createdAt?: 'desc' | 'asc' };
-      take?: number;
-    } = {}) => {
+    findMany: async (
+      args: {
+        where?: Record<string, unknown>;
+        orderBy?: { createdAt?: 'desc' | 'asc' };
+        take?: number;
+      } = {},
+    ) => {
       let out = visible().filter((r) => matches(r, args.where ?? {}));
       if (args.orderBy?.createdAt === 'desc') {
         out = [...out].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -82,10 +84,43 @@ function makePrisma(rows: Row[]) {
 }
 
 const seeded = () => [
-  row({ tenantId: TENANT_A, workflow: 'outreach_campaign', model: 'gpt-4.1', costUsd: 0.01, inputTokens: 1000, outputTokens: 500, createdAt: new Date('2026-06-09T08:00:00Z') }),
-  row({ tenantId: TENANT_A, workflow: 'outreach_campaign', model: 'gpt-4.1', costUsd: 0.02, inputTokens: 2000, outputTokens: 1000, createdAt: new Date('2026-06-10T09:00:00Z') }),
-  row({ tenantId: TENANT_A, workflow: 'meeting_prep', model: 'claude-haiku-4-5-20251001', costUsd: 0.05, inputTokens: 4000, outputTokens: 2000, usedTenantKey: true, createdAt: new Date('2026-06-10T15:00:00Z') }),
-  row({ tenantId: TENANT_B, workflow: 'outreach_campaign', model: 'gpt-4.1', costUsd: 99.0, inputTokens: 9_000_000, outputTokens: 9_000_000, createdAt: new Date('2026-06-10T10:00:00Z') }),
+  row({
+    tenantId: TENANT_A,
+    workflow: 'outreach_campaign',
+    model: 'gpt-4.1',
+    costUsd: 0.01,
+    inputTokens: 1000,
+    outputTokens: 500,
+    createdAt: new Date('2026-06-09T08:00:00Z'),
+  }),
+  row({
+    tenantId: TENANT_A,
+    workflow: 'outreach_campaign',
+    model: 'gpt-4.1',
+    costUsd: 0.02,
+    inputTokens: 2000,
+    outputTokens: 1000,
+    createdAt: new Date('2026-06-10T09:00:00Z'),
+  }),
+  row({
+    tenantId: TENANT_A,
+    workflow: 'meeting_prep',
+    model: 'claude-haiku-4-5-20251001',
+    costUsd: 0.05,
+    inputTokens: 4000,
+    outputTokens: 2000,
+    usedTenantKey: true,
+    createdAt: new Date('2026-06-10T15:00:00Z'),
+  }),
+  row({
+    tenantId: TENANT_B,
+    workflow: 'outreach_campaign',
+    model: 'gpt-4.1',
+    costUsd: 99.0,
+    inputTokens: 9_000_000,
+    outputTokens: 9_000_000,
+    createdAt: new Date('2026-06-10T10:00:00Z'),
+  }),
 ];
 
 describe('AiUsageService.tenantSummary', () => {
@@ -103,11 +138,22 @@ describe('AiUsageService.tenantSummary', () => {
     expect(s.tenantKeyEventCount).toBe(1);
 
     expect(s.byWorkflow).toEqual([
-      expect.objectContaining({ workflow: 'meeting_prep', costUsd: expect.closeTo(0.05, 6), count: 1 }),
-      expect.objectContaining({ workflow: 'outreach_campaign', costUsd: expect.closeTo(0.03, 6), count: 2 }),
+      expect.objectContaining({
+        workflow: 'meeting_prep',
+        costUsd: expect.closeTo(0.05, 6),
+        count: 1,
+      }),
+      expect.objectContaining({
+        workflow: 'outreach_campaign',
+        costUsd: expect.closeTo(0.03, 6),
+        count: 2,
+      }),
     ]);
     expect(s.byModel).toEqual([
-      expect.objectContaining({ model: 'claude-haiku-4-5-20251001', costUsd: expect.closeTo(0.05, 6) }),
+      expect.objectContaining({
+        model: 'claude-haiku-4-5-20251001',
+        costUsd: expect.closeTo(0.05, 6),
+      }),
       expect.objectContaining({ model: 'gpt-4.1', costUsd: expect.closeTo(0.03, 6) }),
     ]);
     expect(s.byDay).toEqual([
@@ -138,7 +184,11 @@ describe('AiUsageService.tenantSummary', () => {
   });
 
   it('defaults to a trailing-30-day range', async () => {
-    const old = row({ tenantId: TENANT_A, costUsd: 5, createdAt: new Date('2020-01-01T00:00:00Z') });
+    const old = row({
+      tenantId: TENANT_A,
+      costUsd: 5,
+      createdAt: new Date('2020-01-01T00:00:00Z'),
+    });
     const recent = row({ tenantId: TENANT_A, costUsd: 0.5, createdAt: new Date() });
     const svc = new AiUsageService(makePrisma([old, recent]) as never);
     const s = await svc.tenantSummary(ctxA);
@@ -171,7 +221,11 @@ describe('AiUsageService.adminAllTenantsSummary', () => {
       eventCount: 1,
     });
     expect(all[0]?.totalCostUsd).toBeCloseTo(99.0, 6);
-    expect(all[1]).toMatchObject({ tenantId: TENANT_A, tenantName: 'Alpha Lobbying', eventCount: 3 });
+    expect(all[1]).toMatchObject({
+      tenantId: TENANT_A,
+      tenantName: 'Alpha Lobbying',
+      eventCount: 3,
+    });
     expect(all[1]?.totalCostUsd).toBeCloseTo(0.08, 6);
   });
 });

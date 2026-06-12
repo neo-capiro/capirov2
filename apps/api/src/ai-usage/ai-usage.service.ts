@@ -104,7 +104,9 @@ export function aggregateUsageRows(rows: UsageRowLike[]): Omit<TenantUsageSummar
   }
 
   const spread = <K extends string>(map: Map<string, UsageBucket>, key: K) =>
-    Array.from(map.entries()).map(([k, b]) => ({ [key]: k, ...b }) as UsageBucket & Record<K, string>);
+    Array.from(map.entries()).map(
+      ([k, b]) => ({ [key]: k, ...b }) as UsageBucket & Record<K, string>,
+    );
 
   return {
     eventCount: rows.length,

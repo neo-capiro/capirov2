@@ -28,11 +28,13 @@ describe('parseProviderUsage', () => {
   });
 
   it('coerces numeric strings and clamps junk to zero', () => {
-    expect(
-      parseProviderUsage({ usage: { input_tokens: '42', output_tokens: 'NaN' } }),
-    ).toEqual({ inputTokens: 42, outputTokens: 0 });
-    expect(
-      parseProviderUsage({ usage: { input_tokens: -5, output_tokens: 3.7 } }),
-    ).toEqual({ inputTokens: 0, outputTokens: 3 });
+    expect(parseProviderUsage({ usage: { input_tokens: '42', output_tokens: 'NaN' } })).toEqual({
+      inputTokens: 42,
+      outputTokens: 0,
+    });
+    expect(parseProviderUsage({ usage: { input_tokens: -5, output_tokens: 3.7 } })).toEqual({
+      inputTokens: 0,
+      outputTokens: 3,
+    });
   });
 });

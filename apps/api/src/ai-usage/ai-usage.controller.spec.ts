@@ -19,8 +19,15 @@ function makeController() {
     tenantRecentEvents: jest.fn(async () => []),
   };
   const store = {
-    list: jest.fn(async () => [{ provider: 'openai', last4: '9876', modelOverride: null, status: 'active' }]),
-    upsert: jest.fn(async () => ({ provider: 'openai', last4: '9876', modelOverride: null, status: 'active' })),
+    list: jest.fn(async () => [
+      { provider: 'openai', last4: '9876', modelOverride: null, status: 'active' },
+    ]),
+    upsert: jest.fn(async () => ({
+      provider: 'openai',
+      last4: '9876',
+      modelOverride: null,
+      status: 'active',
+    })),
     remove: jest.fn(async () => ({ removed: true })),
   };
   const controller = new AiUsageController(usage as never, store as never);

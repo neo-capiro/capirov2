@@ -9,11 +9,7 @@
  * capiro_admin guard); writes run through withTenant(tenantId) so RLS sees a
  * matching GUC either way.
  */
-import {
-  BadRequestException,
-  Injectable,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { encryptSecret } from '../common/secret-crypto.js';
 import {

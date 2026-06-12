@@ -7,17 +7,25 @@ import { decryptSecret, parseAesKey } from '../common/secret-crypto.js';
 const TENANT = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const aesKey = parseAesKey(randomBytes(32).toString('base64'));
 
-function makeStore(opts: { validateOk?: boolean; validateError?: string; keysEnabled?: boolean } = {}) {
+function makeStore(
+  opts: { validateOk?: boolean; validateError?: string; keysEnabled?: boolean } = {},
+) {
   const rows = new Map<string, Record<string, unknown>>();
   const tx = {
     tenantAiCredential: {
-      upsert: jest.fn(async (args: { where: { tenantId_provider: { tenantId: string; provider: string } }; create: Record<string, unknown>; update: Record<string, unknown> }) => {
-        const key = `${args.where.tenantId_provider.tenantId}:${args.where.tenantId_provider.provider}`;
-        const existing = rows.get(key);
-        const next = existing ? { ...existing, ...args.update } : { ...args.create };
-        rows.set(key, next);
-        return { ...next, updatedAt: new Date(), lastValidatedAt: new Date() };
-      }),
+      upsert: jest.fn(
+        async (args: {
+          where: { tenantId_provider: { tenantId: string; provider: string } };
+          create: Record<string, unknown>;
+          update: Record<string, unknown>;
+        }) => {
+          const key = `${args.where.tenantId_provider.tenantId}:${args.where.tenantId_provider.provider}`;
+          const existing = rows.get(key);
+          const next = existing ? { ...existing, ...args.update } : { ...args.create };
+          rows.set(key, next);
+          return { ...next, updatedAt: new Date(), lastValidatedAt: new Date() };
+        },
+      ),
       findMany: jest.fn(async (args: { where: { tenantId: string } }) =>
         Array.from(rows.values()).filter((r) => r.tenantId === args.where.tenantId),
       ),
@@ -35,7 +43,9 @@ function makeStore(opts: { validateOk?: boolean; validateError?: string; keysEna
     tenantKeysEnabled: opts.keysEnabled ?? true,
     encryptionKeyBuffer: () => aesKey,
     validateKey: jest.fn(async () =>
-      opts.validateOk === false ? { ok: false, error: opts.validateError ?? 'bad key' } : { ok: true },
+      opts.validateOk === false
+        ? { ok: false, error: opts.validateError ?? 'bad key' }
+        : { ok: true },
     ),
   };
   const svc = new AiCredentialStoreService(prisma as never, resolver as never);
@@ -53,7 +63,11 @@ describe('AiCredentialStoreService.upsert', () => {
       createdByUserId: 'u1',
     });
 
-    expect(resolver.validateKey).toHaveBeenCalledWith('openai', 'sk-proj-supersecret-9876', 'gpt-4.1');
+    expect(resolver.validateKey).toHaveBeenCalledWith(
+      'openai',
+      'sk-proj-supersecret-9876',
+      'gpt-4.1',
+    );
 
     const stored = rows.get(`${TENANT}:openai`)!;
     expect(stored.keyCiphertext).toBeDefined();
@@ -69,18 +83,26 @@ describe('AiCredentialStoreService.upsert', () => {
     ).toBe('sk-proj-supersecret-9876');
 
     // The API response is masked-only.
-    expect(result).toMatchObject({ provider: 'openai', last4: '9876', modelOverride: 'gpt-4.1', status: 'active' });
+    expect(result).toMatchObject({
+      provider: 'openai',
+      last4: '9876',
+      modelOverride: 'gpt-4.1',
+      status: 'active',
+    });
     const serialized = JSON.stringify(result);
     expect(serialized).not.toContain('supersecret');
     expect(serialized).not.toContain('Ciphertext');
   });
 
   it('rejects an invalid key with the provider error and stores nothing', async () => {
-    const { svc, rows, tx } = makeStore({ validateOk: false, validateError: 'Incorrect API key provided' });
+    const { svc, rows, tx } = makeStore({
+      validateOk: false,
+      validateError: 'Incorrect API key provided',
+    });
 
-    await expect(
-      svc.upsert(TENANT, { provider: 'openai', apiKey: 'sk-bad-0000' }),
-    ).rejects.toThrow(/Incorrect API key/);
+    await expect(svc.upsert(TENANT, { provider: 'openai', apiKey: 'sk-bad-0000' })).rejects.toThrow(
+      /Incorrect API key/,
+    );
     expect(rows.size).toBe(0);
     expect(tx.tenantAiCredential.upsert).not.toHaveBeenCalled();
   });

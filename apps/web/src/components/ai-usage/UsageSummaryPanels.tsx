@@ -116,9 +116,19 @@ export function UsageSummaryPanels({
               <LineChart data={summary.byDay} margin={{ top: 8, right: 16, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="day" tick={{ fontSize: 11 }} />
-                <YAxis tickFormatter={(v: number) => fmtUsd(v)} tick={{ fontSize: 11 }} width={70} />
+                <YAxis
+                  tickFormatter={(v: number) => fmtUsd(v)}
+                  tick={{ fontSize: 11 }}
+                  width={70}
+                />
                 <Tooltip formatter={(v) => fmtUsd(Number(v))} />
-                <Line type="monotone" dataKey="costUsd" name="Est. cost" dot={false} strokeWidth={2} />
+                <Line
+                  type="monotone"
+                  dataKey="costUsd"
+                  name="Est. cost"
+                  dot={false}
+                  strokeWidth={2}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>

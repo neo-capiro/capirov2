@@ -129,9 +129,9 @@ export function AiUsagePage() {
       <Card size="small" title="Bring your own AI key" style={{ marginTop: 16 }}>
         <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
           Optional: use your firm&apos;s own OpenAI or Anthropic API key for generations. Keys are
-          validated against the provider before saving, stored encrypted, and never displayed
-          again — only the last 4 characters are shown. Removing a key falls back to the Capiro
-          shared key.
+          validated against the provider before saving, stored encrypted, and never displayed again
+          — only the last 4 characters are shown. Removing a key falls back to the Capiro shared
+          key.
         </Typography.Paragraph>
 
         {(credentials.data ?? []).map((cred) => (

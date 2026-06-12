@@ -54,7 +54,9 @@ function makeService(opts: {
     withTenant: jest.fn(async (tenantId: string, fn: (tx: unknown) => Promise<unknown>) =>
       fn({
         tenantAiCredential: {
-          findFirst: async (args: { where: { tenantId: string; provider: string; status: string } }) =>
+          findFirst: async (args: {
+            where: { tenantId: string; provider: string; status: string };
+          }) =>
             rows.find(
               (r) =>
                 r.tenantId === args.where.tenantId &&

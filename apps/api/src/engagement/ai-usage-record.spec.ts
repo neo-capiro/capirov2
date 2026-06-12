@@ -1,7 +1,10 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { recordAiUsageEvent } from './ai-usage-record.js';
 
-const ctx = { tenantId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', userId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb' };
+const ctx = {
+  tenantId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  userId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+};
 
 function makeDeps(createImpl?: () => Promise<unknown>) {
   const create = jest.fn(createImpl ?? (() => Promise.resolve({})));
@@ -60,10 +63,15 @@ describe('recordAiUsageEvent', () => {
   it('writes zero tokens / zero cost when usage is missing', async () => {
     const { create } = await (async () => {
       const deps = makeDeps();
-      await recordAiUsageEvent({ prisma: deps.prisma, logger: deps.logger } as never, ctx, 'meeting_prep', {
-        provider: 'anthropic',
-        model: 'claude-haiku-4-5-20251001',
-      });
+      await recordAiUsageEvent(
+        { prisma: deps.prisma, logger: deps.logger } as never,
+        ctx,
+        'meeting_prep',
+        {
+          provider: 'anthropic',
+          model: 'claude-haiku-4-5-20251001',
+        },
+      );
       return deps;
     })();
 

@@ -42,11 +42,29 @@ const SUMMARY = {
   totalOutputTokens: 100_000,
   tenantKeyEventCount: 5,
   byWorkflow: [
-    { workflow: 'outreach_campaign', costUsd: 10.0, inputTokens: 800_000, outputTokens: 80_000, count: 30 },
-    { workflow: 'meeting_prep', costUsd: 2.3456, inputTokens: 100_000, outputTokens: 20_000, count: 12 },
+    {
+      workflow: 'outreach_campaign',
+      costUsd: 10.0,
+      inputTokens: 800_000,
+      outputTokens: 80_000,
+      count: 30,
+    },
+    {
+      workflow: 'meeting_prep',
+      costUsd: 2.3456,
+      inputTokens: 100_000,
+      outputTokens: 20_000,
+      count: 12,
+    },
   ],
   byModel: [
-    { model: 'gpt-4.1-mini', costUsd: 12.3456, inputTokens: 900_000, outputTokens: 100_000, count: 42 },
+    {
+      model: 'gpt-4.1-mini',
+      costUsd: 12.3456,
+      inputTokens: 900_000,
+      outputTokens: 100_000,
+      count: 42,
+    },
   ],
   byDay: [
     { day: '2026-06-09', costUsd: 4.0, inputTokens: 1, outputTokens: 1, count: 10 },
@@ -66,7 +84,9 @@ const CREDENTIALS = [
 ];
 
 function renderPage() {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
   return render(
     <QueryClientProvider client={qc}>
       <App>

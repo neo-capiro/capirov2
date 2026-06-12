@@ -25,15 +25,10 @@ export const AI_PRICING: Record<string, ModelPrice> = {
   'claude-sonnet-4-6': { inputPerM: 3.0, outputPerM: 15.0 },
 };
 
-export function computeAiCostUsd(
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
-): number {
+export function computeAiCostUsd(model: string, inputTokens: number, outputTokens: number): number {
   const price = AI_PRICING[model] ?? AI_PRICING[model.replace(/-\d{8}$/, '')];
   if (!price) return 0;
   return (
-    (inputTokens / 1_000_000) * price.inputPerM +
-    (outputTokens / 1_000_000) * price.outputPerM
+    (inputTokens / 1_000_000) * price.inputPerM + (outputTokens / 1_000_000) * price.outputPerM
   );
 }
