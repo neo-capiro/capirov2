@@ -35,8 +35,17 @@ vi.mock('../../lib/use-api.js', () => ({
 
 const TENANT_A = '00000000-0000-0000-0000-0000000000a1';
 const TENANT_B = '00000000-0000-0000-0000-0000000000b1';
+const TENANT_C = '00000000-0000-0000-0000-0000000000c1';
 
-const ALL_TENANTS = [
+// The roster (all tenants, from /capiro-admin/tenants) — Charlie has never
+// generated anything and must STILL get a row + Manage button.
+const TENANT_LIST = [
+  { id: TENANT_B, name: 'Bravo Strategies' },
+  { id: TENANT_A, name: 'Alpha Lobbying' },
+  { id: TENANT_C, name: 'Charlie Fresh Onboard' },
+];
+
+const USAGE_ROWS = [
   {
     tenantId: TENANT_B,
     tenantName: 'Bravo Strategies',
@@ -87,7 +96,8 @@ describe('AiKeysAdminPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiGetMock.mockImplementation(async (url: string) => {
-      if (url === '/api/capiro-admin/ai-usage') return { data: ALL_TENANTS };
+      if (url === '/api/capiro-admin/tenants') return { data: TENANT_LIST };
+      if (url === '/api/capiro-admin/ai-usage') return { data: USAGE_ROWS };
       if (url === `/api/capiro-admin/tenants/${TENANT_B}/ai-usage`) return { data: TENANT_B_USAGE };
       if (url === `/api/capiro-admin/tenants/${TENANT_B}/ai-credential`) return { data: [] };
       throw new Error(`unexpected GET ${url}`);
@@ -101,9 +111,18 @@ describe('AiKeysAdminPanel', () => {
     expect(screen.getByText('Alpha Lobbying')).toBeInTheDocument();
     expect(screen.getByText('$99.50')).toBeInTheDocument();
     expect(screen.getByText('$1.25')).toBeInTheDocument();
-    // Alpha runs on its own key; Bravo runs on the shared key.
+    // Alpha runs on its own key; the others run on the shared key.
     expect(screen.getByText('own key')).toBeInTheDocument();
-    expect(screen.getByText('Capiro shared')).toBeInTheDocument();
+    expect(screen.getAllByText('Capiro shared').length).toBeGreaterThanOrEqual(2);
+  });
+
+  test('a tenant with ZERO usage still appears with a Manage button (key can be set pre-usage)', async () => {
+    renderPanel();
+
+    expect(await screen.findByText('Charlie Fresh Onboard')).toBeInTheDocument();
+    expect(screen.getByText('$0.00')).toBeInTheDocument();
+    const manageButtons = screen.getAllByRole('button', { name: /manage/i });
+    expect(manageButtons).toHaveLength(TENANT_LIST.length);
   });
 
   test('saving a key for a tenant calls the ADMIN endpoint for that tenant', async () => {
@@ -133,7 +152,8 @@ describe('AiKeysAdminPanel', () => {
 
   test('drawer never shows full key material for stored credentials', async () => {
     apiGetMock.mockImplementation(async (url: string) => {
-      if (url === '/api/capiro-admin/ai-usage') return { data: ALL_TENANTS };
+      if (url === '/api/capiro-admin/tenants') return { data: TENANT_LIST };
+      if (url === '/api/capiro-admin/ai-usage') return { data: USAGE_ROWS };
       if (url === `/api/capiro-admin/tenants/${TENANT_B}/ai-usage`) return { data: TENANT_B_USAGE };
       if (url === `/api/capiro-admin/tenants/${TENANT_B}/ai-credential`)
         return {

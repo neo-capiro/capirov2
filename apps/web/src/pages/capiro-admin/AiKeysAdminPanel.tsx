@@ -42,6 +42,12 @@ interface AdminTenantUsageRow {
   tenantKeyEventCount: number;
 }
 
+/** Subset of GET /api/capiro-admin/tenants we need for the roster. */
+interface TenantListRow {
+  id: string;
+  name: string;
+}
+
 interface SaveKeyFormValues {
   provider: 'openai' | 'anthropic';
   apiKey: string;
@@ -63,12 +69,35 @@ export function AiKeysAdminPanel() {
     [rangeDays],
   );
 
-  const allTenants = useQuery<AdminTenantUsageRow[]>({
+  const usage = useQuery<AdminTenantUsageRow[]>({
     queryKey: ['capiro-admin', 'ai-usage', rangeDays],
     queryFn: async () =>
       (await api.get<AdminTenantUsageRow[]>('/api/capiro-admin/ai-usage', { params: { from } }))
         .data,
   });
+
+  // The roster comes from the TENANTS list, not from usage rows — a tenant
+  // with zero generations (e.g. right after onboarding, or right after this
+  // feature shipped) must still appear so an admin can set their key.
+  const tenants = useQuery<TenantListRow[]>({
+    queryKey: ['capiro-admin', 'tenants'],
+    queryFn: async () => (await api.get<TenantListRow[]>('/api/capiro-admin/tenants')).data,
+  });
+
+  const rows = useMemo<AdminTenantUsageRow[]>(() => {
+    const usageByTenant = new Map((usage.data ?? []).map((r) => [r.tenantId, r]));
+    return (tenants.data ?? []).map(
+      (t) =>
+        usageByTenant.get(t.id) ?? {
+          tenantId: t.id,
+          tenantName: t.name,
+          totalCostUsd: 0,
+          totalTokens: 0,
+          eventCount: 0,
+          tenantKeyEventCount: 0,
+        },
+    );
+  }, [tenants.data, usage.data]);
 
   return (
     <div>
@@ -88,20 +117,20 @@ export function AiKeysAdminPanel() {
         />
       </Space>
 
-      {allTenants.isError ? (
+      {tenants.isError || usage.isError ? (
         <Alert
           type="error"
           showIcon
           message="Couldn't load tenant AI usage."
-          description={apiErrorMessage(allTenants.error)}
+          description={apiErrorMessage(tenants.error ?? usage.error)}
         />
       ) : (
         <Table<AdminTenantUsageRow>
           size="small"
           rowKey="tenantId"
-          loading={allTenants.isLoading}
-          dataSource={allTenants.data ?? []}
-          locale={{ emptyText: 'No AI usage recorded in this period' }}
+          loading={tenants.isLoading || usage.isLoading}
+          dataSource={rows}
+          locale={{ emptyText: 'No tenants yet' }}
           columns={[
             { title: 'Tenant', dataIndex: 'tenantName', key: 'tenantName', ellipsis: true },
             {
