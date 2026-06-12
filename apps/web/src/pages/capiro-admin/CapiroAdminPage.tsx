@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '../../lib/use-api.js';
 import { useImpersonation } from '../../state/impersonation.js';
+import { AiKeysAdminPanel } from './AiKeysAdminPanel.js';
 
 interface TenantRow {
   id: string;
@@ -50,6 +51,7 @@ export function CapiroAdminPage() {
         items={[
           { key: 'tenants', label: 'Tenants', children: <TenantsTab /> },
           { key: 'personnel-merge', label: 'Personnel Merge Queue', children: <PersonnelMergeTab /> },
+          { key: 'ai-keys', label: 'AI Keys & Usage', children: <AiKeysAdminPanel /> },
         ]}
       />
     </>
