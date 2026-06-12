@@ -117,8 +117,14 @@ async function main(): Promise<void> {
       select: { id: true, title: true },
     });
     const defenseBills = await prisma.congressBill.findMany({
-      where: { congress: 119, policyArea: 'Armed Forces and National Security', id: { notIn: ndaaBills.map((b) => b.id) } },
-      orderBy: { latestActionDate: { sort: 'desc', nulls: 'last' } },
+      where: {
+        congress: 119,
+        policyArea: 'Armed Forces and National Security',
+        id: { notIn: ndaaBills.map((b) => b.id) },
+        // skip commemorative vehicles — pick substantive, active bills
+        NOT: [{ title: { contains: 'Gold Medal', mode: 'insensitive' } }, { title: { contains: 'commemorat', mode: 'insensitive' } }],
+      },
+      orderBy: [{ cosponsorsCount: 'desc' }, { latestActionDate: { sort: 'desc', nulls: 'last' } }],
       take: 2,
       select: { id: true, title: true },
     });
@@ -130,7 +136,12 @@ async function main(): Promise<void> {
           where: {
             issueCodes: { has: 'DEF' },
             latestFilingYear: { gte: 2024 },
-            totalSpending: { gte: 2_000_000, lte: 20_000_000 },
+            totalSpending: { gte: 2_000_000, lte: 50_000_000 },
+            // demo client is a defense-tech company — require a defense-flavored
+            // name so the mapped lobbying history looks plausible on the profile
+            OR: ['DEFENSE', 'AEROSPACE', 'DYNAMICS', 'SYSTEMS', 'TECHNOLOG', 'SPACE'].map((k) => ({
+              name: { contains: k, mode: 'insensitive' as const },
+            })),
           },
           orderBy: { totalSpending: 'desc' },
         });
