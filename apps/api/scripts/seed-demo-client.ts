@@ -351,7 +351,7 @@ async function seedClient(tx: Prisma.TransactionClient, refs: SeedRefs): Promise
       peNumbers: [PE_CODE],
       keywords: ['electronic warfare', 'electromagnetic attack', 'EW payload', 'jamming', 'spectrum dominance', 'CMOSS', 'SOSA'],
       appropriationAccount: 'RDT&E, Army (2040)',
-      service: 'Army',
+      serviceBranch: 'Army',
       targetSubcommittee: 'HAC-D',
       fundingAsk: 12_000_000,
       fundingAskLabel: '$12.0M FY27 RDT&E plus-up',
@@ -377,7 +377,7 @@ async function seedClient(tx: Prisma.TransactionClient, refs: SeedRefs): Promise
       mrl: 5,
       peNumbers: [PE_CODE],
       keywords: ['RF sensing', 'signals intelligence', 'emitter geolocation', 'spectrum awareness', 'passive detection'],
-      service: 'Army',
+      serviceBranch: 'Army',
       targetSubcommittee: 'SAC-D',
       fundingAsk: 6_500_000,
       fundingAskLabel: '$6.5M FY27 CDS',
@@ -401,7 +401,7 @@ async function seedClient(tx: Prisma.TransactionClient, refs: SeedRefs): Promise
       mrl: 4,
       peNumbers: [PE_CODE],
       keywords: ['machine learning', 'EW reprogramming', 'mission data files', 'cognitive EW', 'artificial intelligence'],
-      service: 'Army',
+      serviceBranch: 'Army',
       targetSubcommittee: 'HASC',
       fundingAsk: 4_000_000,
       fundingAskLabel: '$4.0M FY27 authorization language',
@@ -594,7 +594,7 @@ async function seedClient(tx: Prisma.TransactionClient, refs: SeedRefs): Promise
 
   await tx.outreachRecord.create({
     data: {
-      tenantId, clientId, createdByUserId: userId, type: 'email', status: 'sent',
+      tenantId, clientId, createdByUserId: userId, type: 'follow_up', status: 'sent',
       title: 'Intro brief: Aperture EW payload — PEO IEW&S program office',
       subject: 'Raptor-X podded EW payload — capability brief for PM EW&C',
       body: 'Program office introduction with capability summary and OTA performance history. Requested 30-minute technical session ahead of FY27 cycle.',
