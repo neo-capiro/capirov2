@@ -39,6 +39,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { ProgramElementWriterService } from '../src/program-element/program-element-writer.service.js';
 import { PROGRAM_ELEMENT_FIXTURES } from '../src/program-element/program-element-fixture-data.js';
+import { normalizeName } from '../src/acquisition-personnel/normalization/name-normalizer.js';
 
 dotenvConfig();
 
@@ -251,6 +252,7 @@ async function main(): Promise<void> {
         });
       }
     }
+    const enrichment = await seedPeEnrichment(prisma, trackedBills);
     await writer.refreshProgramElementDetailMaterializedView('fixture');
 
     // ── tenant-scoped demo client (single RLS-bypass transaction) ──────────
@@ -269,10 +271,329 @@ async function main(): Promise<void> {
       update: {},
     });
 
-    log('SEED_DONE', { ...result, peCode: PE_CODE, url: `/clients/${result.clientId}` });
+    log('SEED_DONE', { ...result, peCode: PE_CODE, peEnrichment: enrichment, url: `/clients/${result.clientId}` });
   } finally {
     await prisma.onModuleDestroy();
   }
+}
+
+/**
+ * Fill the remaining PE-detail panels for the demo PE so PE Watch demos
+ * complete: Projects (R-2A), Secondary Distribution (procurement lines),
+ * Programs (PE→Program graph), What Changed (deltas), Congressional Activity
+ * (bill peCodes tags), Procurement Activity (SAM notices), Program Team
+ * (acquisition personnel). All rows are global reference data, marked
+ * fixture/demo in source/metadata, created idempotently by natural key.
+ *
+ * NOTE: extract-bill-pe-codes REPLACES congress_bill.pe_codes from bill text,
+ * so the bill tags here may be wiped by its next scheduled run — re-running
+ * this seeder restores them (do it shortly before a demo).
+ */
+async function seedPeEnrichment(
+  prisma: PrismaService,
+  trackedBills: Array<{ id: string; title: string }>,
+): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  const rDocUrl = `https://example.mil/army/rdoc/${PE_CODE}`;
+
+  // ── Projects (R-2A sub-projects) ─────────────────────────────────────────
+  const projects = [
+    {
+      projectCode: 'EW-1',
+      title: 'Advanced Techniques & Waveform Development',
+      mission:
+        'Develops software-defined electromagnetic attack techniques and waveform libraries for podded payloads; transitions matured techniques to Project EW-4 for integration.',
+      pageNumber: 408,
+    },
+    {
+      projectCode: 'EW-4',
+      title: 'Payload Integration & Test',
+      mission:
+        'Integrates electromagnetic attack payloads on Group 4/5 UAS and rotary-wing platforms and executes developmental/operational test; supports Terrestrial Layer EW Suite increment 2.',
+      pageNumber: 410,
+    },
+    {
+      projectCode: 'EW-7',
+      title: 'ML Mission Data Pipeline',
+      mission:
+        'Stands up a government-owned machine-learning pipeline for rapid EW mission-data reprogramming; reduces reprogramming cycle from weeks to hours.',
+      pageNumber: 414,
+    },
+  ];
+  for (const p of projects) {
+    await prisma.programElementProject.upsert({
+      where: { peCode_projectCode: { peCode: PE_CODE, projectCode: p.projectCode } },
+      create: {
+        peCode: PE_CODE,
+        projectCode: p.projectCode,
+        title: p.title,
+        mission: p.mission,
+        budgetActivity: '04',
+        fy: 2027,
+        sourceUrl: rDocUrl,
+        pageNumber: p.pageNumber,
+        source: 'fixture',
+        confidence: 0.95,
+        metadata: { fixture: true },
+      },
+      update: { title: p.title, mission: p.mission },
+    });
+  }
+  counts.projects = projects.length;
+
+  // ── Secondary Distribution (per-recipient procurement lines, $M) ─────────
+  const procurementLines = [
+    { lineDescription: '1st Multi-Domain Task Force (JBLM)', fy: 2026, quantity: 12, dollars: 9.6, unitCost: 0.8 },
+    { lineDescription: '1st Multi-Domain Task Force (JBLM)', fy: 2027, quantity: 18, dollars: 13.5, unitCost: 0.75 },
+    { lineDescription: '11th Airborne EW Company (JBER)', fy: 2027, quantity: 8, dollars: 6.4, unitCost: 0.8 },
+  ];
+  for (const line of procurementLines) {
+    await prisma.programElementProcurementLine.upsert({
+      where: {
+        peCode_lineDescription_fy: { peCode: PE_CODE, lineDescription: line.lineDescription, fy: line.fy },
+      },
+      create: { peCode: PE_CODE, ...line, source: 'fixture', sourceUrl: rDocUrl, raw: { fixture: true } },
+      update: { quantity: line.quantity, dollars: line.dollars, unitCost: line.unitCost },
+    });
+  }
+  counts.procurementLines = procurementLines.length;
+
+  // ── Programs (PE→Program graph: one accepted, one candidate) ─────────────
+  const programDefs = [
+    {
+      canonicalName: 'Terrestrial Layer EW Suite',
+      status: 'accepted',
+      score: 0.94,
+      evidenceTier: 'tier1',
+      matchBasis: 'Program of record named in R-2 narrative (Project EW-4)',
+    },
+    {
+      canonicalName: 'Multi-Function EW - Air Large',
+      status: 'candidate',
+      score: 0.61,
+      evidenceTier: 'tier3',
+      matchBasis: 'Capability-area overlap: airborne electromagnetic attack',
+    },
+  ];
+  for (const def of programDefs) {
+    const program =
+      (await prisma.program.findFirst({ where: { canonicalName: def.canonicalName } })) ??
+      (await prisma.program.create({
+        data: {
+          canonicalName: def.canonicalName,
+          component: 'ARMY',
+          capabilityArea: 'Electronic Warfare',
+          status: 'active',
+          metadata: { fixture: true },
+        },
+      }));
+    const existingMatch = await prisma.peProgramMatch.findFirst({
+      where: { peCode: PE_CODE, programId: program.id },
+    });
+    if (!existingMatch) {
+      await prisma.peProgramMatch.create({
+        data: {
+          peCode: PE_CODE,
+          programId: program.id,
+          score: def.score,
+          evidenceTier: def.evidenceTier,
+          evidence: [{ kind: 'fixture', note: def.matchBasis }],
+          status: def.status,
+          matchBasis: def.matchBasis,
+        },
+      });
+    }
+  }
+  counts.programs = programDefs.length;
+
+  // ── What Changed (typed budget deltas; live rows, modest materiality) ────
+  const deltas = [
+    {
+      assertedFy: 2027,
+      deltaType: 'mark_vs_request',
+      fromRef: 'pb_fy2027_request',
+      toRef: 'hasc_fy2027_mark',
+      amountFrom: 278.5,
+      amountTo: 290.0,
+      explanation:
+        'HASC FY27 mark adds $11.5M above the budget request for accelerated payload integration and developmental test (Project EW-4).',
+      materialityScore: 0.58,
+    },
+    {
+      assertedFy: 2026,
+      deltaType: 'mark_vs_request',
+      fromRef: 'pb_fy2026_request',
+      toRef: 'sasc_fy2026_mark',
+      amountFrom: 262.0,
+      amountTo: 244.0,
+      explanation: 'SASC FY26 mark trims $18.0M citing across-the-board RDT&E reduction pressure.',
+      materialityScore: 0.44,
+    },
+    {
+      assertedFy: 2027,
+      deltaType: 'pb_vs_prior_pb',
+      fromRef: 'pb_fy2026',
+      toRef: 'pb_fy2027',
+      amountFrom: 262.0,
+      amountTo: 278.5,
+      explanation: 'FY27 request grows $16.5M (+6.3%) over the prior PB, reflecting the increment 2 integration ramp.',
+      materialityScore: 0.36,
+    },
+  ];
+  for (const d of deltas) {
+    const existing = await prisma.programElementDelta.findFirst({
+      where: { peCode: PE_CODE, assertedFy: d.assertedFy, deltaType: d.deltaType, fromRef: d.fromRef, toRef: d.toRef },
+    });
+    if (!existing) {
+      await prisma.programElementDelta.create({
+        data: {
+          peCode: PE_CODE,
+          ...d,
+          deltaAbs: Math.round((d.amountTo - d.amountFrom) * 100) / 100,
+          deltaPct: Math.round(((d.amountTo - d.amountFrom) / d.amountFrom) * 1000) / 10,
+          evidence: { fixture: true, sourceUrl: rDocUrl },
+          materialityFactors: { fixture: true },
+        },
+      });
+    }
+  }
+  counts.deltas = deltas.length;
+
+  // ── Congressional Activity: tag the tracked bills with this PE code ──────
+  // (extract-bill-pe-codes may overwrite on its next run; re-seed restores.)
+  let billsTagged = 0;
+  for (const bill of trackedBills.slice(0, 2)) {
+    const row = await prisma.congressBill.findUnique({ where: { id: bill.id }, select: { peCodes: true } });
+    if (row && !row.peCodes.includes(PE_CODE)) {
+      await prisma.congressBill.update({ where: { id: bill.id }, data: { peCodes: [...row.peCodes, PE_CODE] } });
+    }
+    if (row) billsTagged += 1;
+  }
+  counts.billsTagged = billsTagged;
+
+  // ── Procurement Activity (SAM notices + accepted PE matches) ─────────────
+  const tlsProgram = await prisma.program.findFirst({ where: { canonicalName: 'Terrestrial Layer EW Suite' } });
+  const opportunities = [
+    {
+      noticeId: 'APRDEMO-W909MY26R0042',
+      solicitationNumber: 'W909MY-26-R-0042',
+      title: 'Airborne Electromagnetic Attack Payload - Production Readiness Sources Sought',
+      noticeType: 'Sources Sought',
+      office: 'ACC-APG (CECOM)',
+      pscCode: '5865',
+      postedDate: daysFromNow(-9),
+      responseDeadline: daysFromNow(18),
+      description:
+        'The Army Contracting Command - Aberdeen Proving Ground is conducting market research for production-ready podded electromagnetic attack payloads supporting PE 0603270A Project EW-4. Responses due 30 days from posting.',
+      programId: null as string | null,
+    },
+    {
+      noticeId: 'APRDEMO-W56KGU27R0007',
+      solicitationNumber: 'W56KGU-27-R-0007',
+      title: 'Terrestrial Layer EW Suite - Payload Integration & Test Support',
+      noticeType: 'Presolicitation',
+      office: 'ACC-APG (PEO IEW&S)',
+      pscCode: 'AC13',
+      postedDate: daysFromNow(-3),
+      responseDeadline: daysFromNow(35),
+      description:
+        'Presolicitation for engineering services supporting payload integration and developmental test under the Terrestrial Layer EW Suite program (PE 0603270A).',
+      programId: tlsProgram?.id ?? null,
+    },
+  ];
+  for (const opp of opportunities) {
+    const { programId, ...oppData } = opp;
+    const record = await prisma.samOpportunity.upsert({
+      where: { noticeId: opp.noticeId },
+      create: {
+        ...oppData,
+        agency: 'Department of the Army',
+        naicsCode: '334511',
+        pocName: 'Lisa Grant',
+        pocEmail: 'lisa.grant.demo@army.example.mil',
+        sourceUrl: `https://sam.gov/opp/${opp.noticeId}`,
+        active: true,
+        raw: { fixture: true },
+      },
+      update: { responseDeadline: opp.responseDeadline, active: true },
+    });
+    const existingMatch = await prisma.samOpportunityMatch.findFirst({
+      where: { opportunityId: record.id, peCode: PE_CODE },
+    });
+    if (!existingMatch) {
+      await prisma.samOpportunityMatch.create({
+        data: { opportunityId: record.id, peCode: PE_CODE, programId, matchBasis: 'pe_reference', confidence: 0.9, reviewStatus: 'accepted' },
+      });
+    }
+  }
+  counts.samOpportunities = opportunities.length;
+
+  // ── Program Team (fictional acquisition personnel, fixture-marked) ───────
+  const personnel = [
+    {
+      fullName: 'Dr. Elaine Marsh',
+      title: 'Product Lead, EW Payloads',
+      organization: 'PEO IEW&S',
+      role: 'Product Lead',
+      confidence: 0.92,
+      pePrimary: PE_CODE,
+      peSecondary: [] as string[],
+    },
+    {
+      fullName: 'COL Marcus Reyes',
+      title: 'Product Manager, Electronic Warfare & Cyber',
+      organization: 'PEO IEW&S',
+      role: 'Product Manager',
+      confidence: 0.9,
+      pePrimary: PE_CODE,
+      peSecondary: [] as string[],
+    },
+    {
+      fullName: 'Sandra Okafor',
+      title: 'Deputy Capability Manager, Terrestrial EW',
+      organization: 'Army Futures Command',
+      role: 'Deputy Capability Manager',
+      confidence: 0.86,
+      pePrimary: null as string | null,
+      peSecondary: [PE_CODE],
+    },
+  ];
+  for (const person of personnel) {
+    const nameKey = normalizeName(person.fullName).nameKey;
+    const existing = await prisma.acquisitionPersonnel.findFirst({ where: { nameKey } });
+    if (!existing) {
+      const created = await prisma.acquisitionPersonnel.create({
+        data: {
+          fullName: person.fullName,
+          nameKey,
+          service: 'A',
+          organization: person.organization,
+          title: person.title,
+          role: person.role,
+          programOfRecord: 'Terrestrial Layer EW Suite',
+          pePrimary: person.pePrimary,
+          peSecondary: person.peSecondary,
+          confidence: person.confidence,
+          status: 'active',
+          metadata: { fixture: true, demo: true },
+        },
+      });
+      await prisma.acquisitionPersonnelSource.create({
+        data: {
+          personId: created.id,
+          source: 'fixture',
+          sourceUrl: rDocUrl,
+          snippet: `${person.fullName} — ${person.title}, ${person.organization} (demo fixture).`,
+          observedAt: new Date(),
+          confidence: 0.9,
+          metadata: { fixture: true },
+        },
+      });
+    }
+  }
+  counts.personnel = personnel.length;
+
+  return counts;
 }
 
 interface SeedRefs {
@@ -695,7 +1016,7 @@ async function seedClient(tx: Prisma.TransactionClient, refs: SeedRefs): Promise
       tenantId, clientId, createdBy: userId, sourceType: 'manual',
       title: 'FY27 cycle brief — Aperture Defense Systems',
       body:
-        'Position: dual-track FY27 push. NDAA language via Rep. Strong (AL-05) and a $12.0M HAC-D plus-up to PE 0603270A; CDS backup via Sen. Britt for SpectraNet ($6.5M). FY25 delivered $8.0M in conference — clean execution story. Watch items: HAC-D allocation pressure, competing EW primes on the Hill week of 6/16, and the HASC mark (currently +$14.2M above request in the demo fixture data). District nexus is the lead narrative: 184 Huntsville jobs, expansion announcement available to time with markup.',
+        'Position: dual-track FY27 push. NDAA language via Rep. Strong (AL-05) and a $12.0M HAC-D plus-up to PE 0603270A; CDS backup via Sen. Britt for SpectraNet ($6.5M). FY25 delivered $8.0M in conference — clean execution story. Watch items: HAC-D allocation pressure, competing EW primes on the Hill week of 6/16, and the HASC mark (currently +$11.5M above request). District nexus is the lead narrative: 184 Huntsville jobs, expansion announcement available to time with markup.',
     },
   });
 
@@ -709,8 +1030,8 @@ async function seedClient(tx: Prisma.TransactionClient, refs: SeedRefs): Promise
   await tx.clioProactiveAlert.create({
     data: {
       tenantId, clientId, alertType: 'pe_budget_change', priority: 'high', status: 'pending',
-      title: 'HASC mark +$14.2M above request on PE 0603270A',
-      body: 'The HASC FY27 mark for Electronic Warfare Advanced Payloads came in at $290.0M against a $278.5M request (+$14.2M). This strengthens the conference position for the client\'s $12.0M HAC-D ask. Recommend updating the member-letter narrative to cite the authorization mark.',
+      title: 'HASC mark +$11.5M above request on PE 0603270A',
+      body: 'The HASC FY27 mark for Electronic Warfare Advanced Payloads came in at $290.0M against a $278.5M request (+$11.5M). This strengthens the conference position for the client\'s $12.0M HAC-D ask. Recommend updating the member-letter narrative to cite the authorization mark.',
       sourceType: 'program_element', sourceId: PE_CODE, metadata: { peCode: PE_CODE, fy: 2027 },
     },
   });
@@ -719,7 +1040,7 @@ async function seedClient(tx: Prisma.TransactionClient, refs: SeedRefs): Promise
       {
         tenantId, clientId, peCode: PE_CODE, actionType: 'committee_engagement',
         issueTitle: 'Convert HASC plus-up into appropriations support before HAC-D markup',
-        whatChanged: 'HASC FY27 mark for PE 0603270A is +$14.2M above the budget request ($290.0M vs $278.5M).',
+        whatChanged: 'HASC FY27 mark for PE 0603270A is +$11.5M above the budget request ($290.0M vs $278.5M).',
         whyItMatters: 'Authorization momentum is the strongest available evidence for the client\'s $12.0M HAC-D plus-up; the window closes at subcommittee markup.',
         recommendedAction: 'Update the HAC-D member letter to cite the HASC mark; request Strong office circulate for signatures before markup; brief Calvert PSM with the revised one-pager.',
         targetAudience: ['HAC-D professional staff', 'Rep. Strong office'], suggestedArtifactType: 'member_letter',
