@@ -184,7 +184,14 @@ function makeWriterPrisma(seedYear: Record<string, unknown>) {
     clientCapability: { findMany: async () => [] },
     intelligenceChange: { create: async () => ({}) },
   };
-  return { prisma, years, sourceValues, queue, key };
+  // emitYearDeltaChange→getAffectedTenants reads RLS-forced tables through
+  // prisma.withSystem; mirror the withTenant mocks elsewhere by re-entering
+  // the same in-memory client as the tx.
+  const prismaWithSystem = {
+    ...prisma,
+    withSystem: async <T>(fn: (t: typeof prisma) => Promise<T>) => fn(prisma),
+  };
+  return { prisma: prismaWithSystem, years, sourceValues, queue, key };
 }
 
 describe('writer-path consistency: accepting a conflict via manual_override', () => {
