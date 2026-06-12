@@ -132,19 +132,35 @@ async function main(): Promise<void> {
 
     const ldaClient = LDA_OVERRIDE
       ? await prisma.ldaClient.findUnique({ where: { id: Number(LDA_OVERRIDE) } })
-      : await prisma.ldaClient.findFirst({
-          where: {
-            issueCodes: { has: 'DEF' },
-            latestFilingYear: { gte: 2024 },
-            totalSpending: { gte: 2_000_000, lte: 50_000_000 },
-            // demo client is a defense-tech company — require a defense-flavored
-            // name so the mapped lobbying history looks plausible on the profile
-            OR: ['DEFENSE', 'AEROSPACE', 'DYNAMICS', 'SYSTEMS', 'TECHNOLOG', 'SPACE'].map((k) => ({
-              name: { contains: k, mode: 'insensitive' as const },
-            })),
-          },
-          orderBy: { totalSpending: 'desc' },
-        });
+      : await (async () => {
+          // demo client is a defense-tech company — rank candidates so the mapped
+          // lobbying history looks plausible: prefer literal defense names over
+          // generic tech brands, and mid-tier spend over Fortune-50 totals.
+          const candidates = await prisma.ldaClient.findMany({
+            where: {
+              issueCodes: { has: 'DEF' },
+              latestFilingYear: { gte: 2024 },
+              totalSpending: { gte: 1_000_000, lte: 50_000_000 },
+              OR: ['DEFENSE', 'AEROSPACE', 'DYNAMICS', 'SYSTEMS', 'TECHNOLOG', 'SPACE'].map((k) => ({
+                name: { contains: k, mode: 'insensitive' as const },
+              })),
+            },
+            orderBy: { totalSpending: 'desc' },
+            take: 40,
+          });
+          const score = (c: (typeof candidates)[number]): number => {
+            const name = c.name.toUpperCase();
+            let s = 0;
+            if (name.includes('DEFENSE') || name.includes('DEFENCE')) s += 100;
+            else if (name.includes('AEROSPACE') || name.includes('DYNAMICS')) s += 60;
+            else if (name.includes('SYSTEMS') || name.includes('SPACE')) s += 40;
+            const spend = Number(c.totalSpending ?? 0);
+            if (spend >= 2_000_000 && spend <= 15_000_000) s += 25;
+            if (name.length <= 40) s += 5;
+            return s;
+          };
+          return candidates.sort((a, b) => score(b) - score(a))[0] ?? null;
+        })();
 
     const workflowTemplate =
       (await prisma.workflowTemplate.findFirst({
