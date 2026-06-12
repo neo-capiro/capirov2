@@ -3,8 +3,16 @@
 Branch: `feat/per-tenant-ai-keys` (based on `feat/clio-assistant-parity` tip `1872ff5`).
 Plan: `.hermes/plans/2026-06-11_per-tenant-ai-keys-and-spend.md`. Built 2026-06-11.
 
-> ⚠️ Per Neo's instruction: NOT merged to main, NOT deployed to AWS. The
-> "Deploy together" section below is the remaining checklist.
+> ✅ SHIPPED 2026-06-11 (evening): rebased onto origin/main (the base-branch
+> content had been isolated onto main as different SHAs) and pushed as
+> `main@f7b6916`; CI images built; both migrations applied to prod; API
+> rolled to task-def rev 27 (adds `AI_CREDENTIAL_ENCRYPTION_KEY` from
+> Secrets Manager `capiro/dev/ai-credential-encryption-key-ohnjaH`,
+> registered out-of-band — NO cdk deploy; CDK source updated for parity);
+> web rolled. Verified: running digest == ECR `:latest`, app 200, 10-min
+> API error scan = 0, ALB `/webhooks/*` priority-15 rule intact.
+> Remaining: the 5-step BYO-key smoke below (needs a real OpenAI key,
+> entered via the admin UI).
 
 ## Task → commit map
 
