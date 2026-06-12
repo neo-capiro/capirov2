@@ -352,6 +352,11 @@ case "${1:-serve}" in
   # One-time ordered backfill + pre-flight key check (Production Ingestion plan,
   # Phase 3). preflight exits non-zero if a REQUIRED key is missing.
   preflight-ingestion) shift; exec ./node_modules/.bin/tsx scripts/preflight-ingestion.ts "$@" ;;
+  # ONE fully-populated demo client (default tenant: capiro) for product demos:
+  # profile + capabilities + people + facilities + strategy + workflow + campaign
+  # + engagement activity + intel links + PE 0603270A fixture data + PE watch.
+  # DRY RUN unless --commit. Idempotent (re-run refreshes the same named client).
+  seed-demo-client) shift; exec ./node_modules/.bin/tsx scripts/seed-demo-client.ts "$@" ;;
   backfill-all) shift; exec ./node_modules/.bin/tsx scripts/backfill-all.ts "$@" ;;
   serve)
     echo "Starting Capiro API"
