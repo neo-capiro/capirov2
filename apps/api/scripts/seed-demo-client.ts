@@ -130,12 +130,14 @@ async function main(): Promise<void> {
     });
     const trackedBills = [...ndaaBills, ...defenseBills].slice(0, 3);
 
+    let ldaCandidatePreview: Array<{ id: number; name: string; totalSpending: unknown; score: number }> = [];
     const ldaClient = LDA_OVERRIDE
       ? await prisma.ldaClient.findUnique({ where: { id: Number(LDA_OVERRIDE) } })
       : await (async () => {
           // demo client is a defense-tech company — rank candidates so the mapped
           // lobbying history looks plausible: prefer literal defense names over
-          // generic tech brands, and mid-tier spend over Fortune-50 totals.
+          // generic tech brands, mid-tier spend over Fortune-50 totals, and skip
+          // advocacy nonprofits ("Natural Resources Defense Council").
           const candidates = await prisma.ldaClient.findMany({
             where: {
               issueCodes: { has: 'DEF' },
@@ -148,18 +150,28 @@ async function main(): Promise<void> {
             orderBy: { totalSpending: 'desc' },
             take: 40,
           });
+          const NONPROFIT_RE =
+            /\b(COUNCIL|FUND|FOUNDATION|ASSOCIATION|COALITION|INSTITUTE|SOCIETY|ALLIANCE|CENTER|CENTRE|COMMITTEE|LEAGUE|UNIVERSITY|NETWORK|PARTNERSHIP)\b/;
           const score = (c: (typeof candidates)[number]): number => {
             const name = c.name.toUpperCase();
             let s = 0;
+            if (NONPROFIT_RE.test(name)) s -= 200;
             if (name.includes('DEFENSE') || name.includes('DEFENCE')) s += 100;
             else if (name.includes('AEROSPACE') || name.includes('DYNAMICS')) s += 60;
             else if (name.includes('SYSTEMS') || name.includes('SPACE')) s += 40;
+            if (/\b(INC|CORP|CORPORATION|LLC|CO|LTD|TECHNOLOGIES|INDUSTRIES)\b/.test(name)) s += 20;
             const spend = Number(c.totalSpending ?? 0);
             if (spend >= 2_000_000 && spend <= 15_000_000) s += 25;
             if (name.length <= 40) s += 5;
             return s;
           };
-          return candidates.sort((a, b) => score(b) - score(a))[0] ?? null;
+          const ranked = candidates
+            .map((c) => ({ c, s: score(c) }))
+            .sort((a, b) => b.s - a.s);
+          ldaCandidatePreview = ranked
+            .slice(0, 10)
+            .map(({ c, s }) => ({ id: c.id, name: c.name, totalSpending: c.totalSpending, score: s }));
+          return ranked[0]?.c ?? null;
         })();
 
     const workflowTemplate =
@@ -179,6 +191,7 @@ async function main(): Promise<void> {
       clientName: CLIENT_NAME,
       pe: { code: PE_CODE, title: peFixture.record.title },
       ldaClient: ldaClient ? { id: ldaClient.id, name: ldaClient.name, totalSpending: ldaClient.totalSpending } : null,
+      ldaCandidates: ldaCandidatePreview,
       trackedBills,
       workflowTemplate: workflowTemplate ? { id: workflowTemplate.id, slug: workflowTemplate.slug } : null,
       notesEncryption: Boolean(process.env.NOTES_ENCRYPTION_KEY),
