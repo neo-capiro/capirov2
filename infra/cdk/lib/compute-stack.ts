@@ -179,6 +179,15 @@ export class ComputeStack extends cdk.Stack {
       `capiro/${cfg.envName}/notes-encryption-key`,
       cfg.externalSecretArns?.notesEncryptionKey,
     );
+    // Dedicated AES key for per-tenant AI provider keys (tenant_ai_credentials).
+    // Deliberately distinct from the notes/OAuth keys so a key compromise on
+    // either side stays contained. Covered by the capiro/<env>/* exec-role grant.
+    const aiCredentialEncryptionKeySecret = importExternalSecret(
+      this,
+      'ImportedAiCredentialEncryptionKey',
+      `capiro/${cfg.envName}/ai-credential-encryption-key`,
+      cfg.externalSecretArns?.aiCredentialEncryptionKey,
+    );
     const openaiApiKeySecret = importExternalSecret(
       this,
       'ImportedOpenAiApiKey',
@@ -345,6 +354,7 @@ export class ComputeStack extends cdk.Stack {
       OAUTH_TOKEN_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(oauthTokenEncryptionKeySecret),
       OAUTH_STATE_SECRET: ecs.Secret.fromSecretsManager(oauthStateSecret),
       NOTES_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(notesEncryptionKeySecret),
+      AI_CREDENTIAL_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(aiCredentialEncryptionKeySecret),
       OPENAI_API_KEY: ecs.Secret.fromSecretsManager(openaiApiKeySecret),
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(anthropicApiKeySecret),
       GOVINFO_API_KEY: ecs.Secret.fromSecretsManager(govInfoApiKeyImported),

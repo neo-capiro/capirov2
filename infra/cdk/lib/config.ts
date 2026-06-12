@@ -46,6 +46,7 @@ export interface EnvConfig {
     anthropicApiKey: string;
     notesEncryptionKey: string;
     samGovApiKey?: string;
+    aiCredentialEncryptionKey?: string;
   };
 }
 
@@ -174,6 +175,7 @@ export function loadConfig(app: cdk.App): EnvConfig {
               anthropicApiKey:         'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/anthropic-api-key-3nhKhF',
               notesEncryptionKey:      'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/notes-encryption-key-Vf2rhI',
               samGovApiKey:            'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/sam-gov-api-key-0gcMpp',
+              aiCredentialEncryptionKey: 'arn:aws:secretsmanager:us-east-1:967807252336:secret:capiro/dev/ai-credential-encryption-key-ohnjaH',
             },
           };
 
