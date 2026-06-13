@@ -7,6 +7,7 @@
 // for that one item.
 
 import type { OutreachRecipient } from '../../OutreachView.js';
+import type { OutreachTarget } from './targets.js';
 
 export type WizardDirection = 'on-behalf' | 'to-clients';
 
@@ -36,12 +37,36 @@ export interface WizardV2State {
   direction: WizardDirection | null;
   clientId: string | null;
   campaignName: string;
+  /**
+   * Outreach 2.0 recipient model: mixed Individual/List/Group targets with
+   * per-type cc/bcc (see targets.ts). Source of truth for who gets emailed.
+   */
+  targets: OutreachTarget[];
+  /** Campaign-global copies, applied to every email on top of target copies. */
+  globalCc: string[];
+  globalBcc: string[];
+  /**
+   * Legacy flat projection of `targets` (flattenTargets) consumed by the
+   * not-yet-rebuilt downstream steps (context/generate/send). Derived —
+   * never edit directly once targets exist.
+   */
   recipients: OutreachRecipient[];
   contextItems: SelectedContextItem[];
   templateId: string | null;
   tone: 'Professional' | 'Friendly' | 'Formal' | 'Concise';
-  generatedEmails: Record<string, { subject: string; body: string; status: 'pending' | 'ready' | 'edited' | 'error' }>;
-  selectedRecipientIdx: number;
+  /**
+   * Per-target generated drafts, keyed by GenerationTargetKey (see
+   * generation.ts): `individual:<rk>` | `list:<aid>:<rk>` | `group:<aid>`.
+   * Individuals + list members get one draft each; a group gets one shared
+   * draft. (`appliesTo` is derived from the key prefix, so the value shape is
+   * unchanged.)
+   */
+  generatedEmails: Record<
+    string,
+    { subject: string; body: string; status: 'pending' | 'ready' | 'edited' | 'error' }
+  >;
+  /** Generate & Review: the GenerationTargetKey of the draft being edited. */
+  selectedGenerationKey: string | null;
   /** EngagementAttachment ids to attach to the generated emails on send. */
   attachmentIds: string[];
 }
@@ -50,12 +75,15 @@ export const INITIAL_V2_STATE: WizardV2State = {
   direction: null,
   clientId: null,
   campaignName: '',
+  targets: [],
+  globalCc: [],
+  globalBcc: [],
   recipients: [],
   contextItems: [],
   templateId: null,
   tone: 'Professional',
   generatedEmails: {},
-  selectedRecipientIdx: 0,
+  selectedGenerationKey: null,
   attachmentIds: [],
 };
 

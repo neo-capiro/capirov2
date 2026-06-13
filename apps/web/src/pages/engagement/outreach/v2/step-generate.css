@@ -1,0 +1,363 @@
+/* ============================================================
+ * Outreach v2 — Generate & Review step (board step 10).
+ *
+ * Scoped under `ov2-gen-` / `ov2-rte-`. Identity colors per the
+ * board's cross-cutting rule 10.4: blue = individual, green = list,
+ * amber = group. Reuses the ov2 tokens from outreach.css.
+ * ============================================================ */
+
+.ov2-gen-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 14px;
+  align-items: start;
+}
+
+/* ---------- Left rail ---------- */
+.ov2-gen-rail {
+  background: var(--ov2-bg-surface);
+  border: 1px solid var(--ov2-border-1);
+  border-radius: var(--ov2-r-lg);
+  overflow: hidden;
+}
+.ov2-gen-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--ov2-ink-1);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+.ov2-gen-rail-scroll {
+  max-height: 560px;
+  overflow-y: auto;
+}
+
+.ov2-gen-card {
+  border-bottom: 1px solid var(--ov2-border-1);
+  border-left: 3px solid transparent;
+}
+.ov2-gen-card:last-child {
+  border-bottom: none;
+}
+.ov2-gen-card.individual {
+  border-left-color: var(--ov2-accent);
+}
+.ov2-gen-card.list {
+  border-left-color: var(--ov2-success);
+}
+.ov2-gen-card.group {
+  border-left-color: var(--ov2-notable);
+}
+
+.ov2-gen-listhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+.ov2-gen-listhead:hover {
+  background: var(--ov2-bg-surface-2);
+}
+.ov2-gen-listhead .caret {
+  color: var(--ov2-ink-3);
+  display: grid;
+  place-items: center;
+  width: 14px;
+}
+.ov2-gen-listhead .name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ov2-ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov2-gen-listhead .count {
+  font-size: 11px;
+  color: var(--ov2-ink-3);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.ov2-gen-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  border-top: 1px solid var(--ov2-border-1);
+}
+.ov2-gen-card.individual > .ov2-gen-row:first-child,
+.ov2-gen-card.group > .ov2-gen-row:first-child {
+  border-top: none;
+}
+.ov2-gen-row:hover {
+  background: var(--ov2-bg-surface-2);
+}
+.ov2-gen-row.active {
+  background: var(--ov2-accent-soft);
+}
+.ov2-gen-row.indented {
+  padding-left: 30px;
+}
+
+.ov2-gen-check {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--ov2-bg-sunken);
+  color: var(--ov2-ink-3);
+  font-size: 9px;
+  flex: none;
+}
+.ov2-gen-check.ready {
+  background: var(--ov2-success);
+  color: #fff;
+}
+.ov2-gen-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.ov2-gen-row-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ov2-ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ov2-gen-row-sub {
+  font-size: 11px;
+  color: var(--ov2-ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov2-gen-tag {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-radius: 3px;
+  padding: 1px 5px;
+  flex: none;
+}
+.ov2-gen-tag.individual {
+  color: var(--ov2-accent-ink);
+  background: var(--ov2-accent-soft);
+}
+.ov2-gen-tag.group {
+  color: var(--ov2-notable);
+  background: var(--ov2-notable-soft);
+}
+
+/* ---------- Editor pane ---------- */
+.ov2-gen-editor {
+  background: var(--ov2-bg-surface);
+  border: 1px solid var(--ov2-border-1);
+  border-radius: var(--ov2-r-lg);
+}
+.ov2-gen-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--ov2-border-1);
+}
+.ov2-gen-editor-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.ov2-gen-editor-title .name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ov2-ink-1);
+  white-space: nowrap;
+}
+.ov2-gen-editor-title .ctx {
+  font-size: 12px;
+  color: var(--ov2-ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ov2-gen-tone {
+  width: 140px;
+}
+
+.ov2-gen-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid;
+  white-space: nowrap;
+  flex: none;
+  background: var(--ov2-bg-surface);
+}
+.ov2-gen-badge.individual {
+  color: var(--ov2-accent-ink);
+  border-color: var(--ov2-accent);
+}
+.ov2-gen-badge.list {
+  color: var(--ov2-success);
+  border-color: var(--ov2-success);
+}
+.ov2-gen-badge.group {
+  color: var(--ov2-notable);
+  border-color: var(--ov2-notable);
+}
+
+/* ---------- Edit-propagation banner (board 7.3, green) ---------- */
+.ov2-gen-propagate {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 14px 18px 0;
+  padding: 10px 14px;
+  background: var(--ov2-success-soft);
+  border: 1px solid var(--ov2-success);
+  border-radius: var(--ov2-r-md);
+}
+.ov2-gen-propagate .msg {
+  font-size: 12.5px;
+  color: var(--ov2-ink-1);
+}
+.ov2-gen-propagate .spacer {
+  flex: 1;
+}
+.ov2-gen-apply-all.ant-btn-primary {
+  background: var(--ov2-success);
+  border-color: var(--ov2-success);
+}
+.ov2-gen-apply-all.ant-btn-primary:not(:disabled):hover {
+  background: #166632;
+  border-color: #166632;
+}
+
+.ov2-gen-editor-body {
+  padding: 18px 22px;
+}
+.ov2-gen-field-label {
+  font-size: 10.5px;
+  color: var(--ov2-ink-3);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+.ov2-gen-autosave {
+  font-size: 11.5px;
+  display: block;
+  margin-top: 8px;
+}
+
+/* ---------- Attachments (campaign-level) ---------- */
+.ov2-gen-attachments {
+  margin-top: 16px;
+  border: 1px solid var(--ov2-border-1);
+  border-radius: var(--ov2-r-lg);
+  background: var(--ov2-bg-surface);
+  padding: 12px 16px;
+}
+
+/* ---------- RichTextEditor (WYSIWYG) ---------- */
+.ov2-rte {
+  border: 1px solid var(--ov2-border-2);
+  border-radius: var(--ov2-r-md);
+  overflow: hidden;
+  background: var(--ov2-bg-surface);
+}
+.ov2-rte-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--ov2-border-1);
+  background: var(--ov2-bg-surface-2);
+}
+.ov2-rte-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 3px 5px;
+  background: var(--ov2-border-1);
+}
+.ov2-rte-btn {
+  display: grid;
+  place-items: center;
+  min-width: 28px;
+  height: 26px;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--ov2-ink-2);
+  font-size: 13px;
+}
+.ov2-rte-btn:hover {
+  background: var(--ov2-accent-soft);
+  color: var(--ov2-accent-ink);
+}
+.ov2-rte-area {
+  min-height: 280px;
+  max-height: 520px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ov2-ink-1);
+  outline: none;
+}
+.ov2-rte-area:empty::before {
+  content: attr(data-placeholder);
+  color: var(--ov2-ink-3);
+}
+.ov2-rte-area:focus {
+  box-shadow: inset 0 0 0 2px var(--ov2-accent-soft);
+}
+.ov2-rte-area h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin: 10px 0 6px;
+}
+.ov2-rte-area h3 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 8px 0 4px;
+}
+.ov2-rte-area p {
+  margin: 0 0 8px;
+}
+.ov2-rte-area ul,
+.ov2-rte-area ol {
+  margin: 0 0 8px;
+  padding-left: 22px;
+}
+.ov2-rte-area a {
+  color: var(--ov2-accent-ink);
+  text-decoration: underline;
+}

@@ -25,6 +25,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import mammoth from 'mammoth';
+import sanitizeHtml from 'sanitize-html';
 import { createHash, randomUUID } from 'node:crypto';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
@@ -1102,17 +1103,20 @@ export class EngagementService {
     );
     const promptTemplate =
       input.promptTemplate ?? readMetadataString(record.metadata, 'promptTemplate') ?? null;
-    const generated = await this.ai.generateOutreachDraft({
-      workflow: record.type as OutreachType,
-      client: record.client ? pruneForAi(record.client) : null,
-      meeting: record.meeting ? pruneForAi(record.meeting) : null,
-      objective: input.objective ?? readMetadataString(record.metadata, 'objective'),
-      recipients: recipients.map(pruneForAi),
-      context,
-      promptTemplate,
-      existingSubject: record.subject,
-      existingBody: outboundTemplateBody(record, requestMetadata) ?? record.body,
-    }, ctx);
+    const generated = await this.ai.generateOutreachDraft(
+      {
+        workflow: record.type as OutreachType,
+        client: record.client ? pruneForAi(record.client) : null,
+        meeting: record.meeting ? pruneForAi(record.meeting) : null,
+        objective: input.objective ?? readMetadataString(record.metadata, 'objective'),
+        recipients: recipients.map(pruneForAi),
+        context,
+        promptTemplate,
+        existingSubject: record.subject,
+        existingBody: outboundTemplateBody(record, requestMetadata) ?? record.body,
+      },
+      ctx,
+    );
     await this.recordAiUsage(ctx, 'outreach_draft', generated);
 
     const nextMetadata = mergeJsonObjects(
@@ -1482,6 +1486,76 @@ export class EngagementService {
     );
   }
 
+  // ---- Outreach 2.0 saved audiences (reusable lists/groups) ----
+  // User-owned per the design doc: each user's saved lists/groups live in
+  // their own contact library (createdByUserId), tenant-scoped via RLS.
+
+  listOutreachAudiences(ctx: TenantContext, kind?: 'list' | 'group') {
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.outreachAudience.findMany({
+        where: {
+          tenantId: ctx.tenantId,
+          createdByUserId: ctx.userId,
+          status: { not: 'archived' },
+          ...(kind ? { kind } : {}),
+        },
+        orderBy: { name: 'asc' },
+        // Members of one batch-create share an identical created_at, so the
+        // id tie-break keeps the order deterministic across reads.
+        include: { members: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] } },
+      }),
+    );
+  }
+
+  createOutreachAudience(
+    ctx: TenantContext,
+    input: {
+      kind: 'list' | 'group';
+      name: string;
+      description?: string;
+      members: Array<{
+        source: 'congress' | 'client_contact' | 'manual';
+        sourceRefId?: string;
+        name?: string;
+        email: string;
+        title?: string;
+        office?: string;
+      }>;
+    },
+  ) {
+    const name = input.name.trim();
+    if (!name) throw new BadRequestException('name is required');
+    if (!input.members.length) {
+      throw new BadRequestException('an audience needs at least one member');
+    }
+    return this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.outreachAudience.create({
+        data: {
+          tenantId: ctx.tenantId,
+          createdByUserId: ctx.userId,
+          kind: input.kind,
+          name,
+          description: input.description?.trim() || null,
+          // Saved from the wizard = immediately usable; 'draft' is reserved
+          // for future in-progress library edits.
+          status: 'active',
+          members: {
+            create: input.members.map((member) => ({
+              tenantId: ctx.tenantId,
+              source: member.source,
+              sourceRefId: member.sourceRefId?.trim() || null,
+              name: member.name?.trim() || null,
+              email: member.email.trim().toLowerCase(),
+              title: member.title?.trim() || null,
+              office: member.office?.trim() || null,
+            })),
+          },
+        },
+        include: { members: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] } },
+      }),
+    );
+  }
+
   async listAiTemplates(ctx: TenantContext): Promise<AiTemplateItem[]> {
     const userTemplates = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.outreachAiTemplate.findMany({
@@ -1596,14 +1670,17 @@ export class EngagementService {
       committee: 'House Science, Space, and Technology Committee',
     };
 
-    const generated = await this.ai.generateOutreachDraft({
-      workflow: 'campaign',
-      client: { name: 'Sample Client Organization', industry: 'Technology' },
-      recipients: [mockRecipient],
-      context: { preview: true, templateName },
-      promptTemplate: 'custom',
-      objective: templatePrompt,
-    }, ctx);
+    const generated = await this.ai.generateOutreachDraft(
+      {
+        workflow: 'campaign',
+        client: { name: 'Sample Client Organization', industry: 'Technology' },
+        recipients: [mockRecipient],
+        context: { preview: true, templateName },
+        promptTemplate: 'custom',
+        objective: templatePrompt,
+      },
+      ctx,
+    );
     await this.recordAiUsage(ctx, 'template_preview', generated);
 
     return { subject: generated.subject, body: generated.body, templateName };
@@ -1852,6 +1929,7 @@ export class EngagementService {
           (recipient as Record<string, unknown>).id?.toString() ||
           (recipient as Record<string, unknown>).directoryContactId?.toString() ||
           (recipient as Record<string, unknown>).email?.toString() ||
+          (recipient as Record<string, unknown>).name?.toString() ||
           String(index);
 
         // Per-recipient scoped context, drawn from contextItems[].scope == this
@@ -1886,14 +1964,17 @@ export class EngagementService {
             ...(clientContextForCampaign ? { clientContext: clientContextForCampaign } : {}),
           };
 
-          const generated = await this.ai.generateOutreachDraft({
-            workflow: 'campaign',
-            client,
-            recipients: [recipient as unknown as Record<string, unknown>],
-            context,
-            promptTemplate: 'custom',
-            objective: templatePrompt,
-          }, ctx);
+          const generated = await this.ai.generateOutreachDraft(
+            {
+              workflow: 'campaign',
+              client,
+              recipients: [recipient as unknown as Record<string, unknown>],
+              context,
+              promptTemplate: 'custom',
+              objective: templatePrompt,
+            },
+            ctx,
+          );
           // One usage event per recipient draft; rides inside the concurrent
           // worker so metering overlaps generation instead of serializing it.
           await this.recordAiUsage(ctx, 'outreach_campaign', generated);
@@ -1923,6 +2004,45 @@ export class EngagementService {
     if (!drafts.length) {
       throw new BadRequestException('No drafts to send. Generate emails first.');
     }
+    // v2 Generate & Review drafts are HTML; older/plain drafts are Text. For
+    // HTML, SANITIZE server-side (defense-in-depth — never trust the client
+    // body, even though the client also sanitizes) and send as Graph 'HTML';
+    // plain drafts pass through as 'Text' (the plaintext fallback).
+    const renderBody = (
+      raw: string | undefined,
+    ): { content: string; contentType: 'Text' | 'HTML' } => {
+      const body = raw ?? '';
+      if (!/<[a-z][\s\S]*>/i.test(body)) return { content: body, contentType: 'Text' };
+      return {
+        content: sanitizeHtml(body, {
+          allowedTags: [
+            'b',
+            'strong',
+            'i',
+            'em',
+            'u',
+            's',
+            'p',
+            'br',
+            'h2',
+            'h3',
+            'ul',
+            'ol',
+            'li',
+            'a',
+            'blockquote',
+            'div',
+            'span',
+          ],
+          allowedAttributes: { a: ['href', 'target', 'rel'] },
+          allowedSchemes: ['http', 'https', 'mailto'],
+          transformTags: {
+            a: sanitizeHtml.simpleTransform('a', { target: '_blank', rel: 'noopener noreferrer' }),
+          },
+        }),
+        contentType: 'HTML',
+      };
+    };
 
     const connection = await this.findCampaignSendConnection(ctx);
 
@@ -1970,9 +2090,11 @@ export class EngagementService {
       );
       if (!user?.email) throw new BadRequestException('Your user has no email on file');
       const sample = drafts.find((d) => d.subject?.trim() || d.body?.trim()) ?? drafts[0]!;
+      const rendered = renderBody(sample.body || '(empty draft)');
       await this.microsoftGraph.sendMail(ctx, connection.id, {
         subject: `[TEST] ${sample.subject || 'Outreach preview'}`,
-        body: sample.body || '(empty draft)',
+        body: rendered.content,
+        bodyContentType: rendered.contentType,
         toRecipients: [{ email: user.email, name: user.firstName ?? null }],
         attachments: attachmentsForSend,
       });
@@ -2013,9 +2135,11 @@ export class EngagementService {
         continue;
       }
       try {
+        const rendered = renderBody(draft.body);
         await this.microsoftGraph.sendMail(ctx, connection.id, {
           subject: draft.subject,
-          body: draft.body,
+          body: rendered.content,
+          bodyContentType: rendered.contentType,
           toRecipients: [{ email: recipient.email, name: recipient.name ?? null }],
           ccRecipients: (recipient.cc ?? [])
             .filter((e) => e?.trim())
@@ -2819,18 +2943,21 @@ export class EngagementService {
       this.directoryProfilesForMeeting(context.meeting).catch(() => []),
     ]);
 
-    const generated = await this.ai.generateMeetingDebrief({
-      meeting: pruneForAi(context.meeting),
-      client: context.client ? pruneForAi(context.client) : null,
-      attendees: context.meeting.attendees.map(pruneForAi),
-      prep: context.meeting.preps[0] ? pruneForAi(context.meeting.preps[0]) : null,
-      source: { method: input.method, text: sourceText },
-      visibleNotes: visibleNotes.map(pruneForAi),
-      clientContext: clientContext ? pruneForAi(clientContext) : null,
-      congressionalDirectoryMatches: directoryProfiles.map(pruneForAi),
-      recentMeetings: context.recentMeetings.map(pruneForAi),
-      recentThreads: context.recentThreads.map(prepareThreadForAi),
-    }, ctx);
+    const generated = await this.ai.generateMeetingDebrief(
+      {
+        meeting: pruneForAi(context.meeting),
+        client: context.client ? pruneForAi(context.client) : null,
+        attendees: context.meeting.attendees.map(pruneForAi),
+        prep: context.meeting.preps[0] ? pruneForAi(context.meeting.preps[0]) : null,
+        source: { method: input.method, text: sourceText },
+        visibleNotes: visibleNotes.map(pruneForAi),
+        clientContext: clientContext ? pruneForAi(clientContext) : null,
+        congressionalDirectoryMatches: directoryProfiles.map(pruneForAi),
+        recentMeetings: context.recentMeetings.map(pruneForAi),
+        recentThreads: context.recentThreads.map(prepareThreadForAi),
+      },
+      ctx,
+    );
     await this.recordAiUsage(ctx, 'meeting_debrief', generated);
     return generated;
   }
@@ -4332,21 +4459,24 @@ export class EngagementService {
     const clientId = campaign.clientId;
     const client = clientId ? await this.clientContext(ctx, clientId).catch(() => null) : null;
 
-    const result = await this.ai.generateCampaignEmail({
-      campaign: pruneForAi(campaign),
-      client: client ? pruneForAi(client) : null,
-      meeting: meeting ? pruneForAi(meeting) : null,
-      debrief: debrief ? pruneForAi(debrief) : null,
-      prep: prep ? pruneForAi(prep) : null,
-      recipients: campaign.recipients.map((r) => ({
-        name: r.name,
-        email: r.email,
-        title: r.title,
-        office: r.office,
-      })),
-      campaignType: campaign.type,
-      customContext,
-    }, ctx);
+    const result = await this.ai.generateCampaignEmail(
+      {
+        campaign: pruneForAi(campaign),
+        client: client ? pruneForAi(client) : null,
+        meeting: meeting ? pruneForAi(meeting) : null,
+        debrief: debrief ? pruneForAi(debrief) : null,
+        prep: prep ? pruneForAi(prep) : null,
+        recipients: campaign.recipients.map((r) => ({
+          name: r.name,
+          email: r.email,
+          title: r.title,
+          office: r.office,
+        })),
+        campaignType: campaign.type,
+        customContext,
+      },
+      ctx,
+    );
     await this.recordAiUsage(ctx, 'campaign_email', result);
 
     return this.prisma.withTenant(ctx.tenantId, (tx) =>

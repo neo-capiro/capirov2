@@ -11,37 +11,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
-import {
-  App,
-  Button,
-  Checkbox,
-  Form,
-  Input,
-  Modal,
-  Select,
-  Skeleton,
-  Space,
-  Tag,
-  Typography,
-  Upload,
-} from 'antd';
+import { App, Button, Form, Input, Modal, Select, Skeleton, Space, Tag, Typography } from 'antd';
 import {
   ArrowRightOutlined,
   CheckCircleFilled,
   CheckOutlined,
   EyeOutlined,
-  PaperClipOutlined,
   PlusOutlined,
   SaveOutlined,
   SendOutlined,
-  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useApi } from '../../../../lib/use-api.js';
 import type { Client } from '../../../clients/clientTypes.js';
 import type { OutreachRecipient, OutreachRecord } from '../../OutreachView.js';
-import { StepDirection } from './StepDirection.js';
+import { StepCampaignSetup } from './StepCampaignSetup.js';
+import { StepDirectionLanding } from './StepDirectionLanding.js';
 import { StepContext } from './StepContext.js';
-import { StepRecipients } from './StepRecipients.js';
+import { StepRecipientsSelect } from './StepRecipientsSelect.js';
+import { StepGenerate } from './StepGenerate.js';
+import { flattenTargets, individualTarget, sanitizeTargets } from './targets.js';
+import { buildGenerationModel, projectDraftsForSend, type GenSlot } from './generation.js';
+import { htmlToPlainText, markdownishToHtml, sanitizeHtml } from './richtext.js';
 import {
   INITIAL_V2_STATE,
   WIZARD_STEPS,
@@ -199,6 +189,15 @@ export function NewOutreachWizard({
   const step = WIZARD_STEPS[stepIdx] ?? WIZARD_STEPS[0]!;
   const next = () => setStepIdx((i) => Math.min(i + 1, WIZARD_STEPS.length - 1));
   const back = () => setStepIdx((i) => Math.max(i - 1, 0));
+  // Leaving the Direction landing. Outreach 2.0 has exactly ONE campaign
+  // type — the on-behalf/to-clients fork is gone as a product concept. The
+  // legacy `direction` value survives only as a compat shim because the
+  // not-yet-rebuilt steps (Setup/Recipients) and the generate payload still
+  // branch on it; it gets deleted as each of those steps is rebuilt.
+  const startOutreach = () => {
+    setState((p) => (p.direction ? p : { ...p, direction: 'on-behalf' }));
+    next();
+  };
 
   // ---- Resume a saved draft ----
   // When OutreachView reopens a draft it passes the already-fetched record in.
@@ -223,25 +222,41 @@ export function NewOutreachWizard({
           body?: unknown;
         }>)
       : [];
-    const generatedEmails: WizardV2State['generatedEmails'] = {};
-    for (const d of perRecipient) {
-      if (typeof d.recipientId !== 'string') continue;
-      generatedEmails[d.recipientId] = {
-        subject: typeof d.subject === 'string' ? d.subject : '',
-        body: typeof d.body === 'string' ? d.body : '',
-        status: 'ready',
-      };
-    }
-    // Fallback: if no per-recipient map was saved (older save), seed the first
-    // recipient from the top-level subject/body so the draft isn't blank.
-    if (Object.keys(generatedEmails).length === 0 && (record.subject || record.body)) {
-      const firstRecipient = Array.isArray(record.recipients) ? record.recipients[0] : undefined;
-      if (firstRecipient) {
-        generatedEmails[recipientKey(firstRecipient)] = {
-          subject: record.subject ?? '',
-          body: record.body ?? '',
+    // Prefer the lossless per-target map (keyed by GenerationTargetKey) saved
+    // by the v2 Generate step; fall back to the flat per-recipient projection
+    // (older drafts, keyed by recipientId) otherwise.
+    const rawByKey =
+      metadata.generatedByKey && typeof metadata.generatedByKey === 'object'
+        ? (metadata.generatedByKey as WizardV2State['generatedEmails'])
+        : null;
+    // Only trust the map if its keys are GenerationTargetKeys (v2 saves). A
+    // legacy/recipientId-keyed map would miss every lookup and blank the UI, so
+    // fall through to the flat per-recipient projection in that case.
+    const byKey =
+      rawByKey && Object.keys(rawByKey).some((k) => /^(individual:|list:|group:)/.test(k))
+        ? rawByKey
+        : null;
+    const generatedEmails: WizardV2State['generatedEmails'] = byKey ? { ...byKey } : {};
+    if (!byKey) {
+      for (const d of perRecipient) {
+        if (typeof d.recipientId !== 'string') continue;
+        generatedEmails[d.recipientId] = {
+          subject: typeof d.subject === 'string' ? d.subject : '',
+          body: typeof d.body === 'string' ? d.body : '',
           status: 'ready',
         };
+      }
+      // Fallback: if no per-recipient map was saved (older save), seed the first
+      // recipient from the top-level subject/body so the draft isn't blank.
+      if (Object.keys(generatedEmails).length === 0 && (record.subject || record.body)) {
+        const firstRecipient = Array.isArray(record.recipients) ? record.recipients[0] : undefined;
+        if (firstRecipient) {
+          generatedEmails[recipientKey(firstRecipient)] = {
+            subject: record.subject ?? '',
+            body: record.body ?? '',
+            status: 'ready',
+          };
+        }
       }
     }
 
@@ -270,12 +285,37 @@ export function NewOutreachWizard({
       ? (metadata.attachmentIds as unknown[]).filter((a): a is string => typeof a === 'string')
       : [];
 
+    // Outreach 2.0 targets round-trip via metadata (saved alongside the flat
+    // recipients projection), normalized defensively so a malformed or
+    // cross-version entry degrades instead of crashing the resume. Drafts
+    // saved before the target model (or whose targets don't survive
+    // sanitizing) wrap their flat recipients as individual targets.
+    const targetsFromMetadata = sanitizeTargets(metadata.targets);
+    const savedTargets = targetsFromMetadata.length
+      ? targetsFromMetadata
+      : Array.isArray(record.recipients)
+        ? record.recipients.map((r) => individualTarget(r))
+        : [];
+    const globalCc = Array.isArray(metadata.globalCc)
+      ? (metadata.globalCc as unknown[]).filter((v): v is string => typeof v === 'string')
+      : [];
+    const globalBcc = Array.isArray(metadata.globalBcc)
+      ? (metadata.globalBcc as unknown[]).filter((v): v is string => typeof v === 'string')
+      : [];
+
     setState((prev) => ({
       ...prev,
       direction,
       clientId: record.clientId ?? prev.clientId,
       campaignName: record.title ?? prev.campaignName,
-      recipients: Array.isArray(record.recipients) ? record.recipients : prev.recipients,
+      targets: savedTargets,
+      globalCc,
+      globalBcc,
+      recipients: savedTargets.length
+        ? flattenTargets(savedTargets, globalCc, globalBcc)
+        : Array.isArray(record.recipients)
+          ? record.recipients
+          : prev.recipients,
       contextItems,
       templateId: typeof metadata.templateId === 'string' ? metadata.templateId : prev.templateId,
       tone,
@@ -440,7 +480,8 @@ export function NewOutreachWizard({
     // stored on intakeData.profileNotes).
     const activeClient = clients.find((c) => c.id === state.clientId);
     const profileNotes =
-      typeof (activeClient?.intakeData as { profileNotes?: unknown } | null)?.profileNotes === 'string'
+      typeof (activeClient?.intakeData as { profileNotes?: unknown } | null)?.profileNotes ===
+      'string'
         ? ((activeClient!.intakeData as { profileNotes?: string }).profileNotes as string).trim()
         : '';
     if (profileNotes) {
@@ -538,7 +579,9 @@ export function NewOutreachWizard({
         kind: 'intel',
         title: `Federal contracts: ${spending.name}`,
         body:
-          spending.total != null ? `~$${(spending.total / 1_000_000).toFixed(1)}M awarded` : undefined,
+          spending.total != null
+            ? `~$${(spending.total / 1_000_000).toFixed(1)}M awarded`
+            : undefined,
         tag: 'Spending',
       });
     }
@@ -625,9 +668,11 @@ export function NewOutreachWizard({
   const canAdvance = (): boolean => {
     switch (step.id) {
       case 'direction':
-        return !!state.direction;
+        // Informational landing page; nothing to validate.
+        return true;
       case 'setup':
-        return state.direction === 'to-clients' || !!state.clientId;
+        // One campaign type: setup is just the (required) campaign name.
+        return state.campaignName.trim().length > 0;
       case 'recipients':
         return state.recipients.length > 0;
       case 'context':
@@ -639,18 +684,23 @@ export function NewOutreachWizard({
     }
   };
 
-  // ---- Generate & Send (delegated to existing API endpoints) ----
-  // Pass `recipients` to generate (or regenerate) a single recipient's draft;
-  // omit it to (re)generate the whole batch.
+  // ---- Generate & Review (board step 10) ----
+  // The entity model (individual / list-per-member / group-shared) over the
+  // current targets. Drafts in state.generatedEmails are keyed by each slot's
+  // GenerationTargetKey (see generation.ts).
+  const genModel = useMemo(() => buildGenerationModel(state.targets), [state.targets]);
+
+  // Generate (or regenerate) a set of draft slots. Non-group slots go in ONE
+  // generate-batch call (one flat recipient each, mapped back by recipientId);
+  // each group sends its single representative in its own call so it can carry
+  // the group's member listing as additionalContext. The endpoint + response
+  // shape are unchanged — we just key results by GenerationTargetKey.
   const generateMutation = useMutation({
-    mutationFn: async (vars?: { recipients?: OutreachRecipient[] }) => {
-      const targetRecipients = vars?.recipients ?? state.recipients;
-      // The API's GenerateBatchEmailDto whitelists only id/kind/title/body/
-      // scope/note on context items. With forbidNonWhitelisted enabled (see
-      // apps/api/src/main.ts), sending the pool-only fields tag/sub/matches
-      // makes Nest reject the request with a 400, which is what was
-      // causing the "endpoint not wired yet" placeholder fallback to fire.
-      // Strip those fields here so the payload matches the DTO exactly.
+    mutationFn: async (vars: { slots: GenSlot[] }) => {
+      if (!vars.slots.length) return [];
+      // GenerateBatchEmailDto whitelists only id/kind/title/body/scope/note on
+      // context items; with forbidNonWhitelisted on, pool-only fields (tag/sub/
+      // matches) 400 the batch. Strip to the DTO shape.
       const contextItems = state.contextItems.map((item) => ({
         id: item.id,
         kind: item.kind,
@@ -659,61 +709,95 @@ export function NewOutreachWizard({
         scope: item.scope,
         note: item.note,
       }));
-      const payload = {
+      const base = {
         clientId: state.clientId ?? undefined,
-        recipients: targetRecipients,
         templateId: state.templateId,
         tone: state.tone,
         direction: state.direction,
         contextItems,
       };
-      // The backend endpoint returns { results: [...] }, NOT { drafts: [...] }.
-      // The wizard previously read data.drafts and silently no-op'd because
-      // that key didn't exist on the response, the request actually
-      // succeeded but no drafts ever landed in state.
-      //
-      // Batch generation runs one AI call per recipient sequentially on the
-      // server, so wall-clock scales with recipient count. The global axios
-      // instance times out at 20s (api-client.ts), which silently aborted
-      // mass-email batches partway through ("not all emails generate"). Give
-      // this call generous headroom just under the 180s ALB idle timeout so
-      // the whole batch can complete. (Anything beyond ~180s of total
-      // generation still hits the ALB ceiling — see the throughput note.)
-      const res = await api.post<{
-        results: Array<{ recipientId: string; subject: string; body: string }>;
-      }>('/api/engagement/outreach/generate-batch', payload, { timeout: 175_000 });
-      return res.data;
+      const post = (recipients: OutreachRecipient[], additionalContext?: string) =>
+        // 175s headroom under the ~180s ALB idle timeout; the server fans out
+        // one AI call per recipient.
+        api
+          .post<{
+            results: Array<{ recipientId: string; subject: string; body: string }>;
+          }>(
+            '/api/engagement/outreach/generate-batch',
+            { ...base, recipients, ...(additionalContext ? { additionalContext } : {}) },
+            { timeout: 175_000 },
+          )
+          .then((r) => r.data.results);
+
+      const tasks: Array<Promise<Array<{ genKey: string; subject: string; body: string }>>> = [];
+
+      // Non-group slots: one batch call. The same person can back two slots
+      // (e.g. a member of two lists shares a resultId), so POST each unique
+      // recipient ONCE and fan the single result to every slot that shares it.
+      const flatSlots = vars.slots.filter((s) => s.appliesTo !== 'group');
+      if (flatSlots.length) {
+        const uniqueRecipients = new Map<string, OutreachRecipient>();
+        for (const s of flatSlots) {
+          const r = s.genRecipients[0];
+          if (r && !uniqueRecipients.has(s.resultId)) uniqueRecipients.set(s.resultId, r);
+        }
+        tasks.push(
+          post([...uniqueRecipients.values()]).then((results) => {
+            const byId = new Map(results.map((r) => [r.recipientId, r]));
+            return flatSlots.map((s) => {
+              const r = byId.get(s.resultId);
+              return { genKey: s.genKey, subject: r?.subject ?? '', body: r?.body ?? '' };
+            });
+          }),
+        );
+      }
+      // Group slots: one call each, carrying the member listing.
+      for (const slot of vars.slots.filter((s) => s.appliesTo === 'group')) {
+        tasks.push(
+          post(slot.genRecipients, slot.additionalContext).then((results) => {
+            const r = results[0];
+            return [{ genKey: slot.genKey, subject: r?.subject ?? '', body: r?.body ?? '' }];
+          }),
+        );
+      }
+
+      return (await Promise.all(tasks)).flat();
     },
-    onSuccess: (data) => {
+    onSuccess: (results) => {
       setState((prev) => {
         const generatedEmails = { ...prev.generatedEmails };
-        for (const d of data.results) {
-          generatedEmails[d.recipientId] = {
-            subject: d.subject,
-            body: d.body,
+        for (const r of results) {
+          // The AI returns markdown; convert to HTML for the WYSIWYG + HTML
+          // send, then SANITIZE at this trust boundary — model output is
+          // attacker-influenceable (context items/recipient data) and must
+          // never reach the DOM or the send pipeline unsanitized.
+          generatedEmails[r.genKey] = {
+            subject: r.subject,
+            body: sanitizeHtml(markdownishToHtml(r.body)),
             status: 'ready',
           };
         }
         return { ...prev, generatedEmails };
       });
       setGeneratingKey(null);
+      if (results.length === 0) return;
       message.success(
-        data.results.length === 1
-          ? 'Regenerated this email'
-          : `Generated ${data.results.length} drafts`,
+        results.length === 1 ? 'Regenerated this email' : `Generated ${results.length} drafts`,
       );
     },
     onError: (_err, vars) => {
-      // Endpoint failure: fall back to a placeholder draft so the reviewer can
-      // still see the layout. Only touch the recipients we tried to generate.
-      const targets = vars?.recipients ?? state.recipients;
+      // Endpoint failure: editable placeholder per slot so the reviewer still
+      // sees the layout.
       setState((prev) => {
         const generatedEmails = { ...prev.generatedEmails };
-        for (const r of targets) {
-          const key = recipientKey(r);
-          generatedEmails[key] = {
-            subject: `[Placeholder] ${state.campaignName || 'Outreach'}, ${r.name ?? r.email ?? key}`,
-            body: `Hi ${r.name ?? 'there'},\n\nThis is a placeholder draft because email generation failed. Edit this text directly, or try Regenerate.\n\nBest regards,\n${senderName}`,
+        for (const s of vars.slots) {
+          generatedEmails[s.genKey] = {
+            subject: `[Placeholder] ${state.campaignName || 'Outreach'}`,
+            body: sanitizeHtml(
+              markdownishToHtml(
+                `Hi there,\n\nThis is a placeholder draft because email generation failed. Edit this text directly, or try Regenerate.\n\nBest regards,\n${senderName}`,
+              ),
+            ),
             status: 'ready',
           };
         }
@@ -724,10 +808,9 @@ export function NewOutreachWizard({
     },
   });
 
-  const buildDrafts = () =>
-    Object.entries(state.generatedEmails)
-      .filter(([, d]) => d.subject?.trim() || d.body?.trim())
-      .map(([recipientId, d]) => ({ recipientId, subject: d.subject, body: d.body }));
+  // Flat {recipientId,subject,body} per recipient for the unchanged send-batch
+  // contract — a group's shared draft fans to every member (see generation.ts).
+  const buildDrafts = () => projectDraftsForSend(state.targets, state.generatedEmails);
 
   const sendMutation = useMutation({
     mutationFn: async (vars?: { testMode?: boolean }) => {
@@ -796,7 +879,9 @@ export function NewOutreachWizard({
         direction: state.direction ?? undefined,
         title: state.campaignName?.trim() || 'Untitled outreach',
         subject: first?.subject?.trim() || undefined,
-        body: first?.body?.trim() || undefined,
+        // Drafts are HTML now; store a plaintext summary on the record (the
+        // lossless HTML map rides in metadata.generatedByKey for resume).
+        body: first ? htmlToPlainText(first.body).trim() || undefined : undefined,
         recipients: state.recipients,
         // Top-level lastStep so the API persists the resume step in its own
         // column (it clamps to 1 when absent — the original Bug B). 1-based.
@@ -812,14 +897,25 @@ export function NewOutreachWizard({
           tone: state.tone,
           templateId: state.templateId,
           perRecipientEmails: drafts,
+          // Lossless per-target draft map (keyed by GenerationTargetKey) so
+          // resume restores list/group drafts exactly; perRecipientEmails above
+          // stays as the flat projection for the record's other consumers.
+          generatedByKey: state.generatedEmails,
           // Lossless copy of the rich v2 context items for wizard restore (the
           // top-level contextPool projection drops kind/body/sub/tag detail).
           contextItems: state.contextItems,
           attachmentIds: state.attachmentIds,
+          // Outreach 2.0 recipient model: source of truth for the mixed
+          // Individual/List/Group targets + campaign-global copies. The flat
+          // `recipients` above is its legacy projection (flattenTargets).
+          targets: state.targets,
+          globalCc: state.globalCc,
+          globalBcc: state.globalBcc,
         },
       };
       if (draftId) {
-        return (await api.patch<{ id: string }>(`/api/engagement/outreach/${draftId}`, common)).data;
+        return (await api.patch<{ id: string }>(`/api/engagement/outreach/${draftId}`, common))
+          .data;
       }
       return (
         await api.post<{ id: string }>('/api/engagement/outreach', { type: 'campaign', ...common })
@@ -833,15 +929,14 @@ export function NewOutreachWizard({
     onError: () => message.error('Could not save draft'),
   });
 
-  // Auto-generate when we land on the Generate step the first time.
+  // Auto-generate any slots that don't yet have a draft when we land on the
+  // Generate step. Generating only the MISSING slots (not gating on the whole
+  // map being empty) also covers resuming a partially-generated draft and
+  // adding recipients then returning to this step.
   useEffect(() => {
-    if (
-      step.id === 'generate' &&
-      Object.keys(state.generatedEmails).length === 0 &&
-      !generateMutation.isPending
-    ) {
-      generateMutation.mutate(undefined);
-    }
+    if (step.id !== 'generate' || generateMutation.isPending) return;
+    const missing = genModel.slots.filter((s) => !state.generatedEmails[s.genKey]);
+    if (missing.length > 0) generateMutation.mutate({ slots: missing });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step.id]);
 
@@ -908,11 +1003,38 @@ export function NewOutreachWizard({
       };
     });
 
-  // Generate (or regenerate) a single recipient's email.
-  const generateOne = (r: OutreachRecipient) => {
-    setGeneratingKey(recipientKey(r));
-    generateMutation.mutate({ recipients: [r] });
+  // Regenerate one draft slot (by GenerationTargetKey).
+  const regenerateOne = (genKey: string) => {
+    const slot = genModel.slots.find((s) => s.genKey === genKey);
+    if (!slot) return;
+    setGeneratingKey(genKey);
+    generateMutation.mutate({ slots: [slot] });
   };
+  const regenerateAll = () => {
+    setGeneratingKey(null);
+    generateMutation.mutate({ slots: genModel.slots });
+  };
+
+  // Copy a list member's edited subject/body to every member of that list
+  // (board 7.3 "Apply to all in list").
+  const applyToList = (listAid: string, sourceKey: string) =>
+    setState((prev) => {
+      const src = prev.generatedEmails[sourceKey];
+      if (!src) return prev;
+      const generatedEmails = { ...prev.generatedEmails };
+      const prefix = `list:${listAid}:`;
+      for (const key of Object.keys(generatedEmails)) {
+        if (key.startsWith(prefix)) {
+          generatedEmails[key] = {
+            ...generatedEmails[key]!,
+            subject: src.subject,
+            body: src.body,
+            status: 'edited',
+          };
+        }
+      }
+      return { ...prev, generatedEmails };
+    });
 
   const canSaveDraft = Object.keys(state.generatedEmails).length > 0 || state.recipients.length > 0;
   // Distinguish the real send from a test send so only the clicked button spins.
@@ -927,9 +1049,7 @@ export function NewOutreachWizard({
           <div
             key={s.id}
             className={
-              'ov2-wiz-step' +
-              (i < stepIdx ? ' done' : '') +
-              (i === stepIdx ? ' active' : '')
+              'ov2-wiz-step' + (i < stepIdx ? ' done' : '') + (i === stepIdx ? ' active' : '')
             }
             onClick={() => i <= stepIdx && setStepIdx(i)}
           >
@@ -943,31 +1063,37 @@ export function NewOutreachWizard({
 
       <div className="ov2-wiz-body">
         <div className="ov2-wiz-pane">
-          {step.id === 'direction' && (
-            <StepDirection
-              direction={state.direction}
-              onChange={(d) => setState((p) => ({ ...p, direction: d }))}
-            />
-          )}
+          {step.id === 'direction' && <StepDirectionLanding onStart={startOutreach} />}
 
           {step.id === 'setup' && (
-            <StepSetup
-              clients={clients}
-              direction={state.direction!}
-              clientId={state.clientId}
+            <StepCampaignSetup
               campaignName={state.campaignName}
-              onClientId={(id) => setState((p) => ({ ...p, clientId: id }))}
               onName={(n) => setState((p) => ({ ...p, campaignName: n }))}
             />
           )}
 
           {step.id === 'recipients' && (
-            <StepRecipients
-              direction={state.direction!}
+            <StepRecipientsSelect
               clients={clients}
-              selectedClientId={state.clientId}
-              recipients={state.recipients}
-              onChange={(rs) => setState((p) => ({ ...p, recipients: rs }))}
+              targets={state.targets}
+              globalCc={state.globalCc}
+              globalBcc={state.globalBcc}
+              onChange={(patch) =>
+                setState((p) => {
+                  const targets = patch.targets ?? p.targets;
+                  const globalCc = patch.globalCc ?? p.globalCc;
+                  const globalBcc = patch.globalBcc ?? p.globalBcc;
+                  return {
+                    ...p,
+                    targets,
+                    globalCc,
+                    globalBcc,
+                    // Keep the legacy flat projection in sync for the
+                    // downstream steps (context/generate/send).
+                    recipients: flattenTargets(targets, globalCc, globalBcc),
+                  };
+                })
+              }
             />
           )}
 
@@ -990,57 +1116,25 @@ export function NewOutreachWizard({
 
           {step.id === 'generate' && (
             <StepGenerate
-              recipients={state.recipients}
+              entities={genModel.entities}
+              slots={genModel.slots}
+              generated={state.generatedEmails}
               tone={state.tone}
               onTone={(t) => setState((p) => ({ ...p, tone: t }))}
-              generated={state.generatedEmails}
-              selectedIdx={state.selectedRecipientIdx}
-              onSelectedIdx={(i) => setState((p) => ({ ...p, selectedRecipientIdx: i }))}
-              onRegenerate={() => generateMutation.mutate(undefined)}
-              onGenerateOne={generateOne}
+              selectedKey={state.selectedGenerationKey}
+              onSelectKey={(k) => setState((p) => ({ ...p, selectedGenerationKey: k }))}
+              onRegenerateAll={regenerateAll}
+              onRegenerateOne={regenerateOne}
               onEdit={updateDraft}
+              onApplyToList={applyToList}
               regenerating={generateMutation.isPending}
               generatingKey={generatingKey}
+              clientId={state.clientId}
+              docs={docsQuery.data?.items ?? []}
+              attachmentIds={state.attachmentIds}
+              onToggleAttachment={toggleAttachment}
+              onUploadAttachment={uploadAttachment}
             />
-          )}
-
-          {step.id === 'generate' && (
-            <div className="ov2-attachments" style={{ marginTop: 16 }}>
-              <Typography.Title level={5} style={{ marginBottom: 4 }}>
-                Attachments
-              </Typography.Title>
-              <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                Files added here are attached to every email on send (max 3MB each).
-              </Typography.Paragraph>
-              <Space direction="vertical" size={4} style={{ width: '100%' }}>
-                {(docsQuery.data?.items ?? []).map((d) => (
-                  <Checkbox
-                    key={d.id}
-                    checked={state.attachmentIds.includes(d.id)}
-                    onChange={() => toggleAttachment(d.id)}
-                  >
-                    {d.fileName}
-                  </Checkbox>
-                ))}
-                {(docsQuery.data?.items ?? []).length === 0 && (
-                  <Typography.Text type="secondary">
-                    No stored documents for this client yet.
-                  </Typography.Text>
-                )}
-                <Upload
-                  multiple
-                  showUploadList={false}
-                  beforeUpload={(file) => {
-                    void uploadAttachment(file as File);
-                    return false; // handle the upload ourselves; skip AntD's default
-                  }}
-                >
-                  <Button size="small" icon={<PaperClipOutlined />}>
-                    Upload a file
-                  </Button>
-                </Upload>
-              </Space>
-            </div>
           )}
 
           {step.id === 'send' && (
@@ -1101,7 +1195,7 @@ export function NewOutreachWizard({
               type="primary"
               icon={<ArrowRightOutlined />}
               iconPosition="end"
-              onClick={next}
+              onClick={step.id === 'direction' ? startOutreach : next}
               disabled={!canAdvance()}
             >
               {step.id === 'generate' ? 'Review Emails' : 'Continue'}
@@ -1119,74 +1213,8 @@ export function NewOutreachWizard({
 // simple, anything more complex should live in its own file.
 // =====================================================================
 
-function StepSetup({
-  clients,
-  direction,
-  clientId,
-  campaignName,
-  onClientId,
-  onName,
-}: {
-  clients: Client[];
-  direction: 'on-behalf' | 'to-clients';
-  clientId: string | null;
-  campaignName: string;
-  onClientId: (id: string | null) => void;
-  onName: (n: string) => void;
-}) {
-  if (direction === 'on-behalf') {
-    return (
-      <div>
-        <h2>Which client are you writing on behalf of?</h2>
-        <div className="ov2-pane-sub">
-          Clio uses this client's capabilities, tracked bills, and meeting history to personalize each recipient's email.
-        </div>
-        <Space direction="vertical" style={{ width: '100%' }} size={20}>
-          <Select
-            placeholder="Select a client…"
-            style={{ width: '100%' }}
-            value={clientId ?? undefined}
-            onChange={(id) => onClientId(id ?? null)}
-            options={clients.map((c) => ({ value: c.id, label: c.name }))}
-            showSearch
-            optionFilterProp="label"
-          />
-          <div>
-            <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
-              Campaign name (optional)
-            </Typography.Text>
-            <Input
-              value={campaignName}
-              onChange={(e) => onName(e.target.value)}
-              placeholder="e.g. FY27 NDAA, Section 218 push"
-            />
-          </div>
-        </Space>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <h2>Set up your client briefing</h2>
-      <div className="ov2-pane-sub">
-        You'll send from your own inbox. Clio personalizes per-client from the context you select next.
-      </div>
-      <Space direction="vertical" style={{ width: '100%' }} size={20}>
-        <div>
-          <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
-            Briefing name
-          </Typography.Text>
-          <Input
-            value={campaignName}
-            onChange={(e) => onName(e.target.value)}
-            placeholder="e.g. Week of May 24, Critical Minerals briefing"
-          />
-        </div>
-      </Space>
-    </div>
-  );
-}
+// StepSetup (the direction-branched client picker) was removed with the
+// campaign-type fork; Campaign Setup now lives in ./StepCampaignSetup.tsx.
 
 // Shape returned by GET /api/engagement/outreach/ai-templates. The backend
 // merges system templates (hardcoded in engagement.service.ts) with any
@@ -1231,8 +1259,7 @@ function StepTemplate({
       prompt: string;
       description?: string;
       tone?: string;
-    }) =>
-      (await api.post<AiTemplate>('/api/engagement/outreach/ai-templates', input)).data,
+    }) => (await api.post<AiTemplate>('/api/engagement/outreach/ai-templates', input)).data,
     onSuccess: (created) => {
       message.success(`Created "${created.name}"`);
       qc.invalidateQueries({ queryKey: ['outreach-ai-templates'] });
@@ -1259,7 +1286,8 @@ function StepTemplate({
     <div>
       <h2>Choose a template</h2>
       <div className="ov2-pane-sub">
-        Templates seed the structure. Clio fills it from your context. Preview to see a sample, or create your own.
+        Templates seed the structure. Clio fills it from your context. Preview to see a sample, or
+        create your own.
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
         {templates.map((t) => (
@@ -1548,7 +1576,11 @@ function CreateTemplateModal({
       width={620}
       destroyOnClose
     >
-      <Form form={form} layout="vertical" initialValues={{ tone: 'professional', category: 'general' }}>
+      <Form
+        form={form}
+        layout="vertical"
+        initialValues={{ tone: 'professional', category: 'general' }}
+      >
         <Form.Item
           name="name"
           label="Name"
@@ -1563,7 +1595,10 @@ function CreateTemplateModal({
           name="prompt"
           label="Prompt"
           tooltip="What Clio is told to produce. Be specific about structure, length, and tone."
-          rules={[{ required: true, message: 'Prompt is required' }, { min: 20, message: 'Prompt should be at least 20 characters' }]}
+          rules={[
+            { required: true, message: 'Prompt is required' },
+            { min: 20, message: 'Prompt should be at least 20 characters' },
+          ]}
         >
           <Input.TextArea
             rows={6}
@@ -1596,169 +1631,6 @@ function CreateTemplateModal({
         </Space>
       </Form>
     </Modal>
-  );
-}
-
-function StepGenerate({
-  recipients,
-  tone,
-  onTone,
-  generated,
-  selectedIdx,
-  onSelectedIdx,
-  onRegenerate,
-  onGenerateOne,
-  onEdit,
-  regenerating,
-  generatingKey,
-}: {
-  recipients: OutreachRecipient[];
-  tone: WizardV2State['tone'];
-  onTone: (t: WizardV2State['tone']) => void;
-  generated: WizardV2State['generatedEmails'];
-  selectedIdx: number;
-  onSelectedIdx: (i: number) => void;
-  onRegenerate: () => void;
-  onGenerateOne: (r: OutreachRecipient) => void;
-  onEdit: (key: string, patch: { subject?: string; body?: string }) => void;
-  regenerating: boolean;
-  generatingKey: string | null;
-}) {
-  const list = recipients.length ? recipients : [];
-  const active = list[selectedIdx];
-  const activeKey = active ? recipientKey(active) : null;
-  const activeDraft = activeKey ? generated[activeKey] : undefined;
-  const readyCount = Object.values(generated).filter(
-    (g) => g.status === 'ready' || g.status === 'edited',
-  ).length;
-  // A single-recipient (re)generation is in flight for the active draft.
-  const activeGenerating = !!activeKey && generatingKey === activeKey;
-  // Whole-batch regeneration (no specific key) is in flight.
-  const batchGenerating = regenerating && !generatingKey;
-
-  return (
-    <div>
-      <h2>Generate &amp; review</h2>
-      <div className="ov2-pane-sub">
-        Clio drafts a unique email per recipient. Edit any draft inline (your changes are saved as
-        you type), regenerate individually, or save everything as a draft to finish later.
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 14 }}>
-        <div style={{ background: 'var(--ov2-bg-surface)', border: '1px solid var(--ov2-border-1)', borderRadius: 6 }}>
-          <div style={{ padding: '12px 14px', background: 'var(--ov2-ink-1)', color: '#fff', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ThunderboltOutlined /> {batchGenerating ? 'Generating…' : `${readyCount}/${list.length} ready`}
-          </div>
-          {list.map((r, i) => {
-            const key = recipientKey(r);
-            const draft = generated[key];
-            const ready = draft?.status === 'ready' || draft?.status === 'edited';
-            const rowGenerating = generatingKey === key || batchGenerating;
-            return (
-              <div
-                key={key}
-                onClick={() => onSelectedIdx(i)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '11px 14px',
-                  borderBottom: '1px solid var(--ov2-border-1)',
-                  cursor: 'pointer',
-                  background: i === selectedIdx ? 'var(--ov2-accent-soft)' : undefined,
-                }}
-              >
-                <span
-                  style={{
-                    width: 16,
-                    height: 16,
-                    borderRadius: '50%',
-                    display: 'grid',
-                    placeItems: 'center',
-                    background: ready ? 'var(--ov2-success)' : 'var(--ov2-bg-sunken)',
-                    color: ready ? '#fff' : 'var(--ov2-ink-3)',
-                  }}
-                >
-                  {ready && <CheckOutlined style={{ fontSize: 9 }} />}
-                </span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600 }}>{r.name || r.email || key}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ov2-ink-3)' }}>
-                    {draft?.status === 'edited' ? 'Edited' : r.state || r.office || ''}
-                  </div>
-                </div>
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<ThunderboltOutlined />}
-                  loading={rowGenerating}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onGenerateOne(r);
-                  }}
-                  title="Generate just this email"
-                />
-              </div>
-            );
-          })}
-        </div>
-        <div style={{ background: 'var(--ov2-bg-surface)', border: '1px solid var(--ov2-border-1)', borderRadius: 6 }}>
-          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--ov2-border-1)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700 }}>{active?.name || active?.email || 'No recipient'}</div>
-              <div style={{ fontSize: 12, color: 'var(--ov2-ink-3)' }}>{active?.office || active?.state || ''}</div>
-            </div>
-            <Select
-              value={tone}
-              onChange={onTone}
-              style={{ marginLeft: 'auto', width: 140 }}
-              options={['Professional', 'Friendly', 'Formal', 'Concise'].map((t) => ({ value: t, label: t }))}
-            />
-            <Button
-              icon={<ThunderboltOutlined />}
-              loading={activeGenerating || batchGenerating}
-              onClick={() => active && onGenerateOne(active)}
-              disabled={!active}
-            >
-              Regenerate this
-            </Button>
-            <Button icon={<ThunderboltOutlined />} loading={batchGenerating} onClick={onRegenerate}>
-              Regenerate all
-            </Button>
-          </div>
-          <div style={{ padding: '18px 22px' }}>
-            {activeDraft ? (
-              <>
-                <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 10.5, color: 'var(--ov2-ink-3)', marginBottom: 4 }}>Subject</div>
-                  <Input
-                    value={activeDraft.subject}
-                    onChange={(e) => activeKey && onEdit(activeKey, { subject: e.target.value })}
-                    placeholder="Email subject"
-                  />
-                </div>
-                <div>
-                  <div style={{ fontSize: 10.5, color: 'var(--ov2-ink-3)', marginBottom: 4 }}>Body</div>
-                  <Input.TextArea
-                    value={activeDraft.body}
-                    onChange={(e) => activeKey && onEdit(activeKey, { body: e.target.value })}
-                    autoSize={{ minRows: 12, maxRows: 28 }}
-                    style={{ fontSize: 13, lineHeight: 1.6 }}
-                  />
-                </div>
-                <Typography.Text type="secondary" style={{ fontSize: 11.5, display: 'block', marginTop: 8 }}>
-                  Edits save automatically. Use “Save as draft” below to keep everything and finish
-                  later.
-                </Typography.Text>
-              </>
-            ) : (
-              <Typography.Text type="secondary">
-                {activeGenerating ? 'Generating…' : 'No draft yet. Click “Regenerate this”.'}
-              </Typography.Text>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -1829,7 +1701,13 @@ function StepSend({
         >
           Send test email to myself
         </Button>
-        <Button type="primary" icon={<SendOutlined />} loading={sending} onClick={onSend} disabled={!emailConnected}>
+        <Button
+          type="primary"
+          icon={<SendOutlined />}
+          loading={sending}
+          onClick={onSend}
+          disabled={!emailConnected}
+        >
           Confirm Send
         </Button>
       </Space>

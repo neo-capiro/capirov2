@@ -168,6 +168,9 @@ interface GraphNotification {
 export interface MicrosoftGraphSendMailInput {
   subject: string;
   body: string;
+  /** Graph message body type. Defaults to 'Text' for back-compat; outreach
+   *  sends HTML drafts as 'HTML' so recipients see formatting. */
+  bodyContentType?: 'Text' | 'HTML';
   toRecipients: Array<{ email: string; name?: string | null }>;
   ccRecipients?: Array<{ email: string; name?: string | null }>;
   bccRecipients?: Array<{ email: string; name?: string | null }>;
@@ -349,7 +352,7 @@ export class MicrosoftGraphSyncService {
       message: {
         subject: input.subject,
         body: {
-          contentType: 'Text',
+          contentType: input.bodyContentType ?? 'Text',
           content: input.body,
         },
         toRecipients: toGraphRecipients(input.toRecipients),
