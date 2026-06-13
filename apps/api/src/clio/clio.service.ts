@@ -2599,7 +2599,7 @@ export class ClioService {
 
       const vecStr = `[${embedding.join(',')}]`;
       await this.prisma.$executeRawUnsafe(
-        `UPDATE clio_memory SET embedding = $1::vector WHERE tenant_id = $2 AND key = $3`,
+        `UPDATE clio_memory SET embedding = $1::vector WHERE tenant_id = $2::uuid AND key = $3`,
         vecStr, tenantId, key,
       );
     } catch (err) {
@@ -2631,7 +2631,7 @@ export class ClioService {
       const results = await this.prisma.$queryRawUnsafe<Array<{ key: string; value: string; score: number }>>(
         `SELECT key, value, 1 - (embedding <=> $1::vector) as score
          FROM clio_memory
-         WHERE tenant_id = $2
+         WHERE tenant_id = $2::uuid
            AND embedding IS NOT NULL
            AND (
              scope = 'firm'

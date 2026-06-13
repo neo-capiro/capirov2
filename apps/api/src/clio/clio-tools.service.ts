@@ -1078,7 +1078,7 @@ export class ClioToolsService {
     if (!embedding || embedding.length !== 1536) return;
     const vecStr = `[${embedding.join(',')}]`;
     await this.prisma.$executeRawUnsafe(
-      `UPDATE clio_memory SET embedding = $1::vector WHERE tenant_id = $2 AND key = $3`,
+      `UPDATE clio_memory SET embedding = $1::vector WHERE tenant_id = $2::uuid AND key = $3`,
       vecStr,
       tenantId,
       key,
