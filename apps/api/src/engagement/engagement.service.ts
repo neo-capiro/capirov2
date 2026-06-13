@@ -305,6 +305,9 @@ export interface OutreachQuery {
   to?: string;
   type?: string;
   limit?: string;
+  // When true, return ONLY soft-deleted records (the "trash"/recovery view).
+  // Defaults to false: the normal list excludes deleted records.
+  deleted?: boolean;
 }
 
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
@@ -919,7 +922,7 @@ export class EngagementService {
       tx.outreachRecord.findMany({
         where: {
           tenantId: ctx.tenantId,
-          deletedAt: null,
+          deletedAt: query.deleted ? { not: null } : null,
           ...(query.clientId ? { clientId: query.clientId } : {}),
           ...(type ? { type } : {}),
           // A record belongs to the window if it was created OR sent within it:
@@ -2187,6 +2190,37 @@ export class EngagementService {
             deletedAt: deletedAt.toISOString(),
             deletedByUserId: ctx.userId,
           }) as Prisma.InputJsonValue,
+        },
+        include: outreachInclude(),
+      });
+    });
+  }
+
+  /**
+   * Restore a soft-deleted outreach record (the inverse of
+   * {@link deleteOutreachRecord}). Clears the deletion tombstone and strips the
+   * delete bookkeeping keys from metadata so the record returns to the normal
+   * list exactly as it was. Scoped to the caller's tenant; only matches rows
+   * that are currently soft-deleted.
+   */
+  async restoreOutreachRecord(ctx: TenantContext, id: string) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const existing = await tx.outreachRecord.findFirst({
+        where: { id, tenantId: ctx.tenantId, deletedAt: { not: null } },
+      });
+      if (!existing) throw new NotFoundException('Deleted outreach record not found');
+
+      const metadata = { ...(existing.metadata as Record<string, unknown> | null ?? {}) };
+      delete metadata.deletedFromCapiro;
+      delete metadata.deletedAt;
+      delete metadata.deletedByUserId;
+
+      return tx.outreachRecord.update({
+        where: { id },
+        data: {
+          deletedAt: null,
+          deletedByUserId: null,
+          metadata: metadata as Prisma.InputJsonValue,
         },
         include: outreachInclude(),
       });

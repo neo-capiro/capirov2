@@ -1346,8 +1346,16 @@ export class EngagementController {
     @Query('to') to?: string,
     @Query('type') type?: string,
     @Query('limit') limit?: string,
+    @Query('deleted') deleted?: string,
   ) {
-    return this.service.listOutreachRecords(ctx, { clientId, from, to, type, limit });
+    return this.service.listOutreachRecords(ctx, {
+      clientId,
+      from,
+      to,
+      type,
+      limit,
+      deleted: deleted === 'true' || deleted === '1',
+    });
   }
 
   @Get('outreach/outbound/contact-data')
@@ -1482,6 +1490,11 @@ export class EngagementController {
   @Delete('outreach/:id')
   deleteOutreachRecord(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
     return this.service.deleteOutreachRecord(ctx, id);
+  }
+
+  @Post('outreach/:id/restore')
+  restoreOutreachRecord(@CurrentTenant() ctx: TenantContext, @Param('id') id: string) {
+    return this.service.restoreOutreachRecord(ctx, id);
   }
 
   @Get('reports/overview')

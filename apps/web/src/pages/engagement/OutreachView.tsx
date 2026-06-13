@@ -11,6 +11,7 @@ import {
   PlusOutlined,
   RobotOutlined,
   SearchOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -415,10 +416,14 @@ export function OutreachView({
   const navigate = useNavigate();
   const location = useLocation();
   const today = todayInputValue();
-  const [from, setFrom] = useState(inputValueFromDate(addLocalDays(new Date(), -30)));
+  const [from, setFrom] = useState(inputValueFromDate(addLocalDays(new Date(), -365)));
   const [to, setTo] = useState(today);
   const [directionFilter, setDirectionFilter] = useState<DirectionFilter>('all');
   const [outreachLimit, setOutreachLimit] = useState(50);
+  // "Show deleted" — when on, the list shows the soft-deleted (trashed) records
+  // with a Restore action instead of the normal live list. Lets users recover
+  // outreach removed from Capiro without admin/DB intervention.
+  const [showDeleted, setShowDeleted] = useState(false);
   // 'selector' (the meeting-follow-up / prep / campaign type picker) was
   // removed: clicking "New Outreach" now jumps straight to the campaign
   // wizard. The 'follow_up' and 'prep' modes still exist for callers that
@@ -565,7 +570,7 @@ export function OutreachView({
   const selectedClient = activeClients.find((client) => client.id === selectedClientId) ?? null;
 
   const outreach = useQuery<OutreachRecord[]>({
-    queryKey: ['engagement-outreach', selectedClientId, from, to, outreachLimit],
+    queryKey: ['engagement-outreach', selectedClientId, from, to, outreachLimit, showDeleted],
     queryFn: async () =>
       (
         await api.get<OutreachRecord[]>('/api/engagement/outreach', {
@@ -574,6 +579,7 @@ export function OutreachView({
             from: localDateStartIso(from),
             to: localDateEndIso(to),
             limit: outreachLimit,
+            deleted: showDeleted ? 'true' : undefined,
           },
         })
       ).data,
@@ -755,6 +761,16 @@ export function OutreachView({
         setWorkflow({ ...EMPTY_WORKFLOW, clientId: selectedClientId });
         setMode('landing');
       }
+      qc.invalidateQueries({ queryKey: ['engagement-outreach'] });
+    },
+    onError: (err) => message.error(errorMessage(err)),
+  });
+
+  const restoreRecord = useMutation({
+    mutationFn: async (id: string) =>
+      (await api.post<OutreachRecord>(`/api/engagement/outreach/${id}/restore`)).data,
+    onSuccess: () => {
+      message.success('Outreach restored');
       qc.invalidateQueries({ queryKey: ['engagement-outreach'] });
     },
     onError: (err) => message.error(errorMessage(err)),
@@ -1092,6 +1108,14 @@ export function OutreachView({
         <Button type="primary" icon={<PlusOutlined />} onClick={() => startWorkflow('campaign')}>
           New Outreach
         </Button>
+        <Button
+          type={showDeleted ? 'primary' : 'default'}
+          danger={showDeleted}
+          onClick={() => setShowDeleted((value) => !value)}
+          title="Show outreach that was deleted from Capiro, with the option to restore it."
+        >
+          {showDeleted ? 'Viewing deleted' : 'Show deleted'}
+        </Button>
       </div>
 
       {outreach.isLoading ? (
@@ -1109,8 +1133,10 @@ export function OutreachView({
                     key={record.id}
                     record={record}
                     deleting={deleteRecord.isPending && deleteRecord.variables === record.id}
-                    onClick={openDraft}
+                    onClick={showDeleted ? () => undefined : openDraft}
                     onDelete={confirmDeleteRecord}
+                    onRestore={showDeleted ? (rec) => restoreRecord.mutate(rec.id) : undefined}
+                    restoring={restoreRecord.isPending && restoreRecord.variables === record.id}
                   />
                 ))}
               </div>
@@ -1130,8 +1156,10 @@ export function OutreachView({
                   key={record.id}
                   record={record}
                   deleting={deleteRecord.isPending && deleteRecord.variables === record.id}
-                  onClick={openReadonly}
+                  onClick={showDeleted ? () => undefined : openReadonly}
                   onDelete={confirmDeleteRecord}
+                  onRestore={showDeleted ? (rec) => restoreRecord.mutate(rec.id) : undefined}
+                  restoring={restoreRecord.isPending && restoreRecord.variables === record.id}
                 />
               ))}
             </div>
@@ -4287,11 +4315,15 @@ function OutreachRecordCard({
   deleting,
   onClick,
   onDelete,
+  onRestore,
+  restoring,
 }: {
   record: OutreachRecord;
   deleting: boolean;
   onClick: (record: OutreachRecord) => void;
   onDelete: (record: OutreachRecord) => void;
+  onRestore?: (record: OutreachRecord) => void;
+  restoring?: boolean;
 }) {
   const displayDate = outreachRecordDisplayDate(record);
   return (
@@ -4324,20 +4356,36 @@ function OutreachRecordCard({
       <aside>
         <span>{statusLabel(record)}</span>
         <time>{formatOptionalDate(displayDate)}</time>
-        <Button
-          danger
-          size="small"
-          type="text"
-          icon={<DeleteOutlined />}
-          loading={deleting}
-          aria-label={`Delete ${record.title} from Capiro`}
-          onClick={(event) => {
-            event.stopPropagation();
-            onDelete(record);
-          }}
-        >
-          Delete
-        </Button>
+        {onRestore ? (
+          <Button
+            size="small"
+            type="text"
+            icon={<UndoOutlined />}
+            loading={restoring}
+            aria-label={`Restore ${record.title}`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onRestore(record);
+            }}
+          >
+            Restore
+          </Button>
+        ) : (
+          <Button
+            danger
+            size="small"
+            type="text"
+            icon={<DeleteOutlined />}
+            loading={deleting}
+            aria-label={`Delete ${record.title} from Capiro`}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete(record);
+            }}
+          >
+            Delete
+          </Button>
+        )}
       </aside>
     </article>
   );
