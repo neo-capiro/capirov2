@@ -1,0 +1,1658 @@
+// prod-os-capiro TENANT schema — tenant/user-specific data only (small, isolated, encrypted).
+// This is the ONLY schema prod-os-capiro migrates. SOC2: RLS planned on high-sensitivity
+// tables (Client, MailMessage, ClioMemory, ContextEmbedding, AuditLog, IntegrationConnection*).
+
+// Capiro identity / tenancy core schema.
+// Scope: tenants, users, tenant_memberships, clerk_events, audit_logs.
+// All tenant-scoped tables carry tenant_id NOT NULL and are protected by
+// Postgres Row-Level Security policies created in the SQL migration.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/tenant-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("TENANT_DATABASE_URL")
+}
+
+enum TenantRole {
+  capiro_admin
+  user_admin
+  standard_user
+  client_portal_user
+
+  @@map("tenant_role")
+}
+
+enum TenantStatus {
+  active
+  suspended
+  pending
+
+  @@map("tenant_status")
+}
+
+enum MembershipStatus {
+  invited
+  active
+  removed
+
+  @@map("membership_status")
+}
+
+enum EngagementProvider {
+  microsoft_365
+  google_workspace
+  imap_caldav
+  manual
+
+  @@map("engagement_provider")
+}
+
+enum EngagementConnectionStatus {
+  needs_configuration
+  connected
+  error
+  disabled
+
+  @@map("engagement_connection_status")
+}
+
+enum EngagementSource {
+  outlook
+  google
+  imap_caldav
+  manual
+
+  @@map("engagement_source")
+}
+
+enum AssociationEntityType {
+  meeting
+  mail_thread
+  mail_message
+  contact
+  task
+
+  @@map("association_entity_type")
+}
+
+enum MeetingPrepStatus {
+  generated
+  edited
+  approved
+  stale
+  failed
+
+  @@map("meeting_prep_status")
+}
+
+enum EngagementTaskStatus {
+  todo
+  in_progress
+  done
+  blocked
+  canceled
+
+  @@map("engagement_task_status")
+}
+
+enum WorkflowStatus {
+  triage
+  in_progress
+  review
+  submitted
+  complete
+  cancelled
+
+  @@map("workflow_status")
+}
+
+model ActionRecommendation {
+  id                    String    @id @default(uuid()) @db.Uuid
+  tenantId              String    @map("tenant_id") @db.Uuid
+  clientId              String    @map("client_id") @db.Uuid
+  peCode                String?   @map("pe_code") @db.VarChar(16)
+  programId             String?   @map("program_id") @db.Uuid
+  deltaId               String?   @map("delta_id") @db.Uuid
+  actionType            String    @map("action_type") @db.VarChar(40)
+  issueTitle            String    @map("issue_title") @db.Text
+  whatChanged           String    @map("what_changed") @db.Text
+  whyItMatters          String    @map("why_it_matters") @db.Text
+  recommendedAction     String    @map("recommended_action") @db.Text
+  targetAudience        Json      @default("[]") @map("target_audience_jsonb")
+  suggestedArtifactType String?   @map("suggested_artifact_type") @db.VarChar(40)
+  deadline              DateTime? @db.Date
+  deadlineSource        String?   @map("deadline_source") @db.VarChar(24)
+  ownerUserId           String?   @map("owner_user_id") @db.Uuid
+  priority              Int       @default(0)
+  confidence            Json      @default("{}") @map("confidence_jsonb")
+  uncertainty           String?   @db.Text
+  evidence              Json      @default("[]") @map("evidence_jsonb")
+  status                String    @default("new") @db.VarChar(24)
+  dismissalReason       String?   @map("dismissal_reason") @db.Text
+  outcome               String?   @db.Text
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status, deadline], map: "action_recommendation_tenant_status_deadline_idx")
+  @@index([tenantId, clientId], map: "action_recommendation_tenant_client_idx")
+  @@map("action_recommendation")
+}
+
+model AiUsageEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  /// 'outreach_campaign' | 'meeting_prep' | 'meeting_debrief' | 'campaign_email' | 'talking_points' | ...
+  workflow      String   @db.VarChar(48)
+  /// 'openai' | 'anthropic'
+  provider      String   @db.VarChar(16)
+  model         String   @db.VarChar(80)
+  inputTokens   Int      @map("input_tokens")
+  outputTokens  Int      @map("output_tokens")
+  costUsd       Decimal  @map("cost_usd") @db.Decimal(12, 6)
+  usedTenantKey Boolean  @default(false) @map("used_tenant_key")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt], map: "ai_usage_events_tenant_created_idx")
+  @@map("ai_usage_events")
+}
+
+model AlertState {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  userId       String    @map("user_id") // clerk user id of whoever set the state
+  clientId     String    @map("client_id") @db.Uuid
+  alertId      String    @map("alert_id") // stable composite key from the alerts builder
+  // 'acknowledged' | 'dismissed' | 'snoozed'
+  state        String
+  snoozedUntil DateTime? @map("snoozed_until") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([userId, clientId, alertId])
+  @@index([tenantId])
+  @@index([clientId])
+  @@index([userId])
+  @@map("alert_state")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  actorRole   String?  @map("actor_role")
+  action      String
+  entityType  String?  @map("entity_type")
+  entityId    String?  @map("entity_id")
+  before      Json?    @map("before_jsonb")
+  after       Json?    @map("after_jsonb")
+  ip          String?
+  userAgent   String?  @map("user_agent")
+  requestId   String?  @map("request_id")
+  occurredAt  DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor  User?  @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, occurredAt(sort: Desc)], map: "audit_logs_tenant_occurred_idx")
+  @@index([tenantId, action], map: "audit_logs_tenant_action_idx")
+  @@map("audit_logs")
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id")
+  role      String // 'user' | 'assistant' | 'system'
+  content   String   @db.Text
+  metadata  Json? // tool calls, context snapshot, intent, etc.
+  sessionId String   @map("session_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, userId, sessionId])
+  @@index([createdAt])
+  @@map("chat_message")
+}
+
+model Client {
+  id                  String    @id @default(uuid()) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  name                String
+  website             String?
+  description         String?
+  productDescription  String?   @map("product_description")
+  primaryContactName  String?   @map("primary_contact_name")
+  primaryContactEmail String?   @map("primary_contact_email") @db.Citext
+  primaryContactPhone String?   @map("primary_contact_phone")
+  logoS3Key           String?   @map("logo_s3_key")
+  logoContentType     String?   @map("logo_content_type")
+  logoUploadedAt      DateTime? @map("logo_uploaded_at") @db.Timestamptz(6)
+  intakeData          Json      @default("{}") @map("intake_data_jsonb")
+  status              String    @default("active")
+  // Portfolio Tab v2 additions
+  sectorTag           String?   @map("sector_tag")
+  profileType         String?   @default("CLIENT") @map("profile_type")
+  profileStatus       String    @default("ACTIVE") @map("profile_status")
+  submissionTracks    String[]  @default([]) @map("submission_tracks")
+  // Manual client-level LDA issue-code override, set in the client summary
+  // settings. Unioned with the auto codes from the confirmed LDA match to drive
+  // bill/regulation matching (works even when no LDA entity is mapped).
+  issueCodes          String[]  @default([]) @map("issue_codes")
+  // Step 2.3 — government identifiers + code arrays for procurement matching.
+  uei                 String?   @db.VarChar(12)
+  cageCode            String?   @map("cage_code") @db.VarChar(5)
+  naicsCodes          String[]  @default([]) @map("naics_codes")
+  pscCodes            String[]  @default([]) @map("psc_codes")
+  // Client→data association overhaul: the confirmed set of Senate LDA client_ids
+  // this client resolves to (one id per lobbying-firm relationship — a real
+  // company can have many, e.g. Boeing = 27). Denormalized read-cache of the
+  // confirmed source='lda' ClientIntelMapping rows; reads join
+  // lda_filing.client_id = ANY(ldaClientIds) instead of fuzzy-matching the name.
+  ldaClientIds        Int[]     @default([]) @map("lda_client_ids")
+  createdByUserId     String?   @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant                  Tenant                         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  engagementContacts      EngagementContact[]
+  meetings                Meeting[]
+  mailThreads             MailThread[]
+  engagementAttachments   EngagementAttachment[]
+  meetingNotes            MeetingNote[]
+  meetingDebriefs         MeetingDebrief[]
+  meetingPreps            MeetingPrep[]
+  engagementTasks         EngagementTask[]
+  associationOverrides    ClientAssociationOverride[]
+  engagementReportTargets EngagementReportTargetOffice[]
+  outreachRecords         OutreachRecord[]
+  clioConversations       ClioConversation[]
+  clioMessages            ClioMessage[]
+  clioArtifacts           ClioArtifact[]
+  clioNotes               ClioNote[]
+  clioResearchSessions    ClioResearchSession[]
+  workflowInstances       WorkflowInstance[]
+  capabilities            ClientCapability[]
+  submissionHistory       ClientSubmissionHistory[]
+  people                  ClientPerson[]
+  facilities              ClientFacility[]
+  strategies              Strategy[]
+  engagementCampaigns     EngagementCampaign[]
+  clioProactiveAlerts     ClioProactiveAlert[]
+  actionRecommendations   ActionRecommendation[]
+
+  @@index([tenantId], map: "clients_tenant_idx")
+  @@index([tenantId, name], map: "clients_tenant_name_idx")
+  @@map("clients")
+}
+
+model ClientAssociationOverride {
+  id               String                @id @default(uuid()) @db.Uuid
+  tenantId         String                @map("tenant_id") @db.Uuid
+  entityType       AssociationEntityType @map("entity_type")
+  entityId         String                @map("entity_id") @db.Uuid
+  clientId         String                @map("client_id") @db.Uuid
+  previousClientId String?               @map("previous_client_id") @db.Uuid
+  confidenceBefore Float?                @map("confidence_before")
+  reason           String?
+  userId           String?               @map("user_id") @db.Uuid
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, entityType, entityId], map: "association_overrides_entity_idx")
+  @@index([tenantId, clientId, createdAt], map: "association_overrides_client_created_idx")
+  @@map("client_association_overrides")
+}
+
+model ClientBrief {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  clientId      String   @map("client_id") @db.Uuid
+  createdBy     String?  @map("created_by") // clerk user id
+  sourceAlertId String?  @map("source_alert_id") // alertId it was promoted from, if any
+  sourceType    String?  @map("source_type") // 'comment_deadline' | 'change' | 'hearing' | 'manual' | ...
+  title         String
+  body          String   @db.Text
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId])
+  @@index([clientId])
+  @@map("client_brief")
+}
+
+model ClientCapability {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  clientId             String   @map("client_id") @db.Uuid
+  name                 String
+  type                 String   @default("product")
+  description          String?  @db.Text
+  sector               String?
+  tags                 Json     @default("[]") @map("tags_jsonb")
+  issueCodes           Json     @default("[]") @map("issue_codes_jsonb")
+  trl                  Int?
+  mrl                  Int?
+  peNumber             String?  @map("pe_number")
+  // Step 2.3 — multi-PE + explicit match keywords (peNumber kept for backcompat).
+  peNumbers            String[] @default([]) @map("pe_numbers")
+  keywords             String[] @default([])
+  appropriationAccount String?  @map("appropriation_account")
+  serviceBranch        String?  @map("service_branch")
+  targetSubcommittee   String?  @map("target_subcommittee")
+  fundingAsk           Int?     @map("funding_ask")
+  fundingAskLabel      String?  @map("funding_ask_label")
+  justification        String?  @db.Text
+  districtNexus        String?  @map("district_nexus") @db.Text
+  existingContracts    String?  @map("existing_contracts")
+  notes                String?  @db.Text
+  sortOrder            Int      @default(0) @map("sort_order")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant            Tenant                    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client            Client                    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  submissionHistory ClientSubmissionHistory[]
+  strategies        Strategy[]
+
+  @@index([tenantId, clientId], map: "client_capabilities_tenant_client_idx")
+  @@map("client_capabilities")
+}
+
+model ClientFacility {
+  id                    String   @id @default(uuid()) @db.Uuid
+  tenantId              String   @map("tenant_id") @db.Uuid
+  clientId              String   @map("client_id") @db.Uuid
+  name                  String
+  addressLine           String?  @map("address_line")
+  city                  String?
+  state                 String?  @db.VarChar(2)
+  zip                   String?  @db.VarChar(10)
+  congressionalDistrict String?  @map("congressional_district") @db.VarChar(2)
+  districtSource        String?  @map("district_source") @db.VarChar(16)
+  employeeCount         Int?     @map("employee_count")
+  notes                 String?
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, clientId], map: "client_facilities_tenant_client_idx")
+  @@index([state, congressionalDistrict], map: "client_facilities_district_idx")
+  @@map("client_facilities")
+}
+
+model ClientIntelMapping {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  clientId     String   @map("client_id") @db.Uuid
+  source       String // 'lda', 'contracting', 'lobby_intel', 'fec'
+  externalId   String   @map("external_id")
+  externalName String   @map("external_name")
+  confidence   Float
+  confirmed    Boolean  @default(false)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([clientId, source, externalId])
+  @@index([clientId])
+  @@index([tenantId])
+  @@index([source, externalId])
+  @@map("client_intel_mapping")
+}
+
+model ClientPerson {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  clientId    String    @map("client_id") @db.Uuid
+  name        String
+  title       String?
+  email       String?   @db.Citext
+  phone       String?
+  role        String?
+  lastContact DateTime? @map("last_contact") @db.Timestamptz(6)
+  notes       String?   @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, clientId], map: "client_people_tenant_client_idx")
+  @@map("client_people")
+}
+
+model ClientSubmissionHistory {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  clientId     String   @map("client_id") @db.Uuid
+  capabilityId String?  @map("capability_id") @db.Uuid
+  fiscalYear   String   @map("fiscal_year")
+  title        String
+  meta         String?
+  outcome      String?
+  outcomeType  String   @default("in_progress") @map("outcome_type")
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client     Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  capability ClientCapability? @relation(fields: [capabilityId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, clientId, capabilityId], map: "client_submission_history_tenant_client_cap_idx")
+  @@map("client_submission_history")
+}
+
+model ClioArtifact {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  clientId         String?  @map("client_id") @db.Uuid
+  conversationId   String   @map("conversation_id") @db.Uuid
+  messageId        String?  @map("message_id") @db.Uuid
+  parentArtifactId String?  @map("parent_artifact_id") @db.Uuid
+  title            String
+  kind             String
+  contentType      String?  @map("content_type")
+  bodyText         String?  @map("body_text") @db.Text
+  s3Key            String?  @map("s3_key")
+  metadata         Json     @default("{}") @map("metadata_jsonb")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant         Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user           User             @relation("ClioArtifactUser", fields: [userId], references: [id], onDelete: Cascade)
+  client         Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  conversation   ClioConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message        ClioMessage?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  parentArtifact ClioArtifact?    @relation("ArtifactVersions", fields: [parentArtifactId], references: [id], onDelete: SetNull)
+  childVersions  ClioArtifact[]   @relation("ArtifactVersions")
+
+  @@index([tenantId, userId, createdAt(sort: Desc)], map: "clio_artifacts_tenant_user_created_idx")
+  @@index([conversationId, createdAt(sort: Desc)], map: "clio_artifacts_conversation_created_idx")
+  @@map("clio_artifacts")
+}
+
+model ClioAttachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  messageId   String?  @map("message_id") @db.Uuid
+  filename    String   @db.VarChar(300)
+  /// pdf | docx | image | text
+  kind        String   @db.VarChar(20)
+  /// parsed | truncated | scanned | image_ready | unsupported
+  status      String   @db.VarChar(20)
+  mediaType   String?  @map("media_type") @db.VarChar(100)
+  byteSize    Int      @map("byte_size")
+  pages       Int?
+  /// Extracted text for document kinds (clamped server-side).
+  textContent String?  @map("text_content") @db.Text
+  /// Human-readable reason when status is scanned/unsupported.
+  reason      String?  @db.VarChar(300)
+  /// Raw image bytes (image kind only) for vision-block assembly.
+  data        Bytes?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation("ClioAttachmentUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, userId, createdAt(sort: Desc)], map: "clio_attachments_tenant_user_created_idx")
+  @@index([messageId], map: "clio_attachments_message_idx")
+  @@map("clio_attachments")
+}
+
+model ClioConversation {
+  id                   String    @id @default(uuid()) @db.Uuid
+  tenantId             String    @map("tenant_id") @db.Uuid
+  userId               String    @map("user_id") @db.Uuid
+  clientId             String?   @map("client_id") @db.Uuid
+  workspaceKey         String    @default("workspace") @map("workspace_key")
+  title                String
+  status               String    @default("active")
+  nanoclawPlatformId   String?   @map("nanoclaw_platform_id")
+  nanoclawAgentGroupId String?   @map("nanoclaw_agent_group_id")
+  metadata             Json      @default("{}") @map("metadata_jsonb")
+  /// Rolling compaction summary of turns older than summaryUpToMessageId (F2).
+  /// Injected ahead of the verbatim history tail in turn assembly; regenerated
+  /// incrementally (old summary + turns since) by an after-turn async job.
+  summary              String?   @db.Text
+  summaryUpToMessageId String?   @map("summary_up_to_message_id") @db.Uuid
+  summaryTokens        Int?      @map("summary_tokens")
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  archivedAt           DateTime? @map("archived_at") @db.Timestamptz(6)
+
+  tenant    Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user      User           @relation("ClioConversationUser", fields: [userId], references: [id], onDelete: Cascade)
+  client    Client?        @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  messages  ClioMessage[]
+  artifacts ClioArtifact[]
+  notes     ClioNote[]
+
+  @@index([tenantId, userId, updatedAt(sort: Desc)], map: "clio_conversations_tenant_user_updated_idx")
+  @@index([tenantId, clientId, updatedAt(sort: Desc)], map: "clio_conversations_tenant_client_updated_idx")
+  @@map("clio_conversations")
+}
+
+model ClioFirmSkill {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  skillId         String   @map("skill_id") @db.VarChar(48)
+  name            String   @db.VarChar(80)
+  skillJson       Json     @map("skill_jsonb")
+  version         Int      @default(1)
+  versions        Json     @default("[]") @map("versions_jsonb")
+  enabled         Boolean  @default(true)
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  updatedByUserId String?  @map("updated_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, skillId], map: "clio_firm_skills_tenant_skill_unique")
+  @@index([tenantId, enabled, updatedAt(sort: Desc)], map: "clio_firm_skills_tenant_enabled_idx")
+  @@map("clio_firm_skills")
+}
+
+model ClioMcpServer {
+  id                  String    @id @default(uuid()) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  name                String    @db.VarChar(64)
+  /// http (streamable HTTP) | stdio (ops-managed local child process)
+  transport           String    @db.VarChar(10)
+  endpoint            String?   @db.VarChar(500)
+  command             String?   @db.VarChar(500)
+  args                Json      @default("[]")
+  envJson             Json      @default("{}") @map("env_jsonb")
+  authTokenCiphertext String?   @map("auth_token_ciphertext")
+  authTokenIv         String?   @map("auth_token_iv")
+  authTokenAuthTag    String?   @map("auth_token_auth_tag")
+  authKeyVersion      String?   @map("auth_key_version")
+  toolAllowlist       Json      @default("[]") @map("tool_allowlist")
+  readOnlyTools       Json      @default("[]") @map("read_only_tools")
+  enabled             Boolean   @default(true)
+  lastSyncAt          DateTime? @map("last_sync_at") @db.Timestamptz(6)
+  lastError           String?   @map("last_error")
+  createdByUserId     String?   @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name], map: "clio_mcp_servers_tenant_name_unique")
+  @@index([tenantId, enabled], map: "clio_mcp_servers_tenant_enabled_idx")
+  @@map("clio_mcp_servers")
+}
+
+model ClioMemory {
+  id          String                 @id @default(uuid()) @db.Uuid
+  tenantId    String                 @map("tenant_id") @db.Uuid
+  // Stored as TEXT in the DB with a CHECK constraint (scope IN ('firm','user_private'))
+  // per the 20260525103000_clio_memory_scope_hardening migration. Modeled as String
+  // (not a Prisma enum) so the generated client never casts to a "ClioMemoryScope"
+  // Postgres type — that type was never created, and the enum decl caused
+  // `type "public.ClioMemoryScope" does not exist` (42704) 500s on Clio memory reads.
+  // App-level union typing lives in clio/clio-memory.helpers.ts (ClioMemoryScope = 'firm' | 'user_private').
+  scope       String                 @default("firm")
+  ownerUserId String?                @map("owner_user_id") @db.Uuid
+  key         String                 @db.VarChar(200)
+  value       String                 @db.Text
+  source      String                 @default("conversation")
+  embedding   Unsupported("vector")?
+  metadata    Json                   @default("{}") @map("metadata_jsonb")
+  createdAt   DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, scope, ownerUserId, key], map: "clio_memory_tenant_scope_owner_key_uniq")
+  @@index([tenantId, scope, ownerUserId, updatedAt(sort: Desc)], map: "clio_memory_scope_owner_updated_idx")
+  @@index([tenantId, scope, updatedAt(sort: Desc)], map: "clio_memory_scope_updated_idx")
+  @@map("clio_memory")
+}
+
+model ClioMessage {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  clientId       String?  @map("client_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  role           String
+  body           String   @db.Text
+  nanoclawId     String?  @map("nanoclaw_id")
+  metadata       Json     @default("{}") @map("metadata_jsonb")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant       Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User             @relation("ClioMessageUser", fields: [userId], references: [id], onDelete: Cascade)
+  client       Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  conversation ClioConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  artifacts    ClioArtifact[]
+
+  @@index([tenantId, userId, createdAt], map: "clio_messages_tenant_user_created_idx")
+  @@index([conversationId, createdAt], map: "clio_messages_conversation_created_idx")
+  @@map("clio_messages")
+}
+
+model ClioNote {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  clientId       String?  @map("client_id") @db.Uuid
+  conversationId String?  @map("conversation_id") @db.Uuid
+  meetingId      String?  @map("meeting_id") @db.Uuid
+  title          String?
+  body           String   @db.Text
+  source         String   @default("clio")
+  metadata       Json     @default("{}") @map("metadata_jsonb")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user         User              @relation("ClioNoteUser", fields: [userId], references: [id], onDelete: Cascade)
+  client       Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  conversation ClioConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  meeting      Meeting?          @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId, createdAt(sort: Desc)], map: "clio_notes_tenant_user_created_idx")
+  @@index([tenantId, clientId, createdAt(sort: Desc)], map: "clio_notes_tenant_client_created_idx")
+  @@index([conversationId, createdAt(sort: Desc)], map: "clio_notes_conversation_created_idx")
+  @@map("clio_notes")
+}
+
+model ClioProactiveAlert {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  clientId   String?   @map("client_id") @db.Uuid
+  alertType  String    @map("alert_type")
+  title      String
+  body       String    @db.Text
+  priority   String    @default("normal")
+  status     String    @default("pending")
+  sourceType String?   @map("source_type")
+  sourceId   String?   @map("source_id")
+  metadata   Json      @default("{}") @map("metadata_jsonb")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  readAt     DateTime? @map("read_at") @db.Timestamptz(6)
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status, createdAt(sort: Desc)])
+  @@index([tenantId, clientId, createdAt(sort: Desc)])
+  @@map("clio_proactive_alerts")
+}
+
+model ClioResearchSession {
+  id                  String   @id @default(uuid()) @db.Uuid
+  tenantId            String   @map("tenant_id") @db.Uuid
+  userId              String   @map("user_id") @db.Uuid
+  clientId            String?  @map("client_id") @db.Uuid
+  title               String
+  topic               String   @db.Text
+  /// plan | awaiting_clarification | researching | complete | failed
+  status              String   @default("plan")
+  /// AI-proposed clarifying questions (string[]) awaiting answers.
+  clarifyingQuestions Json     @default("[]") @map("clarifying_questions_jsonb")
+  /// User answers to the clarifying questions (keyed by question index).
+  clarifyingAnswers   Json     @default("{}") @map("clarifying_answers_jsonb")
+  /// AI-proposed research plan (list of sub-questions / angles).
+  plan                Json     @default("[]")
+  /// Source attributions gathered during the run.
+  sources             Json     @default("[]")
+  /// The final synthesized report artifact, once produced.
+  reportArtifactId    String?  @map("report_artifact_id") @db.Uuid
+  metadata            Json     @default("{}") @map("metadata_jsonb")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User    @relation("ClioResearchSessionUser", fields: [userId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId, updatedAt(sort: Desc)], map: "clio_research_sessions_tenant_user_updated_idx")
+  @@index([tenantId, clientId, updatedAt(sort: Desc)], map: "clio_research_sessions_tenant_client_updated_idx")
+  @@map("clio_research_sessions")
+}
+
+model ClioScheduledTask {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  ownerUserId   String   @map("owner_user_id") @db.Uuid
+  // 'firm' | 'user_private' (TEXT + app-level union, same rationale as ClioMemory).
+  scope         String   @default("user_private")
+  name          String   @db.VarChar(200)
+  // The instruction Clio runs each tick (a natural-language prompt).
+  prompt        String   @db.Text
+  // Cadence in minutes between runs (>=60 enforced at the tool layer).
+  intervalMinutes Int    @map("interval_minutes")
+  // JSON array of tool names this task is allowed to call. Defaults to read-only
+  // research tools; side-effecting tools require explicit opt-in + confirm.
+  toolAllowList Json     @default("[]") @map("tool_allow_list")
+  enabled       Boolean  @default(true)
+  lastRunAt     DateTime? @map("last_run_at") @db.Timestamptz(6)
+  nextRunAt     DateTime @map("next_run_at") @db.Timestamptz(6)
+  lastStatus    String?  @map("last_status") @db.VarChar(20)
+  runCount      Int      @default(0) @map("run_count")
+  createdBy     String   @default("clio") @map("created_by") @db.VarChar(40)
+  metadata      Json     @default("{}") @map("metadata_jsonb")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, ownerUserId, createdAt(sort: Desc)], map: "clio_scheduled_task_tenant_owner_idx")
+  @@index([enabled, nextRunAt], map: "clio_scheduled_task_due_idx")
+  @@map("clio_scheduled_task")
+}
+
+model ContextEmbedding {
+  id          String                @id @default(uuid()) @db.Uuid
+  // Nullable so global content (CongressBill, LdaFiling, no tenant) can
+  // share this table. The RLS policy lets every tenant read NULL rows.
+  tenantId    String?               @map("tenant_id") @db.Uuid
+  clientId    String?               @map("client_id") @db.Uuid
+  sourceType  String                @map("source_type")
+  sourceId    String                @map("source_id")
+  // Model that produced the embedding, e.g. 'amazon.titan-embed-text-v2:0'.
+  // Stored so we can run multiple models side-by-side and migrate gradually.
+  model       String
+  contentText String                @map("content_text")
+  // sha256 of the normalized source text. Worker skips re-embed when the
+  // current hash matches the stored hash.
+  contentHash String                @map("content_hash")
+  embedding   Unsupported("vector")
+  metadata    Json                  @default("{}") @map("metadata_jsonb")
+  createdAt   DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, sourceType, sourceId, model], map: "context_embeddings_unique")
+  @@index([tenantId, clientId], map: "context_embeddings_tenant_client_idx")
+  @@index([sourceType, sourceId], map: "context_embeddings_source_idx")
+  @@map("context_embeddings")
+}
+
+model DirectoryContactFavorite {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  userId               String   @map("user_id") @db.Uuid
+  directoryContactId   String   @map("directory_contact_id")
+  directoryContactName String?  @map("directory_contact_name")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation("DirectoryContactFavoriteUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId, directoryContactId], map: "directory_contact_favorites_unique")
+  @@index([tenantId, userId], map: "directory_contact_favorites_tenant_user_idx")
+  @@map("directory_contact_favorites")
+}
+
+model DirectoryContactNote {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  directoryContactId   String   @map("directory_contact_id")
+  directoryContactName String?  @map("directory_contact_name")
+  body                 String   @db.Text
+  createdByUserId      String?  @map("created_by_user_id") @db.Uuid
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("DirectoryContactNoteAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, directoryContactId, createdAt], map: "directory_contact_notes_tenant_contact_created_idx")
+  @@index([createdByUserId], map: "directory_contact_notes_created_by_idx")
+  @@map("directory_contact_notes")
+}
+
+model EngagementAttachment {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  clientId         String?  @map("client_id") @db.Uuid
+  meetingId        String?  @map("meeting_id") @db.Uuid
+  mailMessageId    String?  @map("mail_message_id") @db.Uuid
+  fileName         String   @map("file_name")
+  contentType      String   @map("content_type")
+  byteSize         Int?     @map("byte_size")
+  bucket           String
+  s3Key            String   @map("s3_key")
+  checksumSha256   String?  @map("checksum_sha256")
+  source           String   @default("manual")
+  uploadedByUserId String?  @map("uploaded_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client      Client?      @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  meeting     Meeting?     @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  mailMessage MailMessage? @relation(fields: [mailMessageId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, clientId], map: "engagement_attachments_tenant_client_idx")
+  @@index([tenantId, meetingId], map: "engagement_attachments_tenant_meeting_idx")
+  @@index([tenantId, mailMessageId], map: "engagement_attachments_tenant_mail_message_idx")
+  @@map("engagement_attachments")
+}
+
+model EngagementCampaign {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  clientId        String?   @map("client_id") @db.Uuid
+  createdByUserId String    @map("created_by_user_id") @db.Uuid
+  name            String
+  type            String    @default("custom")
+  status          String    @default("draft")
+  subject         String?
+  body            String?   @db.Text
+  sourceContext   Json      @default("{}") @map("source_context_jsonb")
+  metadata        Json      @default("{}") @map("metadata_jsonb")
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant                        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client     Client?                       @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  createdBy  User                          @relation("CampaignCreator", fields: [createdByUserId], references: [id])
+  recipients EngagementCampaignRecipient[]
+
+  @@index([tenantId, clientId, status], map: "engagement_campaigns_tenant_client_status_idx")
+  @@map("engagement_campaigns")
+}
+
+model EngagementCampaignRecipient {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  campaignId String    @map("campaign_id") @db.Uuid
+  name       String?
+  email      String
+  title      String?
+  office     String?
+  status     String    @default("pending")
+  sentAt     DateTime? @map("sent_at") @db.Timestamptz(6)
+  metadata   Json      @default("{}") @map("metadata_jsonb")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  campaign EngagementCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, campaignId], map: "engagement_campaign_recipients_tenant_campaign_idx")
+  @@map("engagement_campaign_recipients")
+}
+
+model EngagementContact {
+  id                     String   @id @default(uuid()) @db.Uuid
+  tenantId               String   @map("tenant_id") @db.Uuid
+  clientId               String?  @map("client_id") @db.Uuid
+  directoryEntryId       String?  @map("directory_entry_id")
+  acquisitionPersonnelId String?  @map("acquisition_personnel_id") @db.Uuid
+  fullName               String?  @map("full_name")
+  email                  String?  @db.Citext
+  phone                  String?
+  organization           String?
+  title                  String?
+  source                 String   @default("manual")
+  metadata               Json     @default("{}") @map("metadata_jsonb")
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client    Client?           @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  attendees MeetingAttendee[]
+  tasks     EngagementTask[]
+
+  @@unique([tenantId, email], map: "engagement_contacts_tenant_email_key")
+  @@index([tenantId, clientId], map: "engagement_contacts_tenant_client_idx")
+  @@index([acquisitionPersonnelId], map: "engagement_contacts_acquisition_personnel_id_idx")
+  @@map("engagement_contacts")
+}
+
+model EngagementReportTargetOffice {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  clientId         String?  @map("client_id") @db.Uuid
+  scopeKey         String   @map("scope_key")
+  officeKey        String   @map("office_key")
+  memberPrincipal  String   @map("member_principal")
+  committee        String?
+  staffer          String?
+  building         String?
+  leadOwner        String?  @map("lead_owner")
+  prepStatus       String   @default("auto") @map("prep_status")
+  outreachStatus   String   @default("auto") @map("outreach_status")
+  submissionStatus String   @default("auto") @map("submission_status")
+  source           String   @default("manual")
+  createdByUserId  String?  @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client    Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  createdBy User?   @relation("EngagementReportTargetOfficeAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, scopeKey, officeKey], map: "engagement_report_targets_tenant_scope_office_key")
+  @@index([tenantId, clientId, prepStatus], map: "engagement_report_targets_tenant_client_prep_idx")
+  @@map("engagement_report_target_offices")
+}
+
+model EngagementTask {
+  id              String               @id @default(uuid()) @db.Uuid
+  tenantId        String               @map("tenant_id") @db.Uuid
+  clientId        String?              @map("client_id") @db.Uuid
+  meetingId       String?              @map("meeting_id") @db.Uuid
+  contactId       String?              @map("contact_id") @db.Uuid
+  mailThreadId    String?              @map("mail_thread_id") @db.Uuid
+  title           String
+  description     String?
+  ownerUserId     String?              @map("owner_user_id") @db.Uuid
+  dueDate         DateTime?            @map("due_date") @db.Date
+  status          EngagementTaskStatus @default(todo)
+  sourceType      String?              @map("source_type")
+  sourceId        String?              @map("source_id")
+  createdByUserId String?              @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client     Client?            @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  meeting    Meeting?           @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  contact    EngagementContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  mailThread MailThread?        @relation(fields: [mailThreadId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, clientId, status], map: "engagement_tasks_tenant_client_status_idx")
+  @@index([tenantId, dueDate], map: "engagement_tasks_tenant_due_idx")
+  @@map("engagement_tasks")
+}
+
+model ImpersonationSession {
+  id          String    @id @default(uuid()) @db.Uuid
+  actorUserId String    @map("actor_user_id") @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  reason      String
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(6)
+  endedAt     DateTime? @map("ended_at") @db.Timestamptz(6)
+  endedReason String?   @map("ended_reason")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  actor  User   @relation("ImpersonationActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+
+  @@index([actorUserId, expiresAt], map: "impersonation_sessions_actor_active_idx")
+  @@map("impersonation_sessions")
+}
+
+model IntegrationConnection {
+  id              String                     @id @default(uuid()) @db.Uuid
+  tenantId        String                     @map("tenant_id") @db.Uuid
+  provider        EngagementProvider
+  accountEmail    String?                    @map("account_email") @db.Citext
+  displayName     String?                    @map("display_name")
+  status          EngagementConnectionStatus @default(needs_configuration)
+  scopes          String[]                   @default([])
+  syncState       Json                       @default("{}") @map("sync_state_jsonb")
+  lastSyncAt      DateTime?                  @map("last_sync_at") @db.Timestamptz(6)
+  nextSyncAt      DateTime?                  @map("next_sync_at") @db.Timestamptz(6)
+  lastError       String?                    @map("last_error")
+  createdByUserId String?                    @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime                   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant       Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  token        IntegrationConnectionToken?
+  meetings     Meeting[]
+  mailThreads  MailThread[]
+  mailMessages MailMessage[]
+
+  @@unique([tenantId, provider, accountEmail], map: "engagement_connections_tenant_provider_account_key")
+  @@index([tenantId, status], map: "engagement_connections_tenant_status_idx")
+  @@map("engagement_connections")
+}
+
+model IntegrationConnectionToken {
+  id                     String   @id @default(uuid()) @db.Uuid
+  tenantId               String   @map("tenant_id") @db.Uuid
+  connectionId           String   @unique @map("connection_id") @db.Uuid
+  accessTokenCiphertext  String   @map("access_token_ciphertext")
+  accessTokenIv          String   @map("access_token_iv")
+  accessTokenAuthTag     String   @map("access_token_auth_tag")
+  refreshTokenCiphertext String?  @map("refresh_token_ciphertext")
+  refreshTokenIv         String?  @map("refresh_token_iv")
+  refreshTokenAuthTag    String?  @map("refresh_token_auth_tag")
+  keyVersion             String   @map("key_version")
+  scopes                 String[] @default([])
+  homeAccountId          String?  @map("home_account_id")
+  expiresAt              DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  connection IntegrationConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, connectionId], map: "engagement_connection_tokens_tenant_connection_idx")
+  @@map("engagement_connection_tokens")
+}
+
+model MailMessage {
+  id             String           @id @default(uuid()) @db.Uuid
+  tenantId       String           @map("tenant_id") @db.Uuid
+  threadId       String           @map("thread_id") @db.Uuid
+  connectionId   String?          @map("connection_id") @db.Uuid
+  source         EngagementSource @default(manual)
+  externalId     String?          @map("external_id")
+  subject        String?
+  fromEmail      String?          @map("from_email") @db.Citext
+  fromName       String?          @map("from_name")
+  toRecipients   Json             @default("[]") @map("to_recipients_jsonb")
+  ccRecipients   Json             @default("[]") @map("cc_recipients_jsonb")
+  bccRecipients  Json             @default("[]") @map("bcc_recipients_jsonb")
+  sentAt         DateTime?        @map("sent_at") @db.Timestamptz(6)
+  receivedAt     DateTime?        @map("received_at") @db.Timestamptz(6)
+  bodyText       String?          @map("body_text")
+  bodyHtmlS3Key  String?          @map("body_html_s3_key")
+  hasAttachments Boolean          @default(false) @map("has_attachments")
+  metadata       Json             @default("{}") @map("metadata_jsonb")
+  raw            Json?            @map("raw_jsonb")
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant      Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  thread      MailThread             @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  connection  IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  attachments EngagementAttachment[]
+
+  @@unique([tenantId, source, externalId], map: "mail_messages_tenant_source_external_key")
+  @@index([tenantId, fromEmail], map: "mail_messages_tenant_from_idx")
+  @@index([tenantId, receivedAt], map: "mail_messages_tenant_received_idx")
+  @@map("mail_messages")
+}
+
+model MailThread {
+  id                 String           @id @default(uuid()) @db.Uuid
+  tenantId           String           @map("tenant_id") @db.Uuid
+  clientId           String?          @map("client_id") @db.Uuid
+  connectionId       String?          @map("connection_id") @db.Uuid
+  source             EngagementSource @default(manual)
+  externalId         String?          @map("external_id")
+  subject            String
+  snippet            String?
+  participants       Json             @default("[]") @map("participants_jsonb")
+  lastMessageAt      DateTime?        @map("last_message_at") @db.Timestamptz(6)
+  status             String           @default("open")
+  metadata           Json             @default("{}") @map("metadata_jsonb")
+  raw                Json?            @map("raw_jsonb")
+  associationScore   Float?           @map("association_score")
+  associationReason  String?          @map("association_reason")
+  associationSignals Json             @default("{}") @map("association_signals_jsonb")
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client     Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  connection IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  messages   MailMessage[]
+  tasks      EngagementTask[]
+
+  @@unique([tenantId, source, externalId], map: "mail_threads_tenant_source_external_key")
+  @@index([tenantId, clientId, lastMessageAt], map: "mail_threads_tenant_client_last_idx")
+  @@map("mail_threads")
+}
+
+model Meeting {
+  id                 String           @id @default(uuid()) @db.Uuid
+  tenantId           String           @map("tenant_id") @db.Uuid
+  clientId           String?          @map("client_id") @db.Uuid
+  isInternal         Boolean          @default(false) @map("is_internal")
+  connectionId       String?          @map("connection_id") @db.Uuid
+  source             EngagementSource @default(manual)
+  externalId         String?          @map("external_id")
+  subject            String
+  description        String?
+  location           String?
+  startsAt           DateTime         @map("starts_at") @db.Timestamptz(6)
+  endsAt             DateTime         @map("ends_at") @db.Timestamptz(6)
+  organizerEmail     String?          @map("organizer_email") @db.Citext
+  organizerName      String?          @map("organizer_name")
+  status             String           @default("scheduled")
+  transcriptS3Key    String?          @map("transcript_s3_key")
+  metadata           Json             @default("{}") @map("metadata_jsonb")
+  raw                Json?            @map("raw_jsonb")
+  associationScore   Float?           @map("association_score")
+  associationReason  String?          @map("association_reason")
+  associationSignals Json             @default("{}") @map("association_signals_jsonb")
+  createdByUserId    String?          @map("created_by_user_id") @db.Uuid
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant          Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client          Client?                @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  connection      IntegrationConnection? @relation(fields: [connectionId], references: [id], onDelete: SetNull)
+  attendees       MeetingAttendee[]
+  attachments     EngagementAttachment[]
+  notes           MeetingNote[]
+  debriefs        MeetingDebrief[]
+  preps           MeetingPrep[]
+  tasks           EngagementTask[]
+  outreachRecords OutreachRecord[]
+  clioNotes       ClioNote[]
+
+  @@unique([tenantId, source, externalId], map: "meetings_tenant_source_external_key")
+  @@index([tenantId, startsAt], map: "meetings_tenant_starts_idx")
+  @@index([tenantId, clientId, startsAt], map: "meetings_tenant_client_starts_idx")
+  @@map("meetings")
+}
+
+model MeetingAttendee {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  meetingId      String   @map("meeting_id") @db.Uuid
+  contactId      String?  @map("contact_id") @db.Uuid
+  email          String?  @db.Citext
+  name           String?
+  role           String?
+  responseStatus String?  @map("response_status")
+  metadata       Json     @default("{}") @map("metadata_jsonb")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant  Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  meeting Meeting            @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  contact EngagementContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([meetingId, email], map: "meeting_attendees_meeting_email_key")
+  @@index([tenantId, email], map: "meeting_attendees_tenant_email_idx")
+  @@map("meeting_attendees")
+}
+
+model MeetingDebrief {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  meetingId      String   @map("meeting_id") @db.Uuid
+  clientId       String?  @map("client_id") @db.Uuid
+  authorUserId   String?  @map("author_user_id") @db.Uuid
+  bodyCiphertext String   @map("body_ciphertext")
+  iv             String
+  authTag        String   @map("auth_tag")
+  keyVersion     String?  @map("key_version")
+  confidential   Boolean  @default(true)
+  accessLevel    String   @default("tenant_members") @map("access_level")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  client  Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  author  User?   @relation("MeetingDebriefAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, meetingId, createdAt], map: "meeting_debriefs_tenant_meeting_created_idx")
+  @@map("meeting_debriefs")
+}
+
+model MeetingNote {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  meetingId      String   @map("meeting_id") @db.Uuid
+  clientId       String?  @map("client_id") @db.Uuid
+  authorUserId   String?  @map("author_user_id") @db.Uuid
+  bodyCiphertext String   @map("body_ciphertext")
+  iv             String
+  authTag        String   @map("auth_tag")
+  keyVersion     String?  @map("key_version")
+  confidential   Boolean  @default(true)
+  accessLevel    String   @default("tenant_admins_and_author") @map("access_level")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  client  Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  author  User?   @relation("MeetingNoteAuthor", fields: [authorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, meetingId, createdAt], map: "meeting_notes_tenant_meeting_created_idx")
+  @@map("meeting_notes")
+}
+
+model MeetingPrep {
+  id             String            @id @default(uuid()) @db.Uuid
+  tenantId       String            @map("tenant_id") @db.Uuid
+  meetingId      String            @map("meeting_id") @db.Uuid
+  clientId       String?           @map("client_id") @db.Uuid
+  status         MeetingPrepStatus @default(generated)
+  agenda         Json              @default("[]") @map("agenda_jsonb")
+  talkingPoints  Json              @default("[]") @map("talking_points_jsonb")
+  risks          Json              @default("[]") @map("risks_jsonb")
+  followUps      Json              @default("[]") @map("follow_ups_jsonb")
+  emailEvidence  Json              @default("[]") @map("email_evidence_jsonb")
+  summary        String?
+  provider       String?
+  model          String?
+  promptHash     String?           @map("prompt_hash")
+  generatedFrom  Json              @default("{}") @map("generated_from_jsonb")
+  editedByUserId String?           @map("edited_by_user_id") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  client  Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, meetingId, createdAt], map: "meeting_preps_tenant_meeting_created_idx")
+  @@map("meeting_preps")
+}
+
+model OutreachAiTemplate {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  userId        String?  @map("user_id") @db.Uuid
+  name          String
+  category      String   @default("general")
+  prompt        String   @db.Text
+  description   String?  @db.Text
+  samplePreview String?  @map("sample_preview") @db.Text
+  tone          String   @default("professional")
+  metadata      Json?    @map("metadata_jsonb")
+  usageCount    Int      @default(0) @map("usage_count")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation("OutreachAiTemplateAuthor", fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, userId, category, updatedAt], map: "outreach_ai_templates_tenant_user_cat_idx")
+  @@map("outreach_ai_template")
+}
+
+model OutreachAudience {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  kind            String // 'list' | 'group'
+  name            String
+  description     String?
+  status          String   @default("draft") @map("status") // 'draft' | 'active' | 'archived'
+  metadata        Json     @default("{}") @map("metadata_jsonb")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant  Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  members OutreachAudienceMember[]
+
+  @@index([tenantId, createdByUserId, kind, name], map: "outreach_audiences_tenant_user_kind_name_idx")
+  @@map("outreach_audiences")
+}
+
+model OutreachAudienceMember {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  audienceId  String   @map("audience_id") @db.Uuid
+  source      String // 'congress' | 'client_contact' | 'manual'
+  sourceRefId String?  @map("source_ref_id") // directoryContactId | clientPersonId | null
+  name        String?
+  email       String   @db.Citext
+  title       String?
+  office      String?
+  metadata    Json     @default("{}") @map("metadata_jsonb")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  audience OutreachAudience @relation(fields: [audienceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, audienceId], map: "outreach_audience_members_tenant_audience_idx")
+  @@map("outreach_audience_members")
+}
+
+model OutreachRecord {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  clientId        String?   @map("client_id") @db.Uuid
+  meetingId       String?   @map("meeting_id") @db.Uuid
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  type            String
+  status          String    @default("draft")
+  title           String
+  subject         String?
+  body            String?   @db.Text
+  recipients      Json      @default("[]") @map("recipients_jsonb")
+  recipientCount  Int       @default(0) @map("recipient_count")
+  stats           Json      @default("{}") @map("stats_jsonb")
+  metadata        Json      @default("{}") @map("metadata_jsonb")
+  lastStep        Int       @default(1) @map("last_step")
+  sentAt          DateTime? @map("sent_at") @db.Timestamptz(6)
+  openedInEmailAt DateTime? @map("opened_in_email_at") @db.Timestamptz(6)
+  deletedAt       DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedByUserId String?   @map("deleted_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client    Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  meeting   Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  createdBy User?    @relation("OutreachRecordAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, type, status, createdAt], map: "outreach_records_tenant_type_status_created_idx")
+  @@index([tenantId, clientId, createdAt], map: "outreach_records_tenant_client_created_idx")
+  @@index([tenantId, meetingId], map: "outreach_records_tenant_meeting_idx")
+  @@index([tenantId, deletedAt, createdAt], map: "outreach_records_tenant_deleted_created_idx")
+  @@map("outreach_records")
+}
+
+model OutreachTemplate {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  type            String   @default("outbound_campaign")
+  name            String
+  subject         String?
+  body            String   @db.Text
+  metadata        Json     @default("{}") @map("metadata_jsonb")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("OutreachTemplateAuthor", fields: [createdByUserId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdByUserId, type, updatedAt], map: "outreach_templates_tenant_user_type_updated_idx")
+  @@map("outreach_templates")
+}
+
+model ProgramElementWatch {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  peCode    String   @map("pe_code") @db.VarChar(16)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, peCode], map: "program_element_watch_user_pe_code_key")
+  @@index([tenantId, peCode], map: "program_element_watch_tenant_pe_code_idx")
+  @@map("program_element_watch")
+}
+
+model Strategy {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  clientId        String   @map("client_id") @db.Uuid
+  capabilityId    String?  @map("capability_id") @db.Uuid
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  name            String
+  fiscalYear      String?  @map("fiscal_year")
+  status          String   @default("active")
+  description     String?  @db.Text
+  submissionTypes Json     @default("[]") @map("submission_types_jsonb")
+  settings        Json     @default("{}") @map("settings_jsonb")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // Optional in Prisma even though the DB column is NOT NULL. The DB FK +
+  // ON DELETE CASCADE prevent true orphans, but RLS / archived-status
+  // filters in tenant-scoped queries can hide the client row from the
+  // join while still returning the strategy row. Marking the Prisma
+  // relation optional lets `include: { client: ... }` resolve to null
+  // instead of throwing
+  //   "Field client is required to return data, got null instead"
+  // every time someone lists strategies for an archived client.
+  client     Client?            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  capability ClientCapability?  @relation(fields: [capabilityId], references: [id], onDelete: SetNull)
+  createdBy  User?              @relation("StrategyCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  targets    StrategyTarget[]
+  instances  WorkflowInstance[]
+
+  @@index([tenantId, clientId, status], map: "strategies_tenant_client_status_idx")
+  @@map("strategies")
+}
+
+model StrategyTarget {
+  id                     String    @id @default(uuid()) @db.Uuid
+  tenantId               String    @map("tenant_id") @db.Uuid
+  strategyId             String    @map("strategy_id") @db.Uuid
+  acquisitionPersonnelId String?   @map("acquisition_personnel_id") @db.Uuid
+  memberName             String    @map("member_name")
+  memberTitle            String?   @map("member_title")
+  memberParty            String?   @map("member_party")
+  memberState            String?   @map("member_state")
+  committee              String?
+  subcommittee           String?
+  stafferName            String?   @map("staffer_name")
+  stafferEmail           String?   @map("staffer_email")
+  directoryContactId     String?   @map("directory_contact_id")
+  outreachStatus         String    @default("not_started") @map("outreach_status")
+  meetingDate            DateTime? @map("meeting_date") @db.Timestamptz(6)
+  notes                  String?   @db.Text
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  strategy Strategy @relation(fields: [strategyId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, strategyId], map: "strategy_targets_tenant_strategy_idx")
+  @@index([acquisitionPersonnelId], map: "strategy_targets_acquisition_personnel_id_idx")
+  @@map("strategy_targets")
+}
+
+model Tenant {
+  id              String       @id @default(uuid()) @db.Uuid
+  slug            String       @unique @db.Citext
+  name            String
+  status          TenantStatus @default(pending)
+  plan            String?
+  settings        Json         @default("{}") @map("settings_jsonb")
+  kmsKeyArn       String?      @map("kms_key_arn")
+  soc2AuditWindow Json?        @map("soc2_audit_window")
+  // Clerk Organization id this tenant maps to. Populated by the
+  // bootstrap-tenant script and used by the middleware to cross-check the
+  // Clerk JWT's `org_id` claim against the tenant resolved via slug/UUID.
+  clerkOrgId      String?      @unique @map("clerk_org_id")
+  // Brand assets, logo lives in S3 under `tenants/{id}/branding/...`.
+  // Upload is gated to user_admin (own tenant) and capiro_admin (any tenant).
+  logoS3Key       String?      @map("logo_s3_key")
+  logoContentType String?      @map("logo_content_type")
+  logoUploadedAt  DateTime?    @map("logo_uploaded_at") @db.Timestamptz(6)
+  // Portfolio Tab v2 additions
+  accountType     String?      @map("account_type")
+  planTier        String       @default("FOUNDATION") @map("plan_tier")
+  // Client→data association overhaul: the lobbying firm this tenant files as.
+  // Anchors client→LDA resolution to this registrant's filings
+  // (lda_filing.registrant_id), collapsing the candidate set from ~46k global
+  // LDA clients to just the clients this firm has actually filed for.
+  ldaRegistrantId   Int?       @map("lda_registrant_id")
+  ldaRegistrantName String?    @map("lda_registrant_name")
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships                  TenantMembership[]
+  auditLogs                    AuditLog[]
+  clients                      Client[]
+  impersonationSessions        ImpersonationSession[]
+  engagementConnections        IntegrationConnection[]
+  engagementConnectionTokens   IntegrationConnectionToken[]
+  engagementContacts           EngagementContact[]
+  meetings                     Meeting[]
+  meetingAttendees             MeetingAttendee[]
+  mailThreads                  MailThread[]
+  mailMessages                 MailMessage[]
+  engagementAttachments        EngagementAttachment[]
+  meetingNotes                 MeetingNote[]
+  meetingPreps                 MeetingPrep[]
+  engagementTasks              EngagementTask[]
+  associationOverrides         ClientAssociationOverride[]
+  contextEmbeddings            ContextEmbedding[]
+  directoryContactNotes        DirectoryContactNote[]
+  directoryContactFavorites    DirectoryContactFavorite[]
+  engagementReportTargets      EngagementReportTargetOffice[]
+  outreachRecords              OutreachRecord[]
+  outreachTemplates            OutreachTemplate[]
+  outreachAudiences            OutreachAudience[]
+  outreachAudienceMembers      OutreachAudienceMember[]
+  MeetingDebrief               MeetingDebrief[]
+  clioConversations            ClioConversation[]
+  clioMessages                 ClioMessage[]
+  clioArtifacts                ClioArtifact[]
+  clioNotes                    ClioNote[]
+  clioResearchSessions         ClioResearchSession[]
+  workflowInstances            WorkflowInstance[]
+  clientCapabilities           ClientCapability[]
+  clientSubmissionHistory      ClientSubmissionHistory[]
+  clientPeople                 ClientPerson[]
+  clientFacilities             ClientFacility[]
+  strategies                   Strategy[]
+  strategyTargets              StrategyTarget[]
+  engagementCampaigns          EngagementCampaign[]
+  engagementCampaignRecipients EngagementCampaignRecipient[]
+  outreachAiTemplates          OutreachAiTemplate[]
+  clioMemories                 ClioMemory[]
+  clioProactiveAlerts          ClioProactiveAlert[]
+  clioScheduledTasks           ClioScheduledTask[]
+  clioAttachments              ClioAttachment[]
+  clioMcpServers               ClioMcpServer[]
+  clioFirmSkills               ClioFirmSkill[]
+  programElementWatches        ProgramElementWatch[]
+  actionRecommendations        ActionRecommendation[]
+  aiUsageEvents                AiUsageEvent[]
+  aiCredentials                TenantAiCredential[]
+
+  @@map("tenants")
+}
+
+model TenantAiCredential {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  /// 'openai' | 'anthropic'
+  provider        String    @db.VarChar(16)
+  keyCiphertext   String    @map("key_ciphertext")
+  keyIv           String    @map("key_iv")
+  keyAuthTag      String    @map("key_auth_tag")
+  keyVersion      String    @default("v1") @map("key_version")
+  keyLast4        String    @map("key_last4") @db.VarChar(4)
+  modelOverride   String?   @map("model_override") @db.VarChar(80)
+  /// 'active' | 'invalid' | 'disabled'
+  status          String    @default("active") @db.VarChar(16)
+  lastValidatedAt DateTime? @map("last_validated_at") @db.Timestamptz(6)
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, provider], map: "tenant_ai_credentials_tenant_provider_key")
+  @@map("tenant_ai_credentials")
+}
+
+model TenantMembership {
+  id        String           @id @default(uuid()) @db.Uuid
+  tenantId  String           @map("tenant_id") @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  role      TenantRole
+  status    MembershipStatus @default(invited)
+  invitedBy String?          @map("invited_by") @db.Uuid
+  joinedAt  DateTime?        @map("joined_at") @db.Timestamptz(6)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId], map: "tenant_memberships_tenant_user_unique")
+  @@index([tenantId, role], map: "tenant_memberships_tenant_role_idx")
+  @@index([userId], map: "tenant_memberships_user_idx")
+  @@map("tenant_memberships")
+}
+
+model TrackedBill {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  clientId  String   @map("client_id") @db.Uuid
+  billId    String   @map("bill_id") // FK-ish to congress_bill.id, e.g. "119-hr-1234"
+  note      String?  @db.Text
+  createdBy String?  @map("created_by") // clerk user id of whoever pinned it
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([clientId, billId])
+  @@index([tenantId])
+  @@index([clientId])
+  @@index([billId])
+  @@map("tracked_bill")
+}
+
+model User {
+  id          String    @id @default(uuid()) @db.Uuid
+  clerkUserId String    @unique @map("clerk_user_id")
+  email       String    @unique @db.Citext
+  firstName   String?   @map("first_name")
+  lastName    String?   @map("last_name")
+  // Free-form job title displayed under the user's name in the top-right
+  // profile widget. User-editable via /settings.
+  title       String?
+  lastSeenAt  DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  memberships               TenantMembership[]
+  auditLogs                 AuditLog[]                     @relation("AuditActor")
+  impersonationSessions     ImpersonationSession[]         @relation("ImpersonationActor")
+  directoryContactNotes     DirectoryContactNote[]         @relation("DirectoryContactNoteAuthor")
+  directoryContactFavorites DirectoryContactFavorite[]     @relation("DirectoryContactFavoriteUser")
+  meetingNotes              MeetingNote[]                  @relation("MeetingNoteAuthor")
+  meetingDebriefs           MeetingDebrief[]               @relation("MeetingDebriefAuthor")
+  engagementReportTargets   EngagementReportTargetOffice[] @relation("EngagementReportTargetOfficeAuthor")
+  outreachRecords           OutreachRecord[]               @relation("OutreachRecordAuthor")
+  outreachTemplates         OutreachTemplate[]             @relation("OutreachTemplateAuthor")
+  outreachAiTemplates       OutreachAiTemplate[]           @relation("OutreachAiTemplateAuthor")
+  clioConversations         ClioConversation[]             @relation("ClioConversationUser")
+  clioMessages              ClioMessage[]                  @relation("ClioMessageUser")
+  clioArtifacts             ClioArtifact[]                 @relation("ClioArtifactUser")
+  clioNotes                 ClioNote[]                     @relation("ClioNoteUser")
+  clioResearchSessions      ClioResearchSession[]          @relation("ClioResearchSessionUser")
+  clioAttachments           ClioAttachment[]               @relation("ClioAttachmentUser")
+  workflowInstances         WorkflowInstance[]             @relation("WorkflowInstanceCreator")
+  strategies                Strategy[]                     @relation("StrategyCreator")
+  createdCampaigns          EngagementCampaign[]           @relation("CampaignCreator")
+  programElementWatches     ProgramElementWatch[]
+
+  @@map("users")
+}
+
+model WorkflowInstance {
+  id                 String         @id @default(uuid()) @db.Uuid
+  tenantId           String         @map("tenant_id") @db.Uuid
+  templateId         String         @map("template_id") @db.Uuid
+  createdByUserId    String?        @map("created_by_user_id") @db.Uuid
+  clientId           String?        @map("client_id") @db.Uuid
+  strategyId         String?        @map("strategy_id") @db.Uuid
+  title              String
+  status             WorkflowStatus @default(triage)
+  formData           Json           @default("{}") @map("form_data_jsonb")
+  targetMemberId     String?        @map("target_member_id")
+  submissionDeadline DateTime?      @map("submission_deadline") @db.Date
+  submissionMethod   String?        @map("submission_method")
+  notes              String?        @db.Text
+  completedAt        DateTime?      @map("completed_at") @db.Timestamptz(6)
+  createdAt          DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy User?            @relation("WorkflowInstanceCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  client    Client?          @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  strategy  Strategy?        @relation(fields: [strategyId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status, createdAt], map: "workflow_instances_tenant_status_created_idx")
+  @@index([tenantId, clientId, status], map: "workflow_instances_tenant_client_status_idx")
+  @@index([tenantId, templateId], map: "workflow_instances_tenant_template_idx")
+  @@index([strategyId], map: "workflow_instances_strategy_idx")
+  @@map("workflow_instances")
+}

@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib';
 
-export type EnvName = 'dev' | 'staging' | 'prod';
+export type EnvName = 'dev' | 'staging' | 'prod' | 'prod-os-capiro';
 
 export interface EnvConfig {
   envName: EnvName;
@@ -9,6 +9,12 @@ export interface EnvConfig {
   // DNS
   hostedZoneDomain: string; // Route 53 zone that owns the records.
   rootDomain: string; // capiro.ai (prod) | app-dev.capiro.ai (dev)
+  vpcCidr: string; // VPC IPv4 range. Distinct per env to allow future peering.
+  // When true, ComputeStack builds TWO independent ALBs in separate AZ sets behind a
+  // Route53 failover record set (primary/secondary + health checks) for full
+  // active/passive load-balancer redundancy. When false, a single multi-AZ ALB (itself
+  // AZ-redundant) is used. prod-os-capiro = true (Neo, 2026-06-13).
+  redundantLoadBalancer: boolean;
   appHost: string; // app.capiro.ai (prod) | app-dev.capiro.ai (dev)
   wildcardHost: string; // *.app.capiro.ai (prod) | *.app-dev.capiro.ai (dev)
   // Clerk JWT issuer URL, injected into the ECS task as CLERK_JWT_ISSUER.
@@ -55,6 +61,8 @@ const BASE: Omit<EnvConfig, 'envName' | 'account' | 'region'> = {
   rootDomain: 'capiro.ai',
   appHost: 'app.capiro.ai',
   wildcardHost: '*.app.capiro.ai',
+  vpcCidr: '10.40.0.0/16',
+  redundantLoadBalancer: false,
   auroraMinAcu: 0.5,
   auroraMaxAcu: 4,
   auroraBackupRetentionDays: 35,
@@ -76,7 +84,7 @@ const BASE: Omit<EnvConfig, 'envName' | 'account' | 'region'> = {
 
 export function loadConfig(app: cdk.App): EnvConfig {
   const envName = (app.node.tryGetContext('env') as EnvName | undefined) ?? 'dev';
-  if (!['dev', 'staging', 'prod'].includes(envName)) {
+  if (!['dev', 'staging', 'prod', 'prod-os-capiro'].includes(envName)) {
     throw new Error(`Unknown env=${envName}`);
   }
   const account =
@@ -92,7 +100,52 @@ export function loadConfig(app: cdk.App): EnvConfig {
     'us-east-1';
 
   const overrides: Partial<EnvConfig> =
-    envName === 'prod'
+    envName === 'prod-os-capiro'
+      ? {
+          // prod-os-capiro: a brand-new, fully ISOLATED production environment on its
+          // OWN domain (prodos.capiro.ai), with its OWN VPC, Aurora, ALB, ECS cluster,
+          // and secrets. Built greenfield so it never collides with the live system that
+          // the env=dev stacks currently serve at app.capiro.ai. Stacks are named
+          // `Capiro-prod-os-capiro-*` and touch nothing named `Capiro-dev-*`. DNS cutover
+          // to this env happens later as a separate, explicitly gated step.
+          hostedZoneDomain: 'prodos.capiro.ai', // delegated Route 53 zone — MUST exist before DnsStack deploy
+          appHost: 'app.prodos.capiro.ai',
+          wildcardHost: '*.app.prodos.capiro.ai',
+          rootDomain: 'prodos.capiro.ai',
+          // Dedicated, non-overlapping VPC range so prod-os-capiro never collides with the
+          // live dev/staging VPCs (both 10.40.0.0/16) and can be VPC-peered later if needed.
+          vpcCidr: '10.50.0.0/16',
+          // Full active/passive load-balancer redundancy: two ALBs + Route53 failover
+          // (Neo, 2026-06-13). Implemented in ComputeStack (Phase 2).
+          redundantLoadBalancer: true,
+          // Production sizing.
+          auroraMinAcu: 1,
+          auroraMaxAcu: 8,
+          auroraBackupRetentionDays: 35,
+          apiDesiredCount: 3,
+          apiMaxCount: 12,
+          webDesiredCount: 2,
+          webMaxCount: 6,
+          protectFromDestroy: true,
+          logRetentionDays: 365,
+          // AUTH (approved by Neo for prod-os-capiro): wired to the prod-os-capiro Clerk
+          // PRODUCTION instance issuer. Clerk forces the prod Frontend API to
+          // clerk.<registrable-domain>; since the root is capiro.ai the issuer is
+          // clerk.capiro.ai (it could NOT be clerk.prodos.capiro.ai). This is a DISTINCT
+          // Clerk app from the live one (clerk.app.capiro.ai) — the live app is untouched.
+          // The 5 Clerk CNAMEs (clerk/accounts/clkmail/clk._domainkey/clk2._domainkey on
+          // capiro.ai) were added CREATE-only to the capiro.ai zone on 2026-06-13; token
+          // validation succeeds once Clerk finishes verifying DNS + the pk_live/sk_live
+          // keys are deployed to the web/api tasks.
+          // Clerk app_3F4N127oWJRaBMbyYAhawaj8rtG / prod instance ins_3F4NH7HrBDizvAoVoLhNltYfrAW.
+          clerkJwtIssuer: 'https://clerk.capiro.ai',
+          // SECRETS: externalSecretArns is intentionally OMITTED. The prod-os-capiro
+          // secrets (Clerk secret key, OpenAI, Anthropic, oauth keys, etc.) must be created
+          // under capiro/prod-os-capiro/* with COMPLETE ARNs before any ComputeStack
+          // deploy (partial ARNs cause ECS ResourceInitializationError). EMAIL/Graph
+          // internals stay frozen until explicitly approved.
+        }
+      : envName === 'prod'
       ? {
           auroraMinAcu: 1,
           auroraMaxAcu: 8,

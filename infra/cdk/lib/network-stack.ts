@@ -34,9 +34,9 @@ export class NetworkStack extends cdk.Stack {
     Object.entries(commonTags(cfg)).forEach(([k, v]) => cdk.Tags.of(this).add(k, v));
 
     this.vpc = new ec2.Vpc(this, 'Vpc', {
-      ipAddresses: ec2.IpAddresses.cidr('10.40.0.0/16'),
+      ipAddresses: ec2.IpAddresses.cidr(cfg.vpcCidr),
       maxAzs: 3,
-      natGateways: cfg.envName === 'prod' ? 3 : 1,
+      natGateways: cfg.envName === 'prod' || cfg.envName === 'prod-os-capiro' ? 3 : 1,
       subnetConfiguration: [
         { name: 'public', subnetType: ec2.SubnetType.PUBLIC, cidrMask: 24 },
         { name: 'private', subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS, cidrMask: 22 },

@@ -1,0 +1,1708 @@
+// READ-ONLY schema for the capiro-dev reference/bulk datasets.
+// prod-os-capiro NEVER migrates or writes these tables. Generated client is query-only.
+// `prisma migrate` MUST NOT be run against this schema/datasource.
+
+// Capiro identity / tenancy core schema.
+// Scope: tenants, users, tenant_memberships, clerk_events, audit_logs.
+// All tenant-scoped tables carry tenant_id NOT NULL and are protected by
+// Postgres Row-Level Security policies created in the SQL migration.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/reference-client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("REFERENCE_DATABASE_URL")
+}
+
+model AcquisitionPersonnel {
+  id               String    @id @default(uuid()) @db.Uuid
+  fullName         String    @map("full_name")
+  nameKey          String    @map("name_key")
+  service          String?   @db.VarChar(8)
+  organization     String?
+  title            String?
+  role             String?
+  programOfRecord  String?   @map("program_of_record")
+  pePrimary        String?   @map("pe_primary") @db.VarChar(16)
+  peSecondary      String[]  @default([]) @map("pe_secondary")
+  emailDomain      String?   @map("email_domain")
+  publicProfileUrl String?   @map("public_profile_url")
+  confidence       Float     @default(0.5)
+  status           String    @default("active") @db.VarChar(16)
+  // Soft-supersede marker. Set by reconcile-personnel-supersede when a person's
+  // only provenance is a deprecated one-time directory load (e.g. the old
+  // stanford_dow_* spreadsheet) and no current source re-asserts them. Reads
+  // exclude supersededAt IS NOT NULL by default. Reversible (set back to null).
+  // Distinct from status='departed', which is a real-world departure signal.
+  supersededAt     DateTime? @map("superseded_at") @db.Timestamptz(6)
+  supersededReason String?   @map("superseded_reason")
+  firstSeenAt      DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt       DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  metadata         Json      @default("{}") @map("metadata_jsonb")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sources AcquisitionPersonnelSource[]
+  roles   PersonRole[]
+
+  @@index([pePrimary], map: "acquisition_personnel_pe_primary_idx")
+  @@index([nameKey], map: "acquisition_personnel_name_key_idx")
+  @@index([service, organization], map: "acquisition_personnel_service_org_idx")
+  @@index([status], map: "acquisition_personnel_status_idx")
+  @@index([supersededAt], map: "acquisition_personnel_superseded_at_idx")
+  @@map("acquisition_personnel")
+}
+
+model AcquisitionPersonnelMergeCandidate {
+  id                String    @id @default(uuid()) @db.Uuid
+  primaryPersonId   String    @map("primary_person_id") @db.Uuid
+  secondaryPersonId String    @map("secondary_person_id") @db.Uuid
+  similarityScore   Float     @map("similarity_score")
+  scoreBreakdown    Json      @default("{}") @map("score_breakdown_jsonb")
+  status            String    @default("open") @db.VarChar(20)
+  resolvedByUserId  String?   @map("resolved_by_user_id") @db.Uuid
+  resolvedAt        DateTime? @map("resolved_at") @db.Timestamptz(6)
+  decisionNotes     String?   @map("decision_notes") @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([status], map: "acquisition_personnel_merge_candidate_status_idx")
+  @@map("acquisition_personnel_merge_candidate")
+}
+
+model AcquisitionPersonnelQuarantine {
+  id            String   @id @default(uuid()) @db.Uuid
+  rawRecord     Json     @map("raw_record_jsonb")
+  reason        String
+  source        String
+  quarantinedAt DateTime @default(now()) @map("quarantined_at") @db.Timestamptz(6)
+
+  @@map("acquisition_personnel_quarantine")
+}
+
+model AcquisitionPersonnelSource {
+  id         String   @id @default(uuid()) @db.Uuid
+  personId   String   @map("person_id") @db.Uuid
+  source     String   @db.VarChar(64)
+  sourceUrl  String?  @map("source_url")
+  snippet    String?  @db.Text
+  observedAt DateTime @map("observed_at") @db.Timestamptz(6)
+  confidence Float
+  metadata   Json     @default("{}") @map("metadata_jsonb")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  person AcquisitionPersonnel @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@index([personId, observedAt], map: "acquisition_personnel_source_person_observed_idx")
+  @@index([source], map: "acquisition_personnel_source_source_idx")
+  @@map("acquisition_personnel_source")
+}
+
+model BeaData {
+  id          String   @id @default(uuid())
+  datasetName String   @map("dataset_name") // NIPA, Regional, Industry
+  tableName   String   @map("table_name")
+  lineNumber  Int?     @map("line_number")
+  seriesCode  String?  @map("series_code")
+  description String   @db.Text
+  year        Int
+  period      String // Q1-Q4, Annual
+  value       Float?
+  units       String? // Billions of dollars, Index, Percent
+  geoFips     String?  @map("geo_fips") // state/county FIPS for regional
+  syncedAt    DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@unique([datasetName, tableName, seriesCode, year, period, geoFips])
+  @@index([datasetName, year])
+  @@index([geoFips])
+  @@map("bea_data")
+}
+
+model BillText {
+  id          String   @id @default(uuid()) @db.Uuid
+  billId      String   @unique @map("bill_id")
+  sourceUrl   String?  @map("source_url")
+  textContent String   @map("text_content") @db.Text
+  fetchedAt   DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+
+  @@map("bill_text")
+}
+
+model BlsDataPoint {
+  id        String   @id @default(uuid())
+  seriesId  String   @map("series_id")
+  year      Int
+  period    String // M01-M12, Q01-Q05, A01
+  value     Float
+  footnotes String[] @default([])
+
+  series BlsSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  @@unique([seriesId, year, period])
+  @@index([seriesId, year])
+  @@map("bls_data_point")
+}
+
+model BlsSeries {
+  id         String   @id // series_id e.g. "CES0000000001"
+  title      String
+  surveyName String?  @map("survey_name")
+  area       String? // area code
+  industry   String? // industry code
+  periodType String   @map("period_type") // Monthly, Annual, Quarterly
+  syncedAt   DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  dataPoints BlsDataPoint[]
+
+  @@map("bls_series")
+}
+
+model CensusDistrict {
+  id                    String   @id // e.g. "119-CA-52" (congress-state-district)
+  congress              Int // 118, 119
+  state                 String // 2-letter state code
+  stateFips             String   @map("state_fips")
+  district              String // district number or "AL" for at-large
+  totalPopulation       Int?     @map("total_population")
+  medianHouseholdIncome Int?     @map("median_household_income")
+  medianAge             Float?   @map("median_age")
+  percentBachelorPlus   Float?   @map("percent_bachelor_plus") // % with bachelor's degree+
+  percentPoverty        Float?   @map("percent_poverty")
+  percentVeteran        Float?   @map("percent_veteran")
+  percentUninsured      Float?   @map("percent_uninsured")
+  laborForceSize        Int?     @map("labor_force_size")
+  unemploymentRate      Float?   @map("unemployment_rate")
+  topIndustries         Json     @default("[]") @map("top_industries") // [{name, employment, percent}]
+  dataYear              Int      @map("data_year") // ACS vintage year
+  syncedAt              DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([congress, state])
+  @@index([state, district])
+  @@map("census_district")
+}
+
+model ClerkEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  eventId     String    @unique @map("event_id")
+  eventType   String    @map("event_type")
+  payload     Json      @map("payload_jsonb")
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(6)
+  error       String?
+
+  @@index([eventType], map: "clerk_events_event_type_idx")
+  @@map("clerk_events")
+}
+
+model CommitteeHearing {
+  id            String   @id @default(uuid())
+  chamber       String // House, Senate, Joint
+  committeeName String   @map("committee_name")
+  committeeCode String?  @map("committee_code")
+  title         String   @db.Text
+  date          DateTime @db.Date
+  time          String? // "10:00 AM"
+  location      String?
+  type          String? // hearing, markup, meeting
+  witnesses     String[] @default([])
+  url           String?
+  syncedAt      DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([date])
+  @@index([committeeName, date])
+  @@map("committee_hearing")
+}
+
+model CommitteeReportProvision {
+  id               String   @id @default(uuid()) @db.Uuid
+  sourceDocumentId String?  @map("source_document_id") @db.Uuid
+  /// Issuing committee short code: 'HASC' | 'SASC' | 'HAC-D' | 'SAC-D' | 'CONF'.
+  committee        String   @db.VarChar(16)
+  fy               Int
+  /// The provision's heading / item title as it appears in the report.
+  heading          String   @db.Text
+  /// The full provision language (verbatim).
+  text             String   @db.Text
+  pageStart        Int?     @map("page_start")
+  pageEnd          Int?     @map("page_end")
+  /// Deterministic classifier output (see provision-action-classifier): 'directs_briefing'
+  /// | 'directs_report' | 'adds' | 'cuts' | 'transfers' | 'restricts' | 'encourages' |
+  /// 'expresses_concern'. Null when the language is ambiguous / unclassified.
+  actionType       String?  @map("action_type") @db.VarChar(24)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sourceDocument SourceDocument?   @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull)
+  links          ProvisionPeLink[]
+
+  @@index([committee, fy], map: "committee_report_provision_committee_fy_idx")
+  @@index([actionType], map: "committee_report_provision_action_type_idx")
+  @@index([sourceDocumentId], map: "committee_report_provision_source_document_idx")
+  @@map("committee_report_provision")
+}
+
+model ConferenceProbability {
+  peCode       String   @map("pe_code") @db.VarChar(16)
+  fy           Int
+  predicted    Decimal  @db.Decimal(14, 4)
+  ciLow        Decimal  @map("ci_low") @db.Decimal(14, 4)
+  ciHigh       Decimal  @map("ci_high") @db.Decimal(14, 4)
+  confidence   Decimal  @db.Decimal(6, 4)
+  modelVersion String   @map("model_version")
+  computedAt   DateTime @default(now()) @map("computed_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  @@id([peCode, fy])
+  @@index([fy], map: "conference_probability_fy_idx")
+  @@index([modelVersion], map: "conference_probability_model_version_idx")
+  @@map("conference_probability")
+}
+
+model CongressBill {
+  // Bills from Congress.gov (118th and 119th Congress).
+  id               String    @id // e.g. "119-hr-1234"
+  congress         Int
+  billType         String    @map("bill_type")
+  billNumber       String    @map("bill_number")
+  title            String
+  introducedDate   DateTime? @map("introduced_date") @db.Date
+  sponsorName      String?   @map("sponsor_name")
+  sponsorState     String?   @map("sponsor_state")
+  sponsorParty     String?   @map("sponsor_party")
+  latestActionText String?   @map("latest_action_text")
+  latestActionDate DateTime? @map("latest_action_date") @db.Date
+  policyArea       String?   @map("policy_area")
+  subjects         String[]  @default([])
+  peCodes          String[]  @default([]) @map("pe_codes")
+  committees       Json      @default("[]")
+  cosponsorsCount  Int       @default(0) @map("cosponsors_count")
+  originChamber    String?   @map("origin_chamber")
+  updateDate       DateTime? @map("update_date") @db.Timestamptz(6)
+  url              String?
+  lastSyncedAt     DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  actions       CongressBillAction[]
+  committeeRefs CongressBillCommittee[]
+  subjectRefs   CongressBillSubject[]
+
+  @@index([congress], map: "congress_bill_congress_idx")
+  @@index([policyArea], map: "congress_bill_policy_area_idx")
+  @@index([peCodes], map: "congress_bill_pe_codes_gin_idx", type: Gin)
+  @@map("congress_bill")
+}
+
+model CongressBillAction {
+  id      String       @id @default(uuid())
+  billId  String       @map("bill_id")
+  date    DateTime
+  text    String       @db.Text
+  type    String?
+  chamber String?
+  bill    CongressBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId, date])
+  @@map("congress_bill_action")
+}
+
+model CongressBillCommittee {
+  id            String       @id @default(uuid())
+  billId        String       @map("bill_id")
+  committeeName String       @map("committee_name")
+  committeeCode String?      @map("committee_code")
+  chamber       String?
+  bill          CongressBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+  @@index([committeeCode])
+  @@map("congress_bill_committee")
+}
+
+model CongressBillSubject {
+  id     String       @id @default(uuid())
+  billId String       @map("bill_id")
+  name   String
+  bill   CongressBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@index([billId])
+  @@index([name])
+  @@map("congress_bill_subject")
+}
+
+model CrsReport {
+  id       String    @id // CRS report number e.g. "R47650"
+  title    String    @db.Text
+  date     DateTime? @db.Date
+  authors  String[]  @default([])
+  topics   String[]  @default([])
+  summary  String?   @db.Text
+  pdfUrl   String?   @map("pdf_url")
+  htmlUrl  String?   @map("html_url")
+  active   Boolean   @default(true) // false if report is archived/withdrawn
+  syncedAt DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([date])
+  @@map("crs_report")
+}
+
+model DemoRequest {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  email     String   @db.Citext
+  company   String
+  role      String?
+  message   String?  @db.Text
+  source    String?
+  status    String   @default("new")
+  ip        String?
+  userAgent String?  @map("user_agent")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)], map: "demo_requests_created_idx")
+  @@index([email, createdAt(sort: Desc)], map: "demo_requests_email_created_idx")
+  @@map("demo_requests")
+}
+
+model FaraRegistration {
+  id                 String    @id @default(uuid())
+  registrationNumber String    @unique @map("registration_number")
+  registrantName     String    @map("registrant_name")
+  foreignPrincipal   String    @map("foreign_principal")
+  country            String?
+  status             String? // Active, Terminated
+  registrationDate   DateTime? @map("registration_date") @db.Date
+  terminationDate    DateTime? @map("termination_date") @db.Date
+  address            String?
+  state              String?
+  description        String?   @db.Text
+  syncedAt           DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([registrantName])
+  @@index([foreignPrincipal])
+  @@index([country])
+  @@map("fara_registration")
+}
+
+model FecCommittee {
+  // PACs and campaign committees from FEC API.
+  id                 String   @id // committee_id like C00835926
+  name               String
+  committeeType      String?  @map("committee_type")
+  designation        String?
+  party              String?
+  state              String?
+  treasurerName      String?  @map("treasurer_name")
+  totalReceipts      Decimal? @map("total_receipts") @db.Decimal(18, 2)
+  totalDisbursements Decimal? @map("total_disbursements") @db.Decimal(18, 2)
+  cashOnHand         Decimal? @map("cash_on_hand") @db.Decimal(18, 2)
+  cycles             Int[]    @default([])
+  lastSyncedAt       DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([name], map: "fec_committee_name_idx")
+  @@map("fec_committee")
+}
+
+model FecContribution {
+  // Individual/PAC contributions to candidates (Schedule A).
+  id                    String    @id @default(uuid()) @db.Uuid
+  committeeId           String    @map("committee_id")
+  committeeName         String?   @map("committee_name")
+  candidateId           String?   @map("candidate_id")
+  candidateName         String?   @map("candidate_name")
+  contributorName       String?   @map("contributor_name")
+  contributorEmployer   String?   @map("contributor_employer")
+  contributorOccupation String?   @map("contributor_occupation")
+  amount                Decimal   @db.Decimal(18, 2)
+  contributionDate      DateTime? @map("contribution_date") @db.Date
+  receiptType           String?   @map("receipt_type")
+  memoText              String?   @map("memo_text")
+  state                 String?
+  cycle                 Int
+  lastSyncedAt          DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@unique([committeeId, candidateName, contributorEmployer, amount, cycle], map: "fec_contribution_dedup_key")
+  @@index([committeeId], map: "fec_contribution_committee_id_idx")
+  @@index([candidateName], map: "fec_contribution_candidate_name_idx")
+  @@index([contributorEmployer], map: "fec_contribution_employer_idx")
+  @@index([cycle], map: "fec_contribution_cycle_idx")
+  @@map("fec_contribution")
+}
+
+model FecPacContribution {
+  // Schedule B — disbursements BY a committee (PAC) TO candidates/committees.
+  // This is the organization's OWN PAC giving — legally distinct from the
+  // individual employer-linked contributions in FecContribution (Schedule A).
+  // GLOBAL table (no tenant_id, no RLS); attributed to a client via a confirmed
+  // ClientIntelMapping(source='fec_committee') linking client -> committeeId.
+  id                   String    @id @default(uuid()) @db.Uuid
+  committeeId          String    @map("committee_id") // the giving PAC committee
+  committeeName        String?   @map("committee_name")
+  recipientName        String?   @map("recipient_name") // candidate/committee receiving
+  recipientCommitteeId String?   @map("recipient_committee_id")
+  candidateId          String?   @map("candidate_id")
+  candidateName        String?   @map("candidate_name")
+  amount               Decimal   @db.Decimal(18, 2)
+  disbursementDate     DateTime? @map("disbursement_date") @db.Date
+  disbursementType     String?   @map("disbursement_type")
+  memoText             String?   @map("memo_text")
+  cycle                Int
+  lastSyncedAt         DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@unique([committeeId, recipientName, amount, disbursementDate, cycle], map: "fec_pac_contribution_dedup_key")
+  @@index([committeeId], map: "fec_pac_contribution_committee_id_idx")
+  @@index([candidateName], map: "fec_pac_contribution_candidate_name_idx")
+  @@index([cycle], map: "fec_pac_contribution_cycle_idx")
+  @@map("fec_pac_contribution")
+}
+
+model FederalAgency {
+  // 97 federal agencies with budget authority + top contractors.
+  slug            String   @id
+  name            String
+  abbreviation    String?
+  code            String?
+  displayName     String?  @map("display_name")
+  budgetAuthority Decimal? @map("budget_authority") @db.Decimal(18, 2)
+  obligated       Decimal? @db.Decimal(18, 2)
+  outlays         Decimal? @db.Decimal(18, 2)
+  pctOfTotal      Float?   @map("pct_of_total")
+  pctOfBudget     Float?   @map("pct_of_budget")
+  pctContracts    Float?   @map("pct_contracts")
+  costPerAmerican Float?   @map("cost_per_american")
+  rankBySpending  Int?     @map("rank_by_spending")
+  contractsTotal  Decimal? @map("contracts_total") @db.Decimal(18, 2)
+  grantsTotal     Decimal? @map("grants_total") @db.Decimal(18, 2)
+  yearlyBudget    Json     @default("[]") @map("yearly_budget_jsonb")
+  topContractors  Json     @default("[]") @map("top_contractors_jsonb")
+  lastSyncedAt    DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([name], map: "federal_agency_name_idx")
+  @@map("federal_agency")
+}
+
+model FederalAward {
+  id                             String    @id @default(uuid()) @db.Uuid
+  // USAspending generated_unique_award_id — stable idempotency key.
+  awardUniqueId                  String    @unique @map("award_unique_id")
+  piid                           String?
+  fain                           String?
+  awardingAgency                 String?   @map("awarding_agency")
+  awardingSubTier                String?   @map("awarding_sub_tier")
+  contractorName                 String?   @map("contractor_name")
+  recipientUei                   String?   @map("recipient_uei")
+  amount                         Decimal?  @db.Decimal(18, 2)
+  description                    String?   @db.Text
+  peCode                         String?   @map("pe_code") @db.VarChar(16)
+  // How pe_code was resolved, for provenance/auditing and honest UI labeling.
+  // Null when pe_code is null. Values: 'description_regex' (legacy text match),
+  // 'dod_acquisition_program' (linked via the contract's DoD acquisition / MDAP
+  // code through the reviewed program_element_acquisition_program map). Lets the
+  // contractor panel state HOW a contractor was tied to a PE rather than implying
+  // a precision the source does not have.
+  peCodeSource                   String?   @map("pe_code_source")
+  // ── USAspending File C (financial_accounts_by_awards) funding crosswalk ──────────
+  // Populated by enrich-award-pe-tas from /api/v2/awards/funding/. The Treasury
+  // Account Symbol + Program Activity are the federal mechanism that ties an award
+  // to the appropriation account / program activity it was funded from. We store the
+  // dominant (largest-obligation) TAS+PA for display + the PE crosswalk. PE attribution
+  // from TAS+PA is intentionally LOWER precision than the R-3 named-prime link (one
+  // account/PA funds many PEs), so peCodeConfidence + peCodeCandidateCount make the
+  // ambiguity explicit and the UI never implies a false 1:1.
+  fundingTas                     String?   @map("funding_tas") // e.g. '057-3600' (federal_account) or full TAS label
+  fundingTasTitle                String?   @map("funding_tas_title") // e.g. 'RDT&E, Air Force'
+  programActivityCode            String?   @map("program_activity_code") // e.g. '0001'
+  programActivityName            String?   @map("program_activity_name") // e.g. 'BASIC RESEARCH'
+  fundingFy                      Int?      @map("funding_fy") // reporting fiscal year of the dominant File C row
+  // 0..1 confidence of the pe_code attribution. 1.0 only when UEI-confirmed against an
+  // R-3 named prime; ~0.5 when account+PA+FY resolve to a single PE; lower when ambiguous.
+  peCodeConfidence               Float?    @map("pe_code_confidence")
+  // How many distinct PEs the award's (account + program activity + FY) could map to.
+  // 1 = unambiguous; >1 = the UI shows "funded via <account> (N programs)" not a single PE.
+  peCodeCandidateCount           Int?      @map("pe_code_candidate_count")
+  // When peCodeSource='uei_confirmed_r3_prime', the matched performer row id (audit trail).
+  matchedPerformerId             String?   @map("matched_performer_id") @db.Uuid
+  // DoD Major Defense Acquisition Program (MDAP) attribution straight off the
+  // contract record (USAspending latest_transaction_contract_data). Always present
+  // on contracts; '000'/'NONE' for services & non-program awards. This is the
+  // zero-inference link between a contractor and a weapons program — e.g.
+  // '198'/'F-35', '516'/'SSN 774'. PE attribution is derived from these via the
+  // program_element_acquisition_program map, NOT fabricated.
+  dodAcqProgramCode              String?   @map("dod_acq_program_code")
+  dodAcqProgramName              String?   @map("dod_acq_program_name")
+  // Place of performance (where the work happens) — primary signal for district
+  // nexus. Recipient location (where the company is HQ'd) kept as a fallback.
+  // Two-letter state + congressional-district number as text ('02', 'AL'); null
+  // when USAspending omits it. Populated by sync-federal-award location fields.
+  popState                       String?   @map("pop_state")
+  popCongressionalDistrict       String?   @map("pop_congressional_district")
+  recipientState                 String?   @map("recipient_state")
+  recipientCongressionalDistrict String?   @map("recipient_congressional_district")
+  actionDate                     DateTime? @map("action_date") @db.Date
+  awardedAt                      DateTime? @map("awarded_at") @db.Timestamptz(6)
+  raw                            Json      @default("{}") @map("raw_jsonb")
+  lastSyncedAt                   DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([peCode], map: "federal_award_pe_code_idx")
+  @@index([contractorName], map: "federal_award_contractor_name_idx")
+  @@index([popState, popCongressionalDistrict], map: "federal_award_pop_district_idx")
+  @@index([awardedAt], map: "federal_award_awarded_at_idx")
+  @@index([actionDate], map: "federal_award_action_date_idx")
+  @@index([dodAcqProgramCode], map: "federal_award_dod_acq_program_idx")
+  @@map("federal_award")
+}
+
+model FederalContractor {
+  // Top federal contractors with parent-company UEI rollup.
+  id                String   @id @default(uuid()) @db.Uuid
+  name              String   @unique
+  slug              String?
+  uei               String?
+  recipientId       String?  @map("recipient_id")
+  totalContracts    Decimal? @map("total_contracts") @db.Decimal(18, 2)
+  pctOfAllContracts Float?   @map("pct_of_all_contracts")
+  costPerTaxpayer   Float?   @map("cost_per_taxpayer")
+  category          String? // Defense | Health | Tech | etc
+  subsidiaries      Int?
+  yearlySpend       Json     @default("[]") @map("yearly_spend_jsonb") // [{year, amount}]
+  topAgencies       Json     @default("[]") @map("top_agencies_jsonb") // [{slug, name, amount}]
+  topAwards         Json     @default("[]") @map("top_awards_jsonb") // [{awardId, description, amount, agency, startDate}]
+  noBidAwards       Json     @default("[]") @map("no_bid_awards_jsonb")
+  noBidTotal        Decimal? @map("no_bid_total") @db.Decimal(18, 2)
+  rankByContracts   Int?     @map("rank_by_contracts")
+  lastSyncedAt      DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  raw               Json     @default("{}") @map("raw_jsonb")
+
+  @@index([name], map: "federal_contractor_name_idx")
+  @@index([uei], map: "federal_contractor_uei_idx")
+  @@map("federal_contractor")
+}
+
+model FederalGrant {
+  id                String    @id // opportunity ID from Grants.gov
+  title             String    @db.Text
+  agency            String // awarding agency
+  subAgency         String?   @map("sub_agency")
+  opportunityNumber String?   @map("opportunity_number")
+  category          String? // Discretionary, Mandatory, etc.
+  fundingInstrument String?   @map("funding_instrument") // Grant, Cooperative Agreement
+  eligibility       String[]  @default([]) // eligible applicant types
+  cfdaNumbers       String[]  @default([]) @map("cfda_numbers")
+  awardCeiling      Float?    @map("award_ceiling")
+  awardFloor        Float?    @map("award_floor")
+  estimatedFunding  Float?    @map("estimated_funding")
+  expectedAwards    Int?      @map("expected_awards")
+  openDate          DateTime? @map("open_date") @db.Date
+  closeDate         DateTime? @map("close_date") @db.Date
+  status            String? // posted, closed, archived, forecasted
+  description       String?   @db.Text
+  url               String?
+  syncedAt          DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([agency])
+  @@index([closeDate])
+  @@index([status])
+  @@map("federal_grant")
+}
+
+model FederalIndustry {
+  // Top NAICS industries by federal contract spending.
+  code          String   @id // NAICS code, e.g. 336411
+  name          String
+  slug          String?
+  totalSpending Decimal? @map("total_spending") @db.Decimal(18, 2)
+  rank          Int?
+  pctOfTotal    Float?   @map("pct_of_total")
+  lastSyncedAt  DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@map("federal_industry")
+}
+
+model FederalRegisterDocument {
+  id              String    @id @default(uuid())
+  documentNumber  String    @unique @map("document_number")
+  type            String // RULE, PROPOSED_RULE, NOTICE, PRESIDENTIAL_DOCUMENT
+  title           String    @db.Text
+  abstract        String?   @db.Text
+  agencyNames     String[]  @map("agency_names")
+  publicationDate DateTime  @map("publication_date")
+  commentEndDate  DateTime? @map("comment_end_date")
+  effectiveDate   DateTime? @map("effective_date")
+  docketIds       String[]  @map("docket_ids")
+  cfrReferences   String[]  @map("cfr_references")
+  htmlUrl         String?   @map("html_url")
+  pdfUrl          String?   @map("pdf_url")
+  topics          String[]
+  significantRule Boolean   @default(false) @map("significant_rule")
+  syncedAt        DateTime  @default(now()) @map("synced_at")
+
+  @@index([type, publicationDate])
+  @@index([commentEndDate])
+  @@map("federal_register_document")
+}
+
+model GaoReport {
+  id              String    @id // GAO report number e.g. "GAO-24-106155"
+  title           String    @db.Text
+  url             String?
+  publishDate     DateTime? @map("publish_date") @db.Date
+  reportType      String?   @map("report_type") // Report, Testimony, Correspondence
+  topics          String[]  @default([])
+  agencies        String[]  @default([]) // agencies covered
+  summary         String?   @db.Text
+  recommendations Int? // number of recommendations
+  syncedAt        DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([publishDate])
+  @@index([reportType])
+  @@map("gao_report")
+}
+
+model GovInfoCache {
+  id        String   @id @default(uuid()) @db.Uuid
+  url       String   @unique
+  response  Json     @map("response_jsonb")
+  fetchedAt DateTime @default(now()) @map("fetched_at") @db.Timestamptz(6)
+
+  @@index([fetchedAt], map: "govinfo_cache_fetched_at_idx")
+  @@map("govinfo_cache")
+}
+
+model IntelArticle {
+  id          String   @id @default(uuid())
+  source      String // "roll_call", "the_hill", "brookings", "whitehouse", etc.
+  feedUrl     String?  @map("feed_url")
+  title       String   @db.Text
+  url         String   @unique
+  author      String?
+  publishedAt DateTime @map("published_at") @db.Timestamptz(6)
+  summary     String?  @db.Text
+  categories  String[] @default([])
+  agencies    String[] @default([]) // extracted agency names
+  topics      String[] @default([]) // extracted topic keywords
+  syncedAt    DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([source, publishedAt])
+  @@index([publishedAt])
+  @@map("intel_article")
+}
+
+model IntelligenceChange {
+  id               String   @id @default(uuid()) @db.Uuid
+  source           String
+  changeType       String   @map("change_type")
+  severity         String   @default("info")
+  title            String
+  description      String   @db.Text
+  relatedClientIds String[] @map("related_client_ids") @db.Uuid
+  relatedIssues    String[] @map("related_issues")
+  relatedPeCodes   String[] @default([]) @map("related_pe_codes")
+  data             Json     @default("{}")
+  detectedAt       DateTime @default(now()) @map("detected_at") @db.Timestamptz(6)
+  consumed         Boolean  @default(false)
+
+  @@index([detectedAt(sort: Desc)])
+  @@index([source, changeType])
+  @@index([relatedPeCodes], map: "intelligence_change_pe_codes_gin_idx", type: Gin)
+  @@map("intelligence_change")
+}
+
+model IntelligenceInsight {
+  id          String    @id @default(uuid())
+  category    String // lda, spending, congress, regulatory, anomaly
+  title       String
+  body        String    @db.Text
+  severity    String    @default("info") // info, notable, critical
+  dataPoints  Json?     @map("data_points")
+  generatedAt DateTime  @default(now()) @map("generated_at")
+  expiresAt   DateTime? @map("expires_at")
+
+  @@index([category, generatedAt])
+  @@map("intelligence_insight")
+}
+
+model LdaClient {
+  // 134K lobbying clients extracted from LDA filings.
+  id                 Int       @id
+  name               String
+  generalDescription String?   @map("general_description")
+  state              String?
+  country            String    @default("US")
+  effectiveDate      DateTime? @map("effective_date") @db.Date
+  totalFilings       Int       @default(0) @map("total_filings")
+  totalSpending      Decimal?  @map("total_spending") @db.Decimal(18, 2)
+  latestFilingYear   Int?      @map("latest_filing_year")
+  issueCodes         String[]  @default([]) @map("issue_codes")
+  lastSyncedAt       DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([name], map: "lda_client_name_idx")
+  @@index([state], map: "lda_client_state_idx")
+  @@map("lda_client")
+}
+
+model LdaContribution {
+  // 192K contribution reports (LD-203 filings).
+  id                String    @id @default(uuid()) @db.Uuid
+  filingUuid        String    @unique @map("filing_uuid")
+  filingType        String    @map("filing_type")
+  filingYear        Int       @map("filing_year")
+  filingPeriod      String?   @map("filing_period")
+  filerType         String    @default("registrant") @map("filer_type")
+  dtPosted          DateTime? @map("dt_posted") @db.Timestamptz(6)
+  registrantId      Int?      @map("registrant_id")
+  registrantName    String?   @map("registrant_name")
+  lobbyistId        Int?      @map("lobbyist_id")
+  lobbyistName      String?   @map("lobbyist_name")
+  noContributions   Boolean   @default(false) @map("no_contributions")
+  pacs              Json      @default("[]") @map("pacs")
+  contributionItems Json      @default("[]") @map("contribution_items")
+  lastSyncedAt      DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([filingYear], map: "lda_contribution_year_idx")
+  @@index([registrantId], map: "lda_contribution_registrant_id_idx")
+  @@map("lda_contribution")
+}
+
+model LdaFiling {
+  // Core filing record (~512K over 5 years).
+  id                 String    @id @default(uuid()) @db.Uuid
+  filingUuid         String    @unique @map("filing_uuid")
+  filingType         String    @map("filing_type")
+  filingYear         Int       @map("filing_year")
+  filingPeriod       String?   @map("filing_period")
+  income             Decimal?  @map("income") @db.Decimal(18, 2)
+  expenses           Decimal?  @map("expenses") @db.Decimal(18, 2)
+  dtPosted           DateTime? @map("dt_posted") @db.Timestamptz(6)
+  registrantId       Int?      @map("registrant_id")
+  registrantName     String    @default("") @map("registrant_name")
+  clientId           Int?      @map("client_id")
+  clientName         String    @default("") @map("client_name")
+  clientState        String?   @map("client_state")
+  clientCountry      String    @default("US") @map("client_country")
+  clientDescription  String?   @map("client_description")
+  issueCodes         String[]  @default([]) @map("issue_codes")
+  governmentEntities Json      @default("[]") @map("government_entities")
+  lobbyists          Json      @default("[]") @map("lobbyists")
+  lobbyingActivities Json      @default("[]") @map("lobbying_activities")
+  filingDocumentUrl  String?   @map("filing_document_url")
+  lastSyncedAt       DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([filingYear], map: "lda_filing_year_idx")
+  @@index([dtPosted], map: "lda_filing_dt_posted_idx")
+  @@index([clientId], map: "lda_filing_client_id_idx")
+  @@index([registrantId], map: "lda_filing_registrant_id_idx")
+  @@index([clientName], map: "lda_filing_client_name_idx")
+  @@index([registrantName], map: "lda_filing_registrant_name_idx")
+  @@map("lda_filing")
+}
+
+model LdaGovernmentEntity {
+  // 257 federal government entity reference records.
+  id             Int      @id
+  name           String
+  totalFilings5y Int      @default(0) @map("total_filings_5y")
+  lastSyncedAt   DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@map("lda_government_entity")
+}
+
+model LdaIssueCode {
+  // 79 LDA issue code reference records with 5-year aggregates.
+  code            String   @id
+  name            String
+  totalFilings5y  Int      @default(0) @map("total_filings_5y")
+  totalSpending5y Decimal? @map("total_spending_5y") @db.Decimal(18, 2)
+  quarterlyTrend  Json     @default("[]") @map("quarterly_trend")
+  lastSyncedAt    DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@map("lda_issue_code")
+}
+
+model LdaLobbyist {
+  // 88K registered lobbyists extracted from LDA filings.
+  id               Int      @id
+  firstName        String   @default("") @map("first_name")
+  lastName         String   @default("") @map("last_name")
+  prefix           String?
+  suffix           String?
+  coveredPositions Json     @default("[]") @map("covered_positions")
+  registrantIds    Int[]    @default([]) @map("registrant_ids")
+  activeYears      Int[]    @default([]) @map("active_years")
+  lastSyncedAt     DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([lastName, firstName], map: "lda_lobbyist_name_idx")
+  @@map("lda_lobbyist")
+}
+
+model LdaRegistrant {
+  // 17K lobbying firms (registrants) extracted from LDA filings.
+  id                Int      @id
+  houseRegistrantId Int?     @map("house_registrant_id")
+  name              String
+  description       String?
+  address           String?
+  city              String?
+  state             String?
+  country           String   @default("US")
+  contactName       String?  @map("contact_name")
+  contactPhone      String?  @map("contact_phone")
+  totalFilings      Int      @default(0) @map("total_filings")
+  totalClients      Int      @default(0) @map("total_clients")
+  lastSyncedAt      DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([name], map: "lda_registrant_name_idx")
+  @@map("lda_registrant")
+}
+
+model LobbyIntel {
+  // 5K-record federal lobbying client master list (top spenders 2018-2025).
+  id            String   @id @default(uuid()) @db.Uuid
+  slug          String   @unique
+  name          String
+  state         String?
+  totalSpending Decimal? @map("total_spending") @db.Decimal(18, 2)
+  filings       Int?
+  issues        String[] @default([])
+  years         Int[]    @default([])
+  trajectory    String? // exploding | declining | new | steady | null
+  growthRate    Float?   @map("growth_rate")
+  yearlySpend   Json     @default("[]") @map("yearly_spend_jsonb") // [{year, amount}]
+  source        String   @default("openlobby")
+  lastSyncedAt  DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  raw           Json     @default("{}") @map("raw_jsonb")
+
+  @@index([name], map: "lobby_intel_name_idx")
+  @@index([slug], map: "lobby_intel_slug_idx")
+  @@map("lobby_intel")
+}
+
+model LobbyIssueRef {
+  // 79 LDA issue codes with rolling spending totals + surge trends.
+  code          String   @id // e.g. BUD, HCR, TAX
+  name          String
+  totalSpending Decimal? @map("total_spending") @db.Decimal(18, 2)
+  totalFilings  Int?     @map("total_filings")
+  surgeTrend    String?  @map("surge_trend") // surging | growing | stable | declining
+  surgePct      Float?   @map("surge_pct")
+  latestQuarter String?  @map("latest_quarter")
+  latestIncome  Decimal? @map("latest_income") @db.Decimal(18, 2)
+  lastSyncedAt  DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@map("lobby_issue_ref")
+}
+
+model LobbyTrendingTopic {
+  // Top words and trending words mined from filing descriptions -
+  // injected into AI doc-gen prompts as "current Washington context".
+  id           String   @id @default(uuid()) @db.Uuid
+  word         String   @unique
+  latestCount  Int      @map("latest_count")
+  avgPrior     Float?   @map("avg_prior")
+  growthPct    Float?   @map("growth_pct")
+  kind         String   @default("trending") // trending | top | bill
+  lastSyncedAt DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@index([kind, growthPct], map: "lobby_trending_kind_growth_idx")
+  @@map("lobby_trending_topics")
+}
+
+model PeProgramMatch {
+  id               String    @id @default(uuid()) @db.Uuid
+  peCode           String    @map("pe_code") @db.VarChar(16)
+  /// Project (R-2A) code within the PE when the match is project-level, else null.
+  projectCode      String?   @map("project_code") @db.VarChar(8)
+  programId        String    @map("program_id") @db.Uuid
+  score            Float
+  /// 'exact_pe_number' | 'exact_project_title' | 'r2a_office_named' |
+  /// 'other_funding_link' | 'official_office_page' | 'sar_msar' | 'sam_match' |
+  /// 'award_match' | 'press_release' | 'news_only' | 'mdap_curated' (seed).
+  evidenceTier     String    @map("evidence_tier")
+  /// Array of evidence items: { kind, sourceUrl, pageNumber?, quote? }.
+  evidence         Json      @default("[]") @map("evidence_jsonb")
+  /// 'accepted' | 'candidate' | 'quarantined' | 'rejected'. Default derived from
+  /// score+tier per the plan thresholds (see deriveMatchStatus).
+  status           String    @default("candidate") @db.VarChar(20)
+  /// True when score < 0.50 — stored as a weak signal, NEVER surfaced.
+  weakSignal       Boolean   @default(false) @map("weak_signal")
+  matchBasis       String?   @map("match_basis") @db.Text
+  resolvedByUserId String?   @map("resolved_by_user_id") @db.Uuid
+  resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz(6)
+  decisionNotes    String?   @map("decision_notes") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  // Unique on (peCode, coalesce(projectCode,''), programId): a project-null and a
+  // project-scoped match to the same program coexist; two matches with the same
+  // (pe, project, program) do not. Postgres treats NULLs as distinct, so the
+  // coalesce()-based uniqueness is enforced via a raw expression index in the
+  // migration (Prisma cannot express a functional unique index).
+  @@index([programId], map: "pe_program_match_program_id_idx")
+  @@index([peCode], map: "pe_program_match_pe_code_idx")
+  @@index([status], map: "pe_program_match_status_idx")
+  @@map("pe_program_match")
+}
+
+model PersonRole {
+  id             String    @id @default(uuid()) @db.Uuid
+  personId       String    @map("person_id") @db.Uuid
+  officeId       String?   @map("office_id") @db.Uuid
+  programId      String?   @map("program_id") @db.Uuid
+  roleTitle      String    @map("role_title")
+  /// 'peo' | 'pm' | 'deputy' | 'chief_engineer' | 'contracting_officer' | 'staff' | 'other'
+  roleType       String    @map("role_type") @db.VarChar(24)
+  source         String    @db.VarChar(64)
+  sourceUrl      String?   @map("source_url")
+  sourceQuote    String?   @map("source_quote") @db.Text
+  observedAt     DateTime  @map("observed_at") @db.Timestamptz(6)
+  effectiveStart DateTime? @map("effective_start") @db.Timestamptz(6)
+  effectiveEnd   DateTime? @map("effective_end") @db.Timestamptz(6)
+  confidence     Float     @default(0.5)
+  /// 'accepted' | 'candidate' | 'quarantined'
+  reviewStatus   String    @default("candidate") @map("review_status") @db.VarChar(20)
+  /// 'lobbying_contact' | 'program_ownership_context' | 'official_procurement_poc' |
+  /// 'internal_owner' | 'relationship_owner' | 'do_not_contact_procurement_sensitive' |
+  /// 'candidate' | 'quarantined'. Set by the contact-use policy module.
+  contactUse     String    @map("contact_use") @db.VarChar(40)
+  staleAt        DateTime? @map("stale_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  person  AcquisitionPersonnel @relation(fields: [personId], references: [id], onDelete: Cascade)
+  office  ProgramOffice?       @relation(fields: [officeId], references: [id], onDelete: SetNull)
+  program Program?             @relation(fields: [programId], references: [id], onDelete: SetNull)
+
+  @@index([personId], map: "person_role_person_id_idx")
+  @@index([officeId], map: "person_role_office_id_idx")
+  @@index([programId], map: "person_role_program_id_idx")
+  @@index([reviewStatus], map: "person_role_review_status_idx")
+  @@index([contactUse], map: "person_role_contact_use_idx")
+  @@map("person_role")
+}
+
+model Program {
+  id                 String   @id @default(uuid()) @db.Uuid
+  canonicalName      String   @map("canonical_name")
+  component          String? // service / component (e.g. 'AF', 'NAVY', 'ARMY', 'OSD')
+  capabilityArea     String?  @map("capability_area")
+  acquisitionPathway String?  @map("acquisition_pathway")
+  /// MDAP code from the program_element_acquisition_program seed (e.g. '198'); null
+  /// for programs introduced outside the curated MDAP map.
+  mdapCode           String?  @map("mdap_code")
+  description        String?  @db.Text
+  status             String   @default("active") @db.VarChar(20)
+  metadata           Json     @default("{}") @map("metadata_jsonb")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  aliases        ProgramAlias[]
+  matches        PeProgramMatch[]
+  samMatches     SamOpportunityMatch[]
+  personRoles    PersonRole[]
+  officeLinks    ProgramOfficeProgramLink[]
+  provisionLinks ProvisionPeLink[]
+
+  @@index([mdapCode], map: "program_mdap_code_idx")
+  @@index([component], map: "program_component_idx")
+  @@index([status], map: "program_status_idx")
+  @@map("program")
+}
+
+model ProgramAlias {
+  id              String   @id @default(uuid()) @db.Uuid
+  programId       String   @map("program_id") @db.Uuid
+  alias           String
+  /// Upper-cased, punctuation-stripped form (see normalizeAlias in pe-program-matcher).
+  aliasNormalized String   @map("alias_normalized")
+  /// 'canonical' | 'acronym' | 'pe_title' | 'project_title' | 'p1_line_name' |
+  /// 'mdap_name' | 'office_usage' | 'congressional' | 'sam_usage' | 'award_usage'.
+  aliasType       String   @map("alias_type")
+  source          String
+  sourceUrl       String?  @map("source_url")
+  confidence      Float    @default(0.9)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  program Program @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([programId, aliasNormalized, aliasType], map: "program_alias_program_norm_type_key")
+  @@index([programId], map: "program_alias_program_id_idx")
+  @@index([aliasNormalized], map: "program_alias_normalized_idx")
+  // NOTE: the pg_trgm GIN index on alias_normalized is created in raw SQL in the
+  // migration (Prisma cannot express `USING gin (... gin_trgm_ops)`).
+  @@map("program_alias")
+}
+
+model ProgramElement {
+  peCode             String    @id @map("pe_code") @db.VarChar(16)
+  service            String?
+  serviceCode        String?   @map("service_code")
+  appropriationType  String?   @map("appropriation_type")
+  budgetActivity     String?   @map("budget_activity")
+  budgetActivityName String?   @map("budget_activity_name")
+  lineNumber         String?   @map("line_number")
+  title              String
+  description        String?   @db.Text
+  acatLevel          String?   @map("acat_level")
+  programOfRecord    String?   @map("program_of_record")
+  status             String?
+  rDocUrl            String?   @map("r_doc_url")
+  pDocUrl            String?   @map("p_doc_url")
+  oDocUrl            String?   @map("o_doc_url")
+  raw                Json      @default("{}") @map("raw_jsonb")
+  source             String
+  sourceConfidence   Float?    @map("source_confidence")
+  firstSeenFy        Int?      @map("first_seen_fy")
+  lastSyncedAt       DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  // Soft-retire marker. Set by reconcile-stale-pes for PEs that exist ONLY because
+  // of the old stanford spreadsheet (source='stanford_pe_directory_jan2026') and
+  // carry no live signal (no linked person/award/bill/watch/year). Reads exclude
+  // retiredAt IS NOT NULL by default. Reversible. NOT a hard delete — watches /
+  // awards / bills reference pe_code with no FK, so we never DELETE the row.
+  retiredAt          DateTime? @map("retired_at") @db.Timestamptz(6)
+  retiredReason      String?   @map("retired_reason")
+
+  years                   ProgramElementYear[]
+  milestones              ProgramElementMilestone[]
+  yearSourceValues        ProgramElementYearSourceValue[]
+  budgetPositions         ProgramElementBudgetPosition[]
+  deltas                  ProgramElementDelta[]
+  conferenceProbabilities ConferenceProbability[]
+  sources                 ProgramElementSource[]
+  projects                ProgramElementProject[]
+  performers              ProgramElementPerformer[]
+
+  @@index([serviceCode], map: "program_element_service_code_idx")
+  @@index([appropriationType], map: "program_element_appropriation_type_idx")
+  @@index([status], map: "program_element_status_idx")
+  @@index([retiredAt], map: "program_element_retired_at_idx")
+  @@map("program_element")
+}
+
+model ProgramElementAcquisitionProgram {
+  id             String   @id @default(uuid()) @db.Uuid
+  /// MDAP code exactly as USAspending emits it (e.g. '198', '516', 'SDN').
+  acqProgramCode String   @map("acq_program_code")
+  /// Human-readable program name for display/provenance (e.g. 'F-35').
+  acqProgramName String?  @map("acq_program_name")
+  peCode         String   @map("pe_code") @db.VarChar(16)
+  /// Where this mapping came from (e.g. 'seed_curated_v1') for auditing.
+  source         String   @default("seed_curated_v1")
+  /// 0..1 reviewer confidence; the read path can threshold on this if needed.
+  confidence     Float    @default(1.0)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSyncedAt   DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@unique([acqProgramCode, peCode], map: "pe_acq_program_code_pe_key")
+  @@index([peCode], map: "pe_acq_program_pe_code_idx")
+  @@index([acqProgramCode], map: "pe_acq_program_code_idx")
+  @@map("program_element_acquisition_program")
+}
+
+model ProgramElementBudgetPosition {
+  id               String   @id @default(uuid()) @db.Uuid
+  peCode           String   @map("pe_code") @db.VarChar(16)
+  positionCycle    String   @map("position_cycle")
+  assertedFy       Int      @map("asserted_fy")
+  amount           Decimal  @db.Decimal(14, 2)
+  quantity         Decimal? @db.Decimal(14, 2)
+  valueKind        String   @map("value_kind") // total | quantity | unit_cost
+  sourceUrl        String?  @map("source_url")
+  pageNumber       Int?     @map("page_number")
+  metadata         Json     @default("{}") @map("metadata_jsonb")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  // Registry link (Step 0.1): the fingerprinted source file this position came from.
+  sourceDocumentId String?  @map("source_document_id") @db.Uuid
+
+  programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([peCode, positionCycle, assertedFy, valueKind], map: "program_element_budget_position_natural_key")
+  @@index([peCode, assertedFy], map: "program_element_budget_position_pe_fy_idx")
+  @@index([positionCycle], map: "program_element_budget_position_cycle_idx")
+  @@index([sourceDocumentId], map: "program_element_budget_position_source_document_idx")
+  @@map("program_element_budget_position")
+}
+
+model ProgramElementDelta {
+  id                 String    @id @default(uuid()) @db.Uuid
+  peCode             String    @map("pe_code") @db.VarChar(16)
+  assertedFy         Int       @map("asserted_fy")
+  deltaType          String    @map("delta_type")
+  fromRef            String?   @map("from_ref")
+  toRef              String?   @map("to_ref")
+  amountFrom         Decimal?  @map("amount_from") @db.Decimal(14, 2)
+  amountTo           Decimal?  @map("amount_to") @db.Decimal(14, 2)
+  deltaAbs           Decimal?  @map("delta_abs") @db.Decimal(14, 2)
+  deltaPct           Float?    @map("delta_pct")
+  // Exact-copy change-summary narrative (Step 1.5 attaches it; never generated).
+  explanation        String?   @db.Text
+  // Source rows/pages used to compute this delta (provenance for the "evidence chip").
+  evidence           Json      @default("{}") @map("evidence_jsonb")
+  materialityScore   Float     @map("materiality_score")
+  materialityFactors Json      @default("{}") @map("materiality_factors_jsonb")
+  computedAt         DateTime  @default(now()) @map("computed_at") @db.Timestamptz(6)
+  // Set on the OLD row when a recompute supersedes it; NULL = current live delta.
+  supersededAt       DateTime? @map("superseded_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  // NOTE: the natural-key uniqueness is enforced by a PARTIAL functional unique index
+  // (WHERE superseded_at IS NULL, COALESCE-ing the nullable from/to refs) created in
+  // the migration raw SQL — Prisma 5 cannot express partial/functional unique indexes,
+  // so this is a plain compound index here (kept queryable) and the migration adds the
+  // partial unique constraint. Latest-wins: superseded rows share the natural key.
+  @@index([peCode, assertedFy, deltaType, fromRef, toRef], map: "program_element_delta_natural_key_idx")
+  @@index([peCode, assertedFy], map: "program_element_delta_pe_fy_idx")
+  @@index([deltaType], map: "program_element_delta_type_idx")
+  @@index([materialityScore(sort: Desc)], map: "program_element_delta_score_idx")
+  @@index([supersededAt], map: "program_element_delta_superseded_idx")
+  @@map("program_element_delta")
+}
+
+model ProgramElementMilestone {
+  id            String    @id @default(uuid()) @db.Uuid
+  peCode        String    @map("pe_code") @db.VarChar(16)
+  milestoneType String    @map("milestone_type")
+  plannedDate   DateTime? @map("planned_date") @db.Date
+  actualDate    DateTime? @map("actual_date") @db.Date
+  status        String?
+  source        String
+  notes         String?   @db.Text
+  lastSyncedAt  DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  @@unique([peCode, milestoneType], map: "program_element_milestone_pe_code_type_key")
+  @@index([status], map: "program_element_milestone_status_idx")
+  @@map("program_element_milestone")
+}
+
+model ProgramElementPerformer {
+  id                  String   @id @default(uuid()) @db.Uuid
+  peCode              String   @map("pe_code") @db.VarChar(16)
+  /// Company name exactly as printed in the exhibit (e.g. 'LOCKHEED MARTIN CORPORATION').
+  performer           String
+  /// Uppercased/punctuation-stripped name for joins/dedup (e.g. 'LOCKHEED MARTIN CORP').
+  performerNormalized String   @map("performer_normalized")
+  /// Performing location as printed (state code 'AL', 'Various', city, or country).
+  /// NOT NULL ('' when absent) so the natural-key unique index is deterministic
+  /// (Postgres treats NULLs as distinct, which would break idempotent upserts).
+  location            String   @default("") @map("location")
+  /// Contract method & type token ('SS/IDIQ','C/CPAF','MIPR',...). '' when blank/Various.
+  contractMethod      String   @default("") @map("contract_method")
+  /// Cost-category item label from the exhibit row (e.g. 'THAAD Development - Capability').
+  costCategory        String   @default("") @map("cost_category")
+  /// Total contract cost in $M as printed (TotalCost column). Null when not stated.
+  totalCostM          Decimal? @map("total_cost_m") @db.Decimal(18, 3)
+  /// R-3 table family this came from: 'product_development' | 'support' | 'management_services'.
+  tableType           String?  @map("table_type")
+  /// Project (R-2A) code/name when the table is under a specific project, else null.
+  projectCode         String?  @map("project_code")
+  projectName         String?  @map("project_name")
+  fy                  Int
+  sourceUrl           String   @map("source_url")
+  pageNumber          Int      @map("page_number")
+  /// Publishing component for provenance label (e.g. 'DoD Comptroller (Navy)').
+  publisher           String?
+  /// True when the performer is a real named company (has a legal suffix / not 'Various'/
+  /// 'TBD'/government-internal MIPR). Lets the read path surface only real primes by default.
+  isNamedCompany      Boolean  @default(true) @map("is_named_company")
+  source              String   @default("comptroller_jbook_r3")
+  confidence          Float    @default(0.95)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSyncedAt        DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  // Registry link (Step 0.1): the fingerprinted source file this performer row came from.
+  sourceDocumentId    String?  @map("source_document_id") @db.Uuid
+
+  programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  // Natural key: same prime can appear under different cost categories / projects / methods.
+  @@unique([peCode, performerNormalized, location, contractMethod, costCategory, fy], map: "program_element_performer_natural_key")
+  @@index([peCode], map: "program_element_performer_pe_code_idx")
+  @@index([performerNormalized], map: "program_element_performer_norm_idx")
+  @@index([isNamedCompany], map: "program_element_performer_named_idx")
+  @@index([sourceDocumentId], map: "program_element_performer_source_document_idx")
+  @@map("program_element_performer")
+}
+
+model ProgramElementPersonCandidate {
+  id               String    @id @default(uuid()) @db.Uuid
+  personId         String    @map("person_id") @db.Uuid
+  peCode           String    @map("pe_code") @db.VarChar(16)
+  score            Float
+  matchBasis       String?   @map("match_basis") @db.Text // human-readable: which tokens/program matched
+  scoreBreakdown   Json      @default("{}") @map("score_breakdown_jsonb")
+  status           String    @default("open") @db.VarChar(20) // open | confirmed | rejected
+  resolvedByUserId String?   @map("resolved_by_user_id") @db.Uuid
+  resolvedAt       DateTime? @map("resolved_at") @db.Timestamptz(6)
+  decisionNotes    String?   @map("decision_notes") @db.Text
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([personId, peCode], map: "program_element_person_candidate_person_pe_key")
+  @@index([status], map: "program_element_person_candidate_status_idx")
+  @@index([peCode], map: "program_element_person_candidate_pe_code_idx")
+  @@map("program_element_person_candidate")
+}
+
+model ProgramElementProcurementLine {
+  id              String   @id @default(uuid()) @db.Uuid
+  peCode          String   @map("pe_code") @db.VarChar(16)
+  lineDescription String   @map("line_description")
+  fy              Int
+  quantity        Decimal? @db.Decimal(14, 2)
+  dollars         Decimal? @db.Decimal(18, 2)
+  unitCost        Decimal? @map("unit_cost") @db.Decimal(18, 2)
+  source          String?
+  sourceUrl       String?  @map("source_url")
+  raw             Json     @default("{}") @map("raw_jsonb")
+  lastSyncedAt    DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  @@unique([peCode, lineDescription, fy], map: "pe_procurement_line_dedup_key")
+  @@index([peCode], map: "pe_procurement_line_pe_code_idx")
+  @@index([fy], map: "pe_procurement_line_fy_idx")
+  @@map("program_element_procurement_line")
+}
+
+model ProgramElementProject {
+  id               String   @id @default(uuid()) @db.Uuid
+  peCode           String   @map("pe_code") @db.VarChar(16)
+  projectCode      String   @map("project_code") @db.VarChar(8)
+  title            String
+  mission          String?  @db.Text
+  budgetActivity   String?  @map("budget_activity")
+  fy               Int?
+  sourceUrl        String?  @map("source_url")
+  pageNumber       Int?     @map("page_number")
+  source           String   @default("comptroller_jbook_r2a")
+  confidence       Float    @default(0.9)
+  metadata         Json     @default("{}") @map("metadata_jsonb")
+  firstSeenAt      DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSyncedAt     DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  // Registry link (Step 0.1): the fingerprinted source file this project came from.
+  sourceDocumentId String?  @map("source_document_id") @db.Uuid
+
+  programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([peCode, projectCode], map: "program_element_project_pe_code_project_key")
+  @@index([peCode], map: "program_element_project_pe_code_idx")
+  @@index([sourceDocumentId], map: "program_element_project_source_document_idx")
+  @@map("program_element_project")
+}
+
+model ProgramElementQuarantine {
+  id            String   @id @default(uuid()) @db.Uuid
+  rawRecord     Json     @map("raw_record")
+  reason        String
+  source        String
+  quarantinedAt DateTime @default(now()) @map("quarantined_at") @db.Timestamptz(6)
+
+  @@map("program_element_quarantine")
+}
+
+model ProgramElementSource {
+  id               String   @id @default(uuid()) @db.Uuid
+  peCode           String   @map("pe_code") @db.VarChar(16)
+  docType          String   @map("doc_type") @db.VarChar(8) // R | P | O
+  exhibitType      String?  @map("exhibit_type") @db.VarChar(16) // R-1 | R-2 | R-2A | P-1 | P-40
+  fy               Int?
+  sourceUrl        String   @map("source_url")
+  pageNumber       Int?     @map("page_number")
+  pageEnd          Int?     @map("page_end")
+  snippet          String?  @db.Text
+  publisher        String?  @db.VarChar(64) // e.g. "DoD Comptroller"
+  confidence       Float    @default(0.9)
+  metadata         Json     @default("{}") @map("metadata_jsonb")
+  observedAt       DateTime @default(now()) @map("observed_at") @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  // Registry link (Step 0.1): the fingerprinted source file this citation came from.
+  sourceDocumentId String?  @map("source_document_id") @db.Uuid
+
+  programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([peCode, docType, sourceUrl, pageNumber], map: "program_element_source_pe_doc_url_page_key")
+  @@index([peCode], map: "program_element_source_pe_code_idx")
+  @@index([peCode, fy], map: "program_element_source_pe_fy_idx")
+  @@index([docType], map: "program_element_source_doc_type_idx")
+  @@index([sourceDocumentId], map: "program_element_source_source_document_idx")
+  @@map("program_element_source")
+}
+
+model ProgramElementYear {
+  id           String   @id @default(uuid()) @db.Uuid
+  peCode       String   @map("pe_code") @db.VarChar(16)
+  fy           Int
+  request      Decimal? @db.Decimal(14, 2)
+  hascMark     Decimal? @map("hasc_mark") @db.Decimal(14, 2)
+  sascMark     Decimal? @map("sasc_mark") @db.Decimal(14, 2)
+  hacDMark     Decimal? @map("hac_d_mark") @db.Decimal(14, 2)
+  sacDMark     Decimal? @map("sac_d_mark") @db.Decimal(14, 2)
+  conference   Decimal? @db.Decimal(14, 2)
+  enacted      Decimal? @db.Decimal(14, 2)
+  reprogrammed Decimal? @db.Decimal(14, 2)
+  executed     Decimal? @db.Decimal(14, 2)
+  notes        String?  @db.Text
+  rDocSection  String?  @map("r_doc_section")
+  raw          Json     @default("{}") @map("raw_jsonb")
+  lastSyncedAt DateTime @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+
+  programElement ProgramElement @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+
+  @@unique([peCode, fy], map: "program_element_year_pe_code_fy_key")
+  @@index([fy], map: "program_element_year_fy_idx")
+  @@map("program_element_year")
+}
+
+model ProgramElementYearSourceValue {
+  id               String   @id @default(uuid()) @db.Uuid
+  peCode           String   @map("pe_code") @db.VarChar(16)
+  fy               Int
+  fieldName        String   @map("field_name")
+  source           String
+  valueJsonb       Json     @default("null") @map("value_jsonb")
+  // Per-field reconciliation values (Step 29 §4.1). value_decimal for numeric
+  // marks/dollars, value_text for narrative fields. written_at mirrors recordedAt
+  // for the reconciliation queue's naming.
+  valueDecimal     Decimal? @map("value_decimal") @db.Decimal(18, 2)
+  valueText        String?  @map("value_text") @db.Text
+  writtenAt        DateTime @default(now()) @map("written_at") @db.Timestamptz(6)
+  isWinner         Boolean  @default(false) @map("is_winner")
+  recordedAt       DateTime @default(now()) @map("recorded_at") @db.Timestamptz(6)
+  // Registry link (Step 0.1): the fingerprinted source file this per-field value came from.
+  sourceDocumentId String?  @map("source_document_id") @db.Uuid
+
+  programElement ProgramElement  @relation(fields: [peCode], references: [peCode], onDelete: Cascade)
+  sourceDocument SourceDocument? @relation(fields: [sourceDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([peCode, fy, fieldName], map: "program_element_year_source_value_lookup_idx")
+  @@index([peCode, fy, fieldName, isWinner], map: "program_element_year_source_value_winner_idx")
+  @@index([sourceDocumentId], map: "program_element_year_source_value_source_document_idx")
+  @@map("program_element_year_source_value")
+}
+
+model ProgramOffice {
+  id             String    @id @default(uuid()) @db.Uuid
+  name           String
+  /// 'peo' | 'pm' | 'cpe' | 'pae' | 'directorate' | 'command' | 'contracting_office' | 'other'
+  officeType     String    @map("office_type") @db.VarChar(24)
+  service        String?   @db.VarChar(8)
+  parentOfficeId String?   @map("parent_office_id") @db.Uuid
+  sourceUrl      String?   @map("source_url")
+  status         String    @default("active") @db.VarChar(16)
+  validFrom      DateTime? @map("valid_from") @db.Timestamptz(6)
+  validTo        DateTime? @map("valid_to") @db.Timestamptz(6)
+  metadata       Json      @default("{}") @map("metadata_jsonb")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  parentOffice ProgramOffice?             @relation("ProgramOfficeParent", fields: [parentOfficeId], references: [id], onDelete: SetNull)
+  childOffices ProgramOffice[]            @relation("ProgramOfficeParent")
+  roles        PersonRole[]
+  programLinks ProgramOfficeProgramLink[]
+
+  @@index([service], map: "program_office_service_idx")
+  @@index([officeType], map: "program_office_office_type_idx")
+  @@index([parentOfficeId], map: "program_office_parent_idx")
+  @@map("program_office")
+}
+
+model ProgramOfficeProgramLink {
+  id           String   @id @default(uuid()) @db.Uuid
+  officeId     String   @map("office_id") @db.Uuid
+  programId    String   @map("program_id") @db.Uuid
+  /// 'manages' | 'executes' | 'supports'
+  relation     String   @db.VarChar(16)
+  sourceUrl    String?  @map("source_url")
+  confidence   Float    @default(0.5)
+  reviewStatus String   @default("candidate") @map("review_status") @db.VarChar(20)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  office  ProgramOffice @relation(fields: [officeId], references: [id], onDelete: Cascade)
+  program Program       @relation(fields: [programId], references: [id], onDelete: Cascade)
+
+  @@unique([officeId, programId], map: "program_office_program_link_office_program_key")
+  @@index([programId], map: "program_office_program_link_program_id_idx")
+  @@map("program_office_program_link")
+}
+
+model ProvisionPeLink {
+  id           String   @id @default(uuid()) @db.Uuid
+  provisionId  String   @map("provision_id") @db.Uuid
+  peCode       String?  @map("pe_code") @db.VarChar(16)
+  projectCode  String?  @map("project_code") @db.VarChar(8)
+  programId    String?  @map("program_id") @db.Uuid
+  /// 'pe_code' | 'project_title' | 'program_alias' | 'manual' — how the link was found.
+  matchBasis   String   @map("match_basis") @db.VarChar(24)
+  confidence   Float    @default(0.5)
+  /// 'accepted' | 'candidate' | 'rejected'. Verbatim PE-code links are 'accepted';
+  /// fuzzy title/alias links land as 'candidate' for human review.
+  reviewStatus String   @default("candidate") @map("review_status") @db.VarChar(20)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  provision CommitteeReportProvision @relation(fields: [provisionId], references: [id], onDelete: Cascade)
+  program   Program?                 @relation(fields: [programId], references: [id], onDelete: SetNull)
+
+  // Unique on (provisionId, coalesce(peCode,''), coalesce(programId::text,'')): Postgres
+  // treats NULLs as distinct, so the coalesce()-based uniqueness is enforced via a raw
+  // expression index in the migration (Prisma cannot express a functional unique index).
+  @@index([peCode], map: "provision_pe_link_pe_code_idx")
+  @@index([programId], map: "provision_pe_link_program_id_idx")
+  @@index([reviewStatus], map: "provision_pe_link_review_status_idx")
+  @@map("provision_pe_link")
+}
+
+model ReconciliationReviewQueue {
+  id                String    @id @default(uuid()) @db.Uuid
+  peCode            String    @map("pe_code") @db.VarChar(16)
+  fy                Int
+  fieldName         String    @map("field_name")
+  currentValue      String?   @map("current_value")
+  conflictingSource String    @map("conflicting_source")
+  conflictingValue  String?   @map("conflicting_value")
+  deltaPct          Float?    @map("delta_pct")
+  queuedAt          DateTime  @default(now()) @map("queued_at") @db.Timestamptz(6)
+  status            String    @default("open") @db.VarChar(20)
+  resolvedByUserId  String?   @map("resolved_by_user_id") @db.Uuid
+  resolvedAt        DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolutionNotes   String?   @map("resolution_notes") @db.Text
+
+  @@index([status, queuedAt(sort: Desc)], map: "reconciliation_review_queue_status_idx")
+  @@index([peCode, fy], map: "reconciliation_review_queue_pe_fy_idx")
+  @@map("reconciliation_review_queue")
+}
+
+model RegulatoryDocket {
+  id               String    @id @default(uuid())
+  documentId       String    @unique @map("document_id")
+  agencyId         String    @map("agency_id")
+  docketId         String?   @map("docket_id")
+  documentType     String    @map("document_type")
+  title            String    @db.Text
+  postedDate       DateTime? @map("posted_date")
+  commentStartDate DateTime? @map("comment_start_date")
+  commentEndDate   DateTime? @map("comment_end_date")
+  frDocNum         String?   @map("fr_doc_num")
+  subtype          String?
+  withdrawn        Boolean   @default(false)
+  lastModified     DateTime? @map("last_modified")
+  syncedAt         DateTime  @default(now()) @map("synced_at")
+
+  @@index([agencyId, postedDate])
+  @@index([commentEndDate])
+  @@index([documentType])
+  @@map("regulatory_docket")
+}
+
+model SamOpportunity {
+  id                  String    @id @default(uuid()) @db.Uuid
+  /// SAM.gov noticeId — stable idempotency key.
+  noticeId            String    @unique @map("notice_id")
+  solicitationNumber  String?   @map("solicitation_number")
+  title               String
+  /// SAM.gov notice type (e.g. 'Solicitation', 'Combined Synopsis/Solicitation',
+  /// 'Presolicitation', 'Sources Sought', 'Award Notice').
+  noticeType          String    @map("notice_type") @db.VarChar(32)
+  agency              String?
+  office              String?
+  /// Product/Service Code.
+  pscCode             String?   @map("psc_code") @db.VarChar(8)
+  naicsCode           String?   @map("naics_code") @db.VarChar(8)
+  postedDate          DateTime? @map("posted_date") @db.Timestamptz(6)
+  responseDeadline    DateTime? @map("response_deadline") @db.Timestamptz(6)
+  archiveDate         DateTime? @map("archive_date") @db.Timestamptz(6)
+  description         String?   @db.Text
+  /// Primary point-of-contact name (public header field).
+  pocName             String?   @map("poc_name")
+  pocEmail            String?   @map("poc_email")
+  placeOfPerformance  Json      @default("{}") @map("place_of_performance_jsonb")
+  sourceUrl           String?   @map("source_url")
+  /// Derived from archiveDate: false once the notice's archive date has passed.
+  active              Boolean   @default(true)
+  raw                 Json      @default("{}") @map("raw_jsonb")
+  lastSyncedAt        DateTime  @default(now()) @map("last_synced_at") @db.Timestamptz(6)
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  matches SamOpportunityMatch[]
+
+  @@index([active, responseDeadline], map: "sam_opportunity_active_response_deadline_idx")
+  @@index([naicsCode], map: "sam_opportunity_naics_code_idx")
+  @@index([pscCode], map: "sam_opportunity_psc_code_idx")
+  @@index([office], map: "sam_opportunity_office_idx")
+  @@map("sam_opportunity")
+}
+
+model SamOpportunityMatch {
+  id            String   @id @default(uuid()) @db.Uuid
+  opportunityId String   @map("opportunity_id") @db.Uuid
+  programId     String?  @map("program_id") @db.Uuid
+  peCode        String?  @map("pe_code") @db.VarChar(16)
+  /// 'program_alias' | 'office' | 'psc_naics_component' | 'description_pe_code'.
+  matchBasis    String   @map("match_basis") @db.VarChar(24)
+  confidence    Float    @default(0.5)
+  /// 'candidate' | 'accepted' | 'quarantined' | 'rejected'. Default 'candidate';
+  /// only 'description_pe_code' may be 'accepted'.
+  reviewStatus  String   @default("candidate") @map("review_status") @db.VarChar(20)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  opportunity SamOpportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  program     Program?       @relation(fields: [programId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  // Unique on (opportunity_id, coalesce(program_id::text,''), coalesce(pe_code,'')) —
+  // Postgres treats NULLs as distinct, so the coalesce()-based uniqueness is enforced
+  // via a raw expression index in the migration (Prisma cannot express it).
+  @@index([programId], map: "sam_opportunity_match_program_id_idx")
+  @@index([peCode], map: "sam_opportunity_match_pe_code_idx")
+  @@index([reviewStatus], map: "sam_opportunity_match_review_status_idx")
+  @@map("sam_opportunity_match")
+}
+
+model SecFiling {
+  id              String    @id @default(uuid())
+  cik             String // Central Index Key (zero-padded 10 digits)
+  companyName     String    @map("company_name")
+  formType        String    @map("form_type") // 10-K, 10-Q, 8-K, DEF14A, S-1, etc.
+  accessionNumber String    @unique @map("accession_number")
+  filingDate      DateTime  @map("filing_date") @db.Date
+  reportDate      DateTime? @map("report_date") @db.Date
+  primaryDoc      String?   @map("primary_doc") // filename of the primary document
+  description     String?   @db.Text
+  sic             String? // Standard Industrial Classification code
+  stateOfIncorp   String?   @map("state_of_incorp")
+  fiscalYearEnd   String?   @map("fiscal_year_end") // MMDD format
+  url             String?
+  syncedAt        DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([cik])
+  @@index([formType, filingDate])
+  @@index([companyName])
+  @@map("sec_filing")
+}
+
+model SourceDocument {
+  id                     String    @id @default(uuid()) @db.Uuid
+  // Stable human key, derived from the committed artifact filename (e.g. 'jbook_r1_fy2027').
+  sourceKey              String    @map("source_key")
+  fiscalYear             Int?      @map("fiscal_year")
+  // pb | hasc | sasc | hac_d | sac_d | conference | enacted | supplemental
+  budgetCycle            String    @map("budget_cycle")
+  // ARMY | NAVY | AF | SF | DW | ... (null for the all-component R-1 master list / committee docs)
+  component              String?
+  // r1 | r2 | r3 | p1 | p40 | committee_report | conference_report | public_law | other
+  documentType           String    @map("document_type")
+  title                  String
+  // Source PDF URL (J-books); the artifact's source filename when no URL exists (committee docs).
+  sourceUrl              String    @map("source_url")
+  sha256                 String?   @db.Char(64)
+  byteSize               Int?      @map("byte_size")
+  pageCount              Int?      @map("page_count")
+  downloadedAt           DateTime? @map("downloaded_at") @db.Timestamptz(6)
+  // Path under apps/api/scripts/__data__/ for the committed extraction artifact.
+  artifactPath           String?   @map("artifact_path")
+  // structured_import | deterministic_pdf | manual
+  extractionMethod       String    @map("extraction_method")
+  extractionToolVersion  String?   @map("extraction_tool_version")
+  ingestedAt             DateTime  @default(now()) @map("ingested_at") @db.Timestamptz(6)
+  // Version chain: set on the OLD head when a newer version of the same sourceKey is ingested.
+  supersededByDocumentId String?   @map("superseded_by_document_id") @db.Uuid
+  metadata               Json      @default("{}") @map("metadata_jsonb")
+
+  supersededBy SourceDocument?  @relation("SourceDocumentVersion", fields: [supersededByDocumentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  supersedes   SourceDocument[] @relation("SourceDocumentVersion")
+
+  programElementSources    ProgramElementSource[]
+  programElementProjects   ProgramElementProject[]
+  programElementPerformers ProgramElementPerformer[]
+  yearSourceValues         ProgramElementYearSourceValue[]
+  budgetPositions          ProgramElementBudgetPosition[]
+  provisions               CommitteeReportProvision[]
+
+  @@unique([sourceKey, sha256], map: "source_document_source_key_sha256_key")
+  @@index([documentType, fiscalYear, budgetCycle, component], map: "source_document_type_fy_cycle_component_idx")
+  @@index([sourceKey], map: "source_document_source_key_idx")
+  @@map("source_document")
+}
+
+model StateBill {
+  id               String    @id // openstates bill ID
+  state            String // 2-letter state code
+  session          String // legislative session
+  identifier       String // e.g. "HB 1234"
+  title            String    @db.Text
+  chamber          String? // upper, lower
+  classification   String[]  @default([]) // bill, resolution, etc.
+  subjects         String[]  @default([])
+  sponsorName      String?   @map("sponsor_name")
+  sponsorParty     String?   @map("sponsor_party")
+  latestActionDate DateTime? @map("latest_action_date") @db.Date
+  latestActionText String?   @map("latest_action_text")
+  url              String?
+  syncedAt         DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([state, session])
+  @@index([state, latestActionDate])
+  @@map("state_bill")
+}
+
+model StateLegislator {
+  id         String   @id // openstates person ID
+  name       String
+  state      String
+  chamber    String? // upper, lower
+  district   String?
+  party      String?
+  email      String?
+  image      String?
+  url        String?
+  committees Json     @default("[]") // [{name, role}]
+  active     Boolean  @default(true)
+  syncedAt   DateTime @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@index([state, chamber])
+  @@index([party, state])
+  @@map("state_legislator")
+}
+
+model SyncRun {
+  id           String    @id @default(uuid()) @db.Uuid
+  source       String
+  startedAt    DateTime  @map("started_at") @db.Timestamptz(6)
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz(6)
+  rowsInserted Int       @default(0) @map("rows_inserted")
+  rowsUpdated  Int       @default(0) @map("rows_updated")
+  errorCount   Int       @default(0) @map("error_count")
+  status       String    @default("running")
+  errorMessage String?   @map("error_message")
+
+  @@index([source, startedAt(sort: Desc)], map: "sync_run_source_started_at_idx")
+  @@map("sync_run")
+}
+
+model WorkflowTemplate {
+  id               String   @id @default(uuid()) @db.Uuid
+  slug             String   @unique
+  name             String
+  description      String?  @db.Text
+  category         String   @default("authorization")
+  requiredSections Json     @default("[]") @map("required_sections_jsonb")
+  contextInfo      Json     @default("{}") @map("context_info_jsonb")
+  isActive         Boolean  @default(true) @map("is_active")
+  sortOrder        Int      @default(0) @map("sort_order")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+
+  @@map("workflow_templates")
+}

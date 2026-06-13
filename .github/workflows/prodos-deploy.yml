@@ -1,0 +1,99 @@
+# Deploys prod-os-capiro CDK stacks via GitHub Actions OIDC (no static keys).
+# SOC2: every deploy is an auditable workflow run; auth is a short-lived OIDC token
+# assuming `capiro-gha-prodos-deployer`, which in turn assumes the CDK bootstrap roles.
+#
+# Configure ONCE (cannot be done by the agent's fine-grained PAT — set in GitHub UI):
+#   - Repo variable AWS_PRODOS_DEPLOYER_ROLE_ARN =
+#       arn:aws:iam::967807252336:role/capiro-gha-prodos-deployer
+#   - Create a GitHub Environment named `prod-os-capiro` with required reviewers
+#     (so `deploy` requires manual approval — the change-management gate).
+#
+# Usage:
+#   - `synth`/`diff`: runs on PRs touching infra/cdk and on manual dispatch (action=diff)
+#   - `deploy`: manual dispatch only (action=deploy), gated by the prod-os-capiro environment
+
+name: prodos-deploy
+
+on:
+  pull_request:
+    paths:
+      - 'infra/cdk/**'
+      - '.github/workflows/prodos-deploy.yml'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'diff or deploy'
+        required: true
+        default: 'diff'
+        type: choice
+        options: [diff, deploy]
+      stacks:
+        description: 'Space-separated stack names (default: foundation stacks)'
+        required: false
+        default: 'Capiro-prod-os-capiro-Network Capiro-prod-os-capiro-Dns Capiro-prod-os-capiro-Secrets Capiro-prod-os-capiro-Data Capiro-prod-os-capiro-Assets'
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  CDK_CTX: "--context env=prod-os-capiro --context account=967807252336"
+
+jobs:
+  # Diff runs on PRs and manual diff: no approval required, read-only.
+  diff:
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.action == 'diff')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install cdk deps
+        working-directory: infra/cdk
+        run: pnpm install --frozen-lockfile
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PRODOS_DEPLOYER_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: cdk diff
+        working-directory: infra/cdk
+        run: npx cdk diff ${{ env.CDK_CTX }} ${{ github.event.inputs.stacks || 'Capiro-prod-os-capiro-Network Capiro-prod-os-capiro-Secrets Capiro-prod-os-capiro-Data Capiro-prod-os-capiro-Assets' }}
+
+  # Deploy is manual-only and gated by the `prod-os-capiro` GitHub Environment
+  # (set required reviewers there to enforce human approval = SOC2 change-management).
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.action == 'deploy'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: prod-os-capiro
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - name: Install cdk deps
+        working-directory: infra/cdk
+        run: pnpm install --frozen-lockfile
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_PRODOS_DEPLOYER_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: cdk deploy (foundation, in dependency order)
+        working-directory: infra/cdk
+        run: |
+          npx cdk deploy ${{ env.CDK_CTX }} \
+            --require-approval never \
+            ${{ github.event.inputs.stacks }}

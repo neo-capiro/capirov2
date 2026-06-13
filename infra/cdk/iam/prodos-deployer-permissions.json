@@ -1,0 +1,27 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AssumeCdkBootstrapRoles",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": [
+        "arn:aws:iam::967807252336:role/cdk-*-deploy-role-967807252336-us-east-1",
+        "arn:aws:iam::967807252336:role/cdk-*-file-publishing-role-967807252336-us-east-1",
+        "arn:aws:iam::967807252336:role/cdk-*-image-publishing-role-967807252336-us-east-1",
+        "arn:aws:iam::967807252336:role/cdk-*-lookup-role-967807252336-us-east-1"
+      ]
+    },
+    {
+      "Sid": "ReadCfnForDiff",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStacks",
+        "cloudformation:GetTemplate",
+        "cloudformation:ListStacks",
+        "cloudformation:DescribeStackEvents"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
