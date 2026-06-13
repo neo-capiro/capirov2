@@ -25,6 +25,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import mammoth from 'mammoth';
+import sanitizeHtml from 'sanitize-html';
 import { createHash, randomUUID } from 'node:crypto';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
@@ -2003,9 +2004,45 @@ export class EngagementService {
     if (!drafts.length) {
       throw new BadRequestException('No drafts to send. Generate emails first.');
     }
-    // Drafts from the v2 Generate & Review step are HTML; older/plain drafts are
-    // sent as Text. Pick the Graph body content type per draft (plaintext fallback).
-    const htmlBody = (s: string | undefined) => /<[a-z][\s\S]*>/i.test(s ?? '');
+    // v2 Generate & Review drafts are HTML; older/plain drafts are Text. For
+    // HTML, SANITIZE server-side (defense-in-depth — never trust the client
+    // body, even though the client also sanitizes) and send as Graph 'HTML';
+    // plain drafts pass through as 'Text' (the plaintext fallback).
+    const renderBody = (
+      raw: string | undefined,
+    ): { content: string; contentType: 'Text' | 'HTML' } => {
+      const body = raw ?? '';
+      if (!/<[a-z][\s\S]*>/i.test(body)) return { content: body, contentType: 'Text' };
+      return {
+        content: sanitizeHtml(body, {
+          allowedTags: [
+            'b',
+            'strong',
+            'i',
+            'em',
+            'u',
+            's',
+            'p',
+            'br',
+            'h2',
+            'h3',
+            'ul',
+            'ol',
+            'li',
+            'a',
+            'blockquote',
+            'div',
+            'span',
+          ],
+          allowedAttributes: { a: ['href', 'target', 'rel'] },
+          allowedSchemes: ['http', 'https', 'mailto'],
+          transformTags: {
+            a: sanitizeHtml.simpleTransform('a', { target: '_blank', rel: 'noopener noreferrer' }),
+          },
+        }),
+        contentType: 'HTML',
+      };
+    };
 
     const connection = await this.findCampaignSendConnection(ctx);
 
@@ -2053,10 +2090,11 @@ export class EngagementService {
       );
       if (!user?.email) throw new BadRequestException('Your user has no email on file');
       const sample = drafts.find((d) => d.subject?.trim() || d.body?.trim()) ?? drafts[0]!;
+      const rendered = renderBody(sample.body || '(empty draft)');
       await this.microsoftGraph.sendMail(ctx, connection.id, {
         subject: `[TEST] ${sample.subject || 'Outreach preview'}`,
-        body: sample.body || '(empty draft)',
-        bodyContentType: htmlBody(sample.body) ? 'HTML' : 'Text',
+        body: rendered.content,
+        bodyContentType: rendered.contentType,
         toRecipients: [{ email: user.email, name: user.firstName ?? null }],
         attachments: attachmentsForSend,
       });
@@ -2097,10 +2135,11 @@ export class EngagementService {
         continue;
       }
       try {
+        const rendered = renderBody(draft.body);
         await this.microsoftGraph.sendMail(ctx, connection.id, {
           subject: draft.subject,
-          body: draft.body,
-          bodyContentType: htmlBody(draft.body) ? 'HTML' : 'Text',
+          body: rendered.content,
+          bodyContentType: rendered.contentType,
           toRecipients: [{ email: recipient.email, name: recipient.name ?? null }],
           ccRecipients: (recipient.cc ?? [])
             .filter((e) => e?.trim())
