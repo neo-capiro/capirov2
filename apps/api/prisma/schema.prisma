@@ -163,6 +163,8 @@ model Tenant {
   engagementReportTargets      EngagementReportTargetOffice[]
   outreachRecords              OutreachRecord[]
   outreachTemplates            OutreachTemplate[]
+  outreachAudiences            OutreachAudience[]
+  outreachAudienceMembers      OutreachAudienceMember[]
   MeetingDebrief               MeetingDebrief[]
   clioConversations            ClioConversation[]
   clioMessages                 ClioMessage[]
@@ -791,6 +793,52 @@ model OutreachTemplate {
 
   @@index([tenantId, createdByUserId, type, updatedAt], map: "outreach_templates_tenant_user_type_updated_idx")
   @@map("outreach_templates")
+}
+
+// Outreach 2.0: a saved, reusable set of contacts (design doc
+// 2026-06-11_outreach-2.0-data-model.md §1). kind distinguishes the two send
+// semantics: 'list' = each member gets their own 1:1 email; 'group' = one
+// shared email to all members. Owned by the user (createdByUserId);
+// tenant-scoped; reusable across campaigns + clients.
+model OutreachAudience {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  createdByUserId String   @map("created_by_user_id") @db.Uuid
+  kind            String // 'list' | 'group'
+  name            String
+  description     String?
+  status          String   @default("draft") @map("status") // 'draft' | 'active' | 'archived'
+  metadata        Json     @default("{}") @map("metadata_jsonb")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant  Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  members OutreachAudienceMember[]
+
+  @@index([tenantId, createdByUserId, kind, name], map: "outreach_audiences_tenant_user_kind_name_idx")
+  @@map("outreach_audiences")
+}
+
+// One contact in a saved list/group. source ties back to its origin so we
+// can refresh/trace it; email is the resolved send target.
+model OutreachAudienceMember {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  audienceId  String   @map("audience_id") @db.Uuid
+  source      String // 'congress' | 'client_contact' | 'manual'
+  sourceRefId String?  @map("source_ref_id") // directoryContactId | clientPersonId | null
+  name        String?
+  email       String   @db.Citext
+  title       String?
+  office      String?
+  metadata    Json     @default("{}") @map("metadata_jsonb")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  audience OutreachAudience @relation(fields: [audienceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, audienceId], map: "outreach_audience_members_tenant_audience_idx")
+  @@map("outreach_audience_members")
 }
 
 model OutreachAiTemplate {

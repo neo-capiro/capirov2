@@ -1,0 +1,258 @@
+/* ============================================================
+ * Outreach v2 — Direction step (informational landing).
+ *
+ * Scoped under `ov2-dl-` so nothing here can clash with the wizard
+ * frame or other steps. Reuses the ov2 design tokens declared in
+ * outreach.css. The root pulls itself flush to the pane edges
+ * (negative margins mirror .ov2-wiz-pane padding) so the hero art
+ * and the explainer strip run edge-to-edge like the mockup.
+ * ============================================================ */
+
+.ov2-dl {
+  margin: -26px -32px;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Hero ---------- */
+.ov2-dl-hero {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  min-height: 440px;
+}
+.ov2-dl-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 48px 56px;
+}
+.ov2-dl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 13px;
+  border: 1px solid rgba(42, 87, 206, 0.35);
+  border-radius: 999px;
+  background: var(--ov2-bg-surface);
+  color: var(--ov2-accent-ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.ov2-dl-copy h1 {
+  margin: 18px 0 14px;
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  color: var(--ov2-ink-1);
+}
+.ov2-dl-copy p {
+  margin: 0 0 28px;
+  max-width: 54ch;
+  font-size: 14.5px;
+  line-height: 1.7;
+  color: var(--ov2-ink-2);
+}
+.ov2-dl-copy p strong {
+  color: var(--ov2-ink-1);
+  font-weight: 600;
+}
+.ov2-dl-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 11px 22px;
+  border: none;
+  border-radius: 8px;
+  background: var(--ov2-accent);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(42, 87, 206, 0.28);
+  transition:
+    background 0.15s,
+    transform 0.15s,
+    box-shadow 0.15s;
+}
+.ov2-dl-cta:hover {
+  background: var(--ov2-accent-ink);
+  transform: translateY(-1px);
+  box-shadow: 0 9px 22px rgba(42, 87, 206, 0.34);
+}
+.ov2-dl-cta:active {
+  transform: translateY(0);
+  box-shadow: 0 4px 10px rgba(42, 87, 206, 0.25);
+}
+
+/* ---------- Art panel (floating recipient-type cards) ---------- */
+.ov2-dl-art {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(160deg, #f2f6fd 0%, #e4edfa 55%, #d8e5f8 100%);
+}
+.ov2-dl-ring {
+  position: absolute;
+  width: 430px;
+  height: 430px;
+  right: -90px;
+  bottom: -110px;
+  border: 2px solid rgba(42, 87, 206, 0.1);
+  border-radius: 50%;
+}
+.ov2-dl-ring.inner {
+  width: 300px;
+  height: 300px;
+  right: -25px;
+  bottom: -45px;
+  border-color: rgba(42, 87, 206, 0.07);
+}
+.ov2-dl-glow {
+  position: absolute;
+  width: 360px;
+  height: 360px;
+  left: 50%;
+  top: 55%;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, rgba(120, 158, 235, 0.28), rgba(120, 158, 235, 0) 70%);
+  border-radius: 50%;
+}
+
+.ov2-dl-float {
+  position: absolute;
+  width: 196px;
+  padding: 14px 16px;
+  background: var(--ov2-bg-surface);
+  border: 1px solid rgba(227, 230, 236, 0.9);
+  border-radius: 12px;
+  box-shadow: 0 14px 30px rgba(24, 47, 99, 0.13);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transform: rotate(var(--ov2-dl-rot, 0deg));
+  animation: ov2-dl-drift 7s ease-in-out infinite alternate;
+}
+.ov2-dl-float b {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ov2-ink-1);
+}
+.ov2-dl-float small {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ov2-ink-3);
+}
+/* Explicit stacking so cards layer cleanly when the panel narrows. */
+.ov2-dl-float.individual {
+  top: 12%;
+  left: 9%;
+  z-index: 2;
+  --ov2-dl-rot: -2deg;
+}
+.ov2-dl-float.list {
+  top: 26%;
+  right: 6%;
+  width: 180px;
+  z-index: 1;
+  --ov2-dl-rot: 2deg;
+  animation-delay: -2.3s;
+}
+.ov2-dl-float.group {
+  bottom: 13%;
+  left: 22%;
+  z-index: 3;
+  --ov2-dl-rot: -1deg;
+  animation-delay: -4.6s;
+}
+@keyframes ov2-dl-drift {
+  from {
+    transform: rotate(var(--ov2-dl-rot, 0deg)) translateY(3px);
+  }
+  to {
+    transform: rotate(var(--ov2-dl-rot, 0deg)) translateY(-5px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov2-dl-float {
+    animation: none;
+  }
+}
+
+/* Icon chips, shared by the floating cards and the bottom strip. */
+.ov2-dl-float .ico,
+.ov2-dl-type .ico {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  flex: none;
+}
+.ov2-dl-float .ico {
+  margin-bottom: 5px;
+}
+.ov2-dl-float .ico[data-kind='individual'],
+.ov2-dl-type .ico[data-kind='individual'] {
+  background: var(--ov2-accent-soft);
+  color: var(--ov2-accent-ink);
+}
+.ov2-dl-float .ico[data-kind='list'],
+.ov2-dl-type .ico[data-kind='list'] {
+  background: var(--ov2-success-soft);
+  color: var(--ov2-success);
+}
+.ov2-dl-float .ico[data-kind='group'],
+.ov2-dl-type .ico[data-kind='group'] {
+  background: var(--ov2-notable-soft);
+  color: var(--ov2-notable);
+}
+
+/* ---------- Bottom explainer strip ---------- */
+.ov2-dl-types {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 28px;
+  padding: 22px 32px 26px;
+  border-top: 1px solid var(--ov2-border-1);
+  background: var(--ov2-bg-surface-2);
+}
+.ov2-dl-type {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.ov2-dl-type .ico {
+  margin-top: 1px;
+}
+.ov2-dl-type b {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ov2-ink-1);
+}
+.ov2-dl-type p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ov2-ink-3);
+}
+
+/* ---------- Narrow viewports ---------- */
+@media (max-width: 1100px) {
+  .ov2-dl-hero {
+    grid-template-columns: 1fr;
+  }
+  .ov2-dl-art {
+    display: none;
+  }
+  .ov2-dl-types {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}

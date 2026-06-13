@@ -2,7 +2,19 @@
 //   import { NewOutreachWizard } from '@/pages/engagement/outreach/v2'
 
 export { NewOutreachWizard } from './NewOutreachWizard.js';
+export { StepCampaignSetup } from './StepCampaignSetup.js';
 export { StepDirection } from './StepDirection.js';
+export { StepDirectionLanding } from './StepDirectionLanding.js';
+export { StepRecipientsSelect } from './StepRecipientsSelect.js';
+export { StepGenerate } from './StepGenerate.js';
+export {
+  flattenTargets,
+  individualTarget,
+  membershipOf,
+  totalRecipients,
+  type OutreachTarget,
+  type TargetType,
+} from './targets.js';
 export { StepRecipients } from './StepRecipients.js';
 export { StepContext } from './StepContext.js';
 export {

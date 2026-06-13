@@ -761,6 +761,65 @@ class CreateOutreachTemplateDto {
   body!: string;
 }
 
+// Outreach 2.0 saved audiences (reusable lists/groups; user-owned).
+class OutreachAudienceMemberDto {
+  @IsIn(['congress', 'client_contact', 'manual'])
+  source!: 'congress' | 'client_contact' | 'manual';
+
+  @IsOptional()
+  @IsString()
+  @EmptyToUndefined()
+  @Length(1, 240)
+  sourceRefId?: string;
+
+  @IsOptional()
+  @IsString()
+  @EmptyToUndefined()
+  @Length(1, 160)
+  name?: string;
+
+  @IsEmail()
+  email!: string;
+
+  @IsOptional()
+  @IsString()
+  @EmptyToUndefined()
+  @Length(1, 240)
+  title?: string;
+
+  @IsOptional()
+  @IsString()
+  @EmptyToUndefined()
+  @Length(1, 240)
+  office?: string;
+}
+
+class CreateOutreachAudienceDto {
+  @IsIn(['list', 'group'])
+  kind!: 'list' | 'group';
+
+  @IsString()
+  @Length(1, 120)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 500)
+  description?: string;
+
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => OutreachAudienceMemberDto)
+  members!: OutreachAudienceMemberDto[];
+}
+
+class ListOutreachAudiencesQueryDto {
+  @IsOptional()
+  @IsIn(['list', 'group'])
+  kind?: 'list' | 'group';
+}
+
 class CreateAiTemplateDto {
   @IsString()
   @Length(1, 120)
@@ -1362,6 +1421,24 @@ export class EngagementController {
   @Post('outreach/send-batch')
   sendBatchEmails(@CurrentTenant() ctx: TenantContext, @Body() body: SendBatchEmailDto) {
     return this.service.sendBatchEmails(ctx, body);
+  }
+
+  // Saved audiences must be declared BEFORE 'outreach/:id' or the dynamic
+  // route would swallow 'audiences' as an id.
+  @Get('outreach/audiences')
+  listOutreachAudiences(
+    @CurrentTenant() ctx: TenantContext,
+    @Query() query: ListOutreachAudiencesQueryDto,
+  ) {
+    return this.service.listOutreachAudiences(ctx, query.kind);
+  }
+
+  @Post('outreach/audiences')
+  createOutreachAudience(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: CreateOutreachAudienceDto,
+  ) {
+    return this.service.createOutreachAudience(ctx, body);
   }
 
   @Get('outreach/:id')

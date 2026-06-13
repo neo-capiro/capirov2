@@ -1,0 +1,455 @@
+// Step 6 — Generate & Review (board step 10).
+//
+// Entity-aware drafting over the Outreach 2.0 target model:
+//   • Individual — one personalized draft each (blue).
+//   • List — one draft PER MEMBER; the list card expands to each member's
+//     own draft, and editing one member offers "Apply to all in list" (green).
+//   • Group — ONE shared draft for the whole group (amber).
+//
+// The left rail shows a "N / N ready" drafts pill + one card per entity. The
+// editor pane has the entity badge + name + context line, a tone control,
+// Regenerate this / Regenerate all, a Subject field, and the WYSIWYG body
+// editor. The campaign-level Attachments picker (production feature) lives
+// below the editor. Generation/keying live in the shell + generation.ts; this
+// component is the presentation + interaction layer.
+
+import { useEffect, useMemo, useState } from 'react';
+import { Button, Checkbox, Input, Select, Space, Typography, Upload } from 'antd';
+import {
+  CheckOutlined,
+  DownOutlined,
+  PaperClipOutlined,
+  RightOutlined,
+  TeamOutlined,
+  ThunderboltOutlined,
+  UnorderedListOutlined,
+  UserOutlined,
+} from '@ant-design/icons';
+import type { WizardV2State } from './types.js';
+import { listAidFromKey, type GenSlot, type RailEntity, type RailSlot } from './generation.js';
+import { RichTextEditor } from './RichTextEditor.js';
+import './step-generate.css';
+
+interface AttachmentDoc {
+  id: string;
+  fileName: string;
+  contentType: string;
+}
+
+interface Props {
+  entities: RailEntity[];
+  slots: GenSlot[];
+  generated: WizardV2State['generatedEmails'];
+  tone: WizardV2State['tone'];
+  onTone: (t: WizardV2State['tone']) => void;
+  selectedKey: string | null;
+  onSelectKey: (key: string) => void;
+  onRegenerateAll: () => void;
+  onRegenerateOne: (genKey: string) => void;
+  onEdit: (genKey: string, patch: { subject?: string; body?: string }) => void;
+  onApplyToList: (listAid: string, sourceKey: string) => void;
+  regenerating: boolean;
+  generatingKey: string | null;
+  // Attachments (campaign-level; preserved from production).
+  clientId: string | null;
+  docs: AttachmentDoc[];
+  attachmentIds: string[];
+  onToggleAttachment: (id: string) => void;
+  onUploadAttachment: (file: File) => void;
+}
+
+const KIND_BADGE: Record<RailEntity['kind'], { label: string; cls: string; icon: JSX.Element }> = {
+  individual: { label: 'Individual', cls: 'individual', icon: <UserOutlined /> },
+  list: { label: 'List', cls: 'list', icon: <UnorderedListOutlined /> },
+  group: { label: 'Group', cls: 'group', icon: <TeamOutlined /> },
+};
+
+function isReady(draft?: { status: string }): boolean {
+  return draft?.status === 'ready' || draft?.status === 'edited';
+}
+
+export function StepGenerate({
+  entities,
+  slots,
+  generated,
+  tone,
+  onTone,
+  selectedKey,
+  onSelectKey,
+  onRegenerateAll,
+  onRegenerateOne,
+  onEdit,
+  onApplyToList,
+  regenerating,
+  generatingKey,
+  clientId,
+  docs,
+  attachmentIds,
+  onToggleAttachment,
+  onUploadAttachment,
+}: Props) {
+  // Lists default to expanded so members are visible (board shows them open).
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // The list-member draft just edited — drives the green propagation banner.
+  const [bannerFor, setBannerFor] = useState<string | null>(null);
+
+  // Flat lookup: genKey → { entity, slot }.
+  const index = useMemo(() => {
+    const map = new Map<string, { entity: RailEntity; slot: RailSlot }>();
+    for (const entity of entities) {
+      for (const slot of entity.members) map.set(slot.genKey, { entity, slot });
+    }
+    return map;
+  }, [entities]);
+
+  const allKeys = useMemo(
+    () => entities.flatMap((e) => e.members.map((m) => m.genKey)),
+    [entities],
+  );
+  const activeKey = selectedKey && index.has(selectedKey) ? selectedKey : (allKeys[0] ?? null);
+  const active = activeKey ? index.get(activeKey) : undefined;
+  const activeDraft = activeKey ? generated[activeKey] : undefined;
+
+  const total = slots.length;
+  const ready = slots.filter((s) => isReady(generated[s.genKey])).length;
+  const batchGenerating = regenerating && !generatingKey;
+
+  const select = (key: string) => {
+    if (key !== activeKey) setBannerFor(null);
+    onSelectKey(key);
+  };
+
+  const editActive = (patch: { subject?: string; body?: string }) => {
+    if (!activeKey) return;
+    onEdit(activeKey, patch);
+    if (active?.slot.appliesTo === 'member') setBannerFor(activeKey);
+  };
+
+  // A regenerate flips the draft back to 'ready'; clear any stale "you edited
+  // this" banner so "Apply to all in list" can't push un-edited content.
+  useEffect(() => {
+    if (bannerFor && generated[bannerFor]?.status === 'ready') setBannerFor(null);
+  }, [bannerFor, generated]);
+
+  if (entities.length === 0) {
+    return (
+      <div>
+        <h2>Generate &amp; review</h2>
+        <div className="ov2-pane-sub">
+          Add recipients first, then come back to draft their emails.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h2>Generate &amp; review</h2>
+      <div className="ov2-pane-sub">
+        Clio drafts a unique email for each individual and list member, and one shared email per
+        group. Edit any draft inline, regenerate, or save everything as a draft to finish later.
+      </div>
+
+      <div className="ov2-gen-grid">
+        {/* ---- Left rail ---- */}
+        <div className="ov2-gen-rail">
+          <div className="ov2-gen-pill">
+            <ThunderboltOutlined /> {batchGenerating ? 'Generating…' : `${ready} / ${total} ready`}
+          </div>
+          <div className="ov2-gen-rail-scroll">
+            {entities.map((entity) => (
+              <RailCard
+                key={entity.target.key}
+                entity={entity}
+                generated={generated}
+                activeKey={activeKey}
+                collapsed={collapsed.has(entity.target.key)}
+                onToggleCollapse={() =>
+                  setCollapsed((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(entity.target.key)) next.delete(entity.target.key);
+                    else next.add(entity.target.key);
+                    return next;
+                  })
+                }
+                onSelect={select}
+                onRegenerateOne={onRegenerateOne}
+                generatingKey={generatingKey}
+                batchGenerating={batchGenerating}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* ---- Editor pane ---- */}
+        <div className="ov2-gen-editor">
+          <div className="ov2-gen-editor-head">
+            {active && (
+              <div className="ov2-gen-editor-title">
+                <span className={`ov2-gen-badge ${KIND_BADGE[active.entity.kind].cls}`}>
+                  {KIND_BADGE[active.entity.kind].icon} {KIND_BADGE[active.entity.kind].label}
+                </span>
+                <span className="name">{active.slot.name}</span>
+                <span className="ctx">{editorContextLine(active.entity, active.slot)}</span>
+              </div>
+            )}
+            <Select
+              value={tone}
+              onChange={onTone}
+              className="ov2-gen-tone"
+              options={['Professional', 'Friendly', 'Formal', 'Concise'].map((t) => ({
+                value: t,
+                label: t,
+              }))}
+            />
+            <Button
+              icon={<ThunderboltOutlined />}
+              loading={(!!activeKey && generatingKey === activeKey) || batchGenerating}
+              onClick={() => activeKey && onRegenerateOne(activeKey)}
+              disabled={!activeKey}
+            >
+              Regenerate this
+            </Button>
+            <Button
+              icon={<ThunderboltOutlined />}
+              loading={batchGenerating}
+              onClick={onRegenerateAll}
+            >
+              Regenerate all
+            </Button>
+          </div>
+
+          {bannerFor && bannerFor === activeKey && active?.slot.appliesTo === 'member' && (
+            <div className="ov2-gen-propagate">
+              <span className="msg">
+                <b>You edited this draft.</b> Apply this change to all{' '}
+                {active.entity.members.length}{' '}
+                {active.entity.members.length === 1 ? 'member' : 'members'} in {active.entity.name}?
+              </span>
+              <span className="spacer" />
+              <Button
+                type="primary"
+                className="ov2-gen-apply-all"
+                onClick={() => {
+                  const aid = listAidFromKey(activeKey);
+                  if (aid) onApplyToList(aid, activeKey);
+                  setBannerFor(null);
+                }}
+              >
+                Apply to all in list
+              </Button>
+              <Button onClick={() => setBannerFor(null)}>Save individual only</Button>
+            </div>
+          )}
+
+          <div className="ov2-gen-editor-body">
+            {activeDraft ? (
+              <>
+                <div className="ov2-gen-field-label">Subject</div>
+                <Input
+                  value={activeDraft.subject}
+                  onChange={(e) => editActive({ subject: e.target.value })}
+                  placeholder="Email subject"
+                />
+                <div className="ov2-gen-field-label" style={{ marginTop: 14 }}>
+                  Body
+                </div>
+                <RichTextEditor
+                  value={activeDraft.body}
+                  onChange={(html) => editActive({ body: html })}
+                  placeholder="Write the email…"
+                />
+                <Typography.Text type="secondary" className="ov2-gen-autosave">
+                  Edits save automatically. Use “Save as draft” below to keep everything and finish
+                  later.
+                </Typography.Text>
+              </>
+            ) : (
+              <Typography.Text type="secondary">
+                {(!!activeKey && generatingKey === activeKey) || batchGenerating
+                  ? 'Generating…'
+                  : 'No draft yet. Click “Regenerate this”.'}
+              </Typography.Text>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ---- Campaign-level attachments (production feature, preserved) ---- */}
+      <div className="ov2-gen-attachments">
+        <Typography.Title level={5} style={{ marginBottom: 4 }}>
+          Attachments
+        </Typography.Title>
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+          Files added here are attached to every email on send (max 3MB each).
+        </Typography.Paragraph>
+        <Space direction="vertical" size={4} style={{ width: '100%' }}>
+          {docs.map((d) => (
+            <Checkbox
+              key={d.id}
+              checked={attachmentIds.includes(d.id)}
+              onChange={() => onToggleAttachment(d.id)}
+            >
+              {d.fileName}
+            </Checkbox>
+          ))}
+          {docs.length === 0 && (
+            <Typography.Text type="secondary">
+              {clientId
+                ? 'No stored documents for this client yet.'
+                : 'Select a client to attach stored documents.'}
+            </Typography.Text>
+          )}
+          <Upload
+            multiple
+            showUploadList={false}
+            beforeUpload={(file) => {
+              onUploadAttachment(file as File);
+              return false; // handle the upload ourselves; skip AntD's default
+            }}
+          >
+            <Button size="small" icon={<PaperClipOutlined />}>
+              Upload a file
+            </Button>
+          </Upload>
+        </Space>
+      </div>
+    </div>
+  );
+}
+
+function editorContextLine(entity: RailEntity, slot: RailSlot): string {
+  if (entity.kind === 'group') {
+    const count = entity.target.recipients.length;
+    return `${count} ${count === 1 ? 'contact' : 'contacts'} · one shared email`;
+  }
+  if (entity.kind === 'list') {
+    return [slot.sub, entity.name].filter(Boolean).join(' · ');
+  }
+  return slot.sub;
+}
+
+function RailCard({
+  entity,
+  generated,
+  activeKey,
+  collapsed,
+  onToggleCollapse,
+  onSelect,
+  onRegenerateOne,
+  generatingKey,
+  batchGenerating,
+}: {
+  entity: RailEntity;
+  generated: WizardV2State['generatedEmails'];
+  activeKey: string | null;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+  onSelect: (key: string) => void;
+  onRegenerateOne: (genKey: string) => void;
+  generatingKey: string | null;
+  batchGenerating: boolean;
+}) {
+  const badge = KIND_BADGE[entity.kind];
+
+  // Individuals and groups are a single selectable row (no expander).
+  if (entity.kind !== 'list') {
+    const slot = entity.members[0];
+    if (!slot) return null;
+    return (
+      <div className={`ov2-gen-card ${badge.cls}`}>
+        <RailRow
+          slot={slot}
+          badgeLabel={badge.label}
+          badgeCls={badge.cls}
+          ready={isReady(generated[slot.genKey])}
+          active={activeKey === slot.genKey}
+          onSelect={onSelect}
+          onRegenerateOne={onRegenerateOne}
+          generating={generatingKey === slot.genKey || batchGenerating}
+        />
+      </div>
+    );
+  }
+
+  // List card: header (with member count + ready count) that expands to members.
+  const readyCount = entity.members.filter((m) => isReady(generated[m.genKey])).length;
+  return (
+    <div className={`ov2-gen-card list`}>
+      <button type="button" className="ov2-gen-listhead" onClick={onToggleCollapse}>
+        <span className="caret">{collapsed ? <RightOutlined /> : <DownOutlined />}</span>
+        <span className={`ov2-gen-badge list`}>
+          {badge.icon} {badge.label}
+        </span>
+        <span className="name">{entity.name}</span>
+        <span className="count">
+          · {readyCount}/{entity.members.length} drafts
+        </span>
+      </button>
+      {!collapsed &&
+        entity.members.map((slot) => (
+          <RailRow
+            key={slot.genKey}
+            slot={slot}
+            indented
+            ready={isReady(generated[slot.genKey])}
+            active={activeKey === slot.genKey}
+            onSelect={onSelect}
+            onRegenerateOne={onRegenerateOne}
+            generating={generatingKey === slot.genKey || batchGenerating}
+          />
+        ))}
+    </div>
+  );
+}
+
+function RailRow({
+  slot,
+  badgeLabel,
+  badgeCls,
+  ready,
+  active,
+  indented,
+  onSelect,
+  onRegenerateOne,
+  generating,
+}: {
+  slot: RailSlot;
+  badgeLabel?: string;
+  badgeCls?: string;
+  ready: boolean;
+  active: boolean;
+  indented?: boolean;
+  onSelect: (key: string) => void;
+  onRegenerateOne: (genKey: string) => void;
+  generating: boolean;
+}) {
+  return (
+    <div
+      className={'ov2-gen-row' + (active ? ' active' : '') + (indented ? ' indented' : '')}
+      onClick={() => onSelect(slot.genKey)}
+    >
+      <span className={'ov2-gen-check' + (ready ? ' ready' : '')}>
+        {ready && <CheckOutlined />}
+      </span>
+      <div className="ov2-gen-row-main">
+        <div className="ov2-gen-row-name">
+          {badgeLabel && <span className={`ov2-gen-tag ${badgeCls}`}>{badgeLabel}</span>}
+          {slot.name}
+        </div>
+        {slot.sub && <div className="ov2-gen-row-sub">{slot.sub}</div>}
+      </div>
+      <Button
+        size="small"
+        type="text"
+        icon={<ThunderboltOutlined />}
+        loading={generating}
+        title="Regenerate just this draft"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRegenerateOne(slot.genKey);
+        }}
+      />
+    </div>
+  );
+}
