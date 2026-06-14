@@ -22,6 +22,7 @@ const TABS: Tab[] = [
   { key: '/settings/intelligence-mappings', label: 'Intelligence', minRole: 'user_admin' },
   { key: '/settings/skills', label: 'Skills', minRole: 'user_admin' },
   { key: '/settings/tenants', label: 'Tenants', minRole: 'capiro_admin' },
+  { key: '/settings/customers', label: 'Customers', minRole: 'capiro_admin' },
 ];
 
 /**

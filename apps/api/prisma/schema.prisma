@@ -111,6 +111,17 @@ enum WorkflowStatus {
   @@map("workflow_status")
 }
 
+enum BillingStatus {
+  none
+  trialing
+  active
+  past_due
+  canceled
+  comped
+
+  @@map("billing_status")
+}
+
 model Tenant {
   id              String       @id @default(uuid()) @db.Uuid
   slug            String       @unique @db.Citext
@@ -138,6 +149,18 @@ model Tenant {
   // LDA clients to just the clients this firm has actually filed for.
   ldaRegistrantId   Int?       @map("lda_registrant_id")
   ldaRegistrantName String?    @map("lda_registrant_name")
+  // Billing (Stripe-direct). billingStatus gates the app + slot enforcement;
+  // 'comped' (Capiro staff / promo) bypasses paywalls. clientSlots is the
+  // purchased capacity (0 until first checkout); creating a client beyond it
+  // returns 402. llmAllowanceUsdPerSlot × clientSlots = pooled monthly LLM
+  // allowance before 2× overage; llmHardCapUsd is an optional admin spend cap.
+  stripeCustomerId       String?       @unique @map("stripe_customer_id")
+  stripeSubscriptionId   String?       @unique @map("stripe_subscription_id")
+  billingStatus          BillingStatus @default(none) @map("billing_status")
+  clientSlots            Int           @default(0) @map("client_slots")
+  llmAllowanceUsdPerSlot Decimal       @default(20) @map("llm_allowance_usd_per_slot") @db.Decimal(12, 2)
+  llmHardCapUsd          Decimal?      @map("llm_hard_cap_usd") @db.Decimal(12, 2)
+  currentPeriodEnd       DateTime?     @map("current_period_end") @db.Timestamptz(6)
   createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -191,6 +214,7 @@ model Tenant {
   actionRecommendations        ActionRecommendation[]
   aiUsageEvents                AiUsageEvent[]
   aiCredentials                TenantAiCredential[]
+  usageMeters                  TenantUsageMeter[]
 
   @@map("tenants")
 }
@@ -264,6 +288,41 @@ model ClerkEvent {
 
   @@index([eventType], map: "clerk_events_event_type_idx")
   @@map("clerk_events")
+}
+
+/// Stripe webhook idempotency log (mirrors clerk_events). Keyed by the Stripe
+/// event id; re-deliveries with processed_at set are skipped.
+model StripeEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  eventId     String    @unique @map("event_id")
+  eventType   String    @map("event_type")
+  payload     Json      @map("payload_jsonb")
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(6)
+  error       String?
+
+  @@index([eventType], map: "stripe_events_event_type_idx")
+  @@map("stripe_events")
+}
+
+/// Per-tenant, per-billing-period tracker for LLM overage already reported to
+/// the Stripe metered price. The daily report-llm-overage job computes
+/// cumulative billable overage (cents) for the period and reports only the
+/// delta vs reportedOverageCents, so re-runs never double-bill.
+model TenantUsageMeter {
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String   @map("tenant_id") @db.Uuid
+  /// Start of the billing period this row tracks (UTC, day-aligned).
+  periodStart          DateTime @map("period_start") @db.Timestamptz(6)
+  /// Cumulative billable overage already reported to Stripe for the period.
+  reportedOverageCents Int      @default(0) @map("reported_overage_cents")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, periodStart], map: "tenant_usage_meters_tenant_period_key")
+  @@map("tenant_usage_meters")
 }
 
 model Client {

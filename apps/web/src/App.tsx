@@ -11,6 +11,9 @@ import { TeamPage } from './pages/admin/TeamPage.js';
 import { BrandingPage } from './pages/admin/BrandingPage.js';
 import { ClientsPage } from './pages/admin/ClientsPage.js';
 import { BillingPage } from './pages/admin/BillingPage.js';
+import { CustomersPage } from './pages/admin/CustomersPage.js';
+import { SubscribePage } from './pages/onboarding/SubscribePage.js';
+import { useBilling } from './lib/billing.js';
 import { CapiroAdminPage } from './pages/capiro-admin/CapiroAdminPage.js';
 import { ClientWorkspacePage } from './pages/clients/ClientWorkspacePage.js';
 import { DirectoryPage } from './pages/directory/DirectoryPage.js';
@@ -94,15 +97,13 @@ export function App() {
     <Routes>
       <Route path="/sign-in/*" element={<AuthPage mode="sign-in" />} />
       <Route path="/sign-up/*" element={<AuthPage mode="sign-up" />} />
+      {/* Welcome / paywall. Signed-in but standalone (outside AppShell + the
+          BillingGate) so it never redirect-loops with the gate. */}
       <Route
-        element={
-          isSignedIn ? (
-            <AppShell />
-          ) : (
-            <Navigate to="/sign-in" replace />
-          )
-        }
-      >
+        path="/onboarding/subscribe"
+        element={isSignedIn ? <SubscribePage /> : <Navigate to="/sign-in" replace />}
+      />
+      <Route element={isSignedIn ? <BillingGate /> : <Navigate to="/sign-in" replace />}>
         <Route path="/" element={<HomePage />} />
         <Route path="/clients" element={<ClientWorkspacePage />} />
         <Route path="/engagement/*" element={<EngagementPage />} />
@@ -123,7 +124,11 @@ export function App() {
         <Route
           path="/program-elements"
           element={
-            <Suspense fallback={<PlaceholderPage title="Loading program elements" description="Please wait..." />}>
+            <Suspense
+              fallback={
+                <PlaceholderPage title="Loading program elements" description="Please wait..." />
+              }
+            >
               <ProgramElementFinderPage />
             </Suspense>
           }
@@ -132,7 +137,11 @@ export function App() {
         <Route
           path="/program-elements/mark-up-monitor"
           element={
-            <Suspense fallback={<PlaceholderPage title="Loading mark-up monitor" description="Please wait..." />}>
+            <Suspense
+              fallback={
+                <PlaceholderPage title="Loading mark-up monitor" description="Please wait..." />
+              }
+            >
               <MarkupMonitorPage />
             </Suspense>
           }
@@ -140,7 +149,9 @@ export function App() {
         <Route
           path="/program-elements/contacts"
           element={
-            <Suspense fallback={<PlaceholderPage title="Loading contacts" description="Please wait..." />}>
+            <Suspense
+              fallback={<PlaceholderPage title="Loading contacts" description="Please wait..." />}
+            >
               <PersonCandidatesPage />
             </Suspense>
           }
@@ -148,7 +159,11 @@ export function App() {
         <Route
           path="/program-elements/:peCode"
           element={
-            <Suspense fallback={<PlaceholderPage title="Loading program element" description="Please wait..." />}>
+            <Suspense
+              fallback={
+                <PlaceholderPage title="Loading program element" description="Please wait..." />
+              }
+            >
               <ProgramElementWatchPage />
             </Suspense>
           }
@@ -156,7 +171,14 @@ export function App() {
         <Route
           path="/admin/program-element/reconciliation"
           element={
-            <Suspense fallback={<PlaceholderPage title="Loading reconciliation queue" description="Please wait..." />}>
+            <Suspense
+              fallback={
+                <PlaceholderPage
+                  title="Loading reconciliation queue"
+                  description="Please wait..."
+                />
+              }
+            >
               <PeReconciliationPage />
             </Suspense>
           }
@@ -164,7 +186,11 @@ export function App() {
         <Route
           path="/admin/program-element/match-queue"
           element={
-            <Suspense fallback={<PlaceholderPage title="Loading program match queue" description="Please wait..." />}>
+            <Suspense
+              fallback={
+                <PlaceholderPage title="Loading program match queue" description="Please wait..." />
+              }
+            >
               <ProgramMatchQueuePage />
             </Suspense>
           }
@@ -175,7 +201,11 @@ export function App() {
         <Route
           path="/admin/analyst-console"
           element={
-            <Suspense fallback={<PlaceholderPage title="Loading analyst console" description="Please wait..." />}>
+            <Suspense
+              fallback={
+                <PlaceholderPage title="Loading analyst console" description="Please wait..." />
+              }
+            >
               <AnalystConsolePage />
             </Suspense>
           }
@@ -188,7 +218,10 @@ export function App() {
         <Route path="/intelligence/issues/:code" element={<IssueLeaderboardPage />} />
         <Route path="/intelligence/bills/:bill" element={<BillDetailRedirectRoute />} />
         <Route path="/intelligence/client/:clientId" element={<Navigate to="/clients" replace />} />
-        <Route path="/intelligence/client/:clientId/graph" element={<Navigate to="/clients" replace />} />
+        <Route
+          path="/intelligence/client/:clientId/graph"
+          element={<Navigate to="/clients" replace />}
+        />
         <Route path="/intelligence/*" element={<Navigate to="/explorer" replace />} />
         <Route path="/intelligence-center" element={<ComingSoonIntelligence />} />
         <Route path="/directory" element={<DirectoryPage />} />
@@ -207,6 +240,7 @@ export function App() {
           <Route path="clients" element={<ClientsPage />} />
           <Route path="integrations" element={<IntegrationsPage />} />
           <Route path="billing" element={<BillingPage />} />
+          <Route path="customers" element={<CustomersPage />} />
           <Route path="ai-usage" element={<AiUsagePage />} />
           <Route path="intelligence-mappings" element={<IntelligenceMappingsPage />} />
           <Route path="skills" element={<SkillsPage />} />
@@ -227,6 +261,27 @@ export function App() {
       </Route>
     </Routes>
   );
+}
+
+/**
+ * Wraps the authenticated app shell with a billing paywall. A tenant whose
+ * subscription is missing or canceled is routed to the welcome/subscribe screen
+ * before it can use the product. Fails OPEN: standard users (who can't read
+ * billing) and any summary error render the app normally — only a definitive
+ * non-entitled status from the server gates. comped/active/trialing pass through.
+ */
+function BillingGate() {
+  const billing = useBilling();
+  if (billing.isLoading) {
+    return <PlaceholderPage title="Loading" description="Please wait..." />;
+  }
+  const data = billing.data;
+  // Only paywall when billing is actually enabled (Stripe configured). While
+  // dormant, billingEnabled is false → the app behaves exactly as before.
+  if (data?.billingEnabled && (data.status === 'none' || data.status === 'canceled')) {
+    return <Navigate to="/onboarding/subscribe" replace />;
+  }
+  return <AppShell />;
 }
 
 function BillDetailRedirectRoute() {

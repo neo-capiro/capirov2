@@ -12,6 +12,22 @@ describe('isAllowedAttachmentContentType — engagement attachment allowlist', (
     expect(isAllowedAttachmentContentType('text/plain')).toBe(true);
   });
 
+  test('accepts PowerPoint, Excel, and CSV (capability + client Documents advertise these)', () => {
+    expect(isAllowedAttachmentContentType('application/vnd.ms-powerpoint')).toBe(true);
+    expect(
+      isAllowedAttachmentContentType(
+        'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      ),
+    ).toBe(true);
+    expect(isAllowedAttachmentContentType('application/vnd.ms-excel')).toBe(true);
+    expect(
+      isAllowedAttachmentContentType(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ),
+    ).toBe(true);
+    expect(isAllowedAttachmentContentType('text/csv')).toBe(true);
+  });
+
   test('accepts any image/*, plus audio/* and video/* for the debrief transcript flow', () => {
     expect(isAllowedAttachmentContentType('image/png')).toBe(true);
     expect(isAllowedAttachmentContentType('image/heic')).toBe(true);

@@ -161,8 +161,7 @@ export function ClientProfilePage({
       (await api.get<Capability[]>(`/api/clients/${client.id}/capabilities`)).data,
   });
 
-  const selectedCapability =
-    capabilities.data?.find((c) => c.id === selectedCapabilityId) ?? null;
+  const selectedCapability = capabilities.data?.find((c) => c.id === selectedCapabilityId) ?? null;
 
   const people = useQuery<ClientPerson[]>({
     queryKey: ['client-people', client.id],
@@ -637,7 +636,6 @@ function OverviewTab({
       return next;
     });
 
-
   // Company-info fields.
   const dba = readText(intake, ['dba']);
   const location = formatLocation(intake);
@@ -808,7 +806,6 @@ function OverviewTab({
           loading={exposure.isLoading}
           error={exposure.isError}
         />
-
       </div>
 
       <div>
@@ -1291,8 +1288,7 @@ function DocumentsTab({
 
   const kbStatus = useQuery<KbStatusResponse>({
     queryKey: ['client-kb-status', client.id],
-    queryFn: async () =>
-      (await api.get<KbStatusResponse>(`/api/clio/kb/${client.id}/status`)).data,
+    queryFn: async () => (await api.get<KbStatusResponse>(`/api/clio/kb/${client.id}/status`)).data,
     staleTime: 60_000,
   });
 
@@ -1361,7 +1357,7 @@ function DocumentsTab({
         ref={fileInputRef}
         type="file"
         multiple
-        accept=".pdf,.doc,.docx,.txt,image/*"
+        accept=".pdf,.doc,.docx,.txt,.ppt,.pptx,.xls,.xlsx,.csv,image/*"
         style={{ display: 'none' }}
         onChange={(e) => {
           if (e.target.files) void handleFiles(e.target.files);

@@ -101,7 +101,10 @@ export const SECTOR_COLORS: Record<SectorTag, string> = {
 /** Normalize free-form sector text to a controlled SectorTag, or null if no clean match. */
 export function normalizeSector(raw: string | null | undefined): SectorTag | null {
   if (!raw) return null;
-  const upper = raw.trim().toUpperCase().replace(/[\s\-\/&]+/g, '_');
+  const upper = raw
+    .trim()
+    .toUpperCase()
+    .replace(/[\s\-\/&]+/g, '_');
   if ((SECTOR_TAGS as readonly string[]).includes(upper)) return upper as SectorTag;
   // Common free-text variants
   const aliases: Record<string, SectorTag> = {
@@ -338,3 +341,99 @@ export const CAPABILITY_TAG_SUGGESTIONS = [
 ];
 
 export const TENANT_HEADER = 'x-capiro-tenant';
+
+// ---------------------------------------------------------------------------
+// Billing (Stripe-direct). Single source of truth for pricing shared by the
+// API (Checkout line items, slot enforcement, overage math) and the web app
+// (subscribe screen, settings billing page). Keep in sync with the Stripe
+// products/prices created in the dashboard (Phase 7).
+// ---------------------------------------------------------------------------
+
+/** Minimum client slots a tenant must purchase at sign-up. */
+export const MIN_CLIENT_SLOTS = 10;
+
+/**
+ * Volume pricing for client slots, in whole USD per slot per month. "Volume"
+ * (all-units) semantics: every slot is priced at the tier the TOTAL quantity
+ * falls into — matches Stripe `tiers_mode: 'volume'`.
+ *   10–49 → $200, 50–99 → $180, 100+ → $160.
+ */
+export const CLIENT_SLOT_TIERS = [
+  { minSlots: 100, pricePerSlotUsd: 160 },
+  { minSlots: 50, pricePerSlotUsd: 180 },
+  { minSlots: MIN_CLIENT_SLOTS, pricePerSlotUsd: 200 },
+] as const;
+
+/** Per-slot monthly price for a given purchased quantity (volume pricing). */
+export function pricePerSlotUsd(quantity: number): number {
+  for (const tier of CLIENT_SLOT_TIERS) {
+    if (quantity >= tier.minSlots) return tier.pricePerSlotUsd;
+  }
+  // Below the minimum we still quote the base price (the UI/server clamps the
+  // purchasable quantity to MIN_CLIENT_SLOTS separately).
+  return CLIENT_SLOT_TIERS[CLIENT_SLOT_TIERS.length - 1]!.pricePerSlotUsd;
+}
+
+/** Total monthly slot subscription cost for a given quantity. */
+export function monthlySlotCostUsd(quantity: number): number {
+  return quantity * pricePerSlotUsd(quantity);
+}
+
+/** Included LLM usage allowance, pooled across the tenant, per purchased slot. */
+export const LLM_ALLOWANCE_USD_PER_SLOT = 20;
+
+/** Fraction of allowance at which we surface a soft usage warning. */
+export const LLM_WARN_THRESHOLD = 0.8;
+
+/** Overage above the allowance is billed at this multiple of our real cost. */
+export const LLM_OVERAGE_MULTIPLIER = 2;
+
+export const BILLING_STATUSES = [
+  'none',
+  'trialing',
+  'active',
+  'past_due',
+  'canceled',
+  'comped',
+] as const;
+export type BillingStatus = (typeof BILLING_STATUSES)[number];
+
+/** A tenant is entitled to use the product (and bypass paywalls) when: */
+export function isBillingEntitled(status: BillingStatus): boolean {
+  return status === 'active' || status === 'trialing' || status === 'comped';
+}
+
+/** Structured error code returned (HTTP 402) when a client create exceeds slots. */
+export const CLIENT_SLOT_LIMIT_CODE = 'CLIENT_SLOT_LIMIT';
+
+/** Response shape of GET /api/billing/summary. */
+export interface BillingSummary {
+  /**
+   * Master switch: false when Stripe is not configured on this environment
+   * (STRIPE_SECRET_KEY unset). While false, billing is DORMANT — the app must
+   * not paywall, cap client slots, or meter overage. Lets the feature ship to
+   * prod inert and be turned on later by wiring Stripe + comping tenants.
+   */
+  billingEnabled: boolean;
+  status: BillingStatus;
+  /** Purchased client slots (0 before first subscription). */
+  slots: number;
+  /** Active (non-archived) clients currently in use. */
+  usedSlots: number;
+  /** Per-slot monthly price at the current quantity, whole USD. */
+  pricePerSlotUsd: number;
+  /** Included pooled LLM allowance for the period, USD. */
+  llmAllowanceUsd: number;
+  /** Month-to-date real LLM cost, USD. */
+  llmUsedUsd: number;
+  /** Billable overage so far this period = max(0, used − allowance) × multiplier. */
+  llmOverageUsd: number;
+  /** True once MTD usage crosses LLM_WARN_THRESHOLD of the allowance. */
+  llmWarn: boolean;
+  /** Optional admin-set hard cap on real LLM spend, USD (null = uncapped). */
+  llmHardCapUsd: number | null;
+  /** End of the current Stripe billing period, ISO string (null if not subscribed). */
+  currentPeriodEnd: string | null;
+  /** Whether a Stripe customer/subscription exists (drives portal vs checkout). */
+  hasSubscription: boolean;
+}

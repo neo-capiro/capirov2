@@ -395,7 +395,7 @@ function CapabilityDocumentsTab({
       <Upload
         multiple
         showUploadList={false}
-        accept=".pdf,.doc,.docx,.txt,.ppt,.pptx,.xls,.xlsx,image/*"
+        accept=".pdf,.doc,.docx,.txt,.ppt,.pptx,.xls,.xlsx,.csv,image/*"
         beforeUpload={(file) => {
           void uploadMutation.mutateAsync(file as File);
           return false;

@@ -32,6 +32,7 @@ import { ChatModule } from './chat/chat.module.js';
 import { ProgramElementModule } from './program-element/program-element.module.js';
 import { AcquisitionPersonnelModule } from './acquisition-personnel/acquisition-personnel.module.js';
 import { AiUsageModule } from './ai-usage/ai-usage.module.js';
+import { BillingModule } from './billing/billing.module.js';
 import { ApiLatencyMiddleware } from './observability/api-latency.middleware.js';
 
 @Module({
@@ -77,6 +78,7 @@ import { ApiLatencyMiddleware } from './observability/api-latency.middleware.js'
     ChatModule,
     HelpModule,
     AiUsageModule,
+    BillingModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

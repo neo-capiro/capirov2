@@ -15,9 +15,11 @@ import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { CapiroAdminService } from './capiro-admin.service.js';
+import { BillingService } from '../billing/billing.service.js';
 import { AI_PROVIDERS } from '../ai-usage/ai-credential-store.service.js';
 import type { AiProvider } from '../engagement/ai-credential-resolver.service.js';
 import {
+  IsBoolean,
   IsEmail,
   IsIn,
   IsISO8601,
@@ -148,6 +150,11 @@ class SetTenantAiCredentialDto {
   modelOverride?: string;
 }
 
+class SetCompDto {
+  @IsBoolean()
+  comped!: boolean;
+}
+
 class QuarantineListQueryDto {
   @IsIn(['program_element', 'acquisition_personnel'])
   type!: 'program_element' | 'acquisition_personnel';
@@ -180,7 +187,10 @@ class QuarantineListQueryDto {
 @UseGuards(RolesGuard)
 @Roles('capiro_admin')
 export class CapiroAdminController {
-  constructor(private readonly service: CapiroAdminService) {}
+  constructor(
+    private readonly service: CapiroAdminService,
+    private readonly billing: BillingService,
+  ) {}
 
   @Get('tenants')
   listTenants() {
@@ -272,6 +282,20 @@ export class CapiroAdminController {
     return this.service.removeTenantAiCredential(ctx, tenantId, provider as AiProvider);
   }
 
+  // --- Billing console ------------------------------------------------------
+
+  /** All tenants with billing posture + MTD LLM spend (paying-customers list). */
+  @Get('billing/customers')
+  listBillingCustomers() {
+    return this.billing.adminListCustomers();
+  }
+
+  /** Comp / un-comp a tenant (Capiro staff + courtesy accounts pay $0). */
+  @Post('tenants/:tenantId/comp')
+  setTenantComp(@Param('tenantId', ParseUUIDPipe) tenantId: string, @Body() body: SetCompDto) {
+    return this.billing.setComped(tenantId, body.comped);
+  }
+
   // --- Step 3.5: analyst console -------------------------------------------
 
   @Get('review-counts')
@@ -309,9 +333,7 @@ export class CapiroAdminController {
 
   private parseQuarantineType(type: string): 'program_element' | 'acquisition_personnel' {
     if (type !== 'program_element' && type !== 'acquisition_personnel') {
-      throw new BadRequestException(
-        'type must be program_element or acquisition_personnel',
-      );
+      throw new BadRequestException('type must be program_element or acquisition_personnel');
     }
     return type;
   }

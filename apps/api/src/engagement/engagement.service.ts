@@ -313,15 +313,25 @@ export interface OutreachQuery {
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
 
 // Engagement attachment uploads: the union of what the advertised upload flows
-// send — client Documents ("PDF, DOC, DOCX, TXT, images") plus the meeting
-// debrief/transcript flow (.txt/.docx/audio/video + in-app voice recordings),
-// which shares these endpoints. Notably EXCLUDES application/octet-stream (the
-// FE fallback for unknown drag-dropped types), so unsupported files fail fast
-// with a clear message instead of landing as un-openable blobs.
+// send — client Documents + capability Documents ("PDF, DOC(X), PPT(X), XLS(X),
+// CSV, TXT, images") plus the meeting debrief/transcript flow (.txt/.docx/audio/
+// video + in-app voice recordings), which shares these endpoints. Notably
+// EXCLUDES application/octet-stream (the FE fallback for unknown drag-dropped
+// types), so unsupported files fail fast with a clear message instead of landing
+// as un-openable blobs.
 const ALLOWED_ATTACHMENT_MIME = new Set([
   'application/pdf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  // PowerPoint (.ppt / .pptx) — capability + client Documents advertise these.
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  // Excel (.xls / .xlsx) and CSV — spreadsheets are common client deliverables.
+  // Note: some browsers report .csv as application/vnd.ms-excel, which this set
+  // also covers.
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
   'text/plain',
 ]);
 const ALLOWED_ATTACHMENT_MIME_PREFIXES = ['image/', 'audio/', 'video/'];
@@ -329,7 +339,8 @@ const ALLOWED_ATTACHMENT_MIME_PREFIXES = ['image/', 'audio/', 'video/'];
 // Content-Type and would execute embedded <script> when opened inline, so it
 // is excluded despite matching the image/ prefix.
 const BLOCKED_ATTACHMENT_MIME = new Set(['image/svg+xml']);
-export const ALLOWED_ATTACHMENT_TYPES_LABEL = 'PDF, DOC, DOCX, TXT, images, audio, or video';
+export const ALLOWED_ATTACHMENT_TYPES_LABEL =
+  'PDF, DOC(X), PPT(X), XLS(X), CSV, TXT, images, audio, or video';
 
 export function isAllowedAttachmentContentType(contentType: string): boolean {
   const normalized = contentType.trim().toLowerCase();
@@ -2210,7 +2221,7 @@ export class EngagementService {
       });
       if (!existing) throw new NotFoundException('Deleted outreach record not found');
 
-      const metadata = { ...(existing.metadata as Record<string, unknown> | null ?? {}) };
+      const metadata = { ...((existing.metadata as Record<string, unknown> | null) ?? {}) };
       delete metadata.deletedFromCapiro;
       delete metadata.deletedAt;
       delete metadata.deletedByUserId;

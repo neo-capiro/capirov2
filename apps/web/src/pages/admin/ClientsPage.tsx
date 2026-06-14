@@ -1,14 +1,18 @@
 import { useState } from 'react';
 import { App, Button, Space, Table, Typography } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { AxiosError } from 'axios';
+import { CLIENT_SLOT_LIMIT_CODE } from '@capiro/shared';
 import { useApi } from '../../lib/use-api.js';
+import { usePortal } from '../../lib/billing.js';
 import { ClientFormModal } from '../clients/ClientFormModal.js';
 import type { Client, ClientFormSubmit } from '../clients/clientTypes.js';
 
 export function ClientsPage() {
   const api = useApi();
   const qc = useQueryClient();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
+  const portal = usePortal();
   const [open, setOpen] = useState(false);
 
   // The admin management table is the one surface that intentionally shows
@@ -36,7 +40,26 @@ export function ClientsPage() {
       setOpen(false);
       qc.invalidateQueries({ queryKey: ['clients'] });
     },
-    onError: (err) => message.error((err as Error).message),
+    onError: (err) => {
+      // Slot-limit (402) → offer a one-click upgrade into the Stripe portal
+      // (where they can raise the quantity) instead of a dead-end error toast.
+      const ax = err as AxiosError<{ code?: string; message?: string }>;
+      const data = ax.response?.data;
+      if (ax.response?.status === 402 && data?.code === CLIENT_SLOT_LIMIT_CODE) {
+        modal.confirm({
+          title: 'Client slot limit reached',
+          content:
+            data.message ??
+            "You've used all the client slots on your plan. Add more slots to create another client.",
+          okText: 'Add client slots',
+          cancelText: 'Not now',
+          okButtonProps: { loading: portal.isPending },
+          onOk: () => portal.mutate(),
+        });
+        return;
+      }
+      message.error((err as Error).message);
+    },
   });
 
   return (

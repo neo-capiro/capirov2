@@ -23,9 +23,10 @@ async function bootstrap() {
     ],
   });
 
-  // Clerk webhook signature verification needs the raw body. Mount raw parser
-  // ONLY on that path; everything else gets normal JSON.
+  // Webhook signature verification needs the raw (unparsed) body. Mount the raw
+  // parser ONLY on the webhook paths; everything else gets normal JSON.
   app.use('/webhooks/clerk', raw({ type: '*/*', limit: '1mb' }));
+  app.use('/webhooks/stripe', raw({ type: '*/*', limit: '1mb' }));
   app.use(json({ limit: '1mb' }));
 
   // Strict input validation at the edge, drop unknown fields, fail closed

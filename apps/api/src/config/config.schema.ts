@@ -277,6 +277,24 @@ export const configSchema = z.object({
   GOVINFO_API_KEY: z.string().optional(),
   // S3 bucket for cached GovInfo PDFs (committee reports, public laws).
   GOVINFO_CACHE_BUCKET: z.string().optional(),
+
+  // Stripe billing (Stripe-direct: Checkout + Customer Portal + webhooks).
+  // All optional so non-prod boots without billing wired; the BillingService
+  // returns a fail-soft "billing not configured" state when STRIPE_SECRET_KEY
+  // is unset (mirrors the AI-key BYO pattern). Sourced from Secrets Manager and
+  // injected as env by CDK in deployed envs.
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  // Recurring Price id for the volume-tiered "Capiro Client Slots" product.
+  STRIPE_PRICE_SLOTS: z.string().optional(),
+  // Recurring metered Price id for "Capiro LLM Overage" (bound to a Billing
+  // Meter; usage reported in cents of billable overage).
+  STRIPE_PRICE_OVERAGE: z.string().optional(),
+  // Event name of the Stripe Billing Meter the overage price is bound to.
+  STRIPE_OVERAGE_METER_EVENT: z.string().default('llm_overage_cents'),
+  // Base URL the Checkout/Portal return flows redirect back to. Defaults to the
+  // prod app; override per env (e.g. http://localhost:5173 locally).
+  BILLING_RETURN_URL: z.string().url().default('https://app.capiro.ai'),
 });
 
 export type AppConfig = z.infer<typeof configSchema>;

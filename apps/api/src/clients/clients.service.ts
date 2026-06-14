@@ -1,9 +1,17 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { S3Client, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { TenantContext } from '@capiro/shared';
+import { CLIENT_SLOT_LIMIT_CODE } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EntityResolutionService } from '../intelligence/entity-resolution.service.js';
@@ -61,6 +69,10 @@ export class ClientsService {
   private readonly s3: S3Client;
   private readonly bucket?: string;
   private readonly logger = new Logger(ClientsService.name);
+  // Billing is DORMANT until Stripe is configured: with no STRIPE_SECRET_KEY we
+  // never enforce the client-slot cap (the paywall is likewise off client-side),
+  // so the feature ships inert and is turned on later by wiring Stripe.
+  private readonly billingEnforced: boolean;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -72,6 +84,7 @@ export class ClientsService {
   ) {
     this.bucket = config.get('ASSETS_BUCKET', { infer: true });
     this.s3 = new S3Client({ region: config.get('AWS_REGION_DEFAULT', { infer: true }) });
+    this.billingEnforced = Boolean(config.get('STRIPE_SECRET_KEY', { infer: true }));
   }
 
   async list(ctx: TenantContext, filter: ListClientsFilter = {}) {
@@ -98,6 +111,30 @@ export class ClientsService {
 
   async create(ctx: TenantContext, input: CreateClientInput) {
     const { client, ldaRegistrantId } = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      // Billing slot enforcement: a client may not be created beyond the
+      // purchased client_slots. 'comped' tenants (Capiro staff / promo) bypass.
+      // Runs inside the transaction so the check + insert are atomic. Throws 402
+      // with a structured CLIENT_SLOT_LIMIT code the UI turns into an upgrade CTA.
+      const tenant = await tx.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { ldaRegistrantId: true, clientSlots: true, billingStatus: true },
+      });
+      if (this.billingEnforced && tenant && tenant.billingStatus !== 'comped') {
+        const current = await tx.client.count({
+          where: { tenantId: ctx.tenantId, status: { not: 'archived' } },
+        });
+        if (current >= tenant.clientSlots) {
+          throw new HttpException(
+            {
+              code: CLIENT_SLOT_LIMIT_CODE,
+              message: `You've used all ${tenant.clientSlots} client slots on your plan. Add more slots to create another client.`,
+              limit: tenant.clientSlots,
+              current,
+            },
+            HttpStatus.PAYMENT_REQUIRED,
+          );
+        }
+      }
       const client = await tx.client.create({
         data: {
           tenantId: ctx.tenantId,
@@ -120,10 +157,6 @@ export class ClientsService {
           pscCodes: input.pscCodes ?? [],
           createdByUserId: ctx.userId,
         },
-      });
-      const tenant = await tx.tenant.findUnique({
-        where: { id: ctx.tenantId },
-        select: { ldaRegistrantId: true },
       });
       return { client, ldaRegistrantId: tenant?.ldaRegistrantId ?? null };
     });
@@ -178,6 +211,26 @@ export class ClientsService {
         select: { name: true },
       }),
     );
+
+    // Billing slot budget for this import. 'comped' tenants are unbounded; for
+    // everyone else, only (client_slots − active clients) more clients may be
+    // created. Rows beyond the budget are rejected per-row (the import never
+    // partially succeeds past the cap), surfacing a slot-limit message the UI
+    // can turn into an upgrade prompt.
+    const { tenant, activeCount } = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const tenant = await tx.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { clientSlots: true, billingStatus: true },
+      });
+      const activeCount = await tx.client.count({
+        where: { tenantId: ctx.tenantId, status: { not: 'archived' } },
+      });
+      return { tenant, activeCount };
+    });
+    let remainingSlots =
+      this.billingEnforced && tenant && tenant.billingStatus !== 'comped'
+        ? Math.max(0, tenant.clientSlots - activeCount)
+        : Number.POSITIVE_INFINITY;
     const existingNames = new Set(existing.map((c) => c.name.trim().toLowerCase()));
     // Also dedupe within the import payload itself: two rows with the same
     // name → only the first survives, the second is reported as a dup.
@@ -211,6 +264,13 @@ export class ClientsService {
         });
         continue;
       }
+      if (remainingSlots <= 0) {
+        errors.push({
+          row: i,
+          message: `Client slot limit reached (${tenant?.clientSlots ?? 0} slots). Add more slots to import additional clients.`,
+        });
+        continue;
+      }
 
       try {
         const client = await this.prisma.withTenant(ctx.tenantId, (tx) =>
@@ -238,6 +298,7 @@ export class ClientsService {
         createdCount++;
         created.push(client);
         seenInPayload.add(key);
+        remainingSlots--;
       } catch (err) {
         const message = (err as Error).message ?? 'Unknown error';
         errors.push({ row: i, message });
@@ -284,7 +345,9 @@ export class ClientsService {
           ...('status' in input ? { status: input.status! } : {}),
           ...('profileType' in input ? { profileType: input.profileType ?? null } : {}),
           ...('sectorTag' in input ? { sectorTag: input.sectorTag ?? null } : {}),
-          ...('submissionTracks' in input ? { submissionTracks: input.submissionTracks ?? [] } : {}),
+          ...('submissionTracks' in input
+            ? { submissionTracks: input.submissionTracks ?? [] }
+            : {}),
           ...('issueCodes' in input ? { issueCodes: input.issueCodes ?? [] } : {}),
           ...('profileStatus' in input ? { profileStatus: input.profileStatus! } : {}),
           ...('uei' in input ? { uei: input.uei ?? null } : {}),
