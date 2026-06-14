@@ -5,30 +5,41 @@
 //             plus a "Custom note" tab. Each item has a `matches` array
 //             of recipient/client ids it naturally belongs to.
 //   • Right, the "context plan": selected items grouped into Shared
-//             (every recipient sees it) and per-recipient sections.
-//             Each card has a free-form `note` textarea that the AI uses
-//             as an extra instruction for that one item, and a scope
-//             dropdown to manually re-route.
+//             (every recipient sees it) and per-target sections (each
+//             individual / list / group). Each card has a free-form `note`
+//             textarea that the AI uses as an extra instruction for that one
+//             item, and an "Applies to" dropdown to re-route it.
+//
+// Scope values (SelectedContextItem.scope):
+//   'all' | '<recipientKey>' | 'list:<targetKey>' | 'group:<targetKey>'
+// List/group scopes are expanded to per-member recipient keys before they're
+// sent to the backend (see expandContextItemScopes in targets.ts).
 //
 // Smart routing: when an item is added, we look at recipients matching
-// item.matches (by recipient.id OR recipient.clientId). One match →
-// scope = that recipient.id. Zero or multi → scope = 'all'.
+// item.matches. One match that is an INDIVIDUAL target → scope = that key.
+// Zero / multi / list-or-group member → scope = 'all'.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  CloseOutlined,
-  FileTextOutlined,
-  MailOutlined,
   CalendarOutlined,
+  CloseOutlined,
+  DownOutlined,
+  FileTextOutlined,
+  GlobalOutlined,
+  MailOutlined,
   PaperClipOutlined,
   PlusOutlined,
-  SearchOutlined,
   RobotOutlined,
+  SearchOutlined,
   SolutionOutlined,
+  TeamOutlined,
+  UnorderedListOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { useApi } from '../../../../lib/use-api.js';
 import type { OutreachRecipient } from '../../OutreachView.js';
+import type { OutreachTarget } from './targets.js';
 import {
   recipientKey,
   type ContextKind,
@@ -48,10 +59,25 @@ interface BillSearchRow {
 
 interface Props {
   recipients: OutreachRecipient[];
+  /** Structured targets — drives the grouped "Applies to" scopes + sections. */
+  targets: OutreachTarget[];
   selected: SelectedContextItem[];
   onChange: (next: SelectedContextItem[]) => void;
   pool: Record<ContextKind, ContextPoolItem[]>;
   loading?: boolean;
+}
+
+/** One option in the "Applies to" dropdown (individual / list / group). */
+interface ScopeOpt {
+  value: string;
+  label: string;
+  sub?: string;
+}
+
+interface ScopeOptions {
+  individuals: ScopeOpt[];
+  lists: ScopeOpt[];
+  groups: ScopeOpt[];
 }
 
 // Intel tab intentionally removed — bills/emails/meetings/notes only.
@@ -74,7 +100,13 @@ const KIND_LABEL: Record<ContextKind, string> = {
   document: 'Doc/Note',
 };
 
-export function StepContext({ recipients, selected, onChange, pool, loading }: Props) {
+/** Compact secondary line for an individual recipient option/section. */
+function individualSub(r: OutreachRecipient): string {
+  if (r.state && r.district) return `${r.state}-${r.district}`;
+  return r.office || r.state || r.title || r.email || '';
+}
+
+export function StepContext({ recipients, targets, selected, onChange, pool, loading }: Props) {
   const api = useApi();
   const [tab, setTab] = useState<ContextKind>('bill');
   const [search, setSearch] = useState('');
@@ -123,10 +155,45 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
 
   const isOn = (id: string) => selected.some((c) => c.id === id);
 
+  // ---- Scope options + sections derived from the structured targets ----
+  const scopeOptions = useMemo<ScopeOptions>(() => {
+    const individuals: ScopeOpt[] = [];
+    const lists: ScopeOpt[] = [];
+    const groups: ScopeOpt[] = [];
+    for (const t of targets) {
+      if (t.type === 'individual') {
+        const r = t.recipients[0];
+        if (!r) continue;
+        individuals.push({
+          value: recipientKey(r),
+          label: r.name || r.email || 'Recipient',
+          sub: individualSub(r),
+        });
+      } else if (t.type === 'list') {
+        lists.push({
+          value: `list:${t.key}`,
+          label: t.name || 'Untitled list',
+          sub: `${t.recipients.length} ${t.recipients.length === 1 ? 'contact' : 'contacts'} · applied to each member individually`,
+        });
+      } else {
+        groups.push({
+          value: `group:${t.key}`,
+          label: t.name || 'Untitled group',
+          sub: `${t.recipients.length} ${t.recipients.length === 1 ? 'contact' : 'contacts'} · applied to group email`,
+        });
+      }
+    }
+    return { individuals, lists, groups };
+  }, [targets]);
+
+  // recipientKeys that are their OWN individual target — the only keys smart
+  // routing may auto-scope to (a list/group member has no per-member section).
+  const individualKeys = useMemo(
+    () => new Set(scopeOptions.individuals.map((o) => o.value)),
+    [scopeOptions],
+  );
+
   // Smart routing: derive the initial scope for a newly-selected item.
-  // `matches` is hoisted out of `item` so TS can narrow the array variable
-  // through the filter callback (the optional-chain check on a property
-  // doesn't carry into the closure under noUncheckedIndexedAccess).
   const deriveScope = (item: ContextPoolItem): 'all' | string => {
     const matches = item.matches;
     if (!matches?.length || recipients.length === 0) return 'all';
@@ -140,7 +207,10 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
       );
     });
     const sole = matched[0];
-    if (matched.length === 1 && sole) return recipientKey(sole);
+    if (matched.length === 1 && sole) {
+      const key = recipientKey(sole);
+      return individualKeys.has(key) ? key : 'all';
+    }
     return 'all';
   };
 
@@ -225,22 +295,56 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
   };
 
   const sharedItems = selected.filter((c) => c.scope === 'all');
-  const perRecipient = recipients.map((r) => ({
-    recipient: r,
-    key: recipientKey(r),
-    items: selected.filter((c) => c.scope === recipientKey(r)),
-  }));
 
-  const totals = {
-    items: selected.length,
-  };
+  // One plan section per target: individuals, then lists, then groups.
+  interface PlanSection {
+    targetKey: string;
+    scope: string;
+    name: string;
+    kind: 'individual' | 'list' | 'group';
+    sub?: string;
+    items: SelectedContextItem[];
+  }
+  const planSections: PlanSection[] = [];
+  for (const t of targets) {
+    if (t.type === 'individual') {
+      const r = t.recipients[0];
+      if (!r) continue;
+      const scope = recipientKey(r);
+      planSections.push({
+        targetKey: t.key,
+        scope,
+        name: r.name || r.email || 'Recipient',
+        kind: 'individual',
+        sub: individualSub(r),
+        items: selected.filter((c) => c.scope === scope),
+      });
+    } else {
+      const scope = `${t.type}:${t.key}`;
+      planSections.push({
+        targetKey: t.key,
+        scope,
+        name: t.name || (t.type === 'list' ? 'Untitled list' : 'Untitled group'),
+        kind: t.type,
+        sub: `${t.recipients.length} ${t.recipients.length === 1 ? 'contact' : 'contacts'}`,
+        items: selected.filter((c) => c.scope === scope),
+      });
+    }
+  }
+
+  // Items scoped to something no section covers — e.g. a draft saved before the
+  // grouped scopes existed (scoped to a list member), or a target removed after
+  // scoping. Surface them so they're visible and re-routable instead of being
+  // silently sent with an invisible scope.
+  const routedScopes = new Set<string>(['all', ...planSections.map((s) => s.scope)]);
+  const orphanItems = selected.filter((c) => !routedScopes.has(c.scope));
 
   return (
     <div>
       <h2>Build the context Clio uses</h2>
       <div className="ov2-pane-sub">
         Shared items will be used as context for all recipients. You can also add personalized
-        context and notes for individual recipients.
+        context for each individual, list, or group.
       </div>
 
       <div className="ov2-ctx-builder">
@@ -268,20 +372,12 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={
-                    tab === 'bill'
-                      ? 'Search all bills by title or sponsor…'
-                      : `Search ${tab}…`
+                    tab === 'bill' ? 'Search all bills by title or sponsor…' : `Search ${tab}…`
                   }
                 />
               </div>
               {tab === 'bill' && (
-                <div
-                  style={{
-                    padding: '4px 12px 6px',
-                    fontSize: 11,
-                    color: 'var(--ov2-ink-3)',
-                  }}
-                >
+                <div style={{ padding: '4px 12px 6px', fontSize: 11, color: 'var(--ov2-ink-3)' }}>
                   {billSearchActive
                     ? 'Searching every tracked bill in Congress.'
                     : 'Showing this client’s bills. Type to search the full bill database.'}
@@ -289,12 +385,27 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
               )}
               <div className="ov2-ctx-list">
                 {listLoading && (
-                  <div style={{ padding: 30, textAlign: 'center', color: 'var(--ov2-ink-3)', fontSize: 12.5 }}>
+                  <div
+                    style={{
+                      padding: 30,
+                      textAlign: 'center',
+                      color: 'var(--ov2-ink-3)',
+                      fontSize: 12.5,
+                    }}
+                  >
                     Loading…
                   </div>
                 )}
                 {!listLoading && visible.length === 0 && (
-                  <div style={{ padding: 30, textAlign: 'center', color: 'var(--ov2-ink-3)', fontSize: 12.5, fontStyle: 'italic' }}>
+                  <div
+                    style={{
+                      padding: 30,
+                      textAlign: 'center',
+                      color: 'var(--ov2-ink-3)',
+                      fontSize: 12.5,
+                      fontStyle: 'italic',
+                    }}
+                  >
                     {billSearchActive ? 'No bills match your search.' : 'No matches.'}
                   </div>
                 )}
@@ -308,7 +419,15 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
                     >
                       <span className="ov2-ctx-cb">
                         {isOn(it.id) && (
-                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                          <svg
+                            width="11"
+                            height="11"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                          >
                             <path d="m5 12 5 5L20 7" />
                           </svg>
                         )}
@@ -333,9 +452,17 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
 
           {tab === 'note' && (
             <div style={{ padding: 24, textAlign: 'center' }}>
-              <p style={{ fontSize: 13, color: 'var(--ov2-ink-2)', lineHeight: 1.6, margin: '8px 0 18px' }}>
-                Add a free-form note Clio should treat as context. Notes can be shared across all recipients,
-                or scoped to a single recipient, you choose after adding.
+              <p
+                style={{
+                  fontSize: 13,
+                  color: 'var(--ov2-ink-2)',
+                  lineHeight: 1.6,
+                  margin: '8px 0 18px',
+                }}
+              >
+                Add a free-form note Clio should treat as context. Notes can be shared across all
+                recipients, or scoped to a single recipient, list, or group — you choose after
+                adding.
               </p>
               <button
                 className="ov2-ctx-add-note-btn"
@@ -359,7 +486,7 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
           </div>
 
           <div className="ov2-ctx-stack">
-            {recipients.length === 0 && (
+            {targets.length === 0 && (
               <div className="ov2-ctx-no-recipients">
                 <b>Pick recipients first</b>
                 Per-recipient routing needs a recipient list. Go back to step 3 to add one.
@@ -370,13 +497,17 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
             <div className="ov2-ctx-section">
               <div className="ov2-ctx-section-head shared">
                 <span className="sec-ico">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                    <circle cx="12" cy="12" r="9" />
-                    <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
-                  </svg>
+                  <GlobalOutlined style={{ fontSize: 13 }} />
                 </span>
                 <span className="sec-name">Shared</span>
-                <span style={{ fontWeight: 500, color: 'var(--ov2-ink-3)', textTransform: 'none', letterSpacing: 0 }}>
+                <span
+                  style={{
+                    fontWeight: 500,
+                    color: 'var(--ov2-ink-3)',
+                    textTransform: 'none',
+                    letterSpacing: 0,
+                  }}
+                >
                   · every recipient sees this
                 </span>
                 <span className="sec-count">{sharedItems.length}</span>
@@ -388,7 +519,7 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
                 <ContextCard
                   key={c.id}
                   c={c}
-                  recipients={recipients}
+                  scopeOptions={scopeOptions}
                   onNote={setNote}
                   onScope={setScope}
                   onRemove={remove}
@@ -399,50 +530,84 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
               </button>
             </div>
 
-            {/* Per-recipient sections */}
-            {perRecipient.map(({ recipient, key, items }) => (
-              <div key={key} className="ov2-ctx-section">
-                <div className="ov2-ctx-section-head recipient">
+            {/* Per-target sections: individuals, lists, groups */}
+            {planSections.map((s) => (
+              <div key={s.scope} className="ov2-ctx-section">
+                <div className={`ov2-ctx-section-head ${s.kind}`}>
                   <span className="sec-ico">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                      <circle cx="12" cy="8" r="3.5" />
-                      <path d="M5 20c.5-3.4 3.2-5.5 7-5.5s6.5 2.1 7 5.5" />
-                    </svg>
+                    {s.kind === 'individual' ? (
+                      <UserOutlined style={{ fontSize: 13 }} />
+                    ) : s.kind === 'list' ? (
+                      <UnorderedListOutlined style={{ fontSize: 13 }} />
+                    ) : (
+                      <TeamOutlined style={{ fontSize: 13 }} />
+                    )}
                   </span>
-                  <span className="sec-name">For {recipient.name || recipient.email}</span>
-                  <span className="sec-count">{items.length}</span>
+                  <span className="sec-name">{s.name}</span>
+                  <span className={`ov2-ctx-sec-badge ${s.kind}`}>{s.kind}</span>
+                  <span className="sec-count">{s.items.length}</span>
                 </div>
-                {items.length === 0 && (
-                  <div className="ov2-ctx-empty-row">No recipient-specific context, uses shared only.</div>
+                {s.items.length === 0 && (
+                  <div className="ov2-ctx-empty-row">
+                    {s.kind === 'group'
+                      ? 'No group-specific context, uses shared only.'
+                      : 'No personalized context, uses shared only.'}
+                  </div>
                 )}
-                {items.map((c) => (
+                {s.items.map((c) => (
                   <ContextCard
                     key={c.id}
                     c={c}
-                    recipients={recipients}
+                    scopeOptions={scopeOptions}
                     onNote={setNote}
                     onScope={setScope}
                     onRemove={remove}
                   />
                 ))}
-                <button className="ov2-ctx-add-note-btn" onClick={() => addNoteForScope(key)}>
-                  + Add note for {(recipient.name || recipient.email || 'recipient').split(' ').slice(0, 2).join(' ')}
+                <button className="ov2-ctx-add-note-btn" onClick={() => addNoteForScope(s.scope)}>
+                  + Add note for {s.name.split(' ').slice(0, 2).join(' ')}
                 </button>
               </div>
             ))}
+
+            {orphanItems.length > 0 && (
+              <div className="ov2-ctx-section">
+                <div className="ov2-ctx-section-head recipient">
+                  <span className="sec-ico">
+                    <UserOutlined style={{ fontSize: 13 }} />
+                  </span>
+                  <span className="sec-name">Other</span>
+                  <span className="ov2-ctx-sec-badge individual">unrouted</span>
+                  <span className="sec-count">{orphanItems.length}</span>
+                </div>
+                <div className="ov2-ctx-empty-row">
+                  Scoped to a recipient no longer shown above — re-route with “Applies to”, or remove.
+                </div>
+                {orphanItems.map((c) => (
+                  <ContextCard
+                    key={c.id}
+                    c={c}
+                    scopeOptions={scopeOptions}
+                    onNote={setNote}
+                    onScope={setScope}
+                    onRemove={remove}
+                  />
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="ov2-ctx-stack-foot">
             <div className="stats">
               <span>
-                <b>{totals.items}</b> items
+                <b>{selected.length}</b> items
               </span>
               <span>·</span>
               <span>
                 <b>{sharedItems.length}</b> shared
               </span>
               <span>
-                <b>{selected.length - sharedItems.length}</b> per-recipient
+                <b>{selected.length - sharedItems.length}</b> scoped
               </span>
             </div>
           </div>
@@ -452,17 +617,127 @@ export function StepContext({ recipients, selected, onChange, pool, loading }: P
   );
 }
 
+// ---------------- Applies-to scope dropdown ----------------
+
+/** Resolve a scope value to its display icon + label for the trigger. */
+function resolveScope(value: string, opts: ScopeOptions): { icon: ReactNode; label: string } {
+  if (value === 'all') return { icon: <GlobalOutlined />, label: 'All recipients (shared)' };
+  if (value.startsWith('list:')) {
+    const o = opts.lists.find((x) => x.value === value);
+    return { icon: <UnorderedListOutlined />, label: o?.label ?? 'List' };
+  }
+  if (value.startsWith('group:')) {
+    const o = opts.groups.find((x) => x.value === value);
+    return { icon: <TeamOutlined />, label: o?.label ?? 'Group' };
+  }
+  const o = opts.individuals.find((x) => x.value === value);
+  return { icon: <UserOutlined />, label: o?.label ?? 'Recipient' };
+}
+
+function ScopeSelect({
+  value,
+  options,
+  onChange,
+}: {
+  value: string;
+  options: ScopeOptions;
+  onChange: (scope: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const current = resolveScope(value, options);
+  const pick = (v: string) => {
+    onChange(v);
+    setOpen(false);
+  };
+
+  const renderOpt = (o: ScopeOpt, kind: 'individual' | 'list' | 'group', icon: ReactNode) => (
+    <button
+      type="button"
+      key={o.value}
+      className={'ov2-ctx-scope2-opt' + (value === o.value ? ' sel' : '')}
+      onClick={() => pick(o.value)}
+    >
+      <span className={`ico ${kind}`}>{icon}</span>
+      <span className="meta">
+        <span className="nm">{o.label}</span>
+        {o.sub && <span className="sub">{o.sub}</span>}
+      </span>
+      <span className={`ov2-ctx-scope2-badge ${kind}`}>{kind}</span>
+    </button>
+  );
+
+  return (
+    <div className="ov2-ctx-scope2" ref={ref}>
+      <button
+        type="button"
+        className={'ov2-ctx-scope2-trigger' + (open ? ' open' : '')}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <span className="ico">{current.icon}</span>
+        <span className="lbl">{current.label}</span>
+        <DownOutlined className="caret" />
+      </button>
+      {open && (
+        <div className="ov2-ctx-scope2-pop" role="listbox">
+          <button
+            type="button"
+            className={'ov2-ctx-scope2-opt' + (value === 'all' ? ' sel' : '')}
+            onClick={() => pick('all')}
+          >
+            <span className="ico all">
+              <GlobalOutlined />
+            </span>
+            <span className="meta">
+              <span className="nm">All recipients (shared)</span>
+            </span>
+            <span className="ov2-ctx-scope2-badge shared">Shared</span>
+          </button>
+
+          {options.individuals.length > 0 && (
+            <div className="ov2-ctx-scope2-grp">Individuals</div>
+          )}
+          {options.individuals.map((o) => renderOpt(o, 'individual', <UserOutlined />))}
+
+          {options.lists.length > 0 && <div className="ov2-ctx-scope2-grp">Lists</div>}
+          {options.lists.map((o) => renderOpt(o, 'list', <UnorderedListOutlined />))}
+
+          {options.groups.length > 0 && <div className="ov2-ctx-scope2-grp">Groups</div>}
+          {options.groups.map((o) => renderOpt(o, 'group', <TeamOutlined />))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------------- Single card ----------------
 
 interface CardProps {
   c: SelectedContextItem;
-  recipients: OutreachRecipient[];
+  scopeOptions: ScopeOptions;
   onNote: (id: string, note: string) => void;
   onScope: (id: string, scope: 'all' | string) => void;
   onRemove: (id: string) => void;
 }
 
-function ContextCard({ c, recipients, onNote, onScope, onRemove }: CardProps) {
+function ContextCard({ c, scopeOptions, onNote, onScope, onRemove }: CardProps) {
   return (
     <div className="ov2-ctx-card">
       <div className="ov2-ctx-card-head">
@@ -492,21 +767,7 @@ function ContextCard({ c, recipients, onNote, onScope, onRemove }: CardProps) {
       />
       <div className="ov2-ctx-scope-row">
         <span className="label">Applies to</span>
-        <select
-          className="ov2-ctx-scope-select"
-          value={c.scope}
-          onChange={(e) => onScope(c.id, e.target.value)}
-        >
-          <option value="all">🌐 All recipients (shared)</option>
-          {recipients.map((r) => {
-            const key = recipientKey(r);
-            return (
-              <option key={key} value={key}>
-                👤 {r.name || r.email || key}
-              </option>
-            );
-          })}
-        </select>
+        <ScopeSelect value={c.scope} options={scopeOptions} onChange={(v) => onScope(c.id, v)} />
       </div>
     </div>
   );

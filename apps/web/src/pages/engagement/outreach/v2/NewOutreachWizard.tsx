@@ -29,7 +29,12 @@ import { StepDirectionLanding } from './StepDirectionLanding.js';
 import { StepContext } from './StepContext.js';
 import { StepRecipientsSelect } from './StepRecipientsSelect.js';
 import { StepGenerate } from './StepGenerate.js';
-import { flattenTargets, individualTarget, sanitizeTargets } from './targets.js';
+import {
+  expandContextItemScopes,
+  flattenTargets,
+  individualTarget,
+  sanitizeTargets,
+} from './targets.js';
 import { buildGenerationModel, projectDraftsForSend, type GenSlot } from './generation.js';
 import { htmlToPlainText, markdownishToHtml, sanitizeHtml } from './richtext.js';
 import {
@@ -701,15 +706,20 @@ export function NewOutreachWizard({
       if (!vars.slots.length) return [];
       // GenerateBatchEmailDto whitelists only id/kind/title/body/scope/note on
       // context items; with forbidNonWhitelisted on, pool-only fields (tag/sub/
-      // matches) 400 the batch. Strip to the DTO shape.
-      const contextItems = state.contextItems.map((item) => ({
-        id: item.id,
-        kind: item.kind,
-        title: item.title,
-        body: item.body,
-        scope: item.scope,
-        note: item.note,
-      }));
+      // matches) 400 the batch. Strip to the DTO shape. List/group scopes are
+      // expanded to per-member recipient keys first so the server's
+      // per-recipient context routing delivers them (it matches scope to a
+      // recipient key — it doesn't know about list/group scopes).
+      const contextItems = expandContextItemScopes(state.contextItems, state.targets).map(
+        (item) => ({
+          id: item.id,
+          kind: item.kind,
+          title: item.title,
+          body: item.body,
+          scope: item.scope,
+          note: item.note,
+        }),
+      );
       const base = {
         clientId: state.clientId ?? undefined,
         templateId: state.templateId,
@@ -863,18 +873,23 @@ export function NewOutreachWizard({
       // The API stores `contextPool` at the top level (its own projection used
       // for Clio generation), so map the wizard's rich SelectedContextItem
       // shape onto the DTO's fields (kind→sourceType, body→summary, the per-
-      // recipient `scope` → recipientIds). The full v2 items also ride in
-      // metadata.contextItems below so the wizard can restore them losslessly.
-      const contextPool = state.contextItems.map((item) => ({
-        id: item.id,
-        sourceType: item.kind,
-        title: item.title,
-        summary: item.body,
-        note: item.note,
-        scope: item.scope,
-        recipientIds: item.scope && item.scope !== 'all' ? [item.scope] : undefined,
-        matches: item.matches,
-      }));
+      // recipient `scope` → recipientIds). List/group scopes are expanded to
+      // per-member recipient keys so recipientIds holds real recipient keys the
+      // server can route by. The full v2 items (with the raw list:/group: scope)
+      // also ride in metadata.contextItems below so the wizard restores them
+      // losslessly.
+      const contextPool = expandContextItemScopes(state.contextItems, state.targets).map(
+        (item) => ({
+          id: item.id,
+          sourceType: item.kind,
+          title: item.title,
+          summary: item.body,
+          note: item.note,
+          scope: item.scope,
+          recipientIds: item.scope && item.scope !== 'all' ? [item.scope] : undefined,
+          matches: item.matches,
+        }),
+      );
       const common = {
         clientId: state.clientId ?? undefined,
         direction: state.direction ?? undefined,
@@ -1108,6 +1123,7 @@ export function NewOutreachWizard({
           {step.id === 'context' && (
             <StepContext
               recipients={state.recipients}
+              targets={state.targets}
               selected={state.contextItems}
               onChange={(items) => setState((p) => ({ ...p, contextItems: items }))}
               pool={pool}

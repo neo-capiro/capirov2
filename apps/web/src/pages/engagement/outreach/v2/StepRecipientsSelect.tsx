@@ -628,7 +628,7 @@ function CcBccPopover({
   onApply,
   onClose,
 }: {
-  mode: 'individual' | 'bulk' | 'list';
+  mode: 'individual' | 'bulk' | 'list' | 'group';
   recipientName?: string;
   recipientCount?: number;
   clients: Client[];
@@ -783,7 +783,9 @@ function CcBccPopover({
       ? `Apply to ${count} ${count === 1 ? 'recipient' : 'recipients'}`
       : mode === 'list'
         ? 'Apply to entire list'
-        : `Apply to ${recipientName || 'recipient'}`;
+        : mode === 'group'
+          ? 'Apply to group'
+          : `Apply to ${recipientName || 'recipient'}`;
   const applyDisabled = pending.length === 0 || (mode === 'bulk' && count === 0);
   const hasResults = congressResults.length > 0 || clientResults.length > 0;
 
@@ -939,14 +941,12 @@ function CcBccPopover({
         <button type="button" className="ov2-rs-ccbcc-apply" disabled={applyDisabled} onClick={apply}>
           {applyLabel}
         </button>
-        {/* Individual + list popovers dismiss via ✕ / outside-click / Escape.
-            The bulk popover opens with bulk mode and has no reopen affordance,
-            so its exits are the bar's Cancel/Done — no ✕ there. */}
-        {mode !== 'bulk' && (
-          <button type="button" className="ov2-rs-ccbcc-close" onClick={onClose} aria-label="Close">
-            <CloseOutlined />
-          </button>
-        )}
+        {/* ✕ closes the popover. For bulk this returns to the banner (the
+            "Add Cc/Bcc to selected" button reopens it); elsewhere it just
+            dismisses. Outside-click / Escape do the same. */}
+        <button type="button" className="ov2-rs-ccbcc-close" onClick={onClose} aria-label="Close">
+          <CloseOutlined />
+        </button>
       </div>
     </div>
   );
@@ -979,20 +979,27 @@ function SelectedPanel({
   // re-added on every SelectedPanel re-render.
   const closeIndividual = useCallback(() => setOpenIndividualKey(null), []);
 
-  // Bulk Cc/Bcc mode (individual targets only). The popover opens together with
-  // bulk mode (per product decision) and stays open through the "blue" phase;
-  // Apply commits to every checked individual and flips the bar to "green".
+  // Bulk Cc/Bcc mode (individual targets only). Flow: enter bulk → pick
+  // recipients in the banner → click "Add Cc/Bcc to selected" to OPEN the modal
+  // → Apply. The modal is opened explicitly (not auto-opened) so it's clear you
+  // select first, then add. Apply commits to every checked individual and flips
+  // the bar to "green".
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkPopoverOpen, setBulkPopoverOpen] = useState(false);
   const [appliedCount, setAppliedCount] = useState<number | null>(null);
+  const bulkAnchorRef = useRef<HTMLDivElement>(null);
+  const closeBulkPopover = useCallback(() => setBulkPopoverOpen(false), []);
+  // Outside-click / Escape closes the modal back to the banner (the trigger
+  // button reopens it — no dead state).
+  useDismiss(bulkAnchorRef, bulkPopoverOpen, closeBulkPopover);
 
   const enterBulk = () => {
     setOpenIndividualKey(null);
     setSelected(new Set());
     setAppliedCount(null);
     setBulkMode(true);
-    setBulkPopoverOpen(true);
+    setBulkPopoverOpen(false);
   };
   const exitBulk = () => {
     setBulkMode(false);
@@ -1071,19 +1078,32 @@ function SelectedPanel({
                 : 'Select recipients to add Cc/Bcc'}
             </span>
             <span className="spacer" />
+            <div className="ov2-rs-ccbcc-anchor" ref={bulkAnchorRef}>
+              <button
+                type="button"
+                className={'act' + (bulkPopoverOpen ? ' is-open' : '')}
+                disabled={selectedCount === 0}
+                title={
+                  selectedCount === 0 ? 'Select at least one recipient first' : undefined
+                }
+                onClick={() => setBulkPopoverOpen((o) => !o)}
+              >
+                Add Cc/Bcc to selected
+              </button>
+              {bulkPopoverOpen && (
+                <CcBccPopover
+                  mode="bulk"
+                  recipientCount={selectedCount}
+                  clients={clients}
+                  appliedEmails={new Set()}
+                  onApply={applyBulk}
+                  onClose={closeBulkPopover}
+                />
+              )}
+            </div>
             <button type="button" className="ghost" onClick={exitBulk}>
               Cancel
             </button>
-            {bulkPopoverOpen && (
-              <CcBccPopover
-                mode="bulk"
-                recipientCount={selectedCount}
-                clients={clients}
-                appliedEmails={new Set()}
-                onApply={applyBulk}
-                onClose={exitBulk}
-              />
-            )}
           </div>
         ))}
 
@@ -1142,6 +1162,7 @@ function SelectedPanel({
         <GroupEntity
           key={t.key}
           target={t}
+          clients={clients}
           onUpdate={(patch) => update(t.key, patch)}
           onRemove={() => remove(t.key)}
         />
@@ -1288,7 +1309,7 @@ function ListEntity({
   const [openPopover, setOpenPopover] = useState<string | null>(null);
   const entireAnchorRef = useRef<HTMLDivElement>(null);
   const entireOpen = openPopover === 'entire';
-  const closePopover = () => setOpenPopover(null);
+  const closePopover = useCallback(() => setOpenPopover(null), []);
   useDismiss(entireAnchorRef, entireOpen, closePopover);
 
   const listCc = target.ccContacts ?? [];
@@ -1532,15 +1553,26 @@ function ListMemberRow({
 
 function GroupEntity({
   target,
+  clients,
   onUpdate,
   onRemove,
 }: {
   target: OutreachTarget;
+  clients: Client[];
   onUpdate: (patch: Partial<OutreachTarget>) => void;
   onRemove: () => void;
 }) {
   const [open, setOpen] = useState(true);
-  const [copyOpen, setCopyOpen] = useState(target.cc.length + target.bcc.length > 0);
+  const [popoverOpen, setPopoverOpen] = useState(false);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const closePopover = useCallback(() => setPopoverOpen(false), []);
+  useDismiss(anchorRef, popoverOpen, closePopover);
+
+  // A group is one shared email, so its Cc/Bcc is a single group-level set —
+  // same contact popover as individuals/lists (no per-member Cc/Bcc).
+  const cc = target.ccContacts ?? [];
+  const bcc = target.bccContacts ?? [];
+  const appliedEmails = new Set([...cc, ...bcc].map((c) => c.email.toLowerCase()));
 
   const dropMember = (key: string) => {
     const recipients = target.recipients.filter((r) => recipientKey(r) !== key);
@@ -1549,6 +1581,11 @@ function GroupEntity({
       return;
     }
     onUpdate({ recipients });
+  };
+
+  const applyGroup = (ccNew: CcBccContact[], bccNew: CcBccContact[]) => {
+    onUpdate({ ccContacts: mergeContacts(cc, ccNew), bccContacts: mergeContacts(bcc, bccNew) });
+    setPopoverOpen(false);
   };
 
   return (
@@ -1568,45 +1605,55 @@ function GroupEntity({
         <span className="name">{target.name || 'Untitled group'}</span>
         <span className="count">· {plural(target.recipients.length, 'contact')}</span>
         <span className="note amber">This group receives 1 email together</span>
+        {cc.map((c) => (
+          <span key={`cc-${c.email}`} className="ov2-rs-ccpill cc">
+            <span className="px">Cc</span>
+            <span className="nm">{c.name}</span>
+            <button
+              type="button"
+              onClick={() => onUpdate({ ccContacts: cc.filter((x) => x.email !== c.email) })}
+              aria-label={`Remove Cc ${c.name}`}
+            >
+              <CloseOutlined />
+            </button>
+          </span>
+        ))}
+        {bcc.map((c) => (
+          <span key={`bcc-${c.email}`} className="ov2-rs-ccpill bcc">
+            <span className="px">Bcc</span>
+            <span className="nm">{c.name}</span>
+            <button
+              type="button"
+              onClick={() => onUpdate({ bccContacts: bcc.filter((x) => x.email !== c.email) })}
+              aria-label={`Remove Bcc ${c.name}`}
+            >
+              <CloseOutlined />
+            </button>
+          </span>
+        ))}
         <span className="spacer" />
-        <button
-          type="button"
-          className="ov2-rs-ccbcc-btn amber"
-          onClick={() => setCopyOpen((o) => !o)}
-        >
-          {copyOpen ? 'Hide Cc/Bcc' : 'Add Cc/Bcc'}
-        </button>
-        <button
-          type="button"
-          className="ov2-rs-remove"
-          onClick={onRemove}
-          aria-label="Remove group"
-        >
+        <div className="ov2-rs-ccbcc-anchor" ref={anchorRef}>
+          <button
+            type="button"
+            className={'ov2-rs-ccbcc-btn amber' + (popoverOpen ? ' open' : '')}
+            onClick={() => setPopoverOpen((o) => !o)}
+          >
+            Add Cc/Bcc
+          </button>
+          {popoverOpen && (
+            <CcBccPopover
+              mode="group"
+              clients={clients}
+              appliedEmails={appliedEmails}
+              onApply={applyGroup}
+              onClose={closePopover}
+            />
+          )}
+        </div>
+        <button type="button" className="ov2-rs-remove" onClick={onRemove} aria-label="Remove group">
           <CloseOutlined />
         </button>
       </div>
-      {copyOpen && (
-        <div className="ov2-rs-copy-rows">
-          <div className="ov2-rs-copy-row">
-            <span className="label amber">Cc</span>
-            <ChipsInput
-              value={target.cc}
-              onChange={(v) => onUpdate({ cc: v })}
-              placeholder="Add Cc to all group sends…"
-            />
-            <span className="hint">Copied on this group's email</span>
-          </div>
-          <div className="ov2-rs-copy-row">
-            <span className="label amber">Bcc</span>
-            <ChipsInput
-              value={target.bcc}
-              onChange={(v) => onUpdate({ bcc: v })}
-              placeholder="Add Bcc to all group sends…"
-            />
-            <span className="hint">Copied on this group's email</span>
-          </div>
-        </div>
-      )}
       {open && (
         <div className="ov2-rs-members">
           {target.recipients.map((r) => {
@@ -1630,57 +1677,6 @@ function GroupEntity({
           })}
         </div>
       )}
-    </div>
-  );
-}
-
-// Chips + inline input for Cc/Bcc emails. Commits on Enter / comma / blur;
-// only syntactically valid emails are kept so send-batch (which validates
-// every address) can't 400 on bad input.
-function ChipsInput({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string[];
-  onChange: (next: string[]) => void;
-  placeholder: string;
-}) {
-  const [draft, setDraft] = useState('');
-  const commit = () => {
-    const v = draft.trim().toLowerCase();
-    if (!EMAIL_RE.test(v)) return;
-    if (!value.includes(v)) onChange([...value, v]);
-    setDraft('');
-  };
-  return (
-    <div className="ov2-rs-chips">
-      {value.map((email) => (
-        <span key={email} className="ov2-rs-chip">
-          <span>{email}</span>
-          <button
-            type="button"
-            onClick={() => onChange(value.filter((x) => x !== email))}
-            aria-label={`Remove ${email}`}
-          >
-            <CloseOutlined />
-          </button>
-        </span>
-      ))}
-      <input
-        value={draft}
-        placeholder={placeholder}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ',') {
-            e.preventDefault();
-            commit();
-          } else if (e.key === 'Backspace' && !draft && value.length) {
-            onChange(value.slice(0, -1));
-          }
-        }}
-      />
     </div>
   );
 }
@@ -2083,7 +2079,7 @@ function MemberRows({
                   (sGroupChecked ? ' group-checked' : '')
                 }
               >
-                <span className="controls" style={{ paddingLeft: 26 }}>
+                <span className="controls">
                   <AddControl
                     recipient={sr}
                     targets={targets}
@@ -2407,7 +2403,7 @@ function ClientRows({
                   (pGroupChecked ? ' group-checked' : '')
                 }
               >
-                <span className="controls" style={{ paddingLeft: 26 }}>
+                <span className="controls">
                   <AddControl
                     recipient={recipient}
                     targets={targets}

@@ -372,15 +372,97 @@
   font-size: 10.5px; color: var(--ov2-ink-3);
 }
 .ov2-ctx-scope-row .label { font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
-.ov2-ctx-scope-select {
+/* Per-target plan-section head variants + type badges. */
+.ov2-ctx-section-head.individual .sec-ico { background: var(--ov2-accent-soft); color: var(--ov2-accent-ink); }
+.ov2-ctx-section-head.list .sec-ico { background: var(--ov2-success-soft); color: var(--ov2-success); }
+.ov2-ctx-section-head.group .sec-ico { background: var(--ov2-notable-soft); color: var(--ov2-notable); }
+.ov2-ctx-sec-badge {
+  font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  border-radius: 3px; padding: 1px 6px;
+}
+.ov2-ctx-sec-badge.individual { color: var(--ov2-accent-ink); background: var(--ov2-accent-soft); }
+.ov2-ctx-sec-badge.list { color: var(--ov2-success); background: var(--ov2-success-soft); }
+.ov2-ctx-sec-badge.group { color: var(--ov2-notable); background: var(--ov2-notable-soft); }
+
+/* Applies-to scope dropdown (custom — grouped Individuals/Lists/Groups + badges). */
+.ov2-ctx-scope2 { position: relative; flex: 1; min-width: 0; }
+.ov2-ctx-scope2-trigger {
+  width: 100%;
+  display: flex; align-items: center; gap: 6px;
   font-size: 11px;
-  padding: 3px 6px;
+  padding: 3px 8px;
   border: 1px solid var(--ov2-border-1);
   border-radius: 4px;
   background: var(--ov2-bg-surface);
   color: var(--ov2-ink-1);
-  flex: 1;
+  cursor: pointer;
 }
+.ov2-ctx-scope2-trigger.open { border-color: var(--ov2-accent); }
+.ov2-ctx-scope2-trigger .ico { color: var(--ov2-ink-3); display: inline-flex; flex: none; }
+.ov2-ctx-scope2-trigger .lbl {
+  flex: 1; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ov2-ctx-scope2-trigger .caret { font-size: 9px; color: var(--ov2-ink-3); flex: none; }
+.ov2-ctx-scope2-pop {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 4px);
+  left: 0; right: 0;
+  min-width: 230px;
+  background: var(--ov2-bg-surface);
+  border: 1px solid var(--ov2-border-1);
+  border-radius: var(--ov2-r-md);
+  box-shadow: 0 12px 30px rgba(20, 35, 70, 0.18);
+  padding: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.ov2-ctx-scope2-grp {
+  font-size: 9.5px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--ov2-ink-3);
+  padding: 8px 8px 3px;
+}
+.ov2-ctx-scope2-opt {
+  width: 100%;
+  display: flex; align-items: center; gap: 9px;
+  padding: 6px 8px;
+  border: none; background: transparent;
+  border-radius: var(--ov2-r-sm);
+  cursor: pointer; text-align: left;
+}
+.ov2-ctx-scope2-opt:hover { background: var(--ov2-bg-surface-2); }
+.ov2-ctx-scope2-opt.sel { background: var(--ov2-accent); }
+.ov2-ctx-scope2-opt.sel .nm,
+.ov2-ctx-scope2-opt.sel .sub,
+.ov2-ctx-scope2-opt.sel .ico { color: #fff; }
+.ov2-ctx-scope2-opt.sel .ico { background: rgba(255, 255, 255, 0.2); }
+.ov2-ctx-scope2-opt.sel .ov2-ctx-scope2-badge { background: rgba(255, 255, 255, 0.22); color: #fff; }
+.ov2-ctx-scope2-opt .ico {
+  width: 22px; height: 22px; border-radius: 6px; flex: none;
+  display: grid; place-items: center; font-size: 12px;
+}
+.ov2-ctx-scope2-opt .ico.all,
+.ov2-ctx-scope2-opt .ico.individual { background: var(--ov2-accent-soft); color: var(--ov2-accent-ink); }
+.ov2-ctx-scope2-opt .ico.list { background: var(--ov2-success-soft); color: var(--ov2-success); }
+.ov2-ctx-scope2-opt .ico.group { background: var(--ov2-notable-soft); color: var(--ov2-notable); }
+.ov2-ctx-scope2-opt .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ov2-ctx-scope2-opt .meta .nm {
+  font-size: 12px; font-weight: 600; color: var(--ov2-ink-1);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ov2-ctx-scope2-opt .meta .sub {
+  font-size: 10.5px; color: var(--ov2-ink-3);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ov2-ctx-scope2-badge {
+  font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em;
+  border-radius: 3px; padding: 1px 5px; flex: none;
+}
+.ov2-ctx-scope2-badge.shared,
+.ov2-ctx-scope2-badge.individual { color: var(--ov2-accent-ink); background: var(--ov2-accent-soft); }
+.ov2-ctx-scope2-badge.list { color: var(--ov2-success); background: var(--ov2-success-soft); }
+.ov2-ctx-scope2-badge.group { color: var(--ov2-notable); background: var(--ov2-notable-soft); }
 
 .ov2-ctx-stack-foot {
   padding: 12px 16px;

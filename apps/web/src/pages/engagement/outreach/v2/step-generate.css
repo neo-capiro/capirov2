@@ -35,21 +35,48 @@
   overflow-y: auto;
 }
 
+/* Kind sections (Individual / List / Group): a solid colored header groups the
+   entities of each type, so rows no longer repeat a per-row type tag. */
+.ov2-gen-section {
+  border-bottom: 1px solid var(--ov2-border-1);
+}
+.ov2-gen-section:last-child {
+  border-bottom: none;
+}
+.ov2-gen-section-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #fff;
+}
+.ov2-gen-section-head .lbl {
+  flex: 1;
+}
+.ov2-gen-section-head .cnt {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.ov2-gen-section.individual .ov2-gen-section-head {
+  background: var(--ov2-accent);
+}
+.ov2-gen-section.list .ov2-gen-section-head {
+  background: var(--ov2-success);
+}
+.ov2-gen-section.group .ov2-gen-section-head {
+  background: var(--ov2-notable);
+}
+
 .ov2-gen-card {
   border-bottom: 1px solid var(--ov2-border-1);
-  border-left: 3px solid transparent;
 }
 .ov2-gen-card:last-child {
   border-bottom: none;
-}
-.ov2-gen-card.individual {
-  border-left-color: var(--ov2-accent);
-}
-.ov2-gen-card.list {
-  border-left-color: var(--ov2-success);
-}
-.ov2-gen-card.group {
-  border-left-color: var(--ov2-notable);
 }
 
 .ov2-gen-listhead {
@@ -95,8 +122,7 @@
   cursor: pointer;
   border-top: 1px solid var(--ov2-border-1);
 }
-.ov2-gen-card.individual > .ov2-gen-row:first-child,
-.ov2-gen-card.group > .ov2-gen-row:first-child {
+.ov2-gen-card > .ov2-gen-row:first-child {
   border-top: none;
 }
 .ov2-gen-row:hover {
@@ -104,6 +130,16 @@
 }
 .ov2-gen-row.active {
   background: var(--ov2-accent-soft);
+}
+/* Active row carries a left accent in its section's color. */
+.ov2-gen-section.individual .ov2-gen-row.active {
+  box-shadow: inset 3px 0 0 var(--ov2-accent);
+}
+.ov2-gen-section.list .ov2-gen-row.active {
+  box-shadow: inset 3px 0 0 var(--ov2-success);
+}
+.ov2-gen-section.group .ov2-gen-row.active {
+  box-shadow: inset 3px 0 0 var(--ov2-notable);
 }
 .ov2-gen-row.indented {
   padding-left: 30px;
@@ -146,24 +182,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.ov2-gen-tag {
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  border-radius: 3px;
-  padding: 1px 5px;
-  flex: none;
-}
-.ov2-gen-tag.individual {
-  color: var(--ov2-accent-ink);
-  background: var(--ov2-accent-soft);
-}
-.ov2-gen-tag.group {
-  color: var(--ov2-notable);
-  background: var(--ov2-notable-soft);
-}
-
 /* ---------- Editor pane ---------- */
 .ov2-gen-editor {
   background: var(--ov2-bg-surface);

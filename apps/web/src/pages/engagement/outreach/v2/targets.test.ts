@@ -5,7 +5,12 @@
 // plus the individual-target case from SCRUM-121.
 
 import { describe, expect, it } from 'vitest';
-import { flattenTargets, type CcBccContact, type OutreachTarget } from './targets.js';
+import {
+  expandContextItemScopes,
+  flattenTargets,
+  type CcBccContact,
+  type OutreachTarget,
+} from './targets.js';
 import type { OutreachRecipient } from '../../OutreachView.js';
 
 const rec = (name: string, email: string): OutreachRecipient => ({ name, email });
@@ -97,5 +102,50 @@ describe('flattenTargets — list Cc/Bcc (SCRUM-120)', () => {
     };
     const [r] = flattenTargets([t]);
     expect(r?.cc).toBeUndefined();
+  });
+});
+
+describe('expandContextItemScopes — Build Context list/group scope routing', () => {
+  const targets: OutreachTarget[] = [
+    { key: 'ind1', type: 'individual', recipients: [rec('Alma', 'alma@x.com')], cc: [], bcc: [] },
+    {
+      key: 'L1',
+      type: 'list',
+      name: 'HASC staffers',
+      recipients: [rec('Bob', 'bob@x.com'), rec('Dan', 'dan@x.com')],
+      cc: [],
+      bcc: [],
+    },
+    {
+      key: 'G1',
+      type: 'group',
+      name: 'HASC offices',
+      recipients: [rec('Gail', 'gail@x.com'), rec('Hank', 'hank@x.com')],
+      cc: [],
+      bcc: [],
+    },
+  ];
+  const item = (scope: string) => ({ id: `c-${scope}`, scope, note: '' });
+
+  it("passes 'all' and individual scopes through unchanged", () => {
+    const out = expandContextItemScopes([item('all'), item('alma@x.com')], targets);
+    expect(out.map((c) => c.scope)).toEqual(['all', 'alma@x.com']);
+  });
+
+  it('expands a list scope into one copy per member (keyed by recipientKey)', () => {
+    const out = expandContextItemScopes([item('list:L1')], targets);
+    expect(out.map((c) => c.scope).sort()).toEqual(['bob@x.com', 'dan@x.com']);
+    // metadata (id/note) is preserved on each expanded copy
+    expect(out.every((c) => c.id === 'c-list:L1' && c.note === '')).toBe(true);
+  });
+
+  it('expands a group scope into one copy per member', () => {
+    const out = expandContextItemScopes([item('group:G1')], targets);
+    expect(out.map((c) => c.scope).sort()).toEqual(['gail@x.com', 'hank@x.com']);
+  });
+
+  it('drops an item scoped to a list/group that no longer exists', () => {
+    const out = expandContextItemScopes([item('list:GONE'), item('all')], targets);
+    expect(out.map((c) => c.scope)).toEqual(['all']);
   });
 });

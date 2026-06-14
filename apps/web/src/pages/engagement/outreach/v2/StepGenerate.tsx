@@ -157,27 +157,40 @@ export function StepGenerate({
             <ThunderboltOutlined /> {batchGenerating ? 'Generating…' : `${ready} / ${total} ready`}
           </div>
           <div className="ov2-gen-rail-scroll">
-            {entities.map((entity) => (
-              <RailCard
-                key={entity.target.key}
-                entity={entity}
-                generated={generated}
-                activeKey={activeKey}
-                collapsed={collapsed.has(entity.target.key)}
-                onToggleCollapse={() =>
-                  setCollapsed((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(entity.target.key)) next.delete(entity.target.key);
-                    else next.add(entity.target.key);
-                    return next;
-                  })
-                }
-                onSelect={select}
-                onRegenerateOne={onRegenerateOne}
-                generatingKey={generatingKey}
-                batchGenerating={batchGenerating}
-              />
-            ))}
+            {(['individual', 'list', 'group'] as const).map((kind) => {
+              const ents = entities.filter((e) => e.kind === kind);
+              if (ents.length === 0) return null;
+              return (
+                <div key={kind} className={`ov2-gen-section ${kind}`}>
+                  <div className="ov2-gen-section-head">
+                    {KIND_BADGE[kind].icon}
+                    <span className="lbl">{KIND_BADGE[kind].label}</span>
+                    <span className="cnt">{ents.length}</span>
+                  </div>
+                  {ents.map((entity) => (
+                    <RailCard
+                      key={entity.target.key}
+                      entity={entity}
+                      generated={generated}
+                      activeKey={activeKey}
+                      collapsed={collapsed.has(entity.target.key)}
+                      onToggleCollapse={() =>
+                        setCollapsed((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(entity.target.key)) next.delete(entity.target.key);
+                          else next.add(entity.target.key);
+                          return next;
+                        })
+                      }
+                      onSelect={select}
+                      onRegenerateOne={onRegenerateOne}
+                      generatingKey={generatingKey}
+                      batchGenerating={batchGenerating}
+                    />
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -350,18 +363,15 @@ function RailCard({
   generatingKey: string | null;
   batchGenerating: boolean;
 }) {
-  const badge = KIND_BADGE[entity.kind];
-
-  // Individuals and groups are a single selectable row (no expander).
+  // Individuals and groups are a single selectable row (no expander). The
+  // type is conveyed by the section header, so rows no longer carry a tag.
   if (entity.kind !== 'list') {
     const slot = entity.members[0];
     if (!slot) return null;
     return (
-      <div className={`ov2-gen-card ${badge.cls}`}>
+      <div className="ov2-gen-card">
         <RailRow
           slot={slot}
-          badgeLabel={badge.label}
-          badgeCls={badge.cls}
           ready={isReady(generated[slot.genKey])}
           active={activeKey === slot.genKey}
           onSelect={onSelect}
@@ -372,15 +382,13 @@ function RailCard({
     );
   }
 
-  // List card: header (with member count + ready count) that expands to members.
+  // List card: name header (with member count + ready count) that expands to
+  // members. The "List" type is conveyed by the section header above.
   const readyCount = entity.members.filter((m) => isReady(generated[m.genKey])).length;
   return (
-    <div className={`ov2-gen-card list`}>
+    <div className="ov2-gen-card list">
       <button type="button" className="ov2-gen-listhead" onClick={onToggleCollapse}>
         <span className="caret">{collapsed ? <RightOutlined /> : <DownOutlined />}</span>
-        <span className={`ov2-gen-badge list`}>
-          {badge.icon} {badge.label}
-        </span>
         <span className="name">{entity.name}</span>
         <span className="count">
           · {readyCount}/{entity.members.length} drafts
@@ -405,8 +413,6 @@ function RailCard({
 
 function RailRow({
   slot,
-  badgeLabel,
-  badgeCls,
   ready,
   active,
   indented,
@@ -415,8 +421,6 @@ function RailRow({
   generating,
 }: {
   slot: RailSlot;
-  badgeLabel?: string;
-  badgeCls?: string;
   ready: boolean;
   active: boolean;
   indented?: boolean;
@@ -433,10 +437,7 @@ function RailRow({
         {ready && <CheckOutlined />}
       </span>
       <div className="ov2-gen-row-main">
-        <div className="ov2-gen-row-name">
-          {badgeLabel && <span className={`ov2-gen-tag ${badgeCls}`}>{badgeLabel}</span>}
-          {slot.name}
-        </div>
+        <div className="ov2-gen-row-name">{slot.name}</div>
         {slot.sub && <div className="ov2-gen-row-sub">{slot.sub}</div>}
       </div>
       <Button

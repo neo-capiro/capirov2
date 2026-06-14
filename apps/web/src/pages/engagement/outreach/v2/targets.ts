@@ -236,3 +236,41 @@ export function flattenTargets(targets: OutreachTarget[]): OutreachRecipient[] {
   }
   return out;
 }
+
+/**
+ * Context-item scope (Build Context step) is one of:
+ *   'all'                — shared with every recipient
+ *   '<recipientKey>'     — one individual
+ *   'list:<targetKey>'   — a whole list (applied to each member individually)
+ *   'group:<targetKey>'  — a group (the group's one shared email)
+ *
+ * The generate/send backend routes context by matching scope to a recipient's
+ * key, so list/group scopes must be EXPANDED into per-member-keyed copies
+ * before they're sent. 'all' and bare-recipientKey scopes pass through
+ * unchanged; an item scoped to a list/group that no longer exists is dropped.
+ * Generic so it works on both the wizard's SelectedContextItem and the saved
+ * contextPool projection.
+ */
+export function expandContextItemScopes<T extends { scope: 'all' | string }>(
+  items: T[],
+  targets: OutreachTarget[],
+): T[] {
+  const out: T[] = [];
+  for (const item of items) {
+    const s = item.scope;
+    const type: TargetType | null = s.startsWith('list:')
+      ? 'list'
+      : s.startsWith('group:')
+        ? 'group'
+        : null;
+    if (!type) {
+      out.push(item); // 'all' or an individual recipientKey — unchanged
+      continue;
+    }
+    const key = s.slice(s.indexOf(':') + 1);
+    const target = targets.find((t) => t.type === type && t.key === key);
+    if (!target) continue; // scoped to a removed list/group — drop the orphan
+    for (const r of target.recipients) out.push({ ...item, scope: recipientKey(r) });
+  }
+  return out;
+}
