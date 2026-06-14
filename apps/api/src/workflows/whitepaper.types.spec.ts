@@ -3,11 +3,28 @@ import {
   getWhitePaperVariant,
   splitDocumentIntoSections,
   variantSections,
+  WHITEPAPER_CONTEXT_CATEGORY_LABELS,
+  WHITEPAPER_CONTEXT_KIND_META,
   WHITEPAPER_VARIANTS,
+  whitePaperContextCategory,
   type WhitePaperSection,
 } from './whitepaper.types.js';
 
 describe('whitepaper.types helpers', () => {
+  describe('context kind metadata', () => {
+    it('every kind maps to a labelled, known category', () => {
+      const categories = new Set(Object.keys(WHITEPAPER_CONTEXT_CATEGORY_LABELS));
+      for (const [kind, meta] of Object.entries(WHITEPAPER_CONTEXT_KIND_META)) {
+        expect(meta.label.length).toBeGreaterThan(0);
+        expect(categories.has(meta.category)).toBe(true);
+        expect(whitePaperContextCategory(kind as never)).toBe(meta.category);
+      }
+    });
+    it('defaults unknown kinds to the custom category', () => {
+      expect(whitePaperContextCategory('totally_unknown' as never)).toBe('custom');
+    });
+  });
+
   describe('getWhitePaperVariant', () => {
     it('returns the named variant', () => {
       expect(getWhitePaperVariant('appropriations_brief').slug).toBe('appropriations_brief');

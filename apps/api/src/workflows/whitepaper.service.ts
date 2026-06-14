@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -14,9 +9,12 @@ import {
   getWhitePaperVariant,
   splitDocumentIntoSections,
   variantSections,
+  whitePaperContextCategory,
   WHITEPAPER_TONE_GUIDANCE,
   WHITEPAPER_VARIANTS,
+  type WhitePaperContextCategory,
   type WhitePaperContextItem,
+  type WhitePaperContextKind,
   type WhitePaperSection,
   type WhitePaperTone,
   type WhitePaperVariant,
@@ -24,7 +22,40 @@ import {
 
 const AI_GEN_MODEL = 'claude-sonnet-4-6';
 const AI_TIMEOUT_MS = 90_000;
-const MAX_CONTEXT_ITEM_CHARS = 1_200;
+/** Default per-item budget for compact items (profile rows, meetings, intel). */
+const MAX_CONTEXT_ITEM_CHARS = 1_500;
+/** Larger budget for long-form items (documents, research reports, prior docs). */
+const MAX_DOC_CONTEXT_CHARS = 6_000;
+/** Hard ceiling on the total context injected into one generation call. */
+const MAX_TOTAL_CONTEXT_CHARS = 28_000;
+
+/** Long-form kinds that get the larger per-item budget when injected. */
+const LONG_FORM_KINDS = new Set<WhitePaperContextKind>([
+  'document',
+  'research_report',
+  'prior_submission',
+  'note',
+  'client_brief',
+  'recommendation',
+]);
+
+function clip(value: string | null | undefined, max: number): string {
+  const text = (value ?? '').trim();
+  return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
+}
+
+/** Map a MIME type to a short human label for a document chip (PDF, DOCX, …). */
+function shortContentType(contentType: string | null | undefined): string {
+  const ct = (contentType ?? '').toLowerCase();
+  if (ct.includes('pdf')) return 'PDF';
+  if (ct.includes('word') || ct.includes('document')) return 'DOCX';
+  if (ct.includes('sheet') || ct.includes('excel') || ct.includes('csv')) return 'Sheet';
+  if (ct.startsWith('text/')) return 'Text';
+  if (ct.startsWith('audio/')) return 'Audio';
+  if (ct.startsWith('video/')) return 'Video';
+  if (ct.startsWith('image/')) return 'Image';
+  return 'Doc';
+}
 
 /**
  * Stable formData keys for the structured white paper.
@@ -59,6 +90,7 @@ export interface WhitePaperContextCandidate {
   content: string;
   refId?: string;
   tag?: string;
+  category?: WhitePaperContextCategory;
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
@@ -209,7 +241,8 @@ export class WhitePaperService {
           }),
         });
         const json = (await res.json()) as Record<string, unknown>;
-        if (!res.ok) throw new ServiceUnavailableException(`Anthropic ${operation}: HTTP ${res.status}`);
+        if (!res.ok)
+          throw new ServiceUnavailableException(`Anthropic ${operation}: HTTP ${res.status}`);
         return parseJsonSafe(extractAnthropicText(json));
       }
       const res = await fetchWithTimeout('https://api.openai.com/v1/responses', {
@@ -252,53 +285,198 @@ export class WhitePaperService {
 
     const candidates: WhitePaperContextCandidate[] = [];
     const clientId = instance.clientId;
+    const strategy = instance.strategy as {
+      capability: Record<string, unknown> | null;
+    } | null;
 
-    const strategy = instance.strategy as
-      | {
-          capability: {
-            name: string;
-            description: string | null;
-            justification: string | null;
-            districtNexus: string | null;
-            peNumber: string | null;
-            fundingAsk: number | null;
-            trl: number | null;
-          } | null;
-        }
-      | null;
+    // Each source is isolated: a failure in one (missing table, bad data) must
+    // never blank the whole catalog. We log and continue so the picker is
+    // resilient and always shows whatever resolved.
+    const sources: Array<[string, () => Promise<void>]> = [];
 
-    if (strategy?.capability) {
-      const cap = strategy.capability;
-      const lines = [
-        cap.description ? `Description: ${cap.description}` : '',
-        cap.justification ? `Justification: ${cap.justification}` : '',
-        cap.districtNexus ? `District nexus: ${cap.districtNexus}` : '',
-        cap.peNumber ? `PE: ${cap.peNumber}` : '',
-        cap.fundingAsk ? `Funding ask: $${cap.fundingAsk.toLocaleString()}` : '',
-        cap.trl ? `TRL: ${cap.trl}` : '',
-      ].filter(Boolean);
-      if (lines.length) {
+    // ── Client profile ─────────────────────────────────────────────────────
+    sources.push([
+      'client_profile',
+      async () => {
+        if (!clientId) return;
+        const client = await this.prisma.client.findFirst({ where: { id: clientId, tenantId } });
+        if (!client) return;
+        const lines = [
+          client.description ? `About: ${client.description}` : '',
+          client.productDescription ? `Products/services: ${client.productDescription}` : '',
+          client.sectorTag ? `Sector: ${client.sectorTag}` : '',
+          client.website ? `Website: ${client.website}` : '',
+          client.issueCodes?.length ? `Issue codes: ${client.issueCodes.join(', ')}` : '',
+          client.naicsCodes?.length ? `NAICS: ${client.naicsCodes.join(', ')}` : '',
+          client.pscCodes?.length ? `PSC: ${client.pscCodes.join(', ')}` : '',
+          client.uei ? `UEI: ${client.uei}` : '',
+          client.cageCode ? `CAGE: ${client.cageCode}` : '',
+          client.submissionTracks?.length
+            ? `Submission tracks: ${client.submissionTracks.join(', ')}`
+            : '',
+        ].filter(Boolean);
+        if (!lines.length) return;
         candidates.push({
-          id: 'capability',
-          kind: 'capability',
-          title: `Program: ${cap.name}`,
-          content: lines.join('\n').slice(0, MAX_CONTEXT_ITEM_CHARS),
-          tag: 'Capability',
+          id: 'client-profile',
+          kind: 'client_profile',
+          title: `Client profile: ${client.name}`,
+          content: clip(lines.join('\n'), MAX_CONTEXT_ITEM_CHARS),
+          tag: 'Profile',
         });
-      }
-    }
+      },
+    ]);
 
-    if (clientId) {
-      const [meetings, threads, priorSubmissions] = await Promise.all([
-        this.prisma.meeting.findMany({
+    // ── Key people ─────────────────────────────────────────────────────────
+    sources.push([
+      'people',
+      async () => {
+        if (!clientId) return;
+        const people = await this.prisma.clientPerson.findMany({
+          where: { tenantId, clientId },
+          orderBy: [{ lastContact: 'desc' }, { updatedAt: 'desc' }],
+          take: 8,
+        });
+        for (const p of people) {
+          const lines = [
+            [p.title, p.role].filter(Boolean).join(' · '),
+            p.email ? `Email: ${p.email}` : '',
+            p.phone ? `Phone: ${p.phone}` : '',
+            p.notes ? `Notes: ${p.notes}` : '',
+          ].filter(Boolean);
+          candidates.push({
+            id: `person-${p.id}`,
+            kind: 'person',
+            refId: p.id,
+            title: p.name,
+            content: clip(
+              `${p.name}${lines.length ? `\n${lines.join('\n')}` : ''}`,
+              MAX_CONTEXT_ITEM_CHARS,
+            ),
+            tag: p.title || 'Contact',
+          });
+        }
+      },
+    ]);
+
+    // ── Facilities (district nexus) ────────────────────────────────────────
+    sources.push([
+      'facilities',
+      async () => {
+        if (!clientId) return;
+        const facilities = await this.prisma.clientFacility.findMany({
+          where: { tenantId, clientId },
+          orderBy: { updatedAt: 'desc' },
+          take: 8,
+        });
+        for (const f of facilities) {
+          const loc = [f.city, f.state].filter(Boolean).join(', ');
+          const district =
+            f.state && f.congressionalDistrict ? `${f.state}-${f.congressionalDistrict}` : '';
+          const lines = [
+            loc ? `Location: ${loc}` : '',
+            district ? `Congressional district: ${district}` : '',
+            f.employeeCount ? `Employees: ${f.employeeCount.toLocaleString()}` : '',
+            f.notes ? `Notes: ${f.notes}` : '',
+          ].filter(Boolean);
+          candidates.push({
+            id: `facility-${f.id}`,
+            kind: 'facility',
+            refId: f.id,
+            title: f.name,
+            content: clip(
+              `${f.name}${lines.length ? `\n${lines.join('\n')}` : ''}`,
+              MAX_CONTEXT_ITEM_CHARS,
+            ),
+            tag: district || loc || 'Facility',
+          });
+        }
+      },
+    ]);
+
+    // ── Capability / program + program elements ────────────────────────────
+    sources.push([
+      'capability',
+      async () => {
+        const cap = strategy?.capability;
+        if (!cap) return;
+        const str = (k: string) => (typeof cap[k] === 'string' ? (cap[k] as string) : '');
+        const num = (k: string) => (typeof cap[k] === 'number' ? (cap[k] as number) : null);
+        const fundingAsk = num('fundingAsk');
+        const lines = [
+          str('description') ? `Description: ${str('description')}` : '',
+          str('justification') ? `Justification: ${str('justification')}` : '',
+          str('districtNexus') ? `District nexus: ${str('districtNexus')}` : '',
+          str('serviceBranch') ? `Service branch: ${str('serviceBranch')}` : '',
+          str('appropriationAccount')
+            ? `Appropriation account: ${str('appropriationAccount')}`
+            : '',
+          str('targetSubcommittee') ? `Target subcommittee: ${str('targetSubcommittee')}` : '',
+          fundingAsk ? `Funding ask: $${fundingAsk.toLocaleString()}` : '',
+          num('trl') ? `TRL: ${num('trl')}` : '',
+          num('mrl') ? `MRL: ${num('mrl')}` : '',
+          str('existingContracts') ? `Existing contracts: ${str('existingContracts')}` : '',
+          str('notes') ? `Notes: ${str('notes')}` : '',
+        ].filter(Boolean);
+        if (lines.length) {
+          candidates.push({
+            id: 'capability',
+            kind: 'capability',
+            title: `Program: ${str('name') || 'Capability'}`,
+            content: clip(lines.join('\n'), MAX_CONTEXT_ITEM_CHARS),
+            tag: 'Capability',
+          });
+        }
+        const peNumbers = Array.isArray(cap.peNumbers) ? (cap.peNumbers as string[]) : [];
+        const pes = Array.from(new Set([str('peNumber'), ...peNumbers].filter(Boolean)));
+        if (pes.length) {
+          candidates.push({
+            id: 'program-elements',
+            kind: 'program_element',
+            title: `Program elements: ${pes.slice(0, 4).join(', ')}${pes.length > 4 ? '…' : ''}`,
+            content: `Relevant program element (PE) numbers: ${pes.join(', ')}.`,
+            tag: 'PE',
+          });
+        }
+      },
+    ]);
+
+    // ── Meetings ───────────────────────────────────────────────────────────
+    sources.push([
+      'meetings',
+      async () => {
+        if (!clientId) return;
+        const meetings = await this.prisma.meeting.findMany({
           where: {
-            AND: [{ tenantId }, await clientMeetingAssociationWhere(this.prisma, tenantId, clientId)],
+            AND: [
+              { tenantId },
+              await clientMeetingAssociationWhere(this.prisma, tenantId, clientId),
+            ],
           },
           orderBy: { startsAt: 'desc' },
           take: 8,
           select: { id: true, subject: true, description: true, startsAt: true },
-        }),
-        this.prisma.mailThread.findMany({
+        });
+        for (const meeting of meetings) {
+          const date = meeting.startsAt.toISOString().slice(0, 10);
+          const detail = meeting.description ? `: ${meeting.description}` : '';
+          candidates.push({
+            id: `meeting-${meeting.id}`,
+            kind: 'meeting',
+            refId: meeting.id,
+            title: meeting.subject || `Meeting ${date}`,
+            content: clip(`Meeting (${date}): ${meeting.subject}${detail}`, MAX_CONTEXT_ITEM_CHARS),
+            tag: date,
+          });
+        }
+      },
+    ]);
+
+    // ── Email threads ──────────────────────────────────────────────────────
+    sources.push([
+      'threads',
+      async () => {
+        if (!clientId) return;
+        const threads = await this.prisma.mailThread.findMany({
           where: {
             AND: [
               { tenantId },
@@ -308,65 +486,325 @@ export class WhitePaperService {
           orderBy: [{ lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
           take: 8,
           select: { id: true, subject: true, snippet: true, lastMessageAt: true },
-        }),
-        this.prisma.workflowInstance.findMany({
-          where: {
-            tenantId,
-            clientId,
-            id: { not: instanceId },
-            strategyId: instance.strategyId ?? undefined,
-          },
+        });
+        for (const thread of threads) {
+          const date = thread.lastMessageAt ? thread.lastMessageAt.toISOString().slice(0, 10) : '';
+          const snippet = thread.snippet ? `: ${thread.snippet}` : '';
+          candidates.push({
+            id: `thread-${thread.id}`,
+            kind: 'email_thread',
+            refId: thread.id,
+            title: thread.subject || 'Email thread',
+            content: clip(
+              `Email thread${date ? ` (${date})` : ''}: ${thread.subject}${snippet}`,
+              MAX_CONTEXT_ITEM_CHARS,
+            ),
+            tag: date || 'Email',
+          });
+        }
+      },
+    ]);
+
+    // ── Prior submissions (generated docs) ─────────────────────────────────
+    sources.push([
+      'prior_submissions',
+      async () => {
+        if (!clientId) return;
+        const priorSubmissions = await this.prisma.workflowInstance.findMany({
+          where: { tenantId, clientId, id: { not: instanceId } },
           orderBy: { updatedAt: 'desc' },
           take: 6,
           select: { id: true, title: true, formData: true, template: { select: { name: true } } },
-        }),
-      ]);
-
-      for (const meeting of meetings) {
-        const date = meeting.startsAt.toISOString().slice(0, 10);
-        const detail = meeting.description ? `: ${meeting.description.slice(0, 600)}` : '';
-        candidates.push({
-          id: `meeting-${meeting.id}`,
-          kind: 'meeting',
-          refId: meeting.id,
-          title: meeting.subject || `Meeting ${date}`,
-          content: `Meeting (${date}): ${meeting.subject}${detail}`.slice(0, MAX_CONTEXT_ITEM_CHARS),
-          tag: date,
         });
-      }
+        for (const sub of priorSubmissions) {
+          const fd = (sub.formData ?? {}) as Record<string, unknown>;
+          const doc = typeof fd.generated_document === 'string' ? fd.generated_document : '';
+          if (!doc.trim()) continue;
+          candidates.push({
+            id: `submission-${sub.id}`,
+            kind: 'prior_submission',
+            refId: sub.id,
+            title: sub.title || sub.template?.name || 'Prior submission',
+            content: clip(doc, MAX_DOC_CONTEXT_CHARS),
+            tag: 'Prior doc',
+          });
+        }
+      },
+    ]);
 
-      for (const thread of threads) {
-        const date = thread.lastMessageAt ? thread.lastMessageAt.toISOString().slice(0, 10) : '';
-        const snippet = thread.snippet ? `: ${thread.snippet.slice(0, 600)}` : '';
-        candidates.push({
-          id: `thread-${thread.id}`,
-          kind: 'email_thread',
-          refId: thread.id,
-          title: thread.subject || 'Email thread',
-          content: `Email thread${date ? ` (${date})` : ''}: ${thread.subject}${snippet}`.slice(
-            0,
-            MAX_CONTEXT_ITEM_CHARS,
-          ),
-          tag: 'Email',
+    // ── Submission history (outcomes) ──────────────────────────────────────
+    sources.push([
+      'submission_history',
+      async () => {
+        if (!clientId) return;
+        const history = await this.prisma.clientSubmissionHistory.findMany({
+          where: { tenantId, clientId },
+          orderBy: { updatedAt: 'desc' },
+          take: 8,
         });
-      }
+        for (const h of history) {
+          const lines = [
+            h.outcome ? `Outcome: ${h.outcome}` : '',
+            h.outcomeType ? `Status: ${h.outcomeType}` : '',
+            h.notes ? `Notes: ${h.notes}` : '',
+          ].filter(Boolean);
+          candidates.push({
+            id: `subhist-${h.id}`,
+            kind: 'submission_history',
+            refId: h.id,
+            title: `${h.fiscalYear} · ${h.title}`,
+            content: clip(
+              `${h.fiscalYear} ${h.title}${lines.length ? `\n${lines.join('\n')}` : ''}`,
+              MAX_CONTEXT_ITEM_CHARS,
+            ),
+            tag: h.outcomeType || h.fiscalYear,
+          });
+        }
+      },
+    ]);
 
-      for (const sub of priorSubmissions) {
-        const fd = (sub.formData ?? {}) as Record<string, unknown>;
-        const doc = typeof fd.generated_document === 'string' ? fd.generated_document : '';
-        if (!doc.trim()) continue;
-        candidates.push({
-          id: `submission-${sub.id}`,
-          kind: 'prior_submission',
-          refId: sub.id,
-          title: sub.title || sub.template?.name || 'Prior submission',
-          content: doc.slice(0, MAX_CONTEXT_ITEM_CHARS),
-          tag: 'Prior doc',
+    // ── Tracked bills ──────────────────────────────────────────────────────
+    sources.push([
+      'tracked_bills',
+      async () => {
+        if (!clientId) return;
+        const bills = await this.prisma.trackedBill.findMany({
+          where: { tenantId, clientId },
+          orderBy: { updatedAt: 'desc' },
+          take: 10,
         });
-      }
-    }
+        for (const b of bills) {
+          candidates.push({
+            id: `bill-${b.id}`,
+            kind: 'tracked_bill',
+            refId: b.billId,
+            title: `Tracked: ${b.billId}`,
+            content: clip(
+              `Pinned bill ${b.billId}${b.note ? `\n${b.note}` : ''}`,
+              MAX_CONTEXT_ITEM_CHARS,
+            ),
+            tag: b.billId,
+          });
+        }
+      },
+    ]);
 
-    return candidates;
+    // ── Intel changes ──────────────────────────────────────────────────────
+    sources.push([
+      'intel_changes',
+      async () => {
+        if (!clientId) return;
+        const changes = await this.prisma.intelligenceChange.findMany({
+          where: { relatedClientIds: { has: clientId } },
+          orderBy: { detectedAt: 'desc' },
+          take: 6,
+        });
+        for (const c of changes) {
+          candidates.push({
+            id: `change-${c.id}`,
+            kind: 'intel_change',
+            refId: c.id,
+            title: c.title,
+            content: clip(
+              `[${c.changeType} · ${c.severity}] ${c.title}\n${c.description}`,
+              MAX_CONTEXT_ITEM_CHARS,
+            ),
+            tag: c.severity,
+          });
+        }
+      },
+    ]);
+
+    // ── Client briefs ──────────────────────────────────────────────────────
+    sources.push([
+      'client_briefs',
+      async () => {
+        if (!clientId) return;
+        const briefs = await this.prisma.clientBrief.findMany({
+          where: { tenantId, clientId },
+          orderBy: { updatedAt: 'desc' },
+          take: 8,
+        });
+        for (const b of briefs) {
+          candidates.push({
+            id: `brief-${b.id}`,
+            kind: 'client_brief',
+            refId: b.id,
+            title: b.title,
+            content: clip(`${b.title}\n${b.body}`, MAX_DOC_CONTEXT_CHARS),
+            tag: b.sourceType || 'Brief',
+          });
+        }
+      },
+    ]);
+
+    // ── Action recommendations ─────────────────────────────────────────────
+    sources.push([
+      'recommendations',
+      async () => {
+        if (!clientId) return;
+        const recs = await this.prisma.actionRecommendation.findMany({
+          where: { tenantId, clientId, status: { notIn: ['dismissed', 'done'] } },
+          orderBy: [{ priority: 'desc' }, { createdAt: 'desc' }],
+          take: 6,
+        });
+        for (const r of recs) {
+          const lines = [
+            r.whatChanged ? `What changed: ${r.whatChanged}` : '',
+            r.whyItMatters ? `Why it matters: ${r.whyItMatters}` : '',
+            r.recommendedAction ? `Recommended action: ${r.recommendedAction}` : '',
+          ].filter(Boolean);
+          candidates.push({
+            id: `rec-${r.id}`,
+            kind: 'recommendation',
+            refId: r.id,
+            title: r.issueTitle,
+            content: clip(`${r.issueTitle}\n${lines.join('\n')}`, MAX_DOC_CONTEXT_CHARS),
+            tag: r.actionType,
+          });
+        }
+      },
+    ]);
+
+    // ── Research reports (Clio deep research) ──────────────────────────────
+    sources.push([
+      'research_reports',
+      async () => {
+        if (!clientId) return;
+        const reports = await this.prisma.clioArtifact.findMany({
+          where: { tenantId, clientId, kind: { in: ['research_report', 'deep_research'] } },
+          orderBy: { createdAt: 'desc' },
+          take: 6,
+        });
+        for (const r of reports) {
+          if (!r.bodyText?.trim()) continue;
+          candidates.push({
+            id: `research-${r.id}`,
+            kind: 'research_report',
+            refId: r.id,
+            title: r.title || 'Research report',
+            content: clip(r.bodyText, MAX_DOC_CONTEXT_CHARS),
+            tag: 'Research',
+          });
+        }
+      },
+    ]);
+
+    // ── Clio notes ─────────────────────────────────────────────────────────
+    sources.push([
+      'notes',
+      async () => {
+        if (!clientId) return;
+        const notes = await this.prisma.clioNote.findMany({
+          where: { tenantId, clientId },
+          orderBy: { createdAt: 'desc' },
+          take: 8,
+        });
+        for (const n of notes) {
+          if (!n.body?.trim()) continue;
+          candidates.push({
+            id: `note-${n.id}`,
+            kind: 'note',
+            refId: n.id,
+            title: n.title || clip(n.body, 48) || 'Note',
+            content: clip(`${n.title ? `${n.title}\n` : ''}${n.body}`, MAX_CONTEXT_ITEM_CHARS),
+            tag: 'Note',
+          });
+        }
+      },
+    ]);
+
+    // ── Lobbying (LDA) — one summary block ─────────────────────────────────
+    sources.push([
+      'lda',
+      async () => {
+        if (!clientId) return;
+        const client = await this.prisma.client.findFirst({
+          where: { id: clientId, tenantId },
+          select: { ldaClientIds: true, name: true },
+        });
+        const ldaIds = client?.ldaClientIds ?? [];
+        if (!ldaIds.length) return;
+        const filings = await this.prisma.ldaFiling.findMany({
+          where: { clientId: { in: ldaIds } },
+          orderBy: [{ filingYear: 'desc' }, { dtPosted: 'desc' }],
+          take: 16,
+        });
+        if (!filings.length) return;
+        const byYear = new Map<number, number>();
+        const registrants = new Set<string>();
+        const issues = new Set<string>();
+        for (const f of filings) {
+          const amt = Number(f.income ?? f.expenses ?? 0);
+          byYear.set(
+            f.filingYear,
+            (byYear.get(f.filingYear) ?? 0) + (Number.isFinite(amt) ? amt : 0),
+          );
+          if (f.registrantName) registrants.add(f.registrantName);
+          for (const code of f.issueCodes ?? []) issues.add(code);
+        }
+        const yearLines = Array.from(byYear.entries())
+          .sort((a, b) => b[0] - a[0])
+          .slice(0, 5)
+          .map(([year, total]) => `FY${year}: $${Math.round(total).toLocaleString()}`);
+        const lines = [
+          `Federal lobbying disclosures (LDA) for ${client?.name ?? 'this client'}:`,
+          yearLines.length ? `Spend by year — ${yearLines.join('; ')}` : '',
+          registrants.size ? `Registrants: ${Array.from(registrants).slice(0, 6).join(', ')}` : '',
+          issues.size ? `Issue codes: ${Array.from(issues).slice(0, 12).join(', ')}` : '',
+        ].filter(Boolean);
+        candidates.push({
+          id: 'lda-summary',
+          kind: 'lda',
+          title: 'Lobbying disclosures (LDA)',
+          content: clip(lines.join('\n'), MAX_CONTEXT_ITEM_CHARS),
+          tag: 'LDA',
+        });
+      },
+    ]);
+
+    // ── Documents (uploaded attachments) ───────────────────────────────────
+    sources.push([
+      'documents',
+      async () => {
+        if (!clientId) return;
+        const docs = await this.prisma.engagementAttachment.findMany({
+          where: { tenantId, clientId },
+          orderBy: { createdAt: 'desc' },
+          take: 24,
+        });
+        for (const d of docs) {
+          candidates.push({
+            id: `doc-${d.id}`,
+            kind: 'document',
+            // refId is the attachment id; the editor resolves extracted text on
+            // demand via POST /api/engagement/attachments/:id/extract-text.
+            refId: d.id,
+            title: d.fileName,
+            content: '',
+            tag: shortContentType(d.contentType),
+          });
+        }
+      },
+    ]);
+
+    const settled = await Promise.allSettled(sources.map(([, run]) => run()));
+    settled.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        const label = sources[index]?.[0] ?? 'unknown';
+        this.logger.warn(
+          `contextCandidates: source "${label}" failed: ${
+            result.reason instanceof Error ? result.reason.message : String(result.reason)
+          }`,
+        );
+      }
+    });
+
+    // Backfill the category from the kind so the editor can group candidates.
+    return candidates.map((c) => ({
+      ...c,
+      category: c.category ?? whitePaperContextCategory(c.kind),
+    }));
   }
 
   /**
@@ -380,14 +818,25 @@ export class WhitePaperService {
   ): Promise<string[]> {
     if (!items.length) return [];
     const blocks: string[] = [];
+    let total = 0;
     for (const item of items) {
+      if (total >= MAX_TOTAL_CONTEXT_CHARS) break;
       const label = item.kind.replace(/_/g, ' ').toUpperCase();
+      const perItem = LONG_FORM_KINDS.has(item.kind)
+        ? MAX_DOC_CONTEXT_CHARS
+        : MAX_CONTEXT_ITEM_CHARS;
+      const budget = Math.min(perItem, MAX_TOTAL_CONTEXT_CHARS - total);
       const content = (item.content ?? '').trim();
+      let block: string;
       if (content) {
-        blocks.push(`${label} — ${item.title}:\n${content.slice(0, MAX_CONTEXT_ITEM_CHARS)}`);
+        block = `${label} — ${item.title}:\n${clip(content, budget)}`;
       } else if (item.title) {
-        blocks.push(`${label}: ${item.title}`);
+        block = `${label}: ${item.title}`;
+      } else {
+        continue;
       }
+      blocks.push(block);
+      total += block.length;
     }
     return blocks;
   }
@@ -436,7 +885,8 @@ export class WhitePaperService {
       const cap = strategy.capability;
       blocks.push(`PROGRAM: ${cap.name}`);
       if (cap.peNumber) blocks.push(`PE NUMBER: ${cap.peNumber}`);
-      if (cap.appropriationAccount) blocks.push(`APPROPRIATION ACCOUNT: ${cap.appropriationAccount}`);
+      if (cap.appropriationAccount)
+        blocks.push(`APPROPRIATION ACCOUNT: ${cap.appropriationAccount}`);
       if (cap.fundingAsk) blocks.push(`FUNDING ASK: $${cap.fundingAsk.toLocaleString()}`);
       if (cap.description) blocks.push(`CAPABILITY DESCRIPTION: ${cap.description}`);
       if (cap.justification) blocks.push(`JUSTIFICATION: ${cap.justification}`);
@@ -464,7 +914,10 @@ export class WhitePaperService {
     };
   }
 
-  private toneSteerLines(tone: WhitePaperTone | undefined, steerNote: string | undefined): string[] {
+  private toneSteerLines(
+    tone: WhitePaperTone | undefined,
+    steerNote: string | undefined,
+  ): string[] {
     const lines: string[] = [];
     const resolvedTone = asWhitePaperTone(tone);
     lines.push(`TONE DIRECTIVE: ${WHITEPAPER_TONE_GUIDANCE[resolvedTone]}`);
@@ -579,7 +1032,7 @@ export class WhitePaperService {
         const heading =
           typeof row.heading === 'string' && row.heading.trim()
             ? row.heading.trim()
-            : variant.sections[index]?.heading ?? `Section ${index + 1}`;
+            : (variant.sections[index]?.heading ?? `Section ${index + 1}`);
         const body = typeof row.body === 'string' ? row.body.trim() : '';
         return {
           id: `sec-${index + 1}`,
@@ -662,16 +1115,24 @@ export class WhitePaperService {
     const wordCount = fullText.split(/\s+/).filter(Boolean).length;
 
     if (/\[[A-Za-z][^\]]*\]/.test(fullText)) {
-      issues.push('Bracket placeholder(s) remain in the text (e.g. [Program Name]). Replace or remove.');
+      issues.push(
+        'Bracket placeholder(s) remain in the text (e.g. [Program Name]). Replace or remove.',
+      );
     }
     const empty = sections.filter((s) => s.body.trim().length === 0);
     if (empty.length) {
-      issues.push(`${empty.length} section${empty.length === 1 ? '' : 's'} still empty: ${empty.map((s) => s.heading).join(', ')}.`);
+      issues.push(
+        `${empty.length} section${empty.length === 1 ? '' : 's'} still empty: ${empty.map((s) => s.heading).join(', ')}.`,
+      );
     }
-    const hasAsk = sections.some((s) => /the ask|request|requesting/i.test(`${s.heading} ${s.body}`));
+    const hasAsk = sections.some((s) =>
+      /the ask|request|requesting/i.test(`${s.heading} ${s.body}`),
+    );
     if (!hasAsk) issues.push('No explicit "Ask" detected. State exactly what you are requesting.');
     if (wordCount > variant.wordBudget * 1.25) {
-      issues.push(`Length ${wordCount} words exceeds the ~${variant.wordBudget}-word budget for this format.`);
+      issues.push(
+        `Length ${wordCount} words exceeds the ~${variant.wordBudget}-word budget for this format.`,
+      );
     }
     return { issues, wordCount, wordBudget: variant.wordBudget };
   }
@@ -701,13 +1162,17 @@ export class WhitePaperService {
     const { sections, variantSlug } = await this.readSections(tenantId, instanceId);
     const variant = getWhitePaperVariant(variantSlug);
     const title =
-      (typeof base.instance.title === 'string' && base.instance.title.trim()) ||
-      variant.name;
+      (typeof base.instance.title === 'string' && base.instance.title.trim()) || variant.name;
 
     // Lazy import keeps docx out of the hot path for non-export requests.
-    const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } = await import('docx');
+    const { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } =
+      await import('docx');
 
-    const metaLine = [base.clientName, base.capabilityName, base.fiscalYear ? `FY${base.fiscalYear.replace(/^FY/i, '')}` : '']
+    const metaLine = [
+      base.clientName,
+      base.capabilityName,
+      base.fiscalYear ? `FY${base.fiscalYear.replace(/^FY/i, '')}` : '',
+    ]
       .filter(Boolean)
       .join('  \u2022  ');
 
@@ -745,9 +1210,7 @@ export class WhitePaperService {
             children: para
               .split(/\n/)
               .map((line, idx) =>
-                idx === 0
-                  ? new TextRun({ text: line })
-                  : new TextRun({ text: line, break: 1 }),
+                idx === 0 ? new TextRun({ text: line }) : new TextRun({ text: line, break: 1 }),
               ),
           }),
         );
@@ -756,14 +1219,21 @@ export class WhitePaperService {
 
     const doc = new Document({ sections: [{ children }] });
     const buffer = await Packer.toBuffer(doc);
-    const safe = title.replace(/[^a-z0-9-_]+/gi, '-').replace(/-+/g, '-').toLowerCase() || 'white-paper';
+    const safe =
+      title
+        .replace(/[^a-z0-9-_]+/gi, '-')
+        .replace(/-+/g, '-')
+        .toLowerCase() || 'white-paper';
     return { buffer: Buffer.from(buffer), filename: `${safe}.docx` };
   }
 
   /**
    * Read current structured sections from an instance (used by Clio write-back).
    */
-  async readSections(tenantId: string, instanceId: string): Promise<{
+  async readSections(
+    tenantId: string,
+    instanceId: string,
+  ): Promise<{
     sections: WhitePaperSection[];
     variantSlug: string;
     tone: WhitePaperTone;
@@ -774,16 +1244,23 @@ export class WhitePaperService {
       throw new NotFoundException(`Workflow instance '${instanceId}' not found`);
     }
     const fd = (instance.formData ?? {}) as Record<string, unknown>;
-    const variantSlug = typeof fd[WP_KEYS.variant] === 'string' ? (fd[WP_KEYS.variant] as string) : getWhitePaperVariant(null).slug;
+    const variantSlug =
+      typeof fd[WP_KEYS.variant] === 'string'
+        ? (fd[WP_KEYS.variant] as string)
+        : getWhitePaperVariant(null).slug;
     const variant = getWhitePaperVariant(variantSlug);
     let sections: WhitePaperSection[] = [];
     if (Array.isArray(fd[WP_KEYS.sections])) {
       sections = this.coerceSections(fd[WP_KEYS.sections], variant);
     }
     if (!sections.length) {
-      const doc = typeof fd[WP_KEYS.generatedDoc] === 'string' ? (fd[WP_KEYS.generatedDoc] as string) : '';
+      const doc =
+        typeof fd[WP_KEYS.generatedDoc] === 'string' ? (fd[WP_KEYS.generatedDoc] as string) : '';
       sections = doc.trim()
-        ? splitDocumentIntoSections(doc, variant.sections.map((s) => s.heading))
+        ? splitDocumentIntoSections(
+            doc,
+            variant.sections.map((s) => s.heading),
+          )
         : variantSections(variant.slug);
     }
     return {
@@ -829,7 +1306,10 @@ async function clientProfileEmails(
   clientId: string,
 ): Promise<string[]> {
   const [client, people] = await Promise.all([
-    prisma.client.findFirst({ where: { id: clientId, tenantId }, select: { primaryContactEmail: true } }),
+    prisma.client.findFirst({
+      where: { id: clientId, tenantId },
+      select: { primaryContactEmail: true },
+    }),
     prisma.clientPerson.findMany({
       where: { tenantId, clientId, email: { not: null } },
       select: { email: true },

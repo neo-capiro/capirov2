@@ -25,13 +25,97 @@ export interface WhitePaperSection {
 }
 
 export type WhitePaperContextKind =
+  // Client profile
+  | 'client_profile'
+  | 'person'
+  | 'facility'
+  // Program
+  | 'capability'
+  | 'program_element'
+  // Engagement
   | 'meeting'
   | 'email_thread'
-  | 'capability'
   | 'prior_submission'
+  | 'submission_history'
+  // Intelligence
+  | 'tracked_bill'
+  | 'intel_change'
+  | 'client_brief'
+  | 'recommendation'
+  | 'intel'
+  // Research
+  | 'research_report'
+  | 'note'
+  | 'research'
+  // Federal data
+  | 'lda'
+  | 'contract'
+  // Documents
+  | 'document'
+  // Custom
+  | 'freeform_note';
+
+/**
+ * High-level grouping the editor uses to organize the context catalog into
+ * collapsible sections (Client profile / Program / Engagement / Intelligence /
+ * Research / Federal data / Documents / Custom notes).
+ */
+export type WhitePaperContextCategory =
+  | 'profile'
+  | 'program'
+  | 'engagement'
   | 'intel'
   | 'research'
-  | 'freeform_note';
+  | 'federal'
+  | 'documents'
+  | 'custom';
+
+/**
+ * Per-kind display label + the category it belongs to. Keep this in sync with
+ * the mirrored copy in the web editor (WhitePaperEditorPage.tsx) — the wire
+ * shape is shared but the two packages can't import across the API/web boundary.
+ */
+export const WHITEPAPER_CONTEXT_KIND_META: Record<
+  WhitePaperContextKind,
+  { label: string; category: WhitePaperContextCategory }
+> = {
+  client_profile: { label: 'Client profile', category: 'profile' },
+  person: { label: 'Key contact', category: 'profile' },
+  facility: { label: 'Facility / district', category: 'profile' },
+  capability: { label: 'Program / capability', category: 'program' },
+  program_element: { label: 'Program element', category: 'program' },
+  meeting: { label: 'Meeting', category: 'engagement' },
+  email_thread: { label: 'Email', category: 'engagement' },
+  prior_submission: { label: 'Prior submission', category: 'engagement' },
+  submission_history: { label: 'Submission outcome', category: 'engagement' },
+  tracked_bill: { label: 'Tracked bill', category: 'intel' },
+  intel_change: { label: 'Intel change', category: 'intel' },
+  client_brief: { label: 'Client brief', category: 'intel' },
+  recommendation: { label: 'Recommendation', category: 'intel' },
+  intel: { label: 'Intel', category: 'intel' },
+  research_report: { label: 'Research report', category: 'research' },
+  note: { label: 'Note', category: 'research' },
+  research: { label: 'Research', category: 'research' },
+  lda: { label: 'Lobbying (LDA)', category: 'federal' },
+  contract: { label: 'Federal contract', category: 'federal' },
+  document: { label: 'Document', category: 'documents' },
+  freeform_note: { label: 'Note', category: 'custom' },
+};
+
+export const WHITEPAPER_CONTEXT_CATEGORY_LABELS: Record<WhitePaperContextCategory, string> = {
+  profile: 'Client profile',
+  program: 'Program',
+  engagement: 'Engagement',
+  intel: 'Intelligence',
+  research: 'Research',
+  federal: 'Federal data',
+  documents: 'Documents',
+  custom: 'Custom notes',
+};
+
+export function whitePaperContextCategory(kind: WhitePaperContextKind): WhitePaperContextCategory {
+  return WHITEPAPER_CONTEXT_KIND_META[kind]?.category ?? 'custom';
+}
 
 /**
  * A resolved context item the user attached to ground/steer generation.
@@ -46,6 +130,7 @@ export interface WhitePaperContextItem {
   content: string;
   refId?: string;
   tag?: string;
+  category?: WhitePaperContextCategory;
 }
 
 export interface WhitePaperVariant {
@@ -115,7 +200,8 @@ export const WHITEPAPER_VARIANTS: WhitePaperVariant[] = [
       },
       {
         heading: 'Economic and District Impact',
-        purpose: "Jobs, districts supported, small business participation, the Member's state/district.",
+        purpose:
+          "Jobs, districts supported, small business participation, the Member's state/district.",
       },
       {
         heading: 'The Ask',
@@ -133,7 +219,8 @@ export const WHITEPAPER_VARIANTS: WhitePaperVariant[] = [
       { heading: 'The Ask', purpose: 'Exact account, line, and dollar amount requested.' },
       {
         heading: 'Funding Context',
-        purpose: 'FY enacted/requested vs the President\u2019s Budget Request; deltas and rationale.',
+        purpose:
+          'FY enacted/requested vs the President\u2019s Budget Request; deltas and rationale.',
       },
       {
         heading: 'Capability Gap',
@@ -156,7 +243,10 @@ export const WHITEPAPER_VARIANTS: WhitePaperVariant[] = [
     defaultTone: 'editorial_narrative',
     wordBudget: 800,
     sections: [
-      { heading: 'Executive Summary', purpose: 'The position and the recommended action in brief.' },
+      {
+        heading: 'Executive Summary',
+        purpose: 'The position and the recommended action in brief.',
+      },
       { heading: 'Background', purpose: 'Relevant history and current state of the issue.' },
       { heading: 'Policy Problem', purpose: 'The specific problem and its stakes.' },
       { heading: 'Recommended Action', purpose: 'The concrete legislative or policy ask.' },
@@ -172,9 +262,7 @@ export const WHITEPAPER_VARIANTS: WhitePaperVariant[] = [
 export const DEFAULT_WHITEPAPER_VARIANT: WhitePaperVariant = WHITEPAPER_VARIANTS[0]!;
 
 export function getWhitePaperVariant(slug: string | null | undefined): WhitePaperVariant {
-  return (
-    WHITEPAPER_VARIANTS.find((variant) => variant.slug === slug) ?? DEFAULT_WHITEPAPER_VARIANT
-  );
+  return WHITEPAPER_VARIANTS.find((variant) => variant.slug === slug) ?? DEFAULT_WHITEPAPER_VARIANT;
 }
 
 export function variantSections(slug: string | null | undefined): WhitePaperSection[] {
@@ -219,7 +307,11 @@ export function splitDocumentIntoSections(
     }));
   }
 
-  const normalized = (value: string) => value.replace(/[^a-z0-9]+/gi, ' ').trim().toLowerCase();
+  const normalized = (value: string) =>
+    value
+      .replace(/[^a-z0-9]+/gi, ' ')
+      .trim()
+      .toLowerCase();
   const headingSet = new Map(expectedHeadings.map((heading) => [normalized(heading), heading]));
 
   const lines = text.split(/\r?\n/);
@@ -242,7 +334,10 @@ export function splitDocumentIntoSections(
     }
     // A heading line: short, matches an expected heading (allowing markdown #),
     // or is ALL CAPS / Title-style with no terminal punctuation.
-    const stripped = line.replace(/^#+\s*/, '').replace(/[:.]+$/, '').trim();
+    const stripped = line
+      .replace(/^#+\s*/, '')
+      .replace(/[:.]+$/, '')
+      .trim();
     const matchKey = normalized(stripped);
     const isKnownHeading = headingSet.has(matchKey);
     const looksLikeHeading =
