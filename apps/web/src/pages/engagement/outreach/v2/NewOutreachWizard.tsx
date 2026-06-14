@@ -88,6 +88,16 @@ interface InsightsResponse {
   topAgencies?: Array<{ name?: string | null; total?: number | null }>;
 }
 
+interface MeetingPrepLite {
+  id: string;
+  status?: string | null;
+  summary?: string | null;
+  // Prep JSON arrays — string lists in practice; read defensively.
+  agenda?: unknown;
+  talkingPoints?: unknown;
+  risks?: unknown;
+  followUps?: unknown;
+}
 interface MeetingsResponse {
   items?: Array<{
     id: string;
@@ -97,6 +107,9 @@ interface MeetingsResponse {
     organizerEmail?: string | null;
     clientId?: string | null;
     attendees?: Array<{ email?: string | null; name?: string | null }>;
+    // GET /api/engagement/meetings returns the latest prep per meeting with
+    // full content (meetingInclude → preps take:1). Sourced for the prep pool.
+    preps?: MeetingPrepLite[];
   }>;
 }
 
@@ -432,15 +445,18 @@ export function NewOutreachWizard({
     retry: false,
   });
 
-  // Saved meeting debriefs for this client (newest first). Bodies are
+  // Saved meeting debriefs, scoped to the campaign's client AND/OR to meetings
+  // involving the chosen recipients (so a no-client congressional campaign
+  // still surfaces them — matches how meetings/mail load). Bodies are
   // access-filtered server-side; restricted ones come back with body=null.
   const debriefQuery = useQuery<DebriefItem[]>({
-    enabled: step.id === 'context' && !!state.clientId,
-    queryKey: ['outreach-pool-debriefs', state.clientId],
+    enabled: step.id === 'context',
+    queryKey: ['outreach-pool-debriefs', state.clientId, recipientEmailsParam],
     queryFn: async () => {
-      const res = await api.get<DebriefItem[]>('/api/engagement/debriefs', {
-        params: { clientId: state.clientId },
-      });
+      const params = new URLSearchParams();
+      if (state.clientId) params.set('clientId', state.clientId);
+      if (recipientEmailsParam) params.set('recipientEmails', recipientEmailsParam);
+      const res = await api.get<DebriefItem[]>(`/api/engagement/debriefs?${params}`);
       return res.data;
     },
     retry: false,
@@ -476,10 +492,13 @@ export function NewOutreachWizard({
       bill: [],
       intel: [],
       email: [],
+      // `meeting` retained for back-compat with saved drafts (the Past Meetings
+      // tab was replaced by Meeting preps); never populated now.
       meeting: [],
       note: [],
       document: [],
       debrief: [],
+      prep: [],
     };
 
     // ---- Docs & Notes: client profile notes + client documents + member notes ----
@@ -603,16 +622,31 @@ export function NewOutreachWizard({
       });
     }
 
-    // Past meetings: smart-routing matches recipients via attendee email.
+    // Meeting preps: each meeting's latest AI prep becomes a context item
+    // (summary + talking points + agenda + follow-ups). Smart-routing matches
+    // recipients via attendee email. (Replaces the old Past meetings source.)
+    const prepLines = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : [];
     for (const m of meetingsQuery.data?.items ?? []) {
+      const prep = m.preps?.[0];
+      if (!prep) continue;
+      const talking = prepLines(prep.talkingPoints);
+      const agenda = prepLines(prep.agenda);
+      const followUps = prepLines(prep.followUps);
+      const bodyParts = [
+        prep.summary?.trim() || '',
+        talking.length ? `Talking points: ${talking.join('; ')}` : '',
+        agenda.length ? `Agenda: ${agenda.join('; ')}` : '',
+        followUps.length ? `Follow-ups: ${followUps.join('; ')}` : '',
+      ].filter(Boolean);
       const attendeeEmails = (m.attendees ?? [])
         .map((a) => a.email?.toLowerCase())
         .filter((e): e is string => Boolean(e));
-      out.meeting.push({
-        id: `meeting-${m.id}`,
-        kind: 'meeting',
-        title: m.subject,
-        body: m.organizerName ? `Organizer: ${m.organizerName}` : undefined,
+      out.prep.push({
+        id: `prep-${prep.id}`,
+        kind: 'prep',
+        title: `Prep: ${m.subject}`,
+        body: bodyParts.join('\n') || undefined,
         sub: new Date(m.startsAt).toLocaleDateString(),
         matches: [m.clientId, ...attendeeEmails].filter((s): s is string => Boolean(s)),
       });

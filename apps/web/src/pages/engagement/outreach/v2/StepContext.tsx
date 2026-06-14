@@ -22,7 +22,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
-  CalendarOutlined,
+  BulbOutlined,
   CloseOutlined,
   DownOutlined,
   FileTextOutlined,
@@ -80,11 +80,12 @@ interface ScopeOptions {
   groups: ScopeOpt[];
 }
 
-// Intel tab intentionally removed — bills/emails/meetings/notes only.
+// Bills / emails / meeting preps / debriefs / docs / custom note. (Past
+// meetings was replaced by Meeting preps; Intel tab was removed earlier.)
 const TABS: Array<{ id: ContextKind; label: string; Icon: typeof FileTextOutlined }> = [
   { id: 'bill', label: 'Bills', Icon: FileTextOutlined },
   { id: 'email', label: 'Past emails', Icon: MailOutlined },
-  { id: 'meeting', label: 'Past meetings', Icon: CalendarOutlined },
+  { id: 'prep', label: 'Meeting preps', Icon: BulbOutlined },
   { id: 'debrief', label: 'Debriefs', Icon: SolutionOutlined },
   { id: 'document', label: 'Docs & Notes', Icon: PaperClipOutlined },
   { id: 'note', label: 'Custom note', Icon: PlusOutlined },
@@ -94,10 +95,12 @@ const KIND_LABEL: Record<ContextKind, string> = {
   bill: 'Bill',
   intel: 'Intel',
   email: 'Past email',
+  // `meeting` kept for back-compat with saved drafts (Past meetings retired).
   meeting: 'Meeting',
   debrief: 'Debrief',
   note: 'Note',
   document: 'Doc/Note',
+  prep: 'Prep',
 };
 
 /** Compact secondary line for an individual recipient option/section. */

@@ -226,7 +226,7 @@ export interface UpdateAiTemplateInput {
 /** v2 wizard's per-item scoped context object. */
 export interface OutreachSelectedContextItemInput {
   id: string;
-  kind: 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document' | 'debrief';
+  kind: 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document' | 'debrief' | 'prep';
   title: string;
   body?: string;
   /** 'all' = shared across every recipient; else recipient-key string. */
@@ -3096,12 +3096,27 @@ export class EngagementService {
    * builder. Matches the denormalized clientId OR the parent meeting's client,
    * decrypts bodies the caller may read, and access-filters the rest.
    */
-  async listClientDebriefs(ctx: TenantContext, clientId: string) {
+  async listClientDebriefs(
+    ctx: TenantContext,
+    query: { clientId?: string; recipientEmails?: string[] },
+  ) {
+    const clientId = query.clientId?.trim() || null;
+    const emails = (query.recipientEmails ?? [])
+      .map((e) => e.trim().toLowerCase())
+      .filter(Boolean);
+    // Scope debriefs to the campaign's client AND/OR to meetings that involve
+    // the chosen recipients (by attendee email) — so a no-client outreach to
+    // congressional offices still surfaces relevant debriefs. Bodies remain
+    // access-filtered per item below.
+    const ors: Prisma.MeetingDebriefWhereInput[] = [];
+    if (clientId) ors.push({ clientId }, { meeting: { clientId } });
+    if (emails.length) ors.push({ meeting: { attendees: { some: { email: { in: emails } } } } });
+    if (ors.length === 0) return [];
     const debriefs = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.meetingDebrief.findMany({
         where: {
           tenantId: ctx.tenantId,
-          OR: [{ clientId }, { meeting: { clientId } }],
+          OR: ors,
         },
         include: {
           author: { select: { id: true, email: true, firstName: true, lastName: true } },

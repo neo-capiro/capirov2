@@ -3050,7 +3050,7 @@ export class ClioToolsService {
   private async queryDebriefs(ctx: TenantContext, input: Record<string, unknown>) {
     const clientId = requiredString(input, 'clientId', 80);
     await this.ensureClientVisible(ctx, clientId);
-    const debriefs = await this.engagement.listClientDebriefs(ctx, clientId);
+    const debriefs = await this.engagement.listClientDebriefs(ctx, { clientId });
     return {
       tool: 'query_debriefs',
       generatedAt: new Date().toISOString(),

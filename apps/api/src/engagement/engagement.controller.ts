@@ -901,8 +901,8 @@ class OutreachSelectedContextItemDto {
   // debriefs are a selectable context source that sends kind:'debrief'; a kind
   // missing here makes forbidNonWhitelisted 400 the whole generate-batch and
   // the wizard silently falls back to placeholder drafts.
-  @IsIn(['bill', 'intel', 'email', 'meeting', 'note', 'document', 'debrief'])
-  kind!: 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document' | 'debrief';
+  @IsIn(['bill', 'intel', 'email', 'meeting', 'note', 'document', 'debrief', 'prep'])
+  kind!: 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document' | 'debrief' | 'prep';
 
   @IsString()
   title!: string;
@@ -1334,8 +1334,20 @@ export class EngagementController {
   }
 
   @Get('debriefs')
-  clientDebriefs(@CurrentTenant() ctx: TenantContext, @Query('clientId') clientId: string) {
-    return this.service.listClientDebriefs(ctx, clientId);
+  clientDebriefs(
+    @CurrentTenant() ctx: TenantContext,
+    @Query('clientId') clientId?: string,
+    @Query('recipientEmails') recipientEmails?: string,
+  ) {
+    return this.service.listClientDebriefs(ctx, {
+      clientId,
+      recipientEmails: recipientEmails
+        ? recipientEmails
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined,
+    });
   }
 
   @Get('outreach')

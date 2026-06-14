@@ -11,7 +11,15 @@ import type { OutreachTarget } from './targets.js';
 
 export type WizardDirection = 'on-behalf' | 'to-clients';
 
-export type ContextKind = 'bill' | 'intel' | 'email' | 'meeting' | 'note' | 'document' | 'debrief';
+export type ContextKind =
+  | 'bill'
+  | 'intel'
+  | 'email'
+  | 'meeting'
+  | 'note'
+  | 'document'
+  | 'debrief'
+  | 'prep';
 
 export interface ContextPoolItem {
   id: string;
