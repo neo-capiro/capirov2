@@ -1015,10 +1015,10 @@ function meetingStatus(
   if (ended) {
     return m.debriefs.length > 0
       ? { label: 'Debriefed', color: 'green' }
-      : { label: 'Debrief needed', color: 'gold' };
+      : { label: 'Debrief needed', color: 'red' };
   }
   const prepped = m.preps.some((p) => p.status === 'approved' || p.status === 'edited' || p.status === 'generated');
-  return prepped ? { label: 'Prepped', color: 'green' } : { label: 'Prep needed', color: 'gold' };
+  return prepped ? { label: 'Prepped', color: 'green' } : { label: 'Prep needed', color: 'red' };
 }
 
 function relativeTime(iso: string): string {

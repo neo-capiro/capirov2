@@ -42,9 +42,6 @@ export interface WizardV2State {
    * per-type cc/bcc (see targets.ts). Source of truth for who gets emailed.
    */
   targets: OutreachTarget[];
-  /** Campaign-global copies, applied to every email on top of target copies. */
-  globalCc: string[];
-  globalBcc: string[];
   /**
    * Legacy flat projection of `targets` (flattenTargets) consumed by the
    * not-yet-rebuilt downstream steps (context/generate/send). Derived —
@@ -76,8 +73,6 @@ export const INITIAL_V2_STATE: WizardV2State = {
   clientId: null,
   campaignName: '',
   targets: [],
-  globalCc: [],
-  globalBcc: [],
   recipients: [],
   contextItems: [],
   templateId: null,
@@ -89,9 +84,10 @@ export const INITIAL_V2_STATE: WizardV2State = {
 
 export const WIZARD_STEPS = [
   { id: 'direction', label: 'Direction' },
+  // Campaign Setup names the campaign AND chooses the template — the
+  // standalone Template step was folded into this one.
   { id: 'setup', label: 'Campaign Setup' },
   { id: 'recipients', label: 'Recipients' },
-  { id: 'template', label: 'Template' },
   { id: 'context', label: 'Build Context' },
   { id: 'generate', label: 'Generate & Review' },
   { id: 'send', label: 'Send' },

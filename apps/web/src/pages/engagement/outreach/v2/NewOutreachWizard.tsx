@@ -38,7 +38,6 @@ import {
   recipientKey,
   type ContextKind,
   type ContextPoolItem,
-  type WizardStepId,
   type WizardV2State,
 } from './types.js';
 import './outreach.css';
@@ -296,12 +295,6 @@ export function NewOutreachWizard({
       : Array.isArray(record.recipients)
         ? record.recipients.map((r) => individualTarget(r))
         : [];
-    const globalCc = Array.isArray(metadata.globalCc)
-      ? (metadata.globalCc as unknown[]).filter((v): v is string => typeof v === 'string')
-      : [];
-    const globalBcc = Array.isArray(metadata.globalBcc)
-      ? (metadata.globalBcc as unknown[]).filter((v): v is string => typeof v === 'string')
-      : [];
 
     setState((prev) => ({
       ...prev,
@@ -309,10 +302,8 @@ export function NewOutreachWizard({
       clientId: record.clientId ?? prev.clientId,
       campaignName: record.title ?? prev.campaignName,
       targets: savedTargets,
-      globalCc,
-      globalBcc,
       recipients: savedTargets.length
-        ? flattenTargets(savedTargets, globalCc, globalBcc)
+        ? flattenTargets(savedTargets)
         : Array.isArray(record.recipients)
           ? record.recipients
           : prev.recipients,
@@ -324,15 +315,26 @@ export function NewOutreachWizard({
       attachmentIds: attachmentIds.length > 0 ? attachmentIds : prev.attachmentIds,
     }));
 
-    // Resume step: prefer the persisted column, but fall back to
-    // metadata.lastStep for drafts written by the pre-fix build (which only
-    // ever advanced lastStep inside metadata). lastStep is 1-based; stepIdx is
-    // 0-based. Clamp so a bad value can't push past the last step.
-    const metadataStep = typeof metadata.lastStep === 'number' ? metadata.lastStep : undefined;
-    const resumeStep =
-      record.lastStep && record.lastStep > 1 ? record.lastStep : (metadataStep ?? record.lastStep);
-    if (resumeStep && resumeStep > 1) {
-      setStepIdx(Math.min(resumeStep - 1, WIZARD_STEPS.length - 1));
+    // Resume step: prefer the step *id* persisted in metadata.lastStepId — it's
+    // stable when the step list is reordered or resized (e.g. removing the
+    // standalone Template step), so a draft always resumes on the same screen.
+    // Fall back to the numeric lastStep ordinal (top-level column, then
+    // metadata.lastStep) for drafts written before lastStepId existed. Both are
+    // 1-based; stepIdx is 0-based. Clamp so a bad value can't push past the last
+    // step.
+    const lastStepId = typeof metadata.lastStepId === 'string' ? metadata.lastStepId : undefined;
+    const idxFromId = lastStepId ? WIZARD_STEPS.findIndex((s) => s.id === lastStepId) : -1;
+    if (idxFromId >= 0) {
+      setStepIdx(idxFromId);
+    } else {
+      const metadataStep = typeof metadata.lastStep === 'number' ? metadata.lastStep : undefined;
+      const resumeStep =
+        record.lastStep && record.lastStep > 1
+          ? record.lastStep
+          : (metadataStep ?? record.lastStep);
+      if (resumeStep && resumeStep > 1) {
+        setStepIdx(Math.min(resumeStep - 1, WIZARD_STEPS.length - 1));
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialRecord]);
@@ -671,14 +673,13 @@ export function NewOutreachWizard({
         // Informational landing page; nothing to validate.
         return true;
       case 'setup':
-        // One campaign type: setup is just the (required) campaign name.
-        return state.campaignName.trim().length > 0;
+        // Setup now also chooses the template, so Continue needs both a
+        // (required) campaign name AND a selected template.
+        return state.campaignName.trim().length > 0 && !!state.templateId;
       case 'recipients':
         return state.recipients.length > 0;
       case 'context':
         return state.contextItems.length > 0;
-      case 'template':
-        return !!state.templateId;
       default:
         return true;
     }
@@ -894,6 +895,10 @@ export function NewOutreachWizard({
           // Kept in metadata too so drafts remain resumable even if the column
           // is somehow stale, and to stay backward-compatible with prior saves.
           lastStep: stepIdx + 1,
+          // Resume by step *id* (stable when the step list is reordered/resized)
+          // — the numeric lastStep above is only the legacy fallback. See the
+          // resume effect.
+          lastStepId: step.id,
           tone: state.tone,
           templateId: state.templateId,
           perRecipientEmails: drafts,
@@ -906,11 +911,9 @@ export function NewOutreachWizard({
           contextItems: state.contextItems,
           attachmentIds: state.attachmentIds,
           // Outreach 2.0 recipient model: source of truth for the mixed
-          // Individual/List/Group targets + campaign-global copies. The flat
+          // Individual/List/Group targets (incl. their Cc/Bcc). The flat
           // `recipients` above is its legacy projection (flattenTargets).
           targets: state.targets,
-          globalCc: state.globalCc,
-          globalBcc: state.globalBcc,
         },
       };
       if (draftId) {
@@ -1066,31 +1069,36 @@ export function NewOutreachWizard({
           {step.id === 'direction' && <StepDirectionLanding onStart={startOutreach} />}
 
           {step.id === 'setup' && (
-            <StepCampaignSetup
-              campaignName={state.campaignName}
-              onName={(n) => setState((p) => ({ ...p, campaignName: n }))}
-            />
+            <>
+              <StepCampaignSetup
+                campaignName={state.campaignName}
+                onName={(n) => setState((p) => ({ ...p, campaignName: n }))}
+              />
+              {/* Template selection lives in Campaign Setup now (the standalone
+                  Template step was removed). Continue is gated on a name AND a
+                  chosen template — see canAdvance's 'setup' case. */}
+              <div style={{ marginTop: 32 }}>
+                <StepTemplate
+                  templateId={state.templateId}
+                  onChange={(id) => setState((p) => ({ ...p, templateId: id }))}
+                />
+              </div>
+            </>
           )}
 
           {step.id === 'recipients' && (
             <StepRecipientsSelect
               clients={clients}
               targets={state.targets}
-              globalCc={state.globalCc}
-              globalBcc={state.globalBcc}
               onChange={(patch) =>
                 setState((p) => {
                   const targets = patch.targets ?? p.targets;
-                  const globalCc = patch.globalCc ?? p.globalCc;
-                  const globalBcc = patch.globalBcc ?? p.globalBcc;
                   return {
                     ...p,
                     targets,
-                    globalCc,
-                    globalBcc,
                     // Keep the legacy flat projection in sync for the
                     // downstream steps (context/generate/send).
-                    recipients: flattenTargets(targets, globalCc, globalBcc),
+                    recipients: flattenTargets(targets),
                   };
                 })
               }
@@ -1104,13 +1112,6 @@ export function NewOutreachWizard({
               onChange={(items) => setState((p) => ({ ...p, contextItems: items }))}
               pool={pool}
               loading={poolLoading}
-            />
-          )}
-
-          {step.id === 'template' && (
-            <StepTemplate
-              templateId={state.templateId}
-              onChange={(id) => setState((p) => ({ ...p, templateId: id }))}
             />
           )}
 

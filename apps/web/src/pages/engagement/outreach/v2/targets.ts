@@ -27,6 +27,19 @@ import { recipientKey } from './types.js';
 
 export type TargetType = 'individual' | 'list' | 'group';
 
+/**
+ * A Cc/Bcc copy added as a named contact (vs. a bare email string). Individual
+ * targets carry these via the Cc/Bcc popover so the row can render "Cc · Jane
+ * Doe" pills; only `.email` reaches the actual send (see flattenTargets).
+ */
+export interface CcBccContact {
+  /** Stable identity for dedupe: directory id, `clientperson:<id>`, or `manual:<email>`. */
+  id: string;
+  name: string;
+  email: string;
+  source: 'congress' | 'client' | 'manual';
+}
+
 export interface OutreachTarget {
   /** Stable target id (uuid). */
   key: string;
@@ -40,9 +53,25 @@ export interface OutreachTarget {
   /** Emails copied per the send-semantics table above. */
   cc: string[];
   bcc: string[];
+  /**
+   * Contact-based Cc/Bcc (name + email) chosen in the Cc/Bcc popover:
+   *   • individual target → copies on that person's email
+   *   • list target → "Cc/Bcc Entire List": copies on EVERY member's email
+   * Their emails are merged into the flat cc/bcc on send (flattenTargets).
+   * (group keeps using the cc/bcc email arrays above.)
+   */
+  ccContacts?: CcBccContact[];
+  bccContacts?: CcBccContact[];
   /** List targets only: extra copies for one member, keyed by recipientKey. */
   memberCc?: Record<string, string[]>;
   memberBcc?: Record<string, string[]>;
+  /**
+   * List targets only: per-member contact-based Cc/Bcc chosen via a member
+   * row's Add Cc/Bcc popover, keyed by recipientKey. Copies on that one
+   * member's email only (on top of the entire-list ccContacts above).
+   */
+  memberCcContacts?: Record<string, CcBccContact[]>;
+  memberBccContacts?: Record<string, CcBccContact[]>;
 }
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -111,6 +140,31 @@ export function sanitizeTargets(raw: unknown): OutreachTarget[] {
     for (const [k, vals] of Object.entries(v as Record<string, unknown>)) map[k] = strings(vals);
     return map;
   };
+  const contacts = (v: unknown): CcBccContact[] | undefined => {
+    if (!Array.isArray(v)) return undefined;
+    const out: CcBccContact[] = [];
+    for (const c of v) {
+      if (!c || typeof c !== 'object') continue;
+      const { id, name, email, source } = c as Partial<CcBccContact>;
+      if (typeof email !== 'string' || !EMAIL_RE.test(email)) continue;
+      out.push({
+        id: typeof id === 'string' && id ? id : `manual:${email.toLowerCase()}`,
+        name: typeof name === 'string' ? name : email,
+        email,
+        source: source === 'congress' || source === 'client' ? source : 'manual',
+      });
+    }
+    return out.length ? out : undefined;
+  };
+  const contactMap = (v: unknown): Record<string, CcBccContact[]> | undefined => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined;
+    const map: Record<string, CcBccContact[]> = {};
+    for (const [k, vals] of Object.entries(v as Record<string, unknown>)) {
+      const list = contacts(vals);
+      if (list) map[k] = list;
+    }
+    return Object.keys(map).length ? map : undefined;
+  };
   const out: OutreachTarget[] = [];
   for (const entry of raw) {
     if (!entry || typeof entry !== 'object') continue;
@@ -128,8 +182,12 @@ export function sanitizeTargets(raw: unknown): OutreachTarget[] {
       recipients,
       cc: strings(t.cc),
       bcc: strings(t.bcc),
+      ccContacts: contacts(t.ccContacts),
+      bccContacts: contacts(t.bccContacts),
       memberCc: memberMap(t.memberCc),
       memberBcc: memberMap(t.memberBcc),
+      memberCcContacts: contactMap(t.memberCcContacts),
+      memberBccContacts: contactMap(t.memberBccContacts),
     });
   }
   return out;
@@ -137,16 +195,12 @@ export function sanitizeTargets(raw: unknown): OutreachTarget[] {
 
 /**
  * Project targets onto the legacy flat recipient array consumed by the
- * context/generate/send steps. Per-email cc/bcc = target copies + (list
- * only) member copies + campaign-global copies, deduped. A person present
- * in more than one target is emitted once (first occurrence wins) because
- * the downstream generatedEmails map is keyed by recipientKey.
+ * context/generate/send steps. Per-email cc/bcc = target copies (incl.
+ * entire-list ccContacts) + (list only) per-member copies, deduped. A person
+ * present in more than one target is emitted once (first occurrence wins)
+ * because the downstream generatedEmails map is keyed by recipientKey.
  */
-export function flattenTargets(
-  targets: OutreachTarget[],
-  globalCc: string[],
-  globalBcc: string[],
-): OutreachRecipient[] {
+export function flattenTargets(targets: OutreachTarget[]): OutreachRecipient[] {
   const out: OutreachRecipient[] = [];
   const seen = new Set<string>();
   for (const type of ['individual', 'list', 'group'] as const) {
@@ -158,13 +212,15 @@ export function flattenTargets(
         seen.add(key);
         const cc = dedupeEmails([
           ...t.cc,
+          ...(t.ccContacts?.map((c) => c.email) ?? []),
           ...(t.type === 'list' ? (t.memberCc?.[key] ?? []) : []),
-          ...globalCc,
+          ...(t.type === 'list' ? (t.memberCcContacts?.[key]?.map((c) => c.email) ?? []) : []),
         ]);
         const bcc = dedupeEmails([
           ...t.bcc,
+          ...(t.bccContacts?.map((c) => c.email) ?? []),
           ...(t.type === 'list' ? (t.memberBcc?.[key] ?? []) : []),
-          ...globalBcc,
+          ...(t.type === 'list' ? (t.memberBccContacts?.[key]?.map((c) => c.email) ?? []) : []),
         ]);
         out.push({
           ...r,

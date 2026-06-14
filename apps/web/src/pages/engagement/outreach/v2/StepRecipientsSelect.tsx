@@ -16,13 +16,22 @@
 // build mode (checkboxes) entered from the toolbar dropdowns; they live on
 // the campaign until the OutreachAudience persistence lands.
 
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Badge, Button, Checkbox, Dropdown, Input, Modal, Select } from 'antd';
 import {
   CheckOutlined,
   CloseOutlined,
   DownOutlined,
+  InfoCircleOutlined,
   PlusOutlined,
   RightOutlined,
   SearchOutlined,
@@ -43,6 +52,7 @@ import {
   membershipOf,
   newTargetKey,
   totalRecipients,
+  type CcBccContact,
   type OutreachTarget,
   type TargetType,
 } from './targets.js';
@@ -60,13 +70,7 @@ import './step-recipients-select.css';
 interface Props {
   clients: Client[];
   targets: OutreachTarget[];
-  globalCc: string[];
-  globalBcc: string[];
-  onChange: (patch: {
-    targets?: OutreachTarget[];
-    globalCc?: string[];
-    globalBcc?: string[];
-  }) => void;
+  onChange: (patch: { targets?: OutreachTarget[] }) => void;
 }
 
 type SourceTab = 'congress' | 'clients' | 'manual';
@@ -151,7 +155,7 @@ const MEMBERSHIP_TAG: Record<TargetType, { text: string; cls: string }> = {
 // Main step
 // =====================================================================
 
-export function StepRecipientsSelect({ clients, targets, globalCc, globalBcc, onChange }: Props) {
+export function StepRecipientsSelect({ clients, targets, onChange }: Props) {
   const api = useApi();
   const qc = useQueryClient();
   const { message, notification } = App.useApp();
@@ -425,29 +429,8 @@ export function StepRecipientsSelect({ clients, targets, globalCc, globalBcc, on
         campaign.
       </div>
 
-      {targets.length > 0 && <SelectedPanel targets={targets} onTargets={setTargets} />}
-
       {targets.length > 0 && (
-        <div className="ov2-rs-global">
-          <div className="ov2-rs-copy-row">
-            <span className="label">Global Cc</span>
-            <ChipsInput
-              value={globalCc}
-              onChange={(v) => onChange({ globalCc: v })}
-              placeholder="Add to all sends…"
-            />
-            <span className="hint">Added to every recipient's email</span>
-          </div>
-          <div className="ov2-rs-copy-row">
-            <span className="label">Global Bcc</span>
-            <ChipsInput
-              value={globalBcc}
-              onChange={(v) => onChange({ globalBcc: v })}
-              placeholder="Add to all sends…"
-            />
-            <span className="hint">Added to every recipient's email</span>
-          </div>
-        </div>
+        <SelectedPanel targets={targets} onTargets={setTargets} clients={clients} />
       )}
 
       <div className="ov2-rs-tabs">
@@ -577,51 +560,597 @@ export function StepRecipientsSelect({ clients, targets, globalCc, globalBcc, on
 }
 
 // =====================================================================
+// Cc/Bcc contact popover (shared by individual rows + bulk mode)
+// =====================================================================
+
+/** Two-letter initials for the result/tray avatar. */
+function contactInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
+}
+
+/** Merge new Cc/Bcc contacts into an existing list, deduped by email. */
+function mergeContacts(existing: CcBccContact[] | undefined, incoming: CcBccContact[]): CcBccContact[] {
+  const out = [...(existing ?? [])];
+  const seen = new Set(out.map((c) => c.email.toLowerCase()));
+  for (const c of incoming) {
+    const key = c.email.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(c);
+  }
+  return out;
+}
+
+/** Close on outside mousedown / Escape while `enabled` (individual popover only). */
+function useDismiss(
+  ref: RefObject<HTMLElement>,
+  enabled: boolean,
+  onClose: () => void,
+): void {
+  useEffect(() => {
+    if (!enabled) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [ref, enabled, onClose]);
+}
+
+interface ContactResult {
+  contact: CcBccContact;
+  sub: string;
+}
+
+/**
+ * Cc/Bcc popover: type toggle → pending tray → search/results (+ manual entry)
+ * → Apply. Used both per-row (mode 'individual') and across a bulk selection
+ * (mode 'bulk'). Owns its own search + pending state; commits via onApply.
+ * Always opens fresh (the parent conditionally mounts it), so the tray starts
+ * empty and the toggle resets to Cc on every open.
+ */
+function CcBccPopover({
+  mode,
+  recipientName,
+  recipientCount,
+  clients,
+  appliedEmails,
+  onApply,
+  onClose,
+}: {
+  mode: 'individual' | 'bulk' | 'list';
+  recipientName?: string;
+  recipientCount?: number;
+  clients: Client[];
+  /** Lowercased emails already applied to the target (excluded from results). */
+  appliedEmails: Set<string>;
+  onApply: (cc: CcBccContact[], bcc: CcBccContact[]) => void;
+  onClose: () => void;
+}) {
+  const api = useApi();
+  const [type, setType] = useState<'cc' | 'bcc'>('cc');
+  const [pending, setPending] = useState<Array<{ contact: CcBccContact; ccbcc: 'cc' | 'bcc' }>>([]);
+  const [search, setSearch] = useState('');
+  const [q, setQ] = useState('');
+  const [manual, setManual] = useState(false);
+  const [mFirst, setMFirst] = useState('');
+  const [mLast, setMLast] = useState('');
+  const [mEmail, setMEmail] = useState('');
+  const [mErr, setMErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setQ(search), 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const ql = q.trim().toLowerCase();
+
+  const dir = useQuery<DirectoryApiResponse>({
+    queryKey: ['ov2-rs-ccbcc-dir', ql],
+    enabled: ql.length > 0,
+    queryFn: async () =>
+      (
+        await api.get<DirectoryApiResponse>('/api/directory/contacts', {
+          params: { q: q.trim(), pageSize: 25, sort: 'name-asc' },
+        })
+      ).data,
+  });
+
+  // Reuses the same query keys ClientsTab uses, so client people are served
+  // from cache when that tab has already loaded them.
+  const peopleQueries = useQueries({
+    queries: clients.map((client) => ({
+      queryKey: ['ov2-rs-client-people', client.id],
+      queryFn: async () => (await api.get<ClientPerson[]>(`/api/clients/${client.id}/people`)).data,
+      staleTime: 60_000,
+    })),
+  });
+  const peopleLoading = peopleQueries.some((query) => query.isLoading);
+  // Single array reference for the results memo so its dep array has a fixed
+  // length (spreading per-query data would vary with clients.length).
+  const peopleData = peopleQueries.map((query) => query.data);
+
+  const pendingEmails = useMemo(
+    () => new Set(pending.map((p) => p.contact.email.toLowerCase())),
+    [pending],
+  );
+  const excluded = (email: string) =>
+    appliedEmails.has(email.toLowerCase()) || pendingEmails.has(email.toLowerCase());
+
+  const { congressResults, clientResults } = useMemo(() => {
+    const congress: ContactResult[] = [];
+    const client: ContactResult[] = [];
+    if (!ql) return { congressResults: congress, clientResults: client };
+    const seen = new Set<string>();
+    const push = (bucket: ContactResult[], contact: CcBccContact, sub: string) => {
+      const key = contact.email.toLowerCase();
+      // Hide contacts already applied to this recipient or already in the tray
+      // — they can't be added again, so surfacing them would just no-op.
+      if (!contact.email || seen.has(key) || appliedEmails.has(key) || pendingEmails.has(key)) return;
+      seen.add(key);
+      bucket.push({ contact, sub });
+    };
+    for (const m of dir.data?.contacts ?? []) {
+      if (m.email && (m.fullName.toLowerCase().includes(ql) || (m.office ?? '').toLowerCase().includes(ql))) {
+        push(
+          congress,
+          { id: m.id, name: m.fullName, email: m.email, source: 'congress' },
+          [m.title, m.office].filter(Boolean).join(' · '),
+        );
+      }
+      for (const s of m.staff ?? []) {
+        if (s.email && (s.fullName.toLowerCase().includes(ql) || (s.title ?? '').toLowerCase().includes(ql))) {
+          push(
+            congress,
+            { id: `${m.id}:${s.id}`, name: s.fullName, email: s.email, source: 'congress' },
+            [s.title || 'Staffer', m.office].filter(Boolean).join(' · '),
+          );
+        }
+      }
+    }
+    clients.forEach((cl, i) => {
+      for (const p of peopleData[i] ?? []) {
+        const hay = `${p.name} ${p.title ?? ''} ${p.role ?? ''} ${p.email ?? ''}`.toLowerCase();
+        if (p.email && hay.includes(ql)) {
+          push(
+            client,
+            { id: `clientperson:${p.id}`, name: p.name, email: p.email, source: 'client' },
+            [p.title || p.role, cl.name].filter(Boolean).join(' · '),
+          );
+        }
+      }
+    });
+    return { congressResults: congress, clientResults: client };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ql, dir.data, clients, peopleData, appliedEmails, pendingEmails]);
+
+  const addContact = (contact: CcBccContact) => {
+    if (excluded(contact.email)) return;
+    setPending((p) => [...p, { contact, ccbcc: type }]);
+    setSearch('');
+    setQ('');
+  };
+  const removePending = (email: string) =>
+    setPending((p) => p.filter((x) => x.contact.email.toLowerCase() !== email.toLowerCase()));
+
+  const addManual = () => {
+    const first = mFirst.trim();
+    const last = mLast.trim();
+    const email = mEmail.trim().toLowerCase();
+    if (!first || !last) {
+      setMErr('First and last name are required.');
+      return;
+    }
+    if (!EMAIL_RE.test(email)) {
+      setMErr('Enter a valid email address.');
+      return;
+    }
+    if (excluded(email)) {
+      setMErr('That contact is already added.');
+      return;
+    }
+    setPending((p) => [
+      ...p,
+      { contact: { id: `manual:${email}`, name: `${first} ${last}`, email, source: 'manual' }, ccbcc: type },
+    ]);
+    setMFirst('');
+    setMLast('');
+    setMEmail('');
+    setMErr(null);
+    setManual(false);
+  };
+
+  const apply = () => {
+    onApply(
+      pending.filter((p) => p.ccbcc === 'cc').map((p) => p.contact),
+      pending.filter((p) => p.ccbcc === 'bcc').map((p) => p.contact),
+    );
+  };
+
+  const count = recipientCount ?? 0;
+  const applyLabel =
+    mode === 'bulk'
+      ? `Apply to ${count} ${count === 1 ? 'recipient' : 'recipients'}`
+      : mode === 'list'
+        ? 'Apply to entire list'
+        : `Apply to ${recipientName || 'recipient'}`;
+  const applyDisabled = pending.length === 0 || (mode === 'bulk' && count === 0);
+  const hasResults = congressResults.length > 0 || clientResults.length > 0;
+
+  const renderResult = (r: ContactResult) => (
+    <button
+      type="button"
+      key={r.contact.id}
+      className={'ov2-rs-ccbcc-result' + (r.contact.source === 'client' ? ' client' : '')}
+      onClick={() => addContact(r.contact)}
+    >
+      <span className="ov2-rs-ccbcc-avatar">{contactInitials(r.contact.name)}</span>
+      <span className="meta">
+        <span className="nm">{r.contact.name}</span>
+        <span className="sub">{r.sub || r.contact.email}</span>
+      </span>
+      <span className={'ov2-rs-ccbcc-srctag ' + (r.contact.source === 'client' ? 'client' : 'congress')}>
+        {r.contact.source === 'client' ? 'Client' : 'Congress'}
+      </span>
+    </button>
+  );
+
+  return (
+    <div
+      className="ov2-rs-ccbcc-pop"
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+      role="dialog"
+      aria-label="Add Cc or Bcc"
+    >
+      <div className="ov2-rs-ccbcc-toggle">
+        <span className="lbl">Adding as</span>
+        <div className="ov2-rs-ccbcc-seg">
+          <button
+            type="button"
+            className={'cc' + (type === 'cc' ? ' active' : '')}
+            onClick={() => setType('cc')}
+          >
+            Cc
+          </button>
+          <button
+            type="button"
+            className={'bcc' + (type === 'bcc' ? ' active' : '')}
+            onClick={() => setType('bcc')}
+          >
+            Bcc
+          </button>
+        </div>
+      </div>
+
+      <div className="ov2-rs-ccbcc-tray">
+        {pending.length === 0 ? (
+          <span className="empty">No contacts added yet</span>
+        ) : (
+          pending.map((p) => (
+            <span key={p.contact.email} className={'ov2-rs-ccpill ' + p.ccbcc}>
+              <span className="px">{p.ccbcc === 'cc' ? 'Cc' : 'Bcc'}</span>
+              <span className="nm">{p.contact.name}</span>
+              <button type="button" onClick={() => removePending(p.contact.email)} aria-label={`Remove ${p.contact.name}`}>
+                <CloseOutlined />
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+
+      {manual ? (
+        <div className="ov2-rs-ccbcc-manual">
+          <div className="names">
+            <Input
+              size="small"
+              placeholder="First name"
+              value={mFirst}
+              onChange={(e) => setMFirst(e.target.value)}
+            />
+            <Input
+              size="small"
+              placeholder="Last name"
+              value={mLast}
+              onChange={(e) => setMLast(e.target.value)}
+            />
+          </div>
+          <Input
+            size="small"
+            type="email"
+            placeholder="Email address"
+            value={mEmail}
+            onChange={(e) => setMEmail(e.target.value)}
+            onPressEnter={addManual}
+          />
+          {mErr && <span className="err">{mErr}</span>}
+          <div className="manual-actions">
+            <Button size="small" type="primary" onClick={addManual}>
+              Add
+            </Button>
+            <Button
+              size="small"
+              onClick={() => {
+                setManual(false);
+                setMErr(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <Input
+            size="small"
+            allowClear
+            autoFocus
+            prefix={<SearchOutlined />}
+            placeholder="Search congressional & client contacts…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {ql ? (
+            hasResults ? (
+              <div className="ov2-rs-ccbcc-results">
+                {congressResults.length > 0 && (
+                  <div className="ov2-rs-ccbcc-grouplabel">Congressional contacts</div>
+                )}
+                {congressResults.map(renderResult)}
+                {clientResults.length > 0 && (
+                  <div className="ov2-rs-ccbcc-grouplabel">Client contacts</div>
+                )}
+                {clientResults.map(renderResult)}
+              </div>
+            ) : (
+              <div className="ov2-rs-ccbcc-hintrow">
+                {dir.isFetching || peopleLoading ? 'Searching…' : `No contacts match “${q.trim()}”.`}
+              </div>
+            )
+          ) : (
+            <div className="ov2-rs-ccbcc-hintrow">
+              Type to search congressional and client contacts.
+            </div>
+          )}
+          <button
+            type="button"
+            className="ov2-rs-ccbcc-manual-link"
+            onClick={() => {
+              setManual(true);
+              setMErr(null);
+            }}
+          >
+            <UserOutlined /> Add manually by email
+          </button>
+        </>
+      )}
+
+      <div className="ov2-rs-ccbcc-foot">
+        <button type="button" className="ov2-rs-ccbcc-apply" disabled={applyDisabled} onClick={apply}>
+          {applyLabel}
+        </button>
+        {/* Individual + list popovers dismiss via ✕ / outside-click / Escape.
+            The bulk popover opens with bulk mode and has no reopen affordance,
+            so its exits are the bar's Cancel/Done — no ✕ there. */}
+        {mode !== 'bulk' && (
+          <button type="button" className="ov2-rs-ccbcc-close" onClick={onClose} aria-label="Close">
+            <CloseOutlined />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =====================================================================
 // Selected-recipients panel: Individuals first, then Lists, then Groups.
 // =====================================================================
 
 function SelectedPanel({
   targets,
   onTargets,
+  clients,
 }: {
   targets: OutreachTarget[];
   onTargets: (next: OutreachTarget[]) => void;
+  clients: Client[];
 }) {
   const update = (key: string, patch: Partial<OutreachTarget>) =>
     onTargets(targets.map((t) => (t.key === key ? { ...t, ...patch } : t)));
   const remove = (key: string) => onTargets(targets.filter((t) => t.key !== key));
 
-  const ordered = [
-    ...targets.filter((t) => t.type === 'individual'),
-    ...targets.filter((t) => t.type === 'list'),
-    ...targets.filter((t) => t.type === 'group'),
-  ];
+  const individuals = targets.filter((t) => t.type === 'individual');
+  const lists = targets.filter((t) => t.type === 'list');
+  const groups = targets.filter((t) => t.type === 'group');
+
+  // Individual Cc/Bcc popover — one open at a time; disabled while bulk mode is on.
+  const [openIndividualKey, setOpenIndividualKey] = useState<string | null>(null);
+  // Stable so each row's outside-click/Escape listener isn't torn down and
+  // re-added on every SelectedPanel re-render.
+  const closeIndividual = useCallback(() => setOpenIndividualKey(null), []);
+
+  // Bulk Cc/Bcc mode (individual targets only). The popover opens together with
+  // bulk mode (per product decision) and stays open through the "blue" phase;
+  // Apply commits to every checked individual and flips the bar to "green".
+  const [bulkMode, setBulkMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkPopoverOpen, setBulkPopoverOpen] = useState(false);
+  const [appliedCount, setAppliedCount] = useState<number | null>(null);
+
+  const enterBulk = () => {
+    setOpenIndividualKey(null);
+    setSelected(new Set());
+    setAppliedCount(null);
+    setBulkMode(true);
+    setBulkPopoverOpen(true);
+  };
+  const exitBulk = () => {
+    setBulkMode(false);
+    setBulkPopoverOpen(false);
+    setSelected(new Set());
+    setAppliedCount(null);
+  };
+  const toggleSelected = (key: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const allSelected = individuals.length > 0 && individuals.every((t) => selected.has(t.key));
+  const toggleSelectAll = () =>
+    setSelected(allSelected ? new Set() : new Set(individuals.map((t) => t.key)));
+
+  const applyIndividual = (key: string, cc: CcBccContact[], bcc: CcBccContact[]) => {
+    const t = targets.find((x) => x.key === key);
+    if (!t) return;
+    update(key, {
+      ccContacts: mergeContacts(t.ccContacts, cc),
+      bccContacts: mergeContacts(t.bccContacts, bcc),
+    });
+    setOpenIndividualKey(null);
+  };
+
+  const applyBulk = (cc: CcBccContact[], bcc: CcBccContact[]) => {
+    onTargets(
+      targets.map((t) =>
+        t.type === 'individual' && selected.has(t.key)
+          ? {
+              ...t,
+              ccContacts: mergeContacts(t.ccContacts, cc),
+              bccContacts: mergeContacts(t.bccContacts, bcc),
+            }
+          : t,
+      ),
+    );
+    setAppliedCount(selected.size);
+    setBulkPopoverOpen(false);
+  };
+
+  const selectedCount = selected.size;
 
   return (
     <div className="ov2-rs-panel">
-      {ordered.map((t) =>
-        t.type === 'individual' ? (
-          <IndividualEntity
-            key={t.key}
-            target={t}
-            onUpdate={(patch) => update(t.key, patch)}
-            onRemove={() => remove(t.key)}
-          />
-        ) : t.type === 'list' ? (
-          <ListEntity
-            key={t.key}
-            target={t}
-            onUpdate={(patch) => update(t.key, patch)}
-            onRemove={() => remove(t.key)}
-          />
+      {bulkMode &&
+        (appliedCount != null && !bulkPopoverOpen ? (
+          <div className="ov2-rs-bulkbar2 green">
+            <span className="txt">
+              <CheckOutlined /> Applied to {appliedCount}{' '}
+              {appliedCount === 1 ? 'recipient' : 'recipients'}
+            </span>
+            <span className="spacer" />
+            <button
+              type="button"
+              className="act"
+              onClick={() => {
+                setAppliedCount(null);
+                setBulkPopoverOpen(true);
+              }}
+            >
+              Add more
+            </button>
+            <button type="button" className="ghost" onClick={exitBulk}>
+              Done
+            </button>
+          </div>
         ) : (
-          <GroupEntity
-            key={t.key}
-            target={t}
-            onUpdate={(patch) => update(t.key, patch)}
-            onRemove={() => remove(t.key)}
-          />
-        ),
+          <div className="ov2-rs-bulkbar2 blue">
+            <span className="txt">
+              {selectedCount > 0
+                ? `${selectedCount} ${selectedCount === 1 ? 'recipient' : 'recipients'} selected`
+                : 'Select recipients to add Cc/Bcc'}
+            </span>
+            <span className="spacer" />
+            <button type="button" className="ghost" onClick={exitBulk}>
+              Cancel
+            </button>
+            {bulkPopoverOpen && (
+              <CcBccPopover
+                mode="bulk"
+                recipientCount={selectedCount}
+                clients={clients}
+                appliedEmails={new Set()}
+                onApply={applyBulk}
+                onClose={exitBulk}
+              />
+            )}
+          </div>
+        ))}
+
+      <div className="ov2-rs-panel-head">
+        <span className="title">Recipients</span>
+        {individuals.length > 0 && !bulkMode && (
+          <button type="button" className="ov2-rs-bulk-btn" onClick={enterBulk}>
+            <UnorderedListOutlined /> Bulk Cc/Bcc
+          </button>
+        )}
+      </div>
+
+      {bulkMode && individuals.length > 0 && (
+        <div className="ov2-rs-selectall">
+          <Checkbox
+            checked={allSelected}
+            indeterminate={selectedCount > 0 && !allSelected}
+            onChange={toggleSelectAll}
+          >
+            Select all
+          </Checkbox>
+          <span className="count">
+            {selectedCount} of {individuals.length} selected
+          </span>
+        </div>
+      )}
+
+      {individuals.map((t) => (
+        <IndividualEntity
+          key={t.key}
+          target={t}
+          clients={clients}
+          bulkMode={bulkMode}
+          checked={selected.has(t.key)}
+          onToggleChecked={() => toggleSelected(t.key)}
+          popoverOpen={openIndividualKey === t.key}
+          onOpenPopover={() => setOpenIndividualKey(t.key)}
+          onClosePopover={closeIndividual}
+          onApply={(cc, bcc) => applyIndividual(t.key, cc, bcc)}
+          onUpdate={(patch) => update(t.key, patch)}
+          onRemove={() => remove(t.key)}
+        />
+      ))}
+
+      {lists.map((t) => (
+        <ListEntity
+          key={t.key}
+          target={t}
+          clients={clients}
+          onUpdate={(patch) => update(t.key, patch)}
+          onRemove={() => remove(t.key)}
+        />
+      ))}
+
+      {groups.map((t) => (
+        <GroupEntity
+          key={t.key}
+          target={t}
+          onUpdate={(patch) => update(t.key, patch)}
+          onRemove={() => remove(t.key)}
+        />
+      ))}
+
+      {bulkMode && (
+        <div className="ov2-rs-bulk-hint">
+          <InfoCircleOutlined /> Click Done to exit bulk mode and re-enable individual Cc/Bcc.
+        </div>
       )}
     </div>
   );
@@ -629,68 +1158,144 @@ function SelectedPanel({
 
 function IndividualEntity({
   target,
+  clients,
+  bulkMode,
+  checked,
+  onToggleChecked,
+  popoverOpen,
+  onOpenPopover,
+  onClosePopover,
+  onApply,
   onUpdate,
   onRemove,
 }: {
   target: OutreachTarget;
+  clients: Client[];
+  bulkMode: boolean;
+  checked: boolean;
+  onToggleChecked: () => void;
+  popoverOpen: boolean;
+  onOpenPopover: () => void;
+  onClosePopover: () => void;
+  onApply: (cc: CcBccContact[], bcc: CcBccContact[]) => void;
   onUpdate: (patch: Partial<OutreachTarget>) => void;
   onRemove: () => void;
 }) {
-  const [open, setOpen] = useState(target.cc.length + target.bcc.length > 0);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  // The per-row popover dismisses on outside click / Escape. Bulk mode disables
+  // the individual button entirely, so there's nothing to dismiss then.
+  useDismiss(anchorRef, popoverOpen && !bulkMode, onClosePopover);
+
   const r = target.recipients[0];
   if (!r) return null;
+  const cc = target.ccContacts ?? [];
+  const bcc = target.bccContacts ?? [];
+  const hasPills = cc.length + bcc.length > 0;
+  const appliedEmails = new Set([...cc, ...bcc].map((c) => c.email.toLowerCase()));
+
   return (
-    <div className="ov2-rs-entity">
+    <div className={'ov2-rs-entity' + (bulkMode && checked ? ' bulk-selected' : '')}>
       <div className="ov2-rs-entity-head">
+        {bulkMode && (
+          <Checkbox
+            className="ov2-rs-row-check"
+            checked={checked}
+            onChange={onToggleChecked}
+            aria-label={`Select ${r.name || r.email || 'recipient'}`}
+          />
+        )}
         <span className="ov2-rs-type-badge individual">
           <UserOutlined /> Individual
         </span>
         <span className="name">{r.name || r.email || 'Recipient'}</span>
         {r.email && <span className="email">{r.email}</span>}
-        <span className="note">This person receives an individual email</span>
+        {hasPills ? (
+          <>
+            {cc.map((c) => (
+              <span key={`cc-${c.email}`} className="ov2-rs-ccpill cc">
+                <span className="px">Cc</span>
+                <span className="nm">{c.name}</span>
+                <button
+                  type="button"
+                  onClick={() => onUpdate({ ccContacts: cc.filter((x) => x.email !== c.email) })}
+                  aria-label={`Remove Cc ${c.name}`}
+                >
+                  <CloseOutlined />
+                </button>
+              </span>
+            ))}
+            {bcc.map((c) => (
+              <span key={`bcc-${c.email}`} className="ov2-rs-ccpill bcc">
+                <span className="px">Bcc</span>
+                <span className="nm">{c.name}</span>
+                <button
+                  type="button"
+                  onClick={() => onUpdate({ bccContacts: bcc.filter((x) => x.email !== c.email) })}
+                  aria-label={`Remove Bcc ${c.name}`}
+                >
+                  <CloseOutlined />
+                </button>
+              </span>
+            ))}
+          </>
+        ) : (
+          <span className="note">This person receives an individual email</span>
+        )}
         <span className="spacer" />
-        <button type="button" className="ov2-rs-ccbcc-btn" onClick={() => setOpen((o) => !o)}>
-          {open ? 'Hide Cc/Bcc' : 'Add Cc/Bcc'}
-        </button>
+        <div className="ov2-rs-ccbcc-anchor" ref={anchorRef}>
+          <button
+            type="button"
+            className={'ov2-rs-ccbcc-btn' + (popoverOpen ? ' open' : '')}
+            disabled={bulkMode}
+            title={bulkMode ? 'Individual Cc/Bcc is disabled while bulk mode is active' : undefined}
+            onClick={() => (popoverOpen ? onClosePopover() : onOpenPopover())}
+          >
+            Add Cc/Bcc
+          </button>
+          {popoverOpen && !bulkMode && (
+            <CcBccPopover
+              mode="individual"
+              recipientName={r.name || r.email || 'recipient'}
+              clients={clients}
+              appliedEmails={appliedEmails}
+              onApply={onApply}
+              onClose={onClosePopover}
+            />
+          )}
+        </div>
         <button type="button" className="ov2-rs-remove" onClick={onRemove} aria-label="Remove">
           <CloseOutlined />
         </button>
       </div>
-      {open && (
-        <div className="ov2-rs-copy-rows">
-          <div className="ov2-rs-copy-row">
-            <span className="label">Cc</span>
-            <ChipsInput
-              value={target.cc}
-              onChange={(v) => onUpdate({ cc: v })}
-              placeholder="Add Cc…"
-            />
-          </div>
-          <div className="ov2-rs-copy-row">
-            <span className="label">Bcc</span>
-            <ChipsInput
-              value={target.bcc}
-              onChange={(v) => onUpdate({ bcc: v })}
-              placeholder="Add Bcc…"
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 function ListEntity({
   target,
+  clients,
   onUpdate,
   onRemove,
 }: {
   target: OutreachTarget;
+  clients: Client[];
   onUpdate: (patch: Partial<OutreachTarget>) => void;
   onRemove: () => void;
 }) {
   const [open, setOpen] = useState(true);
-  const [copyFor, setCopyFor] = useState<string | null>(null);
+  // One Cc/Bcc popover open at a time within this list: 'entire' for the
+  // whole-list popover, or a member's recipientKey for that member's popover.
+  const [openPopover, setOpenPopover] = useState<string | null>(null);
+  const entireAnchorRef = useRef<HTMLDivElement>(null);
+  const entireOpen = openPopover === 'entire';
+  const closePopover = () => setOpenPopover(null);
+  useDismiss(entireAnchorRef, entireOpen, closePopover);
+
+  const listCc = target.ccContacts ?? [];
+  const listBcc = target.bccContacts ?? [];
+  // Emails copied on the whole list — excluded from BOTH the entire-list and
+  // the per-member popovers (already on everyone, so re-adding is redundant).
+  const listAppliedEmails = new Set([...listCc, ...listBcc].map((c) => c.email.toLowerCase()));
 
   const dropMember = (key: string) => {
     const recipients = target.recipients.filter((r) => recipientKey(r) !== key);
@@ -700,7 +1305,39 @@ function ListEntity({
     }
     const { [key]: _cc, ...memberCc } = target.memberCc ?? {};
     const { [key]: _bcc, ...memberBcc } = target.memberBcc ?? {};
-    onUpdate({ recipients, memberCc, memberBcc });
+    const { [key]: _ccc, ...memberCcContacts } = target.memberCcContacts ?? {};
+    const { [key]: _bccc, ...memberBccContacts } = target.memberBccContacts ?? {};
+    onUpdate({ recipients, memberCc, memberBcc, memberCcContacts, memberBccContacts });
+  };
+
+  const applyEntire = (cc: CcBccContact[], bcc: CcBccContact[]) => {
+    onUpdate({
+      ccContacts: mergeContacts(target.ccContacts, cc),
+      bccContacts: mergeContacts(target.bccContacts, bcc),
+    });
+    closePopover();
+  };
+  const applyMember = (key: string, cc: CcBccContact[], bcc: CcBccContact[]) => {
+    onUpdate({
+      memberCcContacts: {
+        ...(target.memberCcContacts ?? {}),
+        [key]: mergeContacts(target.memberCcContacts?.[key], cc),
+      },
+      memberBccContacts: {
+        ...(target.memberBccContacts ?? {}),
+        [key]: mergeContacts(target.memberBccContacts?.[key], bcc),
+      },
+    });
+    closePopover();
+  };
+  const removeMemberContact = (key: string, kind: 'cc' | 'bcc', email: string) => {
+    if (kind === 'cc') {
+      const next = (target.memberCcContacts?.[key] ?? []).filter((c) => c.email !== email);
+      onUpdate({ memberCcContacts: { ...(target.memberCcContacts ?? {}), [key]: next } });
+    } else {
+      const next = (target.memberBccContacts?.[key] ?? []).filter((c) => c.email !== email);
+      onUpdate({ memberBccContacts: { ...(target.memberBccContacts ?? {}), [key]: next } });
+    }
   };
 
   return (
@@ -719,76 +1356,176 @@ function ListEntity({
         </span>
         <span className="name">{target.name || 'Untitled list'}</span>
         <span className="count">· {plural(target.recipients.length, 'contact')}</span>
-        <span className="spacer" />
         <span className="note blue">
           <UserOutlined /> Each emailed individually
         </span>
+        <span className="spacer" />
+        <div className="ov2-rs-ccbcc-anchor" ref={entireAnchorRef}>
+          <button
+            type="button"
+            className={'ov2-rs-ccbcc-btn' + (entireOpen ? ' open' : '')}
+            onClick={() => setOpenPopover(entireOpen ? null : 'entire')}
+          >
+            Cc/Bcc Entire List
+          </button>
+          {entireOpen && (
+            <CcBccPopover
+              mode="list"
+              clients={clients}
+              appliedEmails={listAppliedEmails}
+              onApply={applyEntire}
+              onClose={closePopover}
+            />
+          )}
+        </div>
         <button type="button" className="ov2-rs-remove" onClick={onRemove} aria-label="Remove list">
           <CloseOutlined />
         </button>
       </div>
+
+      {(listCc.length > 0 || listBcc.length > 0) && (
+        <div className="ov2-rs-list-everyone">
+          <span className="lbl">Everyone in this list:</span>
+          {listCc.map((c) => (
+            <span key={`cc-${c.email}`} className="ov2-rs-ccpill cc">
+              <span className="px">Cc</span>
+              <span className="nm">{c.name}</span>
+              <button
+                type="button"
+                onClick={() => onUpdate({ ccContacts: listCc.filter((x) => x.email !== c.email) })}
+                aria-label={`Remove Cc ${c.name}`}
+              >
+                <CloseOutlined />
+              </button>
+            </span>
+          ))}
+          {listBcc.map((c) => (
+            <span key={`bcc-${c.email}`} className="ov2-rs-ccpill bcc">
+              <span className="px">Bcc</span>
+              <span className="nm">{c.name}</span>
+              <button
+                type="button"
+                onClick={() => onUpdate({ bccContacts: listBcc.filter((x) => x.email !== c.email) })}
+                aria-label={`Remove Bcc ${c.name}`}
+              >
+                <CloseOutlined />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {open && (
         <div className="ov2-rs-members">
           {target.recipients.map((r) => {
             const key = recipientKey(r);
-            const memberCc = target.memberCc?.[key] ?? [];
-            const memberBcc = target.memberBcc?.[key] ?? [];
-            const copyOpen = copyFor === key;
             return (
-              <div key={key}>
-                <div className="ov2-rs-member">
-                  <span className="bullet">•</span>
-                  <span className="name">{r.name || r.email}</span>
-                  {r.email && <span className="email">{r.email}</span>}
-                  <span className="spacer" />
-                  <span className="ov2-rs-member-tag">Individual send</span>
-                  <button
-                    type="button"
-                    className="ccbcc"
-                    onClick={() => setCopyFor(copyOpen ? null : key)}
-                  >
-                    Cc/Bcc
-                  </button>
-                  <button
-                    type="button"
-                    className="ov2-rs-remove small"
-                    onClick={() => dropMember(key)}
-                    aria-label="Drop from this campaign"
-                  >
-                    <CloseOutlined />
-                  </button>
-                </div>
-                {copyOpen && (
-                  <div className="ov2-rs-copy-rows">
-                    <div className="ov2-rs-copy-row">
-                      <span className="label">Cc</span>
-                      <ChipsInput
-                        value={memberCc}
-                        onChange={(v) =>
-                          onUpdate({ memberCc: { ...(target.memberCc ?? {}), [key]: v } })
-                        }
-                        placeholder="Add Cc for this member…"
-                      />
-                      <span className="hint">Copied on this member's email only</span>
-                    </div>
-                    <div className="ov2-rs-copy-row">
-                      <span className="label">Bcc</span>
-                      <ChipsInput
-                        value={memberBcc}
-                        onChange={(v) =>
-                          onUpdate({ memberBcc: { ...(target.memberBcc ?? {}), [key]: v } })
-                        }
-                        placeholder="Add Bcc for this member…"
-                      />
-                      <span className="hint">Copied on this member's email only</span>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <ListMemberRow
+                key={key}
+                recipient={r}
+                clients={clients}
+                memberCc={target.memberCcContacts?.[key] ?? []}
+                memberBcc={target.memberBccContacts?.[key] ?? []}
+                listAppliedEmails={listAppliedEmails}
+                open={openPopover === key}
+                onOpen={() => setOpenPopover(key)}
+                onClose={closePopover}
+                onApply={(cc, bcc) => applyMember(key, cc, bcc)}
+                onRemoveContact={(kind, email) => removeMemberContact(key, kind, email)}
+                onDrop={() => dropMember(key)}
+              />
             );
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// One member row inside a List: shows the member's per-member Cc/Bcc pills and
+// an Add Cc/Bcc popover scoped to that member (behaves like an individual row).
+function ListMemberRow({
+  recipient,
+  clients,
+  memberCc,
+  memberBcc,
+  listAppliedEmails,
+  open,
+  onOpen,
+  onClose,
+  onApply,
+  onRemoveContact,
+  onDrop,
+}: {
+  recipient: OutreachRecipient;
+  clients: Client[];
+  memberCc: CcBccContact[];
+  memberBcc: CcBccContact[];
+  listAppliedEmails: Set<string>;
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  onApply: (cc: CcBccContact[], bcc: CcBccContact[]) => void;
+  onRemoveContact: (kind: 'cc' | 'bcc', email: string) => void;
+  onDrop: () => void;
+}) {
+  const anchorRef = useRef<HTMLDivElement>(null);
+  useDismiss(anchorRef, open, onClose);
+  const appliedEmails = new Set([
+    ...listAppliedEmails,
+    ...[...memberCc, ...memberBcc].map((c) => c.email.toLowerCase()),
+  ]);
+  return (
+    <div className="ov2-rs-member">
+      <span className="bullet">•</span>
+      <span className="name">{recipient.name || recipient.email}</span>
+      {recipient.email && <span className="email">{recipient.email}</span>}
+      {memberCc.map((c) => (
+        <span key={`cc-${c.email}`} className="ov2-rs-ccpill cc">
+          <span className="px">Cc</span>
+          <span className="nm">{c.name}</span>
+          <button type="button" onClick={() => onRemoveContact('cc', c.email)} aria-label={`Remove Cc ${c.name}`}>
+            <CloseOutlined />
+          </button>
+        </span>
+      ))}
+      {memberBcc.map((c) => (
+        <span key={`bcc-${c.email}`} className="ov2-rs-ccpill bcc">
+          <span className="px">Bcc</span>
+          <span className="nm">{c.name}</span>
+          <button type="button" onClick={() => onRemoveContact('bcc', c.email)} aria-label={`Remove Bcc ${c.name}`}>
+            <CloseOutlined />
+          </button>
+        </span>
+      ))}
+      <span className="spacer" />
+      <div className="ov2-rs-ccbcc-anchor" ref={anchorRef}>
+        <button
+          type="button"
+          className={'ov2-rs-ccbcc-btn' + (open ? ' open' : '')}
+          onClick={() => (open ? onClose() : onOpen())}
+        >
+          Add Cc/Bcc
+        </button>
+        {open && (
+          <CcBccPopover
+            mode="individual"
+            recipientName={recipient.name || recipient.email || 'recipient'}
+            clients={clients}
+            appliedEmails={appliedEmails}
+            onApply={onApply}
+            onClose={onClose}
+          />
+        )}
+      </div>
+      <button
+        type="button"
+        className="ov2-rs-remove small"
+        onClick={onDrop}
+        aria-label="Drop from this campaign"
+      >
+        <CloseOutlined />
+      </button>
     </div>
   );
 }
@@ -851,7 +1588,7 @@ function GroupEntity({
       {copyOpen && (
         <div className="ov2-rs-copy-rows">
           <div className="ov2-rs-copy-row">
-            <span className="label amber">Global Cc</span>
+            <span className="label amber">Cc</span>
             <ChipsInput
               value={target.cc}
               onChange={(v) => onUpdate({ cc: v })}
@@ -860,7 +1597,7 @@ function GroupEntity({
             <span className="hint">Copied on this group's email</span>
           </div>
           <div className="ov2-rs-copy-row">
-            <span className="label amber">Global Bcc</span>
+            <span className="label amber">Bcc</span>
             <ChipsInput
               value={target.bcc}
               onChange={(v) => onUpdate({ bcc: v })}

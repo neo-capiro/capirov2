@@ -19,15 +19,15 @@
 .ov2-dl-hero {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
-  min-height: 440px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  min-height: 420px;
 }
 .ov2-dl-copy {
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: flex-start;
-  padding: 48px 56px;
+  padding: 44px 52px;
 }
 .ov2-dl-badge {
   display: inline-flex;
@@ -45,15 +45,16 @@
 }
 .ov2-dl-copy h1 {
   margin: 18px 0 14px;
-  font-size: 38px;
+  font-size: 36px;
   font-weight: 800;
   letter-spacing: -0.03em;
-  line-height: 1.08;
+  line-height: 1.1;
   color: var(--ov2-ink-1);
+  max-width: 16ch;
 }
 .ov2-dl-copy p {
-  margin: 0 0 28px;
-  max-width: 54ch;
+  margin: 0 0 26px;
+  max-width: 52ch;
   font-size: 14.5px;
   line-height: 1.7;
   color: var(--ov2-ink-2);
@@ -91,32 +92,61 @@
   box-shadow: 0 4px 10px rgba(42, 87, 206, 0.25);
 }
 
+/* AI auto-generation note under the CTA. */
+.ov2-dl-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 20px 0 0;
+  max-width: 50ch;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ov2-ink-3);
+}
+.ov2-dl-note .ico {
+  flex: none;
+  margin-top: 2px;
+  color: var(--ov2-accent);
+  opacity: 0.75;
+}
+.ov2-dl-note strong {
+  color: var(--ov2-ink-2);
+  font-weight: 600;
+}
+
 /* ---------- Art panel (floating recipient-type cards) ---------- */
 .ov2-dl-art {
   position: relative;
+  padding: 26px 26px 26px 8px;
+  display: flex;
+}
+.ov2-dl-art-panel {
+  position: relative;
+  flex: 1;
   overflow: hidden;
+  border-radius: 18px;
   background: linear-gradient(160deg, #f2f6fd 0%, #e4edfa 55%, #d8e5f8 100%);
 }
 .ov2-dl-ring {
   position: absolute;
-  width: 430px;
-  height: 430px;
-  right: -90px;
-  bottom: -110px;
+  width: 380px;
+  height: 380px;
+  right: -70px;
+  bottom: -90px;
   border: 2px solid rgba(42, 87, 206, 0.1);
   border-radius: 50%;
 }
 .ov2-dl-ring.inner {
-  width: 300px;
-  height: 300px;
-  right: -25px;
-  bottom: -45px;
+  width: 260px;
+  height: 260px;
+  right: -10px;
+  bottom: -30px;
   border-color: rgba(42, 87, 206, 0.07);
 }
 .ov2-dl-glow {
   position: absolute;
-  width: 360px;
-  height: 360px;
+  width: 320px;
+  height: 320px;
   left: 50%;
   top: 55%;
   transform: translate(-50%, -50%);
@@ -126,8 +156,8 @@
 
 .ov2-dl-float {
   position: absolute;
-  width: 196px;
-  padding: 14px 16px;
+  width: 188px;
+  padding: 13px 15px;
   background: var(--ov2-bg-surface);
   border: 1px solid rgba(227, 230, 236, 0.9);
   border-radius: 12px;
@@ -150,23 +180,23 @@
 }
 /* Explicit stacking so cards layer cleanly when the panel narrows. */
 .ov2-dl-float.individual {
-  top: 12%;
-  left: 9%;
-  z-index: 2;
+  top: 8%;
+  left: 2%;
+  z-index: 3;
   --ov2-dl-rot: -2deg;
 }
 .ov2-dl-float.list {
-  top: 26%;
-  right: 6%;
-  width: 180px;
-  z-index: 1;
+  top: 24%;
+  right: 4%;
+  width: 176px;
+  z-index: 2;
   --ov2-dl-rot: 2deg;
   animation-delay: -2.3s;
 }
 .ov2-dl-float.group {
-  bottom: 13%;
-  left: 22%;
-  z-index: 3;
+  bottom: 12%;
+  left: 24%;
+  z-index: 1;
   --ov2-dl-rot: -1deg;
   animation-delay: -4.6s;
 }
@@ -214,33 +244,124 @@
   color: var(--ov2-notable);
 }
 
-/* ---------- Bottom explainer strip ---------- */
-.ov2-dl-types {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 28px;
-  padding: 22px 32px 26px;
+/* ---------- Bottom band: mix-and-match + per-type explainers ---------- */
+.ov2-dl-bottom {
   border-top: 1px solid var(--ov2-border-1);
   background: var(--ov2-bg-surface-2);
 }
+
+.ov2-dl-mix {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 15px 32px;
+  border-bottom: 1px solid var(--ov2-border-1);
+}
+.ov2-dl-mix-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.ov2-dl-mix-tags .plus {
+  color: var(--ov2-ink-3);
+  font-weight: 700;
+  font-size: 12px;
+}
+.ov2-dl-tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  padding: 2px 8px;
+  border: 1px solid;
+}
+.ov2-dl-tag.individual {
+  color: var(--ov2-accent-ink);
+  background: var(--ov2-accent-soft);
+  border-color: rgba(42, 87, 206, 0.35);
+}
+.ov2-dl-tag.list {
+  color: var(--ov2-success);
+  background: var(--ov2-success-soft);
+  border-color: rgba(31, 122, 60, 0.35);
+}
+.ov2-dl-tag.group {
+  color: var(--ov2-notable);
+  background: var(--ov2-notable-soft);
+  border-color: rgba(217, 119, 87, 0.4);
+}
+.ov2-dl-mix p {
+  margin: 0;
+  flex: 1;
+  min-width: 280px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ov2-ink-3);
+}
+.ov2-dl-mix p strong {
+  color: var(--ov2-ink-1);
+  font-weight: 600;
+}
+
+.ov2-dl-types {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  padding: 22px 32px 26px;
+}
 .ov2-dl-type {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  padding: 0 26px;
 }
-.ov2-dl-type .ico {
-  margin-top: 1px;
+.ov2-dl-type:first-child {
+  padding-left: 0;
 }
-.ov2-dl-type b {
-  font-size: 13px;
+.ov2-dl-type:last-child {
+  padding-right: 0;
+}
+.ov2-dl-type:not(:first-child) {
+  border-left: 1px solid var(--ov2-border-1);
+}
+.ov2-dl-type-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ov2-dl-type-head b {
+  font-size: 14px;
   font-weight: 700;
   color: var(--ov2-ink-1);
 }
-.ov2-dl-type p {
-  margin: 3px 0 0;
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--ov2-ink-3);
+.ov2-dl-type > p {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ov2-ink-2);
+}
+.ov2-dl-example {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-left: 3px solid;
+  border-radius: 0 6px 6px 0;
+  font-size: 11.5px;
+  font-style: italic;
+  line-height: 1.5;
+  color: var(--ov2-ink-2);
+}
+.ov2-dl-example[data-kind='individual'] {
+  border-color: var(--ov2-accent);
+  background: var(--ov2-accent-soft);
+}
+.ov2-dl-example[data-kind='list'] {
+  border-color: var(--ov2-success);
+  background: var(--ov2-success-soft);
+}
+.ov2-dl-example[data-kind='group'] {
+  border-color: var(--ov2-notable);
+  background: var(--ov2-notable-soft);
 }
 
 /* ---------- Narrow viewports ---------- */
@@ -253,6 +374,15 @@
   }
   .ov2-dl-types {
     grid-template-columns: 1fr;
-    gap: 16px;
+    gap: 18px;
+    padding: 18px 24px 22px;
+  }
+  .ov2-dl-type {
+    padding: 0;
+  }
+  .ov2-dl-type:not(:first-child) {
+    border-left: none;
+    border-top: 1px solid var(--ov2-border-1);
+    padding-top: 18px;
   }
 }

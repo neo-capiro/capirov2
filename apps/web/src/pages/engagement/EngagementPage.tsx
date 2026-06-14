@@ -3388,7 +3388,7 @@ function meetingStatus(meeting: Meeting): {
   primaryAction: 'prep' | 'debrief' | 'open';
   chips: Array<{
     label: string;
-    tone: 'default' | 'muted' | 'danger' | 'primary';
+    tone: 'default' | 'muted' | 'danger' | 'primary' | 'success';
     action?: 'prep' | 'debrief';
   }>;
 } {
@@ -3414,7 +3414,7 @@ function meetingStatus(meeting: Meeting): {
       label: 'Debrief Complete',
       actionLabel: 'View Recap',
       primaryAction: 'debrief',
-      chips: [{ label: 'Debrief Complete', tone: 'muted' }],
+      chips: [{ label: 'Debrief Complete', tone: 'success' }],
     };
   }
   if (isActive) {
@@ -3424,8 +3424,8 @@ function meetingStatus(meeting: Meeting): {
       actionLabel: prep ? 'View Prep' : 'Generate Prep',
       primaryAction: prep ? 'open' : 'prep',
       chips: prep
-        ? [{ label: prep.status === 'approved' ? 'Approved' : 'Prepped', tone: 'primary' }]
-        : [{ label: 'Generate Prep ->', tone: 'primary', action: 'prep' }],
+        ? [{ label: prep.status === 'approved' ? 'Approved' : 'Prepped', tone: 'success' }]
+        : [{ label: 'Generate Prep ->', tone: 'danger', action: 'prep' }],
     };
   }
   if (prep) {
@@ -3434,7 +3434,7 @@ function meetingStatus(meeting: Meeting): {
       label: prep.status === 'approved' ? 'Approved' : 'Prepped',
       actionLabel: 'View Prep',
       primaryAction: 'open',
-      chips: [{ label: prep.status === 'approved' ? 'Approved' : 'Prepped', tone: 'primary' }],
+      chips: [{ label: prep.status === 'approved' ? 'Approved' : 'Prepped', tone: 'success' }],
     };
   }
   return {
@@ -3444,7 +3444,7 @@ function meetingStatus(meeting: Meeting): {
     primaryAction: 'prep',
     chips: [
       { label: 'No Prep Yet', tone: 'muted' },
-      { label: 'Generate Prep ->', tone: 'default', action: 'prep' },
+      { label: 'Generate Prep ->', tone: 'danger', action: 'prep' },
     ],
   };
 }
