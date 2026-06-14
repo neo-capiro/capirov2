@@ -6,6 +6,50 @@ backed by `WorkflowsService.generateDocument()` and the Clio chat service.
 
 ---
 
+## STATUS — 2026-06-13: "comprehensive context" enhancement shipped
+
+> The original PART 1 bugs (B1–B5, B9, B10) were fixed in the earlier overhaul
+> (real provider-fallback AI, structured per-section generation, server-side OOXML
+> export, lint). This pass closes the remaining gap the user actually felt — the
+> context system was shallow and the guided UI could dead-end.
+
+Implemented in this change (no Prisma migration — additive in `formData` JSON +
+reuse of existing models/endpoints):
+
+1. **Comprehensive, categorized context catalog.** `WhitePaperService.contextCandidates()`
+   was rewritten from 4 hard-coded sources into a resilient (per-source `try`/catch +
+   `Promise.allSettled`) registry across 7 categories:
+   - **Client profile** — full client row (sector, issue codes, UEI/CAGE, NAICS/PSC,
+     submission tracks), key people (`ClientPerson`), facilities w/ district nexus (`ClientFacility`).
+   - **Program** — enriched capability + program-element (PE) numbers.
+   - **Engagement** — meetings, email threads, prior submissions, submission outcomes (`ClientSubmissionHistory`).
+   - **Intelligence** — tracked bills, intel changes (`IntelligenceChange.relatedClientIds`),
+     client briefs (`ClientBrief`), action recommendations.
+   - **Research** — Clio research reports (`ClioArtifact kind=research_report`) + notes (`ClioNote`).
+   - **Federal** — LDA lobbying summary (via `Client.ldaClientIds`).
+   - **Documents** — uploaded `EngagementAttachment` rows (text resolved on demand).
+   - Each candidate carries a `category` for grouping; new kinds added to
+     `whitepaper.types.ts` (`WHITEPAPER_CONTEXT_KIND_META`) + `whitepaper.dto.ts` `CONTEXT_KINDS`.
+2. **Add/remove + upload UI.** The editor's right rail is now a Context Builder:
+   candidates grouped by category, search, per-item add/remove, bulk add/clear per
+   category, removable chips, and **document upload** (reuses the engagement presigned-S3
+   pipeline; text extracted on select via `POST /api/engagement/attachments/:id/extract-text`).
+3. **No more dead-ends.** Client-side `FALLBACK_VARIANTS` so the format picker / Start
+   guide / word budget always render; error + retry surfaces on the candidates query.
+4. **Steerable drafting.** Per-section **Improve** menu (presets + custom directive) exposes
+   the backend `improve` mode; `generate-section` budgets honor long-form items + a total cap.
+
+Deliberately deferred (documented follow-ups, not started):
+- Route white-paper generation through `AiCredentialResolverService` so it honors
+  per-tenant BYO keys (today it reads only env keys; would need `TenantContext` threaded
+  + an engagement/credential module import).
+- Wire the global Clio chat-bubble's NL write-back (`POST /chat/draft-whitepaper-section`,
+  already shipped server-side but unused by the web bundle) into the streaming clio path.
+- Remove the now-dead `WorkflowsService.generateDocument()` (~280 lines, unreferenced
+  since `generate-document` was repointed to `WhitePaperService`).
+
+---
+
 ## PART 1 — BUGS (current state)
 
 ### CRITICAL — the feature is fundamentally broken end-to-end
