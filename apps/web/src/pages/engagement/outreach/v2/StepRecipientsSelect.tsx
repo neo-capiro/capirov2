@@ -1107,46 +1107,60 @@ function SelectedPanel({
           </div>
         ))}
 
-      <div className="ov2-rs-panel-head">
-        <span className="title">Recipients</span>
-        {individuals.length > 0 && !bulkMode && (
-          <button type="button" className="ov2-rs-bulk-btn" onClick={enterBulk}>
-            <UnorderedListOutlined /> Bulk Cc/Bcc
-          </button>
-        )}
-      </div>
+      {/* All individual recipients live in one Individuals card (mirrors the
+          List/Group cards). The Bulk Cc/Bcc trigger lives in this card's
+          header. */}
+      {individuals.length > 0 && (
+        <div className="ov2-rs-entity individual">
+          <div className="ov2-rs-entity-head">
+            <span className="ov2-rs-type-badge individual">
+              <UserOutlined /> Individual
+            </span>
+            <span className="count">· {plural(individuals.length, 'recipient')}</span>
+            <span className="note blue">Each receives their own personalized email</span>
+            <span className="spacer" />
+            {!bulkMode && (
+              <button type="button" className="ov2-rs-bulk-btn" onClick={enterBulk}>
+                <UnorderedListOutlined /> Bulk Cc/Bcc
+              </button>
+            )}
+          </div>
 
-      {bulkMode && individuals.length > 0 && (
-        <div className="ov2-rs-selectall">
-          <Checkbox
-            checked={allSelected}
-            indeterminate={selectedCount > 0 && !allSelected}
-            onChange={toggleSelectAll}
-          >
-            Select all
-          </Checkbox>
-          <span className="count">
-            {selectedCount} of {individuals.length} selected
-          </span>
+          {bulkMode && (
+            <div className="ov2-rs-selectall">
+              <Checkbox
+                checked={allSelected}
+                indeterminate={selectedCount > 0 && !allSelected}
+                onChange={toggleSelectAll}
+              >
+                Select all
+              </Checkbox>
+              <span className="count">
+                {selectedCount} of {individuals.length} selected
+              </span>
+            </div>
+          )}
+
+          <div className="ov2-rs-indrows">
+            {individuals.map((t) => (
+              <IndividualRow
+                key={t.key}
+                target={t}
+                clients={clients}
+                bulkMode={bulkMode}
+                checked={selected.has(t.key)}
+                onToggleChecked={() => toggleSelected(t.key)}
+                popoverOpen={openIndividualKey === t.key}
+                onOpenPopover={() => setOpenIndividualKey(t.key)}
+                onClosePopover={closeIndividual}
+                onApply={(cc, bcc) => applyIndividual(t.key, cc, bcc)}
+                onUpdate={(patch) => update(t.key, patch)}
+                onRemove={() => remove(t.key)}
+              />
+            ))}
+          </div>
         </div>
       )}
-
-      {individuals.map((t) => (
-        <IndividualEntity
-          key={t.key}
-          target={t}
-          clients={clients}
-          bulkMode={bulkMode}
-          checked={selected.has(t.key)}
-          onToggleChecked={() => toggleSelected(t.key)}
-          popoverOpen={openIndividualKey === t.key}
-          onOpenPopover={() => setOpenIndividualKey(t.key)}
-          onClosePopover={closeIndividual}
-          onApply={(cc, bcc) => applyIndividual(t.key, cc, bcc)}
-          onUpdate={(patch) => update(t.key, patch)}
-          onRemove={() => remove(t.key)}
-        />
-      ))}
 
       {lists.map((t) => (
         <ListEntity
@@ -1177,7 +1191,7 @@ function SelectedPanel({
   );
 }
 
-function IndividualEntity({
+function IndividualRow({
   target,
   clients,
   bulkMode,
@@ -1211,83 +1225,74 @@ function IndividualEntity({
   if (!r) return null;
   const cc = target.ccContacts ?? [];
   const bcc = target.bccContacts ?? [];
-  const hasPills = cc.length + bcc.length > 0;
   const appliedEmails = new Set([...cc, ...bcc].map((c) => c.email.toLowerCase()));
 
+  // A single recipient row inside the Individuals card. The "Individual" badge
+  // and "receives their own personalized email" note live on the card header,
+  // so they aren't repeated per row.
   return (
-    <div className={'ov2-rs-entity' + (bulkMode && checked ? ' bulk-selected' : '')}>
-      <div className="ov2-rs-entity-head">
-        {bulkMode && (
-          <Checkbox
-            className="ov2-rs-row-check"
-            checked={checked}
-            onChange={onToggleChecked}
-            aria-label={`Select ${r.name || r.email || 'recipient'}`}
-          />
-        )}
-        <span className="ov2-rs-type-badge individual">
-          <UserOutlined /> Individual
-        </span>
-        <span className="name">{r.name || r.email || 'Recipient'}</span>
-        {r.email && <span className="email">{r.email}</span>}
-        {hasPills ? (
-          <>
-            {cc.map((c) => (
-              <span key={`cc-${c.email}`} className="ov2-rs-ccpill cc">
-                <span className="px">Cc</span>
-                <span className="nm">{c.name}</span>
-                <button
-                  type="button"
-                  onClick={() => onUpdate({ ccContacts: cc.filter((x) => x.email !== c.email) })}
-                  aria-label={`Remove Cc ${c.name}`}
-                >
-                  <CloseOutlined />
-                </button>
-              </span>
-            ))}
-            {bcc.map((c) => (
-              <span key={`bcc-${c.email}`} className="ov2-rs-ccpill bcc">
-                <span className="px">Bcc</span>
-                <span className="nm">{c.name}</span>
-                <button
-                  type="button"
-                  onClick={() => onUpdate({ bccContacts: bcc.filter((x) => x.email !== c.email) })}
-                  aria-label={`Remove Bcc ${c.name}`}
-                >
-                  <CloseOutlined />
-                </button>
-              </span>
-            ))}
-          </>
-        ) : (
-          <span className="note">This person receives an individual email</span>
-        )}
-        <span className="spacer" />
-        <div className="ov2-rs-ccbcc-anchor" ref={anchorRef}>
+    <div className={'ov2-rs-indrow' + (bulkMode && checked ? ' bulk-selected' : '')}>
+      {bulkMode && (
+        <Checkbox
+          className="ov2-rs-row-check"
+          checked={checked}
+          onChange={onToggleChecked}
+          aria-label={`Select ${r.name || r.email || 'recipient'}`}
+        />
+      )}
+      <span className="name">{r.name || r.email || 'Recipient'}</span>
+      {r.email && <span className="email">{r.email}</span>}
+      {cc.map((c) => (
+        <span key={`cc-${c.email}`} className="ov2-rs-ccpill cc">
+          <span className="px">Cc</span>
+          <span className="nm">{c.name}</span>
           <button
             type="button"
-            className={'ov2-rs-ccbcc-btn' + (popoverOpen ? ' open' : '')}
-            disabled={bulkMode}
-            title={bulkMode ? 'Individual Cc/Bcc is disabled while bulk mode is active' : undefined}
-            onClick={() => (popoverOpen ? onClosePopover() : onOpenPopover())}
+            onClick={() => onUpdate({ ccContacts: cc.filter((x) => x.email !== c.email) })}
+            aria-label={`Remove Cc ${c.name}`}
           >
-            Add Cc/Bcc
+            <CloseOutlined />
           </button>
-          {popoverOpen && !bulkMode && (
-            <CcBccPopover
-              mode="individual"
-              recipientName={r.name || r.email || 'recipient'}
-              clients={clients}
-              appliedEmails={appliedEmails}
-              onApply={onApply}
-              onClose={onClosePopover}
-            />
-          )}
-        </div>
-        <button type="button" className="ov2-rs-remove" onClick={onRemove} aria-label="Remove">
-          <CloseOutlined />
+        </span>
+      ))}
+      {bcc.map((c) => (
+        <span key={`bcc-${c.email}`} className="ov2-rs-ccpill bcc">
+          <span className="px">Bcc</span>
+          <span className="nm">{c.name}</span>
+          <button
+            type="button"
+            onClick={() => onUpdate({ bccContacts: bcc.filter((x) => x.email !== c.email) })}
+            aria-label={`Remove Bcc ${c.name}`}
+          >
+            <CloseOutlined />
+          </button>
+        </span>
+      ))}
+      <span className="spacer" />
+      <div className="ov2-rs-ccbcc-anchor" ref={anchorRef}>
+        <button
+          type="button"
+          className={'ov2-rs-ccbcc-btn' + (popoverOpen ? ' open' : '')}
+          disabled={bulkMode}
+          title={bulkMode ? 'Individual Cc/Bcc is disabled while bulk mode is active' : undefined}
+          onClick={() => (popoverOpen ? onClosePopover() : onOpenPopover())}
+        >
+          Add Cc/Bcc
         </button>
+        {popoverOpen && !bulkMode && (
+          <CcBccPopover
+            mode="individual"
+            recipientName={r.name || r.email || 'recipient'}
+            clients={clients}
+            appliedEmails={appliedEmails}
+            onApply={onApply}
+            onClose={onClosePopover}
+          />
+        )}
       </div>
+      <button type="button" className="ov2-rs-remove" onClick={onRemove} aria-label="Remove">
+        <CloseOutlined />
+      </button>
     </div>
   );
 }
@@ -1377,7 +1382,7 @@ function ListEntity({
         </span>
         <span className="name">{target.name || 'Untitled list'}</span>
         <span className="count">· {plural(target.recipients.length, 'contact')}</span>
-        <span className="note blue">
+        <span className="note green">
           <UserOutlined /> Each emailed individually
         </span>
         <span className="spacer" />

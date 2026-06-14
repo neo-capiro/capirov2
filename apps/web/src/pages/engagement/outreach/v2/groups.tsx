@@ -189,7 +189,6 @@ export function useGroups({
                   {isNew && <span className="new-badge">New</span>}
                 </b>
                 <small>{plural(group.members.length, 'contact')}</small>
-                <small className="cap">1 email sent to group</small>
               </div>
               <button
                 type="button"

@@ -20,13 +20,63 @@
   background: var(--ov2-bg-surface);
   padding: 10px 14px;
 }
-.ov2-rs-entity.list {
+/* Typed recipient cards: Individual = blue, List = green, Group = amber. */
+.ov2-rs-entity.individual {
   background: var(--ov2-accent-soft);
   border-color: rgba(42, 87, 206, 0.25);
+}
+.ov2-rs-entity.list {
+  background: var(--ov2-success-soft);
+  border-color: rgba(31, 122, 60, 0.25);
 }
 .ov2-rs-entity.group {
   background: var(--ov2-notable-soft);
   border-color: rgba(217, 119, 87, 0.3);
+}
+.ov2-rs-entity-head .note.green {
+  color: var(--ov2-success);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+/* Rows inside the Individuals card (no caret/indent; subtle separators). */
+.ov2-rs-indrows {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+}
+.ov2-rs-indrow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  row-gap: 6px;
+  min-height: 30px;
+  padding: 8px 6px;
+  border-top: 1px solid rgba(42, 87, 206, 0.12);
+}
+.ov2-rs-indrow:first-child {
+  border-top: none;
+}
+.ov2-rs-indrow.bulk-selected {
+  background: rgba(42, 87, 206, 0.06);
+  border-radius: 6px;
+}
+.ov2-rs-indrow .name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ov2-ink-1);
+}
+.ov2-rs-indrow .email {
+  font-size: 12px;
+  color: var(--ov2-ink-3);
+}
+.ov2-rs-indrow .note {
+  font-size: 11.5px;
+  color: var(--ov2-ink-3);
+}
+.ov2-rs-indrow .spacer {
+  flex: 1;
 }
 .ov2-rs-entity-head {
   display: flex;
@@ -84,8 +134,8 @@
   background: var(--ov2-bg-surface);
 }
 .ov2-rs-type-badge.list {
-  color: var(--ov2-accent-ink);
-  border-color: var(--ov2-accent);
+  color: var(--ov2-success);
+  border-color: var(--ov2-success);
   background: var(--ov2-bg-surface);
 }
 .ov2-rs-type-badge.group {
@@ -870,10 +920,6 @@
   font-size: 11px;
   color: var(--ov2-ink-3);
 }
-.ov2-rs-groups-pop .row .info small.cap {
-  color: var(--ov2-notable);
-  font-weight: 600;
-}
 .ov2-rs-groups-pop .new-badge {
   font-size: 9px;
   font-weight: 700;
@@ -995,21 +1041,7 @@
  * checked individuals at once. Lists/groups are untouched.
  * ============================================================ */
 
-/* ---- Recipients panel header (title + Bulk Cc/Bcc) ---- */
-.ov2-rs-panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-.ov2-rs-panel-head .title {
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--ov2-ink-3);
-}
+/* ---- Bulk Cc/Bcc trigger (lives in the Individuals card header) ---- */
 .ov2-rs-bulk-btn {
   display: inline-flex;
   align-items: center;
