@@ -882,7 +882,12 @@ export class ComputeStack extends cdk.Stack {
       ipAddressType: elb.IpAddressType.IPV4,
       dropInvalidHeaderFields: true,
       deletionProtection: cfg.protectFromDestroy,
-      idleTimeout: cdk.Duration.seconds(60),
+      // AI content-generation requests legitimately run 60-120s+ (non-streaming
+      // model calls); at 60s the ALB dropped the connection mid-response → 504.
+      // 300s covers all non-streaming generation and gives streaming flows
+      // headroom between chunks. The API's Node keepAliveTimeout (305s, main.ts)
+      // is set just above this to avoid 502 socket-reuse races.
+      idleTimeout: cdk.Duration.seconds(300),
     });
 
     // HTTP -> HTTPS redirect.

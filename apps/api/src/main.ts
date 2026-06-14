@@ -69,6 +69,17 @@ async function bootstrap() {
   const port = Number.parseInt(process.env.API_PORT ?? '4000', 10);
   const host = process.env.API_BIND_HOST ?? '0.0.0.0';
   await app.listen(port, host);
+
+  // Behind the ALB these must outlast the ALB idle timeout (300s), or two
+  // things break: (1) long AI content-generation requests (model calls up to
+  // ~120s) get their socket cut by the server before the response is sent, and
+  // (2) the ALB can reuse a connection the server just closed → sporadic 502s.
+  // Node's defaults (keepAlive 5s, headers 60s) are far too low for an
+  // AI-heavy app. headersTimeout must exceed keepAliveTimeout.
+  const server = app.getHttpServer();
+  server.keepAliveTimeout = 305_000;
+  server.headersTimeout = 310_000;
+
   logger.log(`Capiro API listening on http://${host}:${port}`);
 }
 
