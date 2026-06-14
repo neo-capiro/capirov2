@@ -4,9 +4,7 @@ import { ChatDrawer } from './chat/ChatDrawer.js';
 import { ChangesInboxBell } from './ChangesInboxBell.js';
 import { QuickLogButton } from './QuickLog.js';
 import {
-  AimOutlined,
   ApartmentOutlined,
-  BulbOutlined,
   CalendarOutlined,
   CheckOutlined,
   DashboardOutlined,
@@ -17,13 +15,10 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   QuestionCircleOutlined,
-  SafetyCertificateOutlined,
-  ScheduleOutlined,
   SearchOutlined,
   SettingOutlined,
   SyncOutlined,
   UserOutlined,
-  UsergroupAddOutlined,
 } from '@ant-design/icons';
 import { useClerk, useUser } from '@clerk/clerk-react';
 import { ROLE_RANK, type TenantRole } from '@capiro/shared';
@@ -125,54 +120,17 @@ const NAV: NavItem[] = [
     path: '/workspace',
     icon: <FolderOpenOutlined />,
   },
+  // Single Program Elements tab. The former sub-items (Action Board,
+  // Analyst Console) remain routable by deep-link but are no longer surfaced in
+  // the nav. Planner, Intelligence Center, and Collaborators are hidden.
   {
-    key: 'planner',
-    label: 'Planner',
-    path: '/planner',
-    icon: <ScheduleOutlined />,
-    disabled: true,
-  },
-  {
-    key: 'intelligence',
-    label: 'Intelligence Center',
-    path: '/intelligence-center',
-    icon: <BulbOutlined />,
-  },
-  {
-    key: 'pe-group',
+    key: 'program-elements',
     label: 'Program Elements',
+    path: '/program-elements',
     icon: <FundOutlined />,
-    children: [
-      {
-        key: 'program-elements',
-        label: 'Browse',
-        path: '/program-elements',
-        icon: <SearchOutlined />,
-      },
-      {
-        key: 'actions',
-        label: 'Action Board',
-        path: '/actions',
-        icon: <AimOutlined />,
-      },
-      {
-        key: 'analyst-console',
-        label: 'Analyst Console',
-        path: '/admin/analyst-console',
-        icon: <SafetyCertificateOutlined />,
-        minRole: 'capiro_admin',
-      },
-    ],
   },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
-  {
-    key: 'collaborators',
-    label: 'Collaborators',
-    path: '/collaborators',
-    icon: <UsergroupAddOutlined />,
-    disabled: true,
-  },
 ];
 
 export function AppShell() {
@@ -478,7 +436,6 @@ export function AppShell() {
             theme="dark"
             mode="inline"
             selectedKeys={[selectedKey]}
-            defaultOpenKeys={['pe-group']}
             items={items}
             inlineCollapsed={navCollapsed}
             inlineIndent={24}
