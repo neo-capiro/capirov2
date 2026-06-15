@@ -284,7 +284,7 @@ export function StepContext({ recipients, targets, selected, onChange, pool, loa
   selectedRef.current = selected;
 
   // Client documents have no body until selected; pull the extracted text on
-  // demand (txt/docx supported server-side).
+  // demand (txt/csv/pdf/docx/xlsx supported server-side).
   const extractDoc = async (attachmentId: string, itemId: string) => {
     let body: string;
     try {
@@ -294,7 +294,7 @@ export function StepContext({ recipients, targets, selected, onChange, pool, loa
       const text = (res.data?.text ?? '').trim();
       body = text ? text.slice(0, 8000) : '(no extractable text in this document)';
     } catch {
-      body = '(could not extract text — only .txt and .docx documents are supported)';
+      body = '(could not extract text — supported: .txt, .csv, .pdf, .docx, .xlsx)';
     }
     onChange(selectedRef.current.map((c) => (c.id === itemId ? { ...c, body } : c)));
   };
