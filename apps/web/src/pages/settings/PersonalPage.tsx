@@ -20,8 +20,9 @@ interface EmailSignatureResponse {
 
 // Mirrors the server cap (MAX_SIGNATURE_HTML_LENGTH in sanitize-signature.ts).
 // Guarding client-side avoids an opaque 400 when a large pasted/uploaded
-// signature (e.g. an Outlook export with an inline logo) exceeds it.
-const MAX_SIGNATURE_HTML_LENGTH = 600_000;
+// signature (e.g. an Outlook export with an inline logo, or an uploaded
+// signature image) exceeds it.
+const MAX_SIGNATURE_HTML_LENGTH = 2_000_000;
 
 function saveErrorMessage(err: unknown): string {
   const data = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data;
@@ -101,8 +102,13 @@ export function PersonalPage() {
   });
 
   const readSignatureFile = (file: File) => {
+    const isImage = /^image\//i.test(file.type) || /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name);
+    if (isImage) {
+      readSignatureImageFile(file);
+      return;
+    }
     if (!/\.html?$/i.test(file.name) && file.type !== 'text/html') {
-      message.error('Please choose an .html or .htm file');
+      message.error('Please choose an image (PNG, JPG, GIF, WEBP) or an .html / .htm file');
       return;
     }
     if (file.size > 2_000_000) {
@@ -116,7 +122,7 @@ export function PersonalPage() {
       const clean = sanitizeSignatureHtml(raw);
       if (clean.length > MAX_SIGNATURE_HTML_LENGTH) {
         message.error(
-          'That signature is too large (max ~600 KB). Try removing or shrinking embedded images.',
+          'That signature is too large (max ~2 MB). Try removing or shrinking embedded images.',
         );
         return;
       }
@@ -125,6 +131,67 @@ export function PersonalPage() {
     };
     reader.onerror = () => message.error('Could not read that file');
     reader.readAsText(file);
+  };
+
+  // Upload an image OF a signature (a photo or scan). We downscale it to a sane
+  // max width and re-encode as a data-URI <img>, so the stored signature is a
+  // single self-contained image that renders in every email client. Downscaling
+  // keeps the base64 blob well under the server cap (sanitizeSignatureHtml).
+  const readSignatureImageFile = (file: File) => {
+    if (file.size > 10_000_000) {
+      message.error('That image is too large (max 10 MB before resizing)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+      if (!dataUrl.startsWith('data:image/')) {
+        message.error('Could not read that image');
+        return;
+      }
+      const img = new Image();
+      img.onload = () => {
+        // Cap the rendered width so the signature isn't a giant block; preserve
+        // aspect ratio. 600px is roughly an email content column.
+        const MAX_W = 600;
+        const scale = img.width > MAX_W ? MAX_W / img.width : 1;
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          message.error('Could not process that image');
+          return;
+        }
+        ctx.drawImage(img, 0, 0, w, h);
+        // PNG keeps transparency (common for signature cut-outs); fall back to
+        // the original data URL if canvas export somehow fails.
+        let out = dataUrl;
+        try {
+          out = canvas.toDataURL('image/png');
+        } catch {
+          out = dataUrl;
+        }
+        const imgHtml = `<p><img src="${out}" alt="Signature" width="${w}" height="${h}" style="max-width:100%;" /></p>`;
+        const clean = sanitizeSignatureHtml(imgHtml);
+        if (!clean || !/<img\b/i.test(clean)) {
+          message.error('That image type is not supported');
+          return;
+        }
+        if (clean.length > MAX_SIGNATURE_HTML_LENGTH) {
+          message.error('That image is too large after resizing (max ~2 MB). Try a smaller image.');
+          return;
+        }
+        setSigHtml(clean);
+        message.success('Signature image added — review below, then Save');
+      };
+      img.onerror = () => message.error('Could not load that image');
+      img.src = dataUrl;
+    };
+    reader.onerror = () => message.error('Could not read that image');
+    reader.readAsDataURL(file);
   };
 
   if (!me.data) return null;
@@ -194,13 +261,14 @@ export function PersonalPage() {
       >
         <p className="sig-intro">
           Your signature is automatically appended to campaign emails. Type it directly, paste from
-          Outlook or Gmail, or upload an HTML file. Toggle it on or off per campaign at send time.
+          Outlook or Gmail, upload an image of your signature, or upload an HTML file. Toggle it on
+          or off per campaign at send time.
         </p>
 
         <input
           ref={fileRef}
           type="file"
-          accept=".html,.htm,text/html"
+          accept="image/png,image/jpeg,image/gif,image/webp,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.bmp,.html,.htm,text/html"
           style={{ display: 'none' }}
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -227,8 +295,10 @@ export function PersonalPage() {
             <CloudUploadOutlined />
           </span>
           <div>
-            <div className="sig-dropzone-main">Upload an HTML signature file</div>
-            <div className="sig-dropzone-sub">Drag and drop, or browse — .html or .htm only</div>
+            <div className="sig-dropzone-main">Upload a signature image or HTML file</div>
+            <div className="sig-dropzone-sub">
+              Drag and drop, or browse — image (PNG, JPG, GIF, WEBP) or .html / .htm
+            </div>
           </div>
           <span className="sig-dropzone-spacer" />
           <Button size="small">Browse file</Button>
@@ -259,7 +329,7 @@ export function PersonalPage() {
 
         {sigTooLong && (
           <div style={{ marginTop: 12, fontSize: 12, color: 'var(--danger, #cf1322)' }}>
-            This signature is too large to save (max ~600 KB). Remove or shrink embedded images.
+            This signature is too large to save (max ~2 MB). Remove or shrink embedded images.
           </div>
         )}
 

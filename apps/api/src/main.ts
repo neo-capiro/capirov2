@@ -27,6 +27,13 @@ async function bootstrap() {
   // parser ONLY on the webhook paths; everything else gets normal JSON.
   app.use('/webhooks/clerk', raw({ type: '*/*', limit: '1mb' }));
   app.use('/webhooks/stripe', raw({ type: '*/*', limit: '1mb' }));
+  // The email-signature endpoint carries a branded HTML signature that can embed
+  // a base64 logo / uploaded signature image, so its JSON body legitimately
+  // exceeds the global 1mb cap. Give just this route a larger limit: the server
+  // caps stored HTML at ~2MB (MAX_SIGNATURE_HTML_LENGTH in sanitize-signature.ts)
+  // and base64 inflates ~33%, so 8mb leaves comfortable headroom. Mounted BEFORE
+  // the global json() so it wins for this path.
+  app.use('/api/me/email-signature', json({ limit: '8mb' }));
   app.use(json({ limit: '1mb' }));
 
   // Strict input validation at the edge, drop unknown fields, fail closed

@@ -270,6 +270,14 @@ export interface SendBatchDraftInput {
 
 export interface SendBatchEmailInput {
   clientId?: string;
+  /**
+   * Existing draft record id to mark as sent. When present the send updates
+   * that record in place (draft → sent/failed); when absent a fresh sent
+   * record is created so every real send shows up in the Sent history.
+   */
+  engagementId?: string;
+  /** Campaign name used for the persisted Sent record's title. */
+  campaignName?: string;
   direction?: 'on-behalf' | 'to-clients';
   recipients: OutreachRecipientInput[];
   drafts: SendBatchDraftInput[];
@@ -2248,6 +2256,25 @@ export class EngagementService {
       }
     }
 
+    // Persist a Sent record so every real send shows up in Outreach → Sent.
+    // Before this, batch sends went out via Graph but left no OutreachRecord,
+    // so the Sent history stayed empty. Wrapped so a persistence failure can
+    // never fail the send itself — the emails have already gone out.
+    let persistedRecordId: string | null = null;
+    try {
+      persistedRecordId = await this.persistSentBatchRecord(ctx, input, {
+        sent,
+        errors,
+        drafts,
+      });
+    } catch (error) {
+      this.logger.error(
+        `Batch send succeeded but persisting the Sent record failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+
     return {
       test: false,
       sent: sent.length,
@@ -2255,7 +2282,126 @@ export class EngagementService {
       errors,
       sentRecipients: sent,
       skippedAttachments,
+      engagementId: persistedRecordId,
     };
+  }
+
+  /**
+   * Persist (create or update) an OutreachRecord reflecting the outcome of a
+   * batch send so it appears in Outreach → Sent. If the wizard already saved a
+   * draft (input.engagementId), that record is flipped draft → sent/failed in
+   * place; otherwise a fresh record is created. A partial send (some sent, some
+   * failed) is still recorded as 'sent' — anything that went out must show up.
+   */
+  private async persistSentBatchRecord(
+    ctx: TenantContext,
+    input: SendBatchEmailInput,
+    outcome: {
+      sent: Array<{ email: string; name: string | null; sentAt: string }>;
+      errors: Array<{ email: string; message: string }>;
+      drafts: SendBatchDraftInput[];
+    },
+  ): Promise<string | null> {
+    const { sent, errors, drafts } = outcome;
+    // Nothing actually attempted/sent and no failures to record → skip.
+    if (sent.length === 0 && errors.length === 0) return null;
+
+    const direction = normalizeOutreachDirection(input.direction);
+    const recipients = applyOutreachDirection(
+      normalizeOutreachRecipients(input.recipients),
+      direction,
+    );
+    const firstDraft = drafts.find((d) => d.subject?.trim() || d.body?.trim()) ?? drafts[0];
+    const subject = optionalReportText(firstDraft?.subject, 300);
+    // The readonly Sent view renders `body` as plain text in a <pre>, so strip
+    // tags/entities from the (possibly HTML) draft to a readable summary.
+    const bodyText = firstDraft?.body
+      ? firstDraft.body
+          .replace(/<br\s*\/?>/gi, '\n')
+          .replace(/<\/(?:p|div|li|h[1-6]|tr)>/gi, '\n')
+          .replace(/<[^>]+>/g, '')
+          .replace(/&nbsp;/gi, ' ')
+          .replace(/&amp;/gi, '&')
+          .replace(/&lt;/gi, '<')
+          .replace(/&gt;/gi, '>')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim()
+          .slice(0, 20_000) || null
+      : null;
+    const title =
+      (input.campaignName?.trim() || subject || 'Outreach').slice(0, 240) || 'Outreach';
+    // Any success counts as sent; only a total failure is recorded as failed.
+    const status: 'sent' | 'failed' = sent.length > 0 ? 'sent' : 'failed';
+    const now = new Date();
+    const stats = {
+      provider: 'microsoft_graph',
+      recipientsAttempted: sent.length + errors.length,
+      recipientsSent: sent.length,
+      recipientsFailed: errors.length,
+      openRate: '0%',
+      replyCount: 0,
+      sent,
+      ...(errors.length ? { errors } : {}),
+    };
+    const campaignSend = {
+      provider: 'microsoft_graph',
+      completedAt: now.toISOString(),
+      status,
+      recipientsSent: sent.length,
+      recipientsFailed: errors.length,
+    };
+    const clientId = input.clientId?.trim() || null;
+
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      // Update path: the wizard saved a draft first, so flip it in place.
+      if (input.engagementId) {
+        const existing = await tx.outreachRecord.findFirst({
+          where: { id: input.engagementId, tenantId: ctx.tenantId, deletedAt: null },
+        });
+        if (existing) {
+          const updated = await tx.outreachRecord.update({
+            where: { id: existing.id },
+            data: {
+              status,
+              sentAt: status === 'sent' ? now : null,
+              ...(subject ? { subject } : {}),
+              ...(bodyText ? { body: bodyText } : {}),
+              recipients: recipients as unknown as Prisma.InputJsonValue,
+              recipientCount: recipients.length,
+              stats: stats as Prisma.InputJsonValue,
+              metadata: mergeJsonObjects(existing.metadata, {
+                direction,
+                campaignSend,
+              }) as Prisma.InputJsonValue,
+            },
+            select: { id: true },
+          });
+          return updated.id;
+        }
+        // engagementId was stale/foreign → fall through to create a new record.
+      }
+
+      const created = await tx.outreachRecord.create({
+        data: {
+          tenantId: ctx.tenantId,
+          clientId,
+          createdByUserId: ctx.userId,
+          type: 'campaign',
+          status,
+          sentAt: status === 'sent' ? now : null,
+          title,
+          subject: subject ?? null,
+          body: bodyText,
+          recipients: recipients as unknown as Prisma.InputJsonValue,
+          recipientCount: recipients.length,
+          stats: stats as Prisma.InputJsonValue,
+          metadata: { direction, campaignSend } as Prisma.InputJsonValue,
+          lastStep: 7,
+        },
+        select: { id: true },
+      });
+      return created.id;
+    });
   }
 
   async deleteOutreachRecord(ctx: TenantContext, id: string) {

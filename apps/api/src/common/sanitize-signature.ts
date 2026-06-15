@@ -15,10 +15,12 @@ import sanitizeHtml from 'sanitize-html';
  * only the signature block carries the broader markup.
  */
 
-// Bound the stored blob. A signature with one inline (base64 data-URI) logo is
-// commonly 50–150 KB; 600 KB leaves headroom while preventing abuse and keeping
-// the users-row read cheap.
-export const MAX_SIGNATURE_HTML_LENGTH = 600_000;
+// Bound the stored blob. A signature with one inline (base64 data-URI) logo or
+// an uploaded signature image is commonly 50–500 KB; 2 MB leaves headroom for a
+// reasonably-sized scanned/photographed signature while preventing abuse. The
+// users-row read stays cheap because the hot /me path does NOT select this blob
+// (only derives a boolean); the HTML loads on demand via GET /me/email-signature.
+export const MAX_SIGNATURE_HTML_LENGTH = 2_000_000;
 
 // Inline-style scrub: only these properties survive, and only when the value
 // matches the paired pattern. Notably absent: background-image / anything that

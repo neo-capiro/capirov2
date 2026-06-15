@@ -758,6 +758,11 @@ export function NewOutreachWizard({
         skippedAttachments?: string[];
       }>('/api/engagement/outreach/send-batch', {
         clientId: state.clientId ?? undefined,
+        // If the user saved a draft first, flip THAT record to sent instead of
+        // creating a duplicate. Absent → the API creates a fresh Sent record so
+        // the send still lands in Outreach → Sent.
+        engagementId: draftId ?? undefined,
+        campaignName: state.campaignName?.trim() || undefined,
         recipients: state.recipients,
         drafts: buildDrafts(),
         direction: state.direction ?? undefined,

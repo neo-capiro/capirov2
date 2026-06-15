@@ -26,6 +26,7 @@ import {
   IsUUID,
   Length,
   Max,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
@@ -999,6 +1000,21 @@ class SendBatchEmailDto {
   @IsOptional()
   @IsUUID()
   clientId?: string;
+
+  // When the wizard has already saved a draft, its record id rides along so the
+  // send updates THAT record in place (draft → sent) instead of orphaning it.
+  // Absent (sent without saving) → the service creates a fresh sent record so
+  // every real send still lands in the Sent history.
+  @IsOptional()
+  @IsUUID()
+  engagementId?: string;
+
+  // Campaign name for the persisted Sent record's title (falls back to the
+  // first draft subject). Purely cosmetic; the send itself doesn't need it.
+  @IsOptional()
+  @IsString()
+  @MaxLength(240)
+  campaignName?: string;
 
   @IsOptional()
   @IsIn(['on-behalf', 'to-clients'])
