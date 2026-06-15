@@ -115,6 +115,12 @@ export interface OutreachRecipient {
   /** Additional Cc / Bcc addresses copied on this recipient's email. */
   cc?: string[];
   bcc?: string[];
+  /**
+   * Group representative ONLY: every member to place in the To field — a group
+   * is one shared email to all members, not one email each. Absent for
+   * individuals and list members.
+   */
+  groupMembers?: Array<{ email: string; name?: string }>;
   meetingId?: string;
   meetingSubject?: string;
   meetingDateTime?: string;

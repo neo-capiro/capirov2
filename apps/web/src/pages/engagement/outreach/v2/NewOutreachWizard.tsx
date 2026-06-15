@@ -9,9 +9,9 @@
 // work to existing API endpoints under /api/engagement/outreach.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/clerk-react';
-import { App, Button, Form, Input, Modal, Select, Skeleton, Space, Tag, Typography } from 'antd';
+import { App, Button, Form, Input, Modal, Select, Skeleton, Space, Switch, Tag, Typography } from 'antd';
 import {
   ArrowRightOutlined,
   CheckCircleFilled,
@@ -22,6 +22,7 @@ import {
   SendOutlined,
 } from '@ant-design/icons';
 import { useApi } from '../../../../lib/use-api.js';
+import { useMe } from '../../../../lib/me.js';
 import type { Client } from '../../../clients/clientTypes.js';
 import type { OutreachRecipient, OutreachRecord } from '../../OutreachView.js';
 import { StepCampaignSetup } from './StepCampaignSetup.js';
@@ -35,7 +36,12 @@ import {
   individualTarget,
   sanitizeTargets,
 } from './targets.js';
-import { buildGenerationModel, projectDraftsForSend, type GenSlot } from './generation.js';
+import {
+  buildGenerationModel,
+  genInputSignature,
+  projectDraftsForSend,
+  type GenSlot,
+} from './generation.js';
 import { htmlToPlainText, markdownishToHtml, sanitizeHtml } from './richtext.js';
 import {
   INITIAL_V2_STATE,
@@ -88,29 +94,34 @@ interface InsightsResponse {
   topAgencies?: Array<{ name?: string | null; total?: number | null }>;
 }
 
-interface MeetingPrepLite {
+// Tenant-wide context library (GET /api/engagement/outreach/context-library):
+// docs/notes, debriefs, preps for ALL clients, each tagged with its client so
+// the Build Context tabs group by client. No recipient/client filtering.
+interface ContextLibraryItem {
   id: string;
-  status?: string | null;
-  summary?: string | null;
-  // Prep JSON arrays — string lists in practice; read defensively.
-  agenda?: unknown;
-  talkingPoints?: unknown;
-  risks?: unknown;
-  followUps?: unknown;
+  clientId: string | null;
+  clientName: string;
+  title: string;
+  sub?: string;
+  body?: string;
+  tag?: string;
+  date?: string;
 }
-interface MeetingsResponse {
-  items?: Array<{
-    id: string;
-    subject: string;
-    startsAt: string;
-    organizerName?: string | null;
-    organizerEmail?: string | null;
-    clientId?: string | null;
-    attendees?: Array<{ email?: string | null; name?: string | null }>;
-    // GET /api/engagement/meetings returns the latest prep per meeting with
-    // full content (meetingInclude → preps take:1). Sourced for the prep pool.
-    preps?: MeetingPrepLite[];
-  }>;
+interface ContextLibraryResponse {
+  documents: ContextLibraryItem[];
+  debriefs: ContextLibraryItem[];
+  preps: ContextLibraryItem[];
+}
+
+// Client documents for the Generate step's email-attachment picker (attach a
+// client's files to the outbound email) — distinct from the context pool.
+interface AttachmentItem {
+  id: string;
+  fileName: string;
+  contentType: string;
+}
+interface AttachmentsResponse {
+  items: AttachmentItem[];
 }
 
 interface MailThreadsResponse {
@@ -124,32 +135,6 @@ interface MailThreadsResponse {
   }>;
 }
 
-interface AttachmentItem {
-  id: string;
-  fileName: string;
-  contentType: string;
-}
-interface AttachmentsResponse {
-  items: AttachmentItem[];
-}
-
-interface DebriefItem {
-  id: string;
-  meetingId: string | null;
-  clientId: string | null;
-  body: string | null;
-  restricted?: boolean;
-  createdAt?: string;
-  meeting?: { id: string; subject: string | null; startsAt: string | null } | null;
-}
-
-interface DirectoryNoteItem {
-  id: string;
-  directoryContactId: string;
-  directoryContactName: string | null;
-  body: string;
-  _memberContactId: string;
-}
 
 /** Pull a human-readable message out of an axios-style error, if present. */
 function apiErrorMessage(err: unknown): string | null {
@@ -198,6 +183,15 @@ export function NewOutreachWizard({
   const [sentResult, setSentResult] = useState<{ sent: number; failed: number } | null>(null);
   // Recipient key currently being (re)generated individually, if any.
   const [generatingKey, setGeneratingKey] = useState<string | null>(null);
+
+  // Email signature: the sender's saved-in-Settings default + whether one
+  // exists. `appendSigOverride` is the per-campaign choice (null = follow the
+  // user's default); the effective value is what we send to the API.
+  const me = useMe();
+  const signatureDefault = me.data?.user.emailSignatureEnabled ?? false;
+  const hasSignature = me.data?.user.hasEmailSignature ?? false;
+  const [appendSigOverride, setAppendSigOverride] = useState<boolean | null>(null);
+  const appendSignature = appendSigOverride ?? signatureDefault;
 
   // WIZARD_STEPS is readonly + non-empty, but TS's noUncheckedIndexedAccess
   // narrows the indexed read to `T | undefined`. The clamp on stepIdx
@@ -331,6 +325,18 @@ export function NewOutreachWizard({
       generatedEmails:
         Object.keys(generatedEmails).length > 0 ? generatedEmails : prev.generatedEmails,
       attachmentIds: attachmentIds.length > 0 ? attachmentIds : prev.attachmentIds,
+      // Stamp the restored context signature so resumed drafts aren't instantly
+      // flagged stale (they were generated against this exact context).
+      generatedInputSig:
+        Object.keys(generatedEmails).length > 0
+          ? genInputSignature({
+              contextItems,
+              templateId:
+                typeof metadata.templateId === 'string' ? metadata.templateId : prev.templateId,
+              tone,
+              direction,
+            })
+          : prev.generatedInputSig,
     }));
 
     // Resume step: prefer the step *id* persisted in metadata.lastStepId — it's
@@ -390,25 +396,29 @@ export function NewOutreachWizard({
     [state.recipients],
   );
 
-  const meetingsQuery = useQuery<MeetingsResponse>({
+  // Docs/notes, debriefs, and preps for the Build Context step come from ONE
+  // tenant-wide library, grouped by client — NOT filtered by the campaign's
+  // client or recipients. (Previously these were client/recipient-gated, which
+  // left the tabs empty for no-single-client or congressional campaigns.)
+  const contextLibraryQuery = useQuery<ContextLibraryResponse>({
     enabled: step.id === 'context',
-    queryKey: ['outreach-pool-meetings', state.clientId, recipientEmailsParam],
+    queryKey: ['outreach-context-library'],
+    queryFn: async () =>
+      (await api.get<ContextLibraryResponse>('/api/engagement/outreach/context-library')).data,
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  // Client documents for the Generate step's email-attachment picker (NOT the
+  // context pool — that's the tenant-wide library above). Scoped to the
+  // campaign's client since you attach that client's files to the email.
+  const docsQuery = useQuery<AttachmentsResponse>({
+    enabled: step.id === 'generate' && !!state.clientId,
+    queryKey: ['outreach-pool-docs', state.clientId],
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (state.clientId) params.set('clientId', state.clientId);
-      // Last 90 days of meetings. Send an explicit `to` — without it the API's
-      // toDateWindow defaults `to` to from+1day, collapsing the range to a
-      // single day 90 days ago (the bug that left the Past meetings tab empty).
-      params.set('from', new Date(Date.now() - 90 * 86400_000).toISOString());
-      params.set('to', new Date().toISOString());
-      if (recipientEmailsParam) params.set('recipientEmails', recipientEmailsParam);
-      // The API returns a bare Meeting[] (every other caller reads it as an
-      // array). The v2 pool reads `.items`, so wrap it — reading `.items` off
-      // the bare array, as this query did before, always gave undefined, which
-      // is the real reason the Past meetings tab was empty.
-      const res = await api.get<NonNullable<MeetingsResponse['items']>>(
-        `/api/engagement/meetings?${params}`,
-      );
+      const res = await api.get<AttachmentItem[]>('/api/engagement/attachments', {
+        params: { clientId: state.clientId },
+      });
       return { items: res.data };
     },
     retry: false,
@@ -431,62 +441,6 @@ export function NewOutreachWizard({
     retry: false,
   });
 
-  // Client documents (uploaded files) for the Docs & Notes tab. Text is
-  // extracted lazily when an item is selected (see StepContext).
-  const docsQuery = useQuery<AttachmentsResponse>({
-    enabled: (step.id === 'context' || step.id === 'generate') && !!state.clientId,
-    queryKey: ['outreach-pool-docs', state.clientId],
-    queryFn: async () => {
-      const res = await api.get<AttachmentItem[]>('/api/engagement/attachments', {
-        params: { clientId: state.clientId },
-      });
-      return { items: res.data };
-    },
-    retry: false,
-  });
-
-  // Saved meeting debriefs, scoped to the campaign's client AND/OR to meetings
-  // involving the chosen recipients (so a no-client congressional campaign
-  // still surfaces them — matches how meetings/mail load). Bodies are
-  // access-filtered server-side; restricted ones come back with body=null.
-  const debriefQuery = useQuery<DebriefItem[]>({
-    enabled: step.id === 'context',
-    queryKey: ['outreach-pool-debriefs', state.clientId, recipientEmailsParam],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (state.clientId) params.set('clientId', state.clientId);
-      if (recipientEmailsParam) params.set('recipientEmails', recipientEmailsParam);
-      const res = await api.get<DebriefItem[]>(`/api/engagement/debriefs?${params}`);
-      return res.data;
-    },
-    retry: false,
-  });
-
-  // Member directory notes: one query per unique directory member among the
-  // recipients (staffer ids are "memberId:stafferId" → take the member part).
-  const memberContactIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const r of state.recipients) {
-      if (r.directoryContactId) ids.add(r.directoryContactId.split(':')[0] ?? r.directoryContactId);
-    }
-    return Array.from(ids);
-  }, [state.recipients]);
-
-  const memberNotesQueries = useQueries({
-    queries: memberContactIds.map((contactId) => ({
-      enabled: step.id === 'context',
-      queryKey: ['outreach-pool-member-notes', contactId],
-      queryFn: async () =>
-        (
-          await api.get<DirectoryNoteItem[]>(
-            `/api/directory/contacts/${encodeURIComponent(contactId)}/notes`,
-          )
-        ).data.map((n) => ({ ...n, _memberContactId: contactId })),
-      retry: false,
-      staleTime: 60_000,
-    })),
-  });
-
   const pool: Record<ContextKind, ContextPoolItem[]> = useMemo(() => {
     const out: Record<ContextKind, ContextPoolItem[]> = {
       bill: [],
@@ -501,54 +455,27 @@ export function NewOutreachWizard({
       prep: [],
     };
 
-    // ---- Docs & Notes: client profile notes + client documents + member notes ----
-    // Client profile notes (saved in the client profile → Documents → Notes,
-    // stored on intakeData.profileNotes).
-    const activeClient = clients.find((c) => c.id === state.clientId);
-    const profileNotes =
-      typeof (activeClient?.intakeData as { profileNotes?: unknown } | null)?.profileNotes ===
-      'string'
-        ? ((activeClient!.intakeData as { profileNotes?: string }).profileNotes as string).trim()
-        : '';
-    if (profileNotes) {
-      out.document.push({
-        id: `clientnote-${state.clientId}`,
-        kind: 'document',
-        title: `${activeClient?.name ?? 'Client'} — profile notes`,
-        body: profileNotes,
-        tag: 'Client note',
-      });
-    }
-
-    // Client documents (uploaded files). Body (extracted text) is filled in
-    // lazily on selection; here we list them as selectable items.
-    for (const d of docsQuery.data?.items ?? []) {
-      out.document.push({
-        id: `doc-${d.id}`,
-        kind: 'document',
-        title: d.fileName,
-        sub: 'Client document',
-        tag: 'Document',
-      });
-    }
-
-    // Member directory notes, matched to the recipients who are that member.
-    for (const q of memberNotesQueries) {
-      for (const n of q.data ?? []) {
-        const memberId = n._memberContactId;
-        const matchedRecipientIds = state.recipients
-          .map((r) => r.directoryContactId)
-          .filter((id): id is string => !!id && (id === memberId || id.split(':')[0] === memberId));
-        out.document.push({
-          id: `membernote-${n.id}`,
-          kind: 'document',
-          title: `Note: ${n.directoryContactName ?? 'member'}`,
-          body: n.body,
-          tag: 'Member note',
-          matches: [memberId, ...matchedRecipientIds],
-        });
-      }
-    }
+    // ---- Docs & Notes, Debriefs, Preps: one tenant-wide library, per client ----
+    // These tabs show EVERY item across all clients (the UI groups by client) —
+    // independent of the campaign's client or selected recipients. Document text
+    // is still extracted lazily on select, so doc items keep their `doc-…` id and
+    // arrive body-less here.
+    const lib = contextLibraryQuery.data;
+    const mapLib = (kind: ContextKind, items?: ContextLibraryItem[]): ContextPoolItem[] =>
+      (items ?? []).map((it) => ({
+        id: it.id,
+        kind,
+        title: it.title,
+        body: it.body,
+        sub: it.date ? new Date(it.date).toLocaleDateString() : it.sub,
+        tag: it.tag,
+        clientId: it.clientId,
+        clientName: it.clientName,
+        date: it.date,
+      }));
+    out.document = mapLib('document', lib?.documents);
+    out.debrief = mapLib('debrief', lib?.debriefs);
+    out.prep = mapLib('prep', lib?.preps);
 
     // Bills come from /outreach/insights → recentBills.
     for (const b of insightsQuery.data?.recentBills ?? []) {
@@ -622,37 +549,7 @@ export function NewOutreachWizard({
       });
     }
 
-    // Meeting preps: each meeting's latest AI prep becomes a context item
-    // (summary + talking points + agenda + follow-ups). Smart-routing matches
-    // recipients via attendee email. (Replaces the old Past meetings source.)
-    const prepLines = (v: unknown): string[] =>
-      Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0) : [];
-    for (const m of meetingsQuery.data?.items ?? []) {
-      const prep = m.preps?.[0];
-      if (!prep) continue;
-      const talking = prepLines(prep.talkingPoints);
-      const agenda = prepLines(prep.agenda);
-      const followUps = prepLines(prep.followUps);
-      const bodyParts = [
-        prep.summary?.trim() || '',
-        talking.length ? `Talking points: ${talking.join('; ')}` : '',
-        agenda.length ? `Agenda: ${agenda.join('; ')}` : '',
-        followUps.length ? `Follow-ups: ${followUps.join('; ')}` : '',
-      ].filter(Boolean);
-      const attendeeEmails = (m.attendees ?? [])
-        .map((a) => a.email?.toLowerCase())
-        .filter((e): e is string => Boolean(e));
-      out.prep.push({
-        id: `prep-${prep.id}`,
-        kind: 'prep',
-        title: `Prep: ${m.subject}`,
-        body: bodyParts.join('\n') || undefined,
-        sub: new Date(m.startsAt).toLocaleDateString(),
-        matches: [m.clientId, ...attendeeEmails].filter((s): s is string => Boolean(s)),
-      });
-    }
-
-    // Past email threads: same smart-routing via participant email.
+    // Past email threads: smart-routing via participant email.
     for (const t of mailQuery.data?.items ?? []) {
       const participantEmails = (t.participants ?? [])
         .map((p) => p.email?.toLowerCase())
@@ -667,43 +564,11 @@ export function NewOutreachWizard({
       });
     }
 
-    // Saved debriefs: routable to the client and the debrief's meeting.
-    for (const d of debriefQuery.data ?? []) {
-      out.debrief.push({
-        id: `debrief-${d.id}`,
-        kind: 'debrief',
-        title: d.meeting?.subject ? `Debrief: ${d.meeting.subject}` : 'Meeting debrief',
-        body: d.body ?? undefined,
-        sub: d.meeting?.startsAt
-          ? new Date(d.meeting.startsAt).toLocaleDateString()
-          : d.createdAt
-            ? new Date(d.createdAt).toLocaleDateString()
-            : undefined,
-        tag: d.restricted ? 'Restricted' : 'Debrief',
-        matches: [d.clientId, d.meetingId].filter((s): s is string => Boolean(s)),
-      });
-    }
-
     return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    insightsQuery.data,
-    meetingsQuery.data,
-    mailQuery.data,
-    docsQuery.data,
-    debriefQuery.data,
-    memberNotesQueries,
-    clients,
-    state.clientId,
-    state.recipients,
-  ]);
+  }, [insightsQuery.data, mailQuery.data, contextLibraryQuery.data]);
 
   const poolLoading =
-    insightsQuery.isLoading ||
-    meetingsQuery.isLoading ||
-    mailQuery.isLoading ||
-    docsQuery.isLoading ||
-    debriefQuery.isLoading;
+    insightsQuery.isLoading || mailQuery.isLoading || contextLibraryQuery.isLoading;
 
   // ---- Gating ----
   const canAdvance = (): boolean => {
@@ -730,13 +595,33 @@ export function NewOutreachWizard({
   // GenerationTargetKey (see generation.ts).
   const genModel = useMemo(() => buildGenerationModel(state.targets), [state.targets]);
 
+  // Signature of the generation inputs. Drafts are "stale" on Generate & Review
+  // when this no longer matches the signature stamped at the last full
+  // generation (state.generatedInputSig) — drives the regenerate banner.
+  const genSig = useMemo(
+    () =>
+      genInputSignature({
+        contextItems: state.contextItems,
+        templateId: state.templateId,
+        tone: state.tone,
+        direction: state.direction,
+      }),
+    [state.contextItems, state.templateId, state.tone, state.direction],
+  );
+  const contextStale =
+    Object.keys(state.generatedEmails).length > 0 &&
+    state.generatedInputSig != null &&
+    state.generatedInputSig !== genSig;
+
   // Generate (or regenerate) a set of draft slots. Non-group slots go in ONE
   // generate-batch call (one flat recipient each, mapped back by recipientId);
   // each group sends its single representative in its own call so it can carry
   // the group's member listing as additionalContext. The endpoint + response
   // shape are unchanged — we just key results by GenerationTargetKey.
   const generateMutation = useMutation({
-    mutationFn: async (vars: { slots: GenSlot[] }) => {
+    // markFresh + sig: when a FULL regeneration completes, stamp the
+    // generation-input signature so the "context changed" banner clears.
+    mutationFn: async (vars: { slots: GenSlot[]; markFresh?: boolean; sig?: string }) => {
       if (!vars.slots.length) return [];
       // GenerateBatchEmailDto whitelists only id/kind/title/body/scope/note on
       // context items; with forbidNonWhitelisted on, pool-only fields (tag/sub/
@@ -808,7 +693,7 @@ export function NewOutreachWizard({
 
       return (await Promise.all(tasks)).flat();
     },
-    onSuccess: (results) => {
+    onSuccess: (results, vars) => {
       setState((prev) => {
         const generatedEmails = { ...prev.generatedEmails };
         for (const r of results) {
@@ -822,7 +707,12 @@ export function NewOutreachWizard({
             status: 'ready',
           };
         }
-        return { ...prev, generatedEmails };
+        return {
+          ...prev,
+          generatedEmails,
+          // A full regeneration reflects the current context → drafts fresh.
+          ...(vars.markFresh && vars.sig != null ? { generatedInputSig: vars.sig } : {}),
+        };
       });
       setGeneratingKey(null);
       if (results.length === 0) return;
@@ -873,6 +763,7 @@ export function NewOutreachWizard({
         direction: state.direction ?? undefined,
         testMode: vars?.testMode ?? false,
         attachmentIds: state.attachmentIds,
+        appendSignature,
       });
       return res.data;
     },
@@ -988,7 +879,14 @@ export function NewOutreachWizard({
   useEffect(() => {
     if (step.id !== 'generate' || generateMutation.isPending) return;
     const missing = genModel.slots.filter((s) => !state.generatedEmails[s.genKey]);
-    if (missing.length > 0) generateMutation.mutate({ slots: missing });
+    if (missing.length > 0)
+      generateMutation.mutate({
+        slots: missing,
+        // First entry generates every slot → stamp the signature so the banner
+        // doesn't immediately flag freshly-generated drafts as stale.
+        markFresh: missing.length === genModel.slots.length,
+        sig: genSig,
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step.id]);
 
@@ -1064,7 +962,8 @@ export function NewOutreachWizard({
   };
   const regenerateAll = () => {
     setGeneratingKey(null);
-    generateMutation.mutate({ slots: genModel.slots });
+    // Full regen → stamp the current input signature so the banner clears.
+    generateMutation.mutate({ slots: genModel.slots, markFresh: true, sig: genSig });
   };
 
   // Copy a list member's edited subject/body to every member of that list
@@ -1174,6 +1073,7 @@ export function NewOutreachWizard({
               onTone={(t) => setState((p) => ({ ...p, tone: t }))}
               selectedKey={state.selectedGenerationKey}
               onSelectKey={(k) => setState((p) => ({ ...p, selectedGenerationKey: k }))}
+              contextStale={contextStale}
               onRegenerateAll={regenerateAll}
               onRegenerateOne={regenerateOne}
               onEdit={updateDraft}
@@ -1193,6 +1093,9 @@ export function NewOutreachWizard({
               recipients={state.recipients}
               sendFrom={sendFrom}
               emailConnected={emailConnected}
+              hasSignature={hasSignature}
+              appendSignature={appendSignature}
+              onToggleSignature={setAppendSigOverride}
               onSend={() => sendMutation.mutate(undefined)}
               onTest={() => sendMutation.mutate({ testMode: true })}
               sending={realSending}
@@ -1689,6 +1592,9 @@ function StepSend({
   recipients,
   sendFrom,
   emailConnected,
+  hasSignature,
+  appendSignature,
+  onToggleSignature,
   onSend,
   onTest,
   sending,
@@ -1699,6 +1605,9 @@ function StepSend({
   recipients: OutreachRecipient[];
   sendFrom: string | null;
   emailConnected: boolean;
+  hasSignature: boolean;
+  appendSignature: boolean;
+  onToggleSignature: (next: boolean) => void;
   onSend: () => void;
   onTest: () => void;
   sending: boolean;
@@ -1742,6 +1651,25 @@ function StepSend({
         <Typography.Paragraph type="warning" style={{ marginTop: 12 }}>
           No Microsoft connection found. Connect one in Settings → Integrations before sending.
         </Typography.Paragraph>
+      )}
+      {hasSignature && (
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+            marginTop: 16,
+            padding: '9px 14px',
+            border: '1px solid var(--ov2-border-1)',
+            borderRadius: 8,
+            background: 'var(--ov2-bg-surface-2)',
+          }}
+        >
+          <Switch checked={appendSignature} onChange={onToggleSignature} size="small" />
+          <span style={{ fontSize: 13, color: 'var(--ov2-ink-1)' }}>
+            Append my email signature
+          </span>
+        </div>
       )}
       <Space style={{ marginTop: 20 }}>
         <Button

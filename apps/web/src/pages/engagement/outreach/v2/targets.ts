@@ -101,9 +101,24 @@ export function individualTarget(recipient: OutreachRecipient): OutreachTarget {
   };
 }
 
-/** First target containing this person, scanning individuals → lists → groups. */
-export function membershipOf(targets: OutreachTarget[], key: string): TargetType | null {
-  for (const type of ['individual', 'list', 'group'] as const) {
+/**
+ * First target containing this person. `scope: 'personal'` checks only the
+ * individual + list targets (the recipient's own "To" email); group membership
+ * is ORTHOGONAL — a person may be in a group AND be an individual / list member
+ * (they get their personal email AND ride the group's shared To), so groups
+ * neither block nor are blocked by the personal slot. `scope: 'all'` (default)
+ * scans every target type.
+ */
+export function membershipOf(
+  targets: OutreachTarget[],
+  key: string,
+  scope: 'all' | 'personal' = 'all',
+): TargetType | null {
+  const types =
+    scope === 'personal'
+      ? (['individual', 'list'] as const)
+      : (['individual', 'list', 'group'] as const);
+  for (const type of types) {
     for (const t of targets) {
       if (t.type !== type) continue;
       if (t.recipients.some((r) => recipientKey(r) === key)) return type;
@@ -206,6 +221,34 @@ export function flattenTargets(targets: OutreachTarget[]): OutreachRecipient[] {
   for (const type of ['individual', 'list', 'group'] as const) {
     for (const t of targets) {
       if (t.type !== type) continue;
+
+      // A GROUP is ONE shared email: emit a single representative recipient
+      // (id `group:<key>`) that carries every member in `groupMembers` (the To
+      // field at send). Members are NOT deduped against individual/list targets
+      // — a person can receive their own personalized email AND appear on the
+      // group's To (the relaxed-dedup edge case).
+      if (t.type === 'group') {
+        const members = t.recipients
+          .map((r) => ({ email: (r.email ?? '').trim(), name: r.name || undefined }))
+          .filter((m) => m.email);
+        if (!members.length) continue;
+        const repId = `group:${t.key}`;
+        if (seen.has(repId)) continue;
+        seen.add(repId);
+        const cc = dedupeEmails([...t.cc, ...(t.ccContacts?.map((c) => c.email) ?? [])]);
+        const bcc = dedupeEmails([...t.bcc, ...(t.bccContacts?.map((c) => c.email) ?? [])]);
+        out.push({
+          id: repId,
+          name: t.name ?? 'Group',
+          email: members[0]!.email, // representative; send uses groupMembers for To
+          groupMembers: members,
+          cc: cc.length ? cc : undefined,
+          bcc: bcc.length ? bcc : undefined,
+          sourceLabel: `Group: ${t.name ?? 'Untitled'}`,
+        });
+        continue;
+      }
+
       for (const r of t.recipients) {
         const key = recipientKey(r);
         if (seen.has(key)) continue;
@@ -226,10 +269,7 @@ export function flattenTargets(targets: OutreachTarget[]): OutreachRecipient[] {
           ...r,
           cc: cc.length ? cc : undefined,
           bcc: bcc.length ? bcc : undefined,
-          sourceLabel:
-            t.type === 'individual'
-              ? r.sourceLabel
-              : `${t.type === 'list' ? 'List' : 'Group'}: ${t.name ?? 'Untitled'}`,
+          sourceLabel: t.type === 'individual' ? r.sourceLabel : `List: ${t.name ?? 'Untitled'}`,
         });
       }
     }

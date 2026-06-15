@@ -46,6 +46,8 @@ interface Props {
   onSelectKey: (key: string) => void;
   onRegenerateAll: () => void;
   onRegenerateOne: (genKey: string) => void;
+  /** Context (or template/tone) changed since these drafts were generated. */
+  contextStale?: boolean;
   onEdit: (genKey: string, patch: { subject?: string; body?: string }) => void;
   onApplyToList: (listAid: string, sourceKey: string) => void;
   regenerating: boolean;
@@ -78,6 +80,7 @@ export function StepGenerate({
   onSelectKey,
   onRegenerateAll,
   onRegenerateOne,
+  contextStale,
   onEdit,
   onApplyToList,
   regenerating,
@@ -149,6 +152,27 @@ export function StepGenerate({
         Clio drafts a unique email for each individual and list member, and one shared email per
         group. Edit any draft inline, regenerate, or save everything as a draft to finish later.
       </div>
+
+      {contextStale && (
+        <div className="ov2-gen-stale" role="status">
+          <span className="ov2-gen-stale-ico">
+            <ThunderboltOutlined />
+          </span>
+          <span className="ov2-gen-stale-msg">
+            Your context changed since these drafts were generated. Regenerate to apply it
+            {' '}
+            <em>(this replaces every draft, including any manual edits)</em>.
+          </span>
+          <button
+            type="button"
+            className="ov2-gen-stale-btn"
+            onClick={onRegenerateAll}
+            disabled={batchGenerating}
+          >
+            {batchGenerating ? 'Regenerating…' : 'Regenerate all'}
+          </button>
+        </div>
+      )}
 
       <div className="ov2-gen-grid">
         {/* ---- Left rail ---- */}

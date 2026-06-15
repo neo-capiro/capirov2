@@ -1,6 +1,7 @@
 // Locks the Generate & Review entity model: per-entity draft slots
 // (individual = 1, list = 1 per member, group = 1 shared) and the send
-// projection that fans a group's shared draft to every member.
+// projection — a group projects to ONE draft keyed to its representative
+// (group:<targetKey>), sent as a single email to all members in To.
 
 import { describe, expect, it } from 'vitest';
 import { buildGenerationModel, listAidFromKey, projectDraftsForSend } from './generation.js';
@@ -76,14 +77,19 @@ describe('projectDraftsForSend', () => {
     'group:aud2': { subject: 'SG', body: 'BG', status: 'ready' },
   };
 
-  it('one draft per recipient; the group shared draft fans to every member', () => {
+  it('one draft per individual / list member, and ONE shared draft per group', () => {
     const drafts = projectDraftsForSend(mix, generated);
-    expect(drafts).toHaveLength(5);
+    // 1 individual + 2 list members + 1 group (not fanned to its 2 members) = 4.
+    expect(drafts).toHaveLength(4);
     const byId = Object.fromEntries(drafts.map((d) => [d.recipientId, d]));
     expect(byId['a@x.com']!.subject).toBe('SA');
     expect(byId['b@x.com']!.subject).toBe('SB');
-    expect(byId['d@x.com']!.subject).toBe('SG');
-    expect(byId['e@x.com']!.body).toBe('BG');
+    expect(byId['c@x.com']!.subject).toBe('SC');
+    // The group is ONE draft keyed to its representative (group:<targetKey>),
+    // NOT one per member — the send fans it to all members in the To field.
+    expect(byId['group:G1']!.subject).toBe('SG');
+    expect(byId['d@x.com']).toBeUndefined();
+    expect(byId['e@x.com']).toBeUndefined();
   });
 
   it('skips drafts with no subject and no body', () => {
@@ -93,7 +99,7 @@ describe('projectDraftsForSend', () => {
     expect(drafts).toHaveLength(0);
   });
 
-  it('a group claims its members before an overlapping individual/list (groups-first)', () => {
+  it('a person in a group AND as an individual gets BOTH drafts (relaxed dedup)', () => {
     const dup = 'shared@x.com';
     const targets = [individual(dup), group('G9', 'aud9', [dup, 'other@x.com'])];
     const gen = {
@@ -103,7 +109,11 @@ describe('projectDraftsForSend', () => {
     const byId = Object.fromEntries(
       projectDraftsForSend(targets, gen).map((d) => [d.recipientId, d]),
     );
-    expect(byId['shared@x.com']!.subject).toBe('GRP');
+    // The individual keeps their own personalized draft …
+    expect(byId['shared@x.com']!.subject).toBe('IND');
+    // … and the group is its own single shared draft (keyed to the group rep);
+    // the person rides the group's To at send without losing their own email.
+    expect(byId['group:G9']!.subject).toBe('GRP');
   });
 });
 

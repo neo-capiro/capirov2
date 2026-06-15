@@ -19,8 +19,29 @@
 // drafts back to one flat {recipientId,subject,body} per recipient.
 
 import type { OutreachRecipient } from '../../OutreachView.js';
-import { recipientKey } from './types.js';
+import { recipientKey, type SelectedContextItem } from './types.js';
 import type { OutreachTarget, TargetType } from './targets.js';
+
+/**
+ * Stable signature of the inputs that drive draft generation — the selected
+ * context items (id/scope/note + body length, so edits and doc-extraction
+ * register), the template, tone, and direction. Generate & Review compares the
+ * live signature against the one captured at the last full generation to know
+ * when drafts are stale (the "context changed — regenerate" banner).
+ */
+export function genInputSignature(input: {
+  contextItems: SelectedContextItem[];
+  templateId: string | null;
+  tone: string;
+  direction: string | null;
+}): string {
+  return JSON.stringify({
+    ctx: input.contextItems.map((c) => [c.id, c.scope, c.note ?? '', (c.body ?? '').length]),
+    template: input.templateId,
+    tone: input.tone,
+    direction: input.direction,
+  });
+}
 
 export type GenerationAppliesTo = 'individual' | 'member' | 'group';
 
@@ -185,11 +206,11 @@ export function listAidFromKey(genKey: string): string | null {
 }
 
 /**
- * Project per-target drafts back to one flat {recipientId,subject,body} per
- * recipient for the unchanged send-batch contract. A group's single shared
- * draft is fanned to every member (the send pipeline still posts one email per
- * recipient — true "one email to all on To" awaits the Send rebuild). Drafts
- * with no subject AND no body are skipped.
+ * Project per-target drafts to the flat {recipientId,subject,body} send-batch
+ * contract. Individuals/list-members emit one draft each (keyed by recipientKey).
+ * A GROUP emits ONE draft keyed to its single representative `group:<targetKey>`
+ * — matching flattenTargets' group representative — so the group sends as one
+ * email with all members in To. Drafts with no subject AND no body are skipped.
  */
 export function projectDraftsForSend(
   targets: OutreachTarget[],
@@ -214,16 +235,23 @@ export function projectDraftsForSend(
       const aid = audienceIdOf(t);
       for (const m of t.recipients) push(m, generated[`list:${aid}:${recipientKey(m)}`]);
     } else {
+      // GROUP — one draft for the whole group, keyed to its representative
+      // `group:<targetKey>` (the same id flattenTargets emits), so the group
+      // sends as a single email to all members.
       const aid = audienceIdOf(t);
       const shared = generated[`group:${aid}`];
-      for (const m of t.recipients) push(m, shared);
+      if (shared && (shared.subject?.trim() || shared.body?.trim())) {
+        const id = `group:${t.key}`;
+        if (!seen.has(id)) {
+          seen.add(id);
+          out.push({ recipientId: id, subject: shared.subject, body: shared.body });
+        }
+      }
     }
   };
 
-  // Process groups FIRST so a group always emits its shared draft for its
-  // members. (The recipients step already prevents a person from being in two
-  // targets; this ordering keeps the projection correct even if that ever
-  // changes — a group member is never pre-empted by an individual/list draft.)
+  // Order doesn't affect groups now (they emit one draft under a dedicated
+  // `group:<key>` id), but individuals/lists still dedupe by recipientKey.
   for (const t of targets) if (t.type === 'group') handle(t);
   for (const t of targets) if (t.type === 'list') handle(t);
   for (const t of targets) if (t.type === 'individual') handle(t);

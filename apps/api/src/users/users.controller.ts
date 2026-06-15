@@ -1,14 +1,29 @@
-import { BadRequestException, Body, Controller, Get, Patch } from '@nestjs/common';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { BadRequestException, Body, Controller, Get, Patch, Put } from '@nestjs/common';
+import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { TenantContext } from '@capiro/shared';
 import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { MAX_SIGNATURE_HTML_LENGTH, sanitizeSignatureHtml } from '../common/sanitize-signature.js';
 
 class UpdateMeDto {
   @IsOptional()
   @IsString()
   @MaxLength(120)
   title?: string;
+}
+
+class UpdateEmailSignatureDto {
+  // Raw HTML from the editor / pasted-or-uploaded signature. Server-sanitized
+  // before storage. Empty/whitespace clears the signature (stored as NULL).
+  @IsOptional()
+  @IsString()
+  @MaxLength(MAX_SIGNATURE_HTML_LENGTH)
+  html?: string;
+
+  // Append-by-default preference.
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
 }
 
 /**
@@ -31,7 +46,17 @@ export class UsersController {
       const [user, tenant] = await Promise.all([
         tx.user.findUnique({
           where: { id: ctx.userId },
-          select: { email: true, firstName: true, lastName: true, title: true },
+          // emailSignatureHtml is fetched only to derive the `hasEmailSignature`
+          // boolean — the (potentially large) blob itself is NOT returned on the
+          // hot /me path; the Settings page loads it via GET /me/email-signature.
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+            title: true,
+            emailSignatureHtml: true,
+            emailSignatureEnabled: true,
+          },
         }),
         tx.tenant.findUnique({
           where: { id: ctx.tenantId },
@@ -49,6 +74,8 @@ export class UsersController {
         firstName: profile.user?.firstName ?? null,
         lastName: profile.user?.lastName ?? null,
         title: profile.user?.title ?? null,
+        emailSignatureEnabled: profile.user?.emailSignatureEnabled ?? false,
+        hasEmailSignature: Boolean(profile.user?.emailSignatureHtml),
       },
       tenant: {
         id: ctx.tenantId,
@@ -68,22 +95,97 @@ export class UsersController {
     }
     const normalized = body.title?.trim() ?? '';
     const next = normalized.length ? normalized : null;
-    const user = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.user.update({
+    // Return the SAME full shape as GET /me — the client writes this straight
+    // into the ['me'] cache, so a partial response would blank tenant/role and
+    // the signature flags until the next refetch.
+    const profile = await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const user = await tx.user.update({
         where: { id: ctx.userId },
         data: { title: next },
-        select: { email: true, firstName: true, lastName: true, title: true },
-      }),
-    );
+        select: {
+          email: true,
+          firstName: true,
+          lastName: true,
+          title: true,
+          emailSignatureHtml: true,
+          emailSignatureEnabled: true,
+        },
+      });
+      const tenant = await tx.tenant.findUnique({
+        where: { id: ctx.tenantId },
+        select: { name: true },
+      });
+      return { user, tenant };
+    });
     return {
       user: {
         id: ctx.userId,
         clerkUserId: ctx.clerkUserId,
-        email: user.email,
-        firstName: user.firstName,
-        lastName: user.lastName,
-        title: user.title,
+        email: profile.user.email,
+        firstName: profile.user.firstName,
+        lastName: profile.user.lastName,
+        title: profile.user.title,
+        emailSignatureEnabled: profile.user.emailSignatureEnabled,
+        hasEmailSignature: Boolean(profile.user.emailSignatureHtml),
       },
+      tenant: {
+        id: ctx.tenantId,
+        slug: ctx.tenantSlug,
+        name: profile.tenant?.name ?? ctx.tenantSlug,
+      },
+      role: ctx.role,
+    };
+  }
+
+  /**
+   * Read the current user's email signature. Kept off the hot /me path because
+   * the HTML (with an inline logo) can be large; only the Settings page needs it.
+   */
+  @Get('me/email-signature')
+  async getEmailSignature(@CurrentTenant() ctx: TenantContext) {
+    const user = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.user.findUnique({
+        where: { id: ctx.userId },
+        select: { emailSignatureHtml: true, emailSignatureEnabled: true },
+      }),
+    );
+    return {
+      html: user?.emailSignatureHtml ?? null,
+      enabled: user?.emailSignatureEnabled ?? false,
+    };
+  }
+
+  /**
+   * Save the current user's email signature. HTML is sanitized server-side
+   * (the authoritative trust boundary) before storage; empty input clears it.
+   * `enabled` is the append-by-default preference (each campaign can override).
+   */
+  @Put('me/email-signature')
+  async updateEmailSignature(
+    @CurrentTenant() ctx: TenantContext,
+    @Body() body: UpdateEmailSignatureDto,
+  ) {
+    if (body.html === undefined && body.enabled === undefined) {
+      throw new BadRequestException('No editable fields provided');
+    }
+    const data: { emailSignatureHtml?: string | null; emailSignatureEnabled?: boolean } = {};
+    if (body.html !== undefined) {
+      const clean = sanitizeSignatureHtml(body.html);
+      data.emailSignatureHtml = clean.length ? clean : null;
+    }
+    if (body.enabled !== undefined) {
+      data.emailSignatureEnabled = body.enabled;
+    }
+    const user = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.user.update({
+        where: { id: ctx.userId },
+        data,
+        select: { emailSignatureHtml: true, emailSignatureEnabled: true },
+      }),
+    );
+    return {
+      html: user.emailSignatureHtml ?? null,
+      enabled: user.emailSignatureEnabled,
     };
   }
 

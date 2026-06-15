@@ -6,6 +6,49 @@
  * amber = group. Reuses the ov2 tokens from outreach.css.
  * ============================================================ */
 
+/* "Context changed since these drafts were generated" banner. Amber/notable so
+ * it reads as an advisory, not an error; the action regenerates everything. */
+.ov2-gen-stale {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  border: 1px solid rgba(217, 119, 87, 0.4);
+  border-radius: 8px;
+  background: var(--ov2-notable-soft);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ov2-ink-2);
+}
+.ov2-gen-stale-ico {
+  flex: none;
+  color: var(--ov2-notable);
+  font-size: 14px;
+}
+.ov2-gen-stale-msg {
+  flex: 1;
+}
+.ov2-gen-stale-msg em {
+  color: var(--ov2-ink-3);
+  font-style: italic;
+}
+.ov2-gen-stale-btn {
+  flex: none;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  background: var(--ov2-notable);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ov2-gen-stale-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
 .ov2-gen-grid {
   display: grid;
   grid-template-columns: 300px 1fr;

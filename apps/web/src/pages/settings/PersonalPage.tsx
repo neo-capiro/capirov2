@@ -1,15 +1,39 @@
-import { useEffect, useState } from 'react';
-import { Alert, App, Button, Card, Descriptions, Form, Input } from 'antd';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, App, Button, Card, Descriptions, Form, Input, Switch, Tag } from 'antd';
+import { CloudUploadOutlined } from '@ant-design/icons';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMe, type MeResponse } from '../../lib/me.js';
 import { useApi } from '../../lib/use-api.js';
+import { RichTextEditor } from '../engagement/outreach/v2/RichTextEditor.js';
+import { sanitizeSignatureHtml } from '../engagement/outreach/v2/richtext.js';
+// The signature editor reuses the outreach RichTextEditor, whose styles
+// (.ov2-rte-*) + design tokens live in these (namespaced, side-effect-free)
+// stylesheets. email-signature.css adds the card-specific chrome.
+import '../engagement/outreach/v2/outreach.css';
+import '../engagement/outreach/v2/step-generate.css';
+import './email-signature.css';
+
+interface EmailSignatureResponse {
+  html: string | null;
+  enabled: boolean;
+}
+
+// Mirrors the server cap (MAX_SIGNATURE_HTML_LENGTH in sanitize-signature.ts).
+// Guarding client-side avoids an opaque 400 when a large pasted/uploaded
+// signature (e.g. an Outlook export with an inline logo) exceeds it.
+const MAX_SIGNATURE_HTML_LENGTH = 600_000;
+
+function saveErrorMessage(err: unknown): string {
+  const data = (err as { response?: { data?: { message?: string | string[] } } })?.response?.data;
+  if (data?.message) return Array.isArray(data.message) ? data.message.join('; ') : data.message;
+  return err instanceof Error ? err.message : 'Could not save signature';
+}
 
 /**
  * Personal settings, the only Settings tab everyone sees. Identity surfaces
  * (email, password, MFA) live in Clerk's hosted UserButton modal; Capiro
- * surfaces the link here. Capiro-owned profile fields (currently just the
- * free-form job title shown under the user's name in the top-right widget)
- * live in this page.
+ * surfaces the link here. Capiro-owned profile fields (job title, email
+ * signature) live in this page.
  */
 export function PersonalPage() {
   const api = useApi();
@@ -34,10 +58,89 @@ export function PersonalPage() {
     },
   });
 
+  // ---- Email signature ----
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [sigHtml, setSigHtml] = useState('');
+  const [sigEnabled, setSigEnabled] = useState(false);
+  const [dragging, setDragging] = useState(false);
+
+  const signatureQuery = useQuery<EmailSignatureResponse>({
+    queryKey: ['me', 'email-signature'],
+    queryFn: async () => (await api.get<EmailSignatureResponse>('/api/me/email-signature')).data,
+    staleTime: 30_000,
+    retry: false,
+  });
+
+  // Hydrate the editor + toggle from the loaded signature.
+  useEffect(() => {
+    if (!signatureQuery.data) return;
+    setSigHtml(signatureQuery.data.html ?? '');
+    setSigEnabled(signatureQuery.data.enabled);
+  }, [signatureQuery.data]);
+
+  const saveSignature = useMutation({
+    mutationFn: async () =>
+      (
+        await api.put<EmailSignatureResponse>('/api/me/email-signature', {
+          html: sigHtml,
+          enabled: sigEnabled,
+        })
+      ).data,
+    onSuccess: (data) => {
+      qc.setQueryData(['me', 'email-signature'], data);
+      // /me carries emailSignatureEnabled + hasEmailSignature (used by the
+      // outreach send step), so refresh it.
+      qc.invalidateQueries({ queryKey: ['me'] });
+      setSigHtml(data.html ?? '');
+      setSigEnabled(data.enabled);
+      message.success('Signature saved');
+    },
+    onError: (err: unknown) => {
+      message.error(saveErrorMessage(err));
+    },
+  });
+
+  const readSignatureFile = (file: File) => {
+    if (!/\.html?$/i.test(file.name) && file.type !== 'text/html') {
+      message.error('Please choose an .html or .htm file');
+      return;
+    }
+    if (file.size > 2_000_000) {
+      message.error('That file is too large (max 2 MB)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const raw = typeof reader.result === 'string' ? reader.result : '';
+      // Sanitize client-side for display; the server re-sanitizes on Save.
+      const clean = sanitizeSignatureHtml(raw);
+      if (clean.length > MAX_SIGNATURE_HTML_LENGTH) {
+        message.error(
+          'That signature is too large (max ~600 KB). Try removing or shrinking embedded images.',
+        );
+        return;
+      }
+      setSigHtml(clean);
+      message.success('Signature imported — review below, then Save');
+    };
+    reader.onerror = () => message.error('Could not read that file');
+    reader.readAsText(file);
+  };
+
   if (!me.data) return null;
 
   const trimmed = title.trim();
   const dirty = trimmed !== (me.data.user.title ?? '');
+
+  const loadedSig = signatureQuery.data;
+  const sigDirty =
+    !!loadedSig && (sigHtml !== (loadedSig.html ?? '') || sigEnabled !== loadedSig.enabled);
+  const sigTooLong = sigHtml.length > MAX_SIGNATURE_HTML_LENGTH;
+
+  const resetSignature = () => {
+    setSigHtml(loadedSig?.html ?? '');
+    setSigEnabled(loadedSig?.enabled ?? false);
+  };
 
   return (
     <>
@@ -76,6 +179,105 @@ export function PersonalPage() {
           <Descriptions.Item label="Role">{me.data.role}</Descriptions.Item>
         </Descriptions>
       </Card>
+
+      <Card
+        title={
+          <span>
+            Email signature{' '}
+            <Tag color="blue" style={{ marginInlineStart: 4 }}>
+              New
+            </Tag>
+          </span>
+        }
+        style={{ marginBottom: 16 }}
+        className="sig-block"
+      >
+        <p className="sig-intro">
+          Your signature is automatically appended to campaign emails. Type it directly, paste from
+          Outlook or Gmail, or upload an HTML file. Toggle it on or off per campaign at send time.
+        </p>
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".html,.htm,text/html"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) readSignatureFile(f);
+            e.target.value = '';
+          }}
+        />
+        <div
+          className={`sig-dropzone${dragging ? ' dragging' : ''}`}
+          onClick={() => fileRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const f = e.dataTransfer.files?.[0];
+            if (f) readSignatureFile(f);
+          }}
+        >
+          <span className="sig-dropzone-icon">
+            <CloudUploadOutlined />
+          </span>
+          <div>
+            <div className="sig-dropzone-main">Upload an HTML signature file</div>
+            <div className="sig-dropzone-sub">Drag and drop, or browse — .html or .htm only</div>
+          </div>
+          <span className="sig-dropzone-spacer" />
+          <Button size="small">Browse file</Button>
+        </div>
+        <div className="sig-export-hint">
+          Export your signature from Outlook (File → Options → Mail → Signatures → save as HTML) or
+          Gmail (copy source). Then upload it here.
+        </div>
+
+        <div className="sig-divider">or compose manually</div>
+
+        <div className="sig-editor">
+          <RichTextEditor
+            variant="signature"
+            value={sigHtml}
+            onChange={setSigHtml}
+            placeholder="Type your signature, or paste it from Outlook / Gmail…"
+          />
+        </div>
+
+        <div className="sig-toggle-row">
+          <Switch checked={sigEnabled} onChange={setSigEnabled} />
+          <div>
+            <div className="sig-toggle-label">Append signature to campaign emails by default</div>
+            <div className="sig-toggle-sub">You can still toggle it per campaign at send time.</div>
+          </div>
+        </div>
+
+        {sigTooLong && (
+          <div style={{ marginTop: 12, fontSize: 12, color: 'var(--danger, #cf1322)' }}>
+            This signature is too large to save (max ~600 KB). Remove or shrink embedded images.
+          </div>
+        )}
+
+        <div className="sig-actions">
+          <Button onClick={resetSignature} disabled={!sigDirty || saveSignature.isPending}>
+            Cancel
+          </Button>
+          <Button
+            type="primary"
+            onClick={() => saveSignature.mutate()}
+            loading={saveSignature.isPending}
+            disabled={!sigDirty || sigTooLong}
+          >
+            Save signature
+          </Button>
+        </div>
+      </Card>
+
       <Card title="Identity (Clerk)">
         <Alert
           type="info"

@@ -91,6 +91,10 @@ const TABS: Array<{ id: ContextKind; label: string; Icon: typeof FileTextOutline
   { id: 'note', label: 'Custom note', Icon: PlusOutlined },
 ];
 
+// These tabs draw from the tenant-wide library and group their pool by client
+// (a client sub-tab row inside the tab). Debriefs/preps also sort newest-first.
+const CLIENT_GROUPED_KINDS: ContextKind[] = ['document', 'debrief', 'prep'];
+
 const KIND_LABEL: Record<ContextKind, string> = {
   bill: 'Bill',
   intel: 'Intel',
@@ -153,6 +157,45 @@ export function StepContext({ recipients, targets, selected, onChange, pool, loa
       (it) => it.title.toLowerCase().includes(q) || (it.body && it.body.toLowerCase().includes(q)),
     );
   }, [pool, tab, search, billSearchActive, billSearch.data]);
+
+  // ---- Client sub-tabs (Docs & Notes / Debriefs / Preps) ----
+  // These tabs group their pool by client and show a sub-tab per client; the
+  // pool is tenant-wide (no recipient/client gating). 'all' = every client.
+  const isClientGrouped = CLIENT_GROUPED_KINDS.includes(tab) && !billSearchActive;
+  const [clientTab, setClientTab] = useState<string>('all');
+  useEffect(() => {
+    setClientTab('all');
+  }, [tab]);
+
+  const byDateDesc = (a: ContextPoolItem, b: ContextPoolItem) =>
+    (b.date ?? '').localeCompare(a.date ?? '');
+
+  const clientGroups = useMemo(() => {
+    if (!isClientGrouped) return [] as Array<{ key: string; name: string; items: ContextPoolItem[] }>;
+    const map = new Map<string, { key: string; name: string; items: ContextPoolItem[] }>();
+    for (const it of visible) {
+      const key = it.clientId ?? '__none__';
+      if (!map.has(key)) map.set(key, { key, name: it.clientName ?? 'No client', items: [] });
+      map.get(key)!.items.push(it);
+    }
+    const groups = [...map.values()];
+    for (const g of groups) g.items.sort(byDateDesc);
+    // Clients A–Z; the "No client" bucket always last.
+    groups.sort((a, b) =>
+      a.key === '__none__' ? 1 : b.key === '__none__' ? -1 : a.name.localeCompare(b.name),
+    );
+    return groups;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isClientGrouped, visible]);
+
+  // The list actually rendered: for client-grouped tabs, the selected client's
+  // items (or all clients newest-first on the "All" sub-tab); else the flat pool.
+  const groupedVisible = useMemo(() => {
+    if (!isClientGrouped) return visible;
+    if (clientTab === 'all') return [...visible].sort(byDateDesc);
+    return clientGroups.find((g) => g.key === clientTab)?.items ?? [];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isClientGrouped, visible, clientTab, clientGroups]);
 
   const listLoading = loading || (billSearchActive && billSearch.isLoading);
 
@@ -386,6 +429,27 @@ export function StepContext({ recipients, targets, selected, onChange, pool, loa
                     : 'Showing this client’s bills. Type to search the full bill database.'}
                 </div>
               )}
+              {isClientGrouped && clientGroups.length > 0 && (
+                <div className="ov2-ctx-clienttabs" role="tablist">
+                  <button
+                    type="button"
+                    className={'ov2-ctx-clienttab' + (clientTab === 'all' ? ' active' : '')}
+                    onClick={() => setClientTab('all')}
+                  >
+                    All <span className="n">{visible.length}</span>
+                  </button>
+                  {clientGroups.map((g) => (
+                    <button
+                      key={g.key}
+                      type="button"
+                      className={'ov2-ctx-clienttab' + (clientTab === g.key ? ' active' : '')}
+                      onClick={() => setClientTab(g.key)}
+                    >
+                      {g.name} <span className="n">{g.items.length}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="ov2-ctx-list">
                 {listLoading && (
                   <div
@@ -399,7 +463,7 @@ export function StepContext({ recipients, targets, selected, onChange, pool, loa
                     Loading…
                   </div>
                 )}
-                {!listLoading && visible.length === 0 && (
+                {!listLoading && groupedVisible.length === 0 && (
                   <div
                     style={{
                       padding: 30,
@@ -409,10 +473,14 @@ export function StepContext({ recipients, targets, selected, onChange, pool, loa
                       fontStyle: 'italic',
                     }}
                   >
-                    {billSearchActive ? 'No bills match your search.' : 'No matches.'}
+                    {billSearchActive
+                      ? 'No bills match your search.'
+                      : isClientGrouped && clientTab !== 'all'
+                        ? 'No items for this client.'
+                        : 'No matches.'}
                   </div>
                 )}
-                {visible.map((it) => {
+                {groupedVisible.map((it) => {
                   const hint = matchHint(it);
                   return (
                     <div

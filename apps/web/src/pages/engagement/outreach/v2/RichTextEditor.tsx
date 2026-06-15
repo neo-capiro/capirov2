@@ -14,10 +14,11 @@ import {
   ItalicOutlined,
   LinkOutlined,
   OrderedListOutlined,
+  PictureOutlined,
   UnderlineOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
-import { sanitizeHtml } from './richtext.js';
+import { sanitizeHtml, sanitizeSignatureHtml } from './richtext.js';
 
 function escapeText(t: string): string {
   return t
@@ -31,12 +32,18 @@ export function RichTextEditor({
   value,
   onChange,
   placeholder,
+  variant = 'email',
 }: {
   value: string;
   onChange: (html: string) => void;
   placeholder?: string;
+  // 'signature' permits images/tables/styled markup (for branded email
+  // signatures) and adds image + H1/H2 toolbar tools; 'email' keeps the strict
+  // body allowlist. The server re-sanitizes either way.
+  variant?: 'email' | 'signature';
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const sanitize = variant === 'signature' ? sanitizeSignatureHtml : sanitizeHtml;
 
   // Sync an external value in only when the editor isn't focused, so a
   // Regenerate (which replaces the draft) lands without stomping the caret
@@ -47,15 +54,15 @@ export function RichTextEditor({
     if (document.activeElement === el) return;
     // Sanitize on the way IN too: the incoming value may be unsanitized AI/
     // markdown output or a rehydrated draft, and it goes straight into the DOM.
-    const safe = sanitizeHtml(value || '');
+    const safe = sanitize(value || '');
     if (el.innerHTML !== safe) el.innerHTML = safe;
-  }, [value]);
+  }, [value, sanitize]);
 
   const emit = () => {
     const el = ref.current;
     if (!el) return;
     const raw = el.innerHTML;
-    const clean = sanitizeHtml(raw);
+    const clean = sanitize(raw);
     // Only rewrite the DOM if sanitizing actually changed something (pasted or
     // injected markup) — avoids resetting the caret on ordinary typing.
     if (clean !== raw) el.innerHTML = clean;
@@ -75,7 +82,7 @@ export function RichTextEditor({
     e.preventDefault();
     const html = e.clipboardData.getData('text/html');
     const text = e.clipboardData.getData('text/plain');
-    const fragment = html ? sanitizeHtml(html) : escapeText(text);
+    const fragment = html ? sanitize(html) : escapeText(text);
     document.execCommand('insertHTML', false, fragment);
     emit();
   };
@@ -85,6 +92,14 @@ export function RichTextEditor({
     if (!url || !/^(https?:|mailto:)/i.test(url)) return;
     exec('createLink', url);
   };
+
+  const addImage = () => {
+    const url = window.prompt('Image URL (https://)');
+    if (!url || !/^https:\/\//i.test(url)) return;
+    exec('insertImage', url);
+  };
+
+  const isSignature = variant === 'signature';
 
   return (
     <div className="ov2-rte">
@@ -99,9 +114,20 @@ export function RichTextEditor({
           <UnderlineOutlined />
         </ToolBtn>
         <span className="ov2-rte-sep" />
-        <ToolBtn label="Heading" onClick={() => exec('formatBlock', 'h3')}>
-          <span style={{ fontWeight: 700, fontSize: 12 }}>H</span>
-        </ToolBtn>
+        {isSignature ? (
+          <>
+            <ToolBtn label="Heading 1" onClick={() => exec('formatBlock', 'h1')}>
+              <span style={{ fontWeight: 700, fontSize: 12 }}>H1</span>
+            </ToolBtn>
+            <ToolBtn label="Heading 2" onClick={() => exec('formatBlock', 'h2')}>
+              <span style={{ fontWeight: 700, fontSize: 12 }}>H2</span>
+            </ToolBtn>
+          </>
+        ) : (
+          <ToolBtn label="Heading" onClick={() => exec('formatBlock', 'h3')}>
+            <span style={{ fontWeight: 700, fontSize: 12 }}>H</span>
+          </ToolBtn>
+        )}
         <ToolBtn label="Bulleted list" onClick={() => exec('insertUnorderedList')}>
           <UnorderedListOutlined />
         </ToolBtn>
@@ -111,6 +137,11 @@ export function RichTextEditor({
         <ToolBtn label="Add link" onClick={addLink}>
           <LinkOutlined />
         </ToolBtn>
+        {isSignature && (
+          <ToolBtn label="Insert image by URL" onClick={addImage}>
+            <PictureOutlined />
+          </ToolBtn>
+        )}
         <span className="ov2-rte-sep" />
         <ToolBtn label="Clear formatting" onClick={() => exec('removeFormat')}>
           <ClearOutlined />

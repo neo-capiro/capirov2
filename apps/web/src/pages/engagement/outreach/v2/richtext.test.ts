@@ -3,7 +3,13 @@
 // attribute. (jsdom provides DOMParser/document for sanitizeHtml.)
 
 import { describe, expect, it } from 'vitest';
-import { htmlToPlainText, looksLikeHtml, markdownishToHtml, sanitizeHtml } from './richtext.js';
+import {
+  htmlToPlainText,
+  looksLikeHtml,
+  markdownishToHtml,
+  sanitizeHtml,
+  sanitizeSignatureHtml,
+} from './richtext.js';
 
 describe('sanitizeHtml', () => {
   it('drops <script> tags (keeps no executable markup)', () => {
@@ -42,6 +48,56 @@ describe('sanitizeHtml', () => {
     const out = sanitizeHtml('<svg><script>alert(1)</script></svg><strong>keep</strong>');
     expect(out).not.toMatch(/<svg|<script|<style/i);
     expect(out).toContain('<strong>keep</strong>');
+  });
+});
+
+describe('sanitizeSignatureHtml', () => {
+  it('drops <script>/<style> and event handlers but keeps formatting', () => {
+    const out = sanitizeSignatureHtml(
+      '<style>.x{}</style><p onclick="evil()"><strong>Sarah</strong></p><script>alert(1)</script>',
+    );
+    expect(out).not.toMatch(/<script|<style|onclick/i);
+    expect(out).toContain('<strong>Sarah</strong>');
+  });
+
+  it('keeps https images and base64 raster logos, hardens links', () => {
+    const out = sanitizeSignatureHtml(
+      '<img src="https://cdn.x/logo.png" alt="logo"><a href="https://x.com">site</a>',
+    );
+    expect(out).toContain('src="https://cdn.x/logo.png"');
+    expect(out).toContain('rel="noopener noreferrer"');
+    const data =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    expect(sanitizeSignatureHtml(`<img src="${data}">`)).toContain(data);
+  });
+
+  it('removes <img onerror> handler but keeps the (safe) image', () => {
+    const out = sanitizeSignatureHtml('<img src="https://cdn.x/a.png" onerror="alert(1)">');
+    expect(out).not.toMatch(/onerror/i);
+    expect(out).toContain('https://cdn.x/a.png');
+  });
+
+  it('strips images with unsafe/non-image src and javascript: links', () => {
+    expect(sanitizeSignatureHtml('<img src="javascript:alert(1)">')).not.toMatch(/<img/i);
+    expect(sanitizeSignatureHtml('<img src="data:text/html;base64,PHM+">')).not.toMatch(/<img/i);
+    const js = sanitizeSignatureHtml('<a href="javascript:alert(1)">x</a>');
+    expect(js).not.toMatch(/javascript:/i);
+    expect(js).toContain('x');
+  });
+
+  it('preserves table layout and inline styles for branded signatures', () => {
+    const out = sanitizeSignatureHtml(
+      '<table><tr><td style="color:#1a3f9f">Pinnacle Federal</td></tr></table>',
+    );
+    expect(out).toContain('<table>');
+    expect(out).toContain('<td');
+    expect(out).toContain('Pinnacle Federal');
+  });
+
+  it('drops style attributes carrying url()/expression()', () => {
+    const out = sanitizeSignatureHtml('<div style="background:url(http://evil)">x</div>');
+    expect(out).not.toMatch(/url\(|background/i);
+    expect(out).toContain('x');
   });
 });
 

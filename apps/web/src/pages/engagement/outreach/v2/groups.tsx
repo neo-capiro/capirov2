@@ -23,8 +23,7 @@ import { App, Button, Input, Modal } from 'antd';
 import { CheckOutlined, PlusOutlined, TeamOutlined } from '@ant-design/icons';
 import { useApi } from '../../../../lib/use-api.js';
 import type { OutreachRecipient } from '../../OutreachView.js';
-import { recipientKey } from './types.js';
-import { EMAIL_RE, membershipOf, newTargetKey, type OutreachTarget } from './targets.js';
+import { EMAIL_RE, newTargetKey, type OutreachTarget } from './targets.js';
 import {
   apiErrorMessage,
   audienceMemberToRecipient,
@@ -87,15 +86,15 @@ export function useGroups({
     : 0;
   const unsavableCount = (builder?.members.length ?? 0) - emailableCount;
 
-  // Apply a saved group to the campaign as a Group target (board 8b). People
-  // already in the campaign are skipped — a person in two targets would lose
-  // this group's cc/bcc in the flattened projection (first occurrence wins).
+  // Apply a saved group to the campaign as a Group target (board 8b). A group is
+  // ONE shared email, so ALL its members are included even if some are also an
+  // individual / list recipient elsewhere (they get their own email AND ride the
+  // group's To). Re-applying the same saved group is prevented upstream by the
+  // audienceId "applied" check, so no per-member dedup is needed here.
   const applyGroup = (group: AudienceRow, currentTargets: OutreachTarget[] = targets) => {
     const incoming = group.members.map(audienceMemberToRecipient);
-    const fresh = incoming.filter((r) => !membershipOf(currentTargets, recipientKey(r)));
-    const skipped = incoming.length - fresh.length;
-    if (fresh.length === 0) {
-      message.info('Everyone in this group is already in the campaign.');
+    if (incoming.length === 0) {
+      message.info('This group has no contacts.');
       setGroupsOpen(false);
       return;
     }
@@ -106,17 +105,12 @@ export function useGroups({
         type: 'group',
         audienceId: group.id,
         name: group.name,
-        recipients: fresh,
+        recipients: incoming,
         cc: [],
         bcc: [],
       },
     ]);
     setGroupsOpen(false);
-    if (skipped > 0) {
-      message.info(
-        `${skipped} ${skipped === 1 ? 'contact was' : 'contacts were'} already in the campaign and skipped.`,
-      );
-    }
   };
 
   // Save the build-mode selection to the contact library as a group, then

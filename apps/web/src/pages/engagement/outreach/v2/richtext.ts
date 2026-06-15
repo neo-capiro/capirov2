@@ -159,6 +159,64 @@ export function sanitizeHtml(html: string): string {
   return out.innerHTML;
 }
 
+// ---- Signature sanitizer (richer allowlist for branded email signatures) ----
+//
+// Signatures preserve images (logos), simple table layout, fonts, and inline
+// styles — markup the stricter body sanitizeHtml() strips. This client pass is
+// for editor display/paste hygiene only; the SERVER (sanitize-signature.ts) is
+// the authoritative trust boundary and re-sanitizes on save. So this leans
+// "remove the clearly dangerous, keep the rest" rather than a tight allowlist.
+
+// Elements removed entirely (tag + content). svg/math can carry script.
+const SIG_DROP_TAGS = ['script', 'style', 'iframe', 'object', 'embed', 'link', 'meta', 'base', 'form', 'input', 'textarea', 'select', 'button', 'svg', 'math', 'title', 'noscript'];
+const SIG_OK_LINK = /^(?:https?:|mailto:|tel:)/i;
+const SIG_OK_IMG_SRC = /^(?:https?:\/\/|data:image\/(?:png|jpe?g|gif|webp|bmp);base64,)/i;
+
+/** Lenient sanitizer for signature HTML — keeps images/tables/styles, removes
+ *  scripts, event handlers, and unsafe URLs. The server tightens this on save. */
+export function sanitizeSignatureHtml(html: string): string {
+  if (typeof document === 'undefined') return html;
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+
+  // Drop dangerous elements (querySelectorAll returns a static list, so removing
+  // while iterating is safe; nested matches are included).
+  doc.body.querySelectorAll(SIG_DROP_TAGS.join(',')).forEach((el) => el.remove());
+
+  doc.body.querySelectorAll('*').forEach((el) => {
+    for (const attr of [...el.attributes]) {
+      const name = attr.name.toLowerCase();
+      const value = attr.value.trim();
+      if (name.startsWith('on')) {
+        el.removeAttribute(attr.name); // event handlers
+      } else if (name === 'href') {
+        if (SIG_OK_LINK.test(value)) {
+          el.setAttribute('target', '_blank');
+          el.setAttribute('rel', 'noopener noreferrer');
+        } else {
+          el.removeAttribute(attr.name);
+        }
+      } else if (name === 'src') {
+        if (!SIG_OK_IMG_SRC.test(value)) el.removeAttribute(attr.name);
+      } else if (
+        name === 'srcset' ||
+        name === 'srcdoc' ||
+        name === 'background' ||
+        name === 'formaction' ||
+        name === 'xlink:href'
+      ) {
+        el.removeAttribute(attr.name);
+      } else if (name === 'style' && /expression\(|url\s*\(|javascript:/i.test(value)) {
+        el.removeAttribute(attr.name);
+      }
+    }
+  });
+
+  // An <img> whose src was stripped is dead weight.
+  doc.body.querySelectorAll('img:not([src])').forEach((el) => el.remove());
+
+  return doc.body.innerHTML;
+}
+
 /** Flatten HTML to readable plaintext (for the saved record's summary body). */
 export function htmlToPlainText(html: string): string {
   if (typeof document === 'undefined') return html.replace(/<[^>]+>/g, '');

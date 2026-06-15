@@ -19,8 +19,8 @@
 .ov2-dl-hero {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(360px, 0.9fr);
-  min-height: 480px;
+  grid-template-columns: minmax(0, 1.05fr) minmax(380px, 0.95fr);
+  min-height: 520px;
 }
 .ov2-dl-copy {
   display: flex;
@@ -97,7 +97,7 @@
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  margin: 32px 0 0;
+  margin: 44px 0 0;
   max-width: 50ch;
   font-size: 12.5px;
   line-height: 1.6;
@@ -129,24 +129,24 @@
 }
 .ov2-dl-ring {
   position: absolute;
-  width: 440px;
-  height: 440px;
-  right: -80px;
-  bottom: -110px;
+  width: 500px;
+  height: 500px;
+  right: -90px;
+  bottom: -130px;
   border: 2px solid rgba(42, 87, 206, 0.1);
   border-radius: 50%;
 }
 .ov2-dl-ring.inner {
-  width: 300px;
-  height: 300px;
+  width: 350px;
+  height: 350px;
   right: -10px;
-  bottom: -40px;
+  bottom: -50px;
   border-color: rgba(42, 87, 206, 0.07);
 }
 .ov2-dl-glow {
   position: absolute;
-  width: 390px;
-  height: 390px;
+  width: 460px;
+  height: 460px;
   left: 50%;
   top: 55%;
   transform: translate(-50%, -50%);
@@ -156,46 +156,46 @@
 
 .ov2-dl-float {
   position: absolute;
-  width: 232px;
-  padding: 17px 19px;
+  width: 282px;
+  padding: 21px 24px;
   background: var(--ov2-bg-surface);
   border: 1px solid rgba(227, 230, 236, 0.9);
-  border-radius: 14px;
-  box-shadow: 0 18px 42px rgba(24, 47, 99, 0.16);
+  border-radius: 16px;
+  box-shadow: 0 22px 52px rgba(24, 47, 99, 0.18);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   transform: rotate(var(--ov2-dl-rot, 0deg));
   animation: ov2-dl-drift 7s ease-in-out infinite alternate;
 }
 .ov2-dl-float b {
-  font-size: 16px;
+  font-size: 18.5px;
   font-weight: 700;
   color: var(--ov2-ink-1);
 }
 .ov2-dl-float small {
-  font-size: 12.75px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.55;
   color: var(--ov2-ink-3);
 }
 /* Explicit stacking so cards layer cleanly when the panel narrows. */
 .ov2-dl-float.individual {
-  top: 6%;
-  left: 4%;
+  top: 4%;
+  left: 3%;
   z-index: 3;
   --ov2-dl-rot: -2deg;
 }
 .ov2-dl-float.list {
-  top: 33%;
-  right: 4%;
-  width: 218px;
+  top: 30%;
+  right: 3%;
+  width: 268px;
   z-index: 2;
   --ov2-dl-rot: 2deg;
   animation-delay: -2.3s;
 }
 .ov2-dl-float.group {
-  bottom: 7%;
-  left: 14%;
+  bottom: 5%;
+  left: 9%;
   z-index: 1;
   --ov2-dl-rot: -1deg;
   animation-delay: -4.6s;
@@ -226,11 +226,11 @@
   flex: none;
 }
 .ov2-dl-float .ico {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  font-size: 18px;
-  margin-bottom: 9px;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 21px;
+  margin-bottom: 12px;
 }
 .ov2-dl-float .ico[data-kind='individual'],
 .ov2-dl-type .ico[data-kind='individual'] {

@@ -228,6 +228,12 @@ model User {
   // Free-form job title displayed under the user's name in the top-right
   // profile widget. User-editable via /settings.
   title       String?
+  // Per-user HTML email signature appended to outbound outreach emails.
+  // Server-sanitized (sanitize-signature.ts) on save; stored already-clean so
+  // the send path can append it without re-stripping. `enabled` is the
+  // append-by-default preference; each campaign can still override at send time.
+  emailSignatureHtml    String?  @map("email_signature_html")
+  emailSignatureEnabled Boolean  @default(false) @map("email_signature_enabled")
   lastSeenAt  DateTime? @map("last_seen_at") @db.Timestamptz(6)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)

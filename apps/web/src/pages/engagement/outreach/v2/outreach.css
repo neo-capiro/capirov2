@@ -202,6 +202,51 @@
   background: transparent;
   font-size: 12.5px;
 }
+/* Client sub-tab row (Docs & Notes / Debriefs / Preps group their pool by
+ * client). Horizontally scrollable pills; the active client is accented. */
+.ov2-ctx-clienttabs {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--ov2-border-1);
+  background: var(--ov2-bg-surface-2);
+}
+.ov2-ctx-clienttab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--ov2-border-2);
+  border-radius: 999px;
+  background: var(--ov2-bg-surface);
+  color: var(--ov2-ink-2);
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ov2-ctx-clienttab:hover {
+  border-color: var(--ov2-accent);
+}
+.ov2-ctx-clienttab.active {
+  background: var(--ov2-accent);
+  border-color: var(--ov2-accent);
+  color: #fff;
+}
+.ov2-ctx-clienttab .n {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--ov2-bg-sunken);
+  color: var(--ov2-ink-3);
+}
+.ov2-ctx-clienttab.active .n {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
 .ov2-ctx-list { max-height: 600px; overflow-y: auto; }
 .ov2-ctx-item {
   display: grid; grid-template-columns: 22px 1fr; gap: 10px;

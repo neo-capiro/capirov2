@@ -10,6 +10,10 @@ export interface MeResponse {
     firstName: string | null;
     lastName: string | null;
     title: string | null;
+    // Append-by-default preference + whether a signature exists. The signature
+    // HTML itself is loaded on demand via GET /api/me/email-signature.
+    emailSignatureEnabled: boolean;
+    hasEmailSignature: boolean;
   };
   tenant: { id: string; slug: string; name: string };
   role: TenantRole;

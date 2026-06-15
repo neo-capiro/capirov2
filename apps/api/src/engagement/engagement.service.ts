@@ -26,6 +26,7 @@ import {
 } from '@prisma/client';
 import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
+import { sanitizeSignatureHtml } from '../common/sanitize-signature.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
@@ -191,6 +192,12 @@ export interface OutreachRecipientInput {
   /** Additional Cc / Bcc email addresses copied on this recipient's email. */
   cc?: string[];
   bcc?: string[];
+  /**
+   * Group representative ONLY: every member to place in the To field. When
+   * present, this recipient is sent as ONE shared email to all groupMembers
+   * (not one email each).
+   */
+  groupMembers?: Array<{ email: string; name?: string }>;
   meetingId?: string;
   meetingSubject?: string;
   meetingDateTime?: string;
@@ -269,6 +276,12 @@ export interface SendBatchEmailInput {
   testMode?: boolean;
   /** EngagementAttachment ids to attach to every sent email. */
   attachmentIds?: string[];
+  /**
+   * Append the sender's saved email signature to every email. When omitted,
+   * falls back to the sender's append-by-default preference
+   * (User.emailSignatureEnabled).
+   */
+  appendSignature?: boolean;
 }
 
 export interface CreateOutreachRecordInput {
@@ -2060,6 +2073,56 @@ export class EngagementService {
 
     const connection = await this.findCampaignSendConnection(ctx);
 
+    // Load the sender once: their inbox email (for test mode) and their saved,
+    // already-server-sanitized email signature. We append the signature when the
+    // caller asks (per-campaign toggle) or, absent that, when the user opted in
+    // by default (emailSignatureEnabled). The signature was sanitized at save
+    // (sanitize-signature.ts), so it's appended after the body's own sanitize
+    // WITHOUT re-stripping — that's how branded markup (logos/tables) survives.
+    const sender = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.user.findUnique({
+        where: { id: ctx.userId },
+        select: {
+          email: true,
+          firstName: true,
+          emailSignatureHtml: true,
+          emailSignatureEnabled: true,
+        },
+      }),
+    );
+    const appendSignature = input.appendSignature ?? sender?.emailSignatureEnabled ?? false;
+    // Re-sanitize on read (idempotent, once per send). The stored value is
+    // already sanitized by the PUT /me/email-signature path, but re-running here
+    // means even a future writer that bypasses that path can never turn this
+    // verbatim append into a stored-XSS sink into outbound email.
+    const signatureHtml =
+      appendSignature && sender?.emailSignatureHtml
+        ? sanitizeSignatureHtml(sender.emailSignatureHtml)
+        : '';
+
+    const escapeToHtml = (s: string) =>
+      s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/\n/g, '<br>');
+
+    // Append the signature to a rendered body. A plaintext body is escaped to
+    // HTML first so the signature's markup renders; the result always sends as
+    // HTML. No-op when there's no signature to append.
+    const withSignature = (rendered: {
+      content: string;
+      contentType: 'Text' | 'HTML';
+    }): { content: string; contentType: 'Text' | 'HTML' } => {
+      if (!signatureHtml) return rendered;
+      const bodyHtml =
+        rendered.contentType === 'HTML' ? rendered.content : escapeToHtml(rendered.content);
+      return {
+        content: `${bodyHtml}<br><br>${signatureHtml}`,
+        contentType: 'HTML',
+      };
+    };
+
     // Resolve attachments once (same set for every recipient). Files above the
     // Graph simple-send inline limit (~3MB) are skipped and reported back; larger
     // files would need a Graph upload session on a draft message.
@@ -2095,26 +2158,21 @@ export class EngagementService {
     const attachmentsForSend = graphAttachments.length ? graphAttachments : undefined;
 
     // Test mode: one copy to the logged-in user, no real recipients touched.
+    // Includes the signature (when active) so the preview matches the real send.
     if (testMode) {
-      const user = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-        tx.user.findFirst({
-          where: { id: ctx.userId },
-          select: { email: true, firstName: true },
-        }),
-      );
-      if (!user?.email) throw new BadRequestException('Your user has no email on file');
+      if (!sender?.email) throw new BadRequestException('Your user has no email on file');
       const sample = drafts.find((d) => d.subject?.trim() || d.body?.trim()) ?? drafts[0]!;
-      const rendered = renderBody(sample.body || '(empty draft)');
+      const rendered = withSignature(renderBody(sample.body || '(empty draft)'));
       await this.microsoftGraph.sendMail(ctx, connection.id, {
         subject: `[TEST] ${sample.subject || 'Outreach preview'}`,
         body: rendered.content,
         bodyContentType: rendered.contentType,
-        toRecipients: [{ email: user.email, name: user.firstName ?? null }],
+        toRecipients: [{ email: sender.email, name: sender.firstName ?? null }],
         attachments: attachmentsForSend,
       });
       return {
         test: true,
-        sentTo: user.email,
+        sentTo: sender.email,
         sent: 1,
         failed: 0,
         errors: [] as Array<{ email: string; message: string }>,
@@ -2136,7 +2194,17 @@ export class EngagementService {
     const errors: Array<{ email: string; message: string }> = [];
 
     for (const recipient of recipients) {
-      if (!recipient.email) {
+      // A group representative carries every member in groupMembers → ONE shared
+      // email with all of them in To. Everyone else is a single To recipient.
+      const groupTo = (recipient.groupMembers ?? [])
+        .map((m) => ({ email: (m.email ?? '').trim(), name: m.name ?? null }))
+        .filter((m) => m.email);
+      const toRecipients = groupTo.length
+        ? groupTo
+        : recipient.email
+          ? [{ email: recipient.email, name: recipient.name ?? null }]
+          : [];
+      if (toRecipients.length === 0) {
         errors.push({
           email: recipient.name || '(no email)',
           message: 'Recipient is missing an email address',
@@ -2145,16 +2213,19 @@ export class EngagementService {
       }
       const draft = findDraft(recipient);
       if (!draft || (!draft.subject?.trim() && !draft.body?.trim())) {
-        errors.push({ email: recipient.email, message: 'No generated draft for this recipient' });
+        errors.push({
+          email: recipient.email || recipient.name || '(group)',
+          message: 'No generated draft for this recipient',
+        });
         continue;
       }
       try {
-        const rendered = renderBody(draft.body);
+        const rendered = withSignature(renderBody(draft.body));
         await this.microsoftGraph.sendMail(ctx, connection.id, {
           subject: draft.subject,
           body: rendered.content,
           bodyContentType: rendered.contentType,
-          toRecipients: [{ email: recipient.email, name: recipient.name ?? null }],
+          toRecipients,
           ccRecipients: (recipient.cc ?? [])
             .filter((e) => e?.trim())
             .map((email) => ({ email: email.trim() })),
@@ -2164,12 +2235,15 @@ export class EngagementService {
           attachments: attachmentsForSend,
         });
         sent.push({
-          email: recipient.email,
+          email: recipient.email || toRecipients[0]!.email,
           name: recipient.name ?? null,
           sentAt: new Date().toISOString(),
         });
       } catch (error) {
-        errors.push({ email: recipient.email, message: emailSendErrorMessage(error) });
+        errors.push({
+          email: recipient.email || recipient.name || '(group)',
+          message: emailSendErrorMessage(error),
+        });
       }
     }
 
@@ -3149,6 +3223,191 @@ export class EngagementService {
         updatedAt: debrief.updatedAt,
         restricted: !canReadBody,
       };
+    });
+  }
+
+  /**
+   * Tenant-wide context library for the Outreach Build Context step. Returns ALL
+   * documents/notes, debriefs, and meeting preps across the tenant — each tagged
+   * with its client so the UI groups by client. Intentionally NOT filtered by the
+   * campaign's client or recipients (the step shows everything; the user picks).
+   * Debrief/note bodies are access-filtered per item (restricted → body omitted);
+   * debriefs and preps are newest-first. Document text is extracted lazily when an
+   * item is selected, so uploaded docs come back as metadata only here.
+   */
+  async buildOutreachContextLibrary(ctx: TenantContext) {
+    const LIMIT = 300;
+    const prepLines = (v: unknown): string[] =>
+      Array.isArray(v)
+        ? v.filter((x): x is string => typeof x === 'string' && x.trim().length > 0)
+        : [];
+
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const [clients, attachments, notes, debriefs, preps] = await Promise.all([
+        tx.client.findMany({
+          where: { tenantId: ctx.tenantId },
+          select: { id: true, name: true, intakeData: true },
+        }),
+        tx.engagementAttachment.findMany({
+          where: { tenantId: ctx.tenantId, clientId: { not: null } },
+          orderBy: { createdAt: 'desc' },
+          take: LIMIT,
+          select: { id: true, clientId: true, fileName: true, createdAt: true },
+        }),
+        // Notes & preps follow the same per-user meeting-visibility boundary as
+        // the rest of the app (ownMeetingWhere): a user only sees notes/preps for
+        // meetings they own. (Prep content is plaintext, so this is a real
+        // boundary, not just body encryption.) We only drop the client/recipient
+        // gating, which was the actual bug.
+        tx.meetingNote.findMany({
+          where: { tenantId: ctx.tenantId, meeting: ownMeetingWhere(ctx.userId) },
+          include: { meeting: { select: { clientId: true, subject: true, startsAt: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: LIMIT,
+        }),
+        // Debriefs are tenant-wide (body access-filtered per item) — matching the
+        // existing listClientDebriefs behavior the outreach builder already used.
+        tx.meetingDebrief.findMany({
+          where: { tenantId: ctx.tenantId },
+          include: { meeting: { select: { clientId: true, subject: true, startsAt: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: LIMIT,
+        }),
+        // distinct on meetingId (ordered meetingId, then createdAt desc → latest
+        // prep per meeting) so the cap counts DISTINCT meetings, not prep
+        // revisions. Preps are versioned with no cleanup, so a flat take(LIMIT)
+        // could let one heavily-regenerated meeting starve others out of the
+        // window and make them vanish from the library entirely.
+        tx.meetingPrep.findMany({
+          where: { tenantId: ctx.tenantId, meeting: ownMeetingWhere(ctx.userId) },
+          include: { meeting: { select: { clientId: true, subject: true, startsAt: true } } },
+          distinct: ['meetingId'],
+          orderBy: [{ meetingId: 'asc' }, { createdAt: 'desc' }],
+          take: LIMIT,
+        }),
+      ]);
+
+      const nameById = new Map(clients.map((c) => [c.id, c.name]));
+      const clientName = (id: string | null | undefined): string =>
+        id ? (nameById.get(id) ?? 'Unknown client') : 'No client';
+
+      // Per-item safe decrypt: this endpoint aggregates up to LIMIT notes + LIMIT
+      // debriefs tenant-wide, so a single corrupt / legacy / future-rotated-key
+      // row must NOT 500 the whole library — degrade that one item to body-less.
+      const safeDecrypt = (e: {
+        bodyCiphertext: string;
+        iv: string;
+        authTag: string;
+      }): string | undefined => {
+        try {
+          return this.notesCrypto.decrypt(e);
+        } catch {
+          return undefined;
+        }
+      };
+
+      type LibItem = {
+        id: string;
+        clientId: string | null;
+        clientName: string;
+        title: string;
+        sub?: string;
+        body?: string;
+        tag?: string;
+        date?: string;
+      };
+
+      const documents: LibItem[] = [];
+
+      // Client profile notes (client profile → Documents → Notes).
+      for (const c of clients) {
+        const pn = (c.intakeData as { profileNotes?: unknown } | null)?.profileNotes;
+        if (typeof pn === 'string' && pn.trim()) {
+          documents.push({
+            id: `clientnote-${c.id}`,
+            clientId: c.id,
+            clientName: c.name,
+            title: `${c.name} — profile notes`,
+            body: pn.trim(),
+            tag: 'Client note',
+          });
+        }
+      }
+      // Uploaded documents (text extracted lazily on select → no body here).
+      for (const a of attachments) {
+        documents.push({
+          id: `doc-${a.id}`,
+          clientId: a.clientId,
+          clientName: clientName(a.clientId),
+          title: a.fileName,
+          tag: 'Document',
+          date: a.createdAt.toISOString(),
+        });
+      }
+      // Meeting notes (body access-filtered per item).
+      for (const n of notes) {
+        const cid = n.clientId ?? n.meeting?.clientId ?? null;
+        const can = canReadEncryptedEntry(ctx, n);
+        const body = can
+          ? safeDecrypt({ bodyCiphertext: n.bodyCiphertext, iv: n.iv, authTag: n.authTag })
+          : undefined;
+        documents.push({
+          id: `meetingnote-${n.id}`,
+          clientId: cid,
+          clientName: clientName(cid),
+          title: n.meeting?.subject ? `Note: ${n.meeting.subject}` : 'Meeting note',
+          body,
+          tag: !can ? 'Restricted' : body ? 'Note' : 'Unavailable',
+          date: n.createdAt.toISOString(),
+        });
+      }
+
+      const debriefItems: LibItem[] = debriefs.map((d) => {
+        const cid = d.clientId ?? d.meeting?.clientId ?? null;
+        const can = canReadEncryptedEntry(ctx, d);
+        const body = can
+          ? safeDecrypt({ bodyCiphertext: d.bodyCiphertext, iv: d.iv, authTag: d.authTag })
+          : undefined;
+        return {
+          id: `debrief-${d.id}`,
+          clientId: cid,
+          clientName: clientName(cid),
+          title: d.meeting?.subject ? `Debrief: ${d.meeting.subject}` : 'Meeting debrief',
+          body,
+          tag: !can ? 'Restricted' : body ? 'Debrief' : 'Unavailable',
+          date: (d.meeting?.startsAt ?? d.createdAt).toISOString(),
+        };
+      });
+
+      // One (latest) prep per meeting is already guaranteed by `distinct` above;
+      // re-sort newest-first here since that query had to order by meetingId.
+      const prepItems: LibItem[] = preps
+        .map((p) => {
+          const cid = p.clientId ?? p.meeting?.clientId ?? null;
+          const talking = prepLines(p.talkingPoints);
+          const agenda = prepLines(p.agenda);
+          const followUps = prepLines(p.followUps);
+          const body = [
+            p.summary?.trim() || '',
+            talking.length ? `Talking points: ${talking.join('; ')}` : '',
+            agenda.length ? `Agenda: ${agenda.join('; ')}` : '',
+            followUps.length ? `Follow-ups: ${followUps.join('; ')}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n');
+          return {
+            id: `prep-${p.id}`,
+            clientId: cid,
+            clientName: clientName(cid),
+            title: p.meeting?.subject ? `Prep: ${p.meeting.subject}` : 'Meeting prep',
+            body: body || undefined,
+            tag: 'Prep',
+            date: (p.meeting?.startsAt ?? p.createdAt).toISOString(),
+          };
+        })
+        .sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''));
+
+      return { documents, debriefs: debriefItems, preps: prepItems };
     });
   }
 

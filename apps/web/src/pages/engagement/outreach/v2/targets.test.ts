@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import {
   expandContextItemScopes,
   flattenTargets,
+  membershipOf,
   type CcBccContact,
   type OutreachTarget,
 } from './targets.js';
@@ -102,6 +103,62 @@ describe('flattenTargets — list Cc/Bcc (SCRUM-120)', () => {
     };
     const [r] = flattenTargets([t]);
     expect(r?.cc).toBeUndefined();
+  });
+});
+
+describe('flattenTargets — group = one shared email', () => {
+  const groupT: OutreachTarget = {
+    key: 'G1',
+    type: 'group',
+    name: 'HASC offices',
+    recipients: [rec('Gail', 'gail@x.com'), rec('Hank', 'hank@x.com')],
+    cc: [],
+    bcc: [],
+    ccContacts: [contact('Lia', 'lia@x.com')],
+  };
+
+  it('emits ONE representative carrying every member in groupMembers (not one per member)', () => {
+    const out = flattenTargets([groupT]);
+    expect(out).toHaveLength(1);
+    const rep = out[0]!;
+    expect(rep.id).toBe('group:G1');
+    expect(rep.groupMembers?.map((m) => m.email).sort()).toEqual(['gail@x.com', 'hank@x.com']);
+    // The group's entire-list cc rides the single representative.
+    expect(rep.cc).toEqual(['lia@x.com']);
+  });
+
+  it('a person in a group AND an individual yields both: the individual + the group rep', () => {
+    const targets: OutreachTarget[] = [
+      { key: 'i1', type: 'individual', recipients: [rec('Gail', 'gail@x.com')], cc: [], bcc: [] },
+      groupT,
+    ];
+    const out = flattenTargets(targets);
+    // The individual recipient AND the group representative both survive.
+    expect(out.some((r) => r.email === 'gail@x.com' && r.id !== 'group:G1')).toBe(true);
+    const rep = out.find((r) => r.id === 'group:G1')!;
+    // The group's To still includes Gail even though she's also an individual.
+    expect(rep.groupMembers?.map((m) => m.email).sort()).toEqual(['gail@x.com', 'hank@x.com']);
+  });
+});
+
+describe('membershipOf — group is orthogonal to the personal To', () => {
+  const targets: OutreachTarget[] = [
+    { key: 'i1', type: 'individual', recipients: [rec('Alma', 'alma@x.com')], cc: [], bcc: [] },
+    {
+      key: 'G1',
+      type: 'group',
+      name: 'G',
+      recipients: [rec('Gail', 'gail@x.com')],
+      cc: [],
+      bcc: [],
+    },
+  ];
+
+  it("'all' scope sees group membership; 'personal' scope ignores it", () => {
+    expect(membershipOf(targets, 'gail@x.com', 'all')).toBe('group');
+    expect(membershipOf(targets, 'gail@x.com', 'personal')).toBeNull();
+    // individuals/lists still count under both scopes
+    expect(membershipOf(targets, 'alma@x.com', 'personal')).toBe('individual');
   });
 });
 

@@ -182,7 +182,9 @@ export function StepRecipientsSelect({ clients, targets, onChange }: Props) {
   });
 
   const addIndividual = (r: OutreachRecipient) => {
-    if (membershipOf(targets, recipientKey(r))) return;
+    // Only blocked if already an individual / list member — being in a group
+    // does NOT prevent adding someone as an individual (groups are orthogonal).
+    if (membershipOf(targets, recipientKey(r), 'personal')) return;
     setTargets([...targets, individualTarget(r)]);
   };
 
@@ -246,7 +248,9 @@ export function StepRecipientsSelect({ clients, targets, onChange }: Props) {
   // their list cc/bcc in the flattened projection — first occurrence wins).
   const applyAudience = (audience: AudienceRow, currentTargets: OutreachTarget[]) => {
     const incoming = audience.members.map(audienceMemberToRecipient);
-    const fresh = incoming.filter((r) => !membershipOf(currentTargets, recipientKey(r)));
+    // Skip only people already in the personal "To" (an individual or another
+    // list); group members are still free to join a list.
+    const fresh = incoming.filter((r) => !membershipOf(currentTargets, recipientKey(r), 'personal'));
     const skipped = incoming.length - fresh.length;
     if (fresh.length === 0) {
       message.info('Everyone in this list is already in the campaign.');
@@ -1926,7 +1930,10 @@ function AddControl({
   onRemoveIndividual: (key: string) => void;
 }) {
   const key = recipientKey(recipient);
-  const membership = membershipOf(targets, key);
+  // Group membership is orthogonal — the "+" stays available for someone who is
+  // only in a group (they can still get their own individual email). Only an
+  // existing individual / list slot marks the row as added.
+  const membership = membershipOf(targets, key, 'personal');
   const addButton = membership ? (
     <button
       type="button"
@@ -1934,7 +1941,7 @@ function AddControl({
       title={
         membership === 'individual'
           ? 'Added to To — click to remove'
-          : 'Already in a list or group — manage it in the panel above'
+          : 'Already in a list — manage it in the panel above'
       }
       onClick={() => membership === 'individual' && onRemoveIndividual(key)}
       aria-label="Added"

@@ -32,6 +32,12 @@ export interface ContextPoolItem {
   // this for smart routing: when the user selects an item, we auto-set scope
   // to the matching recipient if there's exactly one match, else 'all'.
   matches?: string[];
+  // Owning client (for the Docs/Notes, Debriefs, Preps tabs, which group their
+  // pool by client). `clientId` null = unassigned; `clientName` is the resolved
+  // display label. `date` (ISO) drives most-recent-first ordering.
+  clientId?: string | null;
+  clientName?: string;
+  date?: string;
 }
 
 export interface SelectedContextItem extends ContextPoolItem {
@@ -74,6 +80,13 @@ export interface WizardV2State {
   selectedGenerationKey: string | null;
   /** EngagementAttachment ids to attach to the generated emails on send. */
   attachmentIds: string[];
+  /**
+   * Signature of the generation inputs (context items + template + tone +
+   * direction) captured at the last FULL generation. When the live inputs no
+   * longer match this, Generate & Review shows a "context changed — regenerate"
+   * banner. null = nothing generated yet (no banner).
+   */
+  generatedInputSig: string | null;
 }
 
 export const INITIAL_V2_STATE: WizardV2State = {
@@ -88,6 +101,7 @@ export const INITIAL_V2_STATE: WizardV2State = {
   generatedEmails: {},
   selectedGenerationKey: null,
   attachmentIds: [],
+  generatedInputSig: null,
 };
 
 export const WIZARD_STEPS = [

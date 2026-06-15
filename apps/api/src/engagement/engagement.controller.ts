@@ -587,6 +587,16 @@ class OutreachContextPoolItemDto {
   matches?: string[];
 }
 
+class GroupMemberDto {
+  @IsEmail()
+  email!: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(0, 240)
+  name?: string;
+}
+
 class OutreachRecipientDto {
   @IsOptional()
   @IsString()
@@ -703,6 +713,14 @@ class OutreachRecipientDto {
   @ArrayMaxSize(50)
   @IsEmail({}, { each: true })
   bcc?: string[];
+
+  // Group representative only: all members for the To field (one shared email).
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => GroupMemberDto)
+  groupMembers?: GroupMemberDto[];
 
   @IsOptional()
   @IsUUID()
@@ -1007,6 +1025,10 @@ class SendBatchEmailDto {
   @ArrayMaxSize(25)
   @IsUUID('4', { each: true })
   attachmentIds?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  appendSignature?: boolean;
 }
 
 class CreateOutreachRecordDto {
@@ -1441,6 +1463,14 @@ export class EngagementController {
   @Post('outreach/send-batch')
   sendBatchEmails(@CurrentTenant() ctx: TenantContext, @Body() body: SendBatchEmailDto) {
     return this.service.sendBatchEmails(ctx, body);
+  }
+
+  // Tenant-wide context library for the Build Context step (docs/notes, debriefs,
+  // preps grouped by client). Declared before 'outreach/:id' so the dynamic route
+  // doesn't swallow 'context-library' as an id.
+  @Get('outreach/context-library')
+  outreachContextLibrary(@CurrentTenant() ctx: TenantContext) {
+    return this.service.buildOutreachContextLibrary(ctx);
   }
 
   // Saved audiences must be declared BEFORE 'outreach/:id' or the dynamic
