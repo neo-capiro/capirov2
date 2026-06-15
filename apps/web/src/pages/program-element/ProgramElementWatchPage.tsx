@@ -15,24 +15,14 @@ import {
   getProgramElementDeltas,
   getProgramElementDetail,
   getProgramElementPersonnel,
-  getProgramElementProjects,
-  getProgramElementProcurementLines,
-  getProgramElementProvisions,
-  getProgramElementOpportunities,
-  getProgramElementRelated,
   getProgramElementSources,
   setProgramElementWatching,
 } from './api.js';
 import { FyHistoryChart } from './FyHistoryChart.js';
 import { BillsTouchingPePanel } from './BillsTouchingPePanel.js';
 import { ContractorsPanel } from './ContractorsPanel.js';
-import { ProjectsPanel } from './ProjectsPanel.js';
-import { SecondaryDistributionPanel } from './SecondaryDistributionPanel.js';
 import { ProofPackPanel } from './ProofPackPanel.js';
 import { WhatChangedPanel } from './WhatChangedPanel.js';
-import { ProvisionsPanel } from './ProvisionsPanel.js';
-import { ProcurementActivityPanel } from './ProcurementActivityPanel.js';
-import { RelatedPesPanel } from './RelatedPesPanel.js';
 import { ProgramsPanel } from './ProgramsPanel.js';
 import { getProgramsForPe } from './programs-api.js';
 import { ClientRelevancePanel } from './ClientRelevancePanel.js';
@@ -109,15 +99,11 @@ function latestMeaningful(
 const LazyFyHistoryChart = lazy(async () => ({ default: FyHistoryChart }));
 const LazyBillsTouchingPePanel = lazy(async () => ({ default: BillsTouchingPePanel }));
 const LazyContractorsPanel = lazy(async () => ({ default: ContractorsPanel }));
-const LazyRelatedPesPanel = lazy(async () => ({ default: RelatedPesPanel }));
 const LazyProgramTeamPanel = lazy(async () => ({ default: ProgramTeamPanel }));
-const LazyProjectsPanel = lazy(async () => ({ default: ProjectsPanel }));
 const LazyProofPackPanel = lazy(async () => ({ default: ProofPackPanel }));
 const LazyProgramsPanel = lazy(async () => ({ default: ProgramsPanel }));
 const LazyClientRelevancePanel = lazy(async () => ({ default: ClientRelevancePanel }));
 const LazyWhatChangedPanel = lazy(async () => ({ default: WhatChangedPanel }));
-const LazyProvisionsPanel = lazy(async () => ({ default: ProvisionsPanel }));
-const LazyProcurementActivityPanel = lazy(async () => ({ default: ProcurementActivityPanel }));
 
 function formatSyncedDate(value: string): string {
   const parsed = new Date(value);
@@ -216,27 +202,6 @@ export function ProgramElementWatchPage() {
     enabled: normalizedPeCode.length > 0,
   });
 
-  const relatedQuery = useQuery({
-    queryKey: ['program-element-related', normalizedPeCode],
-    queryFn: () => getProgramElementRelated(api, normalizedPeCode),
-    staleTime: 60 * 1000,
-    enabled: normalizedPeCode.length > 0,
-  });
-
-  const projectsQuery = useQuery({
-    queryKey: ['program-element-projects', normalizedPeCode],
-    queryFn: () => getProgramElementProjects(api, normalizedPeCode),
-    staleTime: 60 * 1000,
-    enabled: normalizedPeCode.length > 0,
-  });
-
-  const procurementLinesQuery = useQuery({
-    queryKey: ['program-element-procurement-lines', normalizedPeCode],
-    queryFn: () => getProgramElementProcurementLines(api, normalizedPeCode),
-    staleTime: 60 * 1000,
-    enabled: normalizedPeCode.length > 0,
-  });
-
   const sourcesQuery = useQuery({
     queryKey: ['program-element-sources', normalizedPeCode],
     queryFn: () => getProgramElementSources(api, normalizedPeCode),
@@ -261,20 +226,6 @@ export function ProgramElementWatchPage() {
   const deltasQuery = useQuery({
     queryKey: ['program-element-deltas', normalizedPeCode],
     queryFn: () => getProgramElementDeltas(api, normalizedPeCode, { limit: 25 }),
-    staleTime: 60 * 1000,
-    enabled: normalizedPeCode.length > 0,
-  });
-
-  const provisionsQuery = useQuery({
-    queryKey: ['program-element-provisions', normalizedPeCode],
-    queryFn: () => getProgramElementProvisions(api, normalizedPeCode),
-    staleTime: 60 * 1000,
-    enabled: normalizedPeCode.length > 0,
-  });
-
-  const opportunitiesQuery = useQuery({
-    queryKey: ['program-element-opportunities', normalizedPeCode],
-    queryFn: () => getProgramElementOpportunities(api, normalizedPeCode),
     staleTime: 60 * 1000,
     enabled: normalizedPeCode.length > 0,
   });
@@ -520,21 +471,6 @@ export function ProgramElementWatchPage() {
 
       <Suspense
         fallback={
-          <Card title="Projects (R-2A)">
-            <Skeleton active paragraph={{ rows: 3 }} />
-          </Card>
-        }
-      >
-        <LazyProjectsPanel projects={projectsQuery.data} loading={projectsQuery.isLoading} />
-      </Suspense>
-
-      <SecondaryDistributionPanel
-        data={procurementLinesQuery.data}
-        loading={procurementLinesQuery.isLoading}
-      />
-
-      <Suspense
-        fallback={
           <Card title="Programs">
             <Skeleton active paragraph={{ rows: 3 }} />
           </Card>
@@ -564,32 +500,6 @@ export function ProgramElementWatchPage() {
         }
       >
         <LazyWhatChangedPanel deltas={deltasQuery.data?.data} loading={deltasQuery.isLoading} />
-      </Suspense>
-
-      <Suspense
-        fallback={
-          <Card title="Congressional activity">
-            <Skeleton active paragraph={{ rows: 3 }} />
-          </Card>
-        }
-      >
-        <LazyProvisionsPanel
-          provisions={provisionsQuery.data}
-          loading={provisionsQuery.isLoading}
-        />
-      </Suspense>
-
-      <Suspense
-        fallback={
-          <Card title="Procurement activity">
-            <Skeleton active paragraph={{ rows: 3 }} />
-          </Card>
-        }
-      >
-        <LazyProcurementActivityPanel
-          opportunities={opportunitiesQuery.data}
-          loading={opportunitiesQuery.isLoading}
-        />
       </Suspense>
 
       <Row gutter={[16, 16]} className="pe-two-col">
@@ -644,16 +554,6 @@ export function ProgramElementWatchPage() {
             setLinkTarget({ id: personId, name: person?.fullName ?? 'this person' });
           }}
         />
-      </Suspense>
-
-      <Suspense
-        fallback={
-          <Card title="Related program elements">
-            <Skeleton active paragraph={{ rows: 3 }} />
-          </Card>
-        }
-      >
-        <LazyRelatedPesPanel related={relatedQuery.data} loading={relatedQuery.isLoading} />
       </Suspense>
 
       <FyDetailDrawer
