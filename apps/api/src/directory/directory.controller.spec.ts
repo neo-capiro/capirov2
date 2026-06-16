@@ -37,3 +37,37 @@ describe('DirectoryController — member FEC summary', () => {
     expect(result).toBe(payload);
   });
 });
+
+describe('DirectoryController — committees', () => {
+  test('committees() delegates to service.getCommittees with query', () => {
+    const service = { getCommittees: jest.fn() } as unknown as DirectoryService & {
+      getCommittees: jest.Mock;
+    };
+    const controller = new DirectoryController(service);
+
+    controller.committees('armed', 'House', 'committee', '2', '50');
+
+    expect(service.getCommittees).toHaveBeenCalledWith({
+      q: 'armed',
+      chamber: 'House',
+      kind: 'committee',
+      page: '2',
+      pageSize: '50',
+    });
+  });
+
+  test('committeeStaff() delegates to service.getCommitteeStaff with id + query', () => {
+    const service = { getCommitteeStaff: jest.fn() } as unknown as DirectoryService & {
+      getCommitteeStaff: jest.Mock;
+    };
+    const controller = new DirectoryController(service);
+
+    controller.committeeStaff('committee-100', 'director', '1', undefined);
+
+    expect(service.getCommitteeStaff).toHaveBeenCalledWith('committee-100', {
+      q: 'director',
+      page: '1',
+      pageSize: undefined,
+    });
+  });
+});

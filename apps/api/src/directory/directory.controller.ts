@@ -72,10 +72,32 @@ export class DirectoryController {
     @Query('q') q?: string,
     @Query('chamber') chamber?: string,
     @Query('state') state?: string | string[],
+    @Query('issue') issue?: string | string[],
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.service.getStaffers({ q, chamber, state, page, pageSize });
+    return this.service.getStaffers({ q, chamber, state, issue, page, pageSize });
+  }
+
+  @Get('committees')
+  committees(
+    @Query('q') q?: string,
+    @Query('chamber') chamber?: string,
+    @Query('kind') kind?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.service.getCommittees({ q, chamber, kind, page, pageSize });
+  }
+
+  @Get('committees/:committeeId/staff')
+  committeeStaff(
+    @Param('committeeId') committeeId: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.service.getCommitteeStaff(committeeId, { q, page, pageSize });
   }
 
   @Get('contacts/:contactId/notes')

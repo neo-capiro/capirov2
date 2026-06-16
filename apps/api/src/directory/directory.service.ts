@@ -16,6 +16,25 @@ type Chamber = 'House' | 'Senate' | 'Governor';
 type Party = 'D' | 'R' | 'I';
 type Region = 'Northeast' | 'South' | 'Midwest' | 'West';
 
+export type CommitteeChamber = 'House' | 'Senate' | 'Joint';
+export type CommitteeKind = 'committee' | 'subcommittee';
+
+// Federal congressional committee offices in the LegiStorm office-list, keyed by
+// their `office_type`. The snapshot is dominated by ~2,300 STATE-legislature
+// committees; this whitelist keeps only the federal House/Senate/Joint committees
+// and subcommittees (~234 offices) so committee staff don't get polluted with
+// state offices.
+const FED_COMMITTEE_OFFICE_TYPES: Record<
+  string,
+  { chamber: CommitteeChamber; kind: CommitteeKind }
+> = {
+  'House Committee': { chamber: 'House', kind: 'committee' },
+  'Senate Committee': { chamber: 'Senate', kind: 'committee' },
+  'Joint Committee': { chamber: 'Joint', kind: 'committee' },
+  'House Subcommittee': { chamber: 'House', kind: 'subcommittee' },
+  'Senate Subcommittee': { chamber: 'Senate', kind: 'subcommittee' },
+};
+
 export interface DirectoryAddress {
   id: string;
   title: string;
@@ -67,9 +86,13 @@ export interface DirectoryContact {
   servingSince: string;
   focusAreas: string[];
   committees: string[];
+  committeeLeadership: string[];
+  topIssues: Array<{ issue: string; stafferCount: number }>;
   leadershipPositions: string[];
   caucuses: string[];
   educationInstitutions: string[];
+  senateClass: number | null;
+  outgoingStatus: string | null;
   officeLocation: string;
   phone: string;
   fax: string;
@@ -160,8 +183,75 @@ export interface StaffersQuery {
   q?: string;
   chamber?: string;
   state?: string | string[];
+  issue?: string | string[];
   page?: string | number;
   pageSize?: string | number;
+}
+
+export interface CommitteeMemberRef {
+  id: string; // `member-${memberId}`
+  name: string;
+}
+
+export interface DirectoryCommittee {
+  id: string; // `committee-${officeId}`
+  officeId: number;
+  name: string;
+  chamber: CommitteeChamber;
+  kind: CommitteeKind;
+  committeeCode: string | null;
+  parentOfficeId: number | null; // subcommittee -> parent full committee
+  staffCount: number; // distinct current staffers
+  chair: CommitteeMemberRef | null;
+  rankingMember: CommitteeMemberRef | null;
+  viceChairs: string[];
+  phone: string;
+  officeLocation: string;
+}
+
+export interface DirectoryCommitteeStaffer {
+  id: string; // `staff-${staffId}`
+  fullName: string;
+  title: string; // the committee position title
+  email: string;
+  phone: string;
+  officeLocation: string;
+  isCurrent: boolean;
+  committee: {
+    id: string;
+    name: string;
+    chamber: CommitteeChamber;
+    kind: CommitteeKind;
+  };
+}
+
+export interface CommitteesQuery {
+  q?: string;
+  chamber?: string;
+  kind?: string;
+  page?: string | number;
+  pageSize?: string | number;
+}
+
+export interface DirectoryCommitteesPayload {
+  committees: DirectoryCommittee[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface CommitteeStaffQuery {
+  q?: string;
+  page?: string | number;
+  pageSize?: string | number;
+}
+
+export interface DirectoryCommitteeStaffPayload {
+  committee: DirectoryCommittee | null;
+  staff: DirectoryCommitteeStaffer[];
+  total: number;
+  page: number;
+  pageSize: number;
 }
 
 export interface DirectoryAvailableFilters {
@@ -170,6 +260,7 @@ export interface DirectoryAvailableFilters {
   genders: Array<{ value: 'F' | 'M'; label: string }>;
   leadership: string[];
   committees: string[];
+  issues: string[];
   caucuses: string[];
   states: string[];
   districts: string[];
@@ -234,6 +325,8 @@ interface CachedContacts {
     sourceId: string;
     contacts: DirectoryContact[];
     staffers: DirectoryStaffer[];
+    committees: DirectoryCommittee[];
+    committeeStaff: Map<string, DirectoryCommitteeStaffer[]>; // committee id -> roster
     totals: DirectoryTotals;
     availableStates: string[];
     availableFilters: DirectoryAvailableFilters;
@@ -270,9 +363,16 @@ const TEST_DIRECTORY_CONTACT: DirectoryContact = {
   servingSince: '2021-01-03',
   focusAreas: ['Defense Innovation', 'Federal Procurement', 'Small Business'],
   committees: ['House Committee on Armed Services', 'House Committee on Small Business'],
+  committeeLeadership: ['Chair — House Committee on Small Business'],
+  topIssues: [
+    { issue: 'Defense Innovation', stafferCount: 2 },
+    { issue: 'Federal Procurement', stafferCount: 1 },
+  ],
   leadershipPositions: ['Testing Caucus Co-Chair'],
   caucuses: ['Congressional Test Data Caucus', 'Defense Innovation Caucus'],
   educationInstitutions: ['Example State University', 'National Policy Institute'],
+  senateClass: null,
+  outgoingStatus: null,
   officeLocation: '123 Test House Office Building, Washington, DC 20515',
   phone: '202-555-0147',
   fax: '202-555-0199',
@@ -413,6 +513,7 @@ export class DirectoryService {
       .toLowerCase();
     const chamber = this.normalizeFilter(query.chamber);
     const states = this.normalizeMultiFilter(query.state);
+    const issues = this.normalizeMultiFilter(query.issue);
 
     const filtered = base.staffers.filter((staffer) => {
       const blob = [
@@ -431,7 +532,9 @@ export class DirectoryService {
       const matchesQuery = q.length === 0 || blob.includes(q);
       const matchesChamber = chamber === null || staffer.member.chamber === chamber;
       const matchesState = states.length === 0 || states.includes(staffer.member.state);
-      return matchesQuery && matchesChamber && matchesState;
+      const matchesIssue =
+        issues.length === 0 || staffer.issueAreas.some((area) => issues.includes(area));
+      return matchesQuery && matchesChamber && matchesState && matchesIssue;
     });
 
     const total = filtered.length;
@@ -439,6 +542,268 @@ export class DirectoryService {
     const safePage = Math.min(page, pageCount);
     const start = (safePage - 1) * pageSize;
     return { staffers: filtered.slice(start, start + pageSize), total, page: safePage, pageSize };
+  }
+
+  // Committee directory: federal House/Senate/Joint committees and subcommittees,
+  // sorted by current staff headcount (then name). Filterable by chamber/kind/text.
+  async getCommittees(query: CommitteesQuery = {}): Promise<DirectoryCommitteesPayload> {
+    const page = this.toPositiveInt(query.page, 1);
+    const pageSize = this.toPositiveInt(
+      query.pageSize,
+      DirectoryService.DEFAULT_PAGE_SIZE,
+      DirectoryService.MAX_PAGE_SIZE,
+    );
+    const base = await this.getDirectoryData();
+    const q = String(query.q ?? '')
+      .trim()
+      .toLowerCase();
+    const chamber = this.normalizeFilter(query.chamber);
+    const kind = this.normalizeFilter(query.kind);
+
+    const filtered = base.committees.filter((committee) => {
+      const matchesQuery =
+        q.length === 0 ||
+        committee.name.toLowerCase().includes(q) ||
+        (committee.committeeCode ?? '').toLowerCase().includes(q);
+      const matchesChamber = chamber === null || committee.chamber === chamber;
+      const matchesKind = kind === null || committee.kind === kind;
+      return matchesQuery && matchesChamber && matchesKind;
+    });
+
+    const total = filtered.length;
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const safePage = Math.min(page, pageCount);
+    const start = (safePage - 1) * pageSize;
+    return { committees: filtered.slice(start, start + pageSize), total, page: safePage, pageSize };
+  }
+
+  // Roster for a single committee. Current staffers first, then alphabetical.
+  async getCommitteeStaff(
+    committeeId: string,
+    query: CommitteeStaffQuery = {},
+  ): Promise<DirectoryCommitteeStaffPayload> {
+    const page = this.toPositiveInt(query.page, 1);
+    const pageSize = this.toPositiveInt(
+      query.pageSize,
+      DirectoryService.DEFAULT_PAGE_SIZE,
+      DirectoryService.MAX_PAGE_SIZE,
+    );
+    const base = await this.getDirectoryData();
+    const committee = base.committees.find((entry) => entry.id === committeeId) ?? null;
+    if (!committee) {
+      return { committee: null, staff: [], total: 0, page: 1, pageSize };
+    }
+
+    const q = String(query.q ?? '')
+      .trim()
+      .toLowerCase();
+    const roster = base.committeeStaff.get(committeeId) ?? [];
+    const filtered = roster.filter((staffer) => {
+      if (q.length === 0) return true;
+      return staffer.fullName.toLowerCase().includes(q) || staffer.title.toLowerCase().includes(q);
+    });
+
+    const total = filtered.length;
+    const pageCount = Math.max(1, Math.ceil(total / pageSize));
+    const safePage = Math.min(page, pageCount);
+    const start = (safePage - 1) * pageSize;
+    return {
+      committee,
+      staff: filtered.slice(start, start + pageSize),
+      total,
+      page: safePage,
+      pageSize,
+    };
+  }
+
+  // Builds the committee catalog (from office-list) and the per-committee staff
+  // roster (from staff-list `positions[].office`). A staffer can appear under
+  // multiple committees; within one committee we keep a single entry per person,
+  // preferring their current position and a titled role.
+  private buildCommitteeIndex(officeRaw: unknown, staffRaw: unknown[], membersRaw: unknown[]) {
+    const offices = Array.isArray((officeRaw as any)?.office) ? (officeRaw as any).office : [];
+    const committeesByOfficeId = new Map<number, DirectoryCommittee>();
+
+    // Committee leadership (Chair / Ranking Member / Vice Chair) lives on the
+    // MEMBER side as committees[].position; invert it into an officeId -> roles map.
+    const leadershipByOffice = this.buildCommitteeLeadershipMap(membersRaw);
+
+    // Committee office phone/address comes from office-list `office_member_addresses`.
+    const contactByOffice = this.buildOfficeContactMap(officeRaw);
+
+    for (const office of offices as any[]) {
+      const meta = FED_COMMITTEE_OFFICE_TYPES[String(office?.office_type ?? '')];
+      const officeId = Number(office?.office_id);
+      if (!meta || !Number.isFinite(officeId)) continue;
+      const name = String(office?.name ?? '').trim();
+      if (!name) continue;
+      const leadership = leadershipByOffice.get(officeId);
+      const contact = contactByOffice.get(officeId);
+      committeesByOfficeId.set(officeId, {
+        id: `committee-${officeId}`,
+        officeId,
+        name,
+        chamber: meta.chamber,
+        kind: meta.kind,
+        committeeCode: office?.congress_committee_code
+          ? String(office.congress_committee_code)
+          : null,
+        parentOfficeId: Number(office?.parent_office?.office_id) || null,
+        staffCount: 0,
+        chair: leadership?.chair ?? null,
+        rankingMember: leadership?.rankingMember ?? null,
+        viceChairs: leadership?.viceChairs ?? [],
+        phone: contact?.phone ?? '',
+        officeLocation: contact?.officeLocation ?? '',
+      });
+    }
+
+    // committee id -> (staffId -> staffer), deduped per person per committee.
+    const rosterById = new Map<string, Map<number, DirectoryCommitteeStaffer>>();
+    const staffList = Array.isArray(staffRaw) ? staffRaw : [];
+
+    for (const row of staffList as any[]) {
+      const staff = row?.staff;
+      const staffId = Number(staff?.id);
+      if (!Number.isFinite(staffId)) continue;
+      const fullName = [
+        staff?.preferred_first_name ?? staff?.first_name,
+        staff?.preferred_last_name ?? staff?.last_name,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      if (!fullName) continue;
+
+      const emails = Array.isArray(row?.staff_emails) ? row.staff_emails : [];
+      const email = String(
+        emails.find(
+          (entry: any) =>
+            typeof entry?.contact_string === 'string' && entry.contact_string.includes('@'),
+        )?.contact_string ?? '',
+      );
+      const addresses = Array.isArray(row?.office_member_addresses)
+        ? row.office_member_addresses
+        : [];
+      const address = addresses.find((entry: any) => entry?.is_main) ?? addresses[0];
+      const phone = String(address?.phone ?? '');
+      const officeLocation = [address?.address1, address?.city, address?.state_id]
+        .filter(Boolean)
+        .join(', ');
+
+      const positions = Array.isArray(row?.positions) ? row.positions : [];
+      for (const position of positions) {
+        const officeId = Number(position?.office?.office_id);
+        const committee = committeesByOfficeId.get(officeId);
+        if (!committee) continue;
+
+        const byStaffId =
+          rosterById.get(committee.id) ?? new Map<number, DirectoryCommitteeStaffer>();
+        const isCurrent = Boolean(position?.is_current);
+        const title = String(position?.position_title ?? position?.position_type ?? 'Staff');
+        const existing = byStaffId.get(staffId);
+        // Prefer a current position; otherwise keep the first seen.
+        if (!existing || (isCurrent && !existing.isCurrent)) {
+          byStaffId.set(staffId, {
+            id: `staff-${staffId}`,
+            fullName,
+            title,
+            email,
+            phone,
+            officeLocation,
+            isCurrent,
+            committee: {
+              id: committee.id,
+              name: committee.name,
+              chamber: committee.chamber,
+              kind: committee.kind,
+            },
+          });
+        }
+        rosterById.set(committee.id, byStaffId);
+      }
+    }
+
+    const committeeStaff = new Map<string, DirectoryCommitteeStaffer[]>();
+    for (const committee of committeesByOfficeId.values()) {
+      const roster = [...(rosterById.get(committee.id)?.values() ?? [])].sort((left, right) => {
+        if (left.isCurrent !== right.isCurrent) return left.isCurrent ? -1 : 1;
+        return left.fullName.localeCompare(right.fullName);
+      });
+      committee.staffCount = roster.filter((staffer) => staffer.isCurrent).length;
+      committeeStaff.set(committee.id, roster);
+    }
+
+    const committees = [...committeesByOfficeId.values()].sort((left, right) => {
+      if (right.staffCount !== left.staffCount) return right.staffCount - left.staffCount;
+      return left.name.localeCompare(right.name);
+    });
+
+    return { committees, committeeStaff };
+  }
+
+  // officeId -> { chair, rankingMember, viceChairs[] } from members' committees[].position.
+  private buildCommitteeLeadershipMap(
+    membersRaw: unknown[],
+  ): Map<
+    number,
+    { chair?: CommitteeMemberRef; rankingMember?: CommitteeMemberRef; viceChairs: string[] }
+  > {
+    const map = new Map<
+      number,
+      { chair?: CommitteeMemberRef; rankingMember?: CommitteeMemberRef; viceChairs: string[] }
+    >();
+    const members = Array.isArray(membersRaw) ? membersRaw : [];
+    for (const row of members as any[]) {
+      const memberId = Number(row?.member?.member_id);
+      if (!Number.isFinite(memberId)) continue;
+      const profile = row?.member?.profile;
+      const name = [
+        profile?.preferred_first_name ?? profile?.first_name,
+        profile?.preferred_last_name ?? profile?.last_name,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      if (!name) continue;
+      const ref: CommitteeMemberRef = { id: `member-${memberId}`, name };
+      const committees = Array.isArray(row?.committees) ? row.committees : [];
+      for (const committee of committees) {
+        const officeId = Number(committee?.committee_office?.office_id);
+        const position = String(committee?.position ?? '').trim();
+        if (!Number.isFinite(officeId) || !position) continue;
+        const entry = map.get(officeId) ?? { viceChairs: [] };
+        if (position === 'Chair' && !entry.chair) entry.chair = ref;
+        else if (position === 'Ranking Member' && !entry.rankingMember) entry.rankingMember = ref;
+        else if (position === 'Vice Chair') entry.viceChairs.push(name);
+        map.set(officeId, entry);
+      }
+    }
+    return map;
+  }
+
+  // officeId -> { phone, officeLocation } from office-list `office_member_addresses`.
+  private buildOfficeContactMap(
+    officeRaw: unknown,
+  ): Map<number, { phone: string; officeLocation: string }> {
+    const map = new Map<number, { phone: string; officeLocation: string }>();
+    const addresses = Array.isArray((officeRaw as any)?.office_member_addresses)
+      ? (officeRaw as any).office_member_addresses
+      : [];
+    for (const entry of addresses as any[]) {
+      const officeId = Number(entry?.office?.office_id);
+      if (!Number.isFinite(officeId)) continue;
+      const existing = map.get(officeId);
+      // Prefer the main office address.
+      if (existing && !entry?.is_main) continue;
+      map.set(officeId, {
+        phone: String(entry?.phone ?? ''),
+        officeLocation: [entry?.address1, entry?.city, entry?.state_id, entry?.zip]
+          .filter(Boolean)
+          .join(', '),
+      });
+    }
+    return map;
   }
 
   private buildStafferIndex(contacts: DirectoryContact[]): DirectoryStaffer[] {
@@ -538,13 +903,15 @@ export class DirectoryService {
     }
 
     try {
-      const [members, staff] = await Promise.all([
+      const [members, staff, offices] = await Promise.all([
         this.fetchGzipJson<unknown[]>(`${this.prefix}/combined/member-list-current.json.gz`),
         this.fetchGzipJson<unknown[]>(`${this.prefix}/combined/staff-list-current.json.gz`),
+        this.fetchGzipJson<unknown>(`${this.prefix}/combined/office-list-current.json.gz`),
       ]);
 
       const contacts = this.buildContacts(members, staff);
       const staffers = this.buildStafferIndex(contacts);
+      const { committees, committeeStaff } = this.buildCommitteeIndex(offices, staff, members);
       const availableStates = uniqueSorted(contacts.map((contact) => contact.state));
       const availableFilters = this.buildAvailableFilters(contacts);
       const totals: DirectoryTotals = {
@@ -555,7 +922,16 @@ export class DirectoryService {
         staff: new Set(staffers.map((staffer) => staffer.id)).size,
       };
       const sourceId = `${this.bucket}/${this.prefix}`;
-      const payload = { sourceId, contacts, staffers, totals, availableStates, availableFilters };
+      const payload = {
+        sourceId,
+        contacts,
+        staffers,
+        committees,
+        committeeStaff,
+        totals,
+        availableStates,
+        availableFilters,
+      };
 
       this.cache = {
         data: payload,
@@ -1031,15 +1407,20 @@ export class DirectoryService {
       ].filter((gender) => contacts.some((contact) => contact.gender === gender.value)),
       leadership: uniqueSorted(contacts.flatMap((contact) => contact.leadershipPositions)),
       committees: uniqueSorted(contacts.flatMap((contact) => contact.committees)),
-      caucuses: uniqueSorted(contacts.flatMap((contact) => contact.caucuses)),
+      // CRS issue taxonomy, derived from staffer issue tags across all members.
+      issues: uniqueSorted(
+        contacts.flatMap((contact) => contact.staff.flatMap((staffer) => staffer.issueAreas)),
+      ),
+      // Caucus & Education have no backing data in the current snapshot (the
+      // LegiStorm pull omits those endpoints). Emit empty arrays so the response
+      // shape stays stable for consumers; the UI no longer renders these filters.
+      caucuses: [],
       states: uniqueSorted(contacts.map((contact) => contact.state)),
       districts: uniqueSorted(
         contacts.map((contact) => contact.district),
         compareDistricts,
       ),
-      educationInstitutions: uniqueSorted(
-        contacts.flatMap((contact) => contact.educationInstitutions),
-      ),
+      educationInstitutions: [],
     };
   }
 
@@ -1082,6 +1463,7 @@ export class DirectoryService {
   private buildContacts(membersRaw: unknown[], staffRaw: unknown[]): DirectoryContact[] {
     const members = Array.isArray(membersRaw) ? membersRaw : [];
     const staffById = this.buildStaffDetailsById(staffRaw);
+    const staffIdsByMember = this.buildStaffIdsByMember(staffRaw);
     const contacts: DirectoryContact[] = [];
 
     for (const row of members as any[]) {
@@ -1126,11 +1508,17 @@ export class DirectoryService {
             link.url.startsWith('http'),
         )?.url ?? '';
       const committees = this.buildCommittees(row?.committees);
+      const committeeLeadership = this.buildCommitteeLeadershipLabels(row?.committees);
       const leadershipPositions = this.buildLeadership(row?.leaderships);
-      const staff = this.buildMemberStaff(row, staffById);
+      const staff = this.buildMemberStaff(row, staffById, staffIdsByMember.get(memberId) ?? []);
       const focusAreas = uniqueSorted(staff.flatMap((staffer) => staffer.issueAreas)).slice(0, 12);
+      const topIssues = this.buildTopIssues(staff);
       const servingSince = this.servingSince(row?.member_offices);
       const photoUrl = this.primaryPhoto(row?.photos);
+      const senateClass = this.parseSenateClass(currentOffice.senate_class);
+      const outgoingStatus = currentOffice.outgoing_status
+        ? String(currentOffice.outgoing_status)
+        : null;
 
       contacts.push({
         id: `member-${memberId}`,
@@ -1153,9 +1541,13 @@ export class DirectoryService {
         servingSince,
         focusAreas,
         committees,
+        committeeLeadership,
+        topIssues,
         leadershipPositions,
         caucuses: this.buildNamedList(row?.caucuses),
         educationInstitutions: this.buildEducation(row),
+        senateClass,
+        outgoingStatus,
         officeLocation: mainAddress ? this.formatAddress(mainAddress) : '',
         phone: mainAddress?.phone ?? '',
         fax: mainAddress?.fax ?? '',
@@ -1250,7 +1642,35 @@ export class DirectoryService {
     return staffById;
   }
 
-  private buildMemberStaff(row: any, staffById: Map<number, StaffDetail>): DirectoryStaffMember[] {
+  // member_id -> staffIds with a CURRENT position in that member's office, from
+  // staff-list `positions[].member`. Committee positions have member=null, so
+  // they're naturally excluded. Powers the staffer-coverage merge.
+  private buildStaffIdsByMember(staffRaw: unknown[]): Map<number, number[]> {
+    const byMember = new Map<number, Set<number>>();
+    const staffList = Array.isArray(staffRaw) ? staffRaw : [];
+    for (const row of staffList as any[]) {
+      const staffId = Number(row?.staff?.id);
+      if (!Number.isFinite(staffId)) continue;
+      const positions = Array.isArray(row?.positions) ? row.positions : [];
+      for (const position of positions) {
+        if (!position?.is_current) continue;
+        const memberId = Number(position?.member?.member_id);
+        if (!Number.isFinite(memberId)) continue;
+        const set = byMember.get(memberId) ?? new Set<number>();
+        set.add(staffId);
+        byMember.set(memberId, set);
+      }
+    }
+    const out = new Map<number, number[]>();
+    for (const [memberId, set] of byMember) out.set(memberId, [...set]);
+    return out;
+  }
+
+  private buildMemberStaff(
+    row: any,
+    staffById: Map<number, StaffDetail>,
+    extraStaffIds: number[] = [],
+  ): DirectoryStaffMember[] {
     const byStaffId = new Map<number, DirectoryStaffMember>();
     const roles = Array.isArray(row?.staffer_roles) ? row.staffer_roles : [];
     const issues = Array.isArray(row?.staffer_issues) ? row.staffer_issues : [];
@@ -1296,6 +1716,25 @@ export class DirectoryService {
       const staffer = ensureStaffer(issue?.staffer);
       if (!staffer || !issue?.issue_name) continue;
       staffer.issueAreas.push(String(issue.issue_name));
+    }
+
+    // Coverage merge: staffers linked to this member via staff-list
+    // `positions[].member` but absent from staffer_roles/issues. They get their
+    // title/contact from staffById; roles/issueAreas stay empty (not tagged).
+    for (const staffId of extraStaffIds) {
+      if (byStaffId.has(staffId)) continue;
+      const detail = staffById.get(staffId);
+      if (!detail?.fullName) continue;
+      byStaffId.set(staffId, {
+        id: `staff-${staffId}`,
+        fullName: detail.fullName,
+        title: detail.title || 'Staff',
+        roles: [],
+        issueAreas: [],
+        email: detail.email ?? '',
+        phone: detail.phone ?? '',
+        officeLocation: detail.officeLocation ?? '',
+      });
     }
 
     return [...byStaffId.values()]
@@ -1368,6 +1807,55 @@ export class DirectoryService {
         .filter(Boolean)
         .map(String),
     );
+  }
+
+  // Leadership roles this member holds on committees, e.g. "Chair — House Armed
+  // Services Committee". Only the ranking roles (not plain membership).
+  private buildCommitteeLeadershipLabels(rawCommittees: unknown): string[] {
+    const committees = Array.isArray(rawCommittees) ? rawCommittees : [];
+    const ranked = new Set([
+      'Chair',
+      'Ranking Member',
+      'Vice Chair',
+      'Vice Ranking Member',
+      'Co-Chair',
+      'Chair Emeritus',
+    ]);
+    return uniqueSorted(
+      committees
+        .filter((committee: any) => ranked.has(String(committee?.position ?? '').trim()))
+        .map((committee: any) => {
+          const name = committee?.committee_office?.name;
+          const position = String(committee?.position ?? '').trim();
+          return name ? `${position} — ${name}` : '';
+        })
+        .filter(Boolean),
+    );
+  }
+
+  // Per-member issue intensity: distinct staffers tagged with each issue, ranked
+  // by headcount. This is the honest signal (issue *presence* is near-universal).
+  private buildTopIssues(
+    staff: DirectoryStaffMember[],
+  ): Array<{ issue: string; stafferCount: number }> {
+    const counts = new Map<string, number>();
+    for (const staffer of staff) {
+      for (const issue of new Set(staffer.issueAreas)) {
+        counts.set(issue, (counts.get(issue) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()]
+      .map(([issue, stafferCount]) => ({ issue, stafferCount }))
+      .sort((left, right) => {
+        if (right.stafferCount !== left.stafferCount) return right.stafferCount - left.stafferCount;
+        return left.issue.localeCompare(right.issue);
+      })
+      .slice(0, 12);
+  }
+
+  private parseSenateClass(raw: unknown): number | null {
+    const value = Number(raw);
+    return value === 1 || value === 2 || value === 3 ? value : null;
   }
 
   private buildLeadership(rawLeaderships: unknown): string[] {

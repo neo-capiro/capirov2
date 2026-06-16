@@ -5,6 +5,7 @@ import {
   Button,
   Card,
   Col,
+  Drawer,
   Dropdown,
   Empty,
   Input,
@@ -42,6 +43,10 @@ import type { AcquisitionPersonnelDetail } from '../program-element/types.js';
 import { DowDirectoryResults, DowPersonDrawer } from './DowDirectoryResults.js';
 import {
   type DirectoryApiResponse,
+  type DirectoryCommittee,
+  type DirectoryCommitteesResponse,
+  type DirectoryCommitteeStaffer,
+  type DirectoryCommitteeStaffResponse,
   type DirectoryContactNote,
   type DirectoryEntry,
   type DirectoryStaffer,
@@ -112,6 +117,10 @@ function yearFromDate(date: string): string {
   return date.slice(0, 4);
 }
 
+function romanNumeral(value: number | null): string {
+  return value === 1 ? 'I' : value === 2 ? 'II' : value === 3 ? 'III' : '';
+}
+
 function formatNoteDate(date: string): string {
   return new Intl.DateTimeFormat(undefined, {
     month: 'short',
@@ -135,10 +144,8 @@ function buildApiParams(filters: {
   gender: GenderFilter;
   leadership: string[];
   committee: string[];
-  caucus: string[];
   state: string[];
   district: string[];
-  education: string[];
   sort: SortOption;
   page: number;
   pageSize: number;
@@ -156,10 +163,8 @@ function buildApiParams(filters: {
   if (filters.gender !== 'All') params.gender = filters.gender;
   if (filters.leadership.length > 0) params.leadership = filters.leadership.join(',');
   if (filters.committee.length > 0) params.committee = filters.committee.join(',');
-  if (filters.caucus.length > 0) params.caucus = filters.caucus.join(',');
   if (filters.state.length > 0) params.state = filters.state.join(',');
   if (filters.district.length > 0) params.district = filters.district.join(',');
-  if (filters.education.length > 0) params.education = filters.education.join(',');
 
   return params;
 }
@@ -170,8 +175,13 @@ export function DirectoryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [searchText, setSearchText] = useState('');
-  const [mode, setMode] = useState<'members' | 'staffers' | 'dow'>('members');
+  const [mode, setMode] = useState<'members' | 'staffers' | 'committees' | 'dow'>('members');
   const [stafferPage, setStafferPage] = useState(1);
+  const [committeePage, setCommitteePage] = useState(1);
+  const [committeeChamber, setCommitteeChamber] = useState<
+    'House' | 'Senate' | 'Joint' | undefined
+  >(undefined);
+  const [selectedCommitteeId, setSelectedCommitteeId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [freshman, setFreshman] = useState<FreshmanFilter>('All');
   const [chamber, setChamber] = useState<ChamberFilter[]>([]);
@@ -179,10 +189,9 @@ export function DirectoryPage() {
   const [gender, setGender] = useState<GenderFilter>('All');
   const [leadership, setLeadership] = useState<string[]>([]);
   const [committee, setCommittee] = useState<string[]>([]);
-  const [caucus, setCaucus] = useState<string[]>([]);
   const [state, setState] = useState<string[]>([]);
   const [district, setDistrict] = useState<string[]>([]);
-  const [education, setEducation] = useState<string[]>([]);
+  const [issue, setIssue] = useState<string[]>([]);
   const [sort, setSort] = useState<SortOption>('recent');
   const [page, setPage] = useState(1);
   const selectedEntryId = searchParams.get('profile');
@@ -192,6 +201,7 @@ export function DirectoryPage() {
       setQuery(searchText);
       setPage(1);
       setStafferPage(1);
+      setCommitteePage(1);
       setDowPage(1);
     }, SEARCH_DEBOUNCE_MS);
 
@@ -208,10 +218,8 @@ export function DirectoryPage() {
       gender,
       leadership,
       committee,
-      caucus,
       state,
       district,
-      education,
       sort,
       page,
     ],
@@ -226,10 +234,8 @@ export function DirectoryPage() {
             gender,
             leadership,
             committee,
-            caucus,
             state,
             district,
-            education,
             sort,
             page,
             pageSize: PAGE_SIZE,
@@ -242,7 +248,7 @@ export function DirectoryPage() {
   });
 
   const staffersQuery = useQuery({
-    queryKey: ['directory-staffers', query, chamber, state, stafferPage],
+    queryKey: ['directory-staffers', query, chamber, state, issue, stafferPage],
     queryFn: async () =>
       (
         await api.get<DirectoryStaffersResponse>('/api/directory/staffers', {
@@ -250,6 +256,7 @@ export function DirectoryPage() {
             q: query || undefined,
             chamber: chamber.length === 1 ? chamber[0] : undefined,
             state: state.length ? state : undefined,
+            issue: issue.length ? issue.join(',') : undefined,
             page: stafferPage,
             pageSize: PAGE_SIZE,
           },
@@ -264,6 +271,43 @@ export function DirectoryPage() {
   const stafferTotal = staffersQuery.data?.total ?? 0;
   const stafferPageCurrent = staffersQuery.data?.page ?? stafferPage;
   const staffersLoading = staffersQuery.isLoading && !staffersQuery.data;
+
+  // ── Committees (federal House/Senate/Joint committees + subcommittees) ───────
+  const committeesQuery = useQuery({
+    queryKey: ['directory-committees', query, committeeChamber, committeePage],
+    queryFn: async () =>
+      (
+        await api.get<DirectoryCommitteesResponse>('/api/directory/committees', {
+          params: {
+            q: query || undefined,
+            chamber: committeeChamber,
+            page: committeePage,
+            pageSize: PAGE_SIZE,
+          },
+        })
+      ).data,
+    enabled: mode === 'committees',
+    staleTime: 5 * 60_000,
+    placeholderData: (previous) => previous,
+    retry: 1,
+  });
+  const committees = committeesQuery.data?.committees ?? [];
+  const committeeTotal = committeesQuery.data?.total ?? 0;
+  const committeePageCurrent = committeesQuery.data?.page ?? committeePage;
+  const committeesLoading = committeesQuery.isLoading && !committeesQuery.data;
+
+  const committeeStaffQuery = useQuery({
+    queryKey: ['directory-committee-staff', selectedCommitteeId],
+    queryFn: async () =>
+      (
+        await api.get<DirectoryCommitteeStaffResponse>(
+          `/api/directory/committees/${encodeURIComponent(selectedCommitteeId as string)}/staff`,
+          { params: { pageSize: 500 } },
+        )
+      ).data,
+    enabled: selectedCommitteeId !== null,
+    staleTime: 5 * 60_000,
+  });
 
   // ── DoW Directory (AcquisitionPersonnel) browse mode ────────────────────────
   const DOW_PAGE_SIZE = PAGE_SIZE;
@@ -324,9 +368,7 @@ export function DirectoryPage() {
     committee.length > 0 ||
     district.length > 0 ||
     leadership.length > 0 ||
-    caucus.length > 0 ||
     gender !== 'All' ||
-    education.length > 0 ||
     freshman !== 'All';
   const initialLoading = directoryQuery.isLoading && !directoryQuery.data;
   const directoryUnavailable =
@@ -356,10 +398,8 @@ export function DirectoryPage() {
     setGender('All');
     setLeadership([]);
     setCommittee([]);
-    setCaucus([]);
     setState([]);
     setDistrict([]);
-    setEducation([]);
     setPage(1);
   }
 
@@ -514,23 +554,6 @@ export function DirectoryPage() {
                 }}
               />
               <FilterPill
-                label="Caucus"
-                values={caucus}
-                options={(availableFilters?.caucuses ?? emptyFilters).map((value) => ({
-                  value,
-                  label: value,
-                }))}
-                disabled={filtersDisabled || (availableFilters?.caucuses.length ?? 0) === 0}
-                onSelect={(value) => {
-                  setCaucus((current) => toggleValue(current, value));
-                  setPage(1);
-                }}
-                onClear={() => {
-                  setCaucus([]);
-                  setPage(1);
-                }}
-              />
-              <FilterPill
                 label="Gender"
                 values={gender === 'All' ? [] : [gender]}
                 options={(availableFilters?.genders ?? []).map((option) => ({
@@ -544,25 +567,6 @@ export function DirectoryPage() {
                 }}
                 onClear={() => {
                   setGender('All');
-                  setPage(1);
-                }}
-              />
-              <FilterPill
-                label="Educational Institution"
-                values={education}
-                options={(availableFilters?.educationInstitutions ?? emptyFilters).map((value) => ({
-                  value,
-                  label: value,
-                }))}
-                disabled={
-                  filtersDisabled || (availableFilters?.educationInstitutions.length ?? 0) === 0
-                }
-                onSelect={(value) => {
-                  setEducation((current) => toggleValue(current, value));
-                  setPage(1);
-                }}
-                onClear={() => {
-                  setEducation([]);
                   setPage(1);
                 }}
               />
@@ -610,7 +614,7 @@ export function DirectoryPage() {
         <Segmented
           value={mode}
           disabled={initialLoading}
-          onChange={(value) => setMode(value as 'members' | 'staffers' | 'dow')}
+          onChange={(value) => setMode(value as 'members' | 'staffers' | 'committees' | 'dow')}
           options={[
             {
               label: `Members${totals.all ? ` · ${totals.all.toLocaleString()}` : ''}`,
@@ -619,6 +623,10 @@ export function DirectoryPage() {
             {
               label: `Staffers${totals.staff ? ` · ${totals.staff.toLocaleString()}` : ''}`,
               value: 'staffers',
+            },
+            {
+              label: `Committees${committeeTotal ? ` · ${committeeTotal.toLocaleString()}` : ''}`,
+              value: 'committees',
             },
             {
               label: `DoW Directory${dowTotal ? ` · ${dowTotal.toLocaleString()}` : ''}`,
@@ -642,27 +650,67 @@ export function DirectoryPage() {
             setQuery(searchText);
             setPage(1);
             setStafferPage(1);
+            setCommitteePage(1);
             setDowPage(1);
           }}
           placeholder={
             mode === 'staffers'
               ? 'Search staffers by name, title, role, issue area, or member'
-              : mode === 'dow'
-                ? 'Search DoW directory by name'
-                : 'Search by name, office, committee, staff, phone, or email'
+              : mode === 'committees'
+                ? 'Search committees by name or code'
+                : mode === 'dow'
+                  ? 'Search DoW directory by name'
+                  : 'Search by name, office, committee, staff, phone, or email'
           }
         />
         <Typography.Text className="directory-result-count" type="secondary">
           {mode === 'staffers'
             ? resultCountText(stafferTotal, stafferPageCurrent)
-            : mode === 'dow'
-              ? resultCountText(dowTotal, dowPageCurrent)
-              : resultCountText(totalFiltered, currentPage)}
+            : mode === 'committees'
+              ? resultCountText(committeeTotal, committeePageCurrent)
+              : mode === 'dow'
+                ? resultCountText(dowTotal, dowPageCurrent)
+                : resultCountText(totalFiltered, currentPage)}
         </Typography.Text>
       </div>
 
+      {mode === 'staffers' ? (
+        <div
+          className="dow-filter-bar"
+          style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}
+        >
+          <Select
+            allowClear
+            mode="multiple"
+            placeholder="Filter by issue area"
+            style={{ minWidth: 280 }}
+            value={issue}
+            onChange={(value) => {
+              setIssue(value as string[]);
+              setStafferPage(1);
+            }}
+            options={(availableFilters?.issues ?? []).map((value) => ({ value, label: value }))}
+            maxTagCount="responsive"
+          />
+          {issue.length ? (
+            <Button
+              type="text"
+              onClick={() => {
+                setIssue([]);
+                setStafferPage(1);
+              }}
+            >
+              Clear issues
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
       {mode === 'dow' ? (
-        <div className="dow-filter-bar" style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div
+          className="dow-filter-bar"
+          style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}
+        >
           <Select
             allowClear
             placeholder="PE alignment"
@@ -719,7 +767,7 @@ export function DirectoryPage() {
               { value: 'STAFFER', label: 'Staff' },
             ]}
           />
-          {(dowPeAligned || dowService || dowRole) ? (
+          {dowPeAligned || dowService || dowRole ? (
             <Button
               type="text"
               onClick={() => {
@@ -727,6 +775,40 @@ export function DirectoryPage() {
                 setDowService(undefined);
                 setDowRole(undefined);
                 setDowPage(1);
+              }}
+            >
+              Clear filters
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {mode === 'committees' ? (
+        <div
+          className="dow-filter-bar"
+          style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}
+        >
+          <Select
+            allowClear
+            placeholder="Chamber"
+            style={{ minWidth: 160 }}
+            value={committeeChamber}
+            onChange={(value) => {
+              setCommitteeChamber(value as 'House' | 'Senate' | 'Joint' | undefined);
+              setCommitteePage(1);
+            }}
+            options={[
+              { value: 'House', label: 'House' },
+              { value: 'Senate', label: 'Senate' },
+              { value: 'Joint', label: 'Joint' },
+            ]}
+          />
+          {committeeChamber ? (
+            <Button
+              type="text"
+              onClick={() => {
+                setCommitteeChamber(undefined);
+                setCommitteePage(1);
               }}
             >
               Clear filters
@@ -759,6 +841,19 @@ export function DirectoryPage() {
           onClear={clearSearch}
           onCopy={copyContact}
           onRetry={() => staffersQuery.refetch()}
+        />
+      ) : mode === 'committees' ? (
+        <CommitteeResults
+          committees={committees}
+          loading={committeesLoading}
+          fetching={committeesQuery.isFetching}
+          total={committeeTotal}
+          page={committeePageCurrent}
+          isError={committeesQuery.isError}
+          onPage={setCommitteePage}
+          onClear={clearSearch}
+          onOpen={setSelectedCommitteeId}
+          onRetry={() => committeesQuery.refetch()}
         />
       ) : initialLoading ? (
         <DirectoryLoadingState />
@@ -962,11 +1057,42 @@ export function DirectoryPage() {
                               Gender: {genderLabel(selectedEntry.gender)}
                             </Typography.Text>
                             <Typography.Text>Region: {selectedEntry.region}</Typography.Text>
+                            {selectedEntry.senateClass ? (
+                              <Typography.Text>
+                                Senate class: {romanNumeral(selectedEntry.senateClass)}
+                              </Typography.Text>
+                            ) : null}
+                            {selectedEntry.outgoingStatus ? (
+                              <Typography.Text type="warning">
+                                {selectedEntry.outgoingStatus}
+                              </Typography.Text>
+                            ) : null}
                             <Typography.Text>
                               Last source update: {selectedEntry.lastTouchpoint}
                             </Typography.Text>
                           </Space>
                         </Card>
+                        {selectedEntry.topIssues.length > 0 ? (
+                          <Card
+                            className="directory-side-card"
+                            title="Top issues by staff coverage"
+                          >
+                            <Space size={[8, 8]} wrap>
+                              {selectedEntry.topIssues.map((entry) => (
+                                <Tag key={entry.issue} color="blue">
+                                  {entry.issue} · {entry.stafferCount}
+                                </Tag>
+                              ))}
+                            </Space>
+                            <Typography.Paragraph
+                              type="secondary"
+                              style={{ fontSize: 11, margin: '10px 0 0', lineHeight: 1.4 }}
+                            >
+                              Number of this office's staffers tagged to each issue — a proxy for
+                              where the office invests, not a complete policy position.
+                            </Typography.Paragraph>
+                          </Card>
+                        ) : null}
                         <DirectoryNotesPanel entry={selectedEntry} />
                         <DirectoryFecPanel entry={selectedEntry} />
                       </Col>
@@ -1060,16 +1186,35 @@ export function DirectoryPage() {
                   key: 'committees',
                   label: 'Committees',
                   children: (
-                    <Space size={[8, 8]} wrap>
-                      {selectedEntry.committees.length > 0 ? (
-                        selectedEntry.committees.map((committee) => (
-                          <Tag key={committee} className="directory-large-tag">
-                            {committee}
-                          </Tag>
-                        ))
-                      ) : (
-                        <Empty description="No committee data in source snapshot" />
-                      )}
+                    <Space direction="vertical" size={16} style={{ display: 'flex' }}>
+                      {selectedEntry.committeeLeadership.length > 0 ? (
+                        <div>
+                          <Typography.Text strong>Leadership roles</Typography.Text>
+                          <Space size={[8, 8]} wrap style={{ display: 'flex', marginTop: 8 }}>
+                            {selectedEntry.committeeLeadership.map((role) => (
+                              <Tag key={role} color="gold" className="directory-large-tag">
+                                {role}
+                              </Tag>
+                            ))}
+                          </Space>
+                        </div>
+                      ) : null}
+                      <div>
+                        {selectedEntry.committeeLeadership.length > 0 ? (
+                          <Typography.Text strong>All committees</Typography.Text>
+                        ) : null}
+                        <Space size={[8, 8]} wrap style={{ display: 'flex', marginTop: 8 }}>
+                          {selectedEntry.committees.length > 0 ? (
+                            selectedEntry.committees.map((committee) => (
+                              <Tag key={committee} className="directory-large-tag">
+                                {committee}
+                              </Tag>
+                            ))
+                          ) : (
+                            <Empty description="No committee data in source snapshot" />
+                          )}
+                        </Space>
+                      </div>
                     </Space>
                   ),
                 },
@@ -1119,6 +1264,16 @@ export function DirectoryPage() {
         person={dowDetailQuery.data ?? null}
         loading={dowDetailQuery.isLoading}
         onClose={() => setSelectedDowPersonId(null)}
+      />
+
+      <CommitteeStaffDrawer
+        open={selectedCommitteeId !== null}
+        committee={committeeStaffQuery.data?.committee ?? null}
+        staff={committeeStaffQuery.data?.staff ?? []}
+        total={committeeStaffQuery.data?.total ?? 0}
+        loading={committeeStaffQuery.isLoading}
+        onClose={() => setSelectedCommitteeId(null)}
+        onCopy={copyContact}
       />
     </div>
   );
@@ -1358,7 +1513,10 @@ function DirectoryMemberCard({
           {partyShort ? (
             <>
               <span className="dir-sep">·</span>
-              <span className={`party-pill ${partyShort.toLowerCase()}`} title={partyLabel(entry.party)}>
+              <span
+                className={`party-pill ${partyShort.toLowerCase()}`}
+                title={partyLabel(entry.party)}
+              >
                 {partyShort}
               </span>
               <span>{partyLabel(entry.party)}</span>
@@ -1373,8 +1531,12 @@ function DirectoryMemberCard({
         </div>
         {servingYear ? (
           <div className="dir-card-since">
-            Serving Since{' '}
-            <b className="num">{servingYear}</b>
+            Serving Since <b className="num">{servingYear}</b>
+            {entry.outgoingStatus ? (
+              <Tag color="orange" style={{ marginLeft: 8 }}>
+                {entry.outgoingStatus}
+              </Tag>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -1457,7 +1619,11 @@ function StafferResults({
       ) : null}
       <div className="directory-card-grid">
         {staffers.map((staffer) => (
-          <StafferCard key={`${staffer.id}-${staffer.member.id}`} staffer={staffer} onCopy={onCopy} />
+          <StafferCard
+            key={`${staffer.id}-${staffer.member.id}`}
+            staffer={staffer}
+            onCopy={onCopy}
+          />
         ))}
       </div>
       {total > PAGE_SIZE ? (
@@ -1505,7 +1671,10 @@ function StafferCard({
           {partyShort ? (
             <>
               <span className="dir-sep">·</span>
-              <span className={`party-pill ${partyShort.toLowerCase()}`} title={partyLabel(member.party)}>
+              <span
+                className={`party-pill ${partyShort.toLowerCase()}`}
+                title={partyLabel(member.party)}
+              >
                 {partyShort}
               </span>
             </>
@@ -1541,6 +1710,257 @@ function StafferCard({
         {staffer.issueAreas[0] || staffer.roles[0] || 'No Issue Coverage Listed'}
       </div>
     </article>
+  );
+}
+
+function CommitteeResults({
+  committees,
+  loading,
+  fetching,
+  total,
+  page,
+  isError,
+  onPage,
+  onClear,
+  onOpen,
+  onRetry,
+}: {
+  committees: DirectoryCommittee[];
+  loading: boolean;
+  fetching: boolean;
+  total: number;
+  page: number;
+  isError: boolean;
+  onPage: (next: number) => void;
+  onClear: () => void;
+  onOpen: (committeeId: string) => void;
+  onRetry: () => void;
+}) {
+  if (loading) return <DirectoryLoadingState />;
+  if (isError) {
+    return (
+      <DirectoryEmptyState
+        heading="Committees Unavailable"
+        subtext="We couldn't load committees. Please try again."
+        actionLabel="Retry"
+        onAction={onRetry}
+      />
+    );
+  }
+  if (committees.length === 0) {
+    return (
+      <DirectoryEmptyState
+        heading="No Committees Found"
+        subtext="Try a different committee name, code, or chamber."
+        actionLabel="Clear Search"
+        onAction={onClear}
+      />
+    );
+  }
+  return (
+    <>
+      {fetching ? (
+        <div className="directory-grid-loading" aria-hidden="true">
+          <Spin size="small" />
+        </div>
+      ) : null}
+      <div className="directory-card-grid">
+        {committees.map((committee) => (
+          <CommitteeCard
+            key={committee.id}
+            committee={committee}
+            onOpen={() => onOpen(committee.id)}
+          />
+        ))}
+      </div>
+      {total > PAGE_SIZE ? (
+        <div className="directory-pagination">
+          <Pagination
+            current={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            onChange={onPage}
+            showSizeChanger={false}
+          />
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+function CommitteeCard({
+  committee,
+  onOpen,
+}: {
+  committee: DirectoryCommittee;
+  onOpen: () => void;
+}) {
+  return (
+    <article
+      className="dir-card directory-person-card"
+      role="button"
+      tabIndex={0}
+      onClick={onOpen}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onOpen();
+        }
+      }}
+    >
+      <div className="dir-card-top">
+        <div className="dir-card-avatar">
+          <BankOutlined />
+        </div>
+        <div className="dir-card-title">
+          <div className="dir-card-name">{committee.name}</div>
+          <div className="dir-card-role">
+            {committee.chamber} {committee.kind === 'subcommittee' ? 'Subcommittee' : 'Committee'}
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div className="dir-card-meta">
+          <Tag>{committee.chamber}</Tag>
+          {committee.kind === 'subcommittee' ? <Tag color="purple">Subcommittee</Tag> : null}
+          {committee.committeeCode ? (
+            <span className="state-pill num">{committee.committeeCode}</span>
+          ) : null}
+        </div>
+        {committee.chair || committee.rankingMember ? (
+          <div className="dir-card-since">
+            {committee.chair ? `Chair: ${committee.chair.name}` : ''}
+            {committee.chair && committee.rankingMember ? ' · ' : ''}
+            {committee.rankingMember ? `Ranking: ${committee.rankingMember.name}` : ''}
+          </div>
+        ) : null}
+      </div>
+
+      <div className="dir-committee directory-card-meta">
+        {committee.staffCount > 0
+          ? `${committee.staffCount.toLocaleString()} current staffer${committee.staffCount === 1 ? '' : 's'}`
+          : 'No staff in source snapshot'}
+      </div>
+    </article>
+  );
+}
+
+function CommitteeStaffDrawer({
+  open,
+  committee,
+  staff,
+  total,
+  loading,
+  onClose,
+  onCopy,
+}: {
+  open: boolean;
+  committee: DirectoryCommittee | null;
+  staff: DirectoryCommitteeStaffer[];
+  total: number;
+  loading: boolean;
+  onClose: () => void;
+  onCopy: (value: string, label: string) => Promise<void>;
+}) {
+  const currentCount = staff.filter((member) => member.isCurrent).length;
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      width={640}
+      destroyOnClose
+      title={committee ? committee.name : 'Committee staff'}
+    >
+      {loading ? (
+        <DirectoryLoadingState />
+      ) : !committee ? (
+        <Empty description="Committee not found in source snapshot" />
+      ) : (
+        <>
+          <Space size={8} wrap style={{ marginBottom: 16 }}>
+            <Tag>{committee.chamber}</Tag>
+            <Tag color={committee.kind === 'subcommittee' ? 'purple' : 'blue'}>
+              {committee.kind === 'subcommittee' ? 'Subcommittee' : 'Committee'}
+            </Tag>
+            {committee.committeeCode ? <Tag className="num">{committee.committeeCode}</Tag> : null}
+            <Typography.Text type="secondary">
+              {currentCount.toLocaleString()} current · {total.toLocaleString()} on record
+            </Typography.Text>
+          </Space>
+
+          {committee.chair || committee.rankingMember || committee.phone ? (
+            <div className="directory-contact-panel" style={{ marginBottom: 16 }}>
+              {committee.chair ? (
+                <Typography.Text>
+                  <strong>Chair:</strong> {committee.chair.name}
+                </Typography.Text>
+              ) : null}
+              {committee.rankingMember ? (
+                <Typography.Text>
+                  <strong>Ranking Member:</strong> {committee.rankingMember.name}
+                </Typography.Text>
+              ) : null}
+              {committee.viceChairs.length ? (
+                <Typography.Text>
+                  <strong>Vice Chair{committee.viceChairs.length > 1 ? 's' : ''}:</strong>{' '}
+                  {committee.viceChairs.join(', ')}
+                </Typography.Text>
+              ) : null}
+              {committee.phone ? (
+                <CopyableTextRow
+                  label="Phone"
+                  value={committee.phone}
+                  emptyText="N/A"
+                  onCopy={onCopy}
+                />
+              ) : null}
+              {committee.officeLocation ? (
+                <Typography.Text type="secondary">{committee.officeLocation}</Typography.Text>
+              ) : null}
+            </div>
+          ) : null}
+
+          {staff.length === 0 ? (
+            <Empty description="No committee staff in source snapshot" />
+          ) : (
+            <div className="directory-staff-list">
+              <div className="directory-staff-header" aria-hidden="true">
+                <span>Staffer</span>
+                <span>Status</span>
+                <span>Phone</span>
+                <span>Email</span>
+              </div>
+              {staff.map((member) => (
+                <div key={member.id} className="directory-staff-row">
+                  <div className="directory-staff-person">
+                    <Typography.Text strong>{member.fullName}</Typography.Text>
+                    <Typography.Text type="secondary">{member.title}</Typography.Text>
+                  </div>
+                  <Space className="directory-staff-tags" size={[6, 6]} wrap>
+                    {member.isCurrent ? <Tag color="green">Current</Tag> : <Tag>Former</Tag>}
+                  </Space>
+                  <StaffContactValue
+                    icon={<PhoneOutlined />}
+                    label="Phone"
+                    value={member.phone}
+                    emptyText="None listed"
+                    onCopy={onCopy}
+                  />
+                  <StaffContactValue
+                    icon={<MailOutlined />}
+                    label="Email"
+                    value={member.email}
+                    emptyText="None listed"
+                    onCopy={onCopy}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </Drawer>
   );
 }
 
@@ -1880,7 +2300,11 @@ function DirectoryFecPanel({ entry }: { entry: DirectoryEntry }) {
   const query = useQuery<MemberFecSummary>({
     queryKey: ['directory-contact-fec', entry.id],
     queryFn: async () =>
-      (await api.get<MemberFecSummary>(`/api/directory/contacts/${encodeURIComponent(entry.id)}/fec-summary`)).data,
+      (
+        await api.get<MemberFecSummary>(
+          `/api/directory/contacts/${encodeURIComponent(entry.id)}/fec-summary`,
+        )
+      ).data,
     staleTime: 5 * 60_000,
   });
 
@@ -1893,7 +2317,9 @@ function DirectoryFecPanel({ entry }: { entry: DirectoryEntry }) {
       title={
         <Space size={8}>
           <span>Client FEC relationship</span>
-          <Tag color="default" style={{ fontSize: 10 }}>approximate · name-matched</Tag>
+          <Tag color="default" style={{ fontSize: 10 }}>
+            approximate · name-matched
+          </Tag>
         </Space>
       }
     >
@@ -1903,14 +2329,18 @@ function DirectoryFecPanel({ entry }: { entry: DirectoryEntry }) {
         ) : hasData ? (
           <>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              {formatUsd(data!.summary.totalAmount)} across {data!.summary.contributionCount} contribution
-              {data!.summary.contributionCount !== 1 ? 's' : ''} from {data!.summary.clientCount} mapped client
+              {formatUsd(data!.summary.totalAmount)} across {data!.summary.contributionCount}{' '}
+              contribution
+              {data!.summary.contributionCount !== 1 ? 's' : ''} from {data!.summary.clientCount}{' '}
+              mapped client
               {data!.summary.clientCount !== 1 ? 's' : ''}.
             </Typography.Text>
             <div className="directory-note-list">
               {data!.clients.map((c) => (
                 <div key={c.clientId} className="directory-note-preview">
-                  <Space style={{ justifyContent: 'space-between', display: 'flex', width: '100%' }}>
+                  <Space
+                    style={{ justifyContent: 'space-between', display: 'flex', width: '100%' }}
+                  >
                     <Typography.Text strong>{c.clientName}</Typography.Text>
                     <Tag color="green">{formatUsd(c.totalAmount)}</Tag>
                   </Space>
