@@ -71,6 +71,7 @@ const EXPECTED_TOOLS = [
   'create_task',
   'update_task',
   'update_workflow_field',
+  'update_client_profile',
 ] as const;
 
 /** Tools whose schema must enforce required inputs, and exactly which. */
@@ -103,6 +104,7 @@ const REQUIRED_INPUTS: Record<string, string[]> = {
   create_task: ['title'],
   update_task: ['taskId'],
   update_workflow_field: ['instanceId', 'fieldKey', 'value'],
+  update_client_profile: ['clientId'],
 };
 
 // anthropicToolSchemas() is self-contained (no constructor deps), so an

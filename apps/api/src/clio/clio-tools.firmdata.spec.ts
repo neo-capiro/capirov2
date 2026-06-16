@@ -64,6 +64,13 @@ function makeMocks() {
   };
   const clientPeople = { listPeople: jest.fn().mockResolvedValue([]) };
   const clientFacilities = { listFacilities: jest.fn().mockResolvedValue([]) };
+  const clients = {
+    get: jest.fn().mockResolvedValue({ id: 'client-1', name: 'Acme', intakeData: {} }),
+    update: jest.fn(async (_ctx: unknown, id: string, data: Record<string, unknown>) => ({
+      id,
+      name: (data.name as string) ?? 'Acme',
+    })),
+  };
 
   const docgen = {
     buildDocx: jest.fn().mockResolvedValue(Buffer.from('docx')),
@@ -92,6 +99,7 @@ function makeMocks() {
     clientFacilities as never,
     { search: jest.fn().mockResolvedValue([]) } as never, // clientKb
     { isEnabled: jest.fn().mockResolvedValue(false) } as never, // featureFlags
+    clients as never,
   );
 
   return {
@@ -109,6 +117,7 @@ function makeMocks() {
     clientPeople,
     clientFacilities,
     docgen,
+    clients,
   };
 }
 
@@ -553,6 +562,71 @@ describe('create_word artifact persistence (regression: conversationId threading
     expect(m.tx.clioArtifact.create).not.toHaveBeenCalled();
     expect(result.downloadUrl).toBeNull();
     expect(result.artifact.persisted).toBe(false);
+  });
+});
+
+describe('update_client_profile (Clio writes to the web app)', () => {
+  it('writes only whitelisted fields and returns fieldsWritten', async () => {
+    const m = makeMocks();
+    const result = (await m.service.execute(ctx, 'update_client_profile', {
+      clientId: 'client-1',
+      name: 'Acme Robotics',
+      website: 'https://acme.example',
+      issueCodes: ['DEF', 'TEC', ''],
+      bogusField: 'ignored',
+    })) as { updated: boolean; fieldsWritten: string[]; clientName: string };
+
+    expect(m.clients.update).toHaveBeenCalledTimes(1);
+    const [, id, data] = m.clients.update.mock.calls[0] as [unknown, string, Record<string, unknown>];
+    expect(id).toBe('client-1');
+    expect(data).toMatchObject({
+      name: 'Acme Robotics',
+      website: 'https://acme.example',
+      issueCodes: ['DEF', 'TEC'], // empty string dropped
+    });
+    expect(data).not.toHaveProperty('bogusField');
+    expect(result.updated).toBe(true);
+    expect(result.fieldsWritten).toEqual(
+      expect.arrayContaining(['name', 'website', 'issueCodes']),
+    );
+  });
+
+  it('merges per-field provenance into intakeData.__webImport without clobbering', async () => {
+    const m = makeMocks();
+    m.clients.get.mockResolvedValue({
+      id: 'client-1',
+      name: 'Acme',
+      intakeData: { existingKey: 'keep', __webImport: { fields: { name: { sourceUrl: 'old' } } } },
+    });
+    await m.service.execute(ctx, 'update_client_profile', {
+      clientId: 'client-1',
+      website: 'https://acme.example',
+      provenance: { website: { sourceUrl: 'https://acme.example/about', confidence: 'high' } },
+    });
+    const [, , data] = m.clients.update.mock.calls[0] as [unknown, string, Record<string, unknown>];
+    const intake = data.intakeData as Record<string, unknown>;
+    expect(intake.existingKey).toBe('keep');
+    const webImport = intake.__webImport as Record<string, unknown>;
+    const fields = webImport.fields as Record<string, unknown>;
+    expect(fields.name).toEqual({ sourceUrl: 'old' }); // prior provenance preserved
+    expect(fields.website).toEqual({ sourceUrl: 'https://acme.example/about', confidence: 'high' });
+  });
+
+  it('rejects when no recognized fields are supplied', async () => {
+    const m = makeMocks();
+    await expect(
+      m.service.execute(ctx, 'update_client_profile', { clientId: 'client-1', junk: 1 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(m.clients.update).not.toHaveBeenCalled();
+  });
+
+  it('404s for a client outside the tenant (visibility gate)', async () => {
+    const m = makeMocks();
+    m.tx.client.findFirst.mockResolvedValue(null);
+    await expect(
+      m.service.execute(ctx, 'update_client_profile', { clientId: 'other', name: 'X' }),
+    ).rejects.toThrow('Client not found');
+    expect(m.clients.update).not.toHaveBeenCalled();
   });
 });
 

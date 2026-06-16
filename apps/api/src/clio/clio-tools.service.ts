@@ -18,6 +18,7 @@ import type { ActionStatus } from '../intelligence/actions/action-recommendation
 import { ClientCapabilitiesService } from '../clients/client-capabilities.service.js';
 import { ClientPeopleService } from '../clients/client-people.service.js';
 import { ClientFacilitiesService } from '../clients/client-facilities.service.js';
+import { ClientsService } from '../clients/clients.service.js';
 import { RegulatoryDocketService } from '../regulatory-docket/regulatory-docket.service.js';
 import { MicrosoftGraphSyncService } from '../engagement/microsoft/microsoft-graph-sync.service.js';
 import { LdaIntelService } from '../lda-intel/lda-intel.service.js';
@@ -258,6 +259,16 @@ export const TOOL_DEFINITIONS = [
     name: 'update_workflow_field',
     description: 'Write an approved value into a single field of a workflow/submission instance\'s form data. Requires user approval.',
   },
+  {
+    name: 'update_client_profile',
+    description:
+      'Write approved values into a client profile (the Documents/Overview tab fields): ' +
+      'name, website, description, productDescription, primaryContactName, primaryContactEmail, ' +
+      'primaryContactPhone, sectorTag, issueCodes, uei, cageCode, naicsCodes, pscCodes. ' +
+      'Only call this AFTER you have shown the user the proposed values (ideally with a source ' +
+      'for each, e.g. from search_public_web / scrape_web_page / LDA filings) and they have ' +
+      'approved them. Pass only the fields you are changing. Requires user approval.',
+  },
 ] as const;
 
 type ClioToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
@@ -282,6 +293,7 @@ const SIDE_EFFECTING_TOOLS: ReadonlySet<string> = new Set<string>([
   'create_task',
   'update_task',
   'update_workflow_field',
+  'update_client_profile',
 ]);
 
 interface ToolArtifactInput {
@@ -331,6 +343,7 @@ export class ClioToolsService {
     private readonly clientFacilities: ClientFacilitiesService,
     private readonly clientKb: ClientKbService,
     private readonly featureFlags: ClioFeatureFlagsService,
+    private readonly clients: ClientsService,
   ) {}
 
   manifest() {
@@ -669,6 +682,40 @@ export class ClioToolsService {
         fieldKey: str('Form-data field key to set'),
         value: str('Approved value to write'),
       }, ['instanceId', 'fieldKey', 'value']),
+      update_client_profile: obj({
+        clientId: str('Client UUID to update'),
+        name: str('Organization/client name'),
+        website: str('Primary website URL'),
+        description: str('Short description of the organization'),
+        productDescription: str('What the organization makes/does'),
+        primaryContactName: str('Primary contact full name'),
+        primaryContactEmail: str('Primary contact email'),
+        primaryContactPhone: str('Primary contact phone'),
+        sectorTag: str('Sector/industry tag'),
+        uei: str('SAM.gov Unique Entity ID (12 chars)'),
+        cageCode: str('CAGE code (5 chars)'),
+        issueCodes: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'LDA issue codes (replaces the existing list)',
+        },
+        naicsCodes: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'NAICS codes (replaces the existing list)',
+        },
+        pscCodes: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'PSC codes (replaces the existing list)',
+        },
+        provenance: {
+          type: 'object',
+          description:
+            'Optional per-field source metadata, e.g. { "website": { "sourceUrl": "https://...", "confidence": "high" } }. ' +
+            'Stored on the client for auditability; not shown as a profile field.',
+        },
+      }, ['clientId']),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -987,6 +1034,8 @@ export class ClioToolsService {
         return this.updateEngagementTask(ctx, input);
       case 'update_workflow_field':
         return this.updateWorkflowField(ctx, input);
+      case 'update_client_profile':
+        return this.updateClientProfile(ctx, input);
       default:
         assertNever(name);
     }
@@ -3260,6 +3309,84 @@ export class ClioToolsService {
     };
   }
 
+  /**
+   * Write approved values into a client profile (the "Clio writes to the web
+   * app" path). Only whitelisted scalar/array fields are accepted; anything
+   * else is ignored. Per-field provenance (source URL + confidence) is merged
+   * into intakeData.__webImport so an auto-populated profile is auditable. The
+   * client-visibility gate 404s outside the tenant, and ClientsService.update
+   * runs through withTenant, so a write can never cross tenants. The model is
+   * instructed to gather + show + get approval before calling this (it's in
+   * SIDE_EFFECTING_TOOLS); this method does the persistence only.
+   */
+  private async updateClientProfile(ctx: TenantContext, input: Record<string, unknown>) {
+    const clientId = requiredString(input, 'clientId', 80);
+    await this.ensureClientVisible(ctx, clientId);
+
+    const update: Record<string, unknown> = {};
+    const setStr = (key: string, max: number) => {
+      const v = optionalString(input, key, max);
+      if (v !== null) update[key] = v;
+    };
+    setStr('name', 300);
+    setStr('website', 500);
+    setStr('description', 4000);
+    setStr('productDescription', 4000);
+    setStr('primaryContactName', 200);
+    setStr('primaryContactEmail', 200);
+    setStr('primaryContactPhone', 60);
+    setStr('sectorTag', 120);
+    setStr('uei', 12);
+    setStr('cageCode', 5);
+    const setArr = (key: string) => {
+      const arr = optionalStringArray(input, key, 100, 120);
+      if (arr !== null) update[key] = arr;
+    };
+    setArr('issueCodes');
+    setArr('naicsCodes');
+    setArr('pscCodes');
+
+    const writtenFields = Object.keys(update);
+    if (writtenFields.length === 0) {
+      throw new BadRequestException(
+        'update_client_profile: no recognized profile fields to write',
+      );
+    }
+
+    // Merge per-field provenance into intakeData.__webImport without clobbering
+    // existing intake data or prior provenance.
+    const provenance = objectInput(input.provenance);
+    if (Object.keys(provenance).length > 0) {
+      const current = await this.clients.get(ctx, clientId);
+      const intake =
+        current.intakeData && typeof current.intakeData === 'object' && !Array.isArray(current.intakeData)
+          ? (current.intakeData as Record<string, unknown>)
+          : {};
+      const priorImport =
+        intake.__webImport && typeof intake.__webImport === 'object' && !Array.isArray(intake.__webImport)
+          ? (intake.__webImport as Record<string, unknown>)
+          : {};
+      update.intakeData = {
+        ...intake,
+        __webImport: {
+          ...priorImport,
+          updatedAt: new Date().toISOString(),
+          fields: { ...(priorImport.fields as object | undefined), ...provenance },
+        },
+      };
+    }
+
+    const updated = await this.clients.update(ctx, clientId, update);
+    return {
+      tool: 'update_client_profile',
+      generatedAt: new Date().toISOString(),
+      updated: true,
+      clientId,
+      clientName: updated.name,
+      fieldsWritten: writtenFields,
+    };
+  }
+
   /** Resolve analysis-chart artifact ids to embedded PNG payloads (F4). */
   private async resolveChartImages(
     ctx: TenantContext,
@@ -3419,6 +3546,29 @@ function optionalString(input: Record<string, unknown>, key: string, max: number
 function optionalBoolean(input: Record<string, unknown>, key: string): boolean | null {
   const value = input[key];
   return typeof value === 'boolean' ? value : null;
+}
+
+/**
+ * Optional array-of-strings input: returns a cleaned string[] (trimmed,
+ * empties dropped, each capped, list capped) or null when the key is absent /
+ * not an array. Used by update_client_profile for issueCodes/naicsCodes/etc.
+ */
+function optionalStringArray(
+  input: Record<string, unknown>,
+  key: string,
+  maxItems: number,
+  maxLen: number,
+): string[] | null {
+  const value = input[key];
+  if (!Array.isArray(value)) return null;
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    if (trimmed) out.push(trimmed.slice(0, maxLen));
+    if (out.length >= maxItems) break;
+  }
+  return out;
 }
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
