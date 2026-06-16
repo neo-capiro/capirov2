@@ -896,6 +896,16 @@ export class ClioService {
           if (conversation.clientId && parsedInput.clientId === undefined) {
             parsedInput.clientId = conversation.clientId;
           }
+          // Always thread the active conversationId into the tool input. The
+          // model never supplies it (it isn't in any tool schema), and the
+          // artifact-producing tools (create_word/create_excel/create_powerpoint,
+          // create_meeting_brief, draft_policy_memo) require it to persist their
+          // ClioArtifact row — without it persistArtifact returns
+          // { persisted: false } and the generated Office document is silently
+          // dropped (no artifact row, no download URL, canvas never opens).
+          if (parsedInput.conversationId === undefined) {
+            parsedInput.conversationId = conversationId;
+          }
           toolsUsed.push(t.name);
           sse.write(`data: ${JSON.stringify({ type: 'tool_call', tool: t.name, label: humanToolLabel(t.name), input: redactToolInput(parsedInput) })}\n\n`);
           // Bridged MCP tools (F6a) are side-effecting (serialized) unless the

@@ -34,6 +34,7 @@ const DOC_KINDS: Record<string, { ext: string }> = {
 export function ClioCanvas({ artifact, onClose, apiBaseUrl, getAuthHeaders }: ClioCanvasProps) {
   const [copied, setCopied] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const title = artifact.title?.trim() || 'Document';
   const body = artifact.bodyText ?? '';
   const docKind = artifact.kind ? DOC_KINDS[artifact.kind] : undefined;
@@ -68,8 +69,12 @@ export function ClioCanvas({ artifact, onClose, apiBaseUrl, getAuthHeaders }: Cl
   };
 
   const downloadOfficeDoc = async () => {
-    if (!artifact.id || !apiBaseUrl) return;
+    if (!artifact.id || !apiBaseUrl) {
+      setDownloadError('This document is not available for download yet — try regenerating it in chat.');
+      return;
+    }
     setDownloading(true);
+    setDownloadError(null);
     try {
       const headers = getAuthHeaders ? await getAuthHeaders() : {};
       const res = await fetch(`${apiBaseUrl}/api/clio/artifacts/${artifact.id}/download`, {
@@ -85,8 +90,8 @@ export function ClioCanvas({ artifact, onClose, apiBaseUrl, getAuthHeaders }: Cl
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-    } catch {
-      /* surface nothing destructive; user can retry */
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Download failed — please retry.');
     } finally {
       setDownloading(false);
     }
@@ -143,6 +148,21 @@ export function ClioCanvas({ artifact, onClose, apiBaseUrl, getAuthHeaders }: Cl
           ✕
         </button>
       </header>
+      {downloadError && (
+        <div
+          role="alert"
+          className="clio-canvas-error"
+          style={{
+            padding: '8px 14px',
+            fontSize: 12.5,
+            color: 'var(--danger-fg, #b42318)',
+            background: 'var(--danger-bg, #fef3f2)',
+            borderBottom: '1px solid var(--border-2)',
+          }}
+        >
+          {downloadError}
+        </div>
+      )}
       <div
         className="clio-canvas-body"
         style={{

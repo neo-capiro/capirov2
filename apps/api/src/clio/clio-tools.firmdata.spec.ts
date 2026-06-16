@@ -15,6 +15,15 @@ const ctx = { tenantId: 'tenant-1', userId: 'user-1' } as TenantContext;
 function makeMocks() {
   const tx = {
     client: { findFirst: jest.fn().mockResolvedValue({ id: 'client-1' }) },
+    clioConversation: {
+      findFirst: jest.fn().mockResolvedValue({ id: 'conv-1', clientId: 'client-1' }),
+    },
+    clioArtifact: {
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'artifact-1',
+        ...data,
+      })),
+    },
   };
   const prisma = {
     withTenant: jest.fn(async (_tenantId: string, fn: (t: typeof tx) => unknown) => fn(tx)),
@@ -56,6 +65,12 @@ function makeMocks() {
   const clientPeople = { listPeople: jest.fn().mockResolvedValue([]) };
   const clientFacilities = { listFacilities: jest.fn().mockResolvedValue([]) };
 
+  const docgen = {
+    buildDocx: jest.fn().mockResolvedValue(Buffer.from('docx')),
+    buildXlsx: jest.fn().mockResolvedValue(Buffer.from('xlsx')),
+    buildPptx: jest.fn().mockResolvedValue(Buffer.from('pptx')),
+  };
+
   const service = new ClioToolsService(
     prisma as never,
     { get: jest.fn() } as never,
@@ -66,7 +81,7 @@ function makeMocks() {
     {} as never, // federalSpending
     programElement as never,
     {} as never, // acquisitionPersonnel
-    {} as never, // docgen
+    docgen as never,
     workflows as never,
     strategies as never,
     actionRecommendations as never,
@@ -93,6 +108,7 @@ function makeMocks() {
     clientCapabilities,
     clientPeople,
     clientFacilities,
+    docgen,
   };
 }
 
@@ -500,6 +516,43 @@ describe('P2 write tools', () => {
     });
     expect(result.updated).toBe(true);
     expect(result.fieldKey).toBe('justification');
+  });
+});
+
+describe('create_word artifact persistence (regression: conversationId threading)', () => {
+  it('persists the document artifact and returns a download URL when conversationId is supplied', async () => {
+    const m = makeMocks();
+    const result = (await m.service.execute(ctx, 'create_word', {
+      title: 'Strategy Memo',
+      clientId: 'client-1',
+      conversationId: 'conv-1',
+      sections: [{ heading: 'Overview', body: 'Body text' }],
+    })) as { downloadUrl: string | null; artifact: { persisted?: boolean; id?: string } };
+
+    // The artifact row must be created (so it has a download URL) — the whole
+    // point of the fix: without conversationId this silently no-ops.
+    expect(m.tx.clioArtifact.create).toHaveBeenCalledTimes(1);
+    const createArg = (m.tx.clioArtifact.create.mock.calls[0]?.[0] ?? { data: {} }) as {
+      data: { conversationId: string; kind: string; metadata: Record<string, unknown> };
+    };
+    expect(createArg.data.conversationId).toBe('conv-1');
+    expect(createArg.data.kind).toBe('word_document');
+    expect(createArg.data.metadata.docFormat).toBe('docx');
+    expect(result.downloadUrl).toBe('/api/clio/artifacts/artifact-1/download');
+    expect(m.docgen.buildDocx).toHaveBeenCalledTimes(1);
+  });
+
+  it('does NOT persist (no download URL) when conversationId is absent', async () => {
+    const m = makeMocks();
+    const result = (await m.service.execute(ctx, 'create_word', {
+      title: 'Strategy Memo',
+      clientId: 'client-1',
+      sections: [{ heading: 'Overview', body: 'Body text' }],
+    })) as { downloadUrl: string | null; artifact: { persisted?: boolean } };
+
+    expect(m.tx.clioArtifact.create).not.toHaveBeenCalled();
+    expect(result.downloadUrl).toBeNull();
+    expect(result.artifact.persisted).toBe(false);
   });
 });
 
