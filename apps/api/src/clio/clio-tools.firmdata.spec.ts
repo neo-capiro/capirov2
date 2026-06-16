@@ -61,9 +61,19 @@ function makeMocks() {
   const clientCapabilities = {
     listCapabilities: jest.fn().mockResolvedValue([]),
     listClientHistory: jest.fn().mockResolvedValue([]),
+    createCapability: jest.fn(async (_ctx: unknown, _clientId: string, input: { name: string }) => ({
+      id: 'cap-1',
+      name: input.name,
+    })),
   };
   const clientPeople = { listPeople: jest.fn().mockResolvedValue([]) };
-  const clientFacilities = { listFacilities: jest.fn().mockResolvedValue([]) };
+  const clientFacilities = {
+    listFacilities: jest.fn().mockResolvedValue([]),
+    createFacility: jest.fn(async (_ctx: unknown, _clientId: string, input: { name: string }) => ({
+      id: 'fac-1',
+      name: input.name,
+    })),
+  };
   const clients = {
     get: jest.fn().mockResolvedValue({ id: 'client-1', name: 'Acme', intakeData: {} }),
     update: jest.fn(async (_ctx: unknown, id: string, data: Record<string, unknown>) => ({
@@ -627,6 +637,74 @@ describe('update_client_profile (Clio writes to the web app)', () => {
       m.service.execute(ctx, 'update_client_profile', { clientId: 'other', name: 'X' }),
     ).rejects.toThrow('Client not found');
     expect(m.clients.update).not.toHaveBeenCalled();
+  });
+
+  it('appends facilities and capabilities discovered on the website', async () => {
+    const m = makeMocks();
+    const result = (await m.service.execute(ctx, 'update_client_profile', {
+      clientId: 'client-1',
+      facilities: [
+        { name: 'HQ', city: 'Jacksonville', state: 'fl', congressionalDistrict: '5', employeeCount: 25 },
+        { notUseful: true }, // dropped: no name
+      ],
+      capabilities: [
+        { name: 'Autonomous ISR', type: 'product', sector: 'DEFENSE' },
+      ],
+    })) as {
+      updated: boolean;
+      facilitiesCreated: string[];
+      capabilitiesCreated: string[];
+      fieldsWritten: string[];
+    };
+
+    // Scalar update skipped (no scalar fields), child rows appended.
+    expect(m.clients.update).not.toHaveBeenCalled();
+    expect(m.clientFacilities.createFacility).toHaveBeenCalledTimes(1);
+    const [, facClientId, facInput] = m.clientFacilities.createFacility.mock.calls[0] as [
+      unknown,
+      string,
+      Record<string, unknown>,
+    ];
+    expect(facClientId).toBe('client-1');
+    expect(facInput).toMatchObject({
+      name: 'HQ',
+      city: 'Jacksonville',
+      state: 'FL', // upper-cased
+      congressionalDistrict: '5',
+      employeeCount: 25,
+      districtSource: 'web_import',
+    });
+    expect(m.clientCapabilities.createCapability).toHaveBeenCalledTimes(1);
+    expect(result.updated).toBe(true);
+    expect(result.facilitiesCreated).toEqual(['HQ']);
+    expect(result.capabilitiesCreated).toEqual(['Autonomous ISR']);
+    expect(result.fieldsWritten).toEqual([]);
+  });
+
+  it('writes scalar fields AND appends children in one call', async () => {
+    const m = makeMocks();
+    const result = (await m.service.execute(ctx, 'update_client_profile', {
+      clientId: 'client-1',
+      sectorTag: 'DEFENSE',
+      facilities: [{ name: 'Plant 2', state: 'TX' }],
+    })) as { facilitiesCreated: string[]; fieldsWritten: string[] };
+    expect(m.clients.update).toHaveBeenCalledTimes(1);
+    expect(m.clientFacilities.createFacility).toHaveBeenCalledTimes(1);
+    expect(result.fieldsWritten).toEqual(['sectorTag']);
+    expect(result.facilitiesCreated).toEqual(['Plant 2']);
+  });
+
+  it('rejects when only empty/nameless children are supplied', async () => {
+    const m = makeMocks();
+    await expect(
+      m.service.execute(ctx, 'update_client_profile', {
+        clientId: 'client-1',
+        facilities: [{ city: 'Nowhere' }],
+        capabilities: [{ type: 'product' }],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(m.clients.update).not.toHaveBeenCalled();
+    expect(m.clientFacilities.createFacility).not.toHaveBeenCalled();
   });
 });
 

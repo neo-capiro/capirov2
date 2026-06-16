@@ -15,9 +15,9 @@ import { StrategiesService } from '../strategies/strategies.service.js';
 import { IntelligenceService } from '../intelligence/intelligence.service.js';
 import { ActionRecommendationReadService } from '../intelligence/actions/action-recommendation-read.service.js';
 import type { ActionStatus } from '../intelligence/actions/action-recommendation.types.js';
-import { ClientCapabilitiesService } from '../clients/client-capabilities.service.js';
+import { ClientCapabilitiesService, type CreateCapabilityInput } from '../clients/client-capabilities.service.js';
 import { ClientPeopleService } from '../clients/client-people.service.js';
-import { ClientFacilitiesService } from '../clients/client-facilities.service.js';
+import { ClientFacilitiesService, type CreateFacilityInput } from '../clients/client-facilities.service.js';
 import { ClientsService } from '../clients/clients.service.js';
 import { RegulatoryDocketService } from '../regulatory-docket/regulatory-docket.service.js';
 import { MicrosoftGraphSyncService } from '../engagement/microsoft/microsoft-graph-sync.service.js';
@@ -265,9 +265,14 @@ export const TOOL_DEFINITIONS = [
       'Write approved values into a client profile (the Documents/Overview tab fields): ' +
       'name, website, description, productDescription, primaryContactName, primaryContactEmail, ' +
       'primaryContactPhone, sectorTag, issueCodes, uei, cageCode, naicsCodes, pscCodes. ' +
-      'Only call this AFTER you have shown the user the proposed values (ideally with a source ' +
-      'for each, e.g. from search_public_web / scrape_web_page / LDA filings) and they have ' +
-      'approved them. Pass only the fields you are changing. Requires user approval.',
+      'You may ALSO append facilities (locations: name, address, city, state, ZIP, ' +
+      'congressionalDistrict, employeeCount) and capabilities (products/technologies the ' +
+      'organization offers: name, type, description, sector) discovered on the client\'s ' +
+      'website or in filings -- pass them as the facilities[] and capabilities[] arrays. ' +
+      'Each facility/capability in those arrays is APPENDED (new rows), never used to delete ' +
+      'existing ones. Only call this AFTER you have shown the user the proposed values (ideally ' +
+      'with a source for each, e.g. from search_public_web / scrape_web_page / LDA filings) and ' +
+      'they have approved them. Pass only the fields/rows you are changing. Requires user approval.',
   },
 ] as const;
 
@@ -714,6 +719,46 @@ export class ClioToolsService {
           description:
             'Optional per-field source metadata, e.g. { "website": { "sourceUrl": "https://...", "confidence": "high" } }. ' +
             'Stored on the client for auditability; not shown as a profile field.',
+        },
+        facilities: {
+          type: 'array',
+          description:
+            'Facilities/locations to APPEND to the client (each becomes a new row on the Facilities tab). ' +
+            'Only include what you found and the user approved.',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Facility/site name (required)' },
+              addressLine: { type: 'string', description: 'Street address' },
+              city: { type: 'string', description: 'City' },
+              state: { type: 'string', description: 'Two-letter state code, e.g. "TX"' },
+              zip: { type: 'string', description: 'ZIP code' },
+              congressionalDistrict: {
+                type: 'string',
+                description: 'Bare district number, e.g. "12" (state goes in `state`, not "TX-12")',
+              },
+              employeeCount: { type: 'integer', description: 'Approximate headcount at this site' },
+              notes: { type: 'string', description: 'Optional notes' },
+            },
+            required: ['name'],
+          },
+        },
+        capabilities: {
+          type: 'array',
+          description:
+            'Capabilities (products/technologies/services the organization offers) to APPEND ' +
+            '(each becomes a new row on the Capabilities tab). Only include what you found and the user approved.',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'Capability/product name (required)' },
+              type: { type: 'string', description: 'e.g. "product", "technology", "service"' },
+              description: { type: 'string', description: 'What it is / what it does' },
+              sector: { type: 'string', description: 'Sector/domain, e.g. "DEFENSE"' },
+              notes: { type: 'string', description: 'Optional notes' },
+            },
+            required: ['name'],
+          },
         },
       }, ['clientId']),
     };
@@ -3347,16 +3392,27 @@ export class ClioToolsService {
     setArr('pscCodes');
 
     const writtenFields = Object.keys(update);
-    if (writtenFields.length === 0) {
+
+    // Optional child-record appends (facilities / capabilities). These are
+    // separate tables from the scalar Client profile, so an import that only
+    // adds facilities/capabilities is valid even with no scalar field changes.
+    const facilityInputs = parseFacilityInputs(input.facilities);
+    const capabilityInputs = parseCapabilityInputs(input.capabilities);
+
+    if (
+      writtenFields.length === 0 &&
+      facilityInputs.length === 0 &&
+      capabilityInputs.length === 0
+    ) {
       throw new BadRequestException(
-        'update_client_profile: no recognized profile fields to write',
+        'update_client_profile: no recognized profile fields, facilities, or capabilities to write',
       );
     }
 
     // Merge per-field provenance into intakeData.__webImport without clobbering
     // existing intake data or prior provenance.
     const provenance = objectInput(input.provenance);
-    if (Object.keys(provenance).length > 0) {
+    if (writtenFields.length > 0 && Object.keys(provenance).length > 0) {
       const current = await this.clients.get(ctx, clientId);
       const intake =
         current.intakeData && typeof current.intakeData === 'object' && !Array.isArray(current.intakeData)
@@ -3376,14 +3432,47 @@ export class ClioToolsService {
       };
     }
 
-    const updated = await this.clients.update(ctx, clientId, update);
+    // Scalar profile fields (skip the round-trip when nothing scalar changed).
+    let clientName = '';
+    if (writtenFields.length > 0) {
+      const updated = await this.clients.update(ctx, clientId, update);
+      clientName = updated.name;
+    }
+
+    // Append facilities, then capabilities. Each create is tenant-scoped and
+    // 404s outside the tenant, so a bad clientId can't cross tenants. We collect
+    // per-row outcomes so a single bad row (e.g. invalid district) doesn't abort
+    // the whole import; the model can relay failures back to the user.
+    const facilitiesCreated: string[] = [];
+    const capabilitiesCreated: string[] = [];
+    const rowErrors: string[] = [];
+    for (const f of facilityInputs) {
+      try {
+        const created = await this.clientFacilities.createFacility(ctx, clientId, f);
+        facilitiesCreated.push(created.name);
+      } catch (err) {
+        rowErrors.push(`facility "${f.name}": ${(err as Error).message}`);
+      }
+    }
+    for (const c of capabilityInputs) {
+      try {
+        const created = await this.clientCapabilities.createCapability(ctx, clientId, c);
+        capabilitiesCreated.push(created.name);
+      } catch (err) {
+        rowErrors.push(`capability "${c.name}": ${(err as Error).message}`);
+      }
+    }
+
     return {
       tool: 'update_client_profile',
       generatedAt: new Date().toISOString(),
       updated: true,
       clientId,
-      clientName: updated.name,
+      clientName,
       fieldsWritten: writtenFields,
+      facilitiesCreated,
+      capabilitiesCreated,
+      rowErrors,
     };
   }
 
@@ -3575,6 +3664,67 @@ function clampInt(value: unknown, min: number, max: number, fallback: number): n
   const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+/**
+ * Parse the optional `facilities[]` payload of update_client_profile into
+ * CreateFacilityInput rows. Non-objects and rows without a usable `name` are
+ * dropped. List capped at 50; each string field trimmed/capped. districtSource
+ * is forced to 'web_import' so these are auditable as machine-imported (and
+ * distinguishable from 'user'/'geocoded' on the Facilities tab).
+ */
+function parseFacilityInputs(value: unknown): CreateFacilityInput[] {
+  if (!Array.isArray(value)) return [];
+  const out: CreateFacilityInput[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const row = raw as Record<string, unknown>;
+    const name = optionalString(row, 'name', 200);
+    if (!name) continue;
+    const employee = row.employeeCount;
+    const employeeCount =
+      typeof employee === 'number' || typeof employee === 'string'
+        ? clampInt(employee, 0, 10_000_000, 0)
+        : undefined;
+    out.push({
+      name,
+      addressLine: optionalString(row, 'addressLine', 300) ?? undefined,
+      city: optionalString(row, 'city', 120) ?? undefined,
+      state: optionalString(row, 'state', 2)?.toUpperCase() ?? undefined,
+      zip: optionalString(row, 'zip', 10) ?? undefined,
+      congressionalDistrict: optionalString(row, 'congressionalDistrict', 4) ?? undefined,
+      districtSource: 'web_import',
+      employeeCount,
+      notes: optionalString(row, 'notes', 2000) ?? undefined,
+    });
+    if (out.length >= 50) break;
+  }
+  return out;
+}
+
+/**
+ * Parse the optional `capabilities[]` payload of update_client_profile into
+ * CreateCapabilityInput rows. Non-objects and rows without a usable `name` are
+ * dropped. List capped at 50.
+ */
+function parseCapabilityInputs(value: unknown): CreateCapabilityInput[] {
+  if (!Array.isArray(value)) return [];
+  const out: CreateCapabilityInput[] = [];
+  for (const raw of value) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+    const row = raw as Record<string, unknown>;
+    const name = optionalString(row, 'name', 200);
+    if (!name) continue;
+    out.push({
+      name,
+      type: optionalString(row, 'type', 60) ?? undefined,
+      description: optionalString(row, 'description', 4000) ?? undefined,
+      sector: optionalString(row, 'sector', 120) ?? undefined,
+      notes: optionalString(row, 'notes', 2000) ?? undefined,
+    });
+    if (out.length >= 50) break;
+  }
+  return out;
 }
 
 function ownMeetingWhere(userId: string): Prisma.MeetingWhereInput {
