@@ -116,6 +116,19 @@ export class AiCredentialResolverService implements OnModuleInit {
     return resolved;
   }
 
+  /**
+   * Resolve a single provider's credential (tenant key first, then global).
+   * Clio uses this to run its Anthropic brain on a tenant's own key + model
+   * override when present, falling back to the global key — without changing
+   * provider. Returns null only when neither a tenant nor a global key exists.
+   */
+  async resolveProvider(
+    ctx: TenantContext | null | undefined,
+    provider: AiProvider,
+  ): Promise<ResolvedAiCredential | null> {
+    return this.resolveForProvider(ctx, provider);
+  }
+
   private async resolveForProvider(
     ctx: TenantContext | null | undefined,
     provider: AiProvider,

@@ -182,6 +182,38 @@ describe('AiCredentialResolverService.resolveOrder', () => {
   });
 });
 
+describe('AiCredentialResolverService.resolveProvider (Clio single-provider path)', () => {
+  it('resolves the tenant Anthropic key + override when present', async () => {
+    const { svc } = makeService({
+      rows: [credRow('anthropic', 'sk-tenant-a', { modelOverride: 'claude-opus-4-1' })],
+      anthropicKey: 'sk-global-a',
+      encryptionKey: AES_KEY_B64,
+    });
+    const cred = await svc.resolveProvider(ctx, 'anthropic');
+    expect(cred).toEqual({
+      provider: 'anthropic',
+      apiKey: 'sk-tenant-a',
+      model: 'claude-opus-4-1',
+      usedTenantKey: true,
+    });
+  });
+
+  it('falls back to the global Anthropic key (usedTenantKey=false) when no tenant key', async () => {
+    const { svc } = makeService({ anthropicKey: 'sk-global-a', encryptionKey: AES_KEY_B64 });
+    const cred = await svc.resolveProvider(ctx, 'anthropic');
+    expect(cred).toMatchObject({ apiKey: 'sk-global-a', usedTenantKey: false });
+    // Global model default is ANTHROPIC_MODEL (Haiku) — Clio overrides this to
+    // CLIO_MODEL itself, so the resolver returning the default is the signal
+    // that no tenant override was set.
+    expect(cred?.model).toBe('claude-haiku-4-5-20251001');
+  });
+
+  it('returns null when neither a tenant nor a global Anthropic key exists', async () => {
+    const { svc } = makeService({ encryptionKey: AES_KEY_B64 });
+    await expect(svc.resolveProvider(ctx, 'anthropic')).resolves.toBeNull();
+  });
+});
+
 describe('AiCredentialResolverService.validateKey', () => {
   it('returns ok on a 200 provider response', async () => {
     const { svc } = makeService({ encryptionKey: AES_KEY_B64 });

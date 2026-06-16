@@ -10,6 +10,8 @@ import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ClioToolsService } from './clio-tools.service.js';
+import { AiCredentialResolverService } from '../engagement/ai-credential-resolver.service.js';
+import { recordAiUsageEvent } from '../engagement/ai-usage-record.js';
 import {
   addUsage,
   applyRoundUsageEvent,
@@ -170,6 +172,7 @@ export class ClioService {
     private readonly clientKb: ClientKbService,
     private readonly mcp: ClioMcpService,
     private readonly firmSkills: ClioFirmSkillsService,
+    private readonly aiCredentials: AiCredentialResolverService,
   ) {}
 
   async status(ctx: TenantContext) {
@@ -658,15 +661,35 @@ export class ClioService {
     let finalCitations: ClioCitation[] = [];
     let pageWritePayload: { subject?: string; body?: string } | null = null;
     let aborted = false;
+    // Hoisted for post-turn usage metering (assigned inside the try below);
+    // default to Clio's quality model + global key so a pre-call throw still
+    // meters sensibly.
+    let model = this.config.get('CLIO_MODEL', { infer: true });
+    let usedTenantKey = false;
     const turnStartMs = Date.now();
     const traceRounds: ClioRoundTrace[] = [];
     let loopStopReason: LoopStopReason | null = null;
 
     try {
-      const anthropicKey = this.config.get('ANTHROPIC_API_KEY', { infer: true });
-      if (!anthropicKey) throw new Error('ANTHROPIC_API_KEY not configured');
-
-      const model = this.config.get('CLIO_MODEL', { infer: true });
+      // Per-tenant AI credentials: run Clio's Anthropic brain on the tenant's
+      // own key + model override when they've set one, else the global key.
+      // NOTE: the resolver's global model default is ANTHROPIC_MODEL (the cheap
+      // Haiku used for engagement), which is NOT Clio's model. Clio's quality
+      // default is CLIO_MODEL (Sonnet); only a tenant's explicit modelOverride
+      // should change it. So: use the resolved key always, but keep CLIO_MODEL
+      // as the model unless the call ran on a tenant key that carried an override.
+      const clioModel = this.config.get('CLIO_MODEL', { infer: true });
+      const resolved = await this.aiCredentials.resolveProvider(ctx, 'anthropic');
+      if (!resolved) throw new Error('ANTHROPIC_API_KEY not configured');
+      const anthropicKey = resolved.apiKey;
+      usedTenantKey = resolved.usedTenantKey;
+      // A tenant key with its own modelOverride drives the model; otherwise
+      // Clio stays on its quality default. (resolved.model === CLIO default
+      // means no override was set, since the resolver fills ANTHROPIC_MODEL.)
+      model =
+        usedTenantKey && resolved.model !== this.aiCredentials.defaultModelFor('anthropic')
+          ? resolved.model
+          : clioModel;
       const maxTokens = this.config.get('CLIO_MAX_TOKENS', { infer: true });
       // Extended thinking on the deep tier (F3): fast-tier turns are untouched;
       // the kill-switch (CLIO_EXTENDED_THINKING=off) restores baseline behavior.
@@ -1049,6 +1072,29 @@ export class ClioService {
     );
     sse.write(`data: ${JSON.stringify({ type: 'usage', usage: usageTotals })}\n\n`);
 
+    // Per-tenant AI usage metering: persist one AiUsageEvent for this Clio turn
+    // so Clio spend shows up in the tenant usage dashboards + admin console
+    // alongside outreach. Best-effort — recordAiUsageEvent swallows + logs any
+    // failure so metering can never break a turn. cache tokens are billed at
+    // the input rate by the pricing model, so fold them into inputTokens.
+    await recordAiUsageEvent(
+      { prisma: this.prisma, logger: this.logger },
+      { tenantId: ctx.tenantId, userId: ctx.userId },
+      'clio_chat',
+      {
+        provider: 'anthropic',
+        model,
+        usage: {
+          inputTokens:
+            usageTotals.inputTokens +
+            usageTotals.cacheReadInputTokens +
+            usageTotals.cacheCreationInputTokens,
+          outputTokens: usageTotals.outputTokens,
+        },
+        usedTenantKey,
+      },
+    );
+
     // Validate citation markers against the numbered sources collected this turn:
     // keep real [N], strip hallucinated ones, surface the used citations (P0-3).
     if (citationsEnabled) {
@@ -1127,7 +1173,7 @@ export class ClioService {
           body: assistantContent,
           metadata: {
             intent,
-            model: this.config.get('CLIO_MODEL', { infer: true }),
+            model,
             tier: orchestration.policy.tier,
             preWarmSources: orchestration.sources.map((source) => source.tool),
             toolsUsed,
