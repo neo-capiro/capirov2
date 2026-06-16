@@ -244,7 +244,7 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'read_client_documents',
-    description: 'List the documents uploaded in a client\'s Documents tab, and (when documentId is given) extract and return the text content of one document so you can read, summarize, or quote it. Supports .txt, .docx, .pdf, and audio/video transcription. Use when the user references "the document/file I uploaded", a contract, a brief, or asks you to read/summarize an attached file for a client.',
+    description: 'List the documents uploaded in a client\'s Documents tab, and (when documentId is given) extract and return the text content of one document so you can read, summarize, or quote it. Supports .txt, .csv, .docx, .pdf, .xlsx, .pptx, and audio/video transcription. Use when the user references "the document/file I uploaded", a contract, a brief, a deck, or asks you to read/summarize an attached file for a client.',
   },
   {
     name: 'create_task',

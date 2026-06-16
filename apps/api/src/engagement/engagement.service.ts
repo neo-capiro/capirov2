@@ -28,6 +28,7 @@ import mammoth from 'mammoth';
 import sanitizeHtml from 'sanitize-html';
 import { sanitizeSignatureHtml } from '../common/sanitize-signature.js';
 import { extractXlsxText, isSpreadsheetAttachment } from './xlsx-extract.js';
+import { extractPptxText, isPowerPointAttachment } from './pptx-extract.js';
 import { createHash, randomUUID } from 'node:crypto';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
@@ -4222,7 +4223,7 @@ export class EngagementService {
     const bytes = await this.readAttachmentBytes(attachment.s3Key);
     const contentType = attachment.contentType || 'application/octet-stream';
     const fileName = attachment.fileName || 'attachment';
-    let source: 'text' | 'docx' | 'pdf' | 'spreadsheet' | 'transcription';
+    let source: 'text' | 'docx' | 'pdf' | 'spreadsheet' | 'pptx' | 'transcription';
     let text: string;
 
     if (isPlainTextAttachment(fileName, contentType)) {
@@ -4238,12 +4239,15 @@ export class EngagementService {
     } else if (isSpreadsheetAttachment(fileName, contentType)) {
       source = 'spreadsheet';
       text = await extractXlsxText(bytes);
+    } else if (isPowerPointAttachment(fileName, contentType)) {
+      source = 'pptx';
+      text = await extractPptxText(bytes);
     } else if (isTranscribableAttachment(fileName, contentType)) {
       source = 'transcription';
       text = await this.transcribeAttachmentWithOpenAi(bytes, fileName, contentType);
     } else {
       throw new BadRequestException(
-        'Unsupported source. Upload .txt, .csv, .pdf, .docx, .xlsx, audio, or video.',
+        'Unsupported source. Upload .txt, .csv, .pdf, .docx, .xlsx, .pptx, audio, or video.',
       );
     }
 
