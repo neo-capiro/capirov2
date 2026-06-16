@@ -592,28 +592,176 @@ function TopbarTenantBrand({ logoUrl, name }: { logoUrl: string | null; name: st
 }
 
 /**
- * Global search input in the top bar. Visual-only for now, wiring it up to a
- * real cross-tenant index is a separate piece of work (see /docs/global-search.md
- * for the proposed scope). The ⌘K hint is for future keyboard-trigger UX.
+ * Global keyword search in the top bar. Debounced calls to /api/search across
+ * all ingested federal datasets (bills, awards, LDA filings, hearings, SEC/FARA,
+ * GAO/CRS, dockets, intel, state bills, federal register). Keyword/substring
+ * match — no embeddings. Results render in a dropdown; clicking one navigates
+ * to its explorer route when available.
  */
+interface GlobalSearchResult {
+  category: string;
+  id: string;
+  title: string;
+  subtitle?: string | null;
+  date?: string | null;
+  href?: string | null;
+}
+interface GlobalSearchResponse {
+  query: string;
+  total: number;
+  results: GlobalSearchResult[];
+  byCategory: Record<string, number>;
+}
+
+const SEARCH_CATEGORY_LABELS: Record<string, string> = {
+  bill: 'Bill',
+  award: 'Federal award',
+  lda_filing: 'LDA filing',
+  hearing: 'Hearing',
+  sec_filing: 'SEC filing',
+  fara_registration: 'FARA',
+  gao_report: 'GAO report',
+  crs_report: 'CRS report',
+  regulatory_docket: 'Reg. docket',
+  intel_article: 'Intel',
+  state_bill: 'State bill',
+  federal_register: 'Fed. Register',
+};
+
 function TopbarSearch() {
+  const api = useApi();
+  const navigate = useNavigate();
+  const [query, setQuery] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  // Debounce the query (250ms) so we don't fire a request per keystroke.
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(query.trim()), 250);
+    return () => window.clearTimeout(t);
+  }, [query]);
+
+  const { data, isFetching } = useQuery({
+    queryKey: ['global-search', debounced],
+    queryFn: async () =>
+      (await api.get<GlobalSearchResponse>(`/api/search?q=${encodeURIComponent(debounced)}`)).data,
+    enabled: debounced.length >= 2,
+    staleTime: 30_000,
+  });
+
+  // Close the dropdown on outside click.
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  const results = data?.results ?? [];
+  const showDropdown = open && debounced.length >= 2;
+
+  const onSelect = (r: GlobalSearchResult) => {
+    setOpen(false);
+    setQuery('');
+    if (r.href) navigate(r.href);
+  };
+
   return (
-    <form
-      className="app-topbar-search"
-      role="search"
-      onSubmit={(e) => e.preventDefault()}
-      aria-label="Global search (coming soon)"
-    >
-      <SearchOutlined className="app-topbar-search-icon" aria-hidden />
-      <input
-        type="search"
-        className="app-topbar-search-input"
-        placeholder="Search bills, agencies, stakeholders…"
-        disabled
-        aria-disabled="true"
-      />
-      <span className="app-topbar-search-hint" aria-hidden>⌘K</span>
-    </form>
+    <div ref={containerRef} className="app-topbar-search-wrap" style={{ position: 'relative' }}>
+      <form className="app-topbar-search" role="search" onSubmit={(e) => e.preventDefault()} aria-label="Global search">
+        <SearchOutlined className="app-topbar-search-icon" aria-hidden />
+        <input
+          type="search"
+          className="app-topbar-search-input"
+          placeholder="Search bills, agencies, stakeholders…"
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          aria-label="Search across all data"
+        />
+        <span className="app-topbar-search-hint" aria-hidden>⌘K</span>
+      </form>
+      {showDropdown && (
+        <div
+          className="app-topbar-search-results"
+          role="listbox"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            maxHeight: 420,
+            overflowY: 'auto',
+            background: 'var(--surface-1, #fff)',
+            border: '1px solid var(--border-2, #e5e7eb)',
+            borderRadius: 8,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+            zIndex: 1200,
+          }}
+        >
+          {isFetching && results.length === 0 ? (
+            <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--text-3, #6b7280)' }}>Searching…</div>
+          ) : results.length === 0 ? (
+            <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--text-3, #6b7280)' }}>
+              No matches for “{debounced}”
+            </div>
+          ) : (
+            results.map((r) => (
+              <button
+                key={`${r.category}:${r.id}`}
+                type="button"
+                role="option"
+                aria-selected={false}
+                onClick={() => onSelect(r)}
+                style={{
+                  display: 'flex',
+                  width: '100%',
+                  gap: 10,
+                  alignItems: 'baseline',
+                  padding: '8px 14px',
+                  background: 'transparent',
+                  border: 'none',
+                  borderBottom: '1px solid var(--border-1, #f1f5f9)',
+                  textAlign: 'left',
+                  cursor: r.href ? 'pointer' : 'default',
+                }}
+              >
+                <span
+                  style={{
+                    flex: '0 0 auto',
+                    fontSize: 10.5,
+                    textTransform: 'uppercase',
+                    letterSpacing: 0.3,
+                    color: 'var(--text-3, #6b7280)',
+                    minWidth: 84,
+                  }}
+                >
+                  {SEARCH_CATEGORY_LABELS[r.category] ?? r.category}
+                </span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.title}
+                  </span>
+                  {r.subtitle && (
+                    <span style={{ display: 'block', fontSize: 12, color: 'var(--text-3, #6b7280)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {r.subtitle}
+                    </span>
+                  )}
+                </span>
+                {r.date && (
+                  <span style={{ flex: '0 0 auto', fontSize: 11.5, color: 'var(--text-3, #9ca3af)' }}>{r.date}</span>
+                )}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

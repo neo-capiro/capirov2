@@ -1,0 +1,92 @@
+import { describe, expect, it, jest } from '@jest/globals';
+import { SearchService } from './search.service.js';
+
+/**
+ * Unit tests for the global keyword SearchService. The prisma client is mocked
+ * per-model; we assert the fan-out shape, normalization, min-query guard, and
+ * fail-soft behavior (one source throwing must not blank the whole search).
+ */
+
+function makePrisma(overrides: Record<string, unknown> = {}) {
+  const emptyModel = () => ({ findMany: jest.fn(async () => [] as unknown[]) });
+  const base: Record<string, unknown> = {
+    congressBill: emptyModel(),
+    federalAward: emptyModel(),
+    ldaFiling: emptyModel(),
+    committeeHearing: emptyModel(),
+    secFiling: emptyModel(),
+    faraRegistration: emptyModel(),
+    gaoReport: emptyModel(),
+    crsReport: emptyModel(),
+    regulatoryDocket: emptyModel(),
+    intelArticle: emptyModel(),
+    stateBill: emptyModel(),
+    federalRegisterDocument: emptyModel(),
+  };
+  return { ...base, ...overrides } as never;
+}
+
+describe('SearchService', () => {
+  it('returns empty for a query shorter than the minimum length', async () => {
+    const svc = new SearchService(makePrisma());
+    const res = await svc.search('a');
+    expect(res.total).toBe(0);
+    expect(res.results).toEqual([]);
+  });
+
+  it('normalizes bill rows into the uniform result shape', async () => {
+    const prisma = makePrisma({
+      congressBill: {
+        findMany: jest.fn(async () => [
+          { id: 'b1', billNumber: 'HR 1234', title: 'Defense Authorization Act', sponsorName: 'Rep. Smith', latestActionDate: new Date('2026-05-01') },
+        ]),
+      },
+    });
+    const svc = new SearchService(prisma);
+    const res = await svc.search('defense');
+    const bill = res.results.find((r) => r.category === 'bill');
+    expect(bill).toBeDefined();
+    expect(bill!.id).toBe('b1');
+    expect(bill!.title).toContain('HR 1234');
+    expect(bill!.subtitle).toContain('Rep. Smith');
+    expect(bill!.date).toBe('2026-05-01');
+    expect(res.byCategory.bill).toBe(1);
+  });
+
+  it('aggregates results across multiple sources and counts byCategory', async () => {
+    const prisma = makePrisma({
+      congressBill: { findMany: jest.fn(async () => [{ id: 'b1', billNumber: 'HR 1', title: 'X', sponsorName: null, latestActionDate: null }]) },
+      ldaFiling: { findMany: jest.fn(async () => [{ id: 'l1', clientName: 'Acme', registrantName: 'Firm LLC', dtPosted: new Date('2026-06-15') }]) },
+    });
+    const svc = new SearchService(prisma);
+    const res = await svc.search('acme');
+    expect(res.total).toBe(2);
+    expect(res.byCategory.bill).toBe(1);
+    expect(res.byCategory.lda_filing).toBe(1);
+    const lda = res.results.find((r) => r.category === 'lda_filing');
+    expect(lda!.title).toBe('Acme');
+  });
+
+  it('is fail-soft: one source throwing does not blank the whole search', async () => {
+    const prisma = makePrisma({
+      congressBill: { findMany: jest.fn(async () => { throw new Error('column renamed'); }) },
+      ldaFiling: { findMany: jest.fn(async () => [{ id: 'l1', clientName: 'Acme', registrantName: 'Firm', dtPosted: new Date('2026-06-15') }]) },
+    });
+    const svc = new SearchService(prisma);
+    const res = await svc.search('acme');
+    // bill source threw -> 0 bills; lda still returns
+    expect(res.byCategory.bill).toBeUndefined();
+    expect(res.byCategory.lda_filing).toBe(1);
+    expect(res.total).toBe(1);
+  });
+
+  it('clamps perSource to the [1,20] take passed to prisma', async () => {
+    const findMany = jest.fn(async () => [] as unknown[]);
+    const prisma = makePrisma({ congressBill: { findMany } });
+    const svc = new SearchService(prisma);
+    await svc.search('test', 999);
+    const firstCall = findMany.mock.calls[0] as unknown[] | undefined;
+    const arg = (firstCall?.[0] ?? {}) as { take?: number };
+    expect(arg.take).toBe(20);
+  });
+});

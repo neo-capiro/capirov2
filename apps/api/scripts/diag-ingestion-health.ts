@@ -30,27 +30,36 @@ async function count(model: string): Promise<number | string> {
   }
 }
 
-// table -> recency column (snake_case actual DB columns)
-const TABLES: Array<[string, string]> = [
-  ['congress_bill', 'updated_at'],
-  ['federal_register_document', 'published_at'],
-  ['lda_filing', 'dt_posted'],
-  ['federal_award', 'awarded_at'],
-  ['committee_hearing', 'date'],
-  ['fec_contribution', 'contribution_date'],
-  ['fara_registration', 'created_at'],
-  ['sec_filing', 'filed_at'],
-  ['gao_report', 'published_at'],
-  ['crs_report', 'published_at'],
-  ['regulation', 'updated_at'],
-  ['rss_intel_item', 'published_at'],
-  ['intelligence_change', 'detected_at'],
+// table -> [content-recency column, ingestion-recency column]. The content
+// column is when the underlying event happened (may legitimately lag); the
+// ingestion column (synced_at / last_synced_at) is when our sync last wrote
+// the row — that's the authoritative "is the pipeline running?" signal.
+// Table names + columns verified live 2026-06-16 against the schema @@map.
+const TABLES: Array<[string, string, string]> = [
+  ['congress_bill', 'latest_action_date', 'last_synced_at'],
+  ['federal_register_document', 'publication_date', 'synced_at'],
+  ['lda_filing', 'dt_posted', 'synced_at'],
+  ['federal_award', 'awarded_at', 'synced_at'],
+  ['committee_hearing', 'date', 'synced_at'],
+  ['fec_contribution', 'contribution_date', 'synced_at'],
+  ['fara_registration', 'registration_date', 'synced_at'],
+  ['sec_filing', 'filing_date', 'synced_at'],
+  ['gao_report', 'publish_date', 'synced_at'],
+  ['crs_report', 'published_at', 'synced_at'],
+  ['regulatory_docket', 'posted_date', 'synced_at'],
+  ['intel_article', 'published_at', 'synced_at'],
+  ['state_bill', 'latest_action_date', 'synced_at'],
+  ['intelligence_change', 'detected_at', 'detected_at'],
 ];
 
 async function main(): Promise<void> {
-  const out: Record<string, { rows: number | string; latest: string | null }> = {};
-  for (const [t, col] of TABLES) {
-    out[t] = { rows: await count(t), latest: await maxDate(t, col) };
+  const out: Record<string, { rows: number | string; latest: string | null; lastSynced: string | null }> = {};
+  for (const [t, contentCol, syncCol] of TABLES) {
+    out[t] = {
+      rows: await count(t),
+      latest: await maxDate(t, contentCol),
+      lastSynced: await maxDate(t, syncCol),
+    };
   }
   console.log('INGEST_REPORT ' + JSON.stringify({ generatedAt: new Date().toISOString(), tables: out }, null, 2));
 }

@@ -28,6 +28,7 @@ import { FederalRegisterModule } from './federal-register/federal-register.modul
 import { RegulatoryDocketModule } from './regulatory-docket/regulatory-docket.module.js';
 import { IntelligenceModule } from './intelligence/intelligence.module.js';
 import { ExplorerModule } from './explorer/explorer.module.js';
+import { SearchModule } from './search/search.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { ProgramElementModule } from './program-element/program-element.module.js';
 import { AcquisitionPersonnelModule } from './acquisition-personnel/acquisition-personnel.module.js';
@@ -75,6 +76,7 @@ import { ApiLatencyMiddleware } from './observability/api-latency.middleware.js'
     RegulatoryDocketModule,
     IntelligenceModule,
     ExplorerModule,
+    SearchModule,
     ChatModule,
     HelpModule,
     AiUsageModule,
