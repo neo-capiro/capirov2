@@ -59,9 +59,13 @@ export interface DirectoryEntry {
   servingSince: string;
   focusAreas: string[];
   committees: string[];
+  committeeLeadership: string[];
+  topIssues: Array<{ issue: string; stafferCount: number }>;
   leadershipPositions: string[];
   caucuses: string[];
   educationInstitutions: string[];
+  senateClass: number | null;
+  outgoingStatus: string | null;
   officeLocation: string;
   phone: string;
   fax: string;
@@ -106,6 +110,7 @@ export interface DirectoryApiResponse {
     genders: Array<{ value: 'F' | 'M'; label: string }>;
     leadership: string[];
     committees: string[];
+    issues: string[];
     caucuses: string[];
     states: string[];
     districts: string[];
@@ -138,6 +143,61 @@ export interface DirectoryStaffer {
 
 export interface DirectoryStaffersResponse {
   staffers: DirectoryStaffer[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export type CommitteeChamber = 'House' | 'Senate' | 'Joint';
+export type CommitteeKind = 'committee' | 'subcommittee';
+
+export interface CommitteeMemberRef {
+  id: string;
+  name: string;
+}
+
+export interface DirectoryCommittee {
+  id: string;
+  officeId: number;
+  name: string;
+  chamber: CommitteeChamber;
+  kind: CommitteeKind;
+  committeeCode: string | null;
+  parentOfficeId: number | null;
+  staffCount: number;
+  chair: CommitteeMemberRef | null;
+  rankingMember: CommitteeMemberRef | null;
+  viceChairs: string[];
+  phone: string;
+  officeLocation: string;
+}
+
+export interface DirectoryCommitteeStaffer {
+  id: string;
+  fullName: string;
+  title: string;
+  email: string;
+  phone: string;
+  officeLocation: string;
+  isCurrent: boolean;
+  committee: {
+    id: string;
+    name: string;
+    chamber: CommitteeChamber;
+    kind: CommitteeKind;
+  };
+}
+
+export interface DirectoryCommitteesResponse {
+  committees: DirectoryCommittee[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface DirectoryCommitteeStaffResponse {
+  committee: DirectoryCommittee | null;
+  staff: DirectoryCommitteeStaffer[];
   total: number;
   page: number;
   pageSize: number;
