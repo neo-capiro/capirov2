@@ -518,7 +518,11 @@ export class ClioService {
           ...(summaryBoundary ? { createdAt: { gt: summaryBoundary.createdAt } } : {}),
         },
         orderBy: { createdAt: 'desc' },
-        take: summaryBoundary ? 60 : 20,
+        // Last-N turns kept verbatim. The char-budget trim (CLIO_HISTORY_CHAR_BUDGET)
+        // is the real cap; this just bounds the DB read. Raised from 20→40 (and
+        // 60→80 post-summary) so short turns aren't evicted before the char budget
+        // even applies — fixes "Clio loses context" in longer threads.
+        take: summaryBoundary ? 80 : 40,
         select: { id: true, role: true, body: true, metadata: true },
       }),
     );

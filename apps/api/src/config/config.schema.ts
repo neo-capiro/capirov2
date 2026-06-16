@@ -48,8 +48,11 @@ export const configSchema = z.object({
   CLIO_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   // Max characters of prior conversation history sent to the model. Older turns
   // beyond this budget are dropped (oldest-first) to avoid silent context-limit
-  // 400s on long sessions.
-  CLIO_HISTORY_CHAR_BUDGET: z.coerce.number().int().positive().default(24_000),
+  // 400s on long sessions. ~80k chars ≈ 20k tokens — comfortably within the
+  // Sonnet 200k window while leaving room for system blocks, tools, and the
+  // current turn. Raised from 24k (which silently evicted context in long /
+  // data-heavy threads — users reported Clio "losing context").
+  CLIO_HISTORY_CHAR_BUDGET: z.coerce.number().int().positive().default(80_000),
   // Max agentic tool-use rounds per message before forcing a final answer (P2-3).
   CLIO_MAX_TOOL_ROUNDS: z.coerce.number().int().positive().default(8),
   // Wall-clock budget for a whole turn across all rounds (P2-3). When exceeded the
