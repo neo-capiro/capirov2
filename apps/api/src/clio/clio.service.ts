@@ -711,8 +711,9 @@ export class ClioService {
       // Bridged MCP tools (F6a) merge into the tool surface per tenant at
       // request time. Tenants with no MCP servers keep the exact baseline
       // tool list (and its shared prompt-cache prefix). run_analysis (F4) is
-      // pilot-gated: it registers only for opted-in tenants and disappears
-      // instantly under the env kill-switch.
+      // GA: it registers for every tenant by default (opt-OUT via
+      // clioFeatureFlags.runAnalysis=false) and disappears instantly under the
+      // env kill-switch CLIO_ANALYSIS_SANDBOX_ENABLED.
       const analysisEnabled = await this.tools.analysisSandboxEnabled(ctx.tenantId);
       const nativeSchemas = this.tools
         .anthropicToolSchemas()

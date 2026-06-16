@@ -839,11 +839,12 @@ export class ClioToolsService {
   private static readonly ANALYSIS_RUNS_PER_HOUR = 20;
 
   /** Whether run_analysis is live for this tenant (env kill-switch AND
-   *  explicit tenant opt-in; pilot default OFF). */
+   *  tenant flag; GA default ON — a tenant can opt OUT with
+   *  settings_jsonb.clioFeatureFlags.runAnalysis = false). */
   async analysisSandboxEnabled(tenantId: string): Promise<boolean> {
     if (!this.config.get('CLIO_ANALYSIS_SANDBOX_ENABLED', { infer: true })) return false;
     if (!this.config.get('CLIO_SANDBOX_URL', { infer: true })) return false;
-    return this.featureFlags.isEnabled(tenantId, 'runAnalysis', false);
+    return this.featureFlags.isEnabled(tenantId, 'runAnalysis', true);
   }
 
   private async runAnalysis(ctx: TenantContext, input: Record<string, unknown>) {
