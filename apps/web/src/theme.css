@@ -8644,6 +8644,199 @@ body {
   gap: 8px;
 }
 
+.workflows-filters--kanban {
+  grid-template-columns: 1.6fr 1fr;
+}
+
+/* ── Workflows kanban board ───────────────────────────────────────────── */
+
+.wf-kanban {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(220px, 1fr));
+  gap: 10px;
+  align-items: start;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.wf-kanban-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: color-mix(in oklab, var(--ink-3) 6%, var(--bg-surface));
+  border: 1px solid var(--border-1);
+  border-radius: 12px;
+  padding: 10px;
+  min-height: 160px;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.wf-kanban-col.is-over {
+  border-color: var(--accent);
+  background: color-mix(in oklab, var(--accent) 8%, var(--bg-surface));
+}
+
+.wf-kanban-col-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 4px 10px;
+}
+
+.wf-kanban-col-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-3);
+  flex-shrink: 0;
+}
+
+.wf-kanban-col-title {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ink-2);
+}
+
+.wf-kanban-col-count {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: 999px;
+  padding: 0 8px;
+  line-height: 18px;
+  min-width: 24px;
+  text-align: center;
+}
+
+.wf-kanban-col[data-status='in_progress'] .wf-kanban-col-dot { background: #2a57ce; }
+.wf-kanban-col[data-status='in_progress'] .wf-kanban-col-title { color: #2a57ce; }
+.wf-kanban-col[data-status='review'] .wf-kanban-col-dot { background: #d48806; }
+.wf-kanban-col[data-status='review'] .wf-kanban-col-title { color: #b3700a; }
+.wf-kanban-col[data-status='submitted'] .wf-kanban-col-dot { background: #08979c; }
+.wf-kanban-col[data-status='submitted'] .wf-kanban-col-title { color: #08979c; }
+.wf-kanban-col[data-status='complete'] .wf-kanban-col-dot { background: #389e0d; }
+.wf-kanban-col[data-status='complete'] .wf-kanban-col-title { color: #389e0d; }
+
+.wf-kanban-col-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.wf-kanban-col-empty {
+  font-size: 12px;
+  color: var(--ink-3);
+  text-align: center;
+  padding: 18px 8px;
+  font-style: italic;
+  opacity: 0.7;
+}
+
+.wf-kanban-card {
+  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-1);
+  border-radius: 10px;
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: grab;
+  text-align: left;
+  transition: box-shadow 0.12s, transform 0.12s, border-color 0.12s;
+}
+
+.wf-kanban-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 4px 14px rgba(42, 87, 206, 0.12);
+}
+
+.wf-kanban-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.wf-kanban-card.is-dragging {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+.wf-kanban-card-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.wf-kanban-card-title {
+  font-size: 13px;
+  line-height: 1.35;
+  flex: 1;
+  min-width: 0;
+}
+
+.wf-kanban-card-delete {
+  flex-shrink: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px;
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 0.12s, color 0.12s, background 0.12s;
+}
+
+.wf-kanban-card:hover .wf-kanban-card-delete,
+.wf-kanban-card:focus-within .wf-kanban-card-delete {
+  opacity: 1;
+}
+
+.wf-kanban-card-delete:hover {
+  color: #b5301b;
+  background: color-mix(in oklab, #b5301b 10%, transparent);
+}
+
+.wf-kanban-card-template {
+  font-size: 11.5px;
+}
+
+.wf-kanban-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.wf-kanban-card-client {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-kanban-card-client--muted {
+  color: var(--ink-3);
+  font-style: italic;
+}
+
+.wf-kanban-card-updated {
+  flex-shrink: 0;
+}
+
 .workflows-list {
   display: grid;
   gap: 8px;

@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Empty, Progress, Skeleton, Tag, Typography } from 'antd';
-import { PlusOutlined } from '@ant-design/icons';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { App as AntApp, Button, Card, Empty, Progress, Skeleton, Tag, Tooltip, Typography } from 'antd';
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { useApi } from '../../lib/use-api.js';
 import type { Strategy } from './workflowTypes.js';
 
@@ -17,11 +17,41 @@ const STATUS_COLORS: Record<string, string> = {
 export function StrategiesList() {
   const navigate = useNavigate();
   const api = useApi();
+  const qc = useQueryClient();
+  const { message, modal } = AntApp.useApp();
 
   const { data: strategies, isLoading } = useQuery<Strategy[]>({
     queryKey: ['strategies'],
     queryFn: () => api.get('/api/strategies').then((r) => r.data),
   });
+
+  const deleteStrategy = useMutation({
+    mutationFn: async (id: string) => (await api.delete(`/api/strategies/${id}`)).data,
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: ['strategies'] });
+      const previous = qc.getQueryData<Strategy[]>(['strategies']);
+      qc.setQueryData<Strategy[]>(['strategies'], (old) => (old ?? []).filter((s) => s.id !== id));
+      return { previous };
+    },
+    onError: (_err, _id, ctx) => {
+      if (ctx?.previous) qc.setQueryData(['strategies'], ctx.previous);
+      message.error('Could not delete strategy');
+    },
+    onSuccess: () => message.success('Strategy deleted'),
+    onSettled: () => qc.invalidateQueries({ queryKey: ['strategies'] }),
+  });
+
+  const confirmDeleteStrategy = (event: React.MouseEvent, strategy: Strategy) => {
+    event.stopPropagation();
+    modal.confirm({
+      title: `Delete "${strategy.name}"?`,
+      content:
+        'The strategy will be permanently deleted. Its workflows are kept and simply unlinked from this strategy.',
+      okText: 'Delete',
+      okButtonProps: { danger: true },
+      onOk: () => deleteStrategy.mutateAsync(strategy.id),
+    });
+  };
 
   function calcProgress(strategy: Strategy): { completed: number; total: number } {
     const instances = (strategy as any).instances ?? [];
@@ -107,18 +137,39 @@ export function StrategiesList() {
                 style={{ cursor: 'pointer' }}
                 styles={{ body: { padding: '20px 24px' } }}
               >
-                <div style={{ marginBottom: 12 }}>
-                  <Text
-                    strong
-                    style={{ fontSize: 15, display: 'block', marginBottom: 6, lineHeight: 1.4 }}
-                  >
-                    {strategy.name}
-                  </Text>
-                  {clientName && (
-                    <Text type="secondary" style={{ fontSize: 13 }}>
-                      {clientName}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                    marginBottom: 12,
+                  }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <Text
+                      strong
+                      style={{ fontSize: 15, display: 'block', marginBottom: 6, lineHeight: 1.4 }}
+                    >
+                      {strategy.name}
                     </Text>
-                  )}
+                    {clientName && (
+                      <Text type="secondary" style={{ fontSize: 13 }}>
+                        {clientName}
+                      </Text>
+                    )}
+                  </div>
+                  <Tooltip title="Delete strategy">
+                    <Button
+                      type="text"
+                      size="small"
+                      danger
+                      icon={<DeleteOutlined />}
+                      aria-label={`Delete ${strategy.name}`}
+                      loading={deleteStrategy.isPending && deleteStrategy.variables === strategy.id}
+                      onClick={(event) => confirmDeleteStrategy(event, strategy)}
+                    />
+                  </Tooltip>
                 </div>
 
                 <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
