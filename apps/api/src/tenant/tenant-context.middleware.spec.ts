@@ -76,6 +76,26 @@ describe('TenantContextMiddleware', () => {
     jest.clearAllMocks();
   });
 
+  test('bypasses tenant auth for the public /api/insights route (no bearer token required)', async () => {
+    const tx = makeTx();
+    const { middleware } = build({}, tx);
+    const req = {
+      headers: {}, // NO authorization header
+      path: '/api/insights',
+      originalUrl: '/api/insights',
+      baseUrl: '',
+      url: '/api/insights',
+      hostname: 'app.capiro.ai',
+      header: jest.fn(() => undefined),
+    } as unknown as Request;
+    const next = jest.fn();
+    // Must NOT throw "Missing bearer token" — the public marketing endpoint is bypassed.
+    await expect(middleware.use(req, {} as Response, next)).resolves.toBeUndefined();
+    expect(next).toHaveBeenCalledTimes(1);
+    // And it never tried to resolve a tenant.
+    expect(tx.tenantMembership.findMany).not.toHaveBeenCalled();
+  });
+
   test('resolves an existing active membership (regression — no self-heal)', async () => {
     const tx = makeTx();
     tx.user.findUnique.mockResolvedValue({ id: 'u1', clerkUserId: 'clerk_user' });
