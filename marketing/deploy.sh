@@ -1,49 +1,57 @@
 #!/usr/bin/env bash
-# Deploy marketing/index.html to capiro.ai (S3 + CloudFront).
+# Deploy the Capiro marketing site (capiro.ai) to AWS.
+#
+# capiro.ai is served by an nginx Docker container running as the ECS service
+# `capiro-dev-marketing` — NOT S3/CloudFront. (The old S3 path in this script's
+# history pointed at a distribution that no longer fronts capiro.ai.) The deploy
+# is: build the arm64 image (which bakes in marketing/index.html + assets), push
+# to ECR, force a new deployment of the ECS service, wait for steady state.
 #
 # Usage:  ./marketing/deploy.sh
-# Prereqs: AWS CLI configured with permissions for the bucket + distribution.
+# Prereqs: docker + buildx, AWS CLI configured for account 967807252336.
+#          Build context is the REPOSITORY ROOT (the Dockerfile COPYs marketing/*).
 
 set -euo pipefail
+export MSYS_NO_PATHCONV=1  # keep ARNs/paths intact under git-bash on Windows
+
+ACCOUNT="967807252336"
+REGION="us-east-1"
+CLUSTER="capiro-dev"
+SERVICE="capiro-dev-marketing"
+REPO="${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com/capiro/dev/marketing"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC="$HERE/index.html"
-BUCKET="capiro-landing-967807252336-us-east-1"
-DIST_ID="E30MT6RQI7501Q"
-REGION="us-east-1"
+ROOT="$(cd "$HERE/.." && pwd)"
+TAG="manual-$(date +%Y%m%d-%H%M%S)"
 
-if [[ ! -f "$SRC" ]]; then
-  echo "ERROR: $SRC not found" >&2
+if [[ ! -f "$HERE/index.html" ]]; then
+  echo "ERROR: $HERE/index.html not found" >&2
   exit 1
 fi
 
-TS="$(date +%Y%m%d-%H%M%S)"
+echo "==> ECR login"
+aws ecr get-login-password --region "$REGION" \
+  | docker login --username AWS --password-stdin "${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
 
-echo "→ backing up current index.html as index.html.bak-$TS"
-aws s3 cp "s3://$BUCKET/index.html" "s3://$BUCKET/index.html.bak-$TS" \
-  --region "$REGION" --only-show-errors
+echo "==> Build + push image ($REPO:latest and :$TAG)"
+docker buildx build \
+  --platform linux/arm64 \
+  -f "$ROOT/marketing/Dockerfile" \
+  -t "$REPO:latest" \
+  -t "$REPO:$TAG" \
+  --push \
+  "$ROOT"
 
-echo "→ uploading $SRC"
-aws s3 cp "$SRC" "s3://$BUCKET/index.html" \
+echo "==> Force new deployment of $SERVICE"
+aws ecs update-service \
+  --cluster "$CLUSTER" \
+  --service "$SERVICE" \
+  --force-new-deployment \
   --region "$REGION" \
-  --content-type "text/html; charset=utf-8" \
-  --cache-control "public, max-age=300" \
-  --only-show-errors
+  --query 'service.serviceName' --output text >/dev/null
 
-if [[ -d "$HERE/assets" ]]; then
-  echo "→ syncing assets/"
-  aws s3 sync "$HERE/assets/" "s3://$BUCKET/assets/" \
-    --region "$REGION" \
-    --cache-control "public, max-age=86400" \
-    --delete \
-    --only-show-errors
-fi
+echo "==> Waiting for $SERVICE to reach steady state..."
+aws ecs wait services-stable --cluster "$CLUSTER" --services "$SERVICE" --region "$REGION"
 
-echo "→ invalidating CloudFront $DIST_ID"
-INV_ID="$(aws cloudfront create-invalidation \
-  --distribution-id "$DIST_ID" \
-  --paths '/*' \
-  --query 'Invalidation.Id' --output text)"
-echo "  invalidation id: $INV_ID"
-
-echo "✓ done, https://capiro.ai (cache propagation typically 30-60s)"
+echo "✓ done — pushed :$TAG, service stable."
+echo "  Verify: curl -sI https://capiro.ai | grep -i content-length   (compare to local index.html size)"
