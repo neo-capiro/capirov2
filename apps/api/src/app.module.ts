@@ -29,6 +29,7 @@ import { RegulatoryDocketModule } from './regulatory-docket/regulatory-docket.mo
 import { IntelligenceModule } from './intelligence/intelligence.module.js';
 import { ExplorerModule } from './explorer/explorer.module.js';
 import { SearchModule } from './search/search.module.js';
+import { InsightsModule } from './insights/insights.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { ProgramElementModule } from './program-element/program-element.module.js';
 import { AcquisitionPersonnelModule } from './acquisition-personnel/acquisition-personnel.module.js';
@@ -77,6 +78,7 @@ import { ApiLatencyMiddleware } from './observability/api-latency.middleware.js'
     IntelligenceModule,
     ExplorerModule,
     SearchModule,
+    InsightsModule,
     ChatModule,
     HelpModule,
     AiUsageModule,
