@@ -126,6 +126,9 @@ export class AppModule implements NestModule {
           path: 'api/clio/runtime/(.*)',
           method: RequestMethod.ALL,
         },
+        // Public marketing endpoint (capiro.ai Insights page) — no Clerk session.
+        { path: '/api/insights', method: RequestMethod.GET },
+        { path: 'api/insights', method: RequestMethod.GET },
       )
       .forRoutes('*');
 
