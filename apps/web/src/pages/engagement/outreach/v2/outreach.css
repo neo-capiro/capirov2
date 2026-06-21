@@ -302,7 +302,7 @@
   background: var(--ov2-bg-surface);
   border-radius: var(--ov2-r-lg) var(--ov2-r-lg) 0 0;
 }
-.ov2-ctx-right-head .clio {
+.ov2-ctx-right-head .meri {
   width: 24px; height: 24px;
   border-radius: 50%;
   background: linear-gradient(135deg, #4E78D8, #1A3F9F);

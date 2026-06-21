@@ -89,7 +89,7 @@ interface IssueRow {
  *                  populated by sync-openlobby.ts. Kept for emergency rollback;
  *                  scheduled for removal once the LDA source is verified.
  *
- * The public API surface is identical across both sources, Clio + chat tools
+ * The public API surface is identical across both sources, Meri + chat tools
  * call getAiContext() and lookupByClientName() and must not notice the switch.
  */
 @Injectable()
@@ -138,7 +138,7 @@ export class LobbyIntelService {
 
   /**
    * Compact context payload to inject into AI doc-gen prompts.
-   * Used by Clio's query_intelligence tool and the chat bot.
+   * Used by Meri's query_intelligence tool and the chat bot.
    * Keeps token usage low: ~10 hot/surging issues + ~10 trending words.
    */
   async getAiContext(): Promise<{

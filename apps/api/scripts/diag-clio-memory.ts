@@ -1,5 +1,5 @@
 /**
- * Read-only CLIO MEMORY HEALTH report (W2 M3). Per-tenant counts: total memory
+ * Read-only MERI MEMORY HEALTH report (W2 M3). Per-tenant counts: total memory
  * rows, firm vs user_private split, % with an embedding, and oldest/newest +
  * top sources. Lets us see whether semantic retrieval can actually work in prod
  * (no embeddings => memory only surfaces via the keyword/recency fallback).

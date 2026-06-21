@@ -43,7 +43,7 @@ export interface BillKanbanCard {
   pct?: number | null;
   /** CSS color value, e.g. "var(--success)" */
   probColor?: string;
-  clioTag?: string;
+  meriTag?: string;
   /** True when the user has explicitly pinned this bill (manual tracking). */
   isManual?: boolean;
 }
@@ -150,10 +150,10 @@ export function BillKanban({ columns, billDrillHref, onToggleTrack, pendingTrack
                   </div>
                   <div className="iv1-bill-title">{card.title}</div>
                   <PassageProbabilityBar score={card.pct} color={card.probColor} />
-                  {card.clioTag && (
-                    <div className="iv1-clio-tag">
-                      <span className="iv1-clio-tag-dot" />
-                      {card.clioTag}
+                  {card.meriTag && (
+                    <div className="iv1-meri-tag">
+                      <span className="iv1-meri-tag-dot" />
+                      {card.meriTag}
                     </div>
                   )}
                 </>

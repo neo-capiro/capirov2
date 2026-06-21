@@ -162,7 +162,7 @@ export class WorkflowsService {
     ]);
 
     // Fetch ALL client context: attachments, meetings, mail threads, engagement tasks, notes
-    const [attachments, meetings, mailThreads, tasks, clioNotes, directoryNotes] =
+    const [attachments, meetings, mailThreads, tasks, meriNotes, directoryNotes] =
       await Promise.all([
         this.prisma.engagementAttachment.findMany({
           where: { tenantId, clientId },
@@ -297,9 +297,9 @@ export class WorkflowsService {
       );
     }
 
-    if (clioNotes.length) {
+    if (meriNotes.length) {
       clientContext.push(
-        `\nCLIO NOTES (${clioNotes.length}):\n${clioNotes
+        `\nMERI NOTES (${meriNotes.length}):\n${meriNotes
           .map((n) => `  - ${n.title ?? 'Untitled'}: ${n.body.slice(0, 300)}`)
           .join('\n')}`,
       );

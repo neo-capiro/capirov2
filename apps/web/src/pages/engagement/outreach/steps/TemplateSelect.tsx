@@ -157,7 +157,7 @@ export function TemplateSelect({ selectedTemplateId, additionalContext, onChange
     <div className="outreach-flow-stack">
       <Typography.Title level={4}>Select a template</Typography.Title>
       <Typography.Paragraph type="secondary">
-        Choose the type of email Clio should write. System templates are pre-configured; you can
+        Choose the type of email Meri should write. System templates are pre-configured; you can
         also create your own.
       </Typography.Paragraph>
 
@@ -277,7 +277,7 @@ export function TemplateSelect({ selectedTemplateId, additionalContext, onChange
       <div style={{ marginTop: 16 }}>
         <Typography.Text strong>Additional context</Typography.Text>
         <Typography.Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>
-          Any extra instructions Clio should follow when writing these emails. Specific angles,
+          Any extra instructions Meri should follow when writing these emails. Specific angles,
           things to avoid, key messages, etc.
         </Typography.Text>
         <Input.TextArea
@@ -371,8 +371,8 @@ export function TemplateSelect({ selectedTemplateId, additionalContext, onChange
             message="How to write a good prompt"
             description={
               <div style={{ fontSize: 12.5, lineHeight: 1.6 }}>
-                Brief Clio like a colleague — describe the email you want, not a finished
-                draft (Clio personalizes per recipient). The more specific you are, the
+                Brief Meri like a colleague — describe the email you want, not a finished
+                draft (Meri personalizes per recipient). The more specific you are, the
                 better the output.
                 <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
                   <li>
@@ -406,7 +406,7 @@ export function TemplateSelect({ selectedTemplateId, additionalContext, onChange
             label="Prompt instructions"
             name="prompt"
             rules={[{ required: true }]}
-            extra="Reusable instructions for Clio — not a one-off finished email. Recipient details are filled in automatically."
+            extra="Reusable instructions for Meri — not a one-off finished email. Recipient details are filled in automatically."
           >
             <Input.TextArea
               rows={7}

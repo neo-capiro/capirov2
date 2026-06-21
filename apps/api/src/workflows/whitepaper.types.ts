@@ -1,7 +1,7 @@
 /**
  * White Paper structured authoring: section model, template variants, tone,
  * and context-item shapes. Shared by the workflows service (generation),
- * the chat service (Clio agentic write-back), and the web editor.
+ * the chat service (Meri agentic write-back), and the web editor.
  *
  * The structured paper lives inside WorkflowInstance.formData under stable
  * keys (additive — no Prisma migration). `generated_document` remains the
@@ -168,7 +168,7 @@ export function asWhitePaperTone(value: unknown): WhitePaperTone {
 }
 
 /**
- * Three guided starting structures. Clio offers these; each carries a
+ * Three guided starting structures. Meri offers these; each carries a
  * recommended section set, default tone, and word budget.
  */
 export const WHITEPAPER_VARIANTS: WhitePaperVariant[] = [

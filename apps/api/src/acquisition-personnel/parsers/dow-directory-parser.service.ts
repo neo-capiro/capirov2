@@ -3,7 +3,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { AcquisitionPersonnelWriterService } from '../acquisition-personnel-writer.service.js';
-import { fetchJson } from '../../clio/sources/http.js';
+import { fetchJson } from '../../meri/sources/http.js';
 import { DowDirectorySectionChunk, DowDirectorySectionSplitterService } from './dow-directory-section-splitter.service.js';
 import { isValidPeCode } from '../../program-element/jbook/jbook-extract.js';
 import { createHash } from 'node:crypto';

@@ -1,9 +1,9 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, expect, test, vi } from 'vitest';
 import { ChatMessage } from './ChatMessage.js';
-import type { ClioCitation, ClioVerification } from './chat-store.js';
+import type { MeriCitation, MeriVerification } from './chat-store.js';
 
-const citations: ClioCitation[] = [
+const citations: MeriCitation[] = [
   {
     n: 1,
     type: 'bill',
@@ -84,7 +84,7 @@ describe('ChatMessage markdown tables (GFM)', () => {
   });
 });
 
-const lowConfidenceVerification: ClioVerification = {
+const lowConfidenceVerification: MeriVerification = {
   claims: [
     { claim: 'HR1 cleared committee', supported: true, sourceIds: [1] },
     { claim: 'HR1 will pass the floor next week', supported: false, sourceIds: [] },
@@ -113,7 +113,7 @@ describe('ChatMessage verification gate', () => {
   });
 
   test('shows a grounded confirmation when all claims are supported', () => {
-    const allSupported: ClioVerification = {
+    const allSupported: MeriVerification = {
       claims: [{ claim: 'x', supported: true, sourceIds: [1] }],
       totalCount: 1,
       unsupportedCount: 0,

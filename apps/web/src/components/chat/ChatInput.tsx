@@ -117,11 +117,11 @@ export function ChatInput({
 
   const placeholder = researchMode
     ? researchAwaitingAnswers
-      ? 'Answer Clio’s questions (or say “go ahead”) to start the research…'
-      : 'Describe what to research — Clio will plan it and ask a few questions…'
+      ? 'Answer Meri’s questions (or say “go ahead”) to start the research…'
+      : 'Describe what to research — Meri will plan it and ask a few questions…'
     : writeMode
       ? 'Write mode: describe what to update on this page (subject/body/field)…'
-      : 'Ask Clio… (Enter to send, Shift+Enter for newline)';
+      : 'Ask Meri… (Enter to send, Shift+Enter for newline)';
 
   return (
     <div className="chat-input-row">

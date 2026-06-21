@@ -25,7 +25,7 @@ import {
 import { useApi } from '../../lib/use-api.js';
 
 /**
- * Settings → Skills (assistant-parity F6b): firm-authored Clio skills.
+ * Settings → Skills (assistant-parity F6b): firm-authored Meri skills.
  *
  * Admin-gated authoring UI over /api/clio/firm-skills. Client-side rules
  * mirror the server validator (clio-firm-skills.helpers.ts); the API stays
@@ -44,7 +44,7 @@ const SKILL_LIMITS = {
   heading: 120,
 };
 
-interface ClioSkillDef {
+interface MeriSkillDef {
   id: string;
   name: string;
   triggers: string[];
@@ -57,7 +57,7 @@ interface FirmSkillRow {
   id: string;
   skillId: string;
   name: string;
-  skill: ClioSkillDef;
+  skill: MeriSkillDef;
   version: number;
   versions: Array<{ version: number; savedAt: string }>;
   enabled: boolean;
@@ -102,17 +102,17 @@ export function SkillsPage() {
   );
 
   const skills = useQuery<FirmSkillRow[]>({
-    queryKey: ['clio-firm-skills'],
+    queryKey: ['meri-firm-skills'],
     queryFn: async () => (await api.get<FirmSkillRow[]>('/api/clio/firm-skills')).data,
   });
 
   const toolManifest = useQuery<ToolManifestResponse>({
-    queryKey: ['clio-tools'],
+    queryKey: ['meri-tools'],
     queryFn: async () => (await api.get<ToolManifestResponse>('/api/clio/tools')).data,
     staleTime: 5 * 60_000,
   });
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['clio-firm-skills'] });
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['meri-firm-skills'] });
 
   const save = useMutation({
     mutationFn: async (payload: { rowId: string | null; body: Record<string, unknown> }) =>
@@ -306,7 +306,7 @@ export function SkillsPage() {
             onClick={() => {
               modal.confirm({
                 title: `Delete "${row.name}"?`,
-                content: 'Clio stops applying this skill immediately. This cannot be undone.',
+                content: 'Meri stops applying this skill immediately. This cannot be undone.',
                 okText: 'Delete',
                 okButtonProps: { danger: true },
                 onOk: () => remove.mutateAsync(row.id),
@@ -331,10 +331,10 @@ export function SkillsPage() {
       >
         <div>
           <Typography.Title level={5} style={{ marginBottom: 4 }}>
-            Clio Skills
+            Meri Skills
           </Typography.Title>
           <Typography.Text type="secondary">
-            Firm-authored playbooks Clio applies when a trigger phrase fires: extra guidance,
+            Firm-authored playbooks Meri applies when a trigger phrase fires: extra guidance,
             required tools, and an optional response template. Built-in skills always win on
             conflicting triggers.
           </Typography.Text>
@@ -355,7 +355,7 @@ export function SkillsPage() {
           emptyText: (
             <Empty
               image={Empty.PRESENTED_IMAGE_SIMPLE}
-              description="No firm skills yet. Create one to teach Clio your house playbooks."
+              description="No firm skills yet. Create one to teach Meri your house playbooks."
             />
           ),
         }}
@@ -402,7 +402,7 @@ export function SkillsPage() {
           <Form.Item
             name="triggers"
             label="Trigger phrases"
-            tooltip="Clio applies the skill when the user's message contains one of these."
+            tooltip="Meri applies the skill when the user's message contains one of these."
             rules={[
               {
                 validator: (_rule, value: string[] | undefined) => {
@@ -427,7 +427,7 @@ export function SkillsPage() {
           <Form.Item
             name="systemAddendum"
             label="System guidance"
-            tooltip="Injected into Clio's system prompt when the skill fires."
+            tooltip="Injected into Meri's system prompt when the skill fires."
             rules={[
               { required: true, message: 'Guidance is required' },
               { max: SKILL_LIMITS.addendum, message: `Max ${SKILL_LIMITS.addendum} characters` },
@@ -443,7 +443,7 @@ export function SkillsPage() {
           <Form.Item
             name="requiredTools"
             label="Required tools"
-            tooltip="Tools Clio must run before answering (optional)."
+            tooltip="Tools Meri must run before answering (optional)."
             rules={[
               {
                 validator: (_rule, value: string[] | undefined) =>
@@ -464,7 +464,7 @@ export function SkillsPage() {
           <Form.Item
             name="templateHeading"
             label="Response template heading (optional)"
-            tooltip="With at least one section, structures Clio's answer. Leave blank for none."
+            tooltip="With at least one section, structures Meri's answer. Leave blank for none."
           >
             <Input placeholder="Earmark Request Memo" maxLength={SKILL_LIMITS.heading} />
           </Form.Item>

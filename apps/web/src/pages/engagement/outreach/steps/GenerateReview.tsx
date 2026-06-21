@@ -301,7 +301,7 @@ export function GenerateReview({
               <div style={{ textAlign: 'center', padding: 40 }}>
                 <SyncOutlined spin style={{ fontSize: 32, color: 'var(--info)' }} />
                 <Typography.Paragraph type="secondary" style={{ marginTop: 8 }}>
-                  Clio is writing this email…
+                  Meri is writing this email…
                 </Typography.Paragraph>
               </div>
             ) : selectedEmail.status === 'error' ? (

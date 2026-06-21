@@ -40,7 +40,7 @@ export const configSchema = z.object({
     .default('true')
     .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
 
-  // Clio chat brain (single Anthropic-native model + budgets). Env-driven so
+  // Meri chat brain (single Anthropic-native model + budgets). Env-driven so
   // the model and token ceiling are not hard-coded in service code.
   CLIO_MODEL: z.string().default('claude-sonnet-4-6'),
   CLIO_MAX_TOKENS: z.coerce.number().int().positive().default(4000),
@@ -51,7 +51,7 @@ export const configSchema = z.object({
   // 400s on long sessions. ~80k chars ≈ 20k tokens — comfortably within the
   // Sonnet 200k window while leaving room for system blocks, tools, and the
   // current turn. Raised from 24k (which silently evicted context in long /
-  // data-heavy threads — users reported Clio "losing context").
+  // data-heavy threads — users reported Meri "losing context").
   CLIO_HISTORY_CHAR_BUDGET: z.coerce.number().int().positive().default(80_000),
   // Max agentic tool-use rounds per message before forcing a final answer (P2-3).
   CLIO_MAX_TOOL_ROUNDS: z.coerce.number().int().positive().default(8),
@@ -72,7 +72,7 @@ export const configSchema = z.object({
   // by this timeout. On timeout the model receives an error tool_result and the
   // turn proceeds (the tool is not hard-aborted).
   CLIO_TOOL_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
-  // Max retries for idempotent (read-only) Clio tools; side-effecting tools never
+  // Max retries for idempotent (read-only) Meri tools; side-effecting tools never
   // retry. After repeated failures a per-(tenant, tool) circuit breaker pauses the
   // tool so the turn proceeds without it instead of retrying a dead dependency (P2-2).
   CLIO_TOOL_RETRIES: z.coerce.number().int().min(0).default(1),
@@ -85,7 +85,7 @@ export const configSchema = z.object({
     .default('true')
     .transform((v) => !['false', '0', 'no', 'off'].includes(v.trim().toLowerCase())),
   // Skill registry (P0-5). When enabled, migrated intents resolve their guidance
-  // + output template from clio/skills/*; un-migrated intents fall back to the
+  // + output template from meri/skills/*; un-migrated intents fall back to the
   // legacy inline maps. Migrated skills are byte-identical to the legacy entries,
   // so toggling this never changes output. Set false/0/no/off to force the
   // legacy path.
@@ -111,7 +111,7 @@ export const configSchema = z.object({
   // Extended thinking on the deep tier (assistant-parity F3). When enabled,
   // deep-tier chat turns and deep-research gather/synthesize calls request
   // model reasoning, streamed to the UI timeline as it happens. 'adaptive'
-  // mode (default, recommended on the Claude 4.6-family models Clio runs on,
+  // mode (default, recommended on the Claude 4.6-family models Meri runs on,
   // where fixed thinking budgets are deprecated) lets the model decide when
   // and how much to think; 'budget' mode sends a fixed budget_tokens for
   // pinned older models. Thinking text is ephemeral UI: never persisted to
@@ -187,7 +187,7 @@ export const configSchema = z.object({
   CLIO_SANDBOX_URL: z.string().url().optional(),
   CLIO_SANDBOX_TOKEN: z.string().optional(),
 
-  // Clio public web search (search_public_web). 'duckduckgo' (default) keeps the
+  // Meri public web search (search_public_web). 'duckduckgo' (default) keeps the
   // existing scraped DDG behavior with zero new dependencies; 'tavily'/'serper'
   // call the respective search API when its key is configured, with automatic
   // DDG fallback on provider error or a missing key — so setting only the
@@ -196,7 +196,7 @@ export const configSchema = z.object({
   TAVILY_API_KEY: z.string().optional(),
   SERPER_API_KEY: z.string().optional(),
 
-  // Clio Deep Research (a heavier, multi-round agentic research run that produces
+  // Meri Deep Research (a heavier, multi-round agentic research run that produces
   // a long, cited report artifact). Separate budgets from the chat drawer because
   // research runs longer and writes a much larger output.
   CLIO_RESEARCH_MODEL: z.string().default('claude-sonnet-4-6'),

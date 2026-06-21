@@ -1,7 +1,7 @@
 /**
  * Pure AES-256-GCM secret envelope helpers (same scheme as
  * engagement_connection_tokens / TokenCryptoService, parameterized by key so
- * non-Nest callers and other key namespaces can reuse it). Used by the Clio
+ * non-Nest callers and other key namespaces can reuse it). Used by the Meri
  * MCP server config (F6a) to keep bearer tokens encrypted at rest — secrets
  * are write-only through the API and never returned in plaintext.
  */

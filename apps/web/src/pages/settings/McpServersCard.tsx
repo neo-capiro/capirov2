@@ -28,7 +28,7 @@ import { useMe } from '../../lib/me.js';
 import { useApi } from '../../lib/use-api.js';
 
 /**
- * Settings → Integrations → "Clio MCP Servers" (assistant-parity F6a).
+ * Settings → Integrations → "Meri MCP Servers" (assistant-parity F6a).
  *
  * Admin CRUD over /api/clio/mcp-servers. The bearer token is write-only:
  * the API never returns it (only hasAuthToken); leaving the field blank on
@@ -78,12 +78,12 @@ export function McpServersCard() {
   const isAdmin = Boolean(me.data && ROLE_RANK[me.data.role] >= ROLE_RANK.user_admin);
 
   const servers = useQuery<McpServerRow[]>({
-    queryKey: ['clio-mcp-servers'],
+    queryKey: ['meri-mcp-servers'],
     queryFn: async () => (await api.get<McpServerRow[]>('/api/clio/mcp-servers')).data,
     enabled: isAdmin,
   });
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['clio-mcp-servers'] });
+  const invalidate = () => qc.invalidateQueries({ queryKey: ['meri-mcp-servers'] });
 
   const save = useMutation({
     mutationFn: async (payload: { rowId: string | null; body: Record<string, unknown> }) =>
@@ -139,7 +139,7 @@ export function McpServersCard() {
         content: data.tools.length ? (
           <div>
             <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-              {data.tools.length} tool{data.tools.length === 1 ? '' : 's'} available to Clio
+              {data.tools.length} tool{data.tools.length === 1 ? '' : 's'} available to Meri
               (refreshed {formatDateTime(data.refreshedAt)}).
             </Typography.Paragraph>
             <div>
@@ -304,7 +304,7 @@ export function McpServersCard() {
             onClick={() => {
               modal.confirm({
                 title: `Remove "${row.name}"?`,
-                content: 'Clio loses access to this server’s tools immediately.',
+                content: 'Meri loses access to this server’s tools immediately.',
                 okText: 'Remove',
                 okButtonProps: { danger: true },
                 onOk: () => remove.mutateAsync(row.id),
@@ -323,9 +323,9 @@ export function McpServersCard() {
           <ApiOutlined />
         </span>
         <div>
-          <Typography.Text strong>Clio MCP Servers</Typography.Text>
+          <Typography.Text strong>Meri MCP Servers</Typography.Text>
           <Typography.Text type="secondary">
-            Bridge external Model Context Protocol tools into Clio. Only allowlisted tools register;
+            Bridge external Model Context Protocol tools into Meri. Only allowlisted tools register;
             bridged calls are audit-logged.
           </Typography.Text>
         </div>
@@ -451,7 +451,7 @@ export function McpServersCard() {
           <Form.Item
             name="toolAllowlist"
             label="Tool allowlist"
-            tooltip="Only these tool names register with Clio. An empty allowlist registers nothing."
+            tooltip="Only these tool names register with Meri. An empty allowlist registers nothing."
           >
             <Select mode="tags" placeholder="Type a tool name and press Enter" open={false} />
           </Form.Item>

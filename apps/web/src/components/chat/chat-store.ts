@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-export interface ClioCitation {
+export interface MeriCitation {
   n: number;
   type: string;
   id: string;
@@ -16,7 +16,7 @@ export interface VerifiedClaim {
   sourceIds: number[];
 }
 
-export interface ClioVerification {
+export interface MeriVerification {
   claims: VerifiedClaim[];
   totalCount: number;
   unsupportedCount: number;
@@ -47,8 +47,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   createdAt: Date;
-  citations?: ClioCitation[];
-  verification?: ClioVerification;
+  citations?: MeriCitation[];
+  verification?: MeriVerification;
   suggestions?: string[];
   feedback?: 'up' | 'down' | null;
   attachments?: ChatMessageAttachment[];
@@ -62,14 +62,14 @@ export interface ActiveDraftContext {
   body: string;
 }
 
-/** White-paper editing context so Clio (global drawer) can target the open paper. */
+/** White-paper editing context so Meri (global drawer) can target the open paper. */
 export interface ActiveWhitePaperContext {
   instanceId: string;
   title: string;
   strategyId?: string | null;
 }
 
-export interface ClioAlert {
+export interface MeriAlert {
   id: string;
   alertType: string;
   title: string;
@@ -80,7 +80,7 @@ export interface ClioAlert {
   createdAt: string;
 }
 
-export interface ClioConversation {
+export interface MeriConversation {
   id: string;
   title: string;
   clientId: string | null;
@@ -89,7 +89,7 @@ export interface ClioConversation {
   updatedAt: string;
 }
 
-export interface ClioSourceAttribution {
+export interface MeriSourceAttribution {
   tool: string;
   count?: number;
   summary: string;
@@ -101,10 +101,10 @@ interface ChatState {
   messages: ChatMessage[];
   sessionId: string | null;
   isStreaming: boolean;
-  conversations: ClioConversation[];
+  conversations: MeriConversation[];
   activeConversationId: string | null;
   sessionRailOpen: boolean;
-  alerts: ClioAlert[];
+  alerts: MeriAlert[];
   alertsBadge: number;
 }
 
@@ -154,13 +154,13 @@ export function updateChatMessage(id: string, content: string): void {
   notify();
 }
 
-export function setChatMessageCitations(id: string, citations: ClioCitation[]): void {
+export function setChatMessageCitations(id: string, citations: MeriCitation[]): void {
   const messages = state.messages.map((m) => (m.id === id ? { ...m, citations } : m));
   state = { ...state, messages };
   notify();
 }
 
-export function setChatMessageVerification(id: string, verification: ClioVerification): void {
+export function setChatMessageVerification(id: string, verification: MeriVerification): void {
   const messages = state.messages.map((m) => (m.id === id ? { ...m, verification } : m));
   state = { ...state, messages };
   notify();
@@ -221,12 +221,12 @@ export function getActiveWhitePaper(): ActiveWhitePaperContext | null {
   return activeWhitePaper;
 }
 
-export function setConversations(conversations: ClioConversation[]): void {
+export function setConversations(conversations: MeriConversation[]): void {
   state = { ...state, conversations };
   notify();
 }
 
-export function upsertConversation(conversation: ClioConversation): void {
+export function upsertConversation(conversation: MeriConversation): void {
   const existing = state.conversations.find((c) => c.id === conversation.id);
   const conversations = existing
     ? state.conversations.map((c) => (c.id === conversation.id ? conversation : c))
@@ -254,7 +254,7 @@ export function toggleSessionRail(): void {
   notify();
 }
 
-export function setAlerts(alerts: ClioAlert[]): void {
+export function setAlerts(alerts: MeriAlert[]): void {
   state = { ...state, alerts, alertsBadge: alerts.filter(a => a.status === 'pending').length };
   notify();
 }

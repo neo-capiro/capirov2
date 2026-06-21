@@ -1,7 +1,7 @@
 import { config as dotenvConfig } from 'dotenv';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { FirecrawlClient } from '../src/clio/sources/firecrawl.client.js';
+import { FirecrawlClient } from '../src/meri/sources/firecrawl.client.js';
 
 /**
  * sync-cpe-roster.ts

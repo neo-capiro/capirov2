@@ -442,7 +442,7 @@ export class ChatService {
 
   // ─── White paper: agentic section draft + write-back ─────────────────────
   //
-  // Clio drafts or rewrites a single white-paper section through the shared
+  // Meri drafts or rewrites a single white-paper section through the shared
   // WhitePaperService (provider fallback, tone/steer/context aware) and writes
   // the result back into the structured `whitepaper_sections` array, keeping
   // the flat `generated_document` mirror in sync. This is the write-back seam
@@ -461,7 +461,7 @@ export class ChatService {
     const sectionId = target?.id ?? `sec-${current.sections.length + 1}`;
     const resolvedHeading = target?.heading ?? heading;
 
-    // Pull attached context items so Clio drafts grounded in the same context
+    // Pull attached context items so Meri drafts grounded in the same context
     // the editor uses.
     let contextItems = dto.contextItems;
     if (!contextItems) {

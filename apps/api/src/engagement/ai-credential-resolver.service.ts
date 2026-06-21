@@ -118,7 +118,7 @@ export class AiCredentialResolverService implements OnModuleInit {
 
   /**
    * Resolve a single provider's credential (tenant key first, then global).
-   * Clio uses this to run its Anthropic brain on a tenant's own key + model
+   * Meri uses this to run its Anthropic brain on a tenant's own key + model
    * override when present, falling back to the global key — without changing
    * provider. Returns null only when neither a tenant nor a global key exists.
    */

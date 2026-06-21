@@ -182,7 +182,7 @@ describe('AiCredentialResolverService.resolveOrder', () => {
   });
 });
 
-describe('AiCredentialResolverService.resolveProvider (Clio single-provider path)', () => {
+describe('AiCredentialResolverService.resolveProvider (Meri single-provider path)', () => {
   it('resolves the tenant Anthropic key + override when present', async () => {
     const { svc } = makeService({
       rows: [credRow('anthropic', 'sk-tenant-a', { modelOverride: 'claude-opus-4-1' })],
@@ -202,7 +202,7 @@ describe('AiCredentialResolverService.resolveProvider (Clio single-provider path
     const { svc } = makeService({ anthropicKey: 'sk-global-a', encryptionKey: AES_KEY_B64 });
     const cred = await svc.resolveProvider(ctx, 'anthropic');
     expect(cred).toMatchObject({ apiKey: 'sk-global-a', usedTenantKey: false });
-    // Global model default is ANTHROPIC_MODEL (Haiku) — Clio overrides this to
+    // Global model default is ANTHROPIC_MODEL (Haiku) — Meri overrides this to
     // CLIO_MODEL itself, so the resolver returning the default is the signal
     // that no tenant override was set.
     expect(cred?.model).toBe('claude-haiku-4-5-20251001');

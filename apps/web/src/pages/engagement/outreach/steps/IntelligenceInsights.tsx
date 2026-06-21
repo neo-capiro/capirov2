@@ -180,7 +180,7 @@ export function IntelligenceInsights({
             Intelligence insights
           </Typography.Title>
           <Typography.Text type="secondary">
-            Toggle insights to include them in email generation. Clio will weave them into each
+            Toggle insights to include them in email generation. Meri will weave them into each
             recipient&apos;s email.
           </Typography.Text>
         </div>
@@ -191,7 +191,7 @@ export function IntelligenceInsights({
 
       {cards.length === 0 ? (
         <Typography.Text type="secondary">
-          No intelligence data available. Clio will use client context from your intake data.
+          No intelligence data available. Meri will use client context from your intake data.
         </Typography.Text>
       ) : (
         categories.map(([category, meta]) => {
@@ -315,7 +315,7 @@ export function IntelligenceInsights({
         <Input.TextArea
           rows={4}
           value={insightsNotes}
-          placeholder="Add your own context, talking points, or specific intelligence Clio should reference..."
+          placeholder="Add your own context, talking points, or specific intelligence Meri should reference..."
           onChange={(e) => onChange({ insightsNotes: e.target.value })}
         />
         {selectedInsights.length === 0 && (

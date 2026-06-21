@@ -1999,7 +1999,7 @@ function MeetingDetailPanel({
                       <Typography.Text strong>No Prep Notes Yet</Typography.Text>
                       {!meeting.client ? (
                         <Typography.Text type="secondary">
-                          Clio needs more context to generate prep.{' '}
+                          Meri needs more context to generate prep.{' '}
                           <a href="/clients">Go to client profile</a>
                         </Typography.Text>
                       ) : (
@@ -2011,7 +2011,7 @@ function MeetingDetailPanel({
                       <Input.TextArea
                         value={prepContext}
                         onChange={(e) => setPrepContext(e.target.value)}
-                        placeholder="Optional: add context for this prep (goals, background, what you know going in). Clio uses only this plus your synced emails/meetings — it won't invent details."
+                        placeholder="Optional: add context for this prep (goals, background, what you know going in). Meri uses only this plus your synced emails/meetings — it won't invent details."
                         autoSize={{ minRows: 3, maxRows: 8 }}
                         maxLength={4000}
                         style={{ maxWidth: 560, margin: '8px auto 0' }}
@@ -2022,7 +2022,7 @@ function MeetingDetailPanel({
                         loading={generating}
                         onClick={() => onGeneratePrep(meeting, prepContext)}
                       >
-                        {generating ? 'Clio Is Preparing Your Brief...' : 'Generate Prep'}
+                        {generating ? 'Meri Is Preparing Your Brief...' : 'Generate Prep'}
                       </Button>
                     </div>
                   )}
@@ -2072,7 +2072,7 @@ function MeetingDetailPanel({
           <Input.TextArea
             value={prepContext}
             onChange={(e) => setPrepContext(e.target.value)}
-            placeholder="Add context to refine this prep, then Regenerate. Clio uses only this plus your synced emails/meetings."
+            placeholder="Add context to refine this prep, then Regenerate. Meri uses only this plus your synced emails/meetings."
             autoSize={{ minRows: 1, maxRows: 4 }}
             maxLength={4000}
             style={{ flexBasis: '100%' }}
@@ -2392,7 +2392,7 @@ function DebriefPanel({
         <div className="outreach-context-note">
           <RobotOutlined />
           <span>
-            Already available to Clio: {prep ? 'approved or saved prep notes, ' : ''}
+            Already available to Meri: {prep ? 'approved or saved prep notes, ' : ''}
             {meeting.attendees.length} participant profiles,{' '}
             {meeting.client ? 'client profile, ' : ''}
             prior meeting history.

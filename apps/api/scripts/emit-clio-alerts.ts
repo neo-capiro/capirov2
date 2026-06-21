@@ -1,5 +1,5 @@
 /**
- * Generate Clio proactive alerts on a schedule (replaces the per-message
+ * Generate Meri proactive alerts on a schedule (replaces the per-message
  * in-stream scan that previously ran generateProactiveAlerts() after every
  * chat reply). Scans every ACTIVE tenant for:
  *
@@ -14,7 +14,7 @@
  *
  * Intended cadence: every 30-60 min via the existing scheduled-task runner
  * (same mechanism as sync-* / emit-bill-alerts). No schema changes — mirrors
- * ClioService.generateProactiveAlerts but runs standalone (no Nest DI) and
+ * MeriService.generateProactiveAlerts but runs standalone (no Nest DI) and
  * iterates all tenants. Reads meeting/client/clio_proactive_alert.
  */
 import { config as dotenvConfig } from 'dotenv';
@@ -55,7 +55,7 @@ async function generateForTenant(tenantId: string): Promise<number> {
         clientId: meeting.clientId,
         alertType: 'meeting_prep_needed',
         title: `Meeting prep needed: ${meeting.subject}`,
-        body: `Your meeting "${meeting.subject}"${meeting.client?.name ? ` with ${meeting.client.name}` : ''} is in less than 48 hours and has no prep notes. Ask Clio to create a meeting brief.`,
+        body: `Your meeting "${meeting.subject}"${meeting.client?.name ? ` with ${meeting.client.name}` : ''} is in less than 48 hours and has no prep notes. Ask Meri to create a meeting brief.`,
         priority: 'high',
         sourceType: 'meeting_prep',
         sourceId: meeting.id,

@@ -64,7 +64,7 @@ export function OverviewTab({ onNavigate, stats }: OverviewTabProps) {
           icon={<CalendarOutlined style={{ fontSize: 22 }} />}
           iconTone="meetings"
           title="Meetings"
-          desc="Every meeting from your calendar lands here automatically. Clio writes a prep packet before, then a clean debrief after, from your notes, a voice memo, or an uploaded transcript."
+          desc="Every meeting from your calendar lands here automatically. Meri writes a prep packet before, then a clean debrief after, from your notes, a voice memo, or an uploaded transcript."
           cta="See your meetings"
           onClick={() => onNavigate('meetings')}
         />
@@ -72,7 +72,7 @@ export function OverviewTab({ onNavigate, stats }: OverviewTabProps) {
           icon={<MailOutlined style={{ fontSize: 22 }} />}
           iconTone="outreach"
           title="Outreach"
-          desc="Send personalized emails to dozens of congressional offices or your clients in minutes. You pick the recipients and what context Clio should use, it drafts a unique email for each person."
+          desc="Send personalized emails to dozens of congressional offices or your clients in minutes. You pick the recipients and what context Meri should use, it drafts a unique email for each person."
           cta="Start a campaign"
           onClick={() => onNavigate('outreach')}
         />
@@ -95,32 +95,32 @@ export function OverviewTab({ onNavigate, stats }: OverviewTabProps) {
         <div className="eo-flow-steps">
           <FlowStep num={1} title="Calendar syncs in" desc="Your Outlook or Google meetings appear in Meetings, with attendees already linked to the right client." />
           <FlowArrow />
-          <FlowStep num={2} title="Clio preps & debriefs" desc="Before each meeting, Clio drafts a prep pack from client context. After, it turns your notes into a clean recap." />
+          <FlowStep num={2} title="Meri preps & debriefs" desc="Before each meeting, Meri drafts a prep pack from client context. After, it turns your notes into a clean recap." />
           <FlowArrow />
-          <FlowStep num={3} title="Outreach goes out" desc="Build a context plan, pick recipients, and Clio drafts a personalized email per person. You review before anything sends." />
+          <FlowStep num={3} title="Outreach goes out" desc="Build a context plan, pick recipients, and Meri drafts a personalized email per person. You review before anything sends." />
           <FlowArrow />
           <FlowStep num={4} title="Reports stay current" desc="Every meeting, outreach, and follow-up rolls into the Office Engagement Tracker, automatically." />
         </div>
       </div>
 
-      {/* ──────── CLIO CARD ────────────────────────────────── */}
-      <div className="eo-clio">
-        <div className="eo-clio-glyph">
-          <div className="eo-clio-avatar" />
-          <div className="eo-clio-pulse" />
+      {/* ──────── MERI CARD ────────────────────────────────── */}
+      <div className="eo-meri">
+        <div className="eo-meri-glyph">
+          <div className="eo-meri-avatar" />
+          <div className="eo-meri-pulse" />
         </div>
         <div>
           <span className="eo-eyebrow" style={{ color: 'rgba(255,255,255,0.7)' }}>The AI inside</span>
-          <Title className="eo-clio-title" level={3}>Meet Clio</Title>
-          <Text className="eo-clio-desc">
-            Clio is the assistant woven through every screen in Engagement. It prepares meeting notes,
+          <Title className="eo-meri-title" level={3}>Meet Meri</Title>
+          <Text className="eo-meri-desc">
+            Meri is the assistant woven through every screen in Engagement. It prepares meeting notes,
             drafts outreach emails, summarizes debriefs, and routes the right intelligence to the right
-            recipient. <strong>Every draft is yours to review and edit, Clio never sends without your approval.</strong>
+            recipient. <strong>Every draft is yours to review and edit, Meri never sends without your approval.</strong>
           </Text>
-          <div className="eo-clio-quotes">
-            <span className="eo-clio-quote">"I'll draft your prep."</span>
-            <span className="eo-clio-quote">"I'll personalize each email."</span>
-            <span className="eo-clio-quote">"I'll keep your records clean."</span>
+          <div className="eo-meri-quotes">
+            <span className="eo-meri-quote">"I'll draft your prep."</span>
+            <span className="eo-meri-quote">"I'll personalize each email."</span>
+            <span className="eo-meri-quote">"I'll keep your records clean."</span>
           </div>
         </div>
       </div>
@@ -147,7 +147,7 @@ export function OverviewTab({ onNavigate, stats }: OverviewTabProps) {
           <PickCard
             label="Most common opener"
             heading="I have a meeting today"
-            desc="Open the meeting in your calendar and let Clio prep you."
+            desc="Open the meeting in your calendar and let Meri prep you."
             onClick={() => onNavigate('meetings')}
           />
           <PickCard
@@ -241,7 +241,7 @@ function PickCard({ label, heading, desc, onClick }: {
 }
 
 /* ────────────────────────────────────────────────────────────────
-   Hero SVG illustration, three floating cards orbiting a Clio core
+   Hero SVG illustration, three floating cards orbiting a Meri core
    ──────────────────────────────────────────────────────────────── */
 
 function EOHeroIllustration() {
@@ -252,7 +252,7 @@ function EOHeroIllustration() {
           <stop offset="0%" stopColor="#2A57CE" stopOpacity="0.35" />
           <stop offset="100%" stopColor="#2A57CE" stopOpacity="0" />
         </radialGradient>
-        <linearGradient id="eo-clio-grad" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id="eo-meri-grad" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#4E78D8" />
           <stop offset="100%" stopColor="#1A3F9F" />
         </linearGradient>
@@ -300,8 +300,8 @@ function EOHeroIllustration() {
         <rect x="-8" y="-10" width="34" height="14" rx="3" fill="var(--success, #2e6b43)" />
         <text x="-1" y="0" fontFamily="Hanken Grotesk, sans-serif" fontSize="7" fontWeight="700" fill="#fff" letterSpacing="0.5">REPORTS</text>
       </g>
-      {/* Clio core */}
-      <circle cx="210" cy="180" r="46" fill="url(#eo-clio-grad)" />
+      {/* Meri core */}
+      <circle cx="210" cy="180" r="46" fill="url(#eo-meri-grad)" />
       <circle cx="210" cy="180" r="54" fill="none" stroke="var(--accent, #2a57ce)" strokeWidth="1" strokeDasharray="2 4" opacity="0.5" />
       <g transform="translate(210, 180)" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" fill="none">
         <path d="M0 -16 L0 -8" /><path d="M0 8 L0 16" />
@@ -309,7 +309,7 @@ function EOHeroIllustration() {
         <path d="M-11 -11 L-6 -6" /><path d="M6 6 L11 11" />
         <path d="M-11 11 L-6 6" /><path d="M6 -6 L11 -11" />
       </g>
-      <text x="210" y="248" textAnchor="middle" fontFamily="Hanken Grotesk, sans-serif" fontSize="11" fontWeight="700" fill="var(--accent-ink, #1a3f9f)" letterSpacing="2.5">CLIO</text>
+      <text x="210" y="248" textAnchor="middle" fontFamily="Hanken Grotesk, sans-serif" fontSize="11" fontWeight="700" fill="var(--accent-ink, #1a3f9f)" letterSpacing="2.5">MERI</text>
     </svg>
   );
 }

@@ -722,7 +722,7 @@ export function OutreachView({
       (await api.post<OutreachRecord>(`/api/engagement/outreach/${id}/generate-draft`, payload))
         .data,
     onSuccess: (record) => {
-      message.success('Clio draft ready');
+      message.success('Meri draft ready');
       setWorkflow((current) => hydrateWorkflowFromRecord(record, current));
       qc.invalidateQueries({ queryKey: ['engagement-outreach'] });
     },
@@ -1185,7 +1185,7 @@ export function OutreachView({
               <span>
                 <strong>No outreach yet</strong>
                 <br />
-                Use New Outreach above, Clio drafts from your context
+                Use New Outreach above, Meri drafts from your context
               </span>
             }
           />
@@ -1545,11 +1545,11 @@ function CampaignWorkflow({
           ) : null}
 
           {workflow.step === 3 && !draftReady ? (
-            <div className="outreach-flow-stack outreach-campaign-clio-prompt">
-              <Typography.Title level={4}>Tell Clio what to write</Typography.Title>
+            <div className="outreach-flow-stack outreach-campaign-meri-prompt">
+              <Typography.Title level={4}>Tell Meri what to write</Typography.Title>
               <Typography.Paragraph type="secondary">
                 Describe your goal, the tone and voice of the email, or any other relevant details.
-                Clio will use your client context and recipient data to generate a personalized
+                Meri will use your client context and recipient data to generate a personalized
                 draft.
               </Typography.Paragraph>
               <Input.TextArea
@@ -2001,7 +2001,7 @@ function PortfolioCampaignWorkflow({
           steps={[
             ['Setup', 'Client and objective'],
             ['Recipients', 'Suggestions and search'],
-            ['Draft', "Edit Clio's draft"],
+            ['Draft', "Edit Meri's draft"],
             ['Preview & send', 'Final review'],
             ['Confirmation', 'Sent campaign'],
           ]}
@@ -2071,7 +2071,7 @@ function PortfolioCampaignWorkflow({
               <div className="outreach-context-note">
                 <RobotOutlined />
                 <span>
-                  Clio suggests Directory contacts by comparing the client portfolio and objective
+                  Meri suggests Directory contacts by comparing the client portfolio and objective
                   to member offices, committees, caucuses, focus areas, and staff context.
                 </span>
               </div>
@@ -2082,7 +2082,7 @@ function PortfolioCampaignWorkflow({
               ) : (
                 <>
                   <section className="outreach-suggestion-panel">
-                    <Typography.Text strong>Clio suggestions</Typography.Text>
+                    <Typography.Text strong>Meri suggestions</Typography.Text>
                     {suggestionsLoading ? (
                       <Typography.Text type="secondary">
                         Finding relevant contacts...
@@ -2161,19 +2161,19 @@ function PortfolioCampaignWorkflow({
 
           {workflow.step === 3 ? (
             <div className="outreach-flow-stack">
-              <Typography.Title level={4}>Review and edit Clio's draft</Typography.Title>
+              <Typography.Title level={4}>Review and edit Meri's draft</Typography.Title>
               <div className="outreach-context-note">
                 <RobotOutlined />
                 <span>
                   {readString(workflow.record?.metadata?.clioContextNote) ||
-                    `Clio drafts from the client portfolio, objective, and auto-personalization fields for ${workflow.recipients.length} selected recipients.`}
+                    `Meri drafts from the client portfolio, objective, and auto-personalization fields for ${workflow.recipients.length} selected recipients.`}
                 </span>
               </div>
               <label>
                 Subject line
                 <Input
                   value={workflow.subject}
-                  placeholder="Generate a subject line with Clio, then edit as needed."
+                  placeholder="Generate a subject line with Meri, then edit as needed."
                   onChange={(event) =>
                     onWorkflowChange({ ...workflow, subject: event.target.value })
                   }
@@ -2185,7 +2185,7 @@ function PortfolioCampaignWorkflow({
                   value={workflow.body}
                   placeholder={
                     aiConfigured
-                      ? 'Generate a Clio draft, then edit the email here.'
+                      ? 'Generate a Meri draft, then edit the email here.'
                       : 'AI drafting is not configured. Set an OpenAI or Anthropic key to generate drafts.'
                   }
                   chips={['{committee}', '{personal_note}', '{address}']}
@@ -2480,7 +2480,7 @@ function LegacyCampaignWorkflow({
                     <div className="outreach-context-note">
                       <RobotOutlined />
                       <span>
-                        Clio will draft using saved notes and debriefs from "
+                        Meri will draft using saved notes and debriefs from "
                         {selectedPastMeeting.subject}" alongside the campaign objective.
                       </span>
                     </div>
@@ -2593,7 +2593,7 @@ function LegacyCampaignWorkflow({
 
           {workflow.step === 3 ? (
             <DraftStep
-              heading="Review and edit Clio's draft"
+              heading="Review and edit Meri's draft"
               contextNote={`Drafting from ${selectedClient?.name ?? 'selected client'} context, objective${selectedPastMeeting ? `, past meeting "${selectedPastMeeting.subject}"` : ''}, and ${workflow.recipients.length} selected recipients.`}
               aiConfigured={aiConfigured}
               generating={generating}
@@ -2613,7 +2613,7 @@ function LegacyCampaignWorkflow({
             <div className="outreach-flow-stack">
               <Typography.Title level={4}>Add a personal note per recipient</Typography.Title>
               <Typography.Paragraph type="secondary">
-                Optional. Clio will weave your note into the position you set in the draft.
+                Optional. Meri will weave your note into the position you set in the draft.
               </Typography.Paragraph>
               <div className="outreach-notes-table">
                 <div className="outreach-notes-head">
@@ -3099,7 +3099,7 @@ function OutboundCampaignWorkflow({
               <div className="outreach-context-note outbound-generate-note">
                 <RobotOutlined />
                 <span>
-                  Clio will use the selected template, tone, recipient list, and each recipient's
+                  Meri will use the selected template, tone, recipient list, and each recipient's
                   loaded meeting context. Missing facts are omitted rather than invented.
                 </span>
                 <Button
@@ -3227,7 +3227,7 @@ function FollowUpWorkflow(
       recipientsHeading={(meeting) =>
         `${meeting.subject} - ${formatOptionalDate(meeting.startsAt)}`
       }
-      draftHeading="Review Clio's follow-up draft"
+      draftHeading="Review Meri's follow-up draft"
       readyHeading="Your draft is ready"
       noMeetingsText="No past meetings found. Meetings appear here after they have taken place."
       meetingFilter={(meeting) => new Date(meeting.endsAt).getTime() <= Date.now()}
@@ -3251,7 +3251,7 @@ function PrepDistributionWorkflow(
       loading={props.loading}
       selectHeading="Which meeting are you sharing prep for?"
       recipientsHeading={() => 'Who are you sharing prep with?'}
-      draftHeading="Review Clio's prep summary"
+      draftHeading="Review Meri's prep summary"
       readyHeading="Your draft is ready"
       noMeetingsText="No upcoming meetings have prep ready yet. Complete prep notes in the Meetings tab first."
       meetingFilter={(meeting) => new Date(meeting.startsAt).getTime() >= Date.now()}
@@ -3332,13 +3332,13 @@ function SmallGroupWorkflow({
               ? [
                   ['Select meeting', 'Past meetings'],
                   ['Recipients', 'Auto-populated from meeting'],
-                  ['Review draft', "Edit Clio's draft"],
+                  ['Review draft', "Edit Meri's draft"],
                   ['Open in email', 'Pre-filled, send from your inbox'],
                 ]
               : [
                   ['Select meeting', 'Upcoming meetings only'],
                   ['Recipients', 'Colleagues or client'],
-                  ['Review draft', "Edit Clio's prep summary"],
+                  ['Review draft', "Edit Meri's prep summary"],
                   ['Open in email', 'Pre-filled, send from your inbox'],
                 ]
           }
@@ -3408,7 +3408,7 @@ function SmallGroupWorkflow({
               <div className="outreach-context-note">
                 <RobotOutlined />
                 <span>
-                  Clio will draft from saved prep or debrief notes, client profile, participant
+                  Meri will draft from saved prep or debrief notes, client profile, participant
                   profiles, and linked meeting context available to this tenant.
                 </span>
               </div>
@@ -3590,7 +3590,7 @@ function DraftStep({
           value={body}
           placeholder={
             aiConfigured
-              ? 'Generate a Clio draft, then edit the email here.'
+              ? 'Generate a Meri draft, then edit the email here.'
               : 'AI drafting is not configured. Set an OpenAI or Anthropic key to generate drafts.'
           }
           chips={['{district}', '{committee}', '{member_priority}', '{personal_note}']}
@@ -4786,7 +4786,7 @@ function recordStats(record: OutreachRecord): string {
     const replies = readStatText(record.stats?.replyCount, '0');
     return record.status === 'sent'
       ? `${sentCount} recipients sent · ${openRate} open rate · ${replies} replies`
-      : `${record.recipientCount} recipients · Clio draft ${record.subject ? 'ready' : 'pending'}`;
+      : `${record.recipientCount} recipients · Meri draft ${record.subject ? 'ready' : 'pending'}`;
   }
   if (record.status !== 'draft') {
     return `Opened in connected email · ${formatOptionalDate(

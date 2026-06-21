@@ -26,14 +26,14 @@ import { fileURLToPath } from 'node:url';
 import {
   COMPACTION_NEEDLES,
   generateCompactionConversation,
-} from '../src/clio/evals/compaction-fixtures.js';
+} from '../src/meri/evals/compaction-fixtures.js';
 import {
   buildCompactionPrompt,
   estimateTokens,
   formatSummaryBlockForPrompt,
   planCompaction,
   sanitizeSummaryOutput,
-} from '../src/clio/clio-compaction.helpers.js';
+} from '../src/meri/meri-compaction.helpers.js';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const KEY = process.env.ANTHROPIC_API_KEY;
@@ -108,7 +108,7 @@ async function main(): Promise<void> {
   if (!summary) throw new Error('conversation never triggered compaction — fixture/trigger mismatch');
 
   const tail = conversation.slice(boundary);
-  const tailText = tail.map((m) => `${m.role === 'assistant' ? 'Clio' : 'User'}: ${m.body}`).join('\n');
+  const tailText = tail.map((m) => `${m.role === 'assistant' ? 'Meri' : 'User'}: ${m.body}`).join('\n');
   const promptTokens = estimateTokens(summary) + estimateTokens(tailText);
   const turns = conversation.length / 2;
   const callsPer15Turns = smallModelCalls / (turns / 15);
@@ -120,7 +120,7 @@ async function main(): Promise<void> {
 
   // Probe retention: ask each needle question against summary + tail only.
   const system =
-    'You are Clio, an AI chief of staff for federal lobbyists. Answer from the conversation record provided. Be direct and specific.';
+    'You are Meri, an AI chief of staff for federal lobbyists. Answer from the conversation record provided. Be direct and specific.';
   const record = `${formatSummaryBlockForPrompt(summary)}\n\nMost recent turns:\n${tailText}`;
   let passed = 0;
   const results: Array<{ id: string; pass: boolean; answer: string }> = [];

@@ -12,7 +12,7 @@
 1. [Orientation — what Capiro is and how it's organized](#1-orientation)
 2. [The left navigation, top bar, and global controls](#2-navigation--global-controls)
 3. [Dashboard (Home)](#3-dashboard-home)
-4. [Clio — the AI government‑affairs analyst](#4-clio--the-ai-analyst)
+4. [Meri — the AI government‑affairs analyst](#4-meri--the-ai-analyst)
 5. [Intelligence Center (Data Explorer) — 13 federal data sources](#5-intelligence-center)
 6. [Changes Inbox + Daily Brief — the signal layer](#6-changes-inbox--daily-brief)
 7. [Portfolio (Clients) + Client Intelligence profile](#7-portfolio--client-intelligence)
@@ -36,7 +36,7 @@ enforced by row-level security on every query). Within a tenant you work across 
   (lobbying disclosures, bills, rules, hearings, contracts, budget lines, filings, news).
 - **Engagement** — your own meetings, email threads, outreach, and client relationship work,
   pulled in from a connected Microsoft 365 account.
-- **Clio** — an AI analyst that sits on top of both, answers questions with citations, and
+- **Meri** — an AI analyst that sits on top of both, answers questions with citations, and
   drafts briefs/memos/emails.
 
 Everything is **client-scoped**: most screens let you filter to a single client in your
@@ -81,9 +81,9 @@ intelligence changes. It collapses to an icon rail.
 - **Sync Inbox** (bottom of sidebar) — manually pulls fresh mail/calendar from your connected
   Microsoft 365 account. Auto-syncs silently every 15 minutes when an inbox is connected.
 
-### The Clio drawer
+### The Meri drawer
 
-A slide-out AI chat panel (the `ChatDrawer`) is available app-wide. See [section 4](#4-clio--the-ai-analyst).
+A slide-out AI chat panel (the `ChatDrawer`) is available app-wide. See [section 4](#4-meri--the-ai-analyst).
 
 ---
 
@@ -111,8 +111,8 @@ A single-row scroller of up to **10 most urgent items**, severity-ranked
 Each card deep-links to the relevant detail (the PE watch page, the Changes Inbox, or the
 comment-deadlines tab of the Intelligence Center).
 
-### 3.3 Clio Briefing
-A full-width AI-synthesized **daily brief** card. Clio summarizes the day's client-relevant
+### 3.3 Meri Briefing
+A full-width AI-synthesized **daily brief** card. Meri summarizes the day's client-relevant
 activity in prose; the UI highlights urgency cues (deadlines in red, legislative movement in
 amber). Footer shows the synthesizing model and links to "See all changes."
 
@@ -132,14 +132,14 @@ Combines workflow due-dates and comment-period deadlines into one chronological 
 
 ---
 
-## 4. Clio — the AI analyst
+## 4. Meri — the AI analyst
 
-Clio is Capiro's embedded AI government-affairs analyst. It runs an **agentic, streaming
-tool-use loop** (Anthropic-native): you ask a question, Clio decides which internal data tools
+Meri is Capiro's embedded AI government-affairs analyst. It runs an **agentic, streaming
+tool-use loop** (Anthropic-native): you ask a question, Meri decides which internal data tools
 to call, pulls grounded data, and answers **with source attribution**. It can also produce and
 persist artifacts (briefs, memos) and — when connected — act on your inbox.
 
-### Clio's 22 tools
+### Meri's 22 tools
 
 **Context & search**
 1. **get_client_context** — load authorized client context, recent meetings, threads, contacts, tasks.
@@ -166,16 +166,16 @@ persist artifacts (briefs, memos) and — when connected — act on your inbox.
 **Create / act (artifacts & email)**
 17. **create_meeting_brief** — generate + persist a deterministic meeting brief from authorized data.
 18. **draft_policy_memo** — generate + persist a policy memo from client context.
-19. **save_note** — save a user-scoped Clio note (and optionally an encrypted meeting note).
+19. **save_note** — save a user-scoped Meri note (and optionally an encrypted meeting note).
 20. **send_email** — send via the tenant's connected Microsoft 365 account.
 21. **list_emails** — list recent inbox threads, optionally filtered by client.
 22. **reply_email** — reply to a thread via Microsoft 365.
 
-### How Clio stays trustworthy
+### How Meri stays trustworthy
 - **Grounded with citations** — answers attribute sources; conflict surfacing is the model's job.
 - **Authorization-scoped** — every tool respects tenant/client boundaries; it can only see data you're authorized for.
-- **Artifacts are persisted** — briefs and memos Clio produces are saved and appear in the artifact panel.
-- **Memory is gated** — durable facts Clio learns are stored only above a confidence bar and default to private scope; firm-wide promotion requires high confidence.
+- **Artifacts are persisted** — briefs and memos Meri produces are saved and appear in the artifact panel.
+- **Memory is gated** — durable facts Meri learns are stored only above a confidence bar and default to private scope; firm-wide promotion requires high confidence.
 - **Proactive alerts run on a schedule**, not on every message, and surface in the dashboard's intel inbox — not as chat pop-ups.
 
 ---
@@ -218,7 +218,7 @@ The **signal layer** that turns raw sync into "what changed and why you care."
   high-severity Federal Register actions, FEC events. Each carries a **severity**
   (critical / notable / info), the **change type**, related client IDs, related PE codes, and
   related issues. Items can be marked read/consumed; the unread count drives the sidebar chip.
-- **Daily Brief** (`/api/intelligence/daily-brief`) — Clio's prose synthesis of the day's
+- **Daily Brief** (`/api/intelligence/daily-brief`) — Meri's prose synthesis of the day's
   client-relevant activity, shown on the dashboard.
 - **Coming Up** — upcoming hearings/markups (next 7 days) feeding the Needs Attention banner.
 - **Comment Alerts** — open federal comment periods with days-to-deadline and client relevance scores.
@@ -264,7 +264,7 @@ The deep per-client intelligence dossier, organized into scroll-spy **sections**
 
 Each section degrades independently — a failure in one query shows an error in that panel only,
 not a blank page. The profile also exposes an **engagement health trend** (weekly score based on
-completed engagement tasks) and a Clio-generated **report card / client briefing**.
+completed engagement tasks) and a Meri-generated **report card / client briefing**.
 
 ---
 
@@ -433,7 +433,7 @@ Data-quality discipline is built in: a **quarantine** stage for low-confidence r
 | **New signals overnight** | Dashboard greeting | Count of tracked changes detected in the last 24h. |
 | **Critical actions today** | Dashboard greeting | Count of critical-severity changes. |
 | **Needs Attention** | Dashboard | Top 10 of {comment deadlines, hearings/markups ≤7 days, mapped high-sev changes}, severity- then urgency-ranked. |
-| **Daily Brief** | Dashboard | Clio prose synthesis of the day's client-relevant activity. |
+| **Daily Brief** | Dashboard | Meri prose synthesis of the day's client-relevant activity. |
 | **Comment-period alerts** | Dashboard / Intel Center | Open federal comment windows with days-to-deadline and a per-client relevance score. |
 | **Trajectory** | Client Snapshot | Logistic classifier on spend growth → exploding/growing/stable/declining/contracting. |
 | **ROI (lobby vs. wins)** | Client Financial Footprint | All-time lobby spend vs. all-time contract wins, plus the gap/ratio. |
@@ -445,7 +445,7 @@ Data-quality discipline is built in: a **quarantine** stage for low-confidence r
 | **Mark-up Divergence** | Program Elements | Spread between President's Request and HASC/SASC/HAC-D/SAC-D marks. |
 | **FY funding curve** | Program Element Watch | Multi-year request/appropriation series per PE with source-cited values. |
 | **Meeting association score** | Engagement | Confidence that a synced meeting belongs to a given client (+ reason, overridable). |
-| **Report card / client briefing** | Client profile / Clio | Clio-generated narrative assessment from the client's full data. |
+| **Report card / client briefing** | Client profile / Meri | Meri-generated narrative assessment from the client's full data. |
 | **Issue leaderboard** | Intelligence | Ranked competitor/registrant activity on a given lobbying issue code. |
 
 ---
@@ -471,6 +471,6 @@ Actively-evolving data work (built, expanding coverage):
 
 ---
 
-*Generated from a full read of the Capiro codebase (API modules, web routes/pages, Clio tool
+*Generated from a full read of the Capiro codebase (API modules, web routes/pages, Meri tool
 manifest, and the Prisma schema). For the technical/engineering playbook, see the
 `capiro-platform-engineering` skill and `infra/cdk/README.md`.*

@@ -27,7 +27,7 @@ export function CampaignSetup({ clients, clientId, campaignName, onChange }: Cam
     <div className="outreach-flow-stack outreach-campaign-select-client">
       <Typography.Title level={4}>Set up your campaign</Typography.Title>
       <Typography.Paragraph type="secondary">
-        Select the client this campaign is for and give it a name. Clio will use client context to
+        Select the client this campaign is for and give it a name. Meri will use client context to
         personalize each email.
       </Typography.Paragraph>
 

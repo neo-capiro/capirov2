@@ -2,7 +2,7 @@
  * D-006 BillKanbanControls
  * Controlled filter/sort toolbar for the Bill pipeline kanban.
  *
- * - Filter options: All | High fit (clioTag present) | High prob (≥70 %)
+ * - Filter options: All | High fit (meriTag present) | High prob (≥70 %)
  * - Sort options:   Passage probability (desc, nulls last) | Bill number (alpha asc)
  * - State is lifted to the parent; this component is purely presentational.
  * - No external dependencies beyond React (already in the project).

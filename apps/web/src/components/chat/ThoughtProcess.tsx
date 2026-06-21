@@ -191,7 +191,7 @@ export function ThoughtProcess({
             )}
           </ol>
           <p className="chat-tp-footnote">
-            Clio grounds answers in Capiro data and the sources above. Verify specifics before high-stakes use.
+            Meri grounds answers in Capiro data and the sources above. Verify specifics before high-stakes use.
           </p>
         </div>
       )}

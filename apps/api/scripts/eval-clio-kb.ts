@@ -30,7 +30,7 @@ import {
   buildKbEvalCorpus,
   buildKbEvalSnapshot,
   type KbCorpusRow,
-} from '../src/clio/evals/kb-fixtures.js';
+} from '../src/meri/evals/kb-fixtures.js';
 import { embedText, normalize } from '../src/embeddings/embedder.js';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
@@ -87,7 +87,7 @@ function keywordScore(query: string, text: string): number {
 }
 
 const SYSTEM_PROMPT = [
-  'You are Clio, an AI chief of staff for U.S. federal lobbyists, answering from the client knowledge base.',
+  'You are Meri, an AI chief of staff for U.S. federal lobbyists, answering from the client knowledge base.',
   'Use ONLY the knowledge-base snapshot and the numbered search_client_knowledge results provided.',
   'Cite every factual claim inline with [n] matching the result number.',
   'Quote names, identifiers, codes, congressional districts, dollar figures, and dates exactly as they appear in the sources.',
@@ -122,7 +122,7 @@ async function main(): Promise<void> {
   const corpus = buildKbEvalCorpus();
   const snapshot = buildKbEvalSnapshot();
   console.log(
-    `Clio KB eval: ${KB_EVAL_QUESTIONS.length} questions over a ${corpus.length}-row corpus ` +
+    `Meri KB eval: ${KB_EVAL_QUESTIONS.length} questions over a ${corpus.length}-row corpus ` +
       `(model=${MODEL}, top-${TOP_K})...\n`,
   );
 
@@ -229,7 +229,7 @@ async function main(): Promise<void> {
     ),
   );
 
-  console.log('\n=== Clio KB eval summary ===');
+  console.log('\n=== Meri KB eval summary ===');
   console.log(`scoring: ${scoring}`);
   console.log(
     `pass ${passed}/${results.length} (${(passRate * 100).toFixed(1)}%)   ` +

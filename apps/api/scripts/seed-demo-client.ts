@@ -11,7 +11,7 @@
  *   - Strategies: one FY27 strategy with member/staffer targets
  *   - Workflows: one NDAA-track instance
  *   - Intelligence: confirmed LDA mapping (real filings), tracked bills (real
- *     bills resolved at run time), client brief, Clio notes/alert, action
+ *     bills resolved at run time), client brief, Meri notes/alert, action
  *     recommendations
  *   - Program Element watch: seeds the 0603270A fixture (record + FY2023-27
  *     marks + milestones, source='fixture' so real J-book data always wins),
@@ -1020,7 +1020,7 @@ async function seedClient(tx: Prisma.TransactionClient, refs: SeedRefs): Promise
     },
   });
 
-  // ── Clio + action recommendations ────────────────────────────────────────
+  // ── Meri + action recommendations ────────────────────────────────────────
   await tx.clioNote.createMany({
     data: [
       { tenantId, userId, clientId, title: 'Strong office dynamics', body: 'LD (Doyle) is the real gatekeeper — member defers on defense tech asks. Lead with jobs numbers, then capability. Avoid acronym soup; CFT gap language resonated last cycle.', source: 'clio' },

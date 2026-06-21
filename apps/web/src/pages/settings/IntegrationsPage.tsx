@@ -266,7 +266,7 @@ export function IntegrationsPage() {
         })}
       </div>
 
-      {/* Clio MCP servers (F6a) — admin-gated; the card hides itself for
+      {/* Meri MCP servers (F6a) — admin-gated; the card hides itself for
           non-admins (the API enforces user_admin on every endpoint). */}
       <McpServersCard />
 

@@ -18,7 +18,7 @@ export function StepDirection({ direction, onChange }: Props) {
     <div>
       <h2>Who are you writing to?</h2>
       <div className="ov2-pane-sub">
-        Choose the direction of this campaign. Clio adapts the voice, signature, and intelligence pulled into the draft.
+        Choose the direction of this campaign. Meri adapts the voice, signature, and intelligence pulled into the draft.
       </div>
 
       <div className="ov2-dir-pick">

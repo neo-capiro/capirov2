@@ -1,5 +1,5 @@
 // Plain-text extraction for .pptx decks (client-profile documents used as
-// outreach/AI context, and read by Clio's read_client_documents tool).
+// outreach/AI context, and read by Meri's read_client_documents tool).
 //
 // A .pptx is an OOXML zip: each slide is ppt/slides/slideN.xml, and the visible
 // text lives in <a:t> runs inside the DrawingML tree. We unzip with jszip
