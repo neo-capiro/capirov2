@@ -1,5 +1,5 @@
 /**
- * Per-tenant Clio feature flags (assistant-parity cross-cutting convention).
+ * Per-tenant Meri feature flags (assistant-parity cross-cutting convention).
  *
  * Flags live under tenants.settings_jsonb.clioFeatureFlags, e.g.
  *   { "clioFeatureFlags": { "runAnalysis": true } }

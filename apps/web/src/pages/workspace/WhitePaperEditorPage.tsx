@@ -428,7 +428,7 @@ export function WhitePaperEditorPage() {
   const [activeSectionId, setActiveSectionId] = useState('sec-1');
   const [saveState, setSaveState] = useState<SaveState>('saved');
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-  const [showClio, setShowClio] = useState(true);
+  const [showMeri, setShowMeri] = useState(true);
   const [contextItems, setContextItems] = useState<WhitePaperContextItem[]>([]);
   const [generatingSectionId, setGeneratingSectionId] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -477,7 +477,7 @@ export function WhitePaperEditorPage() {
     );
     setContextItems(parseContextItems(formData.whitepaper_context_items));
     setLastSavedAt(instance.updatedAt ?? null);
-    setShowClio(
+    setShowMeri(
       typeof formData.whitepaper_show_clio === 'boolean' ? formData.whitepaper_show_clio : true,
     );
     setSaveState('saved');
@@ -486,7 +486,7 @@ export function WhitePaperEditorPage() {
     if (!storedSections.length && !hasContent) setShowStartGuide(true);
   }, [instanceQuery.data]);
 
-  // Register/clear the active white paper so the global Clio drawer can target it.
+  // Register/clear the active white paper so the global Meri drawer can target it.
   useEffect(() => {
     const instance = instanceQuery.data;
     if (!instance) return;
@@ -507,7 +507,7 @@ export function WhitePaperEditorPage() {
       tone: ToneValue;
       variantSlug: string;
       contextItems: WhitePaperContextItem[];
-      showClio: boolean;
+      showMeri: boolean;
     }) => {
       const instance = instanceQuery.data;
       if (!instance) throw new Error('Workflow instance unavailable');
@@ -520,7 +520,7 @@ export function WhitePaperEditorPage() {
         whitepaper_tone: payload.tone,
         whitepaper_variant: payload.variantSlug,
         whitepaper_context_items: payload.contextItems,
-        whitepaper_show_clio: payload.showClio,
+        whitepaper_show_clio: payload.showMeri,
       };
       return (
         await api.patch<WorkflowInstance>(`/api/workflows/instances/${instance.id}`, {
@@ -558,11 +558,11 @@ export function WhitePaperEditorPage() {
         tone,
         variantSlug,
         contextItems: override?.contextItems ?? contextItems,
-        showClio,
+        showMeri,
       });
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [instanceQuery.data, title, steerNote, tone, variantSlug, contextItems, showClio],
+    [instanceQuery.data, title, steerNote, tone, variantSlug, contextItems, showMeri],
   );
 
   // Debounced autosave
@@ -575,7 +575,7 @@ export function WhitePaperEditorPage() {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, saveState, title, sections, steerNote, tone, variantSlug, contextItems, showClio]);
+  }, [hydrated, saveState, title, sections, steerNote, tone, variantSlug, contextItems, showMeri]);
 
   // Force-save before unload / navigation if dirty (kills the stale-state bug).
   useEffect(() => {
@@ -744,7 +744,7 @@ export function WhitePaperEditorPage() {
     }
     const empty = sections.filter((s) => s.body.trim().length === 0).length;
     if (empty > 0)
-      list.push(`${empty} section${empty === 1 ? '' : 's'} still blank — draft each with Clio.`);
+      list.push(`${empty} section${empty === 1 ? '' : 's'} still blank — draft each with Meri.`);
     return list.slice(0, 4);
   }, [sections, contextItems.length, steerNote, totalWords, wordBudget]);
 
@@ -1062,11 +1062,11 @@ export function WhitePaperEditorPage() {
           <Button
             size="small"
             onClick={() => {
-              setShowClio((prev) => !prev);
+              setShowMeri((prev) => !prev);
               markDirty();
             }}
           >
-            {showClio ? 'Hide Clio' : 'Show Clio'}
+            {showMeri ? 'Hide Meri' : 'Show Meri'}
           </Button>
           <Button
             size="small"
@@ -1125,7 +1125,7 @@ export function WhitePaperEditorPage() {
 
       <div
         className="wp-body"
-        style={!showClio ? { gridTemplateColumns: '240px minmax(0, 1fr)' } : undefined}
+        style={!showMeri ? { gridTemplateColumns: '240px minmax(0, 1fr)' } : undefined}
       >
         <aside className="wp-sidebar">
           <h4>Outline</h4>
@@ -1251,7 +1251,7 @@ export function WhitePaperEditorPage() {
                 <div className="wp-section-actions">
                   <button
                     type="button"
-                    className="wp-section-action clio"
+                    className="wp-section-action meri"
                     onClick={() =>
                       sectionMutation.mutate({
                         sectionId: section.id,
@@ -1261,7 +1261,7 @@ export function WhitePaperEditorPage() {
                     }
                     disabled={generatingSectionId === section.id}
                   >
-                    {generatingSectionId === section.id ? 'Drafting…' : 'Draft with Clio'}
+                    {generatingSectionId === section.id ? 'Drafting…' : 'Draft with Meri'}
                   </button>
                   <button
                     type="button"
@@ -1288,7 +1288,7 @@ export function WhitePaperEditorPage() {
                       ],
                       onClick: ({ key }) => {
                         if (key === 'custom') {
-                          const directive = window.prompt('How should Clio improve this section?');
+                          const directive = window.prompt('How should Meri improve this section?');
                           if (directive && directive.trim()) {
                             sectionMutation.mutate({
                               sectionId: section.id,
@@ -1340,17 +1340,17 @@ export function WhitePaperEditorPage() {
           </div>
         </div>
 
-        {showClio && (
-          <aside className="wp-clio">
-            <div className="wp-clio-head">
+        {showMeri && (
+          <aside className="wp-meri">
+            <div className="wp-meri-head">
               <BulbOutlined />
               <div>
-                <div className="title">Draft with Clio</div>
+                <div className="title">Draft with Meri</div>
                 <div className="sub">Pick a format, add context, steer voice, generate.</div>
               </div>
             </div>
 
-            <div className="wp-clio-section">
+            <div className="wp-meri-section">
               <h5>Format</h5>
               <select
                 className="sw-select"
@@ -1369,10 +1369,10 @@ export function WhitePaperEditorPage() {
                   </option>
                 ))}
               </select>
-              {activeVariant && <div className="wp-clio-hint">{activeVariant.description}</div>}
+              {activeVariant && <div className="wp-meri-hint">{activeVariant.description}</div>}
             </div>
 
-            <div className="wp-clio-section wp-ctx">
+            <div className="wp-meri-section wp-ctx">
               <div className="wp-ctx-head">
                 <h5>Context ({contextItems.length})</h5>
                 <button
@@ -1431,10 +1431,10 @@ export function WhitePaperEditorPage() {
 
               <div className="wp-ctx-groups">
                 {candidatesQuery.isLoading && (
-                  <div className="wp-clio-hint">Loading client context…</div>
+                  <div className="wp-meri-hint">Loading client context…</div>
                 )}
                 {candidatesQuery.isError && (
-                  <div className="wp-clio-hint wp-ctx-error">
+                  <div className="wp-meri-hint wp-ctx-error">
                     Couldn’t load context.{' '}
                     <button type="button" onClick={() => candidatesQuery.refetch()}>
                       Retry
@@ -1444,7 +1444,7 @@ export function WhitePaperEditorPage() {
                 {!candidatesQuery.isLoading &&
                   !candidatesQuery.isError &&
                   groupedCandidates.length === 0 && (
-                    <div className="wp-clio-hint">
+                    <div className="wp-meri-hint">
                       {ctxSearch
                         ? 'No matching context.'
                         : 'No client context found yet. Upload a document or add a note below.'}
@@ -1512,10 +1512,10 @@ export function WhitePaperEditorPage() {
               </div>
             </div>
 
-            <div className="wp-clio-section">
+            <div className="wp-meri-section">
               <h5>Steer the voice</h5>
               <Input.TextArea
-                className="wp-clio-note"
+                className="wp-meri-note"
                 autoSize={{ minRows: 3 }}
                 value={steerNote}
                 onChange={(event) => {
@@ -1526,7 +1526,7 @@ export function WhitePaperEditorPage() {
               />
             </div>
 
-            <div className="wp-clio-section">
+            <div className="wp-meri-section">
               <h5>Tone</h5>
               <select
                 className="sw-select"
@@ -1544,7 +1544,7 @@ export function WhitePaperEditorPage() {
               </select>
             </div>
 
-            <div className="wp-clio-section">
+            <div className="wp-meri-section">
               <h5>Recommendations</h5>
               <ul className="wp-reco-list">
                 {recommendations.map((item) => (
@@ -1553,7 +1553,7 @@ export function WhitePaperEditorPage() {
               </ul>
             </div>
 
-            <div className="wp-clio-cta">
+            <div className="wp-meri-cta">
               <Button
                 type="primary"
                 block
@@ -1565,7 +1565,7 @@ export function WhitePaperEditorPage() {
             </div>
 
             <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-              Clio drafts from your selected context and steer note. It will not invent facts.
+              Meri drafts from your selected context and steer note. It will not invent facts.
               Review before filing.
             </Typography.Text>
           </aside>
@@ -1580,7 +1580,7 @@ export function WhitePaperEditorPage() {
         title="Start your white paper"
       >
         <Typography.Paragraph type="secondary">
-          Pick a format. Clio will scaffold the right sections and tone, then you can add context
+          Pick a format. Meri will scaffold the right sections and tone, then you can add context
           and draft.
         </Typography.Paragraph>
         <div className="wp-variant-grid">

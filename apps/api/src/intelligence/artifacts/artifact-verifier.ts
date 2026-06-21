@@ -1,6 +1,6 @@
 /**
  * Step 3.3 — artifact grounding verifier (plan §18). PURE: no DB, no LLM, no
- * NestJS. Mirrors the spirit of `clio-verifier.helpers` (parse claims, summarize
+ * NestJS. Mirrors the spirit of `meri-verifier.helpers` (parse claims, summarize
  * unsupported) but for the closed-fact-sheet model used here.
  *
  * The LLM is instructed to produce prose that ONLY restates claims by id. This gate

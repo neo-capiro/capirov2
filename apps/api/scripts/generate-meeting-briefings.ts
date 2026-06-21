@@ -19,7 +19,7 @@ import {
   formatBriefingDigest,
   selectMeetingBriefings,
   type UpcomingMeeting,
-} from '../src/clio/clio-briefing-schedule.helpers.js';
+} from '../src/meri/meri-briefing-schedule.helpers.js';
 dotenvConfig();
 
 const prisma = new PrismaClient();

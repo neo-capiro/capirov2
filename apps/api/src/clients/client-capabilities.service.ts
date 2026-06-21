@@ -84,7 +84,7 @@ function normalizeCapabilityIssueCodes(raw: unknown): string[] {
 export class ClientCapabilitiesService {
   constructor(
     private readonly prisma: PrismaService,
-    // Embeddings are written asynchronously after create/update so Clio
+    // Embeddings are written asynchronously after create/update so Meri
     // RAG sees the new capability without a wait for the next backfill.
     // Fire-and-forget, embed failures must never bubble up to the user.
     private readonly embeddings: EmbeddingsService,
@@ -139,7 +139,7 @@ export class ClientCapabilitiesService {
         },
       });
     });
-    // Embed asynchronously, the capability is searchable via Clio within
+    // Embed asynchronously, the capability is searchable via Meri within
     // a second or two of the create response landing.
     this.embeddings.embedCapabilityFireAndForget(created.id);
     return created;
@@ -222,7 +222,7 @@ export class ClientCapabilitiesService {
     });
   }
 
-  /** All submission history rows for a client across capabilities (read-only, for Clio context). */
+  /** All submission history rows for a client across capabilities (read-only, for Meri context). */
   async listClientHistory(ctx: TenantContext, clientId: string) {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       await this.assertClient(ctx.tenantId, clientId, tx as any);

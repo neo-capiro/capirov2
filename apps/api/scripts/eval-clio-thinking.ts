@@ -20,8 +20,8 @@ import 'dotenv/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { THINKING_EVAL_PROMPTS } from '../src/clio/evals/thinking-fixtures.js';
-import { thinkingRequestParams } from '../src/clio/clio-thinking.helpers.js';
+import { THINKING_EVAL_PROMPTS } from '../src/meri/evals/thinking-fixtures.js';
+import { thinkingRequestParams } from '../src/meri/meri-thinking.helpers.js';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const KEY = process.env.ANTHROPIC_API_KEY;
@@ -33,7 +33,7 @@ const BUDGET = Number(process.env.CLIO_THINKING_BUDGET_TOKENS ?? '8000');
 const MODE = (process.env.CLIO_THINKING_MODE ?? 'adaptive') as 'adaptive' | 'budget';
 
 const SYSTEM =
-  'You are Clio, an elite AI chief of staff for government affairs professionals. ' +
+  'You are Meri, an elite AI chief of staff for government affairs professionals. ' +
   'Structure outputs for rapid scanning before high-stakes meetings. Be specific and actionable.';
 
 interface ArmResult {

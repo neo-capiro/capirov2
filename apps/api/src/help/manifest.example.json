@@ -26,12 +26,12 @@
     },
     {
       "id": "clio",
-      "title": "Clio (AI assistant)",
+      "title": "Meri (AI assistant)",
       "description": "Get the most out of your AI chief of staff.",
       "items": [
         {
           "id": "clio-basics",
-          "title": "Asking Clio great questions",
+          "title": "Asking Meri great questions",
           "description": "How to phrase requests, read citations, and run deep research.",
           "type": "video",
           "s3Key": "help/videos/clio-basics.mp4",
@@ -40,8 +40,8 @@
         },
         {
           "id": "clio-user-guide",
-          "title": "Clio user guide",
-          "description": "The complete reference for Clio's features and capabilities.",
+          "title": "Meri user guide",
+          "description": "The complete reference for Meri's features and capabilities.",
           "type": "guide",
           "s3Key": "help/guides/clio-user-guide.pdf",
           "durationLabel": "8 pages"

@@ -77,7 +77,7 @@ const FLOW = [
   { n: 1, h: 'Strategy',     p: 'Pick the client, the capability, and the fiscal year. Capiro creates the container.' },
   { n: 2, h: 'Submissions',  p: 'Choose the tracks: NDAA? HAC-D? White paper? Capiro suggests by capability.' },
   { n: 3, h: 'Targets',      p: 'Pick the member offices, committees, and staffers each submission goes to.' },
-  { n: 4, h: 'Draft',        p: "Clio drafts the long-form pieces (white papers, one-pagers) from your context. You edit." },
+  { n: 4, h: 'Draft',        p: "Meri drafts the long-form pieces (white papers, one-pagers) from your context. You edit." },
   { n: 5, h: 'Send & track', p: 'Submissions go out via Outreach; the strategy page tracks status until everything is filed.' },
 ];
 
@@ -180,7 +180,7 @@ export function WorkspaceOverview() {
           <h2 className="wso-hero-title">Where every <em>strategy</em> becomes a written ask.</h2>
           <p className="wso-hero-sub">
             The Workspace is where you turn a client's program into the documents that travel up the Hill.
-            One spot for templates, active workflows, and full fiscal-year strategies, with Clio drafting
+            One spot for templates, active workflows, and full fiscal-year strategies, with Meri drafting
             the long-form pieces (white papers, talking points, one-pagers) you'd normally spend a week on.
           </p>
           <div className="wso-hero-cta">
@@ -277,7 +277,7 @@ function WorkspaceHeroVis() {
           <stop offset="0%" stopColor="#2A57CE" stopOpacity="0.3" />
           <stop offset="100%" stopColor="#2A57CE" stopOpacity="0" />
         </radialGradient>
-        <linearGradient id="ws-clio" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id="ws-meri" x1="0" y1="0" x2="1" y2="1">
           <stop offset="0%" stopColor="#4E78D8" />
           <stop offset="100%" stopColor="#1A3F9F" />
         </linearGradient>
@@ -317,9 +317,9 @@ function WorkspaceHeroVis() {
         <rect x="-12" y="6" width="56" height="14" rx="3" fill="#2E6B43" />
         <text x="-8" y="16" fontFamily="JetBrains Mono, monospace" fontSize="8" fontWeight="700" fill="#fff">WP</text>
       </g>
-      {/* Clio core */}
+      {/* Meri core */}
       <g transform="translate(330, 230)">
-        <circle r="32" fill="url(#ws-clio)" />
+        <circle r="32" fill="url(#ws-meri)" />
         <g stroke="#fff" strokeWidth="2" strokeLinecap="round" fill="none">
           <path d="M0 -12 L0 -6" /><path d="M0 6 L0 12" />
           <path d="M-12 0 L-6 0" /><path d="M6 0 L12 0" />

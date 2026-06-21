@@ -1,8 +1,8 @@
 /**
  * DI-graph boot smoke test. Compiling AppModule instantiates every provider in
  * the full module graph, so a circular module import or a provider whose module
- * forgot to export it (e.g. the Clio tool-coverage expansion pulling
- * Workflows/Strategies/Intelligence/Clients/RegulatoryDocket into ClioModule)
+ * forgot to export it (e.g. the Meri tool-coverage expansion pulling
+ * Workflows/Strategies/Intelligence/Clients/RegulatoryDocket into MeriModule)
  * fails HERE instead of at deploy. compile() does not run onModuleInit, so no
  * database/network is touched.
  */
@@ -21,8 +21,8 @@ describe('AppModule DI graph', () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     expect(moduleRef).toBeDefined();
 
-    const { ClioToolsService } = await import('./clio/clio-tools.service.js');
-    expect(moduleRef.get(ClioToolsService, { strict: false })).toBeDefined();
+    const { MeriToolsService } = await import('./meri/meri-tools.service.js');
+    expect(moduleRef.get(MeriToolsService, { strict: false })).toBeDefined();
 
     await moduleRef.close();
   }, 120_000);

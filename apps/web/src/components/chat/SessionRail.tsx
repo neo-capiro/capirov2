@@ -13,7 +13,7 @@ import { config } from '../../env.js';
 import { useApi } from '../../lib/use-api.js';
 import { useImpersonation } from '../../state/impersonation.js';
 import {
-  ClioConversation,
+  MeriConversation,
   setConversations,
   setActiveConversation,
   setChatSession,
@@ -40,7 +40,7 @@ function relativeTime(dateStr: string): string {
 interface ClientGroup {
   clientId: string | null;
   clientName: string;
-  conversations: ClioConversation[];
+  conversations: MeriConversation[];
 }
 
 /** One row from GET /api/clio/conversations/search (assistant-parity F2). */
@@ -79,7 +79,7 @@ export function SessionRail() {
 
   const searchActive = searchQuery.length >= SEARCH_MIN_CHARS;
   const search = useQuery<HistorySearchResult[]>({
-    queryKey: ['clio-conversation-search', searchQuery],
+    queryKey: ['meri-conversation-search', searchQuery],
     queryFn: async () =>
       (
         await api.get<HistorySearchResult[]>('/api/clio/conversations/search', {
@@ -228,12 +228,12 @@ export function SessionRail() {
   const searchResults = search.data ?? [];
 
   return (
-    <div className="clio-session-rail">
-      <div className="clio-rail-search">
+    <div className="meri-session-rail">
+      <div className="meri-rail-search">
         <Input
           size="small"
           allowClear
-          prefix={<SearchOutlined className="clio-rail-search-icon" />}
+          prefix={<SearchOutlined className="meri-rail-search-icon" />}
           placeholder="Search conversations..."
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
@@ -241,87 +241,87 @@ export function SessionRail() {
         />
       </div>
       {searchActive ? (
-        <div className="clio-rail-search-results" aria-label="Search results">
-          {search.isLoading && <div className="clio-rail-loading">Searching...</div>}
+        <div className="meri-rail-search-results" aria-label="Search results">
+          {search.isLoading && <div className="meri-rail-loading">Searching...</div>}
           {!search.isLoading && searchResults.length === 0 && (
-            <div className="clio-rail-empty">No conversations match.</div>
+            <div className="meri-rail-empty">No conversations match.</div>
           )}
           {searchResults.map((hit) => (
             <button
               key={hit.conversationId}
               type="button"
-              className={`clio-rail-search-result${
+              className={`meri-rail-search-result${
                 hit.conversationId === activeConversationId
-                  ? ' clio-rail-search-result--active'
+                  ? ' meri-rail-search-result--active'
                   : ''
               }`}
               onClick={() => void loadConversation(hit.conversationId)}
             >
-              <MessageOutlined className="clio-rail-item-icon" />
-              <span className="clio-rail-search-result-content">
-                <span className="clio-rail-search-result-title">{hit.title}</span>
+              <MessageOutlined className="meri-rail-item-icon" />
+              <span className="meri-rail-search-result-content">
+                <span className="meri-rail-search-result-title">{hit.title}</span>
                 {hit.snippet ? (
-                  <span className="clio-rail-search-result-snippet">{hit.snippet}</span>
+                  <span className="meri-rail-search-result-snippet">{hit.snippet}</span>
                 ) : null}
               </span>
-              <span className="clio-rail-item-time">{relativeTime(hit.createdAt)}</span>
+              <span className="meri-rail-item-time">{relativeTime(hit.createdAt)}</span>
             </button>
           ))}
         </div>
       ) : null}
       {!searchActive && loading && (
-        <div className="clio-rail-loading">Loading conversations...</div>
+        <div className="meri-rail-loading">Loading conversations...</div>
       )}
       {!searchActive && !loading && groups.length === 0 && (
-        <div className="clio-rail-empty">No conversations yet. Start chatting!</div>
+        <div className="meri-rail-empty">No conversations yet. Start chatting!</div>
       )}
       {!searchActive &&
         groups.map((group) => {
           const key = group.clientId || '__general__';
           const isExpanded = expandedClients.has(key);
           return (
-            <div key={key} className="clio-rail-group">
+            <div key={key} className="meri-rail-group">
               <button
                 type="button"
-                className="clio-rail-group-header"
+                className="meri-rail-group-header"
                 onClick={() => toggleClient(key)}
               >
-                <span className="clio-rail-group-icon">
+                <span className="meri-rail-group-icon">
                   {isExpanded ? <DownOutlined /> : <RightOutlined />}
                 </span>
                 <UserOutlined style={{ marginRight: 6, opacity: 0.5 }} />
-                <span className="clio-rail-group-name">{group.clientName}</span>
-                <span className="clio-rail-group-count">{group.conversations.length}</span>
+                <span className="meri-rail-group-name">{group.clientName}</span>
+                <span className="meri-rail-group-count">{group.conversations.length}</span>
               </button>
               {isExpanded && (
-                <div className="clio-rail-group-items">
+                <div className="meri-rail-group-items">
                   {group.conversations.map((conv) => (
                     <div
                       key={conv.id}
-                      className={`clio-rail-item${conv.id === activeConversationId ? ' clio-rail-item--active' : ''}`}
+                      className={`meri-rail-item${conv.id === activeConversationId ? ' meri-rail-item--active' : ''}`}
                     >
                       <button
                         type="button"
-                        className="clio-rail-item-main"
+                        className="meri-rail-item-main"
                         onClick={() => void loadConversation(conv.id)}
                       >
-                        <MessageOutlined className="clio-rail-item-icon" />
-                        <div className="clio-rail-item-content">
-                          <div className="clio-rail-item-title">{conv.title}</div>
+                        <MessageOutlined className="meri-rail-item-icon" />
+                        <div className="meri-rail-item-content">
+                          <div className="meri-rail-item-title">{conv.title}</div>
                           {conv.latestMessage && (
-                            <div className="clio-rail-item-snippet">
+                            <div className="meri-rail-item-snippet">
                               {conv.latestMessage.body.slice(0, 60)}
                               {conv.latestMessage.body.length > 60 ? '...' : ''}
                             </div>
                           )}
                         </div>
-                        <span className="clio-rail-item-time">
+                        <span className="meri-rail-item-time">
                           {relativeTime(conv.updatedAt)}
                         </span>
                       </button>
                       <button
                         type="button"
-                        className="clio-rail-item-archive"
+                        className="meri-rail-item-archive"
                         title="Archive conversation"
                         aria-label={`Archive ${conv.title}`}
                         onClick={(event) => {

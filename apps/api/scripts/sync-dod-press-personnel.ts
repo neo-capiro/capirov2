@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { FirecrawlClient } from '../src/clio/sources/firecrawl.client.js';
+import { FirecrawlClient } from '../src/meri/sources/firecrawl.client.js';
 
 dotenvConfig();
 

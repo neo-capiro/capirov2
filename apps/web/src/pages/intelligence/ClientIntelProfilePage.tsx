@@ -107,21 +107,21 @@ function minutesAgoLabel(isoDate: string | null | undefined): string {
   return `Synced ${days} day${days === 1 ? '' : 's'} ago`;
 }
 
-function clioSignalText(score: number | null | undefined): string {
+function meriSignalText(score: number | null | undefined): string {
   if (score == null) return 'Engagement signal unavailable, complete intake and sync activity data.';
   if (score < 30) return 'Engagement is critically low, prioritize immediate outreach and meeting cadence recovery.';
   if (score < 70) return 'Engagement is at risk, increase meeting frequency and close-loop debriefs this cycle.';
   return 'Engagement is healthy, maintain momentum and push policy priorities into execution.';
 }
 
-function clioSignalTone(score: number | null | undefined): 'error' | 'warning' | 'success' {
+function meriSignalTone(score: number | null | undefined): 'error' | 'warning' | 'success' {
   if (score == null) return 'warning';
   if (score < 30) return 'error';
   if (score < 70) return 'warning';
   return 'success';
 }
 
-function clioToneColor(score: number | null | undefined): string {
+function meriToneColor(score: number | null | undefined): string {
   if (score == null) return '#faad14';
   if (score < 30) return '#ff4d4f';
   if (score < 70) return '#faad14';
@@ -129,7 +129,7 @@ function clioToneColor(score: number | null | undefined): string {
 }
 
 
-function clioAvatar(size = 20) {
+function meriAvatar(size = 20) {
   return (
     <span
       style={{
@@ -143,14 +143,14 @@ function clioAvatar(size = 20) {
         color: '#fff',
         boxShadow: '0 0 0 2px rgba(42, 87, 206, 0.12)',
       }}
-      aria-label="Clio"
+      aria-label="Meri"
     >
       <BulbOutlined style={{ fontSize: Math.max(10, Math.round(size * 0.45)) }} />
     </span>
   );
 }
 
-function clioBadge(label = 'Clio') {
+function meriBadge(label = 'Meri') {
   return (
     <span
       style={{
@@ -166,7 +166,7 @@ function clioBadge(label = 'Clio') {
         padding: '2px 8px',
       }}
     >
-      {clioAvatar(16)}
+      {meriAvatar(16)}
       {label}
     </span>
   );
@@ -508,18 +508,18 @@ export function ClientIntelOverview({ clientId, clientName }: ClientIntelOvervie
             )}
           </div>
 
-          {/* Clio signal */}
+          {/* Meri signal */}
           <Alert
             style={{ marginBottom: 16 }}
-            type={clioSignalTone(healthScore?.score)}
+            type={meriSignalTone(healthScore?.score)}
             showIcon
             message={
               <Space align="center" size={8}>
-                {clioAvatar(24)}
-                <Text strong style={{ fontSize: 13 }}>Clio Signal</Text>
+                {meriAvatar(24)}
+                <Text strong style={{ fontSize: 13 }}>Meri Signal</Text>
               </Space>
             }
-            description={clioSignalText(healthScore?.score)}
+            description={meriSignalText(healthScore?.score)}
             action={
               <Button size="small" type="link">
                 Review forward-look →
@@ -2102,7 +2102,7 @@ export function ReportCardView({ data }: { data: Record<string, unknown> }) {
   const forwardParagraphs = reportForwardLookParagraphs(rc.aiForwardLook);
   const forwardHeadline = reportForwardLookHeadline(forwardParagraphs);
   const healthNow = rc.healthTrend.length ? rc.healthTrend[rc.healthTrend.length - 1]?.score ?? 0 : null;
-  const clioColor = clioToneColor(healthNow);
+  const meriColor = meriToneColor(healthNow);
   const pocFirst = firstName(rc.client.primaryPocName);
 
   return (
@@ -2113,7 +2113,7 @@ export function ReportCardView({ data }: { data: Record<string, unknown> }) {
           {new Date(rc.period.start).toLocaleDateString()} – {new Date(rc.period.end).toLocaleDateString()}
         </Text>
         <span style={{ color: 'var(--ink-4)' }}>·</span>
-        {clioBadge('Clio')}
+        {meriBadge('Meri')}
       </div>
 
       <Space wrap>
@@ -2172,7 +2172,7 @@ export function ReportCardView({ data }: { data: Record<string, unknown> }) {
           title="Engagement Health Trend"
           extra={
             healthNow !== null ? (
-              <Text strong style={{ fontSize: 11, color: clioColor }}>
+              <Text strong style={{ fontSize: 11, color: meriColor }}>
                 Health {healthNow < 30 ? 'critically low' : healthNow < 70 ? 'at risk' : 'stable'} across period
               </Text>
             ) : null
@@ -2210,14 +2210,14 @@ export function ReportCardView({ data }: { data: Record<string, unknown> }) {
           size="small"
           title={
             <Space align="center" size={8}>
-              {clioAvatar(20)}
-              <span>Clio Forward Look</span>
+              {meriAvatar(20)}
+              <span>Meri Forward Look</span>
             </Space>
           }
           extra={<Text type="secondary" style={{ fontSize: 11 }}>Synthesized from tracked policy + engagement data</Text>}
         >
           <Alert
-            type={clioSignalTone(healthNow)}
+            type={meriSignalTone(healthNow)}
             showIcon
             message={forwardHeadline}
             style={{ marginBottom: 12 }}

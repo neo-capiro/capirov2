@@ -1,5 +1,5 @@
 /**
- * Smoke test: verify the Clio chat brain performs Anthropic-native tool use
+ * Smoke test: verify the Meri chat brain performs Anthropic-native tool use
  * over the streaming endpoint. It POSTs a tool-forcing prompt to
  * /api/clio/conversations/:id/stream, parses the SSE stream, and asserts that
  * at least one `tool_call` event fires before `done` (i.e. the model actually
@@ -14,7 +14,7 @@
  *   CLIO_SMOKE_PROMPT  - override the prompt (default forces a federal-data tool)
  *   CLIO_SMOKE_TIMEOUT_MS - overall timeout (default 120000)
  *
- * Requires a running API, a valid auth token, and an existing Clio conversation
+ * Requires a running API, a valid auth token, and an existing Meri conversation
  * owned by that token's user. The endpoint requires the trace flag (#trace) to
  * emit tool_call events, so the default prompt appends it.
  *

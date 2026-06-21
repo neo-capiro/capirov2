@@ -4,7 +4,7 @@ import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3
 import { XMLParser } from 'fast-xml-parser';
 import type { AppConfig } from '../../config/config.schema.js';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { fetchJson, redactSecrets } from '../../clio/sources/http.js';
+import { fetchJson, redactSecrets } from '../../meri/sources/http.js';
 import { TokenBucket } from './rate-limiter.js';
 
 const GOVINFO_API_ROOT = 'https://api.govinfo.gov/';

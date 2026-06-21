@@ -1275,7 +1275,7 @@ export class ProgramElementReadService {
   /**
    * Keyword/NAICS search over the raw SAM.gov opportunity feed (GLOBAL table, no
    * RLS — read via this.prisma directly, same as getOpportunitiesForPe). Active
-   * notices by default, newest-posted first. Backs Clio's
+   * notices by default, newest-posted first. Backs Meri's
    * search_sam_opportunities tool.
    */
   async listSamOpportunities(filters: {

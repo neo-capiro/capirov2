@@ -790,7 +790,7 @@ If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] onl
   }
 
   /**
-   * Tenant-wide Clio Brief for the home dashboard. Pulls upcoming hearings/
+   * Tenant-wide Meri Brief for the home dashboard. Pulls upcoming hearings/
    * markups (next 7 days), the firm's own meetings scheduled for today, and
    * recent high-severity intel changes touching this tenant's clients, then
    * asks the LLM for a 3-4 sentence narrative pointing to today's
@@ -931,7 +931,7 @@ If PROGRAM ELEMENT STATUS block is absent, return programElementStatus as [] onl
       };
     }
 
-    const prompt = `You are writing today's personal leverage brief for a federal lobbyist at a lobbying firm. Write 3-5 sentences in a punchy, voice-of-Capiro-Clio tone, concrete, specific, name names, and point to the single highest-leverage action for today. The meetings listed are THIS USER's own meetings, not the whole firm's — frame the day around what they personally have on. Do not list everything; pick the 1-2 things that actually matter. Reference active clients by name when the data supports it. Tie the user's meetings to the intel where it makes sense (e.g. a client whose program just moved is on their calendar). Avoid hedging.
+    const prompt = `You are writing today's personal leverage brief for a federal lobbyist at a lobbying firm. Write 3-5 sentences in a punchy, voice-of-Capiro-Meri tone, concrete, specific, name names, and point to the single highest-leverage action for today. The meetings listed are THIS USER's own meetings, not the whole firm's — frame the day around what they personally have on. Do not list everything; pick the 1-2 things that actually matter. Reference active clients by name when the data supports it. Tie the user's meetings to the intel where it makes sense (e.g. a client whose program just moved is on their calendar). Avoid hedging.
 
 TODAY: ${todayLabel}
 ACTIVE CLIENTS: ${tenantClientList || '(no active clients)'}

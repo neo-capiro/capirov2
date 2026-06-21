@@ -28,8 +28,8 @@ import 'dotenv/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ANALYSIS_EVAL_CASES, type AnalysisEvalCase } from '../src/clio/evals/analysis-fixtures.js';
-import { runSandboxed, type SandboxRunResult } from '../../clio-sandbox/src/run.js';
+import { ANALYSIS_EVAL_CASES, type AnalysisEvalCase } from '../src/meri/evals/analysis-fixtures.js';
+import { runSandboxed, type SandboxRunResult } from '../../meri-sandbox/src/run.js';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const KEY = process.env.ANTHROPIC_API_KEY;
@@ -82,7 +82,7 @@ const CODEGEN_SYSTEM = [
 ].join('\n');
 
 const ANSWER_SYSTEM = [
-  'You are Clio, an AI chief of staff for federal lobbyists.',
+  'You are Meri, an AI chief of staff for federal lobbyists.',
   'Answer the question using ONLY the sandbox analysis output provided.',
   'Be direct and specific. Always write FULL unabbreviated numbers',
   '(e.g. 4000000 or 4,000,000 — never 4M or "4.0 million").',

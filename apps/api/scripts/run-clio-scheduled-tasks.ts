@@ -1,5 +1,5 @@
 /**
- * Clio scheduled-task runner (W3).
+ * Meri scheduled-task runner (W3).
  *
  * Executes DUE rows in clio_scheduled_task. v1 is deliberately READ-ONLY and
  * unattended-safe: each task's prompt is run through Anthropic to produce a
@@ -16,7 +16,7 @@
  */
 import { config as dotenvConfig } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
-import { computeNextRunAt, isAllowListSafe } from '../src/clio/clio-schedule.helpers.js';
+import { computeNextRunAt, isAllowListSafe } from '../src/meri/meri-schedule.helpers.js';
 dotenvConfig();
 
 const prisma = new PrismaClient();
@@ -47,7 +47,7 @@ async function runPrompt(prompt: string, apiKey: string): Promise<string | null>
         model: process.env.CLIO_MODEL ?? 'claude-sonnet-4-5',
         max_tokens: 1200,
         system:
-          'You are Clio running a scheduled, unattended research task for a government-affairs team. ' +
+          'You are Meri running a scheduled, unattended research task for a government-affairs team. ' +
           'Produce a concise, scannable briefing. You have no tools in this run; if you lack specific data, ' +
           'say what you would check rather than inventing facts. Never claim to have taken an action.',
         messages: [{ role: 'user', content: prompt }],

@@ -801,7 +801,7 @@ export function NewOutreachWizard({
       const drafts = buildDrafts();
       const first = drafts[0];
       // The API stores `contextPool` at the top level (its own projection used
-      // for Clio generation), so map the wizard's rich SelectedContextItem
+      // for Meri generation), so map the wizard's rich SelectedContextItem
       // shape onto the DTO's fields (kind→sourceType, body→summary, the per-
       // recipient `scope` → recipientIds). List/group scopes are expanded to
       // per-member recipient keys so recipientIds holds real recipient keys the
@@ -833,7 +833,7 @@ export function NewOutreachWizard({
         // column (it clamps to 1 when absent — the original Bug B). 1-based.
         lastStep: stepIdx + 1,
         // Top-level contextPool so the API stores selected context where
-        // getOutreachRecord / Clio generation expect it.
+        // getOutreachRecord / Meri generation expect it.
         contextPool,
         metadata: {
           source: 'v2-wizard',
@@ -1245,7 +1245,7 @@ function StepTemplate({
     <div>
       <h2>Choose a template</h2>
       <div className="ov2-pane-sub">
-        Templates seed the structure. Clio fills it from your context. Preview to see a sample, or
+        Templates seed the structure. Meri fills it from your context. Preview to see a sample, or
         create your own.
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
@@ -1451,7 +1451,7 @@ function PreviewTemplateModal({
                 letterSpacing: 0.5,
               }}
             >
-              Prompt sent to Clio
+              Prompt sent to Meri
             </div>
             <div
               style={{
@@ -1553,7 +1553,7 @@ function CreateTemplateModal({
         <Form.Item
           name="prompt"
           label="Prompt"
-          tooltip="What Clio is told to produce. Be specific about structure, length, and tone."
+          tooltip="What Meri is told to produce. Be specific about structure, length, and tone."
           rules={[
             { required: true, message: 'Prompt is required' },
             { min: 20, message: 'Prompt should be at least 20 characters' },

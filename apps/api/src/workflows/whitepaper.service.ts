@@ -68,7 +68,7 @@ export const WP_KEYS = {
   variant: 'whitepaper_variant',
   generatedDoc: 'generated_document',
   generatedAt: 'whitepaper_generated_at',
-  showClio: 'whitepaper_show_clio',
+  showMeri: 'whitepaper_show_clio',
 } as const;
 
 export interface GenerateSectionInput {
@@ -666,7 +666,7 @@ export class WhitePaperService {
       },
     ]);
 
-    // ── Research reports (Clio deep research) ──────────────────────────────
+    // ── Research reports (Meri deep research) ──────────────────────────────
     sources.push([
       'research_reports',
       async () => {
@@ -690,7 +690,7 @@ export class WhitePaperService {
       },
     ]);
 
-    // ── Clio notes ─────────────────────────────────────────────────────────
+    // ── Meri notes ─────────────────────────────────────────────────────────
     sources.push([
       'notes',
       async () => {
@@ -1228,7 +1228,7 @@ export class WhitePaperService {
   }
 
   /**
-   * Read current structured sections from an instance (used by Clio write-back).
+   * Read current structured sections from an instance (used by Meri write-back).
    */
   async readSections(
     tenantId: string,

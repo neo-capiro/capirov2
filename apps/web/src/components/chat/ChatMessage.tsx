@@ -5,16 +5,16 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeSanitize from 'rehype-sanitize';
 import type { Components } from 'react-markdown';
-import type { ChatMessageAttachment, ClioCitation, ClioVerification } from './chat-store.js';
+import type { ChatMessageAttachment, MeriCitation, MeriVerification } from './chat-store.js';
 import { attachmentKindIcon, truncateFilenameMiddle } from './ChatInput.js';
-import clioBubbleImage from '../../assets/chat/clio-bubble.png';
+import meriBubbleImage from '../../assets/chat/meri-bubble.png';
 
 interface ChatMessageProps {
   role: 'user' | 'assistant';
   content: string;
   isStreaming?: boolean;
-  citations?: ClioCitation[];
-  verification?: ClioVerification;
+  citations?: MeriCitation[];
+  verification?: MeriVerification;
   attachments?: ChatMessageAttachment[];
 }
 
@@ -27,7 +27,7 @@ export function ChatMessage({
   attachments,
 }: ChatMessageProps) {
   const isUser = role === 'user';
-  const [activeCitation, setActiveCitation] = useState<ClioCitation | null>(null);
+  const [activeCitation, setActiveCitation] = useState<MeriCitation | null>(null);
   const [copied, setCopied] = useState(false);
   const handleCopy = () => {
     void navigator.clipboard?.writeText(content);
@@ -36,7 +36,7 @@ export function ChatMessage({
   };
 
   const citationMap = useMemo(() => {
-    const map = new Map<number, ClioCitation>();
+    const map = new Map<number, MeriCitation>();
     for (const c of citations ?? []) map.set(c.n, c);
     return map;
   }, [citations]);
@@ -54,7 +54,7 @@ export function ChatMessage({
     <div className={`chat-msg chat-msg--${role}`}>
       {!isUser && (
         <div className="chat-msg-avatar" aria-hidden="true">
-          <img src={clioBubbleImage} alt="" className="chat-msg-avatar-image" />
+          <img src={meriBubbleImage} alt="" className="chat-msg-avatar-image" />
         </div>
       )}
       <div className="chat-msg-bubble">
@@ -199,8 +199,8 @@ function citationTypeLabel(type: string): string {
  */
 function injectCitations(
   children: ReactNode,
-  citationMap: Map<number, ClioCitation>,
-  onOpen: (c: ClioCitation) => void,
+  citationMap: Map<number, MeriCitation>,
+  onOpen: (c: MeriCitation) => void,
 ): ReactNode {
   if (citationMap.size === 0) return children;
   return Children.map(children, (child) => {
@@ -213,8 +213,8 @@ function injectCitations(
 
 function splitCitations(
   text: string,
-  citationMap: Map<number, ClioCitation>,
-  onOpen: (c: ClioCitation) => void,
+  citationMap: Map<number, MeriCitation>,
+  onOpen: (c: MeriCitation) => void,
 ): ReactNode[] {
   const parts: ReactNode[] = [];
   const re = /\[(\d{1,3})\]/g;
@@ -247,15 +247,15 @@ function splitCitations(
 /** Recursively inject citations into a node's children for block elements. */
 function kids(
   children: ReactNode,
-  citationMap: Map<number, ClioCitation>,
-  onOpen: (c: ClioCitation) => void,
+  citationMap: Map<number, MeriCitation>,
+  onOpen: (c: MeriCitation) => void,
 ): ReactNode {
   return injectCitations(children, citationMap, onOpen);
 }
 
 function buildMarkdownComponents(
-  citationMap: Map<number, ClioCitation>,
-  onOpen: (c: ClioCitation) => void,
+  citationMap: Map<number, MeriCitation>,
+  onOpen: (c: MeriCitation) => void,
 ): Components {
   return {
     p: ({ children }) => <p className="chat-md-p">{kids(children, citationMap, onOpen)}</p>,

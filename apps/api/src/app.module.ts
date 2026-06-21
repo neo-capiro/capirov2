@@ -18,7 +18,7 @@ import { HelpModule } from './help/help.module.js';
 import { DirectoryModule } from './directory/directory.module.js';
 import { EngagementModule } from './engagement/engagement.module.js';
 import { DemoRequestsModule } from './demo-requests/demo-requests.module.js';
-import { ClioModule } from './clio/clio.module.js';
+import { MeriModule } from './meri/meri.module.js';
 import { WorkflowsModule } from './workflows/workflows.module.js';
 import { StrategiesModule } from './strategies/strategies.module.js';
 import { LobbyIntelModule } from './lobby-intel/lobby-intel.module.js';
@@ -67,7 +67,7 @@ import { ApiLatencyMiddleware } from './observability/api-latency.middleware.js'
     DirectoryModule,
     EngagementModule,
     DemoRequestsModule,
-    ClioModule,
+    MeriModule,
     WorkflowsModule,
     StrategiesModule,
     LobbyIntelModule,

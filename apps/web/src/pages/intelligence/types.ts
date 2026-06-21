@@ -427,7 +427,7 @@ export interface CommentAlert {
   relevanceScore: number;
 }
 
-/* ── Home dashboard, today timeline + ticker + Clio brief ─────────────── */
+/* ── Home dashboard, today timeline + ticker + Meri brief ─────────────── */
 
 export type TimelineEventSeverity = 'info' | 'notable' | 'critical';
 export type TimelineEventKind = 'hearing' | 'deadline' | 'change' | 'brief';

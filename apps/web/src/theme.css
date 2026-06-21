@@ -999,7 +999,7 @@ body {
   margin-bottom: 16px;
 }
 
-.clio-workspace {
+.meri-workspace {
   display: grid;
   grid-template-columns: 260px minmax(420px, 1fr) minmax(300px, 360px);
   min-height: calc(100vh - 156px);
@@ -1010,21 +1010,21 @@ body {
   box-shadow: 0 12px 28px rgba(17, 24, 39, 0.06);
 }
 
-.clio-session-rail,
-.clio-dialog-panel,
-.clio-artifact-panel {
+.meri-session-rail,
+.meri-dialog-panel,
+.meri-artifact-panel {
   min-height: 0;
 }
 
-.clio-session-rail {
+.meri-session-rail {
   display: flex;
   flex-direction: column;
   border-right: 1px solid #e4e9f2;
   background: #f8fafd;
 }
 
-.clio-rail-head,
-.clio-artifact-head {
+.meri-rail-head,
+.meri-artifact-head {
   display: flex;
   flex: 0 0 auto;
   min-height: 58px;
@@ -1035,25 +1035,25 @@ body {
   border-bottom: 1px solid #e4e9f2;
 }
 
-.clio-rail-head > span,
-.clio-artifact-head {
+.meri-rail-head > span,
+.meri-artifact-head {
   color: #111827;
   font-size: 14px;
   font-weight: 900;
 }
 
-.clio-rail-head > span {
+.meri-rail-head > span {
   display: inline-flex;
   align-items: center;
   gap: 8px;
 }
 
-.clio-rail-head .anticon,
-.clio-artifact-head .anticon {
+.meri-rail-head .anticon,
+.meri-artifact-head .anticon {
   color: #1c2e4a;
 }
 
-.clio-runtime-strip {
+.meri-runtime-strip {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
@@ -1066,33 +1066,33 @@ body {
   font-weight: 800;
 }
 
-.clio-runtime-dot {
+.meri-runtime-dot {
   width: 8px;
   height: 8px;
   border-radius: 999px;
   background: #f59e0b;
 }
 
-.clio-runtime-dot.is-ready {
+.meri-runtime-dot.is-ready {
   background: #10b981;
 }
 
-.clio-runtime-dot.is-offline {
+.meri-runtime-dot.is-offline {
   background: #f97316;
 }
 
-.clio-client-select {
+.meri-client-select {
   flex: 0 0 auto;
   width: calc(100% - 28px);
   margin: 10px 14px 8px;
 }
 
-.clio-client-select .ant-select-selector {
+.meri-client-select .ant-select-selector {
   border-color: #d6deea !important;
   background: #ffffff !important;
 }
 
-.clio-session-list {
+.meri-session-list {
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
@@ -1102,7 +1102,7 @@ body {
   padding: 10px;
 }
 
-.clio-session-row {
+.meri-session-row {
   display: flex;
   width: 100%;
   min-height: 58px;
@@ -1119,54 +1119,54 @@ body {
   cursor: pointer;
 }
 
-.clio-session-row:hover,
-.clio-session-row:focus-visible {
+.meri-session-row:hover,
+.meri-session-row:focus-visible {
   border-color: #d7dfea;
   background: #fff;
   outline: none;
 }
 
-.clio-session-row.is-active {
+.meri-session-row.is-active {
   border-color: #b8c6dc;
   background: #fff;
   box-shadow: 0 8px 18px rgba(17, 24, 39, 0.06);
 }
 
-.clio-session-row span,
-.clio-session-row small {
+.meri-session-row span,
+.meri-session-row small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.clio-session-row span {
+.meri-session-row span {
   font-size: 13px;
   font-weight: 900;
 }
 
-.clio-session-row small,
-.clio-empty-rail {
+.meri-session-row small,
+.meri-empty-rail {
   color: #667085;
   font-size: 12px;
 }
 
-.clio-empty-rail {
+.meri-empty-rail {
   padding: 12px 8px;
   font-weight: 800;
 }
 
-.clio-dialog-panel {
+.meri-dialog-panel {
   display: grid;
   grid-template-rows: auto auto minmax(0, 1fr) auto;
   background: #fff;
 }
 
-.clio-runtime-alert {
+.meri-runtime-alert {
   margin: 12px 14px 0;
 }
 
-.clio-dialog-head {
+.meri-dialog-head {
   display: flex;
   min-height: 70px;
   align-items: center;
@@ -1176,15 +1176,15 @@ body {
   border-bottom: 1px solid #e4e9f2;
 }
 
-.clio-dialog-head h3 {
+.meri-dialog-head h3 {
   margin: 0 0 2px;
 }
 
-.clio-dialog-head > div {
+.meri-dialog-head > div {
   min-width: 0;
 }
 
-.clio-dialog-head > span {
+.meri-dialog-head > span {
   display: inline-flex;
   flex: 0 0 auto;
   max-width: 220px;
@@ -1202,7 +1202,7 @@ body {
   white-space: nowrap;
 }
 
-.clio-message-stream {
+.meri-message-stream {
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -1212,7 +1212,7 @@ body {
   background: linear-gradient(180deg, #fff 0%, #fbfcfe 100%);
 }
 
-.clio-message {
+.meri-message {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr);
   gap: 12px;
@@ -1220,30 +1220,30 @@ body {
   max-width: 860px;
 }
 
-.clio-message--user {
+.meri-message--user {
   margin-left: auto;
   grid-template-columns: minmax(0, 1fr) 34px;
 }
 
-.clio-message--user > .ant-avatar {
+.meri-message--user > .ant-avatar {
   grid-column: 2;
   grid-row: 1;
 }
 
-.clio-message--user > div {
+.meri-message--user > div {
   grid-column: 1;
   grid-row: 1;
 }
 
-.clio-message .ant-avatar {
+.meri-message .ant-avatar {
   background: #1c2e4a;
 }
 
-.clio-message--user .ant-avatar {
+.meri-message--user .ant-avatar {
   background: #475467;
 }
 
-.clio-message > div {
+.meri-message > div {
   display: grid;
   min-width: 0;
   gap: 8px;
@@ -1254,42 +1254,42 @@ body {
   box-shadow: 0 8px 18px rgba(17, 24, 39, 0.05);
 }
 
-.clio-message--user > div {
+.meri-message--user > div {
   background: #f6f8fc;
 }
 
-.clio-message header {
+.meri-message header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.clio-message header strong {
+.meri-message header strong {
   color: #111827;
   font-size: 13px;
 }
 
-.clio-message time {
+.meri-message time {
   color: #98a2b3;
   font-size: 11px;
   font-weight: 800;
 }
 
-.clio-message p {
+.meri-message p {
   margin: 0;
   color: #344054;
   line-height: 1.58;
   white-space: pre-wrap;
 }
 
-.clio-message-artifacts {
+.meri-message-artifacts {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.clio-message-artifacts button {
+.meri-message-artifacts button {
   display: inline-flex;
   max-width: 100%;
   min-height: 30px;
@@ -1306,13 +1306,13 @@ body {
   cursor: pointer;
 }
 
-.clio-message-artifacts button span {
+.meri-message-artifacts button span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.clio-composer {
+.meri-composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
@@ -1322,19 +1322,19 @@ body {
   background: #fff;
 }
 
-.clio-composer .ant-input {
+.meri-composer .ant-input {
   border-radius: 8px;
 }
 
-.clio-composer .ant-btn {
+.meri-composer .ant-btn {
   min-width: 96px;
   min-height: 40px;
   border-radius: 8px;
   font-weight: 900;
 }
 
-.clio-start-state,
-.clio-loading-state {
+.meri-start-state,
+.meri-loading-state {
   display: grid;
   min-height: 340px;
   place-items: center;
@@ -1344,7 +1344,7 @@ body {
   text-align: center;
 }
 
-.clio-start-state > .anticon {
+.meri-start-state > .anticon {
   display: inline-grid;
   place-items: center;
   width: 52px;
@@ -1355,25 +1355,25 @@ body {
   font-size: 24px;
 }
 
-.clio-start-state h4 {
+.meri-start-state h4 {
   margin: 0;
 }
 
-.clio-artifact-panel {
+.meri-artifact-panel {
   display: flex;
   flex-direction: column;
   border-left: 1px solid #e4e9f2;
   background: #fbfcfe;
 }
 
-.clio-artifact-view {
+.meri-artifact-view {
   display: grid;
   min-height: 0;
   flex: 1 1 auto;
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.clio-artifact-list {
+.meri-artifact-list {
   display: flex;
   gap: 8px;
   max-width: 100%;
@@ -1382,7 +1382,7 @@ body {
   border-bottom: 1px solid #e4e9f2;
 }
 
-.clio-artifact-list button {
+.meri-artifact-list button {
   display: grid;
   min-width: 150px;
   max-width: 190px;
@@ -1399,30 +1399,30 @@ body {
   cursor: pointer;
 }
 
-.clio-artifact-list button.is-active {
+.meri-artifact-list button.is-active {
   border-color: #1c2e4a;
   background: #eef3ff;
 }
 
-.clio-artifact-list button span,
-.clio-artifact-list button small {
+.meri-artifact-list button span,
+.meri-artifact-list button small {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.clio-artifact-list button span {
+.meri-artifact-list button span {
   font-size: 12px;
   font-weight: 900;
 }
 
-.clio-artifact-list button small {
+.meri-artifact-list button small {
   color: #667085;
   font-size: 11px;
 }
 
-.clio-artifact-body {
+.meri-artifact-body {
   display: flex;
   min-height: 0;
   flex-direction: column;
@@ -1430,16 +1430,16 @@ body {
   padding: 16px;
 }
 
-.clio-artifact-body header {
+.meri-artifact-body header {
   display: grid;
   gap: 2px;
 }
 
-.clio-artifact-body h4 {
+.meri-artifact-body h4 {
   margin: 0;
 }
 
-.clio-artifact-body pre {
+.meri-artifact-body pre {
   flex: 1 1 auto;
   min-height: 0;
   margin: 0;
@@ -1460,7 +1460,7 @@ body {
   white-space: pre-wrap;
 }
 
-.clio-artifact-empty {
+.meri-artifact-empty {
   display: grid;
   min-height: 260px;
   place-items: center;
@@ -1472,7 +1472,7 @@ body {
   font-weight: 800;
 }
 
-.clio-artifact-empty .anticon {
+.meri-artifact-empty .anticon {
   color: #98a2b3;
   font-size: 26px;
 }
@@ -1620,7 +1620,7 @@ body {
 }
 .home-panel-head .open { margin-left: auto; }
 
-/* Clio brief — white card, gradient avatar, highlighted brief text */
+/* Meri brief — white card, gradient avatar, highlighted brief text */
 .home-brief {
   position: relative;
   background: var(--bg-surface);
@@ -2569,7 +2569,7 @@ body {
 }
 
 /* Brief-only variant: the scrolling daily clock spine was removed, so the
-   Clio brief / rail spans the full card width. */
+   Meri brief / rail spans the full card width. */
 .home-today-body--brief {
   grid-template-columns: 1fr;
 }
@@ -2744,7 +2744,7 @@ body {
   margin: 0;
 }
 
-/* ── Right rail (Clio brief + ticker) ─────────────────────────────────── */
+/* ── Right rail (Meri brief + ticker) ─────────────────────────────────── */
 
 .home-rail {
   border-left: 1px solid var(--border-1);
@@ -6457,7 +6457,7 @@ body {
   gap: 8px;
 }
 
-.outreach-campaign-clio-prompt > .ant-btn-primary {
+.outreach-campaign-meri-prompt > .ant-btn-primary {
   justify-self: end;
 }
 
@@ -7382,27 +7382,27 @@ body {
   }
   .home-coming-card:last-child { border-bottom: none; }
 
-  .clio-workspace {
+  .meri-workspace {
     grid-template-columns: 1fr;
     min-height: auto;
     overflow: visible;
   }
 
-  .clio-session-rail,
-  .clio-artifact-panel {
+  .meri-session-rail,
+  .meri-artifact-panel {
     border: 0;
   }
 
-  .clio-session-rail {
+  .meri-session-rail {
     max-height: 250px;
     border-bottom: 1px solid #e4e9f2;
   }
 
-  .clio-dialog-panel {
+  .meri-dialog-panel {
     min-height: 620px;
   }
 
-  .clio-artifact-panel {
+  .meri-artifact-panel {
     border-top: 1px solid #e4e9f2;
   }
 
@@ -7573,39 +7573,39 @@ body {
     padding: 18px 16px;
   }
 
-  .clio-dialog-head,
-  .clio-composer {
+  .meri-dialog-head,
+  .meri-composer {
     grid-template-columns: 1fr;
   }
 
-  .clio-dialog-head {
+  .meri-dialog-head {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .clio-dialog-head > span {
+  .meri-dialog-head > span {
     max-width: 100%;
   }
 
-  .clio-composer {
+  .meri-composer {
     display: flex;
     flex-direction: column;
     align-items: stretch;
   }
 
-  .clio-composer .ant-btn {
+  .meri-composer .ant-btn {
     width: 100%;
   }
 
-  .clio-message,
-  .clio-message--user {
+  .meri-message,
+  .meri-message--user {
     max-width: 100%;
     grid-template-columns: 30px minmax(0, 1fr);
     margin-left: 0;
   }
 
-  .clio-message--user > .ant-avatar,
-  .clio-message--user > div {
+  .meri-message--user > .ant-avatar,
+  .meri-message--user > div {
     grid-column: auto;
     grid-row: auto;
   }
@@ -7654,7 +7654,7 @@ body {
   height: 100%;
 }
 
-.workspace-layout > .clio-workspace {
+.workspace-layout > .meri-workspace {
   flex: 1;
   min-height: 0;
 }
@@ -12939,8 +12939,8 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Clio signal banner, orange-tinted hint card */
-.redesign .clio-signal {
+/* Meri signal banner, orange-tinted hint card */
+.redesign .meri-signal {
   background: linear-gradient(90deg, var(--notable-soft) 0%, var(--bg-surface) 30%);
   border: 1px solid var(--notable-soft);
   border-radius: var(--r-lg);
@@ -12949,7 +12949,7 @@ body {
   align-items: center;
   gap: 12px;
 }
-.redesign .clio-avatar {
+.redesign .meri-avatar {
   width: 32px;
   height: 32px;
   border-radius: 50%;
@@ -12960,7 +12960,7 @@ body {
   flex-shrink: 0;
   box-shadow: 0 0 0 2px rgba(42, 87, 206, 0.12);
 }
-.redesign .clio-signal-title {
+.redesign .meri-signal-title {
   font-size: 13.5px;
   font-weight: 600;
   color: var(--ink-1);
@@ -12968,11 +12968,11 @@ body {
   align-items: center;
   gap: 6px;
 }
-.redesign .clio-signal-title b {
+.redesign .meri-signal-title b {
   color: var(--accent-ink);
   font-weight: 700;
 }
-.redesign .clio-signal-body {
+.redesign .meri-signal-body {
   font-size: 12px;
   color: var(--ink-2);
   margin-top: 2px;
@@ -13637,8 +13637,8 @@ body {
   color: var(--accent);
 }
 
-/* Clio card */
-.eo-clio {
+/* Meri card */
+.eo-meri {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 28px;
@@ -13653,7 +13653,7 @@ body {
   overflow: hidden;
 }
 
-.eo-clio::after {
+.eo-meri::after {
   content: '';
   position: absolute;
   top: -40px;
@@ -13665,7 +13665,7 @@ body {
   pointer-events: none;
 }
 
-.eo-clio-glyph {
+.eo-meri-glyph {
   position: relative;
   width: 120px;
   height: 120px;
@@ -13674,7 +13674,7 @@ body {
   flex-shrink: 0;
 }
 
-.eo-clio-avatar {
+.eo-meri-avatar {
   width: 56px;
   height: 56px;
   border-radius: 50%;
@@ -13684,7 +13684,7 @@ body {
   position: relative;
   z-index: 1;
 }
-.eo-clio-avatar::before {
+.eo-meri-avatar::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -13695,7 +13695,7 @@ body {
   mask:
     radial-gradient(circle at 50% 50%, transparent 35%, #000 38%, #000 62%, transparent 65%);
 }
-.eo-clio-avatar::after {
+.eo-meri-avatar::after {
   content: '';
   position: absolute;
   inset: 18px;
@@ -13703,14 +13703,14 @@ body {
   border: 2px solid rgba(255, 255, 255, 0.85);
 }
 
-.eo-clio-pulse {
+.eo-meri-pulse {
   position: absolute;
   inset: 0;
   border-radius: 50%;
   border: 1.5px solid rgba(255, 255, 255, 0.15);
   animation: eo-pulse 3s ease-out infinite;
 }
-.eo-clio-pulse::before {
+.eo-meri-pulse::before {
   content: '';
   position: absolute;
   inset: 14px;
@@ -13723,16 +13723,16 @@ body {
   100% { transform: scale(1.1); opacity: 0; }
 }
 
-.eo-clio:hover .eo-clio-pulse {
+.eo-meri:hover .eo-meri-pulse {
   animation-play-state: paused;
 }
 
-.eo-clio .eo-eyebrow {
+.eo-meri .eo-eyebrow {
   background: rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.85);
 }
 
-.eo-clio-title {
+.eo-meri-title {
   color: #fff !important;
   margin: 0 0 8px !important;
   font-size: 26px !important;
@@ -13740,7 +13740,7 @@ body {
   letter-spacing: -0.02em !important;
 }
 
-.eo-clio-desc {
+.eo-meri-desc {
   font-size: 14px;
   line-height: 1.55;
   color: rgba(255, 255, 255, 0.78) !important;
@@ -13749,19 +13749,19 @@ body {
   text-wrap: pretty;
 }
 
-.eo-clio-desc strong {
+.eo-meri-desc strong {
   color: #fff;
   font-weight: 600;
 }
 
-.eo-clio-quotes {
+.eo-meri-quotes {
   display: flex;
   gap: 8px;
   margin-top: 14px;
   flex-wrap: wrap;
 }
 
-.eo-clio-quote {
+.eo-meri-quote {
   font-family: var(--font-serif-rd);
   font-style: italic;
   font-size: 13px;
@@ -14139,12 +14139,12 @@ body {
   background: var(--bg-surface-2);
 }
 
-.wp-section-action.clio {
+.wp-section-action.meri {
   color: var(--accent-strong);
   border-color: var(--accent);
 }
 
-.wp-clio {
+.wp-meri {
   background: var(--bg-surface);
   border-left: 1px solid var(--border-1);
   padding: 16px;
@@ -14217,11 +14217,11 @@ body {
   background: var(--accent);
 }
 
-.wp-clio-cta {
+.wp-meri-cta {
   margin-top: 4px;
 }
 
-.wp-clio .sw-select {
+.wp-meri .sw-select {
   width: 100%;
   border: 1px solid var(--border-1);
   border-radius: 8px;
@@ -14231,12 +14231,12 @@ body {
   color: var(--ink-1);
 }
 
-.wp-clio .sw-select:focus {
+.wp-meri .sw-select:focus {
   outline: none;
   border-color: var(--accent);
 }
 
-.wp-clio-note {
+.wp-meri-note {
   resize: vertical;
 }
 
@@ -14254,24 +14254,24 @@ body {
   margin: 0;
 }
 
-.wp-clio-head {
+.wp-meri-head {
   display: flex;
   gap: 8px;
   align-items: flex-start;
 }
 
-.wp-clio-head .title {
+.wp-meri-head .title {
   font-size: 14px;
   font-weight: 700;
   color: var(--ink-1);
 }
 
-.wp-clio-head .sub {
+.wp-meri-head .sub {
   font-size: 11px;
   color: var(--ink-3);
 }
 
-.wp-clio-section h5 {
+.wp-meri-section h5 {
   margin: 0 0 6px;
   font-size: 12px;
   color: var(--ink-2);
@@ -14279,7 +14279,7 @@ body {
 
 /* ── White paper enhancements (variants, context, lint) ─────────────── */
 
-.wp-clio-hint {
+.wp-meri-hint {
   font-size: 11px;
   color: var(--ink-3);
   margin-top: 6px;
@@ -14528,7 +14528,7 @@ body {
     grid-template-columns: 220px minmax(0, 1fr);
   }
 
-  .wp-clio {
+  .wp-meri {
     display: none;
   }
 }
@@ -14782,7 +14782,7 @@ body {
   min-width: 0;
 }
 
-.iv1-clio-avatar {
+.iv1-meri-avatar {
   width: 30px;
   height: 30px;
   flex-shrink: 0;
@@ -14812,7 +14812,7 @@ body {
   color: var(--ink-3);
 }
 
-.iv1-clio-badge {
+.iv1-meri-badge {
   display: inline-flex;
   align-items: center;
   border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border-1));
@@ -16527,7 +16527,7 @@ body {
   overflow: hidden;
 }
 
-.iv1-clio-tag {
+.iv1-meri-tag {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -16535,7 +16535,7 @@ body {
   color: var(--ink-3);
   margin-top: 4px;
 }
-.iv1-clio-tag-dot {
+.iv1-meri-tag-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;

@@ -1,15 +1,15 @@
 @import './chat-fonts.css';
 
-/* ── Capiro Clio chat design tokens (Workstream B) ─────────────────────────
-   Extracted from "Capiro Clio Chat (standalone).html" — warm paper canvas,
+/* ── Capiro Meri chat design tokens (Workstream B) ─────────────────────────
+   Extracted from "Capiro Meri Chat (standalone).html" — warm paper canvas,
    deep-navy identity, cobalt accent. SCOPED to the chat surfaces only
-   (.chat-drawer / .chat-backdrop / .chat-toggle-fab / .clio-email-panel /
-   .clio-canvas) so the rest of the app's antd theme is untouched. */
+   (.chat-drawer / .chat-backdrop / .chat-toggle-fab / .meri-email-panel /
+   .meri-canvas) so the rest of the app's antd theme is untouched. */
 .chat-drawer,
 .chat-backdrop,
 .chat-toggle-fab,
-.clio-email-panel,
-.clio-canvas {
+.meri-email-panel,
+.meri-canvas {
   /* Brand accent (cobalt) */
   --accent: #2a57ce;
   --accent-ink: #1a3f9f;
@@ -57,29 +57,29 @@
 
 /* Legacy chat token aliases (kept for safety; values mapped to the new palette). */
 :root {
-  --clio-navy: #1a3f9f;
-  --clio-navy-deep: #0c1a38;
-  --clio-surface: #efece4;
-  --clio-bg: #f4f2ec;
-  --clio-border: #e6e1d6;
-  --clio-muted: #8a8780;
-  --clio-text: #15161a;
-  --clio-radius: 8px;
-  --clio-font: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --meri-navy: #1a3f9f;
+  --meri-navy-deep: #0c1a38;
+  --meri-surface: #efece4;
+  --meri-bg: #f4f2ec;
+  --meri-border: #e6e1d6;
+  --meri-muted: #8a8780;
+  --meri-text: #15161a;
+  --meri-radius: 8px;
+  --meri-font: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
 }
 
 /* Base typography for the chat surfaces. */
 .chat-drawer,
-.clio-email-panel,
-.clio-canvas {
+.meri-email-panel,
+.meri-canvas {
   font-family: var(--font-sans);
   letter-spacing: -0.005em;
 }
 
 /* Focus ring — cobalt glow, applied across the chat scope (B8). */
 .chat-drawer :focus-visible,
-.clio-email-panel :focus-visible,
-.clio-canvas :focus-visible,
+.meri-email-panel :focus-visible,
+.meri-canvas :focus-visible,
 .chat-toggle-fab:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px var(--accent-glow);
@@ -219,7 +219,7 @@
   box-shadow: 0 0 6px rgba(63, 180, 99, 0.8);
 }
 
-/* Top-left Clio logo mark (navy square) with the presence dot overlaid. */
+/* Top-left Meri logo mark (navy square) with the presence dot overlaid. */
 .chat-header-logo {
   position: relative;
   display: inline-flex;
@@ -537,7 +537,7 @@
   border-radius: 999px;
   border: none;
   /* Cobalt-gradient identity disc (reference avatar treatment); the square
-     Clio wordmark sits centered and uncropped (contain, not cover). */
+     Meri wordmark sits centered and uncropped (contain, not cover). */
   background: linear-gradient(135deg, #4e78d8, #1a3f9f);
   display: inline-flex;
   align-items: center;
@@ -1207,8 +1207,8 @@
   transform: scale(0.85);
 }
 
-/* ─── Clio Email Pop-out Panel ─── */
-.clio-email-panel {
+/* ─── Meri Email Pop-out Panel ─── */
+.meri-email-panel {
   position: fixed;
   top: 0;
   right: 420px;
@@ -1220,13 +1220,13 @@
   z-index: 997;
   display: flex;
   flex-direction: column;
-  animation: clio-email-slide-in 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: meri-email-slide-in 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
-@keyframes clio-email-slide-in {
+@keyframes meri-email-slide-in {
   from { transform: translateX(40px); opacity: 0; }
   to   { transform: translateX(0); opacity: 1; }
 }
-.clio-email-header {
+.meri-email-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1235,23 +1235,23 @@
   color: var(--ink-on-dark);
   flex-shrink: 0;
 }
-.clio-email-header-title {
+.meri-email-header-title {
   font-weight: 600;
   font-size: 14px;
   display: flex;
   align-items: center;
 }
-.clio-email-header-actions {
+.meri-email-header-actions {
   display: flex;
   gap: 4px;
 }
-.clio-email-tabs {
+.meri-email-tabs {
   display: flex;
   border-bottom: 1px solid var(--border-1);
   flex-shrink: 0;
   background: var(--bg-sunken);
 }
-.clio-email-tab {
+.meri-email-tab {
   flex: 1;
   padding: 10px 0;
   border: none;
@@ -1266,45 +1266,45 @@
   transition: background 0.12s, color 0.12s, border-color 0.12s;
   border-bottom: 2px solid transparent;
 }
-.clio-email-tab:hover { color: var(--ink-1); background: var(--bg-surface-2); }
-.clio-email-tab--active {
+.meri-email-tab:hover { color: var(--ink-1); background: var(--bg-surface-2); }
+.meri-email-tab--active {
   color: var(--accent-ink);
   border-bottom-color: var(--accent);
   font-weight: 600;
 }
-.clio-email-body {
+.meri-email-body {
   flex: 1;
   overflow-y: auto;
   padding: 0;
 }
-.clio-email-loading,
-.clio-email-empty {
+.meri-email-loading,
+.meri-email-empty {
   padding: 40px 20px;
   text-align: center;
   color: var(--ink-3);
   font-size: 13px;
 }
-.clio-email-thread {
+.meri-email-thread {
   border-bottom: 1px solid var(--border-1);
   padding: 12px 16px;
   background: var(--bg-surface);
 }
-.clio-email-thread-header {
+.meri-email-thread-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   cursor: pointer;
   gap: 8px;
 }
-.clio-email-thread-header:hover .clio-email-thread-subject { color: var(--accent-ink); }
-.clio-email-thread-subject {
+.meri-email-thread-header:hover .meri-email-thread-subject { color: var(--accent-ink); }
+.meri-email-thread-subject {
   font-size: 13px;
   font-weight: 600;
   color: var(--ink-1);
   line-height: 1.4;
   transition: color 0.12s;
 }
-.clio-email-thread-client {
+.meri-email-thread-client {
   display: inline-block;
   margin-left: 8px;
   padding: 1px 6px;
@@ -1314,14 +1314,14 @@
   font-size: 11px;
   font-weight: 500;
 }
-.clio-email-thread-meta {
+.meri-email-thread-meta {
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--ink-3);
   white-space: nowrap;
   flex-shrink: 0;
 }
-.clio-email-thread-snippet {
+.meri-email-thread-snippet {
   font-size: 12px;
   color: var(--ink-3);
   margin-top: 4px;
@@ -1330,36 +1330,36 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.clio-email-thread-messages {
+.meri-email-thread-messages {
   margin-top: 10px;
   padding-top: 8px;
   border-top: 1px solid var(--border-1);
 }
-.clio-email-message {
+.meri-email-message {
   margin-bottom: 10px;
   padding: 8px 10px;
   background: var(--bg-surface-2);
   border: 1px solid var(--border-1);
   border-radius: var(--r-sm);
 }
-.clio-email-message-from {
+.meri-email-message-from {
   font-size: 11px;
   color: var(--ink-3);
   margin-bottom: 4px;
   font-weight: 500;
   font-family: var(--font-mono);
 }
-.clio-email-message-body {
+.meri-email-message-body {
   font-size: 12px;
   color: var(--ink-2);
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
 }
-.clio-email-reply-form {
+.meri-email-reply-form {
   margin-top: 8px;
 }
-.clio-email-reply-textarea {
+.meri-email-reply-textarea {
   width: 100%;
   border: 1px solid var(--border-2);
   border-radius: var(--r-sm);
@@ -1372,17 +1372,17 @@
   min-height: 60px;
   transition: border-color 0.12s, box-shadow 0.12s;
 }
-.clio-email-reply-textarea:focus {
+.meri-email-reply-textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
-.clio-email-reply-actions {
+.meri-email-reply-actions {
   display: flex;
   gap: 8px;
   margin-top: 8px;
 }
-.clio-email-btn {
+.meri-email-btn {
   border: 1px solid var(--border-2);
   background: var(--bg-surface);
   border-radius: 999px;
@@ -1392,23 +1392,23 @@
   color: var(--ink-2);
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
-.clio-email-btn:hover { background: var(--bg-surface-2); border-color: var(--border-strong); }
-.clio-email-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.clio-email-btn--primary {
+.meri-email-btn:hover { background: var(--bg-surface-2); border-color: var(--border-strong); }
+.meri-email-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.meri-email-btn--primary {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
 }
-.clio-email-btn--primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
-.clio-email-btn--small { padding: 4px 10px; font-size: 11px; margin-top: 8px; }
-.clio-email-btn--full { width: 100%; margin-top: 12px; }
-.clio-email-compose {
+.meri-email-btn--primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
+.meri-email-btn--small { padding: 4px 10px; font-size: 11px; margin-top: 8px; }
+.meri-email-btn--full { width: 100%; margin-top: 12px; }
+.meri-email-compose {
   padding: 16px;
 }
-.clio-email-field {
+.meri-email-field {
   margin-bottom: 12px;
 }
-.clio-email-label {
+.meri-email-label {
   display: block;
   font-size: 10px;
   font-weight: 600;
@@ -1418,7 +1418,7 @@
   letter-spacing: 0.08em;
   margin-bottom: 4px;
 }
-.clio-email-input {
+.meri-email-input {
   width: 100%;
   border: 1px solid var(--border-2);
   border-radius: var(--r-sm);
@@ -1429,12 +1429,12 @@
   color: var(--ink-1);
   transition: border-color 0.12s, box-shadow 0.12s;
 }
-.clio-email-input:focus {
+.meri-email-input:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
-.clio-email-textarea {
+.meri-email-textarea {
   width: 100%;
   border: 1px solid var(--border-2);
   border-radius: var(--r-sm);
@@ -1447,12 +1447,12 @@
   min-height: 120px;
   transition: border-color 0.12s, box-shadow 0.12s;
 }
-.clio-email-textarea:focus {
+.meri-email-textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
-.clio-email-result {
+.meri-email-result {
   margin-top: 12px;
   padding: 8px 12px;
   background: var(--success-soft);
@@ -1462,7 +1462,7 @@
 }
 
 @media (max-width: 900px) {
-  .clio-email-panel {
+  .meri-email-panel {
     right: 0;
     width: 100vw;
     z-index: 999;
@@ -1470,18 +1470,18 @@
 }
 
 /* ─── Artifact Panel Content ─── */
-.clio-artifact-panel-body {
+.meri-artifact-panel-body {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.clio-artifact-list-pane {
+.meri-artifact-list-pane {
   flex: 1;
   overflow-y: auto;
   padding: 0;
 }
-.clio-artifact-list-item {
+.meri-artifact-list-item {
   display: block;
   width: 100%;
   padding: 10px 16px;
@@ -1492,20 +1492,20 @@
   text-align: left;
   transition: background 0.12s;
 }
-.clio-artifact-list-item:hover {
+.meri-artifact-list-item:hover {
   background: var(--bg-surface-2);
 }
-.clio-artifact-list-item--active {
+.meri-artifact-list-item--active {
   background: var(--accent-soft);
   border-left: 3px solid var(--accent);
 }
-.clio-artifact-list-item-head {
+.meri-artifact-list-item-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-bottom: 4px;
 }
-.clio-artifact-kind-badge {
+.meri-artifact-kind-badge {
   display: inline-block;
   padding: 1px 8px;
   border-radius: 4px;
@@ -1516,12 +1516,12 @@
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
-.clio-artifact-list-item-time {
+.meri-artifact-list-item-time {
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--ink-3);
 }
-.clio-artifact-list-item-title {
+.meri-artifact-list-item-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--ink-1);
@@ -1530,22 +1530,22 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.clio-artifact-list-item-client {
+.meri-artifact-list-item-client {
   font-size: 11px;
   color: var(--ink-3);
   margin-top: 2px;
 }
-.clio-artifact-detail {
+.meri-artifact-detail {
   border-top: 2px solid var(--accent);
   padding: 16px;
   overflow-y: auto;
   max-height: 50vh;
   background: var(--bg-surface-2);
 }
-.clio-artifact-detail-header {
+.meri-artifact-detail-header {
   margin-bottom: 12px;
 }
-.clio-artifact-detail-title {
+.meri-artifact-detail-title {
   font-family: var(--font-serif);
   font-size: 17px;
   font-weight: 600;
@@ -1554,7 +1554,7 @@
   line-height: 1.3;
   letter-spacing: -0.01em;
 }
-.clio-artifact-detail-client {
+.meri-artifact-detail-client {
   display: inline-block;
   padding: 1px 8px;
   background: var(--accent-soft);
@@ -1564,12 +1564,12 @@
   font-weight: 500;
   margin-right: 8px;
 }
-.clio-artifact-detail-time {
+.meri-artifact-detail-time {
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--ink-3);
 }
-.clio-artifact-detail-body {
+.meri-artifact-detail-body {
   font-family: var(--font-mono);
   font-size: 12px;
   line-height: 1.6;
@@ -1586,24 +1586,24 @@
 }
 
 /* ─── Session Rail ─── */
-.clio-session-rail {
+.meri-session-rail {
   max-height: 240px;
   overflow-y: auto;
   border-bottom: 1px solid var(--border-1);
   background: var(--bg-sunken);
   flex-shrink: 0;
 }
-.clio-rail-loading,
-.clio-rail-empty {
+.meri-rail-loading,
+.meri-rail-empty {
   padding: 16px;
   text-align: center;
   color: var(--ink-3);
   font-size: 12px;
 }
-.clio-rail-group {
+.meri-rail-group {
   border-bottom: 1px solid var(--border-1);
 }
-.clio-rail-group-header {
+.meri-rail-group-header {
   display: flex;
   align-items: center;
   width: 100%;
@@ -1621,22 +1621,22 @@
   gap: 2px;
   transition: background 0.12s;
 }
-.clio-rail-group-header:hover {
+.meri-rail-group-header:hover {
   background: var(--bg-surface-2);
 }
-.clio-rail-group-icon {
+.meri-rail-group-icon {
   width: 14px;
   font-size: 10px;
   color: var(--ink-4);
   flex-shrink: 0;
 }
-.clio-rail-group-name {
+.meri-rail-group-name {
   flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.clio-rail-group-count {
+.meri-rail-group-count {
   font-size: 10px;
   color: var(--ink-3);
   background: var(--border-1);
@@ -1645,10 +1645,10 @@
   font-weight: 500;
   margin-left: 4px;
 }
-.clio-rail-group-items {
+.meri-rail-group-items {
   padding: 0 4px 4px;
 }
-.clio-rail-item {
+.meri-rail-item {
   display: flex;
   align-items: stretch;
   width: 100%;
@@ -1658,7 +1658,7 @@
   transition: background 0.12s;
   margin-bottom: 2px;
 }
-.clio-rail-item-main {
+.meri-rail-item-main {
   display: flex;
   align-items: flex-start;
   flex: 1;
@@ -1671,17 +1671,17 @@
   text-align: left;
   gap: 8px;
 }
-.clio-rail-item:hover {
+.meri-rail-item:hover {
   background: var(--border-1);
 }
-.clio-rail-item--active {
+.meri-rail-item--active {
   background: var(--accent-soft);
   color: var(--accent-ink);
 }
-.clio-rail-item--active:hover {
+.meri-rail-item--active:hover {
   background: var(--accent-soft);
 }
-.clio-rail-item-archive {
+.meri-rail-item-archive {
   border: none;
   background: none;
   color: var(--ink-4);
@@ -1691,30 +1691,30 @@
   line-height: 1;
   transition: color 0.12s;
 }
-.clio-rail-item-archive:hover {
+.meri-rail-item-archive:hover {
   color: var(--critical);
 }
-.clio-rail-item-icon {
+.meri-rail-item-icon {
   margin-top: 2px;
   font-size: 11px;
   color: var(--ink-4);
   flex-shrink: 0;
 }
-.clio-rail-item--active .clio-rail-item-icon {
+.meri-rail-item--active .meri-rail-item-icon {
   color: var(--accent);
 }
-.clio-rail-item-content {
+.meri-rail-item-content {
   flex: 1;
   min-width: 0;
 }
-.clio-rail-item-title {
+.meri-rail-item-title {
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.3;
 }
-.clio-rail-item-snippet {
+.meri-rail-item-snippet {
   font-size: 11px;
   color: var(--ink-3);
   overflow: hidden;
@@ -1722,10 +1722,10 @@
   white-space: nowrap;
   margin-top: 1px;
 }
-.clio-rail-item--active .clio-rail-item-snippet {
+.meri-rail-item--active .meri-rail-item-snippet {
   color: var(--accent-ink);
 }
-.clio-rail-item-time {
+.meri-rail-item-time {
   font-size: 10px;
   font-family: var(--font-mono);
   color: var(--ink-4);
@@ -1735,7 +1735,7 @@
 }
 
 /* ─── Conversation history search (F2) ─── */
-.clio-rail-search {
+.meri-rail-search {
   position: sticky;
   top: 0;
   z-index: 1;
@@ -1743,20 +1743,20 @@
   background: var(--bg-sunken);
   border-bottom: 1px solid var(--border-1);
 }
-.clio-rail-search .ant-input-affix-wrapper {
+.meri-rail-search .ant-input-affix-wrapper {
   background: var(--bg-surface);
   border-color: var(--border-1);
   border-radius: var(--r-sm);
   font-size: 12px;
 }
-.clio-rail-search-icon {
+.meri-rail-search-icon {
   color: var(--ink-4);
   font-size: 11px;
 }
-.clio-rail-search-results {
+.meri-rail-search-results {
   padding: 4px;
 }
-.clio-rail-search-result {
+.meri-rail-search-result {
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -1772,21 +1772,21 @@
   margin-bottom: 2px;
   transition: background 0.12s;
 }
-.clio-rail-search-result:hover {
+.meri-rail-search-result:hover {
   background: var(--border-1);
 }
-.clio-rail-search-result--active {
+.meri-rail-search-result--active {
   background: var(--accent-soft);
   color: var(--accent-ink);
 }
-.clio-rail-search-result--active:hover {
+.meri-rail-search-result--active:hover {
   background: var(--accent-soft);
 }
-.clio-rail-search-result-content {
+.meri-rail-search-result-content {
   flex: 1;
   min-width: 0;
 }
-.clio-rail-search-result-title {
+.meri-rail-search-result-title {
   display: block;
   font-weight: 500;
   overflow: hidden;
@@ -1794,7 +1794,7 @@
   white-space: nowrap;
   line-height: 1.3;
 }
-.clio-rail-search-result-snippet {
+.meri-rail-search-result-snippet {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -1804,42 +1804,42 @@
   margin-top: 1px;
   line-height: 1.35;
 }
-.clio-rail-search-result--active .clio-rail-search-result-snippet {
+.meri-rail-search-result--active .meri-rail-search-result-snippet {
   color: var(--accent-ink);
 }
 
 /* ─── Proactive Alerts ─── */
-.clio-alerts {
+.meri-alerts {
   padding: 8px 12px;
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
-.clio-alert {
+.meri-alert {
   padding: 10px 12px;
   border-radius: var(--r-md);
   background: var(--accent-soft);
   border-left: 3px solid var(--accent);
   font-size: 12px;
 }
-.clio-alert--high {
+.meri-alert--high {
   background: var(--critical-soft);
   border-left-color: var(--critical);
 }
-.clio-alert--low {
+.meri-alert--low {
   background: var(--success-soft);
   border-left-color: var(--success);
 }
-.clio-alert-title {
+.meri-alert-title {
   font-weight: 600;
   color: var(--ink-1);
   margin-bottom: 2px;
 }
-.clio-alert-body {
+.meri-alert-body {
   color: var(--ink-2);
   line-height: 1.4;
 }
-.clio-alert-dismiss {
+.meri-alert-dismiss {
   border: none;
   background: none;
   color: var(--ink-3);
@@ -1849,7 +1849,7 @@
   margin-top: 4px;
   transition: color 0.12s;
 }
-.clio-alert-dismiss:hover { color: var(--ink-1); }
+.meri-alert-dismiss:hover { color: var(--ink-1); }
 .chat-fab-badge {
   position: absolute;
   top: -4px;
@@ -1866,7 +1866,7 @@
   justify-content: center;
   line-height: 1;
 }
-.clio-artifact-edit-textarea {
+.meri-artifact-edit-textarea {
   width: 100%;
   border: 1px solid var(--border-2);
   border-radius: var(--r-sm);
@@ -1881,13 +1881,13 @@
   margin-bottom: 8px;
   transition: border-color 0.12s, box-shadow 0.12s;
 }
-.clio-artifact-edit-textarea:focus {
+.meri-artifact-edit-textarea:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
-/* ── Learned-memory chips ("Clio learned: …" + undo) ─────────────── */
+/* ── Learned-memory chips ("Meri learned: …" + undo) ─────────────── */
 .chat-learned-memories {
   display: flex;
   flex-wrap: wrap;
@@ -2155,25 +2155,25 @@
   color: var(--accent-ink);
 }
 
-/* ── Clio Canvas (deliverables side panel) ─────────────────────── */
-.clio-canvas {
+/* ── Meri Canvas (deliverables side panel) ─────────────────────── */
+.meri-canvas {
   background: var(--bg-surface);
   border-left: 1px solid var(--border-1);
   box-shadow: var(--shadow-2), -8px 0 24px rgba(16, 18, 24, 0.12);
   font-family: var(--font-sans);
 }
-.clio-canvas-header {
+.meri-canvas-header {
   border-bottom: 1px solid var(--border-1);
   background: var(--bg-surface-2);
 }
-.clio-canvas-title {
+.meri-canvas-title {
   font-family: var(--font-serif);
   font-weight: 600;
   font-size: 15px;
   letter-spacing: -0.01em;
   color: var(--ink-1);
 }
-.clio-canvas-btn {
+.meri-canvas-btn {
   font: inherit;
   font-size: 12px;
   padding: 4px 12px;
@@ -2184,25 +2184,25 @@
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s, box-shadow 0.12s;
 }
-.clio-canvas-btn:hover:not(:disabled) {
+.meri-canvas-btn:hover:not(:disabled) {
   background: var(--bg-surface-2);
   border-color: var(--border-strong);
 }
-.clio-canvas-btn:disabled {
+.meri-canvas-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
-.clio-canvas-btn--primary {
+.meri-canvas-btn--primary {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
 }
-.clio-canvas-btn--primary:hover:not(:disabled) {
+.meri-canvas-btn--primary:hover:not(:disabled) {
   background: var(--accent-ink);
   border-color: var(--accent-ink);
   box-shadow: 0 2px 6px rgba(42, 87, 206, 0.3);
 }
-.clio-canvas-body {
+.meri-canvas-body {
   color: var(--ink-1);
 }
 
@@ -2268,8 +2268,8 @@
     transition: none !important;
   }
   .chat-drawer *,
-  .clio-email-panel *,
-  .clio-canvas *,
+  .meri-email-panel *,
+  .meri-canvas *,
   .chat-toggle-fab {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;

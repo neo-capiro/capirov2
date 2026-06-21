@@ -231,11 +231,11 @@ case "${1:-serve}" in
   # Read-only: counts old-directory data still live (would-supersede / would-retire /
   # links-to-repair) using the SAME predicates as the reconcile jobs. No writes.
   diag-stale-directory) shift; exec ./node_modules/.bin/tsx scripts/diag-stale-directory.ts "$@" ;;
-  # Read-only: per-tenant Clio memory health (totals, firm vs private, % embedded).
+  # Read-only: per-tenant Meri memory health (totals, firm vs private, % embedded).
   diag-clio-memory) shift; exec ./node_modules/.bin/tsx scripts/diag-clio-memory.ts "$@" ;;
   # Backfill embeddings for clio_memory rows missing one. DRY RUN unless --commit.
   backfill-clio-memory-embeddings) shift; exec ./node_modules/.bin/tsx scripts/backfill-clio-memory-embeddings.ts "$@" ;;
-  # W3: run DUE Clio scheduled tasks (read-only research digests to inbox). DRY RUN unless --commit.
+  # W3: run DUE Meri scheduled tasks (read-only research digests to inbox). DRY RUN unless --commit.
   run-clio-scheduled-tasks) shift; exec ./node_modules/.bin/tsx scripts/run-clio-scheduled-tasks.ts "$@" ;;
   # Soft-supersede personnel whose only provenance is the old DoW spreadsheet and who
   # are absent from the updated directory. DRY RUN unless --commit; --limit=N caps.

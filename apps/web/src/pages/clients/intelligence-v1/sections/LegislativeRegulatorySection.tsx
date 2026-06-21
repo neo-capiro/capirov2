@@ -82,7 +82,7 @@ function applyKanbanControls(columns: BillKanbanColumn[], controls: KanbanContro
     let cards: BillKanbanCard[] = [...col.cards];
 
     if (controls.filter === 'high-fit') {
-      cards = cards.filter((c) => c.clioTag != null);
+      cards = cards.filter((c) => c.meriTag != null);
     } else if (controls.filter === 'high-prob') {
       cards = cards.filter((c) => c.pct != null && c.pct >= 70);
     }
@@ -207,7 +207,7 @@ export function LegislativeRegulatorySection({
               : b.probability >= 0.4
                 ? 'var(--notable)'
                 : 'var(--info)',
-        clioTag: b.probability != null ? `fit · ${b.probability.toFixed(2)}` : undefined,
+        meriTag: b.probability != null ? `fit · ${b.probability.toFixed(2)}` : undefined,
       })),
     }));
   }, [dynamicKanban]);

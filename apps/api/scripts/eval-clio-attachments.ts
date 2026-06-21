@@ -32,7 +32,7 @@ import {
   ATTACHMENT_FAILURE_FIXTURES,
   ATTACHMENT_IMAGE_FIXTURES,
   type AttachmentImageFixture,
-} from '../src/clio/evals/attachment-fixtures.js';
+} from '../src/meri/evals/attachment-fixtures.js';
 import {
   MAX_ATTACHMENT_BYTES,
   formatAttachmentContext,
@@ -40,8 +40,8 @@ import {
   validateAttachment,
   verifyMagicBytes,
   type AttachmentStatus,
-} from '../src/clio/clio-attachment.helpers.js';
-import { extractPdfText } from '../src/clio/clio-attachment-extract.js';
+} from '../src/meri/meri-attachment.helpers.js';
+import { extractPdfText } from '../src/meri/meri-attachment-extract.js';
 import mammoth from 'mammoth';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
@@ -195,7 +195,7 @@ async function renderDocx(lines: string[]): Promise<Buffer> {
   return Packer.toBuffer(doc);
 }
 
-// ── Pipeline (mirrors ClioService.uploadAttachment minus persistence) ──────
+// ── Pipeline (mirrors MeriService.uploadAttachment minus persistence) ──────
 
 interface PipelineResult {
   status: AttachmentStatus;
@@ -243,7 +243,7 @@ async function askWithText(question: string, filename: string, text: string): Pr
       model: MODEL,
       max_tokens: 500,
       system:
-        'You are Clio, an AI chief of staff for federal lobbyists. Answer strictly from the attached document.',
+        'You are Meri, an AI chief of staff for federal lobbyists. Answer strictly from the attached document.',
       messages: [
         { role: 'user', content: `${formatAttachmentContext(filename, text)}\n\nQuestion: ${question}` },
       ],

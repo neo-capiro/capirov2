@@ -387,7 +387,7 @@ export function StepContext({ recipients, targets, selected, onChange, pool, loa
 
   return (
     <div>
-      <h2>Build the context Clio uses</h2>
+      <h2>Build the context Meri uses</h2>
       <div className="ov2-pane-sub">
         Shared items will be used as context for all recipients. You can also add personalized
         context for each individual, list, or group.
@@ -531,7 +531,7 @@ export function StepContext({ recipients, targets, selected, onChange, pool, loa
                   margin: '8px 0 18px',
                 }}
               >
-                Add a free-form note Clio should treat as context. Notes can be shared across all
+                Add a free-form note Meri should treat as context. Notes can be shared across all
                 recipients, or scoped to a single recipient, list, or group — you choose after
                 adding.
               </p>
@@ -549,7 +549,7 @@ export function StepContext({ recipients, targets, selected, onChange, pool, loa
         {/* ---------- RIGHT: context plan ---------- */}
         <div className="ov2-ctx-right">
           <div className="ov2-ctx-right-head">
-            <span className="clio">
+            <span className="meri">
               <RobotOutlined style={{ fontSize: 12 }} />
             </span>
             <span className="title">Context plan</span>

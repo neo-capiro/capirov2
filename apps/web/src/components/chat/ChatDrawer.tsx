@@ -17,9 +17,9 @@ import {
   addChatMessageChartArtifact,
   appendChatMessage,
   clearChatSession,
-  ClioSourceAttribution,
-  type ClioCitation,
-  type ClioVerification,
+  MeriSourceAttribution,
+  type MeriCitation,
+  type MeriVerification,
   getActiveDraft,
   getActiveWhitePaper,
   removeConversation,
@@ -44,9 +44,9 @@ import { ChatInput, isUsableAttachment, type StagedAttachment } from './ChatInpu
 import { ChatMessage } from './ChatMessage.js';
 import { SessionRail } from './SessionRail.js';
 import { ThoughtProcess, type TrustStep } from './ThoughtProcess.js';
-import { ClioCanvas, type CanvasArtifact } from './ClioCanvas.js';
+import { MeriCanvas, type CanvasArtifact } from './MeriCanvas.js';
 import { ResearchClarifyForm } from './ResearchClarifyForm.js';
-import clioBubbleImage from '../../assets/chat/clio-bubble.png';
+import meriBubbleImage from '../../assets/chat/meri-bubble.png';
 import './chat.css';
 
 type SseEvent =
@@ -58,12 +58,12 @@ type SseEvent =
   | { type: 'tool_call'; tool: string; label?: string; input?: Record<string, unknown> }
   | { type: 'template'; template?: { heading: string; sections: string[] } }
   | { type: 'conflict'; conflict?: { title: string; detail: string } }
-  | { type: 'sources'; sources?: Array<ClioSourceAttribution & { label?: string }> }
-  | { type: 'citations'; citations?: ClioCitation[] }
+  | { type: 'sources'; sources?: Array<MeriSourceAttribution & { label?: string }> }
+  | { type: 'citations'; citations?: MeriCitation[] }
   | {
       type: 'verification';
       title?: string;
-      verification?: ClioVerification;
+      verification?: MeriVerification;
       confidence?: { level: 'high' | 'medium' | 'low' | 'unknown'; label: string };
     }
   | { type: 'text'; text: string }
@@ -193,20 +193,20 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const [isSavingMeta, setIsSavingMeta] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [writeMode, setWriteMode] = useState(false);
-  // Deep Research mode lives inside the chat: first message = topic (Clio plans +
-  // asks clarifying questions), next message = answers (Clio runs the agentic
+  // Deep Research mode lives inside the chat: first message = topic (Meri plans +
+  // asks clarifying questions), next message = answers (Meri runs the agentic
   // research and streams a cited report into the conversation).
   const [researchMode, setResearchMode] = useState(false);
   const researchSessionRef = useRef<string | null>(null);
   const [researchAwaitingAnswers, setResearchAwaitingAnswers] = useState(false);
-  // Clarifying questions Clio asked, rendered as an inline answer form (Claude-style).
+  // Clarifying questions Meri asked, rendered as an inline answer form (Claude-style).
   const [researchQuestions, setResearchQuestions] = useState<string[]>([]);
   // Map of assistant message id -> completed research session id, so a finished
   // report can show Download Word / Open as page actions.
   const [researchReports, setResearchReports] = useState<Record<string, string>>({});
   const [learnedMemories, setLearnedMemories] = useState<Array<{ id: string; key: string; value: string; scope: string }>>([]);
   // Learned-memory panel is collapsed by default so it doesn't dominate the
-  // drawer; the user can expand to review/acknowledge what Clio remembers.
+  // drawer; the user can expand to review/acknowledge what Meri remembers.
   const [learnedExpanded, setLearnedExpanded] = useState(false);
   const drawerRef = useRef<HTMLDivElement | null>(null);
   const resizingRef = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -997,7 +997,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
   const submitMemoryEdit = useCallback(
     async (id: string, currentValue: string) => {
-      const next = window.prompt('Edit what Clio remembers:', currentValue);
+      const next = window.prompt('Edit what Meri remembers:', currentValue);
       if (next == null) return; // cancelled
       const trimmed = next.trim();
       if (!trimmed || trimmed === currentValue) return;
@@ -1077,7 +1077,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
   useEffect(() => () => stopResize(), [stopResize]);
 
-  // After a streamed turn finishes, refresh the "Clio learned" chips. The
+  // After a streamed turn finishes, refresh the "Meri learned" chips. The
   // backend extracts memories fire-and-forget post-stream, so delay slightly.
   useEffect(() => {
     if (isStreaming || !sessionId) return;
@@ -1114,7 +1114,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         ref={drawerRef}
         className={`chat-drawer${isOpen ? ' chat-drawer--open' : ''}`}
         role="complementary"
-        aria-label="Clio assistant"
+        aria-label="Meri assistant"
         aria-hidden={!isOpen}
         style={{ width: `${drawerWidth}px` }}
       >
@@ -1128,10 +1128,10 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         <div className="chat-header">
           <span className="chat-header-title">
             <span className="chat-header-logo" aria-hidden="true">
-              <img src={clioBubbleImage} alt="" className="chat-header-logo-img" />
+              <img src={meriBubbleImage} alt="" className="chat-header-logo-img" />
               <span className="chat-header-dot" aria-hidden="true" />
             </span>
-            Clio
+            Meri
           </span>
           <div className="chat-header-actions">
             <button
@@ -1156,7 +1156,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
               type="button"
               className="chat-header-btn"
               onClick={handleClose}
-              aria-label="Close Clio"
+              aria-label="Close Meri"
             >
               <CloseOutlined />
             </button>
@@ -1210,7 +1210,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           </div>
           {metaError && <div className="chat-session-error">{metaError}</div>}
           {learnedMemories.length > 0 && (
-            <div className="chat-learned-memories" aria-label="Things Clio learned">
+            <div className="chat-learned-memories" aria-label="Things Meri learned">
               <button
                 type="button"
                 className="chat-learned-header"
@@ -1219,7 +1219,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
               >
                 <span className="chat-learned-header-label">
                   <span className="chat-learned-spark" aria-hidden="true">✦</span>
-                  Clio learned {learnedMemories.length} thing{learnedMemories.length === 1 ? '' : 's'}
+                  Meri learned {learnedMemories.length} thing{learnedMemories.length === 1 ? '' : 's'}
                 </span>
                 <span className="chat-learned-chevron" aria-hidden="true">
                   {learnedExpanded ? '▾' : '▸'}
@@ -1232,7 +1232,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     className={`chat-learned-pill chat-learned-pill--${mem.scope === 'firm' ? 'firm' : 'private'}`}
                     title={mem.value}
                   >
-                    Clio learned: {mem.value.length > 80 ? `${mem.value.slice(0, 77)}…` : mem.value}
+                    Meri learned: {mem.value.length > 80 ? `${mem.value.slice(0, 77)}…` : mem.value}
                     <button
                       type="button"
                       className="chat-learned-undo"
@@ -1277,7 +1277,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             <div className="chat-empty">
               <div className="chat-empty-icon" aria-hidden="true">✦</div>
               <p className="chat-empty-text">
-                Hello! I&rsquo;m Clio, your workspace assistant. Ask me about your clients, intelligence,
+                Hello! I&rsquo;m Meri, your workspace assistant. Ask me about your clients, intelligence,
                 engagements, or workflows &mdash; or ask me to edit a draft.
               </p>
             </div>
@@ -1468,7 +1468,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           )}
 
           {showTypingIndicator && (
-            <div className="chat-typing" aria-label="Clio is typing">
+            <div className="chat-typing" aria-label="Meri is typing">
               <span />
               <span />
               <span />
@@ -1479,7 +1479,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         </div>
 
         {activeArtifact && (
-          <ClioCanvas
+          <MeriCanvas
             artifact={activeArtifact}
             onClose={() => setActiveArtifact(null)}
             apiBaseUrl={config.apiBaseUrl}
@@ -1546,11 +1546,11 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         type="button"
         className={`chat-toggle-fab${isOpen ? ' chat-toggle-fab--hidden' : ''}`}
         onClick={toggleChat}
-        aria-label="Open Clio"
-        title="Clio"
+        aria-label="Open Meri"
+        title="Meri"
         aria-expanded={isOpen}
       >
-        <img src={clioBubbleImage} alt="" className="chat-toggle-fab-logo" />
+        <img src={meriBubbleImage} alt="" className="chat-toggle-fab-logo" />
         {alertsBadge > 0 && (
           <span className="chat-fab-badge">{alertsBadge}</span>
         )}

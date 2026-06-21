@@ -137,11 +137,11 @@ export function ClientProfilePage({
   const { setSelectedClientId } = useClientFilter();
   const [activeTab, setActiveTab] = useState<ProfileTab>('overview');
 
-  // "Ask Clio about this client": scope the global client filter to this
+  // "Ask Meri about this client": scope the global client filter to this
   // client and open the chat drawer with a fresh session. ChatDrawer creates
   // its next conversation with the selected client as the conversation's
   // clientId (on open, or lazily on first send if it is already open).
-  const askClioAboutClient = () => {
+  const askMeriAboutClient = () => {
     setSelectedClientId(client.id);
     clearChatSession();
     setActiveConversation(null);
@@ -306,19 +306,19 @@ export function ClientProfilePage({
         </div>
 
         <div className="cp-actions">
-          <Tooltip title="Ask Clio about this client">
+          <Tooltip title="Ask Meri about this client">
             <Button
               size="small"
               icon={<MessageOutlined />}
-              onClick={askClioAboutClient}
-              aria-label="Ask Clio about this client"
+              onClick={askMeriAboutClient}
+              aria-label="Ask Meri about this client"
               style={{
                 borderColor: 'rgba(255,255,255,.25)',
                 color: 'rgba(255,255,255,.8)',
                 background: 'transparent',
               }}
             >
-              Ask Clio
+              Ask Meri
             </Button>
           </Tooltip>
           <Upload
@@ -1196,7 +1196,7 @@ function WorkflowsTab({ workflows, loading }: { workflows: WorkflowInstance[]; l
 
 /* ── Documents Tab ──────────────────────────────────────────────────────── */
 
-/** GET /api/clio/kb/:clientId/status — Clio knowledge-base index status (F5). */
+/** GET /api/clio/kb/:clientId/status — Meri knowledge-base index status (F5). */
 interface KbStatusResponse {
   counts: {
     client_profile?: number;
@@ -1248,7 +1248,7 @@ function KbStatusChip({ status }: { status: KbStatusResponse }) {
   return (
     <Tooltip title={breakdown}>
       <Tag icon={<DatabaseOutlined />} color="blue">
-        Clio knowledge: {total} item{total === 1 ? '' : 's'} indexed
+        Meri knowledge: {total} item{total === 1 ? '' : 's'} indexed
         {status.lastIndexedAt ? ` · updated ${kbRelativeTime(status.lastIndexedAt)}` : ''}
       </Tag>
     </Tooltip>

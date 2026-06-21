@@ -93,9 +93,9 @@ export function BriefingCard({ briefing, fallbackSummary, ctaHref }: BriefingCar
   return (
     <div className="iv1-briefing-wrap">
       <span
-        className="iv1-clio-avatar"
-        title="Clio"
-        aria-label="Clio"
+        className="iv1-meri-avatar"
+        title="Meri"
+        aria-label="Meri"
       >
         <svg
           width="16"
@@ -111,7 +111,7 @@ export function BriefingCard({ briefing, fallbackSummary, ctaHref }: BriefingCar
       </span>
       <div className="iv1-briefing-body">
         <div className="iv1-briefing-titlebar">
-          <span className="iv1-clio-badge">Clio briefing</span>
+          <span className="iv1-meri-badge">Meri briefing</span>
           {generatedAt ? (
             <span className="iv1-briefing-date">{formatDate(generatedAt)}</span>
           ) : null}

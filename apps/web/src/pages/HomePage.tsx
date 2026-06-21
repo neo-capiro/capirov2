@@ -191,7 +191,7 @@ export function HomePage() {
         loading={commentAlerts.isLoading || comingUp.isLoading || portfolioAlerts.isLoading}
       />
 
-      <ClioBrief brief={brief.data} loading={brief.isLoading} isError={brief.isError} />
+      <MeriBrief brief={brief.data} loading={brief.isLoading} isError={brief.isError} />
 
       <div className="home-grid-2">
         <ClientEngagement meetings={meetings.data ?? []} loading={meetings.isLoading} />
@@ -428,9 +428,9 @@ function NeedsAttention({
   );
 }
 
-/* ── Clio brief (full width, gradient card) ─────────────────────────────── */
+/* ── Meri brief (full width, gradient card) ─────────────────────────────── */
 
-function ClioBrief({
+function MeriBrief({
   brief,
   loading,
   isError,
@@ -455,7 +455,7 @@ function ClioBrief({
           </svg>
         </span>
         <div className="home-brief-id">
-          <span className="home-brief-kicker">Clio briefing</span>
+          <span className="home-brief-kicker">Meri briefing</span>
           <span className="home-brief-date">{dateLabel}</span>
         </div>
       </div>
@@ -463,19 +463,19 @@ function ClioBrief({
         {loading ? (
           <Skeleton active paragraph={{ rows: 3 }} title={false} />
         ) : isError ? (
-          <p className="home-brief-empty">Clio is offline right now. Check back in a minute.</p>
+          <p className="home-brief-empty">Meri is offline right now. Check back in a minute.</p>
         ) : brief?.brief ? (
           <p className="home-brief-text">{renderBrief(brief.brief)}</p>
         ) : (
           <p className="home-brief-empty">
-            No brief generated yet. Once Clio has client activity to summarize, your morning brief
+            No brief generated yet. Once Meri has client activity to summarize, your morning brief
             appears here.
           </p>
         )}
       </div>
       <div className="home-brief-foot">
         <span className="home-brief-foot-meta">
-          {brief?.model ? `Synthesized · ${brief.model}` : 'Synthesized by Clio'}
+          {brief?.model ? `Synthesized · ${brief.model}` : 'Synthesized by Meri'}
         </span>
         <Link to="/intelligence/changes" className="home-brief-foot-link">
           See all changes →

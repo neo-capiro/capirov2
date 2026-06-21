@@ -153,7 +153,7 @@ export function SendSchedule({
         <Alert
           type="info"
           message="Sending campaign…"
-          description="Clio is sending your emails. Do not close this page."
+          description="Meri is sending your emails. Do not close this page."
           showIcon
           style={{ marginTop: 12 }}
         />

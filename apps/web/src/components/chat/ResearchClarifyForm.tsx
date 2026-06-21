@@ -8,9 +8,9 @@ interface ResearchClarifyFormProps {
 }
 
 /**
- * Inline clarifying-questions form rendered inside the Clio chat (Claude-style):
+ * Inline clarifying-questions form rendered inside the Meri chat (Claude-style):
  * one field per question, a primary "Run deep research" action, and a "Skip"
- * affordance that lets Clio proceed with its own assumptions. Answers are keyed
+ * affordance that lets Meri proceed with its own assumptions. Answers are keyed
  * by question index to match the backend's clarify contract.
  */
 export function ResearchClarifyForm({ questions, disabled, onSubmit }: ResearchClarifyFormProps) {

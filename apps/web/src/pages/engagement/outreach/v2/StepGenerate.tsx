@@ -149,7 +149,7 @@ export function StepGenerate({
     <div>
       <h2>Generate &amp; review</h2>
       <div className="ov2-pane-sub">
-        Clio drafts a unique email for each individual and list member, and one shared email per
+        Meri drafts a unique email for each individual and list member, and one shared email per
         group. Edit any draft inline, regenerate, or save everything as a draft to finish later.
       </div>
 

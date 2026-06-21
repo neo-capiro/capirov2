@@ -1,5 +1,5 @@
 /**
- * Smoke test: verify Clio Deep Research actually produces a REPORT, not just a
+ * Smoke test: verify Meri Deep Research actually produces a REPORT, not just a
  * list of the sources it searched.
  *
  * Regression guard for the "it only tells me what it searched" bug, where the
@@ -13,7 +13,7 @@
  * On the research stream it asserts that meaningful report text streamed (via
  * `text` events) OR a final `report` event with a non-trivial body arrived,
  * before `done`, with no `error`. The forced-synthesis fallback in
- * ClioResearchService guarantees this even if the model spends every round on
+ * MeriResearchService guarantees this even if the model spends every round on
  * tools — so a failure here means that guarantee regressed.
  *
  * Lives in apps/api/scripts/ in the Capiro repo. Run:
@@ -148,7 +148,7 @@ async function main(): Promise<void> {
   }
   console.log(`[smoke-clio-research] plan ok (${planQuestions} clarifying questions)`);
 
-  // 3) Clarify — skip (empty answers) so Clio uses its own judgment.
+  // 3) Clarify — skip (empty answers) so Meri uses its own judgment.
   const clarifyRes = await fetch(`${BASE}/api/clio/research/${id}/clarify`, {
     method: 'POST',
     headers: authHeaders(),
@@ -197,7 +197,7 @@ async function main(): Promise<void> {
     console.error(
       `[smoke-clio-research] FAIL: only ${producedReport} chars of report produced ` +
         `(min ${MIN_REPORT_CHARS}). The run searched but did not write a report — ` +
-        'the forced-synthesis fallback in ClioResearchService may have regressed.',
+        'the forced-synthesis fallback in MeriResearchService may have regressed.',
     );
     process.exit(1);
   }

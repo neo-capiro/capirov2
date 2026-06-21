@@ -4,7 +4,7 @@ import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import mammoth from 'mammoth';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { extractPdfText } from '../clio/clio-attachment-extract.js';
+import { extractPdfText } from '../meri/meri-attachment-extract.js';
 import {
   EMBEDDING_MODEL,
   embedAndUpsert,
@@ -35,7 +35,7 @@ import {
  * attachment path uses, chunked ~1k tokens / 15% overlap).
  *
  * Lives in the embeddings module so write-path modules (clients, engagement)
- * can fire lifecycle hooks without importing the Clio module; Clio consumes
+ * can fire lifecycle hooks without importing the Meri module; Meri consumes
  * retrieval (search_client_knowledge tool) and the always-on snapshot.
  *
  * Encrypted meeting notes never enter this index: the service reads only

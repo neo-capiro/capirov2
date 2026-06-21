@@ -1,8 +1,8 @@
 /**
- * Clio eval runner (P1-1).  `pnpm --filter @capiro/api eval:clio [--skill=research]`
+ * Meri eval runner (P1-1).  `pnpm --filter @capiro/api eval:clio [--skill=research]`
  *
  * For each committed fixture (src/clio/evals/fixtures.ts) it sends the question +
- * inline sources through the real Clio model (CLIO_MODEL), then runs a cheap
+ * inline sources through the real Meri model (CLIO_MODEL), then runs a cheap
  * grounding verifier (CLIO_INTENT_MODEL) reusing the P0-6 verifier helpers, and
  * grades the answer with the pure grader. Prints per-fixture PASS/FAIL, an
  * aggregate pass-rate + grounded-rate (overall and per skill), writes a JSON
@@ -15,11 +15,11 @@ import 'dotenv/config';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CLIO_EVAL_FIXTURES } from '../src/clio/evals/fixtures.js';
-import { clioEvalFixturesSchema } from '../src/clio/evals/eval.types.js';
-import type { ClioEvalGrade, ClioEvalSource } from '../src/clio/evals/eval.types.js';
-import { gradeAnswer, summarizeGrades } from '../src/clio/evals/eval-grader.js';
-import { parseVerifierClaims, summarizeVerification } from '../src/clio/clio-verifier.helpers.js';
+import { CLIO_EVAL_FIXTURES } from '../src/meri/evals/fixtures.js';
+import { meriEvalFixturesSchema } from '../src/meri/evals/eval.types.js';
+import type { MeriEvalGrade, MeriEvalSource } from '../src/meri/evals/eval.types.js';
+import { gradeAnswer, summarizeGrades } from '../src/meri/evals/eval-grader.js';
+import { parseVerifierClaims, summarizeVerification } from '../src/meri/meri-verifier.helpers.js';
 
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const KEY = process.env.ANTHROPIC_API_KEY;
@@ -38,7 +38,7 @@ interface AnthropicResponse {
 }
 
 const SYSTEM_PROMPT = [
-  'You are Clio, an AI chief of staff for U.S. federal lobbyists and government-affairs teams.',
+  'You are Meri, an AI chief of staff for U.S. federal lobbyists and government-affairs teams.',
   'Answer using ONLY the provided sources. Cite every factual claim inline with [n] matching the source id.',
   'If the sources do not support an answer, say so plainly rather than guessing. Never fabricate sources,',
   'citations, quotes, vote counts, dates, statistics, or guarantees of legislative outcomes.',
@@ -47,7 +47,7 @@ const SYSTEM_PROMPT = [
   'fabricating data.',
 ].join(' ');
 
-function renderSources(sources: ClioEvalSource[]): string {
+function renderSources(sources: MeriEvalSource[]): string {
   if (sources.length === 0) return '(No sources provided.)';
   return 'Sources:\n' + sources.map((s) => `[${s.id}] ${s.title}: ${s.text}`).join('\n');
 }
@@ -82,7 +82,7 @@ async function callAnthropic(
 }
 
 /** Returns the unsupported-claim ratio for a sourced answer, or null when not verifiable. */
-async function verifyGrounding(answer: string, sources: ClioEvalSource[]): Promise<number | null> {
+async function verifyGrounding(answer: string, sources: MeriEvalSource[]): Promise<number | null> {
   if (sources.length === 0) return null;
   const prompt =
     `${renderSources(sources)}\n\nANSWER:\n${answer}\n\n` +
@@ -112,14 +112,14 @@ async function main(): Promise<void> {
 
   const skillArg = process.argv.find((a) => a.startsWith('--skill='));
   const only = skillArg ? skillArg.split('=')[1] : undefined;
-  let fixtures = clioEvalFixturesSchema.parse(CLIO_EVAL_FIXTURES);
+  let fixtures = meriEvalFixturesSchema.parse(CLIO_EVAL_FIXTURES);
   if (only) fixtures = fixtures.filter((f) => f.skill === only);
 
   console.log(
-    `Running ${fixtures.length} Clio eval fixtures against ${MODEL}${only ? ` (skill=${only})` : ''}...\n`,
+    `Running ${fixtures.length} Meri eval fixtures against ${MODEL}${only ? ` (skill=${only})` : ''}...\n`,
   );
 
-  const grades: ClioEvalGrade[] = [];
+  const grades: MeriEvalGrade[] = [];
   for (const f of fixtures) {
     try {
       const user = `${f.question}\n\n${renderSources(f.sources)}`;
@@ -150,7 +150,7 @@ async function main(): Promise<void> {
   mkdirSync(dirname(fileURLToPath(reportUrl)), { recursive: true });
   writeFileSync(reportUrl, JSON.stringify({ generatedFor: MODEL, summary, grades }, null, 2));
 
-  console.log('\n=== Clio eval summary ===');
+  console.log('\n=== Meri eval summary ===');
   console.log(
     `pass ${summary.passed}/${summary.total} (${(summary.passRate * 100).toFixed(1)}%)   ` +
       `grounded ${(summary.groundedRate * 100).toFixed(1)}% of ${summary.verifiedCount} verified`,

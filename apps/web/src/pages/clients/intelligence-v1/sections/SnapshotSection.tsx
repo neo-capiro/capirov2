@@ -1,7 +1,7 @@
 /**
  * Section 1, Snapshot
  * Fetches comment alerts, recent changes, meetings, and client profile.
- * Renders: hero metrics, Clio briefing, top alerts, 90-day activity strip.
+ * Renders: hero metrics, Meri briefing, top alerts, 90-day activity strip.
  */
 import { useMemo, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -152,15 +152,15 @@ export function SnapshotSection({ clientId, clientName, profile: profileFromPare
         <span className="iv1-sec-sub">30-second status · what changed today</span>
       </div>
 
-      {/* ── Hero: Clio briefing ── */}
+      {/* ── Hero: Meri briefing ── */}
       {healthQuery.isLoading && !aggregate && !profile ? (
         <Skeleton active paragraph={{ rows: 3 }} style={{ marginBottom: 14 }} />
       ) : (
         <div className="iv1-snap-hero">
-          {/* Clio briefing */}
+          {/* Meri briefing */}
           <BriefingCard
             briefing={aggregate?.sections.snapshot.dailyBriefing ?? null}
-            fallbackSummary={clioText(profile, clientAlerts, changes.length, meetings.length, clientName)}
+            fallbackSummary={meriText(profile, clientAlerts, changes.length, meetings.length, clientName)}
             ctaHref={aggregate?.links.changesInbox ?? '/intelligence/changes'}
           />
         </div>
@@ -347,7 +347,7 @@ function ActivityBar({
   );
 }
 
-function clioText(
+function meriText(
   profile: ClientIntelProfile | null,
   alerts: CommentAlert[],
   changeCount: number,
