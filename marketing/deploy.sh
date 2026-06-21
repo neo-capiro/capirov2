@@ -34,13 +34,24 @@ aws ecr get-login-password --region "$REGION" \
   | docker login --username AWS --password-stdin "${ACCOUNT}.dkr.ecr.${REGION}.amazonaws.com"
 
 echo "==> Build + push image ($REPO:latest and :$TAG)"
+# Docker on Windows (git-bash) needs a native path for the build context and
+# Dockerfile. MSYS_NO_PATHCONV=1 (above) keeps AWS ARNs intact but also stops
+# the usual /c/... -> C:/... conversion, so do it explicitly when cygpath exists
+# (no-op on Linux/macOS). Without this, a build from a worktree fails with
+# "unable to prepare context: path ... not found".
+CTX="$ROOT"
+DOCKERFILE="$ROOT/marketing/Dockerfile"
+if command -v cygpath >/dev/null 2>&1; then
+  CTX="$(cygpath -m "$ROOT")"
+  DOCKERFILE="$(cygpath -m "$ROOT/marketing/Dockerfile")"
+fi
 docker buildx build \
   --platform linux/arm64 \
-  -f "$ROOT/marketing/Dockerfile" \
+  -f "$DOCKERFILE" \
   -t "$REPO:latest" \
   -t "$REPO:$TAG" \
   --push \
-  "$ROOT"
+  "$CTX"
 
 echo "==> Force new deployment of $SERVICE"
 aws ecs update-service \
