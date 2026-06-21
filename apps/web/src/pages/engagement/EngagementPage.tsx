@@ -539,11 +539,9 @@ export function EngagementPage() {
       [...meetingsWithMock].sort((left, right) => {
         const leftTime = new Date(left.startsAt).getTime();
         const rightTime = new Date(right.startsAt).getTime();
-        return meetingViewMode === 'calendar' || meetingViewMode === 'day'
-          ? leftTime - rightTime
-          : rightTime - leftTime;
+        return leftTime - rightTime;
       }),
-    [meetingViewMode, meetingsWithMock],
+    [meetingsWithMock],
   );
   const selectedMeetingFromVisible = useMemo(
     () => visibleMeetings.find((meeting) => meeting.id === selectedMeetingId) ?? null,
