@@ -228,7 +228,7 @@
   flex-shrink: 0;
   border-radius: 7px;
   overflow: hidden;
-  background: #101e61;
+  background: #01226a;
 }
 .chat-header-logo-img {
   width: 100%;
@@ -536,9 +536,9 @@
   height: 30px;
   border-radius: 999px;
   border: none;
-  /* Cobalt-gradient identity disc (reference avatar treatment); the square
-     Meri wordmark sits centered and uncropped (contain, not cover). */
-  background: linear-gradient(135deg, #4e78d8, #1a3f9f);
+  /* Navy identity disc matching the Meri logo's own navy (#01226a) so the
+     square wordmark blends into the disc — centered and uncropped (contain). */
+  background: #01226a;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1168,23 +1168,23 @@
   height: 52px;
   border-radius: 50%;
   border: none;
-  /* Background matches the logo's own navy (#101e61) so the square wordmark
+  /* Background matches the logo's own navy (#01226a) so the square wordmark
      image blends seamlessly into the disc — no lighter halo ring around it. */
-  background: #101e61;
+  background: #01226a;
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(16, 30, 97, 0.32);
+  box-shadow: 0 4px 16px rgba(1, 34, 106, 0.32);
   transition: opacity 200ms, transform 200ms, box-shadow 0.12s;
   font-size: 20px;
   overflow: hidden;
 }
 
 .chat-toggle-fab:hover {
-  background: #15246f;
-  box-shadow: 0 6px 22px rgba(16, 30, 97, 0.42);
+  background: #06348a;
+  box-shadow: 0 6px 22px rgba(1, 34, 106, 0.42);
   transform: translateY(-1px);
 }
 
