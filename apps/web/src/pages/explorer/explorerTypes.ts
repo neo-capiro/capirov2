@@ -85,6 +85,7 @@ export interface ExplorerFedRegRow {
 export interface FedRegFacets {
   types: string[];
   agencies: string[];
+  topics: string[];
 }
 
 export interface ExplorerHearingRow {
@@ -120,6 +121,7 @@ export interface ExplorerGaoRow {
 export interface GaoFacets {
   reportTypes: string[];
   topics: string[];
+  agencies: string[];
 }
 
 export interface ExplorerCrsRow {

@@ -99,6 +99,10 @@ class ContractorsQuery extends CommonPagingDto {
   @IsOptional()
   @Type(() => Number)
   minContracts?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  maxContracts?: number;
 }
 
 class BillsQuery extends CommonPagingDto {
@@ -131,6 +135,10 @@ class FedRegQuery extends CommonPagingDto {
   @IsOptional()
   @IsArray()
   agencies?: string[] | string;
+
+  @IsOptional()
+  @IsArray()
+  topics?: string[] | string;
 
   @IsOptional()
   @IsBoolean()
@@ -178,6 +186,7 @@ export class ExplorerController {
       categories: arrayOrSplit(q.categories),
       hasNoBid: q.hasNoBid,
       minContracts: q.minContracts,
+      maxContracts: q.maxContracts,
       sort: q.sort,
       page: q.page,
       pageSize: q.pageSize,
@@ -215,6 +224,7 @@ export class ExplorerController {
       q: q.q,
       types: arrayOrSplit(q.types),
       agencies: arrayOrSplit(q.agencies),
+      topics: arrayOrSplit(q.topics),
       significantOnly: q.significantOnly,
       openCommentOnly: q.openCommentOnly,
       sort: q.sort,

@@ -96,6 +96,7 @@ export class ExplorerService {
     categories?: string[];
     hasNoBid?: boolean;
     minContracts?: number;
+    maxContracts?: number;
     sort?: string;
     page?: number;
     pageSize?: number;
@@ -103,11 +104,23 @@ export class ExplorerService {
     const limit = clampPageSize(opts.pageSize);
     const offset = ((opts.page ?? 1) - 1) * limit;
     const where: Prisma.FederalContractorWhereInput = {};
-    if (opts.q) where.name = { contains: opts.q, mode: 'insensitive' };
+    if (opts.q) {
+      where.OR = [
+        { name: { contains: opts.q, mode: 'insensitive' } },
+        { uei: { contains: opts.q, mode: 'insensitive' } },
+      ];
+    }
     if (opts.categories?.length) where.category = { in: opts.categories };
     if (opts.hasNoBid) where.noBidTotal = { gt: new Prisma.Decimal(0) };
+    const contractsFilter: Prisma.DecimalFilter = {};
     if (opts.minContracts != null && opts.minContracts > 0) {
-      where.totalContracts = { gte: new Prisma.Decimal(opts.minContracts) };
+      contractsFilter.gte = new Prisma.Decimal(opts.minContracts);
+    }
+    if (opts.maxContracts != null && opts.maxContracts > 0) {
+      contractsFilter.lte = new Prisma.Decimal(opts.maxContracts);
+    }
+    if (contractsFilter.gte != null || contractsFilter.lte != null) {
+      where.totalContracts = contractsFilter;
     }
 
     const orderBy: Prisma.FederalContractorOrderByWithRelationInput =
@@ -158,6 +171,7 @@ export class ExplorerService {
       where.OR = [
         { title: { contains: opts.q, mode: 'insensitive' } },
         { sponsorName: { contains: opts.q, mode: 'insensitive' } },
+        { latestActionText: { contains: opts.q, mode: 'insensitive' } },
       ];
     }
     if (opts.congress?.length) where.congress = { in: opts.congress };
@@ -208,6 +222,7 @@ export class ExplorerService {
     q?: string;
     types?: string[];
     agencies?: string[];
+    topics?: string[];
     significantOnly?: boolean;
     openCommentOnly?: boolean;
     sort?: string;
@@ -225,6 +240,7 @@ export class ExplorerService {
     }
     if (opts.types?.length) where.type = { in: opts.types };
     if (opts.agencies?.length) where.agencyNames = { hasSome: opts.agencies };
+    if (opts.topics?.length) where.topics = { hasSome: opts.topics };
     if (opts.significantOnly) where.significantRule = true;
     if (opts.openCommentOnly) {
       where.commentEndDate = { gt: new Date() };
@@ -326,7 +342,7 @@ export class ExplorerService {
   }
 
   async fedRegFacets() {
-    const [types, agencies] = await Promise.all([
+    const [types, agencies, topics] = await Promise.all([
       this.prisma.$queryRaw<Array<{ type: string }>>`
         SELECT DISTINCT type FROM federal_register_document ORDER BY type
       `,
@@ -335,10 +351,17 @@ export class ExplorerService {
         FROM federal_register_document, unnest(agency_names) AS agency
         GROUP BY agency ORDER BY n DESC LIMIT 50
       `,
+      this.prisma.$queryRaw<Array<{ topic: string; n: bigint }>>`
+        SELECT topic, COUNT(*)::bigint AS n
+        FROM federal_register_document, unnest(topics) AS topic
+        WHERE topic IS NOT NULL AND topic <> ''
+        GROUP BY topic ORDER BY n DESC LIMIT 50
+      `,
     ]);
     return {
       types: types.map((r) => r.type),
       agencies: agencies.map((r) => r.agency),
+      topics: topics.map((r) => r.topic),
     };
   }
 
@@ -361,6 +384,7 @@ export class ExplorerService {
       where.OR = [
         { title: { contains: opts.q, mode: 'insensitive' } },
         { committeeName: { contains: opts.q, mode: 'insensitive' } },
+        { location: { contains: opts.q, mode: 'insensitive' } },
       ];
     }
     if (opts.chambers?.length) where.chamber = { in: opts.chambers };
@@ -419,6 +443,7 @@ export class ExplorerService {
     q?: string;
     reportTypes?: string[];
     topics?: string[];
+    agencies?: string[];
     sort?: string;
     page?: number;
     pageSize?: number;
@@ -426,9 +451,15 @@ export class ExplorerService {
     const limit = clampPageSize(opts.pageSize);
     const offset = ((opts.page ?? 1) - 1) * limit;
     const where: Prisma.GaoReportWhereInput = {};
-    if (opts.q) where.title = { contains: opts.q, mode: 'insensitive' };
+    if (opts.q) {
+      where.OR = [
+        { title: { contains: opts.q, mode: 'insensitive' } },
+        { summary: { contains: opts.q, mode: 'insensitive' } },
+      ];
+    }
     if (opts.reportTypes?.length) where.reportType = { in: opts.reportTypes };
     if (opts.topics?.length) where.topics = { hasSome: opts.topics };
+    if (opts.agencies?.length) where.agencies = { hasSome: opts.agencies };
 
     const orderBy: Prisma.GaoReportOrderByWithRelationInput =
       opts.sort === 'recs'
@@ -456,7 +487,7 @@ export class ExplorerService {
   }
 
   async gaoFacets() {
-    const [types, topics] = await Promise.all([
+    const [types, topics, agencies] = await Promise.all([
       this.prisma.$queryRaw<Array<{ t: string }>>`
         SELECT DISTINCT report_type AS t FROM gao_report WHERE report_type IS NOT NULL ORDER BY t
       `,
@@ -465,10 +496,17 @@ export class ExplorerService {
         FROM gao_report, unnest(topics) AS topic
         GROUP BY topic ORDER BY n DESC LIMIT 30
       `,
+      this.prisma.$queryRaw<Array<{ agency: string; n: bigint }>>`
+        SELECT agency, COUNT(*)::bigint AS n
+        FROM gao_report, unnest(agencies) AS agency
+        WHERE agency IS NOT NULL AND agency <> ''
+        GROUP BY agency ORDER BY n DESC LIMIT 30
+      `,
     ]);
     return {
       reportTypes: types.map((r) => r.t),
       topics: topics.map((r) => r.topic),
+      agencies: agencies.map((r) => r.agency),
     };
   }
 

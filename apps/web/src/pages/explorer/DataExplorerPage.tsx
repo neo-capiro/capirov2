@@ -419,12 +419,14 @@ function ContractorsExplorer({
   const [searchInput, setSearchInput] = useState('');
   const [categories, setCategories] = useState<string[]>([]);
   const [hasNoBid, setHasNoBid] = useState(false);
+  const [minContracts, setMinContracts] = useState<number | null>(null);
+  const [maxContracts, setMaxContracts] = useState<number | null>(null);
   const [sort, setSort] = useState('total');
   const [page, setPage] = useState(1);
 
   useEffect(() => {
     setPage(1);
-  }, [q, categories, hasNoBid, sort]);
+  }, [q, categories, hasNoBid, minContracts, maxContracts, sort]);
 
   const facets = useQuery<ContractorFacets>({
     queryKey: ['explorer-contractor-facets'],
@@ -433,7 +435,7 @@ function ContractorsExplorer({
   });
 
   const rowsQuery = useQuery<ExplorerResponse<ExplorerContractorRow>>({
-    queryKey: ['explorer-contractors', q, categories, hasNoBid, sort, page],
+    queryKey: ['explorer-contractors', q, categories, hasNoBid, minContracts, maxContracts, sort, page],
     queryFn: async () =>
       (
         await api.get<ExplorerResponse<ExplorerContractorRow>>('/api/explorer/federal-contractors', {
@@ -441,6 +443,8 @@ function ContractorsExplorer({
             q: q || undefined,
             categories: categories.length ? categories.join(',') : undefined,
             hasNoBid: hasNoBid ? true : undefined,
+            minContracts: minContracts != null && minContracts > 0 ? minContracts : undefined,
+            maxContracts: maxContracts != null && maxContracts > 0 ? maxContracts : undefined,
             sort,
             page,
             pageSize: PAGE_SIZE,
@@ -453,7 +457,7 @@ function ContractorsExplorer({
   return (
     <>
       <ExplorerFilterBar
-        searchPlaceholder="Search contractor name…"
+        searchPlaceholder="Search contractor name or UEI…"
         searchInput={searchInput}
         onSearchInput={setSearchInput}
         onSearchSubmit={() => setQ(searchInput.trim())}
@@ -475,6 +479,13 @@ function ContractorsExplorer({
               label="Has no-bid awards"
               active={hasNoBid}
               onToggle={() => setHasNoBid((v) => !v)}
+            />
+            <NumberRange
+              label="Total contracts ($)"
+              minValue={minContracts}
+              maxValue={maxContracts}
+              onMinChange={setMinContracts}
+              onMaxChange={setMaxContracts}
             />
             <SortControl
               value={sort}
@@ -712,6 +723,7 @@ function FedRegExplorer({
   const [searchInput, setSearchInput] = useState('');
   const [types, setTypes] = useState<string[]>([]);
   const [agencies, setAgencies] = useState<string[]>([]);
+  const [topics, setTopics] = useState<string[]>([]);
   const [significantOnly, setSignificantOnly] = useState(false);
   const [openCommentOnly, setOpenCommentOnly] = useState(true);
   const [sort, setSort] = useState('comment-close');
@@ -719,7 +731,7 @@ function FedRegExplorer({
 
   useEffect(() => {
     setPage(1);
-  }, [q, types, agencies, significantOnly, openCommentOnly, sort]);
+  }, [q, types, agencies, topics, significantOnly, openCommentOnly, sort]);
 
   const facets = useQuery<FedRegFacets>({
     queryKey: ['explorer-fed-reg-facets'],
@@ -728,7 +740,7 @@ function FedRegExplorer({
   });
 
   const rowsQuery = useQuery<ExplorerResponse<ExplorerFedRegRow>>({
-    queryKey: ['explorer-fed-reg', q, types, agencies, significantOnly, openCommentOnly, sort, page],
+    queryKey: ['explorer-fed-reg', q, types, agencies, topics, significantOnly, openCommentOnly, sort, page],
     queryFn: async () =>
       (
         await api.get<ExplorerResponse<ExplorerFedRegRow>>('/api/explorer/federal-register', {
@@ -736,6 +748,7 @@ function FedRegExplorer({
             q: q || undefined,
             types: types.length ? types.join(',') : undefined,
             agencies: agencies.length ? agencies.join(',') : undefined,
+            topics: topics.length ? topics.join(',') : undefined,
             significantOnly: significantOnly ? true : undefined,
             openCommentOnly: openCommentOnly ? true : undefined,
             sort,
@@ -774,6 +787,14 @@ function FedRegExplorer({
               options={(facets.data?.agencies ?? []).map((a) => ({ value: a, label: a }))}
               values={agencies}
               onChange={setAgencies}
+              loading={facets.isLoading}
+            />
+            <MultiSelect
+              label="Topic"
+              placeholder="Any topic"
+              options={(facets.data?.topics ?? []).map((t) => ({ value: t, label: t }))}
+              values={topics}
+              onChange={setTopics}
               loading={facets.isLoading}
             />
             <ToggleChip
@@ -1075,9 +1096,10 @@ function GaoExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerGao
   const [searchInput, setSearchInput] = useState('');
   const [reportTypes, setReportTypes] = useState<string[]>([]);
   const [topics, setTopics] = useState<string[]>([]);
+  const [agencies, setAgencies] = useState<string[]>([]);
   const [sort, setSort] = useState('recent');
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [q, reportTypes, topics, sort]);
+  useEffect(() => { setPage(1); }, [q, reportTypes, topics, agencies, sort]);
 
   const facets = useQuery<GaoFacets>({
     queryKey: ['explorer-gao-facets'],
@@ -1085,9 +1107,9 @@ function GaoExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerGao
     staleTime: 10 * 60 * 1000,
   });
   const rowsQuery = useQuery<ExplorerResponse<ExplorerGaoRow>>({
-    queryKey: ['explorer-gao', q, reportTypes, topics, sort, page],
+    queryKey: ['explorer-gao', q, reportTypes, topics, agencies, sort, page],
     queryFn: async () => (await api.get<ExplorerResponse<ExplorerGaoRow>>('/api/explorer/gao', {
-      params: { q: q || undefined, reportTypes: reportTypes.length ? reportTypes.join(',') : undefined, topics: topics.length ? topics.join(',') : undefined, sort, page, pageSize: PAGE_SIZE },
+      params: { q: q || undefined, reportTypes: reportTypes.length ? reportTypes.join(',') : undefined, topics: topics.length ? topics.join(',') : undefined, agencies: agencies.length ? agencies.join(',') : undefined, sort, page, pageSize: PAGE_SIZE },
     })).data,
     placeholderData: (p) => p,
   });
@@ -1095,7 +1117,7 @@ function GaoExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerGao
   return (
     <>
       <ExplorerFilterBar
-        searchPlaceholder="Search GAO report title…"
+        searchPlaceholder="Search GAO report title or summary…"
         searchInput={searchInput}
         onSearchInput={setSearchInput}
         onSearchSubmit={() => setQ(searchInput.trim())}
@@ -1104,6 +1126,7 @@ function GaoExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerGao
           <>
             <MultiSelect label="Type" placeholder="Any" options={(facets.data?.reportTypes ?? []).map((t) => ({ value: t, label: t }))} values={reportTypes} onChange={setReportTypes} loading={facets.isLoading} />
             <MultiSelect label="Topic" placeholder="Any topic" options={(facets.data?.topics ?? []).map((t) => ({ value: t, label: t }))} values={topics} onChange={setTopics} loading={facets.isLoading} />
+            <MultiSelect label="Agency" placeholder="Any agency" options={(facets.data?.agencies ?? []).map((a) => ({ value: a, label: a }))} values={agencies} onChange={setAgencies} loading={facets.isLoading} />
             <SortControl value={sort} onChange={setSort} options={[
               { value: 'recent', label: 'Most recent' },
               { value: 'recs', label: 'Most recommendations' },
