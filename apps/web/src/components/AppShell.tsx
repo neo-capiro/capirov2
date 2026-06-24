@@ -134,7 +134,7 @@ const NAV: NavItem[] = [
     children: [
       {
         key: 'intelligence',
-        label: 'Intelligence Center',
+        label: 'Data Explorer',
         path: '/explorer',
         icon: <RadarChartOutlined />,
       },
