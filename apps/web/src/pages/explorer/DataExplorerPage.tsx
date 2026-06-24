@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { Drawer, Empty, Input, InputNumber, Pagination, Select, Skeleton, Table, Tag, Typography } from 'antd';
@@ -82,6 +82,7 @@ interface SourceMeta {
 }
 
 const SOURCES: SourceMeta[] = [
+  { key: 'articles', label: 'News Feed', description: 'Latest coverage from Politico, Roll Call, The Hill and other tracked outlets.', icon: <ReadOutlined /> },
   { key: 'lda', label: 'LDA Filings', description: 'Lobbying Disclosure Act, 500K+ filings, 5 years.', icon: <BookOutlined /> },
   { key: 'contractors', label: 'Federal Contractors', description: 'Top contractors with no-bid totals + agency mix.', icon: <BankOutlined /> },
   { key: 'bills', label: 'Congress Bills', description: 'Bills with sponsor, latest action, subject tags.', icon: <FileTextOutlined /> },
@@ -92,7 +93,6 @@ const SOURCES: SourceMeta[] = [
   { key: 'fec', label: 'FEC Contributions', description: 'Itemized political contributions, by cycle.', icon: <DollarOutlined /> },
   { key: 'fara', label: 'FARA Filings', description: 'Foreign agent registrations by country/principal.', icon: <GlobalOutlined /> },
   { key: 'sec', label: 'SEC Filings', description: '8-K, 10-Q, S-1 from SEC EDGAR.', icon: <AuditOutlined /> },
-  { key: 'articles', label: 'News Feed', description: 'RSS-ingested intel articles (Politico, RollCall, etc.).', icon: <ReadOutlined /> },
   { key: 'state-bills', label: 'State Bills', description: 'State legislation via OpenStates.', icon: <SolutionOutlined /> },
   { key: 'comment-deadlines', label: 'Comment Deadlines', description: 'Open comment periods on federal rules, closing soonest.', icon: <ClockCircleOutlined /> },
 ];
@@ -110,7 +110,7 @@ export function DataExplorerPage() {
   const initialSource = (() => {
     const fromUrl = searchParams.get('source') as SourceKey | null;
     if (billParam) return 'bills';
-    return fromUrl && SOURCES.some((s) => s.key === fromUrl) ? fromUrl : 'lda';
+    return fromUrl && SOURCES.some((s) => s.key === fromUrl) ? fromUrl : 'articles';
   })();
   const [source, setSource] = useState<SourceKey>(initialSource);
   const activeSource = SOURCES.find((s) => s.key === source) ?? SOURCES[0]!;
@@ -1483,23 +1483,250 @@ function ArticlesExplorer({ onRowClick }: { onRowClick: (id: string, row: Explor
           </>
         }
       />
-      <ExplorerTable
+      <NewsFeed
         loading={rowsQuery.isLoading}
         rows={rowsQuery.data?.rows ?? []}
         total={rowsQuery.data?.total ?? 0}
         page={page}
         onPageChange={setPage}
-        rowKey="id"
-        onRowClick={onRowClick}
-        columns={[
-          { title: 'Published', dataIndex: 'publishedAt', width: 130, render: (d: string) => <span className="num">{formatDate(d)}</span> },
-          { title: 'Source', dataIndex: 'source', width: 140, render: (s: string) => <Tag className="redesign-mono-tag">{s}</Tag> },
-          { title: 'Title', dataIndex: 'title', ellipsis: true, render: (t: string, r: ExplorerIntelArticleRow) => <a href={r.url} target="_blank" rel="noreferrer">{t}</a> },
-          { title: 'Topics', dataIndex: 'topics', width: 200, render: (t: string[]) => <ChipList items={t} max={3} /> },
-        ]}
+        onArticleClick={onRowClick}
       />
     </>
   );
+}
+
+/* ── News feed (editorial layout for the Intel articles source) ─────────── */
+
+function NewsFeed({
+  loading,
+  rows,
+  total,
+  page,
+  onPageChange,
+  onArticleClick,
+}: {
+  loading: boolean;
+  rows: ExplorerIntelArticleRow[];
+  total: number;
+  page: number;
+  onPageChange: (page: number) => void;
+  onArticleClick: (id: string, row: ExplorerIntelArticleRow) => void;
+}) {
+  if (loading && rows.length === 0) {
+    return (
+      <div className="news-feed">
+        <div className="news-feed-body">
+          <Skeleton active paragraph={{ rows: 8 }} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!rows.length) {
+    return (
+      <div className="news-feed explorer-empty">
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No articles match these filters." />
+      </div>
+    );
+  }
+
+  return (
+    <div className={`news-feed${loading ? ' is-loading' : ''}`}>
+      <div className="explorer-table-meta news-feed-meta">
+        <span className="news-feed-count">
+          <b>{total.toLocaleString()}</b> article{total === 1 ? '' : 's'} · showing{' '}
+          {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)}
+        </span>
+      </div>
+      <div className="news-list">
+        {rows.map((row, i) => (
+          <NewsItem
+            key={row.id}
+            row={row}
+            lead={page === 1 && i === 0}
+            onClick={() => onArticleClick(row.id, row)}
+          />
+        ))}
+      </div>
+      {total > PAGE_SIZE ? (
+        <div className="explorer-pagination">
+          <Pagination
+            current={page}
+            pageSize={PAGE_SIZE}
+            total={total}
+            onChange={onPageChange}
+            showSizeChanger={false}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function NewsItem({
+  row,
+  lead,
+  onClick,
+}: {
+  row: ExplorerIntelArticleRow;
+  lead: boolean;
+  onClick: () => void;
+}) {
+  const brand = sourceBrand(row.source, row.url);
+  const tags = [...new Set([...row.topics, ...row.agencies])];
+  return (
+    <article
+      className={`news-item${lead ? ' news-item--lead' : ''}`}
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
+      <SourceLogo brand={brand} />
+      <div className="news-body">
+        <div className="news-meta">
+          <span className="news-source" style={{ color: brand.color }}>
+            {brand.label}
+          </span>
+          <span className="news-dot" aria-hidden>
+            ·
+          </span>
+          <span className="news-time num">{relativeTime(row.publishedAt)}</span>
+          {row.author ? (
+            <>
+              <span className="news-dot" aria-hidden>
+                ·
+              </span>
+              <span className="news-author">{row.author}</span>
+            </>
+          ) : null}
+        </div>
+        <h3 className="news-headline">{row.title}</h3>
+        {row.summary ? <p className="news-summary">{row.summary}</p> : null}
+        {tags.length ? (
+          <div className="news-topics">
+            {tags.slice(0, lead ? 6 : 4).map((t) => (
+              <Tag key={t} className="redesign-mono-tag">
+                {t}
+              </Tag>
+            ))}
+            {tags.length > (lead ? 6 : 4) ? <Tag>+{tags.length - (lead ? 6 : 4)}</Tag> : null}
+          </div>
+        ) : null}
+      </div>
+      <a
+        className="news-read"
+        href={row.url}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => e.stopPropagation()}
+      >
+        Read <GlobalOutlined />
+      </a>
+    </article>
+  );
+}
+
+function SourceLogo({ brand }: { brand: SourceBrand }) {
+  const [imgOk, setImgOk] = useState(Boolean(brand.host));
+  return (
+    <span className="news-logo" style={{ '--brand': brand.color } as CSSProperties}>
+      {brand.host && imgOk ? (
+        <img
+          src={`https://icons.duckduckgo.com/ip3/${brand.host}.ico`}
+          alt=""
+          loading="lazy"
+          onError={() => setImgOk(false)}
+        />
+      ) : (
+        <span className="news-logo-mono">{brand.mono}</span>
+      )}
+    </span>
+  );
+}
+
+interface SourceBrand {
+  label: string;
+  host: string;
+  color: string;
+  mono: string;
+}
+
+// Curated brand colors for the outlets Capiro tracks most heavily; anything
+// else falls back to a deterministic hue derived from the source name so each
+// outlet keeps a stable, recognizable mark across sessions.
+const OUTLET_BRANDS: Record<string, string> = {
+  politico: '#e5121e',
+  'roll call': '#0b6db3',
+  rollcall: '#0b6db3',
+  'the hill': '#1a8fd0',
+  axios: '#0a3ab8',
+  punchbowl: '#d94436',
+  'punchbowl news': '#d94436',
+  reuters: '#ff8000',
+  bloomberg: '#1a1a2e',
+  'the new york times': '#1a1a1a',
+  'washington post': '#1a1a1a',
+  'the washington post': '#1a1a1a',
+  'wall street journal': '#1a1a1a',
+  npr: '#c0143c',
+  cnn: '#cc0000',
+  'associated press': '#ff322e',
+  ap: '#ff322e',
+  'federal news network': '#16518a',
+  govexec: '#0a6b53',
+  'government executive': '#0a6b53',
+  'defense news': '#2c5bd4',
+  'inside health policy': '#2e6b43',
+};
+
+function sourceBrand(source: string | null, url: string | null): SourceBrand {
+  const label = (source ?? '').trim();
+  const key = label.toLowerCase();
+  let host = '';
+  try {
+    if (url) host = new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    host = '';
+  }
+  const hostKey = host.replace(/\.(com|org|net|gov|news|co)(\.[a-z]{2})?$/i, '');
+  const color =
+    OUTLET_BRANDS[key] ??
+    OUTLET_BRANDS[hostKey] ??
+    hashColor(key || host || 'news');
+  return { label: label || host || 'News', host, color, mono: monogram(label || host) };
+}
+
+function monogram(name: string): string {
+  const cleaned = name.replace(/^the\s+/i, '').trim();
+  const words = cleaned.split(/[\s.]+/).filter(Boolean);
+  if (words.length >= 2) return (words[0]![0]! + words[1]![0]!).toUpperCase();
+  return cleaned.slice(0, 2).toUpperCase() || 'N';
+}
+
+function hashColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i += 1) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return `hsl(${h % 360}, 52%, 42%)`;
+}
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return '-';
+  const diff = Date.now() - then;
+  const mins = Math.round(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return formatDate(iso);
 }
 
 /* ── State bills ────────────────────────────────────────────────────────── */
@@ -2299,7 +2526,7 @@ function ExplorerTable<T extends { id: string }>({
     <div className="explorer-table-shell">
       <div className="explorer-table-meta">
         <Typography.Text type="secondary">
-          {total.toLocaleString()} row{total === 1 ? '' : 's'} · showing{' '}
+          <b>{total.toLocaleString()}</b> record{total === 1 ? '' : 's'} · showing{' '}
           {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)}
         </Typography.Text>
       </div>
