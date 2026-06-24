@@ -373,6 +373,7 @@ export class ExplorerService {
     committees?: string[];
     types?: string[];
     futureOnly?: boolean;
+    dateFilter?: 'upcoming' | 'past' | 'all';
     sort?: string;
     page?: number;
     pageSize?: number;
@@ -390,10 +391,25 @@ export class ExplorerService {
     if (opts.chambers?.length) where.chamber = { in: opts.chambers };
     if (opts.committees?.length) where.committeeName = { in: opts.committees };
     if (opts.types?.length) where.type = { in: opts.types };
-    if (opts.futureOnly) where.date = { gte: new Date() };
+    // Date window. `dateFilter` is the modern control; `futureOnly` kept for
+    // backward-compat (older clients). 'all' applies no date constraint.
+    // Compare against start-of-today so a hearing earlier today still counts
+    // as upcoming (the column is a DATE, no time component).
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const effectiveFilter: 'upcoming' | 'past' | 'all' =
+      opts.dateFilter ?? (opts.futureOnly ? 'upcoming' : 'all');
+    if (effectiveFilter === 'upcoming') where.date = { gte: startOfToday };
+    else if (effectiveFilter === 'past') where.date = { lt: startOfToday };
 
+    // Sort: for an upcoming view, soonest-first is the natural default;
+    // for past/all, most-recent-first. Explicit sort always wins.
+    const sortKey =
+      opts.sort ?? (effectiveFilter === 'upcoming' ? 'soonest' : 'recent');
     const orderBy: Prisma.CommitteeHearingOrderByWithRelationInput =
-      opts.sort === 'past' ? { date: 'desc' } : { date: 'asc' };
+      sortKey === 'soonest' || sortKey === 'future'
+        ? { date: 'asc' }
+        : { date: 'desc' };
 
     const [rows, total] = await Promise.all([
       this.prisma.committeeHearing.findMany({ where, orderBy, take: limit, skip: offset }),

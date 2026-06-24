@@ -1018,10 +1018,10 @@ function HearingsExplorer({ onRowClick }: { onRowClick: (id: string, row: Explor
   const [chambers, setChambers] = useState<string[]>([]);
   const [committees, setCommittees] = useState<string[]>([]);
   const [types, setTypes] = useState<string[]>([]);
-  const [futureOnly, setFutureOnly] = useState(true);
-  const [sort, setSort] = useState('future');
+  const [dateFilter, setDateFilter] = useState<'upcoming' | 'past' | 'all'>('upcoming');
+  const [sort, setSort] = useState('soonest');
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [q, chambers, committees, types, futureOnly, sort]);
+  useEffect(() => { setPage(1); }, [q, chambers, committees, types, dateFilter, sort]);
 
   const facets = useQuery<HearingFacets>({
     queryKey: ['explorer-hearing-facets'],
@@ -1029,7 +1029,7 @@ function HearingsExplorer({ onRowClick }: { onRowClick: (id: string, row: Explor
     staleTime: 10 * 60 * 1000,
   });
   const rowsQuery = useQuery<ExplorerResponse<ExplorerHearingRow>>({
-    queryKey: ['explorer-hearings', q, chambers, committees, types, futureOnly, sort, page],
+    queryKey: ['explorer-hearings', q, chambers, committees, types, dateFilter, sort, page],
     queryFn: async () =>
       (await api.get<ExplorerResponse<ExplorerHearingRow>>('/api/explorer/hearings', {
         params: {
@@ -1037,7 +1037,7 @@ function HearingsExplorer({ onRowClick }: { onRowClick: (id: string, row: Explor
           chambers: chambers.length ? chambers.join(',') : undefined,
           committees: committees.length ? committees.join(',') : undefined,
           types: types.length ? types.join(',') : undefined,
-          futureOnly: futureOnly ? true : undefined,
+          dateFilter,
           sort,
           page,
           pageSize: PAGE_SIZE,
@@ -1049,20 +1049,32 @@ function HearingsExplorer({ onRowClick }: { onRowClick: (id: string, row: Explor
   return (
     <>
       <ExplorerFilterBar
-        searchPlaceholder="Search hearing title or committee…"
+        searchPlaceholder="Search hearing title, committee, or location…"
         searchInput={searchInput}
         onSearchInput={setSearchInput}
         onSearchSubmit={() => setQ(searchInput.trim())}
         onClearSearch={() => { setSearchInput(''); setQ(''); }}
         controls={
           <>
+            <label className="explorer-filter">
+              <span className="explorer-filter-label">When</span>
+              <Select
+                value={dateFilter}
+                onChange={(v) => setDateFilter(v as 'upcoming' | 'past' | 'all')}
+                style={{ minWidth: 130 }}
+                options={[
+                  { value: 'upcoming', label: 'Upcoming' },
+                  { value: 'past', label: 'Past' },
+                  { value: 'all', label: 'All dates' },
+                ]}
+              />
+            </label>
             <MultiSelect label="Chamber" placeholder="Any" options={(facets.data?.chambers ?? []).map((c) => ({ value: c, label: c }))} values={chambers} onChange={setChambers} loading={facets.isLoading} />
             <MultiSelect label="Committee" placeholder="Any" options={(facets.data?.committees ?? []).map((c) => ({ value: c, label: c }))} values={committees} onChange={setCommittees} loading={facets.isLoading} />
             <MultiSelect label="Type" placeholder="Any" options={(facets.data?.types ?? []).map((t) => ({ value: t, label: t }))} values={types} onChange={setTypes} loading={facets.isLoading} />
-            <ToggleChip label="Upcoming only" active={futureOnly} onToggle={() => setFutureOnly((v) => !v)} />
             <SortControl value={sort} onChange={setSort} options={[
-              { value: 'future', label: 'Soonest first' },
-              { value: 'past', label: 'Most recent first' },
+              { value: 'soonest', label: 'Soonest first' },
+              { value: 'recent', label: 'Most recent first' },
             ]} />
           </>
         }

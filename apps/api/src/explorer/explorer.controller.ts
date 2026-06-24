@@ -242,12 +242,16 @@ export class ExplorerController {
 
   @Get('hearings')
   hearings(@Query() q: CommonPagingDto & Record<string, unknown>) {
+    const df = typeof q.dateFilter === 'string' ? q.dateFilter : undefined;
+    const dateFilter =
+      df === 'upcoming' || df === 'past' || df === 'all' ? df : undefined;
     return this.service.committeeHearings({
       q: q.q,
       chambers: arrayOrSplit(q.chambers),
       committees: arrayOrSplit(q.committees),
       types: arrayOrSplit(q.types),
       futureOnly: q.futureOnly === 'true' || q.futureOnly === true,
+      dateFilter,
       sort: q.sort,
       page: q.page,
       pageSize: q.pageSize,
