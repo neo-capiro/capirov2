@@ -59,6 +59,9 @@ interface MeetingDetail {
   date?: string | null; // ISO datetime, e.g. 2026-06-25T14:15:00Z
   location?: { building?: string | null; room?: string | null } | null;
   committees?: Array<{ name?: string | null; systemCode?: string | null }> | null;
+  // Public-facing links (event page, video). The list/detail `url` is the API
+  // endpoint and requires an api_key — never store it for the UI.
+  videos?: Array<{ name?: string | null; url?: string | null }> | null;
 }
 
 interface HearingListItem {
@@ -79,6 +82,8 @@ interface HearingDetail {
   jacketNumber?: number | null;
   number?: number | null;
   updateDate?: string | null;
+  // Public transcript links (HTM/PDF) on congress.gov — no api_key needed.
+  formats?: Array<{ type?: string | null; url?: string | null }> | null;
   associatedMeeting?: { eventID?: string | null } | null;
 }
 
@@ -134,6 +139,37 @@ function normalizeChamber(raw: string | null | undefined, fallback?: string | nu
   if (c === 'senate') return 'Senate';
   if (c === 'house') return 'House';
   return raw || fallback || 'Joint';
+}
+
+/** Public-facing congress.gov event page for a committee meeting. The API
+ *  also returns this in videos[].url; we prefer that when present and otherwise
+ *  construct the canonical form:
+ *    https://www.congress.gov/event/{congress}th-Congress/{chamber}-event/{eventId}
+ *  NEVER store the api.congress.gov URL — it requires an api_key and renders
+ *  an API_KEY_MISSING error in the browser. */
+function meetingPublicUrl(
+  detail: MeetingDetail,
+  congress: number,
+  chamber: string,
+  eventId: string,
+): string | null {
+  const fromVideo = detail.videos?.find(
+    (v) => v.url && v.url.includes('congress.gov/event'),
+  )?.url;
+  if (fromVideo) return fromVideo;
+  const chamberSlug = chamber.toLowerCase();
+  if (chamberSlug !== 'house' && chamberSlug !== 'senate') return null;
+  return `https://www.congress.gov/event/${congress}th-Congress/${chamberSlug}-event/${eventId}`;
+}
+
+/** Public transcript link for a hearing: prefer Formatted Text (HTM), fall
+ *  back to PDF, from the detail formats[]. Returns null when no public
+ *  transcript exists yet (common for very recent hearings). */
+function hearingPublicUrl(detail: HearingDetail): string | null {
+  const fmts = detail.formats ?? [];
+  const htm = fmts.find((f) => (f.type || '').toLowerCase().includes('text'))?.url;
+  const pdf = fmts.find((f) => (f.type || '').toLowerCase().includes('pdf'))?.url;
+  return htm ?? pdf ?? null;
 }
 
 function withAuth(rawUrl: string): string {
@@ -258,7 +294,7 @@ async function main() {
               time: formatTime(d.date),
               location: formatLocation(d.location),
               type: d.type?.trim() || 'Meeting',
-              url: item.url,
+              url: meetingPublicUrl(d, congress, chamber, item.eventId),
             };
             await prisma.committeeHearing.upsert({
               where: { id },
@@ -326,6 +362,7 @@ async function main() {
             for (const date of dates) {
               const dateKey = date.toISOString().slice(0, 10);
               const id = `${congress}-${item.jacketNumber}-${dateKey}`;
+              const publicUrl = hearingPublicUrl(detail);
               await prisma.committeeHearing.upsert({
                 where: { id },
                 update: {
@@ -336,7 +373,7 @@ async function main() {
                   date,
                   type: 'hearing',
                   witnesses,
-                  url: item.url ?? null,
+                  url: publicUrl,
                   syncedAt: new Date(),
                 },
                 create: {
@@ -348,7 +385,7 @@ async function main() {
                   date,
                   type: 'hearing',
                   witnesses,
-                  url: item.url ?? null,
+                  url: publicUrl,
                 },
               });
               hearingUpserts++;
