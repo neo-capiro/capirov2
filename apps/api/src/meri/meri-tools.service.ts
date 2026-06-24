@@ -36,7 +36,8 @@ import {
   type DocFormat,
 } from './meri-docgen.helpers.js';
 import {
-  computeNextRunAt,
+  computeNextRunAtAnchored,
+  parseTimeOfDayUtc,
   validateScheduleRequest,
 } from './meri-schedule.helpers.js';
 import { createHash } from 'node:crypto';
@@ -609,7 +610,9 @@ export class MeriToolsService {
       schedule_task: obj({
         name: str('Short name for the recurring task'),
         prompt: str('The instruction Meri runs each time the task fires'),
-        intervalMinutes: int('Minutes between runs (minimum 60)'),
+        intervalMinutes: int('Minutes between runs (minimum 60). Use 1440 for daily, 10080 for weekly.'),
+        dailyAtUtc: str('Optional clock-anchored run time as "HH:MM" in 24h UTC (e.g. "13:00" for 8am ET). When set with intervalMinutes=1440, the task runs every day at that wall-clock time instead of drifting.'),
+        clientId: str('Optional client UUID to scope every run to one client'),
         toolAllowList: {
           type: 'array',
           items: { type: 'string' },
@@ -2827,7 +2830,15 @@ export class MeriToolsService {
     }
     const intervalMinutes = validation.intervalMinutes!;
     const allowList = validation.allowList!;
-    const nextRunAt = computeNextRunAt(new Date(), intervalMinutes);
+    // Optional clock-anchored time-of-day (UTC) + client scope.
+    const runAtMinutesUtc = parseTimeOfDayUtc(input.dailyAtUtc);
+    const clientId = typeof input.clientId === 'string' && input.clientId.trim()
+      ? input.clientId.trim()
+      : undefined;
+    const metadata: Record<string, unknown> = { createdVia: 'schedule_task_tool' };
+    if (runAtMinutesUtc != null) metadata.runAtMinutesUtc = runAtMinutesUtc;
+    if (clientId) metadata.clientId = clientId;
+    const nextRunAt = computeNextRunAtAnchored(new Date(), intervalMinutes, runAtMinutesUtc);
     const task = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.clioScheduledTask.create({
         data: {
@@ -2839,17 +2850,20 @@ export class MeriToolsService {
           intervalMinutes,
           toolAllowList: allowList,
           nextRunAt,
-          createdBy: 'clio',
-          metadata: { createdVia: 'schedule_task_tool' },
+          createdBy: 'meri',
+          metadata,
         },
         select: { id: true, name: true, intervalMinutes: true, nextRunAt: true },
       }),
     );
+    const cadence = runAtMinutesUtc != null
+      ? `daily at ${String(Math.floor(runAtMinutesUtc / 60)).padStart(2, '0')}:${String(runAtMinutesUtc % 60).padStart(2, '0')} UTC`
+      : `every ${intervalMinutes} minutes`;
     return {
       tool: 'schedule_task',
       scheduled: true,
       task,
-      note: 'Scheduled as a READ-ONLY recurring research task (no email/writes). It will run automatically; use list_scheduled_tasks to review or cancel_scheduled_task to stop it.',
+      note: `Scheduled as a READ-ONLY recurring research task (${cadence}; no email/writes). Meri runs it automatically and delivers each briefing to your inbox; use list_scheduled_tasks to review or cancel_scheduled_task to stop it.`,
     };
   }
 

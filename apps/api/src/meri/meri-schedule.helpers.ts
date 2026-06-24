@@ -134,6 +134,55 @@ export function computeNextRunAt(from: Date, intervalMinutes: number): Date {
   return new Date(from.getTime() + intervalMinutes * 60_000);
 }
 
+/**
+ * Clock-anchored next-run for time-of-day schedules. When `runAtMinutesUtc` is a
+ * number in [0, 1440), the next run is pinned to that minute-of-day in UTC on the
+ * cadence implied by `intervalMinutes` (1440 = daily, 10080 = weekly, …). Returns
+ * the soonest such wall-clock instant strictly after `from`. When
+ * `runAtMinutesUtc` is null/undefined, falls back to plain interval math.
+ *
+ * Example: from=Mon 14:05Z, interval=1440, runAtMinutesUtc=480 (08:00Z)
+ *   -> Tue 08:00Z (today's 08:00 already passed, so the next day's).
+ */
+export function computeNextRunAtAnchored(
+  from: Date,
+  intervalMinutes: number,
+  runAtMinutesUtc: number | null | undefined,
+): Date {
+  if (
+    runAtMinutesUtc == null ||
+    !Number.isFinite(runAtMinutesUtc) ||
+    runAtMinutesUtc < 0 ||
+    runAtMinutesUtc >= 1440
+  ) {
+    return computeNextRunAt(from, intervalMinutes);
+  }
+  const target = Math.floor(runAtMinutesUtc);
+  // Candidate = today at the target UTC minute.
+  const candidate = new Date(
+    Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate(), 0, 0, 0, 0),
+  );
+  candidate.setUTCMinutes(target);
+  // Advance by whole cadence steps until strictly after `from`. For daily this is
+  // at most one step; for weekly/longer it lands on the next cadence boundary.
+  const stepMs = Math.max(intervalMinutes, 1) * 60_000;
+  while (candidate.getTime() <= from.getTime()) {
+    candidate.setTime(candidate.getTime() + stepMs);
+  }
+  return candidate;
+}
+
+/** Parse a "HH:MM" 24h UTC string to minute-of-day, or null if invalid. */
+export function parseTimeOfDayUtc(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
+
 /** Whether a task is due at `now` (enabled + nextRunAt <= now). */
 export function isDue(
   task: { enabled: boolean; nextRunAt: Date },

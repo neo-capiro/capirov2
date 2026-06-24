@@ -1,27 +1,45 @@
 /**
- * Meri scheduled-task runner (W3).
+ * Meri scheduled-task runner (W3 → W4: real read-only research).
  *
- * Executes DUE rows in clio_scheduled_task. v1 is deliberately READ-ONLY and
- * unattended-safe: each task's prompt is run through Anthropic to produce a
- * research digest, delivered to the in-app inbox (clio_proactive_alert) — it
- * NEVER sends email or writes other data on the user's behalf. Side-effecting
- * tools are forbidden at schedule time (clio-schedule.helpers) and this runner
- * does not execute any.
+ * Executes DUE rows in clio_scheduled_task. Each task's prompt is run through an
+ * AGENTIC loop that may call Meri's READ-ONLY research tools (the task's
+ * tool_allow_list, defaulting to DEFAULT_SCHEDULED_TOOL_ALLOWLIST) — so a
+ * scheduled "weekly bill brief" actually searches bills/awards/FARA/intel
+ * against the tenant's data instead of free-associating. The result digest is
+ * delivered to the in-app inbox (clio_proactive_alert) under the task's OWN
+ * tenant. Side-effecting tools are NEVER attached (isAllowListSafe + the schema
+ * filter below), so an unattended run can never email or write on a user's
+ * behalf.
  *
- *   pnpm --filter @capiro/api exec tsx scripts/run-clio-scheduled-tasks.ts
+ *   pnpm --filter @capiro/api exec tsx scripts/run-clio-scheduled-tasks.ts --commit
  *
- * Intended cadence: hourly via EventBridge -> ECS run-task. Multi-tenant safe:
- * due rows are read via the system/bypass path, then each task's delivery is
- * written under that task's own tenant id (no cross-tenant leakage).
+ * Intended cadence: hourly via EventBridge -> ECS run-task. The runner enforces
+ * a 60-min per-task minimum, so hourly is the finest usable granularity. Tasks
+ * with a clock-anchored time-of-day (metadata.runAtMinutesUtc) are re-pinned to
+ * that wall-clock minute via computeNextRunAtAnchored.
+ *
+ * Multi-tenant safe: due rows are read via the system path, then each task runs
+ * under a per-task TenantContext (owner user + tenant) so every tool read is
+ * RLS-scoped to that tenant; delivery is written under the same tenant id.
  */
 import { config as dotenvConfig } from 'dotenv';
-import { PrismaClient } from '@prisma/client';
-import { computeNextRunAt, isAllowListSafe } from '../src/meri/meri-schedule.helpers.js';
+import { NestFactory } from '@nestjs/core';
+import { Logger } from '@nestjs/common';
+import type { TenantContext } from '@capiro/shared';
+import {
+  computeNextRunAtAnchored,
+  isAllowListSafe,
+  DEFAULT_SCHEDULED_TOOL_ALLOWLIST,
+} from '../src/meri/meri-schedule.helpers.js';
+
 dotenvConfig();
 
-const prisma = new PrismaClient();
 const DRY_RUN = !process.argv.includes('--commit');
 const MAX_TASKS_PER_RUN = Number(process.env.CLIO_SCHEDULED_MAX_PER_RUN ?? '50');
+// Bound the agentic loop so a runaway task can't loop or burn tokens unattended.
+const MAX_ROUNDS = Number(process.env.CLIO_SCHEDULED_MAX_ROUNDS ?? '6');
+const MAX_TOKENS = Number(process.env.CLIO_SCHEDULED_MAX_TOKENS ?? '1500');
+const ANTHROPIC_VERSION = '2023-06-01';
 
 interface DueTask {
   id: string;
@@ -31,134 +49,316 @@ interface DueTask {
   prompt: string;
   interval_minutes: number;
   tool_allow_list: unknown;
+  metadata_jsonb: unknown;
 }
 
-/** Produce a short research digest for a task prompt (no tools, read-only). */
-async function runPrompt(prompt: string, apiKey: string): Promise<string | null> {
-  try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: process.env.CLIO_MODEL ?? 'claude-sonnet-4-5',
-        max_tokens: 1200,
-        system:
-          'You are Meri running a scheduled, unattended research task for a government-affairs team. ' +
-          'Produce a concise, scannable briefing. You have no tools in this run; if you lack specific data, ' +
-          'say what you would check rather than inventing facts. Never claim to have taken an action.',
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { content?: Array<{ type: string; text?: string }> };
-    const text = (json.content ?? [])
-      .filter((b) => b.type === 'text' && typeof b.text === 'string')
-      .map((b) => b.text)
-      .join('\n')
-      .trim();
-    return text || null;
-  } catch {
-    return null;
+async function loadNest(): Promise<{
+  AppModule: any;
+  PrismaService: any;
+  MeriToolsService: any;
+  AiCredentialResolverService: any;
+}> {
+  for (const base of ['../dist', '../src']) {
+    try {
+      const app = await import(`${base}/app.module.js`);
+      const prisma = await import(`${base}/prisma/prisma.service.js`);
+      const tools = await import(`${base}/meri/meri-tools.service.js`);
+      const cred = await import(`${base}/engagement/ai-credential-resolver.service.js`);
+      return {
+        AppModule: app.AppModule,
+        PrismaService: prisma.PrismaService,
+        MeriToolsService: tools.MeriToolsService,
+        AiCredentialResolverService: cred.AiCredentialResolverService,
+      };
+    } catch {
+      // try next base
+    }
   }
+  throw new Error('Could not load AppModule from dist or src');
+}
+
+const SYSTEM_PROMPT =
+  'You are Meri running a scheduled, unattended research task for a government-affairs ' +
+  'team. You have READ-ONLY research tools — use them to ground every claim in the ' +
+  "firm's actual data (clients, bills, awards, FARA, intel, dockets, etc.). Do not " +
+  'invent facts: if a tool returns nothing, say so plainly. You cannot send email or ' +
+  'write data, and must never claim to have taken an action. Produce a concise, ' +
+  'scannable briefing (short headline + a few bullets). Finish with a one-line ' +
+  '"Sources checked:" note listing the tools you used.';
+
+/**
+ * Run one task's prompt through a bounded agentic loop with the task's read-only
+ * tools. Returns the final assistant text, or null on hard failure.
+ */
+async function runResearch(
+  task: DueTask,
+  ctx: TenantContext,
+  toolsService: any,
+  apiKey: string,
+  model: string,
+  allowList: string[],
+  logger: Logger,
+): Promise<{ text: string; toolsUsed: string[] } | null> {
+  // Filter the full Meri tool schema list to the task's allow-list, and harden:
+  // never attach a tool that isn't read-only-safe (defense in depth on top of
+  // isAllowListSafe, which we also check before calling this).
+  const allowSet = new Set(allowList);
+  const allSchemas: Array<{ name: string; description: string; input_schema: Record<string, unknown> }> =
+    toolsService.anthropicToolSchemas();
+  const toolSchemas = allSchemas.filter(
+    (s) => allowSet.has(s.name) && toolsService.isConcurrencySafe(s.name),
+  );
+
+  const messages: Array<{ role: 'user' | 'assistant'; content: unknown }> = [
+    { role: 'user', content: task.prompt },
+  ];
+  const toolsUsed: string[] = [];
+  let lastText = '';
+
+  for (let round = 0; round < MAX_ROUNDS; round += 1) {
+    let json: any;
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': ANTHROPIC_VERSION,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: MAX_TOKENS,
+          system: SYSTEM_PROMPT,
+          tools: toolSchemas,
+          messages,
+        }),
+      });
+      if (!res.ok) {
+        logger.warn(`[task ${task.id}] anthropic ${res.status}: ${(await res.text()).slice(0, 200)}`);
+        return lastText ? { text: lastText, toolsUsed } : null;
+      }
+      json = await res.json();
+    } catch (err) {
+      logger.warn(`[task ${task.id}] anthropic call failed: ${(err as Error).message}`);
+      return lastText ? { text: lastText, toolsUsed } : null;
+    }
+
+    const content: Array<any> = Array.isArray(json.content) ? json.content : [];
+    const textBlocks = content.filter((b) => b.type === 'text' && typeof b.text === 'string');
+    if (textBlocks.length) lastText = textBlocks.map((b) => b.text).join('\n').trim();
+
+    const toolUses = content.filter((b) => b.type === 'tool_use');
+    // No tools requested → the turn is the final answer.
+    if (json.stop_reason !== 'tool_use' || toolUses.length === 0) {
+      return { text: lastText, toolsUsed };
+    }
+
+    // Append the assistant turn (must replay the tool_use blocks verbatim).
+    messages.push({ role: 'assistant', content });
+
+    // Execute each requested tool in-process under the task's tenant context.
+    const toolResults: Array<Record<string, unknown>> = [];
+    for (const tu of toolUses) {
+      const name = String(tu.name);
+      const input = (tu.input && typeof tu.input === 'object') ? tu.input : {};
+      // Default clientId from the task metadata if the model omitted it.
+      const meta = (task.metadata_jsonb && typeof task.metadata_jsonb === 'object')
+        ? (task.metadata_jsonb as Record<string, unknown>)
+        : {};
+      if (meta.clientId && (input as Record<string, unknown>).clientId === undefined) {
+        (input as Record<string, unknown>).clientId = meta.clientId;
+      }
+      let payload: unknown;
+      let isError = false;
+      // Hard guard: refuse anything not in the read-only allow-list, even if the
+      // model hallucinated a side-effecting tool name.
+      if (!allowSet.has(name) || !toolsService.isConcurrencySafe(name)) {
+        payload = { error: `Tool '${name}' is not permitted in a scheduled run.` };
+        isError = true;
+      } else {
+        try {
+          payload = await toolsService.execute(ctx, name, input);
+          toolsUsed.push(name);
+        } catch (err) {
+          payload = { error: (err as Error).message };
+          isError = true;
+        }
+      }
+      toolResults.push({
+        type: 'tool_result',
+        tool_use_id: tu.id,
+        is_error: isError,
+        content: JSON.stringify(payload).slice(0, 20_000),
+      });
+    }
+    messages.push({ role: 'user', content: toolResults });
+  }
+
+  // Hit the round cap — return whatever text we have (the model usually emits a
+  // summary in the last text block before requesting more tools).
+  return lastText ? { text: lastText, toolsUsed } : null;
 }
 
 async function main(): Promise<void> {
-  const now = new Date();
-  // Read due tasks across tenants via the bypass path (system scan).
-  const due = await prisma.$queryRawUnsafe<DueTask[]>(
-    `SELECT id, tenant_id, owner_user_id, name, prompt, interval_minutes, tool_allow_list
-     FROM clio_scheduled_task
-     WHERE enabled = true AND next_run_at <= now()
-     ORDER BY next_run_at ASC
-     LIMIT ${MAX_TASKS_PER_RUN}`,
-  );
+  const logger = new Logger('run-meri-scheduled-tasks');
+  const { AppModule, PrismaService, MeriToolsService, AiCredentialResolverService } = await loadNest();
+  const app = await NestFactory.createApplicationContext(AppModule, { logger: ['warn', 'error'] });
+  const t0 = Date.now();
+  try {
+    const prisma = app.get(PrismaService);
+    const toolsService = app.get(MeriToolsService);
+    const aiCreds = app.get(AiCredentialResolverService);
 
-  console.log(`[run-clio-scheduled-tasks] ${due.length} due task(s); dryRun=${DRY_RUN}`);
-  if (DRY_RUN) {
-    console.log(
-      'CLIO_SCHEDULED_DRYRUN ' +
-        JSON.stringify({ dueCount: due.length, tasks: due.map((t) => ({ id: t.id, name: t.name })) }),
+    const due: DueTask[] = await prisma.withSystem((tx: any) =>
+      tx.$queryRawUnsafe(
+        `SELECT id, tenant_id, owner_user_id, name, prompt, interval_minutes, tool_allow_list, metadata_jsonb
+         FROM clio_scheduled_task
+         WHERE enabled = true AND next_run_at <= now()
+         ORDER BY next_run_at ASC
+         LIMIT ${MAX_TASKS_PER_RUN}`,
+      ),
     );
-    return;
-  }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    console.error('[run-clio-scheduled-tasks] ANTHROPIC_API_KEY not set');
-    process.exitCode = 1;
-    return;
-  }
-
-  let delivered = 0;
-  let failed = 0;
-  for (const task of due) {
-    // Safety: never run a task whose allow-list somehow contains a side effect.
-    const allowList = Array.isArray(task.tool_allow_list)
-      ? (task.tool_allow_list as string[])
-      : [];
-    if (!isAllowListSafe(allowList)) {
-      await advance(task, now, 'skipped_unsafe');
-      failed++;
-      continue;
+    logger.log(`${due.length} due task(s); dryRun=${DRY_RUN}`);
+    if (DRY_RUN) {
+      // eslint-disable-next-line no-console
+      console.log(
+        'CLIO_SCHEDULED_DRYRUN ' +
+          JSON.stringify({ dueCount: due.length, tasks: due.map((t) => ({ id: t.id, name: t.name })) }),
+      );
+      return;
     }
 
-    const digest = await runPrompt(task.prompt, apiKey);
-    if (!digest) {
-      await advance(task, now, 'error');
-      failed++;
-      continue;
+    let delivered = 0;
+    let failed = 0;
+    for (const task of due) {
+      const now = new Date();
+      const allowList = Array.isArray(task.tool_allow_list) && task.tool_allow_list.length
+        ? (task.tool_allow_list as string[])
+        : [...DEFAULT_SCHEDULED_TOOL_ALLOWLIST];
+      if (!isAllowListSafe(allowList)) {
+        await advance(prisma, task, now, 'skipped_unsafe');
+        failed += 1;
+        continue;
+      }
+
+      // Resolve the owner's role for the tenant context (default to 'member').
+      let role = 'member';
+      let clerkUserId = '';
+      let tenantSlug = '';
+      try {
+        const info: any[] = await prisma.withSystem((tx: any) =>
+          tx.$queryRawUnsafe(
+            `SELECT tm.role AS role, u.clerk_user_id AS clerk, t.slug AS slug
+             FROM tenant_memberships tm
+             JOIN tenants t ON t.id = tm.tenant_id
+             LEFT JOIN users u ON u.id = tm.user_id
+             WHERE tm.tenant_id = $1::uuid AND tm.user_id = $2::uuid
+             LIMIT 1`,
+            task.tenant_id,
+            task.owner_user_id,
+          ),
+        );
+        if (info.length) {
+          role = info[0].role ?? 'member';
+          clerkUserId = info[0].clerk ?? '';
+          tenantSlug = info[0].slug ?? '';
+        }
+      } catch { /* fall back to defaults */ }
+
+      const ctx: TenantContext = {
+        tenantId: task.tenant_id,
+        tenantSlug,
+        userId: task.owner_user_id,
+        clerkUserId,
+        role: role as TenantContext['role'],
+      };
+
+      // Resolve the tenant's Anthropic key + model (tenant key first, then global).
+      const resolved = await aiCreds.resolveProvider(ctx, 'anthropic');
+      if (!resolved?.apiKey) {
+        logger.warn(`[task ${task.id}] no Anthropic credential; skipping`);
+        await advance(prisma, task, now, 'error');
+        failed += 1;
+        continue;
+      }
+
+      let result: { text: string; toolsUsed: string[] } | null = null;
+      try {
+        result = await runResearch(
+          task, ctx, toolsService, resolved.apiKey, resolved.model, allowList, logger,
+        );
+      } catch (err) {
+        logger.warn(`[task ${task.id}] research failed: ${(err as Error).message}`);
+      }
+
+      if (!result || !result.text) {
+        await advance(prisma, task, now, 'error');
+        failed += 1;
+        continue;
+      }
+
+      try {
+        await prisma.withTenant(task.tenant_id, (tx: any) =>
+          tx.clioProactiveAlert.create({
+            data: {
+              tenantId: task.tenant_id,
+              alertType: 'scheduled_task',
+              title: `Scheduled: ${task.name}`,
+              body: result!.text.slice(0, 8000),
+              priority: 'normal',
+              sourceType: 'scheduled_task',
+              sourceId: `${task.id}:${now.toISOString().slice(0, 10)}`,
+              metadata: {
+                taskId: task.id,
+                ownerUserId: task.owner_user_id,
+                runAt: now.toISOString(),
+                toolsUsed: result!.toolsUsed,
+              },
+            },
+          }),
+        );
+        await advance(prisma, task, now, 'ok');
+        delivered += 1;
+      } catch (err) {
+        logger.warn(`[task ${task.id}] deliver failed: ${(err as Error).message}`);
+        await advance(prisma, task, now, 'error');
+        failed += 1;
+      }
     }
 
-    try {
-      // Deliver to the in-app inbox under the task's OWN tenant (no leakage).
-      await prisma.clioProactiveAlert.create({
-        data: {
-          tenantId: task.tenant_id,
-          alertType: 'scheduled_task',
-          title: `Scheduled: ${task.name}`,
-          body: digest.slice(0, 8000),
-          priority: 'normal',
-          sourceType: 'scheduled_task',
-          sourceId: `${task.id}:${now.toISOString().slice(0, 10)}`,
-          metadata: { taskId: task.id, ownerUserId: task.owner_user_id, runAt: now.toISOString() },
-        },
-      });
-      await advance(task, now, 'ok');
-      delivered++;
-    } catch (err) {
-      console.error(`[run-clio-scheduled-tasks] ${task.id} deliver failed: ${(err as Error).message}`);
-      await advance(task, now, 'error');
-      failed++;
-    }
+    logger.log(
+      `done: due=${due.length} delivered=${delivered} failed=${failed} in ${((Date.now() - t0) / 1000).toFixed(1)}s`,
+    );
+    // eslint-disable-next-line no-console
+    console.log('CLIO_SCHEDULED_REPORT ' + JSON.stringify({ due: due.length, delivered, failed }));
+  } finally {
+    await app.close();
   }
+}
 
-  console.log(
-    'CLIO_SCHEDULED_REPORT ' +
-      JSON.stringify({ due: due.length, delivered, failed }),
+/** Advance next_run_at (clock-anchored when metadata.runAtMinutesUtc is set). */
+async function advance(prisma: any, task: DueTask, now: Date, status: string): Promise<void> {
+  const meta = (task.metadata_jsonb && typeof task.metadata_jsonb === 'object')
+    ? (task.metadata_jsonb as Record<string, unknown>)
+    : {};
+  const runAtMin = typeof meta.runAtMinutesUtc === 'number' ? meta.runAtMinutesUtc : null;
+  const next = computeNextRunAtAnchored(now, task.interval_minutes, runAtMin);
+  await prisma.withSystem((tx: any) =>
+    tx.$executeRawUnsafe(
+      `UPDATE clio_scheduled_task
+       SET last_run_at = $1, next_run_at = $2, last_status = $3, run_count = run_count + 1, updated_at = now()
+       WHERE id = $4::uuid`,
+      now,
+      next,
+      status,
+      task.id,
+    ),
   );
 }
 
-/** Advance next_run_at + write audit fields for a task. */
-async function advance(task: DueTask, now: Date, status: string): Promise<void> {
-  const next = computeNextRunAt(now, task.interval_minutes);
-  await prisma.$executeRawUnsafe(
-    `UPDATE clio_scheduled_task
-     SET last_run_at = $1, next_run_at = $2, last_status = $3, run_count = run_count + 1, updated_at = now()
-     WHERE id = $4`,
-    now,
-    next,
-    status,
-    task.id,
-  );
-}
-
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+main().catch((err) => {
+  // eslint-disable-next-line no-console
+  console.error('[run-meri-scheduled-tasks] FAILED', err);
+  process.exit(1);
+});
