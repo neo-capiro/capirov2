@@ -113,6 +113,7 @@ export function DataExplorerPage() {
     return fromUrl && SOURCES.some((s) => s.key === fromUrl) ? fromUrl : 'lda';
   })();
   const [source, setSource] = useState<SourceKey>(initialSource);
+  const activeSource = SOURCES.find((s) => s.key === source) ?? SOURCES[0]!;
   const [drillIn, setDrillIn] = useState<DrillIn>(
     billParam ? { source: 'bills', id: billParam, rowSummary: billParam } : null,
   );
@@ -155,24 +156,26 @@ export function DataExplorerPage() {
         </div>
       </header>
 
-      <nav className="explorer-source-tabs" aria-label="Data sources">
+      <nav className="explorer-source-tabs" role="tablist" aria-label="Data sources">
         {SOURCES.map((s) => (
           <button
             key={s.key}
             type="button"
+            role="tab"
+            aria-selected={source === s.key}
+            title={s.description}
             className={`explorer-source-tab${source === s.key ? ' is-active' : ''}`}
             onClick={() => setSource(s.key)}
           >
             <span className="explorer-source-tab-icon" aria-hidden>
               {s.icon}
             </span>
-            <span>
-              <span className="explorer-source-tab-label">{s.label}</span>
-              <span className="explorer-source-tab-dek">{s.description}</span>
-            </span>
+            <span className="explorer-source-tab-label">{s.label}</span>
           </button>
         ))}
       </nav>
+
+      <p className="explorer-source-caption">{activeSource.description}</p>
 
       <div className="explorer-source-body">
         {source === 'lda' ? <LdaFilingsExplorer onRowClick={(id, row) => setDrillIn({ source: 'lda', id, rowSummary: row.clientName })} /> : null}

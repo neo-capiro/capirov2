@@ -10958,64 +10958,64 @@ body {
   max-width: 64ch;
 }
 
-/* Source tabs (top of page) */
+/* Source tabs (top of page) — horizontal underline tab strip */
 .explorer-source-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-@media (max-width: 1280px) {
-  .explorer-source-tabs {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  border-bottom: 1px solid var(--border-1);
+  padding-bottom: 0;
+  -webkit-overflow-scrolling: touch;
 }
 .explorer-source-tab {
-  display: grid;
-  grid-template-columns: 36px 1fr;
-  align-items: start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-1);
-  border-radius: var(--r-lg);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  border-radius: 0;
   font-family: var(--font-sans-rd);
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  color: var(--ink-3);
+  transition: color 0.15s, border-color 0.15s;
 }
 .explorer-source-tab:hover {
-  border-color: var(--border-2);
+  color: var(--ink-1);
 }
 .explorer-source-tab.is-active {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-glow);
+  color: var(--accent-ink);
+  border-bottom-color: var(--accent);
 }
 .explorer-source-tab-icon {
-  width: 36px;
-  height: 36px;
-  border-radius: 9px;
-  background: var(--bg-sunken);
-  color: var(--ink-2);
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
-  font-size: 16px;
+  font-size: 15px;
+  color: inherit;
 }
 .explorer-source-tab.is-active .explorer-source-tab-icon {
-  background: var(--accent-soft);
-  color: var(--accent-ink);
+  color: var(--accent);
 }
 .explorer-source-tab-label {
-  display: block;
-  font-size: 14px;
+  display: inline;
+  font-size: 13.5px;
   font-weight: 600;
-  color: var(--ink-1);
   letter-spacing: -0.005em;
 }
-.explorer-source-tab-dek {
-  display: block;
-  font-size: 12px;
+
+.explorer-source-caption {
+  margin: 0;
+  font-size: 13px;
   color: var(--ink-3);
-  margin-top: 2px;
   line-height: 1.4;
 }
 
