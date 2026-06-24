@@ -193,6 +193,26 @@ export interface SecFacets {
   formTypes: string[];
 }
 
+export interface ExplorerSamOppRow {
+  id: string;
+  noticeId: string;
+  solicitationNumber: string | null;
+  title: string;
+  noticeType: string;
+  agency: string | null;
+  office: string | null;
+  pscCode: string | null;
+  naicsCode: string | null;
+  postedDate: string | null;
+  responseDeadline: string | null;
+  active: boolean;
+  url: string | null;
+}
+export interface SamOppFacets {
+  noticeTypes: string[];
+  agencies: string[];
+}
+
 export interface ExplorerIntelArticleRow {
   id: string;
   source: string;

@@ -35,6 +35,7 @@ import {
   type ExplorerIntelArticleRow,
   type ExplorerLdaFilingRow,
   type ExplorerResponse,
+  type ExplorerSamOppRow,
   type ExplorerSecRow,
   type ExplorerStateBillRow,
   type FaraDetail,
@@ -51,6 +52,7 @@ import {
   type IntelArticleFacets,
   type LdaFacets,
   type LdaFilingDetail,
+  type SamOppFacets,
   type SecDetail,
   type SecFacets,
   type StateBillDetail,
@@ -70,6 +72,7 @@ type SourceKey =
   | 'fec'
   | 'fara'
   | 'sec'
+  | 'sam-opps'
   | 'articles'
   | 'state-bills'
   | 'comment-deadlines';
@@ -93,6 +96,7 @@ const SOURCES: SourceMeta[] = [
   { key: 'fec', label: 'FEC Contributions', description: 'Itemized political contributions, by cycle.', icon: <DollarOutlined /> },
   { key: 'fara', label: 'FARA Filings', description: 'Foreign agent registrations by country/principal.', icon: <GlobalOutlined /> },
   { key: 'sec', label: 'SEC Filings', description: '8-K, 10-Q, S-1 from SEC EDGAR.', icon: <AuditOutlined /> },
+  { key: 'sam-opps', label: 'SAM.gov Opportunities', description: 'DoD contract opportunities & solicitations from SAM.gov.', icon: <SolutionOutlined /> },
   { key: 'state-bills', label: 'State Bills', description: 'State legislation via OpenStates.', icon: <SolutionOutlined /> },
   { key: 'comment-deadlines', label: 'Comment Deadlines', description: 'Open comment periods on federal rules, closing soonest.', icon: <ClockCircleOutlined /> },
 ];
@@ -188,6 +192,7 @@ export function DataExplorerPage() {
         {source === 'fec' ? <FecExplorer onRowClick={(id, row) => setDrillIn({ source: 'fec', id, rowSummary: row.contributorName ?? row.committeeName ?? '' })} /> : null}
         {source === 'fara' ? <FaraExplorer onRowClick={(id, row) => setDrillIn({ source: 'fara', id, rowSummary: row.registrantName })} /> : null}
         {source === 'sec' ? <SecExplorer onRowClick={(id, row) => setDrillIn({ source: 'sec', id, rowSummary: row.companyName })} /> : null}
+        {source === 'sam-opps' ? <SamOppsExplorer /> : null}
         {source === 'articles' ? <ArticlesExplorer onRowClick={(id, row) => setDrillIn({ source: 'articles', id, rowSummary: row.title })} /> : null}
         {source === 'state-bills' ? <StateBillsExplorer onRowClick={(id, row) => setDrillIn({ source: 'state-bills', id, rowSummary: `${row.state} ${row.identifier}` })} /> : null}
         {source === 'comment-deadlines' ? <CommentDeadlinesExplorer onRowClick={(id, row) => setDrillIn({ source: 'comment-deadlines', id, rowSummary: row.title })} /> : null}
@@ -1448,6 +1453,101 @@ function SecExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerSec
           { title: 'Company', dataIndex: 'companyName', ellipsis: true },
           { title: 'Description', dataIndex: 'description', ellipsis: true },
           { title: 'CIK', dataIndex: 'cik', width: 110, render: (c: string) => <span className="num" style={{ fontFamily: 'var(--font-mono-rd)', fontSize: 11 }}>{c}</span> },
+        ]}
+      />
+    </>
+  );
+}
+
+/* ── SAM.gov contract opportunities ─────────────────────────────────────── */
+
+function SamOppsExplorer() {
+  const api = useApi();
+  const [q, setQ] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [noticeTypes, setNoticeTypes] = useState<string[]>([]);
+  const [agencies, setAgencies] = useState<string[]>([]);
+  const [naics, setNaics] = useState('');
+  const [psc, setPsc] = useState('');
+  const [activeOnly, setActiveOnly] = useState(true);
+  const [sort, setSort] = useState('recent');
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [q, noticeTypes, agencies, naics, psc, activeOnly, sort]);
+
+  const facets = useQuery<SamOppFacets>({
+    queryKey: ['explorer-sam-opp-facets'],
+    queryFn: async () => (await api.get<SamOppFacets>('/api/explorer/sam-opportunity-facets')).data,
+    staleTime: 10 * 60 * 1000,
+  });
+  const rowsQuery = useQuery<ExplorerResponse<ExplorerSamOppRow>>({
+    queryKey: ['explorer-sam-opps', q, noticeTypes, agencies, naics, psc, activeOnly, sort, page],
+    queryFn: async () => (await api.get<ExplorerResponse<ExplorerSamOppRow>>('/api/explorer/sam-opportunities', {
+      params: {
+        q: q || undefined,
+        noticeTypes: noticeTypes.length ? noticeTypes.join(',') : undefined,
+        agencies: agencies.length ? agencies.join(',') : undefined,
+        naics: naics.trim() || undefined,
+        psc: psc.trim() || undefined,
+        activeOnly: activeOnly ? undefined : 'false',
+        sort,
+        page,
+        pageSize: PAGE_SIZE,
+      },
+    })).data,
+    placeholderData: (p) => p,
+  });
+
+  // No drill-in detail view for SAM opps — clicking a row opens the public
+  // sam.gov notice page in a new tab.
+  const openNotice = (_id: string, row: ExplorerSamOppRow) => {
+    if (row.url) window.open(row.url, '_blank', 'noopener,noreferrer');
+  };
+
+  return (
+    <>
+      <ExplorerFilterBar
+        searchPlaceholder="Search title, description, agency, office, or solicitation #…"
+        searchInput={searchInput}
+        onSearchInput={setSearchInput}
+        onSearchSubmit={() => setQ(searchInput.trim())}
+        onClearSearch={() => { setSearchInput(''); setQ(''); }}
+        controls={
+          <>
+            <MultiSelect label="Notice type" placeholder="Any" options={(facets.data?.noticeTypes ?? []).map((t) => ({ value: t, label: t }))} values={noticeTypes} onChange={setNoticeTypes} loading={facets.isLoading} />
+            <MultiSelect label="Agency" placeholder="Any" options={(facets.data?.agencies ?? []).map((a) => ({ value: a, label: a }))} values={agencies} onChange={setAgencies} loading={facets.isLoading} />
+            <label className="explorer-filter">
+              <span className="explorer-filter-label">NAICS</span>
+              <Input style={{ width: 110 }} value={naics} onChange={(e) => setNaics(e.target.value.replace(/[^\d]/g, ''))} placeholder="e.g. 3345" />
+            </label>
+            <label className="explorer-filter">
+              <span className="explorer-filter-label">PSC</span>
+              <Input style={{ width: 90 }} value={psc} onChange={(e) => setPsc(e.target.value.toUpperCase())} placeholder="e.g. 58" />
+            </label>
+            <ToggleChip label="Active only" active={activeOnly} onToggle={() => setActiveOnly((v) => !v)} />
+            <SortControl value={sort} onChange={setSort} options={[
+              { value: 'recent', label: 'Newest posted' },
+              { value: 'deadline', label: 'Response deadline (soonest)' },
+              { value: 'oldest', label: 'Oldest posted' },
+            ]} />
+          </>
+        }
+      />
+      <ExplorerTable
+        loading={rowsQuery.isLoading}
+        rows={rowsQuery.data?.rows ?? []}
+        total={rowsQuery.data?.total ?? 0}
+        page={page}
+        onPageChange={setPage}
+        rowKey="id"
+        onRowClick={openNotice}
+        columns={[
+          { title: 'Posted', dataIndex: 'postedDate', width: 100, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '-' },
+          { title: 'Title', dataIndex: 'title', ellipsis: true, render: (t: string, r: ExplorerSamOppRow) => r.url ? <a href={r.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t}</a> : t },
+          { title: 'Type', dataIndex: 'noticeType', width: 150, render: (t: string) => <Tag className="redesign-mono-tag">{t}</Tag> },
+          { title: 'Agency', dataIndex: 'agency', width: 200, ellipsis: true, render: (a: string | null) => a ?? '-' },
+          { title: 'Office', dataIndex: 'office', width: 170, ellipsis: true, render: (o: string | null) => o ?? '-' },
+          { title: 'NAICS', dataIndex: 'naicsCode', width: 80, render: (n: string | null) => n ? <span className="num">{n}</span> : '-' },
+          { title: 'Deadline', dataIndex: 'responseDeadline', width: 110, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '-' },
         ]}
       />
     </>

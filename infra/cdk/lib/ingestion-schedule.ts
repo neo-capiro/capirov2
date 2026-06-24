@@ -39,6 +39,7 @@ export const INGESTION_JOBS: ScheduledIngestionJob[] = [
   { id: 'SyncFec', command: ['sync-fec'], cron: { minute: '0', hour: '7' }, tier: 'daily', description: 'FEC contributions (daily)' },
   { id: 'SyncFecPac', command: ['sync-fec-pac'], cron: { minute: '20', hour: '7' }, tier: 'daily', description: 'FEC PAC (Schedule B) giving (daily)' },
   { id: 'SyncFederalAward', command: ['sync-federal-award'], cron: { minute: '40', hour: '7' }, tier: 'daily', description: 'USAspending federal awards (daily)' },
+  { id: 'SyncSamOpportunities', command: ['sync-sam-opportunities'], cron: { minute: '50', hour: '7' }, tier: 'daily', description: 'SAM.gov DoD contract opportunities (daily, incremental)' },
   { id: 'EnrichAwardDistricts', command: ['enrich-award-districts'], cron: { minute: '0', hour: '8' }, tier: 'daily', description: 'Award district enrichment (after awards)' },
 
   // ── TIER 2 — WEEKLY ───────────────────────────────────────────────────────

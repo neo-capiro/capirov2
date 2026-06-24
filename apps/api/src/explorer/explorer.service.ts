@@ -790,6 +790,90 @@ export class ExplorerService {
     return { formTypes: formTypes.map((r) => r.t) };
   }
 
+  /* ── SAM.gov contract opportunities ─────────────────────────────────── */
+
+  async samOpportunities(opts: {
+    q?: string;
+    noticeTypes?: string[];
+    agencies?: string[];
+    naics?: string;
+    psc?: string;
+    activeOnly?: boolean;
+    sort?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const limit = clampPageSize(opts.pageSize);
+    const offset = ((opts.page ?? 1) - 1) * limit;
+    const where: Prisma.SamOpportunityWhereInput = {};
+    if (opts.q) {
+      where.OR = [
+        { title: { contains: opts.q, mode: 'insensitive' } },
+        { description: { contains: opts.q, mode: 'insensitive' } },
+        { agency: { contains: opts.q, mode: 'insensitive' } },
+        { office: { contains: opts.q, mode: 'insensitive' } },
+        { solicitationNumber: { contains: opts.q, mode: 'insensitive' } },
+      ];
+    }
+    if (opts.noticeTypes?.length) where.noticeType = { in: opts.noticeTypes };
+    if (opts.agencies?.length) where.agency = { in: opts.agencies };
+    if (opts.naics) where.naicsCode = { startsWith: opts.naics.trim() };
+    if (opts.psc) where.pscCode = { startsWith: opts.psc.trim().toUpperCase() };
+    // Active = notice's archive date hasn't passed. Default to active-only since a
+    // closed solicitation can't be bid on; users opt into history explicitly.
+    if (opts.activeOnly !== false) where.active = true;
+
+    // 'deadline' = soonest response deadline first (nulls last); default newest-posted.
+    const orderBy: Prisma.SamOpportunityOrderByWithRelationInput =
+      opts.sort === 'deadline'
+        ? { responseDeadline: 'asc' }
+        : opts.sort === 'oldest'
+          ? { postedDate: 'asc' }
+          : { postedDate: 'desc' };
+
+    const [rows, total] = await Promise.all([
+      this.prisma.samOpportunity.findMany({ where, orderBy, take: limit, skip: offset }),
+      this.prisma.samOpportunity.count({ where }),
+    ]);
+    return {
+      rows: rows.map((o) => ({
+        id: o.id,
+        noticeId: o.noticeId,
+        solicitationNumber: o.solicitationNumber,
+        title: o.title,
+        noticeType: o.noticeType,
+        agency: o.agency,
+        office: o.office,
+        pscCode: o.pscCode,
+        naicsCode: o.naicsCode,
+        postedDate: o.postedDate?.toISOString() ?? null,
+        responseDeadline: o.responseDeadline?.toISOString() ?? null,
+        active: o.active,
+        url: o.sourceUrl,
+      })),
+      total,
+    };
+  }
+
+  async samOpportunityFacets() {
+    const [noticeTypes, agencies] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ t: string; n: bigint }>>`
+        SELECT notice_type AS t, COUNT(*)::bigint AS n
+        FROM sam_opportunity WHERE notice_type IS NOT NULL
+        GROUP BY notice_type ORDER BY n DESC LIMIT 25
+      `,
+      this.prisma.$queryRaw<Array<{ a: string; n: bigint }>>`
+        SELECT agency AS a, COUNT(*)::bigint AS n
+        FROM sam_opportunity WHERE agency IS NOT NULL AND agency <> ''
+        GROUP BY agency ORDER BY n DESC LIMIT 30
+      `,
+    ]);
+    return {
+      noticeTypes: noticeTypes.map((r) => r.t),
+      agencies: agencies.map((r) => r.a),
+    };
+  }
+
   /* ── Intel articles (news) ──────────────────────────────────────────── */
 
   async intelArticles(opts: {

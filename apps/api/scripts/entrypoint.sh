@@ -198,6 +198,9 @@ case "${1:-serve}" in
   extract-press-personnel) shift; exec ./node_modules/.bin/tsx scripts/extract-personnel-from-press-releases.ts "$@" ;;
   # Step 33: SAM.gov DoD solicitation KO/CS personnel (email domain only).
   sync-sam-personnel)     shift; exec ./node_modules/.bin/tsx scripts/sync-sam-personnel.ts "$@" ;;
+  # Step 3.1: SAM.gov DoD contract opportunities feed (sam_opportunity). Always
+  # commits when run as a scheduled task (dry-run is for local dev only).
+  sync-sam-opportunities) shift; exec ./node_modules/.bin/tsx scripts/sync-sam-opportunities.ts --commit "$@" ;;
   # Step 34A: DoD witnesses at defense-committee hearings (committee_hearing).
   extract-hearing-witnesses) shift; exec ./node_modules/.bin/tsx scripts/extract-hearing-witnesses.ts "$@" ;;
   # Step 34B: DoD personnel named in recent GAO reports (LLM NER over metadata).

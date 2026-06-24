@@ -117,11 +117,34 @@ function isDod(rec: SamOpportunityRecord): boolean {
   return /DEPT OF DEFENSE|DEPARTMENT OF DEFENSE|\bDOD\b|DEPT OF THE (ARMY|NAVY|AIR FORCE)|DEFENSE/.test(hay);
 }
 
-/** Best-effort office label from the org path / office fields. */
+/** Sub-department agency from the org path. SAM's `department`/`subTier` fields
+ *  are almost always null on DoD records, but `fullParentPathName` is populated
+ *  ("DEPT OF DEFENSE.DEFENSE LOGISTICS AGENCY.DLA MARITIME..."). We take the 2nd
+ *  segment — the meaningful service/agency (Army, Navy, Air Force, DLA, DISA…) —
+ *  falling back to the API fields and finally the top segment. */
+function agencyOf(rec: SamOpportunityRecord): string | null {
+  const segs = (rec.fullParentPathName ?? '')
+    .split('.')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  return (
+    str(rec.department) ??
+    str(rec.subTier) ??
+    (segs.length > 1 ? str(segs[1]) : null) ??
+    (segs.length > 0 ? str(segs[0]) : null)
+  );
+}
+
+/** Best-effort contracting-office label: SAM's office field if present, else the
+ *  deepest (most specific) org-path segment. */
 function officeOf(rec: SamOpportunityRecord): string | null {
+  const segs = (rec.fullParentPathName ?? '')
+    .split('.')
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
   return (
     str(rec.office) ??
-    str(rec.fullParentPathName?.split('.').pop()) ??
+    (segs.length > 2 ? str(segs[segs.length - 1]) : null) ??
     str(rec.subTier) ??
     str(rec.department)
   );
@@ -229,7 +252,7 @@ async function main(): Promise<void> {
               solicitationNumber: str(rec.solicitationNumber),
               title: str(rec.title) ?? '(untitled)',
               noticeType: (str(rec.type) ?? str(rec.baseType) ?? 'unknown').slice(0, 32),
-              agency: str(rec.department),
+              agency: agencyOf(rec),
               office: officeOf(rec),
               pscCode: str(rec.classificationCode)?.slice(0, 8) ?? null,
               naicsCode: str(rec.naicsCode)?.slice(0, 8) ?? null,

@@ -362,6 +362,28 @@ export class ExplorerController {
     return this.service.secFacets();
   }
 
+  /* ── SAM.gov contract opportunities ──────────────────────────────────── */
+
+  @Get('sam-opportunities')
+  samOpportunities(@Query() q: CommonPagingDto & Record<string, unknown>) {
+    return this.service.samOpportunities({
+      q: q.q,
+      noticeTypes: arrayOrSplit(q.noticeTypes),
+      agencies: arrayOrSplit(q.agencies),
+      naics: typeof q.naics === 'string' ? q.naics : undefined,
+      psc: typeof q.psc === 'string' ? q.psc : undefined,
+      activeOnly: q.activeOnly === 'false' || q.activeOnly === false ? false : true,
+      sort: q.sort,
+      page: q.page,
+      pageSize: q.pageSize,
+    });
+  }
+
+  @Get('sam-opportunity-facets')
+  samOpportunityFacets() {
+    return this.service.samOpportunityFacets();
+  }
+
   /* ── Intel articles (news) ───────────────────────────────────────────── */
 
   @Get('intel-articles')
