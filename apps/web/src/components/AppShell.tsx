@@ -15,6 +15,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   QuestionCircleOutlined,
+  RadarChartOutlined,
   SearchOutlined,
   SettingOutlined,
   SyncOutlined,
@@ -120,14 +121,28 @@ const NAV: NavItem[] = [
     path: '/workspace',
     icon: <FolderOpenOutlined />,
   },
-  // Single Program Elements tab. The former sub-items (Action Board,
-  // Analyst Console) remain routable by deep-link but are no longer surfaced in
-  // the nav. Planner, Intelligence Center, and Collaborators are hidden.
+  // Intelligence group: the Intelligence Center (live Explorer) plus Program
+  // Elements nested beneath it. The former PE sub-items (Action Board,
+  // Analyst Console) remain routable by deep-link but are not surfaced.
+  // Planner and Collaborators stay hidden.
   {
-    key: 'program-elements',
-    label: 'Program Elements',
-    path: '/program-elements',
-    icon: <FundOutlined />,
+    key: 'pe-group',
+    label: 'Intelligence',
+    icon: <RadarChartOutlined />,
+    children: [
+      {
+        key: 'intelligence',
+        label: 'Intelligence Center',
+        path: '/explorer',
+        icon: <RadarChartOutlined />,
+      },
+      {
+        key: 'program-elements',
+        label: 'Program Elements',
+        path: '/program-elements',
+        icon: <FundOutlined />,
+      },
+    ],
   },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
@@ -436,6 +451,7 @@ export function AppShell() {
             theme="dark"
             mode="inline"
             selectedKeys={[selectedKey]}
+            defaultOpenKeys={['pe-group']}
             items={items}
             inlineCollapsed={navCollapsed}
             inlineIndent={24}

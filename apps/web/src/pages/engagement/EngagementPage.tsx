@@ -534,15 +534,21 @@ export function EngagementPage() {
     return realMeetings;
   }, [meetings.data, isCapiroTenant]);
 
-  const visibleMeetings = useMemo(
-    () =>
-      [...meetingsWithMock].sort((left, right) => {
-        const leftTime = new Date(left.startsAt).getTime();
-        const rightTime = new Date(right.startsAt).getTime();
-        return leftTime - rightTime;
-      }),
-    [meetingsWithMock],
-  );
+  const visibleMeetings = useMemo(() => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+    const todayStart = startOfToday.getTime();
+    return [...meetingsWithMock].sort((left, right) => {
+      const leftTime = new Date(left.startsAt).getTime();
+      const rightTime = new Date(right.startsAt).getTime();
+      // Today + upcoming meetings come first (soonest first); past meetings
+      // sink below them (most recent past first).
+      const leftUpcoming = leftTime >= todayStart;
+      const rightUpcoming = rightTime >= todayStart;
+      if (leftUpcoming !== rightUpcoming) return leftUpcoming ? -1 : 1;
+      return leftUpcoming ? leftTime - rightTime : rightTime - leftTime;
+    });
+  }, [meetingsWithMock]);
   const selectedMeetingFromVisible = useMemo(
     () => visibleMeetings.find((meeting) => meeting.id === selectedMeetingId) ?? null,
     [visibleMeetings, selectedMeetingId],
