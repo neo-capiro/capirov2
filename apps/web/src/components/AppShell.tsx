@@ -121,10 +121,12 @@ const NAV: NavItem[] = [
     path: '/workspace',
     icon: <FolderOpenOutlined />,
   },
-  // Intelligence group: the Intelligence Center (live Explorer) plus Program
-  // Elements nested beneath it. The former PE sub-items (Action Board,
-  // Analyst Console) remain routable by deep-link but are not surfaced.
-  // Planner and Collaborators stay hidden.
+  { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
+  { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
+  // Intelligence group (kept LAST in the nav): the Intelligence Center (live
+  // Explorer) plus Program Elements nested beneath it. The former PE sub-items
+  // (Action Board, Analyst Console) remain routable by deep-link but are not
+  // surfaced. Planner and Collaborators stay hidden.
   {
     key: 'pe-group',
     label: 'Intelligence',
@@ -144,8 +146,6 @@ const NAV: NavItem[] = [
       },
     ],
   },
-  { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
-  { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
 ];
 
 export function AppShell() {
