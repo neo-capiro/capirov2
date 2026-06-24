@@ -260,7 +260,11 @@ export function setAlerts(alerts: MeriAlert[]): void {
 }
 
 export function dismissAlert(id: string): void {
-  state = { ...state, alerts: state.alerts.map(a => a.id === id ? { ...a, status: 'read' } : a), alertsBadge: Math.max(0, state.alertsBadge - 1) };
+  // Remove the dismissed alert from the list outright so it disappears
+  // immediately (the previous version only relabeled status to 'read', which
+  // left it rendered until a full refetch). Badge tracks remaining pending.
+  const remaining = state.alerts.filter(a => a.id !== id);
+  state = { ...state, alerts: remaining, alertsBadge: remaining.filter(a => a.status === 'pending').length };
   notify();
 }
 

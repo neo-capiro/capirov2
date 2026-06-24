@@ -167,6 +167,9 @@ interface ChatDrawerProps {
 
 export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const { isOpen, messages, sessionId, isStreaming, alertsBadge, alerts, conversations, activeConversationId } = useChatStore();
+  // Only undismissed briefings are ever rendered. dismissAlert removes items from
+  // the store outright, so this also makes them vanish on click without a refetch.
+  const pendingAlerts = alerts.filter((a) => a.status === 'pending');
   const { getToken } = useAuth();
   const api = useApi();
   const { actAsTenantSlug } = useImpersonation();
@@ -273,6 +276,18 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
       });
     } catch { /* optimistic; ignore network error */ }
   }, [authHeaders]);
+
+  // Dismiss every currently-visible briefing in one click.
+  const handleClearAllAlerts = useCallback(async () => {
+    const toClear = alerts.filter((a) => a.status === 'pending').map((a) => a.id);
+    for (const id of toClear) dismissAlert(id);
+    const headers = await authHeaders();
+    await Promise.allSettled(
+      toClear.map((id) =>
+        fetch(`${config.apiBaseUrl}/api/clio/alerts/${id}/dismiss`, { method: 'POST', headers }),
+      ),
+    );
+  }, [alerts, authHeaders]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1285,28 +1300,37 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
         <SessionRail />
 
-        {alerts.length > 0 && (
+        {pendingAlerts.length > 0 && (
           <div className="chat-alerts">
-            <button
-              type="button"
-              className="chat-alerts-header"
-              onClick={() => setAlertsOpen((v) => !v)}
-              aria-expanded={alertsOpen}
-            >
-              <span className="chat-alerts-title">
-                <span className="chat-alerts-icon" aria-hidden="true">🔔</span>
-                Scheduled briefings
-                {alertsBadge > 0 && <span className="chat-alerts-count">{alertsBadge}</span>}
-              </span>
-              <span className="chat-alerts-chevron" aria-hidden="true">{alertsOpen ? '▾' : '▸'}</span>
-            </button>
+            <div className="chat-alerts-header">
+              <button
+                type="button"
+                className="chat-alerts-toggle"
+                onClick={() => setAlertsOpen((v) => !v)}
+                aria-expanded={alertsOpen}
+              >
+                <span className="chat-alerts-title">
+                  <span className="chat-alerts-icon" aria-hidden="true">🔔</span>
+                  Scheduled briefings
+                  {alertsBadge > 0 && <span className="chat-alerts-count">{alertsBadge}</span>}
+                </span>
+                <span className="chat-alerts-chevron" aria-hidden="true">{alertsOpen ? '▾' : '▸'}</span>
+              </button>
+              {pendingAlerts.length > 1 && (
+                <button
+                  type="button"
+                  className="chat-alerts-clear"
+                  onClick={() => void handleClearAllAlerts()}
+                  title="Dismiss all briefings"
+                >
+                  Clear all
+                </button>
+              )}
+            </div>
             {alertsOpen && (
               <div className="chat-alerts-list">
-                {alerts.map((alert) => (
-                  <div
-                    key={alert.id}
-                    className={`chat-alert-item${alert.status === 'pending' ? ' chat-alert-item--unread' : ''}`}
-                  >
+                {pendingAlerts.map((alert) => (
+                  <div key={alert.id} className="chat-alert-item chat-alert-item--unread">
                     <div className="chat-alert-item-head">
                       <span className="chat-alert-item-title">{alert.title}</span>
                       <button
