@@ -210,6 +210,9 @@ export function AppShell() {
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
   });
+  // changesUnread is kept warm in the cache for the Changes Inbox bell; it no
+  // longer badges the Data Explorer nav item.
+  void changesUnread;
 
   const visibleClients = useMemo(
     () =>
@@ -313,9 +316,8 @@ export function AppShell() {
   const navCounts = useMemo<Partial<Record<AppSection, number>>>(() => {
     return {
       clients: visibleClients.length || undefined,
-      intelligence: changesUnread.data || undefined,
     };
-  }, [visibleClients.length, changesUnread.data]);
+  }, [visibleClients.length]);
 
   const role = me.data?.role;
   const items = useMemo(() => {
