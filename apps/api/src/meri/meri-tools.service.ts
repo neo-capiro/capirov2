@@ -2835,7 +2835,7 @@ export class MeriToolsService {
     const clientId = typeof input.clientId === 'string' && input.clientId.trim()
       ? input.clientId.trim()
       : undefined;
-    const metadata: Prisma.InputJsonObject = { createdVia: 'schedule_task_tool' };
+    const metadata: Record<string, string | number> = { createdVia: 'schedule_task_tool' };
     if (runAtMinutesUtc != null) metadata.runAtMinutesUtc = runAtMinutesUtc;
     if (clientId) metadata.clientId = clientId;
     const nextRunAt = computeNextRunAtAnchored(new Date(), intervalMinutes, runAtMinutesUtc);
