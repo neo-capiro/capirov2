@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Drawer, Empty, Input, Pagination, Select, Skeleton, Table, Tag, Typography } from 'antd';
+import { Drawer, Empty, Input, InputNumber, Pagination, Select, Skeleton, Table, Tag, Typography } from 'antd';
 import {
   AuditOutlined,
   BankOutlined,
@@ -210,12 +210,17 @@ function LdaFilingsExplorer({
   const [searchInput, setSearchInput] = useState('');
   const [issueCodes, setIssueCodes] = useState<string[]>([]);
   const [years, setYears] = useState<string[]>([]);
+  const [filingTypes, setFilingTypes] = useState<string[]>([]);
+  const [states, setStates] = useState<string[]>([]);
+  const [periods, setPeriods] = useState<string[]>([]);
+  const [minIncome, setMinIncome] = useState<number | null>(null);
+  const [maxIncome, setMaxIncome] = useState<number | null>(null);
   const [sort, setSort] = useState('recent');
   const [page, setPage] = useState(1);
 
   useEffect(() => {
     setPage(1);
-  }, [q, issueCodes, years, sort]);
+  }, [q, issueCodes, years, filingTypes, states, periods, minIncome, maxIncome, sort]);
 
   const facets = useQuery<LdaFacets>({
     queryKey: ['explorer-lda-facets'],
@@ -224,7 +229,7 @@ function LdaFilingsExplorer({
   });
 
   const rowsQuery = useQuery<ExplorerResponse<ExplorerLdaFilingRow>>({
-    queryKey: ['explorer-lda-filings', q, issueCodes, years, sort, page],
+    queryKey: ['explorer-lda-filings', q, issueCodes, years, filingTypes, states, periods, minIncome, maxIncome, sort, page],
     queryFn: async () =>
       (
         await api.get<ExplorerResponse<ExplorerLdaFilingRow>>('/api/explorer/lda-filings', {
@@ -232,6 +237,11 @@ function LdaFilingsExplorer({
             q: q || undefined,
             issueCodes: issueCodes.length ? issueCodes.join(',') : undefined,
             years: years.length ? years.join(',') : undefined,
+            filingTypes: filingTypes.length ? filingTypes.join(',') : undefined,
+            states: states.length ? states.join(',') : undefined,
+            periods: periods.length ? periods.join(',') : undefined,
+            minIncome: minIncome != null && minIncome > 0 ? minIncome : undefined,
+            maxIncome: maxIncome != null && maxIncome > 0 ? maxIncome : undefined,
             sort,
             page,
             pageSize: PAGE_SIZE,
@@ -244,7 +254,7 @@ function LdaFilingsExplorer({
   return (
     <>
       <ExplorerFilterBar
-        searchPlaceholder="Search registrant or client name…"
+        searchPlaceholder="Search client, registrant, description, state, or issue code…"
         searchInput={searchInput}
         onSearchInput={setSearchInput}
         onSearchSubmit={() => setQ(searchInput.trim())}
@@ -266,6 +276,30 @@ function LdaFilingsExplorer({
               loading={facets.isLoading}
             />
             <MultiSelect
+              label="Filing type"
+              placeholder="Any type"
+              options={(facets.data?.filingTypes ?? []).map((t) => ({ value: t, label: t }))}
+              values={filingTypes}
+              onChange={setFilingTypes}
+              loading={facets.isLoading}
+            />
+            <MultiSelect
+              label="State"
+              placeholder="Any state"
+              options={(facets.data?.states ?? []).map((s) => ({ value: s, label: s }))}
+              values={states}
+              onChange={setStates}
+              loading={facets.isLoading}
+            />
+            <MultiSelect
+              label="Period"
+              placeholder="Any period"
+              options={(facets.data?.periods ?? []).map((p) => ({ value: p, label: p }))}
+              values={periods}
+              onChange={setPeriods}
+              loading={facets.isLoading}
+            />
+            <MultiSelect
               label="Year"
               placeholder="Any year"
               options={(facets.data?.years ?? []).map((y) => ({
@@ -275,6 +309,13 @@ function LdaFilingsExplorer({
               values={years}
               onChange={setYears}
               loading={facets.isLoading}
+            />
+            <NumberRange
+              label="Income ($)"
+              minValue={minIncome}
+              maxValue={maxIncome}
+              onMinChange={setMinIncome}
+              onMaxChange={setMaxIncome}
             />
             <SortControl
               value={sort}
@@ -2111,6 +2152,49 @@ function SortControl({
         onChange={(next) => onChange(next as string)}
         style={{ minWidth: 180 }}
       />
+    </label>
+  );
+}
+
+function NumberRange({
+  label,
+  minValue,
+  maxValue,
+  onMinChange,
+  onMaxChange,
+}: {
+  label: string;
+  minValue: number | null;
+  maxValue: number | null;
+  onMinChange: (value: number | null) => void;
+  onMaxChange: (value: number | null) => void;
+}) {
+  return (
+    <label className="explorer-filter">
+      <span className="explorer-filter-label">{label}</span>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <InputNumber
+          placeholder="Min"
+          min={0}
+          value={minValue}
+          onChange={(v) => onMinChange(typeof v === 'number' ? v : null)}
+          controls={false}
+          style={{ width: 110 }}
+          formatter={(v) => (v ? `$${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
+          parser={(v) => (v ? Number(v.replace(/[$,]/g, '')) : 0)}
+        />
+        <span className="explorer-filter-label" style={{ margin: 0 }}>–</span>
+        <InputNumber
+          placeholder="Max"
+          min={0}
+          value={maxValue}
+          onChange={(v) => onMaxChange(typeof v === 'number' ? v : null)}
+          controls={false}
+          style={{ width: 110 }}
+          formatter={(v) => (v ? `$${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '')}
+          parser={(v) => (v ? Number(v.replace(/[$,]/g, '')) : 0)}
+        />
+      </span>
     </label>
   );
 }

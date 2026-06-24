@@ -22,6 +22,8 @@ export interface LdaFacets {
   issueCodes: Array<{ code: string; name: string }>;
   years: number[];
   filingTypes: string[];
+  states: string[];
+  periods: string[];
 }
 
 export interface ExplorerContractorRow {

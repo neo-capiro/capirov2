@@ -70,8 +70,20 @@ class LdaFilingsQuery extends CommonPagingDto {
   filingTypes?: string[] | string;
 
   @IsOptional()
+  @IsArray()
+  states?: string[] | string;
+
+  @IsOptional()
+  @IsArray()
+  periods?: string[] | string;
+
+  @IsOptional()
   @Type(() => Number)
   minIncome?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  maxIncome?: number;
 }
 
 class ContractorsQuery extends CommonPagingDto {
@@ -144,7 +156,10 @@ export class ExplorerController {
       issueCodes: arrayOrSplit(q.issueCodes),
       years: arrayOrSplit(q.years)?.map((y) => Number.parseInt(y, 10)).filter((n) => Number.isFinite(n)),
       filingTypes: arrayOrSplit(q.filingTypes),
+      states: arrayOrSplit(q.states),
+      periods: arrayOrSplit(q.periods),
       minIncome: q.minIncome,
+      maxIncome: q.maxIncome,
       sort: q.sort,
       page: q.page,
       pageSize: q.pageSize,

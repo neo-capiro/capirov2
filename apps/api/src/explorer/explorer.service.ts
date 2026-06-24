@@ -26,7 +26,10 @@ export class ExplorerService {
     issueCodes?: string[];
     years?: number[];
     filingTypes?: string[];
+    states?: string[];
+    periods?: string[];
     minIncome?: number;
+    maxIncome?: number;
     sort?: string;
     page?: number;
     pageSize?: number;
@@ -35,16 +38,30 @@ export class ExplorerService {
     const offset = ((opts.page ?? 1) - 1) * limit;
     const where: Prisma.LdaFilingWhereInput = {};
     if (opts.q) {
+      const term = opts.q.trim();
       where.OR = [
-        { clientName: { contains: opts.q, mode: 'insensitive' } },
-        { registrantName: { contains: opts.q, mode: 'insensitive' } },
+        { clientName: { contains: term, mode: 'insensitive' } },
+        { registrantName: { contains: term, mode: 'insensitive' } },
+        { clientDescription: { contains: term, mode: 'insensitive' } },
+        { clientState: { contains: term, mode: 'insensitive' } },
+        // Match an issue code typed directly (e.g. "DEF", "HCR").
+        { issueCodes: { has: term.toUpperCase() } },
       ];
     }
     if (opts.issueCodes?.length) where.issueCodes = { hasSome: opts.issueCodes };
     if (opts.years?.length) where.filingYear = { in: opts.years };
     if (opts.filingTypes?.length) where.filingType = { in: opts.filingTypes };
+    if (opts.states?.length) where.clientState = { in: opts.states };
+    if (opts.periods?.length) where.filingPeriod = { in: opts.periods };
+    const incomeFilter: Prisma.DecimalFilter = {};
     if (opts.minIncome != null && opts.minIncome > 0) {
-      where.income = { gte: new Prisma.Decimal(opts.minIncome) };
+      incomeFilter.gte = new Prisma.Decimal(opts.minIncome);
+    }
+    if (opts.maxIncome != null && opts.maxIncome > 0) {
+      incomeFilter.lte = new Prisma.Decimal(opts.maxIncome);
+    }
+    if (incomeFilter.gte != null || incomeFilter.lte != null) {
+      where.income = incomeFilter;
     }
 
     const orderBy = ldaSortClause(opts.sort);
@@ -244,17 +261,27 @@ export class ExplorerService {
   /* ── Facets (filter dropdowns) ──────────────────────────────────────── */
 
   async ldaFacets() {
-    const [issueCodes, years] = await Promise.all([
+    const [issueCodes, years, states, periods] = await Promise.all([
       this.prisma.ldaIssueCode.findMany({ select: { code: true, name: true }, orderBy: { code: 'asc' } }),
       this.prisma.$queryRaw<Array<{ year: number }>>`
         SELECT DISTINCT filing_year AS year FROM lda_filing
-        WHERE filing_year IS NOT NULL ORDER BY filing_year DESC LIMIT 10
+        WHERE filing_year IS NOT NULL ORDER BY filing_year DESC
+      `,
+      this.prisma.$queryRaw<Array<{ state: string }>>`
+        SELECT DISTINCT client_state AS state FROM lda_filing
+        WHERE client_state IS NOT NULL AND client_state <> '' ORDER BY client_state ASC
+      `,
+      this.prisma.$queryRaw<Array<{ period: string }>>`
+        SELECT DISTINCT filing_period AS period FROM lda_filing
+        WHERE filing_period IS NOT NULL AND filing_period <> '' ORDER BY filing_period ASC
       `,
     ]);
     return {
       issueCodes,
       years: years.map((r) => r.year),
       filingTypes: ['LD-2', 'LD-1', 'LD-2A', 'LD-203'],
+      states: states.map((r) => r.state),
+      periods: periods.map((r) => r.period),
     };
   }
 
