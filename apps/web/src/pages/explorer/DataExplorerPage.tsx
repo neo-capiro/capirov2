@@ -1182,7 +1182,7 @@ function CrsExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerCrs
   return (
     <>
       <ExplorerFilterBar
-        searchPlaceholder="Search CRS title…"
+        searchPlaceholder="Search CRS title or summary…"
         searchInput={searchInput}
         onSearchInput={setSearchInput}
         onSearchSubmit={() => setQ(searchInput.trim())}
@@ -1223,9 +1223,10 @@ function FecExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerFec
   const [cycles, setCycles] = useState<string[]>([]);
   const [states, setStates] = useState<string[]>([]);
   const [minAmount, setMinAmount] = useState<string>('');
+  const [maxAmount, setMaxAmount] = useState<string>('');
   const [sort, setSort] = useState('amount');
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [q, cycles, states, minAmount, sort]);
+  useEffect(() => { setPage(1); }, [q, cycles, states, minAmount, maxAmount, sort]);
 
   const facets = useQuery<FecFacets>({
     queryKey: ['explorer-fec-facets'],
@@ -1233,13 +1234,14 @@ function FecExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerFec
     staleTime: 10 * 60 * 1000,
   });
   const rowsQuery = useQuery<ExplorerResponse<ExplorerFecRow>>({
-    queryKey: ['explorer-fec', q, cycles, states, minAmount, sort, page],
+    queryKey: ['explorer-fec', q, cycles, states, minAmount, maxAmount, sort, page],
     queryFn: async () => (await api.get<ExplorerResponse<ExplorerFecRow>>('/api/explorer/fec-contributions', {
       params: {
         q: q || undefined,
         cycles: cycles.length ? cycles.join(',') : undefined,
         states: states.length ? states.join(',') : undefined,
         minAmount: minAmount && Number(minAmount) > 0 ? Number(minAmount) : undefined,
+        maxAmount: maxAmount && Number(maxAmount) > 0 ? Number(maxAmount) : undefined,
         sort,
         page,
         pageSize: PAGE_SIZE,
@@ -1261,13 +1263,22 @@ function FecExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerFec
             <MultiSelect label="Cycle" placeholder="Any" options={(facets.data?.cycles ?? []).map((c) => ({ value: String(c), label: String(c) }))} values={cycles} onChange={setCycles} loading={facets.isLoading} />
             <MultiSelect label="State" placeholder="Any" options={(facets.data?.states ?? []).map((s) => ({ value: s, label: s }))} values={states} onChange={setStates} loading={facets.isLoading} />
             <label className="explorer-filter">
-              <span className="explorer-filter-label">Min amount ($)</span>
-              <Input
-                style={{ width: 130 }}
-                value={minAmount}
-                onChange={(e) => setMinAmount(e.target.value.replace(/[^\d]/g, ''))}
-                placeholder="0"
-              />
+              <span className="explorer-filter-label">Amount ($)</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Input
+                  style={{ width: 110 }}
+                  value={minAmount}
+                  onChange={(e) => setMinAmount(e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder="Min"
+                />
+                <span className="explorer-filter-label" style={{ margin: 0 }}>–</span>
+                <Input
+                  style={{ width: 110 }}
+                  value={maxAmount}
+                  onChange={(e) => setMaxAmount(e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder="Max"
+                />
+              </span>
             </label>
             <SortControl value={sort} onChange={setSort} options={[
               { value: 'amount', label: 'Largest amount' },
@@ -1315,9 +1326,10 @@ function FaraExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerFa
   const [searchInput, setSearchInput] = useState('');
   const [countries, setCountries] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
+  const [states, setStates] = useState<string[]>([]);
   const [sort, setSort] = useState('recent');
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [q, countries, statuses, sort]);
+  useEffect(() => { setPage(1); }, [q, countries, statuses, states, sort]);
 
   const facets = useQuery<FaraFacets>({
     queryKey: ['explorer-fara-facets'],
@@ -1325,9 +1337,9 @@ function FaraExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerFa
     staleTime: 10 * 60 * 1000,
   });
   const rowsQuery = useQuery<ExplorerResponse<ExplorerFaraRow>>({
-    queryKey: ['explorer-fara', q, countries, statuses, sort, page],
+    queryKey: ['explorer-fara', q, countries, statuses, states, sort, page],
     queryFn: async () => (await api.get<ExplorerResponse<ExplorerFaraRow>>('/api/explorer/fara', {
-      params: { q: q || undefined, countries: countries.length ? countries.join(',') : undefined, statuses: statuses.length ? statuses.join(',') : undefined, sort, page, pageSize: PAGE_SIZE },
+      params: { q: q || undefined, countries: countries.length ? countries.join(',') : undefined, statuses: statuses.length ? statuses.join(',') : undefined, states: states.length ? states.join(',') : undefined, sort, page, pageSize: PAGE_SIZE },
     })).data,
     placeholderData: (p) => p,
   });
@@ -1335,7 +1347,7 @@ function FaraExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerFa
   return (
     <>
       <ExplorerFilterBar
-        searchPlaceholder="Search registrant or foreign principal…"
+        searchPlaceholder="Search registrant, foreign principal, or description…"
         searchInput={searchInput}
         onSearchInput={setSearchInput}
         onSearchSubmit={() => setQ(searchInput.trim())}
@@ -1344,6 +1356,7 @@ function FaraExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerFa
           <>
             <MultiSelect label="Country" placeholder="Any country" options={(facets.data?.countries ?? []).map((c) => ({ value: c, label: c }))} values={countries} onChange={setCountries} loading={facets.isLoading} />
             <MultiSelect label="Status" placeholder="Any" options={(facets.data?.statuses ?? []).map((s) => ({ value: s, label: s }))} values={statuses} onChange={setStatuses} loading={facets.isLoading} />
+            <MultiSelect label="State" placeholder="Any state" options={(facets.data?.states ?? []).map((s) => ({ value: s, label: s }))} values={states} onChange={setStates} loading={facets.isLoading} />
             <SortControl value={sort} onChange={setSort} options={[
               { value: 'recent', label: 'Most recent registration' },
               { value: 'oldest', label: 'Oldest first' },
@@ -1398,7 +1411,7 @@ function SecExplorer({ onRowClick }: { onRowClick: (id: string, row: ExplorerSec
   return (
     <>
       <ExplorerFilterBar
-        searchPlaceholder="Search company or description…"
+        searchPlaceholder="Search company, description, or CIK…"
         searchInput={searchInput}
         onSearchInput={setSearchInput}
         onSearchSubmit={() => setQ(searchInput.trim())}
@@ -1498,8 +1511,9 @@ function StateBillsExplorer({ onRowClick }: { onRowClick: (id: string, row: Expl
   const [states, setStates] = useState<string[]>([]);
   const [subjects, setSubjects] = useState<string[]>([]);
   const [sponsorParty, setSponsorParty] = useState<string[]>([]);
+  const [chambers, setChambers] = useState<string[]>([]);
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [q, states, subjects, sponsorParty]);
+  useEffect(() => { setPage(1); }, [q, states, subjects, sponsorParty, chambers]);
 
   const facets = useQuery<StateBillFacets>({
     queryKey: ['explorer-state-bill-facets'],
@@ -1507,9 +1521,9 @@ function StateBillsExplorer({ onRowClick }: { onRowClick: (id: string, row: Expl
     staleTime: 10 * 60 * 1000,
   });
   const rowsQuery = useQuery<ExplorerResponse<ExplorerStateBillRow>>({
-    queryKey: ['explorer-state-bills', q, states, subjects, sponsorParty, page],
+    queryKey: ['explorer-state-bills', q, states, subjects, sponsorParty, chambers, page],
     queryFn: async () => (await api.get<ExplorerResponse<ExplorerStateBillRow>>('/api/explorer/state-bills', {
-      params: { q: q || undefined, states: states.length ? states.join(',') : undefined, subjects: subjects.length ? subjects.join(',') : undefined, sponsorParty: sponsorParty.length ? sponsorParty.join(',') : undefined, page, pageSize: PAGE_SIZE },
+      params: { q: q || undefined, states: states.length ? states.join(',') : undefined, subjects: subjects.length ? subjects.join(',') : undefined, sponsorParty: sponsorParty.length ? sponsorParty.join(',') : undefined, chambers: chambers.length ? chambers.join(',') : undefined, page, pageSize: PAGE_SIZE },
     })).data,
     placeholderData: (p) => p,
   });
@@ -1517,7 +1531,7 @@ function StateBillsExplorer({ onRowClick }: { onRowClick: (id: string, row: Expl
   return (
     <>
       <ExplorerFilterBar
-        searchPlaceholder="Search bill title or sponsor…"
+        searchPlaceholder="Search bill title, identifier, sponsor, or action…"
         searchInput={searchInput}
         onSearchInput={setSearchInput}
         onSearchSubmit={() => setQ(searchInput.trim())}
@@ -1527,6 +1541,7 @@ function StateBillsExplorer({ onRowClick }: { onRowClick: (id: string, row: Expl
             <MultiSelect label="State" placeholder="Any" options={(facets.data?.states ?? []).map((s) => ({ value: s, label: s }))} values={states} onChange={setStates} loading={facets.isLoading} />
             <MultiSelect label="Subject" placeholder="Any subject" options={(facets.data?.subjects ?? []).map((s) => ({ value: s, label: s }))} values={subjects} onChange={setSubjects} loading={facets.isLoading} />
             <MultiSelect label="Sponsor party" placeholder="Any" options={(facets.data?.parties ?? []).map((p) => ({ value: p, label: p }))} values={sponsorParty} onChange={setSponsorParty} loading={facets.isLoading} />
+            <MultiSelect label="Chamber" placeholder="Any" options={(facets.data?.chambers ?? []).map((c) => ({ value: c, label: c.charAt(0).toUpperCase() + c.slice(1) }))} values={chambers} onChange={setChambers} loading={facets.isLoading} />
           </>
         }
       />

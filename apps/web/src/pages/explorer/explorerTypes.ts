@@ -174,6 +174,7 @@ export interface ExplorerFaraRow {
 export interface FaraFacets {
   countries: string[];
   statuses: string[];
+  states: string[];
 }
 
 export interface ExplorerSecRow {
@@ -228,6 +229,7 @@ export interface StateBillFacets {
   states: string[];
   subjects: string[];
   parties: string[];
+  chambers: string[];
 }
 
 /* ── Drill-in detail shapes ───────────────────────────────────────────── */

@@ -523,7 +523,12 @@ export class ExplorerService {
     const limit = clampPageSize(opts.pageSize);
     const offset = ((opts.page ?? 1) - 1) * limit;
     const where: Prisma.CrsReportWhereInput = {};
-    if (opts.q) where.title = { contains: opts.q, mode: 'insensitive' };
+    if (opts.q) {
+      where.OR = [
+        { title: { contains: opts.q, mode: 'insensitive' } },
+        { summary: { contains: opts.q, mode: 'insensitive' } },
+      ];
+    }
     if (opts.topics?.length) where.topics = { hasSome: opts.topics };
     if (opts.activeOnly) where.active = true;
 
@@ -568,6 +573,7 @@ export class ExplorerService {
     cycles?: number[];
     states?: string[];
     minAmount?: number;
+    maxAmount?: number;
     sort?: string;
     page?: number;
     pageSize?: number;
@@ -585,8 +591,15 @@ export class ExplorerService {
     }
     if (opts.cycles?.length) where.cycle = { in: opts.cycles };
     if (opts.states?.length) where.state = { in: opts.states };
+    const amountFilter: Prisma.DecimalFilter = {};
     if (opts.minAmount != null && opts.minAmount > 0) {
-      where.amount = { gte: new Prisma.Decimal(opts.minAmount) };
+      amountFilter.gte = new Prisma.Decimal(opts.minAmount);
+    }
+    if (opts.maxAmount != null && opts.maxAmount > 0) {
+      amountFilter.lte = new Prisma.Decimal(opts.maxAmount);
+    }
+    if (amountFilter.gte != null || amountFilter.lte != null) {
+      where.amount = amountFilter;
     }
 
     const orderBy: Prisma.FecContributionOrderByWithRelationInput =
@@ -640,6 +653,7 @@ export class ExplorerService {
     q?: string;
     countries?: string[];
     statuses?: string[];
+    states?: string[];
     sort?: string;
     page?: number;
     pageSize?: number;
@@ -651,10 +665,12 @@ export class ExplorerService {
       where.OR = [
         { registrantName: { contains: opts.q, mode: 'insensitive' } },
         { foreignPrincipal: { contains: opts.q, mode: 'insensitive' } },
+        { description: { contains: opts.q, mode: 'insensitive' } },
       ];
     }
     if (opts.countries?.length) where.country = { in: opts.countries };
     if (opts.statuses?.length) where.status = { in: opts.statuses };
+    if (opts.states?.length) where.state = { in: opts.states };
 
     const orderBy: Prisma.FaraRegistrationOrderByWithRelationInput =
       opts.sort === 'oldest'
@@ -683,7 +699,7 @@ export class ExplorerService {
   }
 
   async faraFacets() {
-    const [countries, statuses] = await Promise.all([
+    const [countries, statuses, states] = await Promise.all([
       this.prisma.$queryRaw<Array<{ country: string; n: bigint }>>`
         SELECT country, COUNT(*)::bigint AS n FROM fara_registration
         WHERE country IS NOT NULL GROUP BY country ORDER BY n DESC LIMIT 50
@@ -691,10 +707,15 @@ export class ExplorerService {
       this.prisma.$queryRaw<Array<{ status: string }>>`
         SELECT DISTINCT status FROM fara_registration WHERE status IS NOT NULL ORDER BY status
       `,
+      this.prisma.$queryRaw<Array<{ state: string }>>`
+        SELECT DISTINCT state FROM fara_registration
+        WHERE state IS NOT NULL AND state <> '' ORDER BY state
+      `,
     ]);
     return {
       countries: countries.map((r) => r.country),
       statuses: statuses.map((r) => r.status),
+      states: states.map((r) => r.state),
     };
   }
 
@@ -714,6 +735,7 @@ export class ExplorerService {
       where.OR = [
         { companyName: { contains: opts.q, mode: 'insensitive' } },
         { description: { contains: opts.q, mode: 'insensitive' } },
+        { cik: { contains: opts.q.replace(/^0+/, ''), mode: 'insensitive' } },
       ];
     }
     if (opts.formTypes?.length) where.formType = { in: opts.formTypes };
@@ -832,6 +854,7 @@ export class ExplorerService {
     states?: string[];
     subjects?: string[];
     sponsorParty?: string[];
+    chambers?: string[];
     sort?: string;
     page?: number;
     pageSize?: number;
@@ -843,11 +866,14 @@ export class ExplorerService {
       where.OR = [
         { title: { contains: opts.q, mode: 'insensitive' } },
         { sponsorName: { contains: opts.q, mode: 'insensitive' } },
+        { identifier: { contains: opts.q, mode: 'insensitive' } },
+        { latestActionText: { contains: opts.q, mode: 'insensitive' } },
       ];
     }
     if (opts.states?.length) where.state = { in: opts.states };
     if (opts.subjects?.length) where.subjects = { hasSome: opts.subjects };
     if (opts.sponsorParty?.length) where.sponsorParty = { in: opts.sponsorParty };
+    if (opts.chambers?.length) where.chamber = { in: opts.chambers };
 
     const [rows, total] = await Promise.all([
       this.prisma.stateBill.findMany({
@@ -879,7 +905,7 @@ export class ExplorerService {
   }
 
   async stateBillFacets() {
-    const [states, subjects, parties] = await Promise.all([
+    const [states, subjects, parties, chambers] = await Promise.all([
       this.prisma.$queryRaw<Array<{ state: string; n: bigint }>>`
         SELECT state, COUNT(*)::bigint AS n FROM state_bill GROUP BY state ORDER BY n DESC LIMIT 60
       `,
@@ -892,11 +918,16 @@ export class ExplorerService {
         SELECT DISTINCT sponsor_party AS party FROM state_bill
         WHERE sponsor_party IS NOT NULL ORDER BY party
       `,
+      this.prisma.$queryRaw<Array<{ chamber: string }>>`
+        SELECT DISTINCT chamber FROM state_bill
+        WHERE chamber IS NOT NULL AND chamber <> '' ORDER BY chamber
+      `,
     ]);
     return {
       states: states.map((r) => r.state),
       subjects: subjects.map((r) => r.subject),
       parties: parties.map((r) => r.party),
+      chambers: chambers.map((r) => r.chamber),
     };
   }
 
