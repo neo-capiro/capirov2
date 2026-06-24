@@ -213,6 +213,63 @@ export interface SamOppFacets {
   agencies: string[];
 }
 
+export interface ExplorerFederalAwardRow {
+  id: string;
+  piid: string | null;
+  contractorName: string | null;
+  awardingAgency: string | null;
+  awardingSubTier: string | null;
+  amount: number | null;
+  description: string | null;
+  peCode: string | null;
+  dodAcqProgramName: string | null;
+  popState: string | null;
+  fundingFy: number | null;
+  actionDate: string | null;
+  url: string | null;
+}
+export interface FederalAwardFacets {
+  agencies: string[];
+  states: string[];
+  fiscalYears: number[];
+}
+
+export interface ExplorerFederalGrantRow {
+  id: string;
+  title: string;
+  agency: string;
+  subAgency: string | null;
+  opportunityNumber: string | null;
+  category: string | null;
+  fundingInstrument: string | null;
+  awardCeiling: number | null;
+  estimatedFunding: number | null;
+  openDate: string | null;
+  closeDate: string | null;
+  status: string | null;
+  url: string | null;
+}
+export interface FederalGrantFacets {
+  agencies: string[];
+  statuses: string[];
+}
+
+export interface ExplorerStateLegislatorRow {
+  id: string;
+  name: string;
+  state: string;
+  chamber: string | null;
+  district: string | null;
+  party: string | null;
+  email: string | null;
+  url: string | null;
+}
+export interface StateLegislatorFacets {
+  states: string[];
+  chambers: string[];
+  parties: string[];
+}
+
 export interface ExplorerIntelArticleRow {
   id: string;
   source: string;

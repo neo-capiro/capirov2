@@ -874,6 +874,242 @@ export class ExplorerService {
     };
   }
 
+  /* ── Federal awards (USAspending) ───────────────────────────────────── */
+
+  async federalAwards(opts: {
+    q?: string;
+    agencies?: string[];
+    states?: string[];
+    fiscalYears?: number[];
+    minAmount?: number;
+    maxAmount?: number;
+    sort?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const limit = clampPageSize(opts.pageSize);
+    const offset = ((opts.page ?? 1) - 1) * limit;
+    const where: Prisma.FederalAwardWhereInput = {};
+    if (opts.q) {
+      where.OR = [
+        { contractorName: { contains: opts.q, mode: 'insensitive' } },
+        { description: { contains: opts.q, mode: 'insensitive' } },
+        { awardingAgency: { contains: opts.q, mode: 'insensitive' } },
+        { dodAcqProgramName: { contains: opts.q, mode: 'insensitive' } },
+        { piid: { contains: opts.q, mode: 'insensitive' } },
+      ];
+    }
+    if (opts.agencies?.length) where.awardingAgency = { in: opts.agencies };
+    if (opts.states?.length) where.popState = { in: opts.states };
+    if (opts.fiscalYears?.length) where.fundingFy = { in: opts.fiscalYears };
+    if (opts.minAmount != null || opts.maxAmount != null) {
+      where.amount = {};
+      if (opts.minAmount != null) where.amount.gte = opts.minAmount;
+      if (opts.maxAmount != null) where.amount.lte = opts.maxAmount;
+    }
+
+    const orderBy: Prisma.FederalAwardOrderByWithRelationInput =
+      opts.sort === 'recent'
+        ? { actionDate: 'desc' }
+        : opts.sort === 'oldest'
+          ? { actionDate: 'asc' }
+          : { amount: 'desc' };
+
+    const [rows, total] = await Promise.all([
+      this.prisma.federalAward.findMany({ where, orderBy, take: limit, skip: offset }),
+      this.prisma.federalAward.count({ where }),
+    ]);
+    return {
+      rows: rows.map((a) => ({
+        id: a.id,
+        piid: a.piid,
+        contractorName: a.contractorName,
+        awardingAgency: a.awardingAgency,
+        awardingSubTier: a.awardingSubTier,
+        amount: a.amount != null ? Number(a.amount) : null,
+        description: a.description,
+        peCode: a.peCode,
+        dodAcqProgramName: a.dodAcqProgramName,
+        popState: a.popState,
+        fundingFy: a.fundingFy,
+        actionDate: a.actionDate?.toISOString() ?? null,
+        url: a.awardUniqueId
+          ? `https://www.usaspending.gov/award/${encodeURIComponent(a.awardUniqueId)}`
+          : null,
+      })),
+      total,
+    };
+  }
+
+  async federalAwardFacets() {
+    const [agencies, states, fiscalYears] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ a: string; n: bigint }>>`
+        SELECT awarding_agency AS a, COUNT(*)::bigint AS n
+        FROM federal_award WHERE awarding_agency IS NOT NULL AND awarding_agency <> ''
+        GROUP BY awarding_agency ORDER BY n DESC LIMIT 30
+      `,
+      this.prisma.$queryRaw<Array<{ s: string }>>`
+        SELECT DISTINCT pop_state AS s FROM federal_award
+        WHERE pop_state IS NOT NULL AND pop_state <> '' ORDER BY pop_state
+      `,
+      this.prisma.$queryRaw<Array<{ fy: number }>>`
+        SELECT DISTINCT funding_fy AS fy FROM federal_award
+        WHERE funding_fy IS NOT NULL ORDER BY fy DESC
+      `,
+    ]);
+    return {
+      agencies: agencies.map((r) => r.a),
+      states: states.map((r) => r.s),
+      fiscalYears: fiscalYears.map((r) => Number(r.fy)),
+    };
+  }
+
+  /* ── Federal grants (Grants.gov) ────────────────────────────────────── */
+
+  async federalGrants(opts: {
+    q?: string;
+    agencies?: string[];
+    statuses?: string[];
+    sort?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const limit = clampPageSize(opts.pageSize);
+    const offset = ((opts.page ?? 1) - 1) * limit;
+    const where: Prisma.FederalGrantWhereInput = {};
+    if (opts.q) {
+      where.OR = [
+        { title: { contains: opts.q, mode: 'insensitive' } },
+        { description: { contains: opts.q, mode: 'insensitive' } },
+        { agency: { contains: opts.q, mode: 'insensitive' } },
+        { opportunityNumber: { contains: opts.q, mode: 'insensitive' } },
+      ];
+    }
+    if (opts.agencies?.length) where.agency = { in: opts.agencies };
+    if (opts.statuses?.length) where.status = { in: opts.statuses };
+
+    const orderBy: Prisma.FederalGrantOrderByWithRelationInput =
+      opts.sort === 'close'
+        ? { closeDate: 'asc' }
+        : opts.sort === 'oldest'
+          ? { openDate: 'asc' }
+          : { openDate: 'desc' };
+
+    const [rows, total] = await Promise.all([
+      this.prisma.federalGrant.findMany({ where, orderBy, take: limit, skip: offset }),
+      this.prisma.federalGrant.count({ where }),
+    ]);
+    return {
+      rows: rows.map((g) => ({
+        id: g.id,
+        title: g.title,
+        agency: g.agency,
+        subAgency: g.subAgency,
+        opportunityNumber: g.opportunityNumber,
+        category: g.category,
+        fundingInstrument: g.fundingInstrument,
+        awardCeiling: g.awardCeiling,
+        estimatedFunding: g.estimatedFunding,
+        openDate: g.openDate?.toISOString() ?? null,
+        closeDate: g.closeDate?.toISOString() ?? null,
+        status: g.status,
+        url: g.url,
+      })),
+      total,
+    };
+  }
+
+  async federalGrantFacets() {
+    const [agencies, statuses] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ a: string; n: bigint }>>`
+        SELECT agency AS a, COUNT(*)::bigint AS n
+        FROM federal_grant WHERE agency IS NOT NULL AND agency <> ''
+        GROUP BY agency ORDER BY n DESC LIMIT 30
+      `,
+      this.prisma.$queryRaw<Array<{ s: string }>>`
+        SELECT DISTINCT status AS s FROM federal_grant
+        WHERE status IS NOT NULL AND status <> '' ORDER BY status
+      `,
+    ]);
+    return {
+      agencies: agencies.map((r) => r.a),
+      statuses: statuses.map((r) => r.s),
+    };
+  }
+
+  /* ── State legislators (OpenStates) ─────────────────────────────────── */
+
+  async stateLegislators(opts: {
+    q?: string;
+    states?: string[];
+    chambers?: string[];
+    parties?: string[];
+    activeOnly?: boolean;
+    sort?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    const limit = clampPageSize(opts.pageSize);
+    const offset = ((opts.page ?? 1) - 1) * limit;
+    const where: Prisma.StateLegislatorWhereInput = {};
+    if (opts.q) {
+      where.OR = [
+        { name: { contains: opts.q, mode: 'insensitive' } },
+        { district: { contains: opts.q, mode: 'insensitive' } },
+      ];
+    }
+    if (opts.states?.length) where.state = { in: opts.states };
+    if (opts.chambers?.length) where.chamber = { in: opts.chambers };
+    if (opts.parties?.length) where.party = { in: opts.parties };
+    if (opts.activeOnly !== false) where.active = true;
+
+    const [rows, total] = await Promise.all([
+      this.prisma.stateLegislator.findMany({
+        where,
+        orderBy: [{ state: 'asc' }, { name: 'asc' }],
+        take: limit,
+        skip: offset,
+      }),
+      this.prisma.stateLegislator.count({ where }),
+    ]);
+    return {
+      rows: rows.map((l) => ({
+        id: l.id,
+        name: l.name,
+        state: l.state,
+        chamber: l.chamber,
+        district: l.district,
+        party: l.party,
+        email: l.email,
+        url: l.url,
+      })),
+      total,
+    };
+  }
+
+  async stateLegislatorFacets() {
+    const [states, chambers, parties] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ s: string }>>`
+        SELECT DISTINCT state AS s FROM state_legislator
+        WHERE state IS NOT NULL AND state <> '' ORDER BY state
+      `,
+      this.prisma.$queryRaw<Array<{ c: string }>>`
+        SELECT DISTINCT chamber AS c FROM state_legislator
+        WHERE chamber IS NOT NULL AND chamber <> '' ORDER BY chamber
+      `,
+      this.prisma.$queryRaw<Array<{ p: string; n: bigint }>>`
+        SELECT party AS p, COUNT(*)::bigint AS n FROM state_legislator
+        WHERE party IS NOT NULL AND party <> ''
+        GROUP BY party ORDER BY n DESC LIMIT 15
+      `,
+    ]);
+    return {
+      states: states.map((r) => r.s),
+      chambers: chambers.map((r) => r.c),
+      parties: parties.map((r) => r.p),
+    };
+  }
+
   /* ── Intel articles (news) ──────────────────────────────────────────── */
 
   async intelArticles(opts: {

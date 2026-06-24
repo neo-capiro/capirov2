@@ -15,6 +15,7 @@ import {
   ScheduleOutlined,
   SearchOutlined,
   SolutionOutlined,
+  TeamOutlined,
 } from '@ant-design/icons';
 import { useApi } from '../../lib/use-api.js';
 import {
@@ -35,7 +36,10 @@ import {
   type ExplorerIntelArticleRow,
   type ExplorerLdaFilingRow,
   type ExplorerResponse,
+  type ExplorerFederalAwardRow,
+  type ExplorerFederalGrantRow,
   type ExplorerSamOppRow,
+  type ExplorerStateLegislatorRow,
   type ExplorerSecRow,
   type ExplorerStateBillRow,
   type FaraDetail,
@@ -53,6 +57,9 @@ import {
   type LdaFacets,
   type LdaFilingDetail,
   type SamOppFacets,
+  type FederalAwardFacets,
+  type FederalGrantFacets,
+  type StateLegislatorFacets,
   type SecDetail,
   type SecFacets,
   type StateBillDetail,
@@ -73,6 +80,9 @@ type SourceKey =
   | 'fara'
   | 'sec'
   | 'sam-opps'
+  | 'federal-awards'
+  | 'federal-grants'
+  | 'state-legislators'
   | 'articles'
   | 'state-bills'
   | 'comment-deadlines';
@@ -97,7 +107,10 @@ const SOURCES: SourceMeta[] = [
   { key: 'fara', label: 'FARA Filings', description: 'Foreign agent registrations by country/principal.', icon: <GlobalOutlined /> },
   { key: 'sec', label: 'SEC Filings', description: '8-K, 10-Q, S-1 from SEC EDGAR.', icon: <AuditOutlined /> },
   { key: 'sam-opps', label: 'SAM.gov Opportunities', description: 'DoD contract opportunities & solicitations from SAM.gov.', icon: <SolutionOutlined /> },
+  { key: 'federal-awards', label: 'Federal Awards', description: 'USAspending contract award line items — agency, contractor, amount.', icon: <DollarOutlined /> },
+  { key: 'federal-grants', label: 'Federal Grants', description: 'Grants.gov funding opportunities by agency, deadline, ceiling.', icon: <BankOutlined /> },
   { key: 'state-bills', label: 'State Bills', description: 'State legislation via OpenStates.', icon: <SolutionOutlined /> },
+  { key: 'state-legislators', label: 'State Legislators', description: 'State house & senate members by state, chamber, party.', icon: <TeamOutlined /> },
   { key: 'comment-deadlines', label: 'Comment Deadlines', description: 'Open comment periods on federal rules, closing soonest.', icon: <ClockCircleOutlined /> },
 ];
 
@@ -193,6 +206,9 @@ export function DataExplorerPage() {
         {source === 'fara' ? <FaraExplorer onRowClick={(id, row) => setDrillIn({ source: 'fara', id, rowSummary: row.registrantName })} /> : null}
         {source === 'sec' ? <SecExplorer onRowClick={(id, row) => setDrillIn({ source: 'sec', id, rowSummary: row.companyName })} /> : null}
         {source === 'sam-opps' ? <SamOppsExplorer /> : null}
+        {source === 'federal-awards' ? <FederalAwardsExplorer /> : null}
+        {source === 'federal-grants' ? <FederalGrantsExplorer /> : null}
+        {source === 'state-legislators' ? <StateLegislatorsExplorer /> : null}
         {source === 'articles' ? <ArticlesExplorer onRowClick={(id, row) => setDrillIn({ source: 'articles', id, rowSummary: row.title })} /> : null}
         {source === 'state-bills' ? <StateBillsExplorer onRowClick={(id, row) => setDrillIn({ source: 'state-bills', id, rowSummary: `${row.state} ${row.identifier}` })} /> : null}
         {source === 'comment-deadlines' ? <CommentDeadlinesExplorer onRowClick={(id, row) => setDrillIn({ source: 'comment-deadlines', id, rowSummary: row.title })} /> : null}
@@ -1548,6 +1564,250 @@ function SamOppsExplorer() {
           { title: 'Office', dataIndex: 'office', width: 170, ellipsis: true, render: (o: string | null) => o ?? '-' },
           { title: 'NAICS', dataIndex: 'naicsCode', width: 80, render: (n: string | null) => n ? <span className="num">{n}</span> : '-' },
           { title: 'Deadline', dataIndex: 'responseDeadline', width: 110, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '-' },
+        ]}
+      />
+    </>
+  );
+}
+
+/* ── Federal awards (USAspending) ───────────────────────────────────────── */
+
+function FederalAwardsExplorer() {
+  const api = useApi();
+  const [q, setQ] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [agencies, setAgencies] = useState<string[]>([]);
+  const [states, setStates] = useState<string[]>([]);
+  const [fiscalYears, setFiscalYears] = useState<string[]>([]);
+  const [minAmount, setMinAmount] = useState('');
+  const [maxAmount, setMaxAmount] = useState('');
+  const [sort, setSort] = useState('amount');
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [q, agencies, states, fiscalYears, minAmount, maxAmount, sort]);
+
+  const facets = useQuery<FederalAwardFacets>({
+    queryKey: ['explorer-federal-award-facets'],
+    queryFn: async () => (await api.get<FederalAwardFacets>('/api/explorer/federal-award-facets')).data,
+    staleTime: 10 * 60 * 1000,
+  });
+  const rowsQuery = useQuery<ExplorerResponse<ExplorerFederalAwardRow>>({
+    queryKey: ['explorer-federal-awards', q, agencies, states, fiscalYears, minAmount, maxAmount, sort, page],
+    queryFn: async () => (await api.get<ExplorerResponse<ExplorerFederalAwardRow>>('/api/explorer/federal-awards', {
+      params: {
+        q: q || undefined,
+        agencies: agencies.length ? agencies.join(',') : undefined,
+        states: states.length ? states.join(',') : undefined,
+        fiscalYears: fiscalYears.length ? fiscalYears.join(',') : undefined,
+        minAmount: minAmount && Number(minAmount) > 0 ? Number(minAmount) : undefined,
+        maxAmount: maxAmount && Number(maxAmount) > 0 ? Number(maxAmount) : undefined,
+        sort, page, pageSize: PAGE_SIZE,
+      },
+    })).data,
+    placeholderData: (p) => p,
+  });
+
+  const openAward = (_id: string, row: ExplorerFederalAwardRow) => {
+    if (row.url) window.open(row.url, '_blank', 'noopener,noreferrer');
+  };
+
+  return (
+    <>
+      <ExplorerFilterBar
+        searchPlaceholder="Search contractor, description, agency, program, or PIID…"
+        searchInput={searchInput}
+        onSearchInput={setSearchInput}
+        onSearchSubmit={() => setQ(searchInput.trim())}
+        onClearSearch={() => { setSearchInput(''); setQ(''); }}
+        controls={
+          <>
+            <MultiSelect label="Agency" placeholder="Any" options={(facets.data?.agencies ?? []).map((a) => ({ value: a, label: a }))} values={agencies} onChange={setAgencies} loading={facets.isLoading} />
+            <MultiSelect label="State (PoP)" placeholder="Any" options={(facets.data?.states ?? []).map((s) => ({ value: s, label: s }))} values={states} onChange={setStates} loading={facets.isLoading} />
+            <MultiSelect label="Fiscal year" placeholder="Any" options={(facets.data?.fiscalYears ?? []).map((y) => ({ value: String(y), label: String(y) }))} values={fiscalYears} onChange={setFiscalYears} loading={facets.isLoading} />
+            <label className="explorer-filter">
+              <span className="explorer-filter-label">Amount ($)</span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Input style={{ width: 110 }} value={minAmount} onChange={(e) => setMinAmount(e.target.value.replace(/[^\d]/g, ''))} placeholder="Min" />
+                <span className="explorer-filter-label" style={{ margin: 0 }}>–</span>
+                <Input style={{ width: 110 }} value={maxAmount} onChange={(e) => setMaxAmount(e.target.value.replace(/[^\d]/g, ''))} placeholder="Max" />
+              </span>
+            </label>
+            <SortControl value={sort} onChange={setSort} options={[
+              { value: 'amount', label: 'Largest amount' },
+              { value: 'recent', label: 'Most recent action' },
+              { value: 'oldest', label: 'Oldest action' },
+            ]} />
+          </>
+        }
+      />
+      <ExplorerTable
+        loading={rowsQuery.isLoading}
+        rows={rowsQuery.data?.rows ?? []}
+        total={rowsQuery.data?.total ?? 0}
+        page={page}
+        onPageChange={setPage}
+        rowKey="id"
+        onRowClick={openAward}
+        columns={[
+          { title: 'Action date', dataIndex: 'actionDate', width: 100, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '-' },
+          { title: 'Contractor', dataIndex: 'contractorName', width: 200, ellipsis: true, render: (n: string | null, r: ExplorerFederalAwardRow) => r.url ? <a href={r.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{n ?? '(unnamed)'}</a> : (n ?? '-') },
+          { title: 'Description', dataIndex: 'description', ellipsis: true },
+          { title: 'Agency', dataIndex: 'awardingAgency', width: 160, ellipsis: true, render: (a: string | null) => a ?? '-' },
+          { title: 'Amount', dataIndex: 'amount', width: 120, align: 'right' as const, render: (v: number | null) => <span className="num" style={{ fontWeight: 500 }}>{formatMoney(v)}</span> },
+          { title: 'PE', dataIndex: 'peCode', width: 90, render: (p: string | null) => p ? <span className="num" style={{ fontFamily: 'var(--font-mono-rd)', fontSize: 11 }}>{p}</span> : '-' },
+          { title: 'FY', dataIndex: 'fundingFy', width: 60, render: (y: number | null) => y ? <span className="num">{y}</span> : '-' },
+        ]}
+      />
+    </>
+  );
+}
+
+/* ── Federal grants (Grants.gov) ────────────────────────────────────────── */
+
+function FederalGrantsExplorer() {
+  const api = useApi();
+  const [q, setQ] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [agencies, setAgencies] = useState<string[]>([]);
+  const [statuses, setStatuses] = useState<string[]>([]);
+  const [sort, setSort] = useState('recent');
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [q, agencies, statuses, sort]);
+
+  const facets = useQuery<FederalGrantFacets>({
+    queryKey: ['explorer-federal-grant-facets'],
+    queryFn: async () => (await api.get<FederalGrantFacets>('/api/explorer/federal-grant-facets')).data,
+    staleTime: 10 * 60 * 1000,
+  });
+  const rowsQuery = useQuery<ExplorerResponse<ExplorerFederalGrantRow>>({
+    queryKey: ['explorer-federal-grants', q, agencies, statuses, sort, page],
+    queryFn: async () => (await api.get<ExplorerResponse<ExplorerFederalGrantRow>>('/api/explorer/federal-grants', {
+      params: {
+        q: q || undefined,
+        agencies: agencies.length ? agencies.join(',') : undefined,
+        statuses: statuses.length ? statuses.join(',') : undefined,
+        sort, page, pageSize: PAGE_SIZE,
+      },
+    })).data,
+    placeholderData: (p) => p,
+  });
+
+  const openGrant = (_id: string, row: ExplorerFederalGrantRow) => {
+    if (row.url) window.open(row.url, '_blank', 'noopener,noreferrer');
+  };
+
+  return (
+    <>
+      <ExplorerFilterBar
+        searchPlaceholder="Search grant title, description, agency, or opportunity #…"
+        searchInput={searchInput}
+        onSearchInput={setSearchInput}
+        onSearchSubmit={() => setQ(searchInput.trim())}
+        onClearSearch={() => { setSearchInput(''); setQ(''); }}
+        controls={
+          <>
+            <MultiSelect label="Agency" placeholder="Any" options={(facets.data?.agencies ?? []).map((a) => ({ value: a, label: a }))} values={agencies} onChange={setAgencies} loading={facets.isLoading} />
+            <MultiSelect label="Status" placeholder="Any" options={(facets.data?.statuses ?? []).map((s) => ({ value: s, label: s }))} values={statuses} onChange={setStatuses} loading={facets.isLoading} />
+            <SortControl value={sort} onChange={setSort} options={[
+              { value: 'recent', label: 'Newest posted' },
+              { value: 'close', label: 'Closing soonest' },
+              { value: 'oldest', label: 'Oldest posted' },
+            ]} />
+          </>
+        }
+      />
+      <ExplorerTable
+        loading={rowsQuery.isLoading}
+        rows={rowsQuery.data?.rows ?? []}
+        total={rowsQuery.data?.total ?? 0}
+        page={page}
+        onPageChange={setPage}
+        rowKey="id"
+        onRowClick={openGrant}
+        columns={[
+          { title: 'Posted', dataIndex: 'openDate', width: 100, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '-' },
+          { title: 'Title', dataIndex: 'title', ellipsis: true, render: (t: string, r: ExplorerFederalGrantRow) => r.url ? <a href={r.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{t}</a> : t },
+          { title: 'Agency', dataIndex: 'agency', width: 200, ellipsis: true },
+          { title: 'Instrument', dataIndex: 'fundingInstrument', width: 130, render: (i: string | null) => i ? <Tag className="redesign-mono-tag">{i}</Tag> : '-' },
+          { title: 'Ceiling', dataIndex: 'awardCeiling', width: 120, align: 'right' as const, render: (v: number | null) => <span className="num">{formatMoney(v)}</span> },
+          { title: 'Closes', dataIndex: 'closeDate', width: 100, render: (d: string | null) => d ? <span className="num">{formatDate(d)}</span> : '-' },
+          { title: 'Status', dataIndex: 'status', width: 90, render: (s: string | null) => s ? <Tag>{s}</Tag> : '-' },
+        ]}
+      />
+    </>
+  );
+}
+
+/* ── State legislators (OpenStates) ─────────────────────────────────────── */
+
+function StateLegislatorsExplorer() {
+  const api = useApi();
+  const [q, setQ] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [states, setStates] = useState<string[]>([]);
+  const [chambers, setChambers] = useState<string[]>([]);
+  const [parties, setParties] = useState<string[]>([]);
+  const [activeOnly, setActiveOnly] = useState(true);
+  const [page, setPage] = useState(1);
+  useEffect(() => { setPage(1); }, [q, states, chambers, parties, activeOnly]);
+
+  const facets = useQuery<StateLegislatorFacets>({
+    queryKey: ['explorer-state-legislator-facets'],
+    queryFn: async () => (await api.get<StateLegislatorFacets>('/api/explorer/state-legislator-facets')).data,
+    staleTime: 10 * 60 * 1000,
+  });
+  const rowsQuery = useQuery<ExplorerResponse<ExplorerStateLegislatorRow>>({
+    queryKey: ['explorer-state-legislators', q, states, chambers, parties, activeOnly, page],
+    queryFn: async () => (await api.get<ExplorerResponse<ExplorerStateLegislatorRow>>('/api/explorer/state-legislators', {
+      params: {
+        q: q || undefined,
+        states: states.length ? states.join(',') : undefined,
+        chambers: chambers.length ? chambers.join(',') : undefined,
+        parties: parties.length ? parties.join(',') : undefined,
+        activeOnly: activeOnly ? undefined : 'false',
+        page, pageSize: PAGE_SIZE,
+      },
+    })).data,
+    placeholderData: (p) => p,
+  });
+
+  const openLegislator = (_id: string, row: ExplorerStateLegislatorRow) => {
+    if (row.url) window.open(row.url, '_blank', 'noopener,noreferrer');
+  };
+
+  const chamberLabel = (c: string) => c === 'upper' ? 'Senate' : c === 'lower' ? 'House' : c;
+
+  return (
+    <>
+      <ExplorerFilterBar
+        searchPlaceholder="Search legislator name or district…"
+        searchInput={searchInput}
+        onSearchInput={setSearchInput}
+        onSearchSubmit={() => setQ(searchInput.trim())}
+        onClearSearch={() => { setSearchInput(''); setQ(''); }}
+        controls={
+          <>
+            <MultiSelect label="State" placeholder="Any" options={(facets.data?.states ?? []).map((s) => ({ value: s, label: s }))} values={states} onChange={setStates} loading={facets.isLoading} />
+            <MultiSelect label="Chamber" placeholder="Any" options={(facets.data?.chambers ?? []).map((c) => ({ value: c, label: chamberLabel(c) }))} values={chambers} onChange={setChambers} loading={facets.isLoading} />
+            <MultiSelect label="Party" placeholder="Any" options={(facets.data?.parties ?? []).map((pp) => ({ value: pp, label: pp }))} values={parties} onChange={setParties} loading={facets.isLoading} />
+            <ToggleChip label="Active only" active={activeOnly} onToggle={() => setActiveOnly((v) => !v)} />
+          </>
+        }
+      />
+      <ExplorerTable
+        loading={rowsQuery.isLoading}
+        rows={rowsQuery.data?.rows ?? []}
+        total={rowsQuery.data?.total ?? 0}
+        page={page}
+        onPageChange={setPage}
+        rowKey="id"
+        onRowClick={openLegislator}
+        columns={[
+          { title: 'State', dataIndex: 'state', width: 70, render: (s: string) => <span className="state-pill num">{s}</span> },
+          { title: 'Name', dataIndex: 'name', ellipsis: true, render: (n: string, r: ExplorerStateLegislatorRow) => r.url ? <a href={r.url} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>{n}</a> : n },
+          { title: 'Chamber', dataIndex: 'chamber', width: 110, render: (c: string | null) => c ? chamberLabel(c) : '-' },
+          { title: 'District', dataIndex: 'district', width: 110, render: (d: string | null) => d ?? '-' },
+          { title: 'Party', dataIndex: 'party', width: 120, render: (p: string | null) => p ? <Tag>{p}</Tag> : '-' },
+          { title: 'Email', dataIndex: 'email', ellipsis: true, render: (e: string | null) => e ? <a href={`mailto:${e}`} onClick={(ev) => ev.stopPropagation()}>{e}</a> : '-' },
         ]}
       />
     </>

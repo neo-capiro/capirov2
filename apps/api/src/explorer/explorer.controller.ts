@@ -384,6 +384,68 @@ export class ExplorerController {
     return this.service.samOpportunityFacets();
   }
 
+  /* ── Federal awards (USAspending) ────────────────────────────────────── */
+
+  @Get('federal-awards')
+  federalAwards(@Query() q: CommonPagingDto & Record<string, unknown>) {
+    return this.service.federalAwards({
+      q: q.q,
+      agencies: arrayOrSplit(q.agencies),
+      states: arrayOrSplit(q.states),
+      fiscalYears: arrayOrSplit(q.fiscalYears)?.map((v) => Number(v)).filter((n) => !Number.isNaN(n)),
+      minAmount: typeof q.minAmount === 'string' && q.minAmount !== '' ? Number(q.minAmount) : undefined,
+      maxAmount: typeof q.maxAmount === 'string' && q.maxAmount !== '' ? Number(q.maxAmount) : undefined,
+      sort: q.sort,
+      page: q.page,
+      pageSize: q.pageSize,
+    });
+  }
+
+  @Get('federal-award-facets')
+  federalAwardFacets() {
+    return this.service.federalAwardFacets();
+  }
+
+  /* ── Federal grants (Grants.gov) ─────────────────────────────────────── */
+
+  @Get('federal-grants')
+  federalGrants(@Query() q: CommonPagingDto & Record<string, unknown>) {
+    return this.service.federalGrants({
+      q: q.q,
+      agencies: arrayOrSplit(q.agencies),
+      statuses: arrayOrSplit(q.statuses),
+      sort: q.sort,
+      page: q.page,
+      pageSize: q.pageSize,
+    });
+  }
+
+  @Get('federal-grant-facets')
+  federalGrantFacets() {
+    return this.service.federalGrantFacets();
+  }
+
+  /* ── State legislators (OpenStates) ──────────────────────────────────── */
+
+  @Get('state-legislators')
+  stateLegislators(@Query() q: CommonPagingDto & Record<string, unknown>) {
+    return this.service.stateLegislators({
+      q: q.q,
+      states: arrayOrSplit(q.states),
+      chambers: arrayOrSplit(q.chambers),
+      parties: arrayOrSplit(q.parties),
+      activeOnly: q.activeOnly === 'false' || q.activeOnly === false ? false : true,
+      sort: q.sort,
+      page: q.page,
+      pageSize: q.pageSize,
+    });
+  }
+
+  @Get('state-legislator-facets')
+  stateLegislatorFacets() {
+    return this.service.stateLegislatorFacets();
+  }
+
   /* ── Intel articles (news) ───────────────────────────────────────────── */
 
   @Get('intel-articles')
