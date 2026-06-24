@@ -23,7 +23,7 @@ export interface ScheduledIngestionJob {
   /** Human note for the rule description. */
   description: string;
   /** Tier for grouping/observability. */
-  tier: 'daily' | 'weekly' | 'monthly' | 'derived' | 'embeddings';
+  tier: 'daily' | 'weekly' | 'monthly' | 'derived' | 'embeddings' | 'agent';
 }
 
 // NOTE: AWS EventBridge cron requires exactly one of day-of-month / day-of-week
@@ -93,4 +93,14 @@ export const INGESTION_JOBS: ScheduledIngestionJob[] = [
   // NOTE: embed-backfill has its own dedicated task def + rule already wired in
   // compute-stack.ts (Phase 1). It is intentionally NOT in this list to avoid a
   // duplicate rule; it runs at 13:00 UTC via EmbedBackfillDailyRule.
+
+  // ── TIER 7 — AGENT (Meri self-scheduled tasks) ────────────────────────────
+  // Drains DUE rows in clio_scheduled_task (Meri's `schedule_task` tool writes
+  // them) and delivers each result to the in-app inbox (clio_proactive_alert).
+  // Runs hourly; the runner enforces a 60-min minimum cadence per task, so an
+  // hourly drain is the finest granularity any task can actually use. Reuses the
+  // shared migrate task def (has ANTHROPIC_API_KEY + CLIO_* runtime env). The
+  // live rule is `capiro-dev-run-clio-scheduled-tasks` (created out-of-band;
+  // this matrix is not yet consumed by a CDK construct — see warning above).
+  { id: 'RunClioScheduledTasks', command: ['run-clio-scheduled-tasks', '--commit'], cron: { minute: '15', hour: '*' }, tier: 'agent', description: 'Meri self-scheduled research tasks (hourly drain of clio_scheduled_task)' },
 ];

@@ -24,6 +24,7 @@ import {
   getActiveWhitePaper,
   removeConversation,
   setAlerts,
+  dismissAlert,
   setActiveConversation,
   setChatOpen,
   setChatSession,
@@ -165,7 +166,7 @@ interface ChatDrawerProps {
 }
 
 export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
-  const { isOpen, messages, sessionId, isStreaming, alertsBadge, conversations, activeConversationId } = useChatStore();
+  const { isOpen, messages, sessionId, isStreaming, alertsBadge, alerts, conversations, activeConversationId } = useChatStore();
   const { getToken } = useAuth();
   const api = useApi();
   const { actAsTenantSlug } = useImpersonation();
@@ -175,6 +176,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const abortRef = useRef<AbortController | null>(null);
 
   const [clients, setClients] = useState<ClientOption[]>([]);
+  const [alertsOpen, setAlertsOpen] = useState(false);
   const [sessionTitle, setSessionTitle] = useState('');
   const [sessionClientId, setSessionClientId] = useState('');
   const [orchestratorTier, setOrchestratorTier] = useState<'fast' | 'deep' | null>(null);
@@ -260,6 +262,17 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
       } catch { /* ignore */ }
     })();
   }, [isOpen, authHeaders]);
+
+  // Dismiss (mark read) a delivered alert — optimistic store update + persist.
+  const handleDismissAlert = useCallback(async (id: string) => {
+    dismissAlert(id);
+    try {
+      await fetch(`${config.apiBaseUrl}/api/clio/alerts/${id}/dismiss`, {
+        method: 'POST',
+        headers: await authHeaders(),
+      });
+    } catch { /* optimistic; ignore network error */ }
+  }, [authHeaders]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -1271,6 +1284,51 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         </div>
 
         <SessionRail />
+
+        {alerts.length > 0 && (
+          <div className="chat-alerts">
+            <button
+              type="button"
+              className="chat-alerts-header"
+              onClick={() => setAlertsOpen((v) => !v)}
+              aria-expanded={alertsOpen}
+            >
+              <span className="chat-alerts-title">
+                <span className="chat-alerts-icon" aria-hidden="true">🔔</span>
+                Scheduled briefings
+                {alertsBadge > 0 && <span className="chat-alerts-count">{alertsBadge}</span>}
+              </span>
+              <span className="chat-alerts-chevron" aria-hidden="true">{alertsOpen ? '▾' : '▸'}</span>
+            </button>
+            {alertsOpen && (
+              <div className="chat-alerts-list">
+                {alerts.map((alert) => (
+                  <div
+                    key={alert.id}
+                    className={`chat-alert-item${alert.status === 'pending' ? ' chat-alert-item--unread' : ''}`}
+                  >
+                    <div className="chat-alert-item-head">
+                      <span className="chat-alert-item-title">{alert.title}</span>
+                      <button
+                        type="button"
+                        className="chat-alert-item-dismiss"
+                        onClick={() => void handleDismissAlert(alert.id)}
+                        aria-label="Dismiss"
+                        title="Dismiss"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="chat-alert-item-body">{alert.body}</div>
+                    <div className="chat-alert-item-meta">
+                      {new Date(alert.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="chat-messages" role="log" aria-live="polite" aria-label="Conversation">
           {messages.length === 0 && !isStreaming && (

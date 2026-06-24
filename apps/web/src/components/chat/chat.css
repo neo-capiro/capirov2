@@ -2275,3 +2275,94 @@
     animation-duration: 0.01ms !important;
   }
 }
+
+/* ── Scheduled-task briefings (delivered alerts) ─────────────────────────── */
+.chat-alerts {
+  border-bottom: 1px solid var(--meri-border);
+  background: var(--meri-surface);
+  flex: 0 0 auto;
+}
+.chat-alerts-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: var(--meri-font);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--meri-text);
+}
+.chat-alerts-header:hover { background: rgba(0, 0, 0, 0.03); }
+.chat-alerts-title { display: inline-flex; align-items: center; gap: 7px; }
+.chat-alerts-icon { font-size: 12px; }
+.chat-alerts-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--meri-navy);
+  color: #fff;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+.chat-alerts-chevron { color: var(--meri-muted); font-size: 11px; }
+.chat-alerts-list {
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chat-alert-item {
+  border: 1px solid var(--meri-border);
+  border-radius: var(--meri-radius);
+  background: #fff;
+  padding: 9px 11px;
+}
+.chat-alert-item--unread { border-left: 3px solid var(--meri-navy); }
+.chat-alert-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.chat-alert-item-title {
+  font-family: var(--meri-font);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--meri-text);
+  line-height: 1.3;
+}
+.chat-alert-item-dismiss {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--meri-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px;
+}
+.chat-alert-item-dismiss:hover { color: var(--meri-text); }
+.chat-alert-item-body {
+  font-family: var(--meri-font);
+  font-size: 12px;
+  color: var(--meri-text);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.chat-alert-item-meta {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--meri-muted);
+}
