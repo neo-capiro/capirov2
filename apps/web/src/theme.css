@@ -4875,11 +4875,16 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1.45fr) minmax(360px, 0.8fr);
   gap: 16px;
-  /* Bound the tab to the viewport so the meetings list scrolls inside its
-     panel instead of growing the page; both columns stretch to the same
-     height (the detail panel pins its action bar at the bottom). */
+  /* Bound the tab to the viewport so each panel scrolls inside itself instead
+     of growing the page; both columns stretch to the same height and the
+     detail panel pins its action bar at the bottom.
+     Do NOT floor this with a fixed min-height: a floor taller than a short
+     viewport (e.g. 600px on a <840px-tall laptop) forces the shell past the
+     viewport, which adds a SECOND outer page scrollbar on top of the inner
+     content scroll and pushes the Prep/Debrief action bar below the fold.
+     Let the viewport-relative height govern. */
   height: calc(100vh - 240px);
-  min-height: 600px;
+  min-height: 0;
 }
 
 .engagement-schedule-panel,
