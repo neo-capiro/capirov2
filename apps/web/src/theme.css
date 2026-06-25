@@ -5366,6 +5366,28 @@ body {
   opacity: 0.84;
 }
 
+/* Completion color, layered after the per-kind rules so it wins the status
+   stripe + label: green once the meeting's prep/debrief is done, red while it
+   is still needed (or not started). Keeps complete meetings at full opacity. */
+.engagement-week-event--tone-success {
+  border-left-color: #12b76a;
+  opacity: 1;
+}
+
+.engagement-week-event--tone-danger {
+  border-left-color: #f04438;
+}
+
+/* Doubled class (0,2,1) so the tone wins over the later base `em` red rule
+   (`.engagement-week-event em`, equal 0,1,1) regardless of source order. */
+.engagement-week-event.engagement-week-event--tone-success em {
+  color: #067647;
+}
+
+.engagement-week-event.engagement-week-event--tone-danger em {
+  color: #b42318;
+}
+
 .engagement-week-event span,
 .engagement-week-event small,
 .engagement-week-event em {
@@ -5429,7 +5451,7 @@ body {
 }
 
 .engagement-week-legend i.prepped {
-  background: #667085;
+  background: #12b76a;
 }
 
 .engagement-detail-head {
