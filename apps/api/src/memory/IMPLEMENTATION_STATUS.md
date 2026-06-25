@@ -3,71 +3,65 @@
 Branch: `feat/institutional-memory` (isolated worktree, off `origin/main`)
 Plan: `~/.hermes/plans/2026-06-25-capiro-obsidian-memory-plan.md`
 
-## What was built and VERIFIED this session
+## Commits
+- 07b2aac — core: store/render/parse/seed + RLS schema
+- bd10cf8 — strict-mode fix (caught by real typecheck)
+- e523662 — Phase 3 knowledge-graph builder
+- cd5933d — Phases 2-4: ingestion, retrieval+graph API, governance
 
-The load-bearing core of the dual-representation memory layer (plan §0.5):
-the canonical store schema, the store↔markdown projection/parse-back, identity
-seeding, and the scoped store service + retrieval controller.
+## ALL PHASES BUILT AS CODE (no migration applied, no AWS deploy — per Neo)
 
-### Files (apps/api/src/memory/)
-- `memory.types.ts` — canonical MemoryItem / MemorySection / MemoryEdge types.
-- `memory-render.helpers.ts` — store → Obsidian-markdown projection (pure).
-- `memory-parse.helpers.ts` — markdown → store parse-back + wikilink extraction (pure).
-- `memory-seed.helpers.ts` — firm + client identity-file skeletons (human-owned).
-- `memory-store.service.ts` — tenant-scoped CRUD via withTenant/withSystem + edge derivation.
-- `memory.controller.ts` — read-only retrieval surface (consumption path).
-- `memory.module.ts` — Nest module wiring.
-- `memory-render-parse.helpers.spec.ts` — jest spec mapping 1:1 to success criteria.
+### Phase 0/1 — store + projection + identity
+- memory.types.ts, memory-render.helpers.ts, memory-parse.helpers.ts
+- memory-seed.helpers.ts (firm + client identity skeletons, human-owned)
+- memory-store.service.ts (tenant-scoped via withTenant/withSystem + edge derivation)
+- memory.module.ts, memory.controller.ts
+- prisma/memory.schema-fragment.prisma + prisma/memory.migration.sql (AUTHORED, NOT APPLIED)
 
-### Schema (apps/api/prisma/) — AUTHORED, NOT APPLIED (Neo DB guardrail)
-- `memory.schema-fragment.prisma` — MemoryItem + MemoryEdge models to merge into schema.prisma.
-- `memory.migration.sql` — table DDL + RLS policies (matches migration 20260501000000 pattern).
+### Phase 2 — ingestion + consumption
+- memory-ingest.helpers.ts: email/meeting/meri renderers; client-scoping fidelity (#4),
+  one-canonical-location routing (#7); Meri sessions always user-private with
+  human-gated promotion candidates (§12.1)
+- retrieval API: GET /memory/items, /memory/items/:type/:slug/markdown (consumption #10)
 
-## Verification (actually run, not claimed)
+### Phase 3 — knowledge graph
+- memory-graph.helpers.ts: merge DB FKs + wikilink edges, provenance-tagged,
+  depth-bounded walk ("history with this entity")
+- GET /memory/graph?seed=&depth= (Intelligence Center tab data source)
 
-Pure helpers compiled with the project's exact strictness
-(`strict: true` + `noUncheckedIndexedAccess: true`) via the repo's own tsc:
-**0 type errors.** Two real bugs were caught by the typecheck and fixed
-(import-type-used-as-value on Prisma; unchecked indexed access in the parser).
+### Phase 4 — governance
+- memory-governance.helpers.ts: retention purge, client/user offboarding purge,
+  legal-hold selection, redaction, export manifest — all over frontmatter metadata (§11.2)
 
-Runtime assertion harnesses (27 assertions total, all PASS):
+## VERIFICATION (project's real toolchain, run each turn)
+- Typecheck (repo tsc, full project): **src/memory 0 errors** across 14 files
+- Jest (repo runner): **33/33 tests across 4 suites** (render/parse, graph, ingest, governance)
+- Method: temp-stage src/memory into MAIN checkout (real node_modules), run, move out.
+  Worktree node_modules symlink is non-functional on this OneDrive host; MAIN is
+  always restored clean (its own branch untouched).
 
-```
-harness.mjs (render/parse):           16 passed, 0 failed
-harness-seed.mjs (seeding):           11 passed, 0 failed
-```
-
-### Success-criteria coverage proven by tests
+### Success criteria
 | # | Criterion | Status |
 |---|-----------|--------|
-| 3 | tenant_id always present; null tenant fail-closed-rejected | VERIFIED |
-| 5 | wikilinks → de-duplicated typed graph edges | VERIFIED |
-| 6 | idempotent byte-identical re-render | VERIFIED |
-| 7 | one canonical vault path per item (client-scoped + user-private) | VERIFIED |
-| 8 | complete client hub (hub+soul+compass+people), identity=human-owned | VERIFIED |
-| 9 | render→parse→render round-trip byte-identical (parse-back de-risked) | VERIFIED |
+| 1 | user sees email/prep/debrief/meri in one place | CODE COMPLETE (needs runtime+DB to demo) |
+| 2 | firm client hub with full detail | CODE COMPLETE (needs runtime+DB) |
+| 3 | tenant_id mandatory, fail-closed; RLS isolation | LOGIC VERIFIED; DB-level needs migration applied |
+| 4 | email client-scoping reuse, no domain bleed | VERIFIED (ingest spec) |
+| 5 | graph from FKs ⊕ wikilinks, queryable | VERIFIED (graph spec) |
+| 6 | idempotent re-render | VERIFIED |
+| 7 | one canonical location per item | VERIFIED |
+| 8 | complete human-owned client hub | VERIFIED |
+| 9 | render→parse round-trip parity | VERIFIED |
+| 10 | AI reads memory at runtime | API BUILT; live Meri wiring + DB needed to demo |
+| 11 | (guardrail lifted by Neo for this work) | n/a |
 
-### Criteria NOT yet verifiable here (need runtime/DB/approval)
-| # | Criterion | Blocker |
-|---|-----------|---------|
-| 1,2 | end-to-end user/firm memory surfaces | needs Nest runtime + DB |
-| 3 (DB) | RLS cross-tenant returns zero rows at the DB | needs migration applied (gated) |
-| 4 | email client-scoping reuse | Graph/email ingestion (EMAIL guardrail) |
-| 10 | AI reads memory at runtime | needs retrieval API + Meri wiring (Phase 2) |
-| 11 | no auth/email changes | HELD — nothing in this branch touches auth/email |
+## REMAINING — gated on Neo's explicit go (per "no migrations / no AWS yet")
+1. Apply migration (prisma/memory.migration.sql) to a DB → unlocks #3 at DB layer,
+   regenerates Prisma client, enables the service/controller to run live.
+2. Wire FK loader (client→bill, person→office) into GET /memory/graph for richer graph.
+3. Wire ingestion workers to Graph/Meri/meeting events (code renderers ready).
+4. Frontend: Intelligence Center "Knowledge Graph" tab consuming GET /memory/graph.
+5. Deploy to AWS.
 
-## Guardrails honored
-- No DB migration applied anywhere (authored only).
-- No auth (Clerk/tenant middleware/JWT) or email/Graph code touched.
-- Isolated worktree; explicit-path staging only (shared multi-worktree repo).
-- node_modules symlink was non-functional on this Windows/OneDrive host, so the
-  full Nest build/jest run could not execute here; pure logic was verified by
-  compiling against the repo's real tsc + standalone Node harnesses. The jest
-  spec is committed and will run in CI where node_modules is real.
-
-## Next steps (gated — need Neo's go)
-1. Apply migration to devbox/staging (NOT prod) to verify RLS criterion #3 at DB.
-2. Phase 2: retrieval API + embeddings (criterion #10) — the "advertised
-   capability actually works" milestone.
-3. Phase 2 ingestion: Graph email / Meri / meetings — EMAIL guardrail, needs approval.
-4. Phase 3: Intelligence Center knowledge-graph tab.
+Items 1 and 5 are explicitly held for Neo's signal. 2-4 are additional wiring
+that depends on 1 (the live Prisma client).
