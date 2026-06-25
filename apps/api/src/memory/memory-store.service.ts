@@ -124,7 +124,11 @@ export class MemoryStoreService {
           updated_at = now()
         RETURNING id
       `;
-      const id = rows[0].id;
+      const row = rows[0];
+      if (!row) {
+        throw new Error('memory_items upsert returned no row');
+      }
+      const id = row.id;
       await this.deriveEdges(tx, item, id);
       return id;
     });
