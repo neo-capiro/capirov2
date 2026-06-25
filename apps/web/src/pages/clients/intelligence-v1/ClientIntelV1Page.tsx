@@ -195,11 +195,7 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
                   aggregate={profileV1Query.data ?? undefined}
                 />
 
-                <FinancialFootprintSection
-                  aggregate={profileV1Query.data ?? undefined}
-                  runFecEnabled={false}
-                  runFecHref="/explorer"
-                />
+                <FinancialFootprintSection clientId={clientId} />
 
                 <LegislativeRegulatorySection
                   aggregate={profileV1Query.data ?? undefined}

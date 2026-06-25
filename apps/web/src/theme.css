@@ -17438,3 +17438,58 @@ body {
 .tgt-pill.R .tgt-pill-dot { background: #dc2626; }
 .tgt-pill.D .tgt-pill-dot { background: #2563eb; }
 .tgt-pill.I .tgt-pill-dot { background: #6b7280; }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Financial Footprint — LDA filings list (rebuilt). Scoped under iv1-lda-*.
+   ────────────────────────────────────────────────────────────────────────── */
+.iv1-lda-summary {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 4px;
+}
+.iv1-lda-stat {
+  background: var(--surface, #fff); border: 1px solid var(--border, #e5e2db);
+  border-radius: 10px; padding: 14px 16px;
+}
+.iv1-lda-stat-n { font-size: 22px; font-weight: 600; color: var(--navy, #0d1929); line-height: 1.1; letter-spacing: -0.4px; }
+.iv1-lda-stat-l { font-size: 10.5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.6px; color: #9ca3af; margin-top: 5px; }
+
+.iv1-lda-reg-list { padding: 4px 0; }
+.iv1-lda-reg-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 9px 16px; border-bottom: 1px solid #f5f2ec;
+}
+.iv1-lda-reg-row:last-child { border-bottom: none; }
+.iv1-lda-reg-name { font-size: 13.5px; font-weight: 500; color: var(--navy, #0d1929); }
+.iv1-lda-reg-meta { font-size: 12px; color: #6b6b6b; white-space: nowrap; }
+
+.iv1-lda-filings { padding: 2px 0; }
+.iv1-lda-filing { padding: 13px 16px; border-bottom: 1px solid #f5f2ec; }
+.iv1-lda-filing:last-child { border-bottom: none; }
+.iv1-lda-filing-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.iv1-lda-filing-when { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.iv1-lda-filing-year { font-size: 14px; font-weight: 600; color: var(--navy, #0d1929); }
+.iv1-lda-filing-period {
+  font-size: 11px; font-weight: 600; color: #4b4845;
+  background: #ece8e0; border-radius: 4px; padding: 1px 6px;
+}
+.iv1-lda-filing-type { font-size: 11.5px; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.4px; }
+.iv1-lda-filing-amt { font-size: 14px; font-weight: 600; color: var(--navy, #0d1929); white-space: nowrap; }
+.iv1-lda-filing-reg { font-size: 13px; color: #3d3a36; margin-top: 3px; }
+
+.iv1-lda-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.iv1-lda-chip {
+  font-size: 10.5px; font-weight: 500; padding: 2px 7px; border-radius: 4px;
+}
+.iv1-lda-chip.issue { background: #dbeafe; color: #1d4ed8; }
+
+.iv1-lda-line { display: flex; gap: 8px; margin-top: 6px; font-size: 12px; line-height: 1.5; }
+.iv1-lda-line-lbl {
+  flex-shrink: 0; width: 78px; color: #9ca3af; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.4px; font-size: 10.5px; padding-top: 1px;
+}
+.iv1-lda-line-val { color: #3d3a36; min-width: 0; }
+.iv1-lda-doc { display: inline-block; margin-top: 8px; font-size: 12.5px; color: #2563eb; text-decoration: none; }
+.iv1-lda-doc:hover { text-decoration: underline; }
+
+@media (max-width: 720px) {
+  .iv1-lda-summary { grid-template-columns: repeat(2, 1fr); }
+}

@@ -206,6 +206,14 @@ export class IntelligenceController {
     return this.service.getLobbyingRoi(clientId, ctx.tenantId);
   }
 
+  @Get('clients/:clientId/lda-filings')
+  getClientLdaFilings(
+    @CurrentTenant() ctx: TenantContext,
+    @Param('clientId') clientId: string,
+  ) {
+    return this.service.getClientLdaFilings(clientId, ctx.tenantId);
+  }
+
   @Get('clients/:clientId/fec-money-flow')
   getFecMoneyFlow(
     @CurrentTenant() ctx: TenantContext,
