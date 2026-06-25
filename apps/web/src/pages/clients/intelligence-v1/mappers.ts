@@ -20,8 +20,7 @@ export type {
 export type SectionId =
   | 'snapshot'
   | 'financial-footprint'
-  | 'legislative-regulatory'
-  | 'relationships';
+  | 'legislative-regulatory';
 
 export interface SectionMeta {
   id: SectionId;
@@ -49,7 +48,6 @@ export const SECTION_ORDER: SectionMeta[] = [
     title: 'Legislative & Regulatory',
     shortTitle: 'Legislative',
   },
-  { id: 'relationships', num: 4, title: 'Relationships', shortTitle: 'Relationships' },
 ];
 
 export function buildSectionNavMeta(profile: ClientIntelProfile | null | undefined): SectionNavMeta {

@@ -15,7 +15,6 @@ import {
 import { SnapshotSection } from './sections/SnapshotSection.js';
 import { FinancialFootprintSection } from './sections/FinancialFootprintSection.js';
 import { LegislativeRegulatorySection } from './sections/LegislativeRegulatorySection.js';
-import { RelationshipsSection } from './sections/RelationshipsSection.js';
 
 interface ClientIntelV1PageProps {
   clientId: string;
@@ -102,17 +101,6 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
   };
 
   const navMeta = buildSectionNavMeta(profileQuery.data);
-
-  const issueHref = useMemo(() => {
-    const fromLinks = profileV1Query.data?.links.competitorIssuePage?.trim();
-    if (fromLinks) return fromLinks;
-
-    const code = profileV1Query.data?.sections.legislativeRegulatory.kanban.issueCodes.find(
-      (value) => typeof value === 'string' && value.trim().length > 0,
-    )?.trim();
-
-    return code ? `/intelligence/issues/${encodeURIComponent(code)}` : '';
-  }, [profileV1Query.data]);
 
   return (
     <div className="iv1-page redesign">
@@ -217,13 +205,6 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
                   aggregate={profileV1Query.data ?? undefined}
                   clientId={clientId}
                   billDrillHref={profileV1Query.data?.links.billDetailBase ?? '/explorer'}
-                />
-
-                <RelationshipsSection
-                  aggregate={profileV1Query.data ?? undefined}
-                  clientId={clientId}
-                  issueHref={issueHref}
-                  expandEnabled={Boolean(issueHref)}
                 />
               </>
             ) : null}

@@ -13,7 +13,6 @@ describe('SectionNav interactions', () => {
     { id: 'snapshot', num: 1, title: 'Snapshot', shortTitle: 'Snapshot' },
     { id: 'financial-footprint', num: 2, title: 'Financial Footprint', shortTitle: 'Financial' },
     { id: 'legislative-regulatory', num: 3, title: 'Legislative & Regulatory', shortTitle: 'Legislative' },
-    { id: 'relationships', num: 4, title: 'Relationships', shortTitle: 'Relationships' },
   ];
 
   test('fires nav callback when section button clicked', () => {
