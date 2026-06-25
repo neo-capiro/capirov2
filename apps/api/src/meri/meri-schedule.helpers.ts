@@ -183,6 +183,22 @@ export function parseTimeOfDayUtc(value: unknown): number | null {
   return h * 60 + min;
 }
 
+/**
+ * Validate + normalize an email address for scheduled-briefing delivery. Returns
+ * the lowercased address or null. Deliberately conservative (single address, no
+ * display-name forms) since this is a fixed, pre-authorized delivery target —
+ * the scheduled runner emails the finished briefing here, the model never picks
+ * a recipient.
+ */
+export function normalizeDeliveryEmail(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim().toLowerCase();
+  if (v.length < 3 || v.length > 320) return null;
+  // Simple, strict single-address check: local@domain.tld
+  if (!/^[^\s@,;<>]+@[^\s@,;<>]+\.[^\s@,;<>]+$/.test(v)) return null;
+  return v;
+}
+
 /** Whether a task is due at `now` (enabled + nextRunAt <= now). */
 export function isDue(
   task: { enabled: boolean; nextRunAt: Date },

@@ -38,6 +38,7 @@ import {
 import {
   computeNextRunAtAnchored,
   parseTimeOfDayUtc,
+  normalizeDeliveryEmail,
   validateScheduleRequest,
 } from './meri-schedule.helpers.js';
 import { createHash } from 'node:crypto';
@@ -613,6 +614,11 @@ export class MeriToolsService {
         intervalMinutes: int('Minutes between runs (minimum 60). Use 1440 for daily, 10080 for weekly.'),
         dailyAtUtc: str('Optional clock-anchored run time as "HH:MM" in 24h UTC (e.g. "13:00" for 8am ET). When set with intervalMinutes=1440, the task runs every day at that wall-clock time instead of drifting.'),
         clientId: str('Optional client UUID to scope every run to one client'),
+        emailBriefing: {
+          type: 'boolean',
+          description: 'When true, each finished briefing is ALSO emailed (in addition to the in-app inbox). The email goes to a fixed address set now (deliverEmailTo, or the owner\'s connected Microsoft 365 address by default) — the task never composes or sends arbitrary email, it only delivers its own briefing to this one pre-set recipient.',
+        },
+        deliverEmailTo: str('Optional fixed recipient email for the briefing when emailBriefing is true. Defaults to the owner\'s own connected Microsoft 365 address. Must be a single address the user controls.'),
         toolAllowList: {
           type: 'array',
           items: { type: 'string' },
@@ -2560,6 +2566,36 @@ export class MeriToolsService {
     );
   }
 
+  /**
+   * Deliver a finished scheduled briefing by email to a FIXED, pre-authorized
+   * recipient (set at schedule-creation time). Used only by the scheduled-task
+   * runner — NOT exposed as a model tool — so the recipient and intent can never
+   * be chosen by the LLM at run time. Sends from the task owner's connected
+   * Microsoft 365 account. Returns ok + the sender, or an error string; never
+   * throws (the runner must continue on email failure).
+   */
+  async sendScheduledBriefingEmail(
+    ctx: TenantContext,
+    to: string,
+    subject: string,
+    body: string,
+  ): Promise<{ ok: boolean; sentFrom?: string; error?: string }> {
+    const recipient = normalizeDeliveryEmail(to);
+    if (!recipient) return { ok: false, error: 'invalid recipient' };
+    const connection = await this.findUserEmailConnection(ctx);
+    if (!connection) return { ok: false, error: 'no connected Microsoft 365 account' };
+    try {
+      await this.microsoftGraph.sendMail(ctx, connection.id, {
+        subject,
+        body,
+        toRecipients: [{ email: recipient }],
+      });
+      return { ok: true, sentFrom: connection.accountEmail };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
   private async sendEmail(ctx: TenantContext, input: Record<string, unknown>) {
     const to = requiredString(input, 'to', 320);
     const subject = requiredString(input, 'subject', 500);
@@ -2838,6 +2874,32 @@ export class MeriToolsService {
     const metadata: Record<string, string | number> = { createdVia: 'schedule_task_tool' };
     if (runAtMinutesUtc != null) metadata.runAtMinutesUtc = runAtMinutesUtc;
     if (clientId) metadata.clientId = clientId;
+
+    // Optional fixed email delivery of the finished briefing. The recipient is
+    // resolved + frozen NOW (not at run time): an explicit deliverEmailTo if
+    // valid, else the owner's own connected Microsoft 365 address. The scheduled
+    // runner only ever emails its own briefing to this one pre-set address — the
+    // model never gets a send tool, so there is no autonomous-send surface.
+    let emailDeliveryNote = '';
+    if (input.emailBriefing === true) {
+      const requested = normalizeDeliveryEmail(input.deliverEmailTo);
+      let emailTo = requested;
+      if (!emailTo) {
+        const conn = await this.findUserEmailConnection(ctx);
+        emailTo = conn?.accountEmail ? normalizeDeliveryEmail(conn.accountEmail) : null;
+      }
+      if (!emailTo) {
+        return {
+          tool: 'schedule_task',
+          scheduled: false,
+          error:
+            'Email delivery requested but no valid recipient: provide deliverEmailTo, or connect a Microsoft 365 account in Settings → Integrations so the briefing can be sent to your own address.',
+        };
+      }
+      metadata.emailTo = emailTo;
+      emailDeliveryNote = ` Each briefing is also emailed to ${emailTo}.`;
+    }
+
     const nextRunAt = computeNextRunAtAnchored(new Date(), intervalMinutes, runAtMinutesUtc);
     const task = await this.prisma.withTenant(ctx.tenantId, (tx) =>
       tx.clioScheduledTask.create({
@@ -2863,7 +2925,7 @@ export class MeriToolsService {
       tool: 'schedule_task',
       scheduled: true,
       task,
-      note: `Scheduled as a READ-ONLY recurring research task (${cadence}; no email/writes). Meri runs it automatically and delivers each briefing to your inbox; use list_scheduled_tasks to review or cancel_scheduled_task to stop it.`,
+      note: `Scheduled as a READ-ONLY recurring research task (${cadence}; no autonomous email/writes). Meri runs it automatically and delivers each briefing to your inbox.${emailDeliveryNote} Use list_scheduled_tasks to review or cancel_scheduled_task to stop it.`,
     };
   }
 

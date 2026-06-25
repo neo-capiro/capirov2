@@ -320,6 +320,29 @@ async function main(): Promise<void> {
         );
         await advance(prisma, task, now, 'ok');
         delivered += 1;
+
+        // Optional fixed email delivery: if the task was created with a frozen
+        // recipient (metadata.emailTo), also email the finished briefing there.
+        // The recipient was authorized at creation time; the model never chose
+        // it and never had a send tool. Email failure is non-fatal — the inbox
+        // delivery already succeeded.
+        const meta = (task.metadata_jsonb && typeof task.metadata_jsonb === 'object')
+          ? (task.metadata_jsonb as Record<string, unknown>)
+          : {};
+        const emailTo = typeof meta.emailTo === 'string' ? meta.emailTo : null;
+        if (emailTo) {
+          const sent = await toolsService.sendScheduledBriefingEmail(
+            ctx,
+            emailTo,
+            `Meri briefing: ${task.name}`,
+            result!.text,
+          );
+          if (sent.ok) {
+            logger.log(`[task ${task.id}] briefing emailed to ${emailTo} from ${sent.sentFrom}`);
+          } else {
+            logger.warn(`[task ${task.id}] briefing email to ${emailTo} failed: ${sent.error}`);
+          }
+        }
       } catch (err) {
         logger.warn(`[task ${task.id}] deliver failed: ${(err as Error).message}`);
         await advance(prisma, task, now, 'error');
