@@ -76,6 +76,7 @@
   font-weight: 600;
   font-family: inherit;
   cursor: pointer;
+  margin-bottom: 56px;
   box-shadow: 0 6px 16px rgba(42, 87, 206, 0.28);
   transition:
     background 0.15s,
@@ -97,7 +98,7 @@
   display: flex;
   align-items: flex-start;
   gap: 9px;
-  margin: 44px 0 0;
+  margin: 0;
   max-width: 50ch;
   font-size: 12.5px;
   line-height: 1.6;
@@ -156,46 +157,46 @@
 
 .ov2-dl-float {
   position: absolute;
-  width: 282px;
-  padding: 21px 24px;
+  width: 350px;
+  padding: 27px 30px;
   background: var(--ov2-bg-surface);
   border: 1px solid rgba(227, 230, 236, 0.9);
-  border-radius: 16px;
+  border-radius: 18px;
   box-shadow: 0 22px 52px rgba(24, 47, 99, 0.18);
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   transform: rotate(var(--ov2-dl-rot, 0deg));
   animation: ov2-dl-drift 7s ease-in-out infinite alternate;
 }
 .ov2-dl-float b {
-  font-size: 18.5px;
+  font-size: 22px;
   font-weight: 700;
   color: var(--ov2-ink-1);
 }
 .ov2-dl-float small {
-  font-size: 14px;
-  line-height: 1.55;
+  font-size: 16px;
+  line-height: 1.5;
   color: var(--ov2-ink-3);
 }
 /* Explicit stacking so cards layer cleanly when the panel narrows. */
 .ov2-dl-float.individual {
-  top: 4%;
-  left: 3%;
+  top: 5%;
+  left: 2%;
   z-index: 3;
   --ov2-dl-rot: -2deg;
 }
 .ov2-dl-float.list {
-  top: 30%;
-  right: 3%;
-  width: 268px;
+  top: 37%;
+  right: 2%;
+  width: 330px;
   z-index: 2;
   --ov2-dl-rot: 2deg;
   animation-delay: -2.3s;
 }
 .ov2-dl-float.group {
-  bottom: 5%;
-  left: 9%;
+  bottom: 6%;
+  left: 7%;
   z-index: 1;
   --ov2-dl-rot: -1deg;
   animation-delay: -4.6s;
@@ -226,11 +227,11 @@
   flex: none;
 }
 .ov2-dl-float .ico {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  font-size: 21px;
-  margin-bottom: 12px;
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  font-size: 26px;
+  margin-bottom: 14px;
 }
 .ov2-dl-float .ico[data-kind='individual'],
 .ov2-dl-type .ico[data-kind='individual'] {
