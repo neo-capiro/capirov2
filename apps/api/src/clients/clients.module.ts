@@ -7,22 +7,27 @@ import { ClientPeopleController } from './client-people.controller.js';
 import { ClientPeopleService } from './client-people.service.js';
 import { ClientFacilitiesController } from './client-facilities.controller.js';
 import { ClientFacilitiesService } from './client-facilities.service.js';
+import { ClientTargetsController } from './client-targets.controller.js';
+import { ClientTargetsService } from './client-targets.service.js';
 import { EmbeddingsModule } from '../embeddings/embeddings.module.js';
 import { IntelligenceModule } from '../intelligence/intelligence.module.js';
+import { DirectoryModule } from '../directory/directory.module.js';
 
 @Module({
-  imports: [EmbeddingsModule, IntelligenceModule],
+  imports: [EmbeddingsModule, IntelligenceModule, DirectoryModule],
   controllers: [
     ClientsController,
     ClientCapabilitiesController,
     ClientPeopleController,
     ClientFacilitiesController,
+    ClientTargetsController,
   ],
   providers: [
     ClientsService,
     ClientCapabilitiesService,
     ClientPeopleService,
     ClientFacilitiesService,
+    ClientTargetsService,
   ],
   // Exported so Meri's get_client_context tool can read full client profiles
   // and update_client_profile can write approved values back.
@@ -31,6 +36,7 @@ import { IntelligenceModule } from '../intelligence/intelligence.module.js';
     ClientCapabilitiesService,
     ClientPeopleService,
     ClientFacilitiesService,
+    ClientTargetsService,
   ],
 })
 export class ClientsModule {}

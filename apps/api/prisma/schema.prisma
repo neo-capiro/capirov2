@@ -199,6 +199,7 @@ model Tenant {
   clientSubmissionHistory      ClientSubmissionHistory[]
   clientPeople                 ClientPerson[]
   clientFacilities             ClientFacility[]
+  clientTargets                ClientTarget[]
   strategies                   Strategy[]
   strategyTargets              StrategyTarget[]
   engagementCampaigns          EngagementCampaign[]
@@ -246,6 +247,7 @@ model User {
   meetingNotes              MeetingNote[]                  @relation("MeetingNoteAuthor")
   meetingDebriefs           MeetingDebrief[]               @relation("MeetingDebriefAuthor")
   engagementReportTargets   EngagementReportTargetOffice[] @relation("EngagementReportTargetOfficeAuthor")
+  clientTargets             ClientTarget[]                 @relation("ClientTargetAuthor")
   outreachRecords           OutreachRecord[]               @relation("OutreachRecordAuthor")
   outreachTemplates         OutreachTemplate[]             @relation("OutreachTemplateAuthor")
   outreachAiTemplates       OutreachAiTemplate[]           @relation("OutreachAiTemplateAuthor")
@@ -392,6 +394,7 @@ model Client {
   submissionHistory       ClientSubmissionHistory[]
   people                  ClientPerson[]
   facilities              ClientFacility[]
+  targets                 ClientTarget[]
   strategies              Strategy[]
   engagementCampaigns     EngagementCampaign[]
   clioProactiveAlerts     ClioProactiveAlert[]
@@ -1574,6 +1577,36 @@ model ClientFacility {
   @@index([tenantId, clientId], map: "client_facilities_tenant_client_idx")
   @@index([state, congressionalDistrict], map: "client_facilities_district_idx")
   @@map("client_facilities")
+}
+
+/// Client Targets — a congressional office (member) a lobbying team intends to
+/// engage on behalf of a client. Firm-wide per client (tenant-scoped, RLS;
+/// mirrors ClientFacility). memberId is the congressional directory member
+/// identifier (DirectoryContact.id / bioguide). A compact member snapshot is
+/// denormalized at add-time so the portfolio card pills and Targets list render
+/// without a directory round-trip and survive directory refreshes. source marks
+/// whether the user added it manually or from a Meri recommendation.
+model ClientTarget {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  clientId      String   @map("client_id") @db.Uuid
+  memberId      String   @map("member_id")
+  memberName    String?  @map("member_name")
+  party         String?  @db.VarChar(1)
+  state         String?  @db.VarChar(8)
+  chamber       String?  @db.VarChar(16)
+  committee     String?
+  source        String   @default("manual") @db.VarChar(8)
+  addedByUserId String?  @map("added_by_user_id") @db.Uuid
+  addedAt       DateTime @default(now()) @map("added_at") @db.Timestamptz(6)
+
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client  Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  addedBy User?  @relation("ClientTargetAuthor", fields: [addedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([clientId, memberId], map: "client_targets_client_member_key")
+  @@index([tenantId, clientId], map: "client_targets_tenant_client_idx")
+  @@map("client_targets")
 }
 
 /// Step 3.2 — materiality-gated, client-specific action card (plan §10 card spec,

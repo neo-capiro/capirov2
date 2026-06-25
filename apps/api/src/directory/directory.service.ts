@@ -523,6 +523,17 @@ export class DirectoryService {
     return this.toPagedPayload(base, query, page, pageSize);
   }
 
+  /**
+   * The full, unpaginated congressional member list from the cached directory
+   * snapshot. Used by the Office Recommender to score every member against a
+   * client's tracked-bill committees, issue overlap, and facility geography.
+   * Read-only — callers must not mutate the returned objects.
+   */
+  async getAllContacts(): Promise<DirectoryContact[]> {
+    const base = await this.getDirectoryData();
+    return base.contacts;
+  }
+
   // Search across the flattened staffer index (built once at cache time).
   // In-memory filter over the cached dataset — fast even at ~20k staffers.
   async getStaffers(query: StaffersQuery = {}): Promise<DirectoryStaffersPayload> {

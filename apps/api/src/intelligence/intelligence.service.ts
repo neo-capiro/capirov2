@@ -13,6 +13,7 @@ import { addDateInZone, dateBoundsInZone, dayBoundsInZone } from './time-bounds.
 import { FEC_DISCLAIMER } from './fec-disclaimer.js';
 import { expandTerms, isKnownAcronym, MIN_KEYWORD_TOKEN_LENGTH } from './term-expansion.js';
 import { ClientPrepopulationService } from './client-prepopulation.service.js';
+import { OfficeRecommenderService } from './office-recommender.service.js';
 
 /**
  * Normalized internal shape every "Top alerts" source emits. `_urgencyScore` and
@@ -82,6 +83,10 @@ export class IntelligenceService {
     // Optional only so the many hand-built `new IntelligenceService(prisma)` unit
     // tests keep compiling; NestJS always injects it in the app (it's a provider).
     private readonly prepopulation?: ClientPrepopulationService,
+    // Office Recommender v2. Optional for the same unit-test reason; when absent
+    // (bare-constructed in a test) the relationships panel simply yields no
+    // office recommendations rather than throwing.
+    private readonly officeRecommender?: OfficeRecommenderService,
   ) {}
 
   private asFinite(value: unknown, fallback = 0): number {
@@ -1073,126 +1078,34 @@ export class IntelligenceService {
       .slice(0, 5);
 
     const districtRows = spendDistrictRows.length ? spendDistrictRows : capabilityDistrictRows;
-
-    const sponsorMembers = new Map<string, { name: string; billCount: number; exStaffer: boolean }>();
-    for (const bill of trackedBills.bills) {
-      const member = (bill.sponsorName ?? '').trim();
-      if (!member) continue;
-      const key = member.toLowerCase();
-      if (!sponsorMembers.has(key)) {
-        sponsorMembers.set(key, { name: member, billCount: 0, exStaffer: false });
-      }
-      sponsorMembers.get(key)!.billCount += 1;
-    }
     const exStafferNames = exStaffers.lobbyists.map((l) => l.name.toLowerCase());
-    for (const [key, value] of sponsorMembers.entries()) {
-      const sponsorLast = key.split(' ').pop() ?? key;
-      value.exStaffer = exStaffers.lobbyists.some((l) =>
-        l.coveredPositions.some((p) => {
-          const posTitle =
-            p && typeof p === 'object' && typeof (p as Record<string, unknown>).position_title === 'string'
-              ? ((p as Record<string, unknown>).position_title as string).toLowerCase()
-              : '';
-          return posTitle.includes(sponsorLast);
-        }),
-      );
-    }
 
     const committeeNames = Array.from(new Set(hearingsList.map((h) => h.committeeName).filter(Boolean))).slice(0, 12);
-    const topDistrictWeight = districtRows.length ? districtRows[0]!.jobs : 0;
 
-    // Members who actually received FEC money from this client's employees, so the
-    // `fec` signal on an office is office-SPECIFIC rather than a flat boost applied
-    // to every office whenever the client has any FEC activity at all.
-    const fecRecipientNames = new Set<string>();
-    for (const committee of fec.committees ?? []) {
-      for (const cand of committee.candidates ?? []) {
-        if (cand.candidateName) fecRecipientNames.add(cand.candidateName.toLowerCase());
-        for (const m of cand.linkedMembers ?? []) {
-          if (m.memberName) fecRecipientNames.add(m.memberName.toLowerCase());
-        }
-      }
-    }
+    // Office Recommender v2 (see OfficeRecommenderService). Ranks congressional
+    // offices by committee jurisdiction over the client's tracked bills, issue
+    // overlap, and constituent geography (facility ↔ member state/district). This
+    // replaces the legacy sponsor/FEC/ex-staffer scorer wholesale: bill
+    // sponsor_name is unpopulated for most synced bills, so that scorer returned
+    // nothing for most clients. When the recommender is unavailable (bare-
+    // constructed in a unit test), yields an empty list rather than throwing.
+    const trackedBillIdsForRec = trackedBills.bills
+      .map((b) => b.identifier)
+      .filter((v): v is string => typeof v === 'string' && v.length > 0);
+    const officeRecommendations = this.officeRecommender
+      ? await this.officeRecommender.recommend({
+          clientId,
+          tenantId: tenantId ?? '',
+          trackedBillIds: trackedBillIdsForRec,
+          trackedBills: trackedBills.bills.map((b) => ({
+            identifier: b.identifier,
+            subjectNames: b.subjectNames ?? [],
+          })),
+          issueCodes: trackedBills.issueCodes ?? [],
+        })
+      : [];
+    const recommendedMemberCount = officeRecommendations.length;
 
-    const sponsorRecommendations = Array.from(sponsorMembers.values())
-      .map((member) => {
-        const committeeWeight = Math.min(1, member.billCount / 4);
-        const districtWeight = topDistrictWeight > 0 ? 0.2 : 0;
-        const exStafferWeight = member.exStaffer ? 0.3 : 0;
-        const fecWeight = fecRecipientNames.has(member.name.toLowerCase()) ? 0.15 : 0;
-        const score = Math.min(1, 0.35 + committeeWeight * 0.35 + districtWeight + exStafferWeight + fecWeight);
-
-        const tags = [
-          { key: 'sponsor', on: true },
-          { key: 'district', on: districtWeight > 0 },
-          { key: 'ex-staffer', on: exStafferWeight > 0 },
-          { key: 'fec', on: fecWeight > 0 },
-        ]
-          .filter((t) => t.on)
-          .map((t) => t.key);
-
-        return {
-          office: member.name,
-          score,
-          tags,
-          billCount: member.billCount,
-        };
-      })
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 6);
-
-    // Fallback signal: congress bill `sponsor_name` is not populated for most
-    // synced bills, so the sponsor-based recommender returns nothing even for
-    // clients tracking hundreds of bills. Committee-of-jurisdiction IS
-    // populated (congress_bill_committee), so rank the committees that handle
-    // the client's tracked bills — "which offices have jurisdiction over what
-    // you track" is the actionable recommendation when sponsors are missing.
-    let committeeRecommendations: Array<{ office: string; score: number; tags: string[]; billCount: number }> = [];
-    if (sponsorRecommendations.length === 0) {
-      const trackedBillIds = trackedBills.bills
-        .map((b) => b.identifier)
-        .filter((v): v is string => typeof v === 'string' && v.length > 0);
-      if (trackedBillIds.length > 0) {
-        try {
-          const jurisdictionRows = await this.prisma.$queryRaw<
-            Array<{ committee_name: string; chamber: string | null; bill_count: number }>
-          >`
-            SELECT cbc.committee_name,
-                   MAX(cbc.chamber) AS chamber,
-                   COUNT(DISTINCT cbc.bill_id)::int AS bill_count
-            FROM congress_bill_committee cbc
-            WHERE cbc.bill_id = ANY(${trackedBillIds}::text[])
-              AND cbc.committee_name IS NOT NULL
-              AND cbc.committee_name <> ''
-            GROUP BY cbc.committee_name
-            ORDER BY bill_count DESC, cbc.committee_name ASC
-            LIMIT 6
-          `;
-          const maxBills = Number(jurisdictionRows[0]?.bill_count ?? 0);
-          committeeRecommendations = jurisdictionRows.map((row) => {
-            const count = Number(row.bill_count);
-            const share = maxBills > 0 ? count / maxBills : 0;
-            // Only the office-specific `committee` tag here — a client-level "has
-            // FEC activity" flag is not specific to this committee, so it is not
-            // shown on committee rows (it would imply the committee received money).
-            const tags = ['committee'];
-            return {
-              office: row.chamber ? `${row.committee_name} · ${row.chamber}` : row.committee_name,
-              score: Math.min(1, 0.45 + share * 0.5),
-              tags,
-              billCount: count,
-            };
-          });
-        } catch (err) {
-          this.logger.warn(
-            `office-recommender committee fallback failed for client ${clientId}: ${(err as Error).message}`,
-          );
-        }
-      }
-    }
-
-    const officeRecommendations =
-      sponsorRecommendations.length > 0 ? sponsorRecommendations : committeeRecommendations;
 
     const scopedGraph = {
       nodes: graph.nodes
@@ -1202,7 +1115,7 @@ export class IntelligenceService {
       resolutionQuality: graph.resolutionQuality,
       meta: {
         lobbyistCount: exStaffers.lobbyists.length,
-        memberCount: sponsorMembers.size,
+        memberCount: recommendedMemberCount,
         committeeCount: committeeNames.length,
       },
       hints: {

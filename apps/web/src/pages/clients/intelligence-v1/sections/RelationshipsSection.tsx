@@ -28,13 +28,18 @@ export function RelationshipsSection({ aggregate, issueHref }: RelationshipsSect
   const offices: OfficeRecommenderRow[] =
     aggregate?.sections.relationships.officeRecommender?.length
       ? aggregate.sections.relationships.officeRecommender.map((o, idx) => {
-          const isCommittee = o.tags.includes('committee');
+          const hasBills = (o.billCount ?? 0) > 0;
+          // v2 rows are member-identified and carry party/state; the sub-line
+          // shows the office's jurisdiction over tracked bills when present,
+          // otherwise the party/state identity.
+          const partyState =
+            o.party && o.state ? `${o.party}-${o.state}` : o.state ?? '';
           return {
             rank: idx + 1,
             name: o.office,
-            sub: isCommittee
-              ? `${o.billCount} tracked bill${o.billCount === 1 ? '' : 's'} in jurisdiction`
-              : `${o.billCount} tracked bill${o.billCount === 1 ? '' : 's'}`,
+            sub: hasBills
+              ? `${o.billCount} tracked bill${o.billCount === 1 ? '' : 's'} in jurisdiction${partyState ? ` · ${partyState}` : ''}`
+              : partyState || 'Recommended office',
             // variant is used verbatim as a `.iv1-office-tag.<variant>` CSS class.
             tags: o.tags.map((tag) => ({ label: tag, variant: tag })),
             score: o.score,

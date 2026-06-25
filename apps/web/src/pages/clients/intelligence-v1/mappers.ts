@@ -264,7 +264,19 @@ export interface ClientProfileV1 {
         resolutionQuality: { avgConfidence: number; confirmedCount: number; unconfirmedCount: number };
         meta: { lobbyistCount: number; memberCount: number; committeeCount: number };
       };
-      officeRecommender: Array<{ office: string; score: number; tags: string[]; billCount: number }>;
+      officeRecommender: Array<{
+        office: string;
+        score: number;
+        tags: string[];
+        billCount: number;
+        // Office Recommender v2 member-identity fields (optional for backward
+        // compatibility with cached aggregates that predate the rewrite).
+        memberId?: string;
+        party?: 'R' | 'D' | 'I' | null;
+        state?: string | null;
+        chamber?: 'House' | 'Senate' | null;
+        committee?: string | null;
+      }>;
       exStafferCount: number;
     };
   };

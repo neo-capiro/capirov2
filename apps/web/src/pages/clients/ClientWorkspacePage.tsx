@@ -33,6 +33,7 @@ import { BulkImportClientsModal } from './BulkImportClientsModal.js';
 import { FirmOnboardingWizard } from './FirmOnboardingWizard.js';
 import { ClientFormModal } from './ClientFormModal.js';
 import { ClientProfilePage } from './ClientProfilePage.js';
+import { getClientTargets, type ClientTarget } from './targets-api.js';
 import type { Client, ClientFormSubmit } from './clientTypes.js';
 import type { PortfolioSummary } from '../intelligence/types.js';
 
@@ -515,6 +516,7 @@ function ClientCard({ client, onClick }: { client: Client; onClick: () => void }
         <DetailPair label="Primary POC" value={formatPoc(intake, client.primaryContactName)} />
         <DetailPair label="Sector" value={sectorLabelFor(client) ?? readText(intake, ['sector'])} />
         <DetailPair label="Engagement" value={formatEngagement(intake, client.createdAt)} />
+        <TargetsDetailRow clientId={client.id} />
       </div>
 
       <div className="client-tag-row">
@@ -655,6 +657,49 @@ function DetailPair({ label, value }: { label: string; value?: string | null }) 
     <div className="client-detail-pair">
       <Typography.Text type="secondary">{label}</Typography.Text>
       <Typography.Text>{value || '-'}</Typography.Text>
+    </div>
+  );
+}
+
+/**
+ * Portfolio card "Targets" row. Renders party-colored pills for up to 3 target
+ * offices + a "+N more" overflow pill. The row is omitted entirely when the
+ * client has no targets (keeps cards compact, matches the spec). Targets are
+ * fetched per card; React Query dedupes against the Targets tab's own query.
+ */
+function TargetsDetailRow({ clientId }: { clientId: string }) {
+  const api = useApi();
+  const { data } = useQuery<ClientTarget[]>({
+    queryKey: ['client-targets', clientId],
+    queryFn: async () => getClientTargets(api, clientId),
+    staleTime: 60_000,
+  });
+  const targets = data ?? [];
+  if (targets.length === 0) return null;
+
+  const shown = targets.slice(0, 3);
+  const extra = targets.length - shown.length;
+  const titleFor = (chamber: string | null): string =>
+    chamber === 'Senate' ? 'Sen.' : 'Rep.';
+  const lastName = (name: string | null, memberId: string): string => {
+    const n = name ?? memberId;
+    const head = n.includes(', ') ? n.split(', ')[0]! : n;
+    return head.split(' ').pop() ?? head;
+  };
+
+  return (
+    <div className="client-detail-pair">
+      <Typography.Text type="secondary">Targets</Typography.Text>
+      <div className="tgt-pills">
+        {shown.map((t) => (
+          <span key={t.memberId} className={`tgt-pill ${t.party ?? 'I'}`}>
+            <span className="tgt-pill-dot" aria-hidden="true" />
+            {titleFor(t.chamber)} {lastName(t.memberName, t.memberId)}
+            {t.party && t.state ? ` · ${t.party}-${t.state}` : ''}
+          </span>
+        ))}
+        {extra > 0 ? <span className="tgt-pill more">+{extra} more</span> : null}
+      </div>
     </div>
   );
 }

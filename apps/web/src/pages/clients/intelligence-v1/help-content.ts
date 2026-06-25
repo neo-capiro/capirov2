@@ -51,6 +51,10 @@ export const OFFICE_TAG_HELP: Record<string, string> = {
     "This member has sponsored one or more of the client's tracked bills — an on-record ally. Best practice: brief them and their staff to keep momentum.",
   district:
     "The client has jobs, facilities, or suppliers in this member's state or district. Best practice: lead with the local economic impact.",
+  issue:
+    "This member's committee work and stated focus areas overlap the client's tracked issues and bill subjects. Best practice: frame the ask around the shared issue area.",
+  leadership:
+    'This member holds a leadership post (chair, ranking member, or party leadership), giving them outsized influence over what moves. Best practice: a brief here can shift the whole agenda.',
   'ex-staffer':
     "Someone on the client's lobbying team previously worked in this office. Best practice: use that existing relationship for a warm introduction.",
   fec: 'People who list the client as their employer have made FEC-reported political contributions linked to this office. Shown for context only — it is not advice to make, solicit, or direct any contribution.',
@@ -61,6 +65,8 @@ export const OFFICE_TAG_LABELS: Record<string, string> = {
   committee: 'Committee',
   sponsor: 'Sponsor',
   district: 'District',
+  issue: 'Issue',
+  leadership: 'Leadership',
   'ex-staffer': 'Ex-staffer',
   fec: 'FEC',
 };

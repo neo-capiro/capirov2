@@ -56,6 +56,7 @@ import type { Capability } from './CapabilityDrawer.js';
 import { CapabilityDrawer } from './CapabilityDrawer.js';
 import type { Client, ClientAttachment, ClientFormSubmit } from './clientTypes.js';
 import { IntelligenceTab } from './IntelligenceTab.js';
+import { TargetsTab } from './TargetsTab.js';
 import { DowDirectoryTab } from './DowDirectoryTab.js';
 import { FacilitiesEditor } from './FacilitiesEditor.js';
 import { DefenseBudgetExposureCard } from './DefenseBudgetExposureCard.js';
@@ -86,6 +87,7 @@ interface ClientPerson {
 type ProfileTab =
   | 'overview'
   | 'capabilities'
+  | 'targets'
   | 'people'
   | 'facilities'
   | 'workflows'
@@ -96,6 +98,7 @@ type ProfileTab =
 const PROFILE_TABS: ProfileTab[] = [
   'overview',
   'capabilities',
+  'targets',
   'people',
   'facilities',
   'workflows',
@@ -432,17 +435,19 @@ export function ClientProfilePage({
                   ? 'Overview'
                   : tab === 'capabilities'
                     ? 'Capabilities'
-                    : tab === 'people'
-                      ? 'People'
-                      : tab === 'facilities'
-                        ? 'Facilities'
-                        : tab === 'workflows'
-                          ? 'Workflows'
-                          : tab === 'documents'
-                            ? 'Documents'
-                            : tab === 'intelligence'
-                              ? 'Intelligence'
-                              : 'DoW Directory'}
+                    : tab === 'targets'
+                      ? 'Targets'
+                      : tab === 'people'
+                        ? 'People'
+                        : tab === 'facilities'
+                          ? 'Facilities'
+                          : tab === 'workflows'
+                            ? 'Workflows'
+                            : tab === 'documents'
+                              ? 'Documents'
+                              : tab === 'intelligence'
+                                ? 'Intelligence'
+                                : 'DoW Directory'}
               </span>
               {badge != null && badge > 0 ? (
                 <span className="cp-tab-badge num">{badge}</span>
@@ -498,6 +503,13 @@ export function ClientProfilePage({
                   onOk: () => deleteCapability.mutateAsync(id),
                 });
               }}
+            />
+          )}
+          {activeTab === 'targets' && (
+            <TargetsTabContainer
+              clientId={client.id}
+              canManage={canManageClients}
+              onViewIntelligence={() => setActiveTab('intelligence')}
             />
           )}
           {activeTab === 'people' && (
@@ -578,6 +590,60 @@ export function ClientProfilePage({
         submitting={createPerson.isPending}
       />
     </div>
+  );
+}
+
+/* ── Targets Tab container ───────────────────────────────────────────────── */
+
+/**
+ * Wraps TargetsTab with the Meri suggestions pulled from the client's intel
+ * aggregate (relationships.officeRecommender, top 6). Read-only; the recommender
+ * is computed server-side by OfficeRecommenderService.
+ */
+function TargetsTabContainer({
+  clientId,
+  canManage,
+  onViewIntelligence,
+}: {
+  clientId: string;
+  canManage: boolean;
+  onViewIntelligence: () => void;
+}) {
+  const api = useApi();
+  const aggregate = useQuery({
+    queryKey: ['client-intel-v1-aggregate', clientId],
+    queryFn: async () =>
+      (await api.get<Record<string, any>>(`/api/intelligence/clients/${clientId}/profile-v1`))
+        .data,
+    enabled: !!clientId,
+    staleTime: 2 * 60 * 1000,
+    retry: 1,
+  });
+
+  const recs: any[] = aggregate.data?.sections?.relationships?.officeRecommender ?? [];
+  const meriSuggestions = recs
+    // Only member-identified rows can be added as targets (committee-only rows
+    // from a legacy cached aggregate have no memberId and are skipped).
+    .filter((r) => typeof r?.memberId === 'string' && r.memberId.length > 0)
+    .slice(0, 6)
+    .map((r) => ({
+      memberId: r.memberId as string,
+      office: String(r.office ?? ''),
+      party: (r.party ?? null) as 'R' | 'D' | 'I' | null,
+      state: (r.state ?? null) as string | null,
+      chamber: (r.chamber ?? null) as 'House' | 'Senate' | null,
+      committee: (r.committee ?? null) as string | null,
+      score: Number(r.score ?? 0),
+      billCount: Number(r.billCount ?? 0),
+    }));
+
+  return (
+    <TargetsTab
+      clientId={clientId}
+      meriSuggestions={meriSuggestions}
+      canManage={canManage}
+      onViewIntelligence={onViewIntelligence}
+    />
   );
 }
 
