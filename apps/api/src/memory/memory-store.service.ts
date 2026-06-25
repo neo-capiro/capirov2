@@ -80,6 +80,53 @@ export class MemoryStoreService {
     return { path: vaultPathForItem(item), markdown: renderMemoryItem(item) };
   }
 
+  /** Fetch one item by type+slug for the current tenant (markdown retrieval). */
+  async getByTypeSlug(type: MemoryItemType, slug: string): Promise<MemoryItem | null> {
+    const ctx = this.tenantCtx.require();
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<MemoryItemRow[]>`
+        SELECT * FROM memory_items
+        WHERE tenant_id = ${ctx.tenantId}::uuid AND type = ${type} AND slug = ${slug}
+          AND (visibility = 'tenant' OR owner_user_id = ${ctx.userId}::uuid)
+        LIMIT 1
+      `;
+      const row = rows[0];
+      return row ? this.rowToItem(row) : null;
+    });
+  }
+
+  /**
+   * Load the current tenant's wikilink edges + the source-node identity for
+   * each, so the graph builder can merge them with DB FKs (criterion #5).
+   * Returns edges scoped by RLS and a map of srcItemId -> node identity.
+   */
+  async loadGraphInputs(): Promise<{
+    wikiEdges: Array<{ tenantId: string; srcItemId: string; relation: string; dstType: string; dstSlug: string }>;
+    itemNodes: Array<{ itemId: string; type: string; slug: string; label: string }>;
+  }> {
+    const ctx = this.tenantCtx.require();
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      const edges = await tx.$queryRaw<
+        Array<{ tenant_id: string; src_item_id: string; relation: string; dst_type: string; dst_slug: string }>
+      >`SELECT tenant_id, src_item_id, relation, dst_type, dst_slug FROM memory_edges WHERE tenant_id = ${ctx.tenantId}::uuid`;
+      const items = await tx.$queryRaw<Array<{ id: string; type: string; slug: string; title: string }>>`
+        SELECT id, type, slug, title FROM memory_items
+        WHERE tenant_id = ${ctx.tenantId}::uuid
+          AND (visibility = 'tenant' OR owner_user_id = ${ctx.userId}::uuid)
+      `;
+      return {
+        wikiEdges: edges.map((e) => ({
+          tenantId: e.tenant_id,
+          srcItemId: e.src_item_id,
+          relation: e.relation,
+          dstType: e.dst_type,
+          dstSlug: e.dst_slug,
+        })),
+        itemNodes: items.map((i) => ({ itemId: i.id, type: i.type, slug: i.slug, label: i.title })),
+      };
+    });
+  }
+
   /**
    * Upsert an item for a tenant via the trusted ingestion path, then re-derive
    * its wikilink edges. Used by ingestion workers and seeding (not per-request

@@ -1,0 +1,90 @@
+// Institutional Memory — Phase 4 governance helpers (plan §11.2, §6).
+//
+// Retention is NOT enforced in v1 (Neo: no regulation yet), but the metadata
+// hook IS enforced now so a future purge/redaction/e-discovery job can target
+// notes precisely. These pure selectors operate on item metadata only — the
+// service layer turns a selection into actual deletes/exports later.
+//
+// Design: every selector is a pure predicate over MemoryItem metadata
+// (tenantId, clientId, ownerUserId, type, createdAt). That metadata is the only
+// thing a governance job needs (plan §11.2 "cheap hedge").
+
+import type { MemoryItem } from './memory.types.js';
+
+export interface RetentionPolicy {
+  /** Max age in days before an item is eligible for purge; null = keep forever. */
+  maxAgeDays: number | null;
+  /** Item types this policy applies to; empty = all types. */
+  types: string[];
+}
+
+/** Items eligible for purge under a policy, as of `now`. Pure. */
+export function selectForPurge(
+  items: MemoryItem[],
+  policy: RetentionPolicy,
+  now: Date,
+): MemoryItem[] {
+  if (policy.maxAgeDays === null) return [];
+  const cutoff = now.getTime() - policy.maxAgeDays * 86_400_000;
+  return items.filter((i) => {
+    if (policy.types.length > 0 && !policy.types.includes(i.type)) return false;
+    return new Date(i.createdAt).getTime() < cutoff;
+  });
+}
+
+/** Right-to-delete on client offboarding: every item scoped to the client. */
+export function selectForClientPurge(items: MemoryItem[], clientId: string): MemoryItem[] {
+  return items.filter((i) => i.clientId === clientId);
+}
+
+/** Right-to-delete on user offboarding: that user's PRIVATE items only.
+ *  Firm-shared items they authored are NOT purged (they belong to the firm). */
+export function selectForUserPurge(items: MemoryItem[], userId: string): MemoryItem[] {
+  return items.filter((i) => i.visibility === 'user' && i.ownerUserId === userId);
+}
+
+/** e-discovery / legal hold: every item touching a client, for export. The
+ *  selection is intentionally broad (hold preserves; it does not delete). */
+export function selectForLegalHold(items: MemoryItem[], clientId: string): MemoryItem[] {
+  return items.filter((i) => i.clientId === clientId);
+}
+
+/** A redaction directive: which section bodies to blank, by key. Pure shaping. */
+export function redactSections(item: MemoryItem, sectionKeys: string[]): MemoryItem {
+  const keys = new Set(sectionKeys);
+  return {
+    ...item,
+    sections: item.sections.map((s) =>
+      keys.has(s.key) ? { ...s, body: '[redacted]' } : s,
+    ),
+  };
+}
+
+/** Export manifest row — what an e-discovery dump records per item (provenance). */
+export interface ExportManifestRow {
+  id: string;
+  type: string;
+  clientId: string | null;
+  ownerUserId: string | null;
+  visibility: string;
+  source: string;
+  sourceRef: string | null;
+  provenance: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function toManifestRow(item: MemoryItem): ExportManifestRow {
+  return {
+    id: item.id,
+    type: item.type,
+    clientId: item.clientId,
+    ownerUserId: item.ownerUserId,
+    visibility: item.visibility,
+    source: item.source,
+    sourceRef: item.sourceRef,
+    provenance: item.provenance,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+  };
+}
