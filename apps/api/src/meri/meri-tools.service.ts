@@ -2590,7 +2590,7 @@ export class MeriToolsService {
         body,
         toRecipients: [{ email: recipient }],
       });
-      return { ok: true, sentFrom: connection.accountEmail };
+      return { ok: true, sentFrom: connection.accountEmail ?? undefined };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
     }
