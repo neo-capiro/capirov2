@@ -57,7 +57,6 @@ import { CapabilityDrawer } from './CapabilityDrawer.js';
 import type { Client, ClientAttachment, ClientFormSubmit } from './clientTypes.js';
 import { IntelligenceTab } from './IntelligenceTab.js';
 import { TargetsTab } from './TargetsTab.js';
-import { DowDirectoryTab } from './DowDirectoryTab.js';
 import { FacilitiesEditor } from './FacilitiesEditor.js';
 import { DefenseBudgetExposureCard } from './DefenseBudgetExposureCard.js';
 import { getRelevantPesForClient } from './relevance-api.js';
@@ -92,8 +91,7 @@ type ProfileTab =
   | 'facilities'
   | 'workflows'
   | 'documents'
-  | 'intelligence'
-  | 'dow-directory';
+  | 'intelligence';
 
 const PROFILE_TABS: ProfileTab[] = [
   'overview',
@@ -104,7 +102,6 @@ const PROFILE_TABS: ProfileTab[] = [
   'workflows',
   'documents',
   'intelligence',
-  'dow-directory',
 ];
 
 const STATUS_COLOR: Record<string, string> = {
@@ -445,9 +442,7 @@ export function ClientProfilePage({
                             ? 'Workflows'
                             : tab === 'documents'
                               ? 'Documents'
-                              : tab === 'intelligence'
-                                ? 'Intelligence'
-                                : 'DoW Directory'}
+                              : 'Intelligence'}
               </span>
               {badge != null && badge > 0 ? (
                 <span className="cp-tab-badge num">{badge}</span>
@@ -542,13 +537,6 @@ export function ClientProfilePage({
           )}
           {activeTab === 'intelligence' && (
             <IntelligenceTab clientId={client.id} clientName={client.name} />
-          )}
-          {activeTab === 'dow-directory' && (
-            <DowDirectoryTab
-              client={{ id: client.id }}
-              capabilities={capabilities.data ?? []}
-              capabilitiesLoading={capabilities.isLoading}
-            />
           )}
         </div>
 
