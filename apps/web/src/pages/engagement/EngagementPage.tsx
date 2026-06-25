@@ -340,7 +340,7 @@ export function EngagementPage() {
   const [activeEngagementTab, setActiveEngagementTab] = useState<
     'overview' | 'meetings' | 'outreach' | 'reports'
   >('overview');
-  const [meetingViewMode, setMeetingViewMode] = useState<'list' | 'calendar' | 'day'>('list');
+  const [meetingViewMode, setMeetingViewMode] = useState<'list' | 'calendar' | 'day'>('day');
   const [historyBatch, setHistoryBatch] = useState(0);
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('current');
   const [reportStatusFilter, setReportStatusFilter] = useState<'all' | ReportStatus>('all');
@@ -441,7 +441,8 @@ export function EngagementPage() {
         : '/engagement/meetings';
       if (meetingDetailTab && meetingDetailTab !== 'prep')
         nextParams.set('detail', meetingDetailTab);
-      if (meetingViewMode !== 'list') nextParams.set('view', meetingViewMode);
+      // Day is the default view, so only serialize the non-default views.
+      if (meetingViewMode !== 'day') nextParams.set('view', meetingViewMode);
       if (rangeStart) nextParams.set('from', rangeStart);
       if (rangeEnd) nextParams.set('to', rangeEnd);
     } else if (activeEngagementTab === 'outreach') {
@@ -1674,7 +1675,7 @@ function MeetingCalendarList({
                       <button
                         key={meeting.id}
                         type="button"
-                        className={`engagement-week-event engagement-week-event--${status.kind}${
+                        className={`engagement-week-event engagement-week-event--${status.kind} engagement-week-event--tone-${status.tone}${
                           meeting.id === selectedId ? ' selected' : ''
                         }`}
                         onClick={() => onSelect(meeting.id)}
@@ -1801,7 +1802,7 @@ function MeetingDayTimeline({
                 <button
                   key={meeting.id}
                   type="button"
-                  className={`engagement-week-event engagement-week-event--${status.kind}${meeting.id === selectedId ? ' selected' : ''}`}
+                  className={`engagement-week-event engagement-week-event--${status.kind} engagement-week-event--tone-${status.tone}${meeting.id === selectedId ? ' selected' : ''}`}
                   onClick={() => onSelect(meeting.id)}
                 >
                   <span>{formatTime(meeting.startsAt)}</span>
@@ -3387,6 +3388,9 @@ function groupMeetingsByLocalWeek(meetings: Meeting[]): Array<{
 
 function meetingStatus(meeting: Meeting): {
   kind: 'missing' | 'needs-prep' | 'prepped' | 'complete' | 'active';
+  // Completion signal for the calendar/day event color: 'success' (green) once
+  // the meeting's prep/debrief is done, 'danger' (red) while it's still needed.
+  tone: 'success' | 'danger';
   label: string;
   actionLabel: string;
   primaryAction: 'prep' | 'debrief' | 'open';
@@ -3406,6 +3410,7 @@ function meetingStatus(meeting: Meeting): {
   if (hasEnded && !hasDebrief) {
     return {
       kind: 'missing',
+      tone: 'danger',
       label: 'Debrief Missing',
       actionLabel: 'Start Debrief',
       primaryAction: 'debrief',
@@ -3415,6 +3420,7 @@ function meetingStatus(meeting: Meeting): {
   if (hasEnded && hasDebrief) {
     return {
       kind: 'complete',
+      tone: 'success',
       label: 'Debrief Complete',
       actionLabel: 'View Recap',
       primaryAction: 'debrief',
@@ -3424,6 +3430,7 @@ function meetingStatus(meeting: Meeting): {
   if (isActive) {
     return {
       kind: 'active',
+      tone: prep ? 'success' : 'danger',
       label: prep ? 'Prepped' : 'Generate Prep ->',
       actionLabel: prep ? 'View Prep' : 'Generate Prep',
       primaryAction: prep ? 'open' : 'prep',
@@ -3435,6 +3442,7 @@ function meetingStatus(meeting: Meeting): {
   if (prep) {
     return {
       kind: 'prepped',
+      tone: 'success',
       label: prep.status === 'approved' ? 'Approved' : 'Prepped',
       actionLabel: 'View Prep',
       primaryAction: 'open',
@@ -3443,6 +3451,7 @@ function meetingStatus(meeting: Meeting): {
   }
   return {
     kind: 'needs-prep',
+    tone: 'danger',
     label: 'No Prep Yet',
     actionLabel: 'Generate Prep',
     primaryAction: 'prep',
