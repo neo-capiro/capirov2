@@ -109,6 +109,10 @@ export interface DirectoryContact {
     race: string;
     religion: string;
     pronunciation: string;
+    narrative: string;
+    education: string;
+    military: string;
+    relatives: string;
   };
   lastTouchpoint: string;
   owner: string;
@@ -451,6 +455,11 @@ const TEST_DIRECTORY_CONTACT: DirectoryContact = {
     race: 'Not specified',
     religion: 'Not specified',
     pronunciation: 'AY-vuh-ree TEST-well',
+    narrative:
+      'Avery Testwell — Independent Representative, TS-1. Synthetic QA profile used to validate the directory member detail view.',
+    education: 'Example State University (BA); Test School of Law (JD)',
+    military: '',
+    relatives: '',
   },
   lastTouchpoint: '2026-05-04',
   owner: 'Capiro Test Data',
@@ -465,6 +474,18 @@ const TEST_DIRECTORY_CONTACT: DirectoryContact = {
   ],
 };
 
+interface MemberBioOverlay {
+  narrative?: string;
+  education?: string;
+  military?: string;
+  relatives?: string;
+  first_elected?: string | number;
+  years_in_congress?: string | number;
+  total_terms?: string | number;
+  party_leadership?: string[];
+  wikipedia?: string;
+}
+
 @Injectable()
 export class DirectoryService {
   private static readonly DEFAULT_PAGE_SIZE = 24;
@@ -473,6 +494,7 @@ export class DirectoryService {
   private readonly s3: S3Client;
   private readonly bucket: string;
   private readonly prefix: string;
+  private readonly bioOverlayKey: string;
   private cache: CachedContacts | null = null;
 
   constructor(
@@ -485,6 +507,9 @@ export class DirectoryService {
     this.prefix =
       process.env.DIRECTORY_S3_PREFIX ??
       'UPDATED DIRECTORY/snapshots/active-current-20260501T024354Z';
+    this.bioOverlayKey =
+      process.env.DIRECTORY_BIO_OVERLAY_KEY ??
+      'UPDATED DIRECTORY/overlays/member-bios-v1.json';
   }
 
   async getContacts(query: DirectoryQuery = {}): Promise<DirectoryPayload> {
@@ -909,7 +934,8 @@ export class DirectoryService {
         this.fetchGzipJson<unknown>(`${this.prefix}/combined/office-list-current.json.gz`),
       ]);
 
-      const contacts = this.buildContacts(members, staff);
+      const bioOverlay = await this.loadBioOverlay();
+      const contacts = this.buildContacts(members, staff, bioOverlay);
       const staffers = this.buildStafferIndex(contacts);
       const { committees, committeeStaff } = this.buildCommitteeIndex(offices, staff, members);
       const availableStates = uniqueSorted(contacts.map((contact) => contact.state));
@@ -1241,6 +1267,42 @@ export class DirectoryService {
     return JSON.parse(json) as T;
   }
 
+  // Fetch a plain (non-gzipped) JSON object from S3. Returns null on any
+  // failure so a missing/broken overlay can never take down the directory.
+  private async fetchJsonSafe<T>(key: string): Promise<T | null> {
+    try {
+      const out = await this.s3.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      if (!out.Body) return null;
+      const text = await out.Body.transformToString();
+      return JSON.parse(text) as T;
+    } catch (error) {
+      this.logger.warn(
+        `Member-bios overlay unavailable at s3://${this.bucket}/${key}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  // Member narrative-bio overlay, keyed by bioguide_id. Stored OUTSIDE the
+  // vendor LegiStorm snapshot so snapshot rotation never clobbers it. Merged
+  // into the structured LegiStorm bio at read-time; failure is non-fatal.
+  private async loadBioOverlay(): Promise<Map<string, MemberBioOverlay>> {
+    const overlay = await this.fetchJsonSafe<{
+      members?: Record<string, MemberBioOverlay>;
+    }>(this.bioOverlayKey);
+    const map = new Map<string, MemberBioOverlay>();
+    if (overlay?.members) {
+      for (const [bioguideId, entry] of Object.entries(overlay.members)) {
+        if (bioguideId && entry) map.set(bioguideId, entry);
+      }
+    }
+    return map;
+  }
+
   private toPagedPayload(
     base: CachedContacts['data'],
     query: DirectoryQuery,
@@ -1460,7 +1522,11 @@ export class DirectoryService {
     return intValue;
   }
 
-  private buildContacts(membersRaw: unknown[], staffRaw: unknown[]): DirectoryContact[] {
+  private buildContacts(
+    membersRaw: unknown[],
+    staffRaw: unknown[],
+    bioOverlay: Map<string, MemberBioOverlay> = new Map(),
+  ): DirectoryContact[] {
     const members = Array.isArray(membersRaw) ? membersRaw : [];
     const staffById = this.buildStaffDetailsById(staffRaw);
     const staffIdsByMember = this.buildStaffIdsByMember(staffRaw);
@@ -1564,6 +1630,18 @@ export class DirectoryService {
           race: String(profile?.bio_details?.race_name ?? ''),
           religion: String(profile?.bio_details?.religion_name ?? ''),
           pronunciation: String(profile?.bio_details?.pronunciation ?? ''),
+          narrative: String(
+            bioOverlay.get(String(member?.bioguide_id ?? ''))?.narrative ?? '',
+          ),
+          education: String(
+            bioOverlay.get(String(member?.bioguide_id ?? ''))?.education ?? '',
+          ),
+          military: String(
+            bioOverlay.get(String(member?.bioguide_id ?? ''))?.military ?? '',
+          ),
+          relatives: String(
+            bioOverlay.get(String(member?.bioguide_id ?? ''))?.relatives ?? '',
+          ),
         },
         lastTouchpoint: this.latestDate([
           currentOffice.updated_at,

@@ -82,6 +82,10 @@ export interface DirectoryEntry {
     race: string;
     religion: string;
     pronunciation: string;
+    narrative: string;
+    education: string;
+    military: string;
+    relatives: string;
   };
   lastTouchpoint: string;
   owner: string;

@@ -1162,24 +1162,39 @@ export function DirectoryPage() {
                   key: 'bio',
                   label: 'Bio',
                   children: (
-                    <Row gutter={[24, 16]}>
-                      {[
-                        ['Born', selectedEntry.bio.dob],
-                        ['Birthplace', selectedEntry.bio.birthplace],
-                        ['Hometown', selectedEntry.bio.hometown],
-                        ['Occupation', selectedEntry.bio.occupation],
-                        ['Race', selectedEntry.bio.race],
-                        ['Religion', selectedEntry.bio.religion],
-                        ['Pronunciation', selectedEntry.bio.pronunciation],
-                      ].map(([label, value]) => (
-                        <Col xs={24} sm={12} lg={8} key={label}>
-                          <Card size="small" className="directory-bio-card">
-                            <Typography.Text type="secondary">{label}</Typography.Text>
-                            <Typography.Paragraph>{value || 'N/A'}</Typography.Paragraph>
-                          </Card>
-                        </Col>
-                      ))}
-                    </Row>
+                    <Space direction="vertical" size={16} style={{ display: 'flex' }}>
+                      {selectedEntry.bio.narrative ? (
+                        <Card size="small" className="directory-bio-card">
+                          <Typography.Text type="secondary">Biography</Typography.Text>
+                          <Typography.Paragraph style={{ marginBottom: 0, whiteSpace: 'pre-line' }}>
+                            {selectedEntry.bio.narrative}
+                          </Typography.Paragraph>
+                        </Card>
+                      ) : null}
+                      <Row gutter={[24, 16]}>
+                        {[
+                          ['Born', selectedEntry.bio.dob],
+                          ['Birthplace', selectedEntry.bio.birthplace],
+                          ['Hometown', selectedEntry.bio.hometown],
+                          ['Occupation', selectedEntry.bio.occupation],
+                          ['Education', selectedEntry.bio.education],
+                          ['Military Service', selectedEntry.bio.military],
+                          ['Political Family', selectedEntry.bio.relatives],
+                          ['Race', selectedEntry.bio.race],
+                          ['Religion', selectedEntry.bio.religion],
+                          ['Pronunciation', selectedEntry.bio.pronunciation],
+                        ]
+                          .filter(([, value]) => value)
+                          .map(([label, value]) => (
+                            <Col xs={24} sm={12} lg={8} key={label}>
+                              <Card size="small" className="directory-bio-card">
+                                <Typography.Text type="secondary">{label}</Typography.Text>
+                                <Typography.Paragraph>{value || 'N/A'}</Typography.Paragraph>
+                              </Card>
+                            </Col>
+                          ))}
+                      </Row>
+                    </Space>
                   ),
                 },
                 {
