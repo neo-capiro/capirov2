@@ -27,19 +27,24 @@ export class MemoryFkLoader {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       const out: FkRelation[] = [];
 
-      // client -> bill (tracked_bill)
+      // client -> bill (tracked_bill), enriched with bill title/status/policy area
       const bills = await tx.$queryRaw<
-        Array<{ client_id: string; client_name: string; bill_id: string }>
+        Array<{ client_id: string; client_name: string; bill_id: string; title: string | null; latest_action: string | null; policy_area: string | null }>
       >`
-        SELECT tb.client_id, c.name AS client_name, tb.bill_id
+        SELECT tb.client_id, c.name AS client_name, tb.bill_id,
+               cb.title, cb.latest_action_text AS latest_action, cb.policy_area
         FROM tracked_bill tb
         JOIN clients c ON c.id = tb.client_id
+        LEFT JOIN congress_bill cb ON cb.id = tb.bill_id
         WHERE tb.tenant_id = ${ctx.tenantId}::uuid
       `;
       for (const b of bills) {
+        const attrs: Record<string, string> = {};
+        if (b.policy_area) attrs.policyArea = b.policy_area;
+        if (b.latest_action) attrs.latestAction = b.latest_action.slice(0, 160);
         out.push({
           srcType: 'client', srcSlug: b.client_id, srcLabel: b.client_name,
-          dstType: 'bill', dstSlug: b.bill_id, dstLabel: b.bill_id,
+          dstType: 'bill', dstSlug: b.bill_id, dstLabel: b.title || b.bill_id, dstAttrs: attrs,
           relation: 'tracks',
         });
       }
@@ -61,19 +66,23 @@ export class MemoryFkLoader {
         });
       }
 
-      // client -> person (client_people)
+      // client -> person (client_people), enriched with title/role
       const people = await tx.$queryRaw<
-        Array<{ client_id: string; client_name: string; person_id: string; person_name: string }>
+        Array<{ client_id: string; client_name: string; person_id: string; person_name: string; title: string | null; role: string | null }>
       >`
-        SELECT cp.client_id, c.name AS client_name, cp.id AS person_id, cp.name AS person_name
+        SELECT cp.client_id, c.name AS client_name, cp.id AS person_id, cp.name AS person_name,
+               cp.title, cp.role
         FROM client_people cp
         JOIN clients c ON c.id = cp.client_id
         WHERE cp.tenant_id = ${ctx.tenantId}::uuid
       `;
       for (const p of people) {
+        const attrs: Record<string, string> = {};
+        if (p.title) attrs.title = p.title;
+        if (p.role) attrs.role = p.role;
         out.push({
           srcType: 'client', srcSlug: p.client_id, srcLabel: p.client_name,
-          dstType: 'person', dstSlug: p.person_id, dstLabel: p.person_name,
+          dstType: 'person', dstSlug: p.person_id, dstLabel: p.person_name, dstAttrs: attrs,
           relation: 'contact',
         });
       }

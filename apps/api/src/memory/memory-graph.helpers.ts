@@ -20,6 +20,8 @@ export interface GraphNode {
   slug: string;
   /** label for display; falls back to slug. */
   label: string;
+  /** Optional attribute bag (bill status, person title, office type, etc.). */
+  attrs?: Record<string, string>;
 }
 
 /** A merged edge with provenance so the UI can distinguish fact vs. analysis. */
@@ -41,9 +43,11 @@ export interface FkRelation {
   srcType: string;
   srcSlug: string;
   srcLabel?: string;
+  srcAttrs?: Record<string, string>;
   dstType: string;
   dstSlug: string;
   dstLabel?: string;
+  dstAttrs?: Record<string, string>;
   relation: string;
 }
 
@@ -66,14 +70,19 @@ export function buildKnowledgeGraph(
   const nodes = new Map<string, GraphNode>();
   const edges = new Map<string, GraphEdge>();
 
-  const addNode = (type: string, slug: string, label?: string): string => {
+  const addNode = (type: string, slug: string, label?: string, attrs?: Record<string, string>): string => {
     const id = nodeId(type, slug);
     const existing = nodes.get(id);
     if (!existing) {
-      nodes.set(id, { id, type, slug, label: label ?? slug });
-    } else if (label && existing.label === existing.slug) {
-      // upgrade a slug-only label when a real one arrives
-      existing.label = label;
+      nodes.set(id, { id, type, slug, label: label ?? slug, ...(attrs && Object.keys(attrs).length ? { attrs } : {}) });
+    } else {
+      if (label && existing.label === existing.slug) {
+        // upgrade a slug-only label when a real one arrives
+        existing.label = label;
+      }
+      if (attrs && Object.keys(attrs).length) {
+        existing.attrs = { ...(existing.attrs ?? {}), ...attrs };
+      }
     }
     return id;
   };
@@ -89,8 +98,8 @@ export function buildKnowledgeGraph(
   };
 
   for (const fk of fkRelations) {
-    const src = addNode(fk.srcType, fk.srcSlug, fk.srcLabel);
-    const dst = addNode(fk.dstType, fk.dstSlug, fk.dstLabel);
+    const src = addNode(fk.srcType, fk.srcSlug, fk.srcLabel, fk.srcAttrs);
+    const dst = addNode(fk.dstType, fk.dstSlug, fk.dstLabel, fk.dstAttrs);
     addEdge(src, dst, fk.relation, 'fk');
   }
 

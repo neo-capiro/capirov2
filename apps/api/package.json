@@ -17,6 +17,7 @@
     "eval:clio:mcp-injection": "tsx scripts/eval-clio-mcp-injection.ts",
     "eval:clio:analysis": "tsx scripts/eval-clio-analysis.ts",
     "backfill:client-kb": "tsx scripts/backfill-client-kb.ts",
+    "refresh:memory-graph": "tsx scripts/refresh-memory-graph.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate:dev": "prisma migrate dev",
     "prisma:migrate:deploy": "prisma migrate deploy",

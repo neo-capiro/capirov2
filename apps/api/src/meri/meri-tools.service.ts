@@ -49,7 +49,7 @@ import { buildSavedMemoryRecord } from './meri-memory.helpers.js';
 import { buildWebSearchRequest, normalizeWebResults } from './meri-websearch.helpers.js';
 import { looksLikePdf } from './meri-scrape.helpers.js';
 import { buildKnowledgeGraph, walkFrom, type FkRelation } from '../memory/memory-graph.helpers.js';
-import { extractWikiLinks } from '../memory/memory-parse.helpers.js';
+import { embedText, vectorLiteral, normalize } from '../embeddings/embedder.js';
 
 const PRODUCT_NAME = 'Meri';
 
@@ -82,6 +82,10 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'find_path_to',
     description: "Find the warm-introduction routes from your clients to a target office or person in the knowledge graph (\"who do we already know near the Senate Defense Approps subcommittee?\"). Pass a target node id (e.g. 'office:<id>' or 'person:<id>'); returns the shortest connection paths so you can see which client/person gets you there. Tenant + own-private scoped.",
+  },
+  {
+    name: 'search_memory',
+    description: "Semantic search over the firm's institutional memory (memory items: client hubs, meetings, email threads, distilled Meri sessions, analyst notes). Finds relevant memory by MEANING, not just keywords — use for \"what do we know about X\", \"have we discussed Y before\", \"find past context on Z\". Returns the top matching memory items with a relevance score. Tenant + own-private scoped.",
   },
   {
     name: 'search_congress_bills',
@@ -433,6 +437,10 @@ export class MeriToolsService {
         to: str("Target node id, e.g. 'office:<id>' or 'person:<id>'"),
         depth: int('Max search depth (1-5, default 3)'),
       }, ['to']),
+      search_memory: obj({
+        query: str('What to look for in firm memory (natural language)'),
+        k: int('Max results (1-15, default 8)'),
+      }, ['query']),
       search_congress_bills: obj({
         query: str('Keyword search'),
         policyArea: str('Policy area filter'),
@@ -1017,6 +1025,8 @@ export class MeriToolsService {
         return this.queryKnowledgeGraph(ctx, input);
       case 'find_path_to':
         return this.findPathTo(ctx, input);
+      case 'search_memory':
+        return this.searchMemory(ctx, input);
       case 'search_congress_bills':
         return this.searchCongressBills(input);
       case 'search_lda_filings':
@@ -1349,6 +1359,48 @@ export class MeriToolsService {
     return {
       summary: `${paths.length} route(s) from your clients to ${label.get(to) ?? to}:`,
       paths: paths.map((p) => p.map((id) => label.get(id) ?? id).join(' → ')),
+    };
+  }
+
+  private async searchMemory(ctx: TenantContext, input: Record<string, unknown>) {
+    const query = optionalString(input, 'query', 400);
+    if (!query) return { error: 'Provide a search query.' };
+    const kRaw = typeof input.k === 'number' ? input.k : parseInt(String(input.k ?? ''), 10);
+    const k = Number.isFinite(kRaw) ? Math.min(15, Math.max(1, kRaw)) : 8;
+    let literal: string;
+    try {
+      literal = vectorLiteral(await embedText(normalize(query)));
+    } catch (err) {
+      this.logger.warn(`search_memory embed failed: ${(err as Error).message}`);
+      return { summary: 'Memory search is temporarily unavailable (embedding service error).', results: [] };
+    }
+    const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.$queryRawUnsafe<Array<{ type: string; slug: string; title: string; client_id: string | null; score: number }>>(
+        `SELECT mi.type, mi.slug, mi.title, mi.client_id,
+                1 - (ce.embedding <=> '${literal}'::vector) AS score
+           FROM context_embeddings ce
+           JOIN memory_items mi ON mi.id::text = ce.source_id
+          WHERE ce.source_type = 'memory_item'
+            AND ce.tenant_id = $1::uuid
+            AND (mi.owner_user_id IS NULL OR mi.owner_user_id = $2::uuid)
+          ORDER BY ce.embedding <=> '${literal}'::vector
+          LIMIT ${k}`,
+        ctx.tenantId,
+        ctx.userId,
+      ),
+    );
+    if (!rows.length) {
+      return { summary: 'No memory matched — the graph may not be populated yet (run "Populate graph" on the Knowledge Graph page).', results: [] };
+    }
+    return {
+      summary: `${rows.length} memory item(s) most relevant to "${query}":`,
+      results: rows.map((r) => ({
+        id: `${r.type}:${r.slug}`,
+        type: r.type,
+        title: r.title,
+        clientId: r.client_id,
+        relevance: Math.round(r.score * 100) / 100,
+      })),
     };
   }
 

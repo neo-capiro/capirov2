@@ -20,6 +20,7 @@ const EXPECTED_TOOLS = [
   // Institutional-memory knowledge graph (read-only insight tools)
   'query_knowledge_graph',
   'find_path_to',
+  'search_memory',
   'search_congress_bills',
   'search_lda_filings',
   'search_sec_filings',
@@ -97,6 +98,7 @@ const REQUIRED_INPUTS: Record<string, string[]> = {
   get_pe_bills: ['peCode'],
   get_acquisition_person: ['id'],
   find_path_to: ['to'],
+  search_memory: ['query'],
   create_word: ['title', 'sections'],
   create_excel: ['title', 'sheets'],
   create_powerpoint: ['title', 'slides'],

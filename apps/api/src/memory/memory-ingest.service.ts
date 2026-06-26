@@ -6,6 +6,17 @@ import { clioMemoryToItem, type ClioMemoryRow, type NameResolver } from './memor
 import { meetingToItem, emailThreadToItem, meriSessionToItem } from './memory-ingest.helpers.js';
 import type { MemoryItem } from './memory.types.js';
 import { MEMORY_SCHEMA_VERSION } from './memory.types.js';
+import { embedAndUpsert, normalize } from '../embeddings/embedder.js';
+
+/** Build the text we embed for a memory item: title + human-authored section bodies
+ *  (engine sections are skipped — they're boilerplate that would dilute relevance). */
+export function embeddableText(item: MemoryItem): string {
+  const sectionText = (item.sections ?? [])
+    .filter((s) => s.owner === 'human' && s.body?.trim())
+    .map((s) => `${s.heading}: ${s.body}`)
+    .join('\n');
+  return normalize([item.title, sectionText].filter(Boolean).join('\n'));
+}
 
 /** Distill a transcript to a short summary without an LLM (first/last user turns + counts).
  *  Deliberately conservative: we never store the raw transcript in the graph. */
@@ -43,9 +54,9 @@ export class MemoryIngestService {
   ) {}
 
   /** Run the full backfill for the current tenant. Returns per-phase counts. */
-  async backfillCurrentTenant(): Promise<{ clients: number; clioMemories: number; meetings: number; emails: number; meriSessions: number }> {
+  async backfillCurrentTenant(): Promise<{ clients: number; clioMemories: number; meetings: number; emails: number; meriSessions: number; embedded: number }> {
     const ctx = this.tenantCtx.require();
-    const counts = { clients: 0, clioMemories: 0, meetings: 0, emails: 0, meriSessions: 0 };
+    const counts = { clients: 0, clioMemories: 0, meetings: 0, emails: 0, meriSessions: 0, embedded: 0 };
 
     // ---- Phase A: client entity nodes ----
     const clients = await this.prisma.withSystem((tx) =>
@@ -182,6 +193,34 @@ export class MemoryIngestService {
         }),
       );
       counts.meriSessions++;
+    }
+
+    // ---- Phase F: embeddings — make memory semantically searchable. Read all
+    // of the tenant's memory_items and embed (idempotent via content hash, so
+    // re-runs only embed changed items). Failures are logged, never fatal. ----
+    try {
+      const items = await this.prisma.withSystem((tx) =>
+        tx.$queryRaw<Array<{ id: string; client_id: string | null; type: string; title: string; sections: unknown }>>`
+          SELECT id, client_id, type, title, sections_jsonb AS sections
+          FROM memory_items WHERE tenant_id = ${ctx.tenantId}::uuid
+        `,
+      );
+      for (const it of items) {
+        const sections = Array.isArray(it.sections) ? (it.sections as MemoryItem['sections']) : [];
+        const text = embeddableText({ title: it.title, sections } as MemoryItem);
+        if (text.length < 10) continue;
+        const outcome = await embedAndUpsert(this.prisma as never, {
+          tenantId: ctx.tenantId,
+          clientId: it.client_id,
+          sourceType: 'memory_item',
+          sourceId: it.id,
+          text,
+          bypassRls: true,
+        });
+        if (outcome !== 'skipped') counts.embedded++;
+      }
+    } catch (err) {
+      this.logger.warn(`memory embedding pass failed: ${(err as Error).message}`);
     }
 
     this.logger.log(`backfill tenant=${ctx.tenantId} ${JSON.stringify(counts)}`);
