@@ -7,6 +7,7 @@ import { meetingToItem, emailThreadToItem, meriSessionToItem } from './memory-in
 import type { MemoryItem } from './memory.types.js';
 import { MEMORY_SCHEMA_VERSION } from './memory.types.js';
 import { embedAndUpsert, normalize } from '../embeddings/embedder.js';
+import { MeetingNotesCryptoService } from '../engagement/meeting-notes-crypto.service.js';
 
 /** Build the text we embed for a memory item: title + human-authored section bodies
  *  (engine sections are skipped — they're boilerplate that would dilute relevance). */
@@ -51,6 +52,7 @@ export class MemoryIngestService {
     private readonly prisma: PrismaService,
     private readonly store: MemoryStoreService,
     private readonly tenantCtx: TenantContextStore,
+    private readonly notesCrypto?: MeetingNotesCryptoService,
   ) {}
 
   /** Run the full backfill for the current tenant. Returns per-phase counts. */
@@ -97,10 +99,32 @@ export class MemoryIngestService {
         WHERE tenant_id = ${ctx.tenantId}::uuid AND client_id IS NOT NULL AND is_internal = false
       `,
     );
+    // Tenant-readable debriefs only: NOT confidential, OR explicitly shared with
+    // all tenant members. Author-only / restricted debriefs are excluded so the
+    // shared graph never exposes content the whole firm can't already read.
+    // Decrypted content is attached as an ENGINE section (never embedded).
+    const debriefRows = this.notesCrypto
+      ? await this.prisma.withSystem((tx) =>
+          tx.$queryRaw<Array<{ meeting_id: string; body_ciphertext: string; iv: string; auth_tag: string }>>`
+            SELECT meeting_id, body_ciphertext, iv, auth_tag
+            FROM meeting_debriefs
+            WHERE tenant_id = ${ctx.tenantId}::uuid
+              AND (confidential = false OR access_level = 'tenant_members')
+          `,
+        )
+      : [];
+    const debriefByMeeting = new Map<string, string>();
+    for (const d of debriefRows) {
+      try {
+        const text = this.notesCrypto!.decrypt({ bodyCiphertext: d.body_ciphertext, iv: d.iv, authTag: d.auth_tag });
+        // Keep the most recent/last one per meeting (rows are unordered; fine for a snapshot).
+        if (text?.trim()) debriefByMeeting.set(d.meeting_id, text.trim());
+      } catch (err) {
+        this.logger.warn(`debrief decrypt skipped for meeting ${d.meeting_id}: ${(err as Error).message}`);
+      }
+    }
     for (const mt of meetings) {
       const date = new Date(mt.starts_at).toISOString().slice(0, 10);
-      // Debrief bodies are encrypted and intentionally NOT decrypted here; we
-      // record the meeting node + its prep slot only.
       await this.store.upsertSystem(
         meetingToItem({
           tenantId: ctx.tenantId,
@@ -110,6 +134,7 @@ export class MemoryIngestService {
           date,
           prep: '_Linked from engagement calendar._',
           wikilinks: [`[[client:${mt.client_id}]]`],
+          debriefBody: debriefByMeeting.get(mt.id),
         }),
       );
       counts.meetings++;

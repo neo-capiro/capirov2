@@ -87,6 +87,29 @@ describe('memory ingestion renderers (Phase 2)', () => {
     expect(item.sections.find((s) => s.key === 'debrief')?.owner).toBe('human');
   });
 
+  // Gap 4: a tenant-readable debrief is attached as an ENGINE section (so it is
+  // never embedded — embeddableText only embeds human sections) and only when
+  // debriefBody is provided.
+  it('attaches recorded debrief content as an engine section when provided', () => {
+    const withBody = meetingToItem({
+      tenantId: TENANT, meetingId: 'mtg-2', clientId: 'acme-corp',
+      title: 'Debrief Test', date: '2026-07-02', prep: 'x', wikilinks: [],
+      debriefBody: 'Senator was supportive of the FY supplemental.',
+    });
+    const rec = withBody.sections.find((s) => s.key === 'debrief-recorded');
+    expect(rec).toBeDefined();
+    expect(rec?.owner).toBe('engine');
+    expect(rec?.body).toContain('FY supplemental');
+  });
+
+  it('omits the recorded debrief section when no debriefBody is given', () => {
+    const noBody = meetingToItem({
+      tenantId: TENANT, meetingId: 'mtg-3', clientId: 'acme-corp',
+      title: 'No Debrief', date: '2026-07-03', prep: 'x', wikilinks: [],
+    });
+    expect(noBody.sections.find((s) => s.key === 'debrief-recorded')).toBeUndefined();
+  });
+
   // §12.1: Meri sessions are ALWAYS user-private — never auto firm-shared.
   it('keeps a Meri session user-private regardless of clientId', () => {
     const mk = (clientId: string | null): MeriSessionInput => ({

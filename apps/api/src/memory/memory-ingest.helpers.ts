@@ -115,6 +115,10 @@ export interface MeetingInput {
   date: string; // yyyy-mm-dd
   prep: string; // machine-assembled prep (engine-owned)
   wikilinks: string[];
+  /** Decrypted debrief content, ONLY for tenant-readable debriefs. Rendered as
+   *  an engine-owned section so it is never treated as human md and never
+   *  embedded (embeddableText only embeds human sections). Omit to leave blank. */
+  debriefBody?: string;
 }
 
 /** Meeting prep -> MemoryItem under the client's meetings/ folder (#7). */
@@ -140,6 +144,14 @@ export function meetingToItem(input: MeetingInput): MemoryItem {
           .trimEnd(),
       },
       { key: 'debrief', heading: 'Debrief', owner: 'human', body: '' },
+      ...(input.debriefBody && input.debriefBody.trim()
+        ? [{
+            key: 'debrief-recorded',
+            heading: 'Debrief (recorded)',
+            owner: 'engine' as const,
+            body: `${input.debriefBody.trim()}\n\n_Projected from the meeting debrief (tenant-visible). Not embedded._`,
+          }]
+        : []),
     ],
   };
 }
