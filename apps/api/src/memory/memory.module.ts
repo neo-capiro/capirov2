@@ -2,22 +2,26 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module.js';
 import { TenantModule } from '../tenant/tenant.module.js';
 import { MemoryStoreService } from './memory-store.service.js';
+import { MemoryFkLoader } from './memory-fk-loader.service.js';
+import { MemoryIngestService } from './memory-ingest.service.js';
 import { MemoryController } from './memory.controller.js';
 
 /**
- * Institutional Memory module (plan §0.5).
+ * Institutional Memory module.
  *
- * Provides the canonical memory store + the retrieval surface the AI and
- * Intelligence Center consume. Exported so Meri (get_client_context-style
- * tools) and meeting-prep can read memory at runtime (criterion #10).
+ * Provides the canonical memory store, the FK loader + ingestion/backfill
+ * services, and the retrieval + knowledge-graph surface the AI and the
+ * Intelligence "Knowledge Graph" tab consume. Exported so Meri and meeting-prep
+ * can read memory at runtime.
  *
- * NOTE: ingestion workers (Graph email / Meri / meetings) are a separate,
- * approval-gated phase (Neo EMAIL guardrail) and are NOT wired here.
+ * Ingestion currently covers Phase A (structured entities), B (ClioMemory
+ * unification), and C (meetings). Email (Graph) ingestion remains gated behind
+ * the EMAIL guardrail and is not wired here.
  */
 @Module({
   imports: [PrismaModule, TenantModule],
   controllers: [MemoryController],
-  providers: [MemoryStoreService],
-  exports: [MemoryStoreService],
+  providers: [MemoryStoreService, MemoryFkLoader, MemoryIngestService],
+  exports: [MemoryStoreService, MemoryIngestService],
 })
 export class MemoryModule {}

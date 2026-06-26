@@ -1,26 +1,36 @@
-import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, NotFoundException, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { MemoryStoreService } from './memory-store.service.js';
+import { MemoryFkLoader } from './memory-fk-loader.service.js';
+import { MemoryIngestService } from './memory-ingest.service.js';
 import type { MemoryItemType } from './memory.types.js';
-import { buildKnowledgeGraph, walkFrom, type FkRelation } from './memory-graph.helpers.js';
+import { buildKnowledgeGraph, walkFrom } from './memory-graph.helpers.js';
 
 /**
- * Memory retrieval surface (consumption path, criterion #10).
+ * Memory retrieval + knowledge-graph surface.
  *
- * Read-only in this phase. Tenant scoping is enforced inside the service via
- * withTenant + RLS, so the controller does not need to pass tenant ids — the
- * TenantContextMiddleware has already set the request scope.
+ * Read endpoints scope via withTenant + RLS (caller's tenant only, plus their
+ * own private items). The graph merges authoritative DB foreign keys (from
+ * MemoryFkLoader, origin='fk') with analyst wikilink edges (origin='mention').
  *
- * GET /memory/items?clientId=&type=   -> items the caller may see
- * GET /memory/items/:slug/markdown    -> Obsidian-format projection (added in
- *                                          the editing phase)
+ * Routes:
+ *   GET  /memory/items                      list items the caller may see
+ *   GET  /memory/items/:type/:slug/markdown Obsidian-format projection
+ *   GET  /memory/graph[?seed=&depth=]       full graph or a focused walk
+ *   GET  /memory/graph/client/:clientId     per-client subgraph (view #1)
+ *   GET  /memory/graph/path?to=office:<id>  shortest paths to a target (view #2)
+ *   POST /memory/backfill                    (admin) populate from DB sources
  */
 @Controller('memory')
 @UseGuards(RolesGuard)
 @Roles('standard_user')
 export class MemoryController {
-  constructor(private readonly store: MemoryStoreService) {}
+  constructor(
+    private readonly store: MemoryStoreService,
+    private readonly fkLoader: MemoryFkLoader,
+    private readonly ingest: MemoryIngestService,
+  ) {}
 
   @Get('items')
   async listItems(
@@ -28,53 +38,105 @@ export class MemoryController {
     @Query('type') type?: MemoryItemType,
   ) {
     const items = await this.store.listForCurrentTenant({ clientId, type });
-    // Return a compact shape; full markdown is fetched per-item on demand.
     return items.map((i) => ({
-      id: i.id,
-      type: i.type,
-      slug: i.slug,
-      title: i.title,
-      clientId: i.clientId,
-      visibility: i.visibility,
-      entityId: i.entityId,
-      updatedAt: i.updatedAt,
+      id: i.id, type: i.type, slug: i.slug, title: i.title,
+      clientId: i.clientId, visibility: i.visibility, entityId: i.entityId, updatedAt: i.updatedAt,
     }));
   }
 
-  /** Obsidian-format markdown projection of one item (human read surface). */
   @Get('items/:type/:slug/markdown')
-  async itemMarkdown(
-    @Param('type') type: MemoryItemType,
-    @Param('slug') slug: string,
-  ) {
+  async itemMarkdown(@Param('type') type: MemoryItemType, @Param('slug') slug: string) {
     const item = await this.store.getByTypeSlug(type, slug);
     if (!item) throw new NotFoundException('memory item not found');
     return this.store.project(item);
   }
 
-  /**
-   * Knowledge graph for the Intelligence Center tab (Phase 3, criterion #5).
-   * Merges DB FK relations (passed by callers / future FK loader) with the
-   * tenant's wikilink edges. `seed` + `depth` optionally return a subgraph
-   * answering "history with this entity".
-   */
+  /** Full knowledge graph, or a depth-bounded walk from `seed`. */
   @Get('graph')
-  async graph(
-    @Query('seed') seed?: string,
-    @Query('depth') depth?: string,
-  ) {
-    const { wikiEdges, itemNodes } = await this.store.loadGraphInputs();
-    const itemNodeById = new Map(
-      itemNodes.map((n) => [n.itemId, { type: n.type, slug: n.slug, label: n.label }]),
-    );
-    // FK relations are supplied by the structured side; empty here until the
-    // FK loader (client->bill, person->office, ...) is wired. The merge is
-    // already correct and tested with FKs present.
-    const fkRelations: FkRelation[] = [];
-    const full = buildKnowledgeGraph(fkRelations, wikiEdges, itemNodeById);
+  async graph(@Query('seed') seed?: string, @Query('depth') depth?: string) {
+    const full = await this.buildFullGraph();
     if (seed) {
       return walkFrom(full, seed, depth ? Math.max(1, parseInt(depth, 10) || 1) : 2);
     }
     return full;
   }
+
+  /** View #1: per-client subgraph — everything within `depth` hops of a client. */
+  @Get('graph/client/:clientId')
+  async clientGraph(@Param('clientId') clientId: string, @Query('depth') depth?: string) {
+    const full = await this.buildFullGraph();
+    return walkFrom(full, `client:${clientId}`, depth ? Math.max(1, parseInt(depth, 10) || 1) : 2);
+  }
+
+  /**
+   * View #2: "find a path to this entity" — returns the subgraph around the
+   * target plus the set of shortest paths from each client to it, so a
+   * lobbyist sees the warm route ("who do we already know near this office?").
+   */
+  @Get('graph/path')
+  async pathTo(@Query('to') to?: string, @Query('depth') depth?: string) {
+    if (!to) return { nodes: [], edges: [], paths: [] };
+    const full = await this.buildFullGraph();
+    const sub = walkFrom(full, to, depth ? Math.max(1, parseInt(depth, 10) || 1) : 3);
+    const clients = sub.nodes.filter((n) => n.type === 'client').map((n) => n.id);
+    const paths = clients
+      .map((c) => shortestPath(full, c, to))
+      .filter((p): p is string[] => p !== null);
+    return { ...sub, paths };
+  }
+
+  /** Admin: populate the graph from DB sources (clients, ClioMemory, meetings). */
+  @Post('backfill')
+  @Roles('user_admin')
+  async backfill() {
+    const counts = await this.ingest.backfillCurrentTenant();
+    return { ok: true, counts };
+  }
+
+  private async buildFullGraph() {
+    const [{ wikiEdges, itemNodes }, fkRelations] = await Promise.all([
+      this.store.loadGraphInputs(),
+      this.fkLoader.loadForCurrentTenant(),
+    ]);
+    const itemNodeById = new Map(
+      itemNodes.map((n) => [n.itemId, { type: n.type, slug: n.slug, label: n.label }]),
+    );
+    return buildKnowledgeGraph(fkRelations, wikiEdges, itemNodeById);
+  }
+}
+
+/** BFS shortest path between two node ids over the undirected graph. */
+function shortestPath(
+  graph: { nodes: Array<{ id: string }>; edges: Array<{ src: string; dst: string }> },
+  from: string,
+  to: string,
+): string[] | null {
+  if (from === to) return [from];
+  const adj = new Map<string, string[]>();
+  for (const e of graph.edges) {
+    (adj.get(e.src) ?? adj.set(e.src, []).get(e.src)!).push(e.dst);
+    (adj.get(e.dst) ?? adj.set(e.dst, []).get(e.dst)!).push(e.src);
+  }
+  const prev = new Map<string, string>();
+  const visited = new Set<string>([from]);
+  let frontier = [from];
+  while (frontier.length) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const nb of adj.get(id) ?? []) {
+        if (visited.has(nb)) continue;
+        visited.add(nb);
+        prev.set(nb, id);
+        if (nb === to) {
+          const path = [nb];
+          let cur = nb;
+          while (prev.has(cur)) { cur = prev.get(cur)!; path.unshift(cur); }
+          return path;
+        }
+        next.push(nb);
+      }
+    }
+    frontier = next;
+  }
+  return null;
 }
