@@ -31,6 +31,8 @@ export type MemoryItemType =
   | 'person'
   | 'bill'
   | 'issue'
+  | 'user-profile'
+  | 'user-voice'
   | 'note';
 
 /** firm-shared vs private-to-owner. */

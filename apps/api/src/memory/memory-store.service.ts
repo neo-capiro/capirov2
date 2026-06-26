@@ -10,6 +10,7 @@ import type {
 import { MEMORY_SCHEMA_VERSION } from './memory.types.js';
 import { renderMemoryItem, vaultPathForItem } from './memory-render.helpers.js';
 import { extractWikiLinks } from './memory-parse.helpers.js';
+import { skeletonSections, fileDefForType } from './memory-catalog.js';
 
 /**
  * Canonical institutional-memory store (plan §0.5).
@@ -220,6 +221,60 @@ export class MemoryStoreService {
       await this.deriveEdges(tx, updated, existing.id);
     });
     return { ...updated, updatedAt: new Date().toISOString() };
+  }
+
+  /**
+   * Create-or-update the human sections of a Settings memory file. Unlike
+   * updateSectionsForCurrentTenant, this CREATES the item from the catalog
+   * skeleton when it doesn't exist yet — so a brand-new firm/client/user file
+   * (and Meri-drafted content for one) persists on first save. Scope/visibility/
+   * owner are derived from the catalog + caller:
+   *   - firm files   -> visibility 'tenant', owner null, slug 'firm'
+   *   - client files -> visibility 'tenant', owner null, slug <clientId>
+   *   - user files   -> visibility 'user',   owner <caller>, slug <userId>
+   */
+  async upsertSectionsForCurrentTenant(
+    type: MemoryItemType,
+    slug: string,
+    scope: 'firm' | 'client' | 'user',
+    clientId: string | null,
+    edits: Array<{ key: string; body: string }>,
+    allowedKeys: Set<string>,
+  ): Promise<MemoryItem> {
+    const ctx = this.tenantCtx.require();
+    const existing = await this.getByTypeSlug(type, slug);
+    const editByKey = new Map(
+      edits.filter((e) => allowedKeys.has(e.key)).map((e) => [e.key, e.body]),
+    );
+
+    const baseSections: MemorySection[] = existing
+      ? existing.sections
+      : skeletonSections(type);
+    const mergedSections: MemorySection[] = baseSections.map((s) =>
+      s.owner === 'human' && editByKey.has(s.key)
+        ? { ...s, body: editByKey.get(s.key) ?? s.body }
+        : s,
+    );
+
+    const label = fileDefForType(type)?.label ?? type;
+    const item: MemoryItem = existing
+      ? { ...existing, sections: mergedSections }
+      : {
+          id: '', tenantId: ctx.tenantId,
+          clientId: scope === 'client' ? clientId : null,
+          ownerUserId: scope === 'user' ? ctx.userId : null,
+          type,
+          visibility: scope === 'user' ? 'user' : 'tenant',
+          entityId: null,
+          slug, title: label, aliases: [], tags: ['memory-file', scope],
+          source: 'manual', sourceRef: null, provenance: 'human',
+          sections: mergedSections,
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+          schemaVersion: MEMORY_SCHEMA_VERSION,
+        };
+
+    await this.upsertSystem(item);
+    return { ...item, updatedAt: new Date().toISOString() };
   }
 
   /** Re-derive wikilink edges for an item (criterion #5). Replace-all per item. */

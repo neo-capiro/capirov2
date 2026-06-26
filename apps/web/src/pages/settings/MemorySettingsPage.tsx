@@ -32,7 +32,7 @@ export function MemorySettingsPage() {
   const { message } = App.useApp();
   const isAdmin = me.data?.role === 'user_admin' || me.data?.role === 'capiro_admin';
 
-  const [scope, setScope] = useState<'firm' | 'client'>('firm');
+  const [scope, setScope] = useState<'firm' | 'client' | 'user'>('firm');
   const [fileType, setFileType] = useState<string>('firm-soul');
   const [clientId, setClientId] = useState<string | undefined>();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -46,14 +46,17 @@ export function MemorySettingsPage() {
 
   const clientsQuery = useQuery<{ id: string; name: string }[]>({
     queryKey: ['memory-clients'],
-    queryFn: async () => (await api.get<{ data: { id: string; name: string }[] }>(
-      '/api/lda-intel/clients', { params: { limit: 200 } })).data.data ?? [],
+    queryFn: async () => (await api.get<Array<{ id: string; name: string }>>(
+      '/api/clients')).data ?? [],
     staleTime: 10 * 60 * 1000,
   });
 
-  // slug: firm files key on a fixed firm slug; client files key on clientId.
-  const slug = scope === 'firm' ? 'firm' : clientId ?? '';
-  const ready = scope === 'firm' || !!clientId;
+  // slug: firm files key on a fixed firm slug; client files key on clientId;
+  // user files key on the caller server-side (slug 'me' is a placeholder).
+  const slug = scope === 'firm' ? 'firm' : scope === 'user' ? 'me' : clientId ?? '';
+  const ready = scope !== 'client' || !!clientId;
+  // User files are always editable by their owner; firm/client require admin.
+  const canEdit = scope === 'user' || isAdmin;
 
   const itemQuery = useQuery<ItemSectionsResp>({
     queryKey: ['memory-item', fileType, slug],
@@ -102,8 +105,12 @@ export function MemorySettingsPage() {
         <Space wrap>
           <Segmented
             value={scope}
-            onChange={(v) => { setScope(v as 'firm' | 'client'); setDrafts({}); setFileType(v === 'firm' ? 'firm-soul' : 'client-soul'); }}
-            options={[{ label: 'Firm', value: 'firm' }, { label: 'By client', value: 'client' }]}
+            onChange={(v) => {
+              const s = v as 'firm' | 'client' | 'user';
+              setScope(s); setDrafts({});
+              setFileType(s === 'firm' ? 'firm-soul' : s === 'user' ? 'user-profile' : 'client-soul');
+            }}
+            options={[{ label: 'Firm', value: 'firm' }, { label: 'By client', value: 'client' }, { label: 'My files', value: 'user' }]}
           />
           {scope === 'client' && (
             <Select
@@ -122,20 +129,23 @@ export function MemorySettingsPage() {
           <Button icon={<RobotOutlined />} onClick={() => setInterviewOpen(true)} disabled={!ready}>
             Fill with Meri
           </Button>
-          <Button type="primary" icon={<SaveOutlined />} onClick={onSave} loading={saveMutation.isPending} disabled={!dirty || !isAdmin}>
+          <Button type="primary" icon={<SaveOutlined />} onClick={onSave} loading={saveMutation.isPending} disabled={!dirty || !canEdit}>
             Save changes
           </Button>
         </Space>
 
-        {!isAdmin && (
+        {!canEdit && (
           <Alert type="info" showIcon message="You can view these files. Editing firm and client memory requires an admin role." />
+        )}
+        {scope === 'user' && (
+          <Alert type="info" showIcon message="These files are private to you and help Meri work in your voice. Paste real samples under My Writing Style for the best results." />
         )}
 
         {scope === 'client' && !clientId && <Empty description="Pick a client to view their memory files." />}
 
         {ready && itemQuery.isLoading && <Spin />}
         {ready && itemQuery.isError && (
-          <Empty description="This file hasn't been created yet. Use “Fill with Meri” or save content to start it." />
+          <Empty description="Couldn't load this file. Try again." />
         )}
 
         {ready && itemQuery.data && (
@@ -151,8 +161,8 @@ export function MemorySettingsPage() {
                 </Paragraph>
                 <Input.TextArea
                   value={bodyFor(s)}
-                  autoSize={{ minRows: 2, maxRows: 8 }}
-                  readOnly={s.owner === 'engine' || !isAdmin}
+                  autoSize={{ minRows: s.key === 'samples' ? 6 : 2, maxRows: 16 }}
+                  readOnly={s.owner === 'engine' || !canEdit}
                   onChange={(e) => setDrafts((d) => ({ ...d, [s.key]: e.target.value }))}
                   style={s.owner === 'engine' ? { background: '#f5f5f5' } : undefined}
                 />

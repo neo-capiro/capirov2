@@ -2,6 +2,7 @@ import {
   MEMORY_CATALOG,
   fileDefForType,
   editableSectionKeys,
+  skeletonSections,
 } from './memory-catalog.js';
 import {
   buildInterviewQuestions,
@@ -39,6 +40,20 @@ describe('memory catalog', () => {
 
   it('returns empty allowlist for unknown type (write-guard fail-closed)', () => {
     expect(editableSectionKeys('nope').size).toBe(0);
+  });
+
+  it('defines user-scope files including a writing-style file with a samples section', () => {
+    const userFiles = MEMORY_CATALOG.filter((f) => f.scope === 'user');
+    expect(userFiles.map((f) => f.type)).toEqual(expect.arrayContaining(['user-profile', 'user-voice']));
+    const voice = fileDefForType('user-voice');
+    expect(voice?.sections.map((s) => s.key)).toContain('samples');
+  });
+
+  it('skeletonSections returns blank human-owned sections for a type', () => {
+    const sk = skeletonSections('user-voice');
+    expect(sk.length).toBeGreaterThan(0);
+    expect(sk.every((s) => s.owner === 'human' && s.body === '')).toBe(true);
+    expect(skeletonSections('unknown-type')).toEqual([]);
   });
 });
 

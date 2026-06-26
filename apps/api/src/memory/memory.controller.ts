@@ -1,13 +1,15 @@
-import { Body, Controller, Get, NotFoundException, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, NotFoundException, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
+import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
+import type { TenantContext } from '@capiro/shared';
 import { MemoryStoreService } from './memory-store.service.js';
 import { MemoryFkLoader } from './memory-fk-loader.service.js';
 import { MemoryIngestService } from './memory-ingest.service.js';
 import { MemoryInterviewService } from './memory-interview.service.js';
 import type { MemoryItemType } from './memory.types.js';
 import { buildKnowledgeGraph, walkFrom } from './memory-graph.helpers.js';
-import { MEMORY_CATALOG, fileDefForType, editableSectionKeys } from './memory-catalog.js';
+import { MEMORY_CATALOG, fileDefForType, editableSectionKeys, skeletonSections } from './memory-catalog.js';
 import { buildInterviewQuestions } from './memory-interview.helpers.js';
 
 /**
@@ -64,7 +66,9 @@ export class MemoryController {
   /**
    * Structured read for the Settings editor: the item's sections plus the
    * catalog help (prompt + example) joined per section, so the UI renders the
-   * editor + greyed guidance in one shot. 404 if not visible (RLS).
+   * editor + greyed guidance in one shot. When the file doesn't exist yet,
+   * returns the catalog SKELETON (empty human sections) instead of 404, so the
+   * editor + "Fill with Meri" drafts have somewhere to render and save.
    */
   @Get('items/:type/:slug/sections')
   async itemSections(
@@ -72,17 +76,19 @@ export class MemoryController {
     @Param('slug') slug: string,
   ) {
     const item = await this.store.getByTypeSlug(type, slug);
-    if (!item) throw new NotFoundException('memory item not found');
     const def = fileDefForType(type);
     const helpByKey = new Map((def?.sections ?? []).map((s) => [s.key, s]));
+    const sections = item ? item.sections : skeletonSections(type);
+    if (!item && !def) throw new NotFoundException('unknown memory file type');
     return {
-      type: item.type,
-      slug: item.slug,
-      title: item.title,
-      visibility: item.visibility,
-      clientId: item.clientId,
-      updatedAt: item.updatedAt,
-      sections: item.sections.map((s) => ({
+      type,
+      slug,
+      title: item?.title ?? def?.label ?? type,
+      visibility: item?.visibility ?? (def?.scope === 'user' ? 'user' : 'tenant'),
+      clientId: item?.clientId ?? null,
+      updatedAt: item?.updatedAt ?? null,
+      exists: !!item,
+      sections: sections.map((s) => ({
         key: s.key,
         heading: s.heading,
         owner: s.owner,
@@ -94,21 +100,32 @@ export class MemoryController {
   }
 
   /**
-   * Save edited human sections. Firm-scoped files require user_admin; engine
-   * sections are never writable (the store guards via the allowlist). RLS keeps
-   * writes within the caller's tenant.
+   * Create-or-save edited human sections. User-scoped files (My Profile, My
+   * Writing Style) are writable by their owner (any role). Firm/client files
+   * require user_admin. Engine sections are never writable (allowlist guard).
+   * Creates the file from the catalog skeleton on first save, so brand-new
+   * files and Meri-drafted content persist. RLS keeps writes within the tenant.
    */
   @Put('items/:type/:slug/sections')
-  @Roles('user_admin')
   async updateSections(
+    @CurrentTenant() ctx: TenantContext,
     @Param('type') type: MemoryItemType,
     @Param('slug') slug: string,
     @Body() body: { sections: Array<{ key: string; body: string }> },
   ) {
-    const updated = await this.store.updateSectionsForCurrentTenant(
-      type, slug, body?.sections ?? [], editableSectionKeys(type),
+    const def = fileDefForType(type);
+    if (!def) throw new NotFoundException('unknown memory file type');
+    const scope = def.scope;
+    const isAdmin = ctx.role === 'user_admin' || ctx.role === 'capiro_admin';
+    if (scope !== 'user' && !isAdmin) {
+      throw new ForbiddenException('Editing firm and client memory requires an admin role.');
+    }
+    // User files key on the caller's own id — ignore any slug spoof.
+    const effectiveSlug = scope === 'user' ? ctx.userId : slug;
+    const clientId = scope === 'client' ? slug : null;
+    const updated = await this.store.upsertSectionsForCurrentTenant(
+      type, effectiveSlug, scope, clientId, body?.sections ?? [], editableSectionKeys(type),
     );
-    if (!updated) throw new NotFoundException('memory item not found');
     return { ok: true, updatedAt: updated.updatedAt };
   }
 
