@@ -131,6 +131,34 @@ export const MEMORY_CATALOG: MemoryFileDef[] = [
         example: '6/18: chief signaled openness to report language if paired with a jobs number.' },
     ],
   },
+  {
+    type: 'user-profile',
+    scope: 'user',
+    label: 'My Profile',
+    blurb: 'Who you are at the firm — your role, focus, and working context. Private to you.',
+    sections: [
+      { key: 'role', heading: 'Role & responsibilities', prompt: 'Your title and what you own day-to-day.',
+        example: 'Senior associate; run defense-industrial accounts and Senate Approps relationships.' },
+      { key: 'focus', heading: 'Accounts & focus areas', prompt: 'Clients, issues, and committees you cover.',
+        example: 'Lead on two shipbuilders; cover SASC, SAC-D, and the shipbuilding supplemental.' },
+      { key: 'working-style', heading: 'How I work', prompt: 'Cadence, strengths, what to hand you vs. not.',
+        example: 'Strong on member meetings and strategy memos; prefer to draft asks myself.' },
+    ],
+  },
+  {
+    type: 'user-voice',
+    scope: 'user',
+    label: 'My Writing Style',
+    blurb: 'How you write, so Meri can draft in your voice. Paste real samples below for few-shot grounding. Private to you.',
+    sections: [
+      { key: 'preferences', heading: 'Communication preferences', prompt: 'Tone, length, formality, do/don\'t for your writing.',
+        example: 'Direct and concise; no hedging or filler; active voice; lead with the ask; avoid exclamation points.' },
+      { key: 'audiences', heading: 'Audience adjustments', prompt: 'How your voice shifts by audience (member office vs. client vs. internal).',
+        example: 'To Hill staff: crisp, deferential, jobs-framed. To clients: plain-English, decision-oriented.' },
+      { key: 'samples', heading: 'Sample writings (few-shot)', prompt: 'Paste 2–4 real things you wrote (emails, memos, asks). Meri mimics this voice — do not invent.',
+        example: 'Paste a real email and a memo paragraph here; the more representative, the better Meri matches you.' },
+    ],
+  },
 ];
 
 /** Look up a file definition by memory type. */
@@ -141,4 +169,11 @@ export function fileDefForType(type: string): MemoryFileDef | undefined {
 /** The set of human-editable section keys for a type (write-guard allowlist). */
 export function editableSectionKeys(type: string): Set<string> {
   return new Set(fileDefForType(type)?.sections.map((s) => s.key) ?? []);
+}
+
+/** Build an empty section skeleton (all human-owned, blank bodies) for a file type. */
+export function skeletonSections(type: string): Array<{ key: string; heading: string; owner: 'human'; body: string }> {
+  return (fileDefForType(type)?.sections ?? []).map((s) => ({
+    key: s.key, heading: s.heading, owner: 'human' as const, body: '',
+  }));
 }
