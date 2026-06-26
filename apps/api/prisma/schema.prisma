@@ -216,6 +216,8 @@ model Tenant {
   aiUsageEvents                AiUsageEvent[]
   aiCredentials                TenantAiCredential[]
   usageMeters                  TenantUsageMeter[]
+  memoryItems                  MemoryItem[]
+  memoryEdges                  MemoryEdge[]
 
   @@map("tenants")
 }
@@ -3832,4 +3834,59 @@ model ProgramOfficeProgramLink {
   @@unique([officeId, programId], map: "program_office_program_link_office_program_key")
   @@index([programId], map: "program_office_program_link_program_id_idx")
   @@map("program_office_program_link")
+}
+
+/// Canonical institutional-memory item (plan §0.5). Projected to an Obsidian-
+/// format markdown file in the vault; consumed structurally by the AI /
+/// Intelligence Center. Facts live in the referenced entity row (entityId);
+/// this holds the interpretation/narrative around them. RLS-FORCED on tenant_id.
+model MemoryItem {
+  id            String   @id @default(uuid()) @db.Uuid
+  tenantId      String   @map("tenant_id") @db.Uuid
+  clientId      String?  @map("client_id") @db.Uuid
+  ownerUserId   String?  @map("owner_user_id") @db.Uuid
+  type          String   @db.VarChar(32)
+  visibility    String   @default("tenant") @db.VarChar(16)
+  entityId      String?  @map("entity_id") @db.Uuid
+  slug          String
+  title         String
+  aliases       String[] @default([])
+  tags          String[] @default([])
+  source        String   @db.VarChar(24)
+  sourceRef     String?  @map("source_ref")
+  provenance    String   @default("human") @db.VarChar(32)
+  sections      Json     @default("[]") @map("sections_jsonb")
+  schemaVersion Int      @default(1) @map("schema_version")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  edges  MemoryEdge[]
+
+  @@unique([tenantId, type, slug], map: "memory_items_tenant_type_slug_unique")
+  @@index([tenantId, clientId], map: "memory_items_tenant_client_idx")
+  @@index([tenantId, visibility, ownerUserId], map: "memory_items_tenant_visibility_owner_idx")
+  @@index([tenantId, type], map: "memory_items_tenant_type_idx")
+  @@index([entityId], map: "memory_items_entity_idx")
+  @@map("memory_items")
+}
+
+/// Directed graph edge derived from a `[[type:slug]]` wikilink in an item's
+/// markdown (criterion #5). Merged with DB FKs to feed the Intelligence Center
+/// knowledge-graph tab. Re-derived on every save, so it is a cache.
+model MemoryEdge {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  srcItemId String   @map("src_item_id") @db.Uuid
+  relation  String   @default("mentions") @db.VarChar(32)
+  dstType   String   @map("dst_type") @db.VarChar(32)
+  dstSlug   String   @map("dst_slug")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  src    MemoryItem @relation(fields: [srcItemId], references: [id], onDelete: Cascade)
+
+  @@unique([srcItemId, relation, dstType, dstSlug], map: "memory_edges_unique")
+  @@index([tenantId, dstType, dstSlug], map: "memory_edges_tenant_dst_idx")
+  @@map("memory_edges")
 }

@@ -35,6 +35,7 @@ import { ProgramElementModule } from './program-element/program-element.module.j
 import { AcquisitionPersonnelModule } from './acquisition-personnel/acquisition-personnel.module.js';
 import { AiUsageModule } from './ai-usage/ai-usage.module.js';
 import { BillingModule } from './billing/billing.module.js';
+import { MemoryModule } from './memory/memory.module.js';
 import { ApiLatencyMiddleware } from './observability/api-latency.middleware.js';
 
 @Module({
@@ -83,6 +84,7 @@ import { ApiLatencyMiddleware } from './observability/api-latency.middleware.js'
     HelpModule,
     AiUsageModule,
     BillingModule,
+    MemoryModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
