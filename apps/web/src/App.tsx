@@ -7,6 +7,7 @@ import { PlaceholderPage } from './pages/PlaceholderPage.js';
 import { SettingsLayout } from './pages/settings/SettingsLayout.js';
 import { PersonalPage } from './pages/settings/PersonalPage.js';
 import { ContactInfoPage } from './pages/settings/ContactInfoPage.js';
+import { MemorySettingsPage } from './pages/settings/MemorySettingsPage.js';
 import { TeamPage } from './pages/admin/TeamPage.js';
 import { BrandingPage } from './pages/admin/BrandingPage.js';
 import { ClientsPage } from './pages/admin/ClientsPage.js';
@@ -237,6 +238,7 @@ export function App() {
           <Route index element={<Navigate to="/settings/personal" replace />} />
           <Route path="personal" element={<PersonalPage />} />
           <Route path="contact" element={<ContactInfoPage />} />
+          <Route path="memory" element={<MemorySettingsPage />} />
           <Route path="team" element={<TeamPage />} />
           <Route path="branding" element={<BrandingPage />} />
           <Route path="clients" element={<ClientsPage />} />

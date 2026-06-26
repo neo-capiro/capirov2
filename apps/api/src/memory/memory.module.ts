@@ -4,15 +4,17 @@ import { TenantModule } from '../tenant/tenant.module.js';
 import { MemoryStoreService } from './memory-store.service.js';
 import { MemoryFkLoader } from './memory-fk-loader.service.js';
 import { MemoryIngestService } from './memory-ingest.service.js';
+import { MemoryInterviewService } from './memory-interview.service.js';
 import { MemoryController } from './memory.controller.js';
 
 /**
  * Institutional Memory module.
  *
  * Provides the canonical memory store, the FK loader + ingestion/backfill
- * services, and the retrieval + knowledge-graph surface the AI and the
- * Intelligence "Knowledge Graph" tab consume. Exported so Meri and meeting-prep
- * can read memory at runtime.
+ * services, the knowledge-graph surface (Intelligence "Knowledge Graph" tab),
+ * and the retrieval/editing surface for the Settings "Memory" tab. The
+ * interview service drafts section text from Q&A answers (graceful LLM
+ * fallback). Exported so Meri and meeting-prep can read memory at runtime.
  *
  * Ingestion currently covers Phase A (structured entities), B (ClioMemory
  * unification), and C (meetings). Email (Graph) ingestion remains gated behind
@@ -21,7 +23,7 @@ import { MemoryController } from './memory.controller.js';
 @Module({
   imports: [PrismaModule, TenantModule],
   controllers: [MemoryController],
-  providers: [MemoryStoreService, MemoryFkLoader, MemoryIngestService],
+  providers: [MemoryStoreService, MemoryFkLoader, MemoryIngestService, MemoryInterviewService],
   exports: [MemoryStoreService, MemoryIngestService],
 })
 export class MemoryModule {}
