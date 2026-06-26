@@ -358,6 +358,14 @@ export class IntelligenceController {
     return this.service.searchFecEmployers(q.q);
   }
 
+  // Free-text / by-uuid search of federal_contractor for the manual-attach
+  // panel. The contractor uuid is the externalId pinned into a 'contracting'
+  // mapping (matching fetchContractorById's id::uuid lookup).
+  @Get('contractors/search')
+  searchContractors(@Query() q: LdaSearchQueryDto) {
+    return this.service.searchContractors(q.q);
+  }
+
   // Read-only "what's driving this client's matching" signal: the union'd issue
   // codes (+ names), how many LDA registrants back them, and capability richness.
   @Get('clients/:clientId/issue-code-signal')

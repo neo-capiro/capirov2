@@ -346,7 +346,17 @@ interface FecEmployerResult {
   similarity: number;
 }
 
-type MappingSource = 'lda' | 'fec_employer';
+interface ContractorResult {
+  id: string;
+  name: string;
+  uei: string | null;
+  category: string | null;
+  totalContracts: number | null;
+  rankByContracts: number | null;
+  similarity: number;
+}
+
+type MappingSource = 'lda' | 'fec_employer' | 'contracting';
 
 /**
  * Attach an external record to a client by its exact identifier. Fuzzy
@@ -395,7 +405,23 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
     enabled: open && source === 'fec_employer' && query.trim().length > 0,
   });
 
-  const isFetching = source === 'lda' ? ldaSearch.isFetching : fecSearch.isFetching;
+  const contractorSearch = useQuery<ContractorResult[]>({
+    queryKey: ['contractor-search', query],
+    queryFn: async () =>
+      (
+        await api.get<ContractorResult[]>(
+          `/api/intelligence/contractors/search?q=${encodeURIComponent(query)}`,
+        )
+      ).data,
+    enabled: open && source === 'contracting' && query.trim().length > 0,
+  });
+
+  const isFetching =
+    source === 'lda'
+      ? ldaSearch.isFetching
+      : source === 'fec_employer'
+        ? fecSearch.isFetching
+        : contractorSearch.isFetching;
 
   const attachMutation = useMutation({
     mutationFn: async (r: { id: string; name: string }) =>
@@ -405,9 +431,17 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
         externalName: r.name,
       }),
     onSuccess: (_d, r) => {
+      const sourceLabel =
+        source === 'lda' ? 'LDA' : source === 'fec_employer' ? 'FEC employer' : 'federal contractor';
+      const feeds =
+        source === 'lda'
+          ? 'issue-code matching'
+          : source === 'fec_employer'
+            ? 'contribution panel'
+            : 'contract/obligation footprint';
       notification.success({
         message: 'Mapping attached',
-        description: `"${r.name}" is now a confirmed ${source === 'lda' ? 'LDA' : 'FEC employer'} mapping. It feeds this client's ${source === 'lda' ? 'issue-code matching' : 'contribution panel'} immediately.`,
+        description: `"${r.name}" is now a confirmed ${sourceLabel} mapping. It feeds this client's ${feeds} immediately.`,
       });
       void qc.invalidateQueries({ queryKey: ['intelligence-mappings'] });
       invalidateClientIntel(qc);
@@ -494,6 +528,35 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
     { title: '', key: 'attach', width: 90, render: (_v, record) => attachButton(record) },
   ];
 
+  const contractorColumns: ColumnsType<ContractorResult> = [
+    {
+      title: 'Contractor name',
+      dataIndex: 'name',
+      ellipsis: true,
+      render: (v: string) => <Text style={{ fontSize: 13 }}>{v}</Text>,
+    },
+    { title: 'UEI', dataIndex: 'uei', width: 110, render: (v: string | null) => v ?? '—' },
+    {
+      title: 'Category',
+      dataIndex: 'category',
+      width: 100,
+      render: (v: string | null) => v ?? '—',
+    },
+    {
+      title: 'Total contracts',
+      dataIndex: 'totalContracts',
+      width: 120,
+      render: (v: number | null) => formatSpend(v),
+    },
+    {
+      title: 'Rank',
+      dataIndex: 'rankByContracts',
+      width: 70,
+      render: (v: number | null) => (v ? `#${v}` : '—'),
+    },
+    { title: '', key: 'attach', width: 90, render: (_v, record) => attachButton(record) },
+  ];
+
   const resetSearch = () => {
     setSearchInput('');
     setQuery('');
@@ -530,6 +593,7 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
           options={[
             { label: 'LDA registrant (issue codes)', value: 'lda' },
             { label: 'FEC employer (contributions)', value: 'fec_employer' },
+            { label: 'Federal contractor (contracts)', value: 'contracting' },
           ]}
         />
 
@@ -548,7 +612,9 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
           placeholder={
             source === 'lda'
               ? '2 · Search LDA registry by name or id (e.g. raytheon, or 4321)'
-              : '2 · Search FEC contributor-employers by name (e.g. raytheon)'
+              : source === 'fec_employer'
+                ? '2 · Search FEC contributor-employers by name (e.g. raytheon)'
+                : '2 · Search federal contractors by name (e.g. raytheon)'
           }
           enterButton="Search"
           allowClear
@@ -577,7 +643,7 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
                 ),
               }}
             />
-          ) : (
+          ) : source === 'fec_employer' ? (
             <Table<FecEmployerResult>
               rowKey="id"
               size="small"
@@ -590,6 +656,24 @@ function ManualMapModal({ open, onClose }: { open: boolean; onClose: () => void 
                 emptyText: (
                   <Empty
                     description="No FEC employers matched. Try a shorter or alternate spelling."
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  />
+                ),
+              }}
+            />
+          ) : (
+            <Table<ContractorResult>
+              rowKey="id"
+              size="small"
+              loading={contractorSearch.isFetching}
+              dataSource={contractorSearch.data ?? []}
+              columns={contractorColumns}
+              pagination={false}
+              scroll={{ y: 320 }}
+              locale={{
+                emptyText: (
+                  <Empty
+                    description="No federal contractors matched. Try a shorter or alternate spelling, or paste the contractor UUID."
                     image={Empty.PRESENTED_IMAGE_SIMPLE}
                   />
                 ),

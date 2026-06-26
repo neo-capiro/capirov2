@@ -2321,6 +2321,52 @@ export class IntelligenceService {
   }
 
   /**
+   * Search federal_contractor for the manual-attach panel. The contractor row's
+   * uuid is the externalId pinned into a source='contracting' mapping (matching
+   * fetchContractorById, which reads federal_contractor by id::uuid). Returns
+   * identity + contract footprint so a user can recognise the right recipient by
+   * its total obligations / category / rank rather than name similarity alone.
+   * Accepts a name fuzzy-match or an exact uuid paste.
+   */
+  async searchContractors(query: string) {
+    const q = query.trim();
+    if (!q) return [];
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(q);
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        name: string;
+        uei: string | null;
+        category: string | null;
+        total_contracts: number | null;
+        rank_by_contracts: number | null;
+        similarity: number;
+      }>
+    >`
+      SELECT id, name, uei, category,
+             total_contracts::float AS total_contracts,
+             rank_by_contracts,
+             GREATEST(
+               similarity(name, ${q}),
+               CASE WHEN ${isUuid} AND id::text = ${q} THEN 1 ELSE 0 END
+             ) AS similarity
+      FROM federal_contractor
+      WHERE similarity(name, ${q}) > 0.2 OR (${isUuid} AND id::text = ${q})
+      ORDER BY similarity DESC, total_contracts DESC NULLS LAST
+      LIMIT 25
+    `;
+    return rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      uei: r.uei,
+      category: r.category,
+      totalContracts: r.total_contracts,
+      rankByContracts: r.rank_by_contracts,
+      similarity: Number(r.similarity ?? 0),
+    }));
+  }
+
+  /**
    * Manually attach (and confirm) an external record to a client. For source
    * 'lda' this pins an exact lda_client.id — the reliable way to fold a
    * registrant variant the fuzzy matcher can't reach into a client's footprint.
