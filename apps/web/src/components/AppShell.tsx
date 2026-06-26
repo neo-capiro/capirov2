@@ -66,6 +66,7 @@ type AppSection =
   | 'workspace'
   | 'planner'
   | 'intelligence'
+  | 'knowledge-graph'
   | 'actions'
   | 'pe-group'
   | 'program-elements'
@@ -1027,6 +1028,7 @@ function pageConfigFor(pathname: string): PageConfig {
     workspace: 'Workspace',
     planner: 'Planner',
     intelligence: 'Intelligence Center',
+    'knowledge-graph': 'Knowledge Graph',
     actions: 'Action Board',
     'pe-group': 'Program Elements',
     'program-elements': 'Program Elements',
