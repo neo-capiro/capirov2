@@ -7,6 +7,7 @@ import {
   BookOutlined,
   CalendarOutlined,
   DollarOutlined,
+  DeploymentUnitOutlined,
   FileTextOutlined,
   FireOutlined,
   GlobalOutlined,
@@ -31,6 +32,7 @@ import { AgenciesPanel } from './panels/AgenciesPanel.js';
 import { LobbyingPanel } from './panels/LobbyingPanel.js';
 import { RegulationsPanel } from './panels/RegulationsPanel.js';
 import { ClientProfilePanel } from './panels/ClientProfilePanel.js';
+import { KnowledgeGraphPanel } from './panels/KnowledgeGraphPanel.js';
 
 export function IntelligenceCenterPage() {
   const api = useApi();
@@ -163,6 +165,7 @@ export function IntelligenceCenterPage() {
         }}
         items={[
           { key: 'clients', label: <span><UserSwitchOutlined /> My Clients</span>, children: <ClientProfilePanel /> },
+          { key: 'graph', label: <span><DeploymentUnitOutlined /> Knowledge Graph</span>, children: <KnowledgeGraphPanel /> },
           { key: 'lda', label: <span><AuditOutlined /> LDA Overview</span>, children: <LdaOverviewPanel clientFilter={clientFilter} onNavigate={navigateTo} /> },
           { key: 'filings', label: <span><FileTextOutlined /> Filings</span>, children: <FilingsPanel key={clientFilter} defaultClient={clientFilter} /> },
           { key: 'firms', label: <span><ShopOutlined /> Firms</span>, children: <FirmsPanel onNavigate={navigateTo} /> },
