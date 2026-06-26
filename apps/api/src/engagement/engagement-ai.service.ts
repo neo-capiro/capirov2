@@ -1082,14 +1082,22 @@ export class EngagementAiService {
       (input.context.contextItems as string).trim().length > 0
         ? (input.context.contextItems as string).trim()
         : null;
-    const contextWithoutItems = contextItemsBlock
+    // Voice/style grounding (hoisted out of the JSON dump so the "use only
+    // supplied context" rule doesn't suppress it — style is HOW to write, not a
+    // fact to cite).
+    const writingStyleBlock =
+      typeof input.context?.userWritingStyle === 'string' &&
+      (input.context.userWritingStyle as string).trim().length > 0
+        ? (input.context.userWritingStyle as string).trim()
+        : null;
+    const contextWithoutItems = contextItemsBlock || writingStyleBlock
       ? Object.fromEntries(
           Object.entries(input.context ?? {}).filter(
-            ([k]) => k !== 'contextItems' && k !== 'direction',
+            ([k]) => k !== 'contextItems' && k !== 'direction' && k !== 'userWritingStyle',
           ),
         )
       : (input.context ?? {});
-    const inputForJson: OutreachDraftInput = contextItemsBlock
+    const inputForJson: OutreachDraftInput = contextItemsBlock || writingStyleBlock
       ? { ...input, context: contextWithoutItems }
       : input;
 
@@ -1131,6 +1139,9 @@ export class EngagementAiService {
       templateGuidance ? `Prompt template: ${input.promptTemplate}. ${templateGuidance}` : null,
       'Use only the provided client, meeting, recipient, and engagement context. Do not invent facts.',
       'Never return unresolved template variables or bracket placeholders in subject or body. Use real provided values or omit the unsupported line/phrase.',
+      writingStyleBlock
+        ? `AUTHOR VOICE & STRATEGY (style guidance — apply to HOW you write, not as facts to cite; never copy sample content verbatim or invent details from it):\n${writingStyleBlock}`
+        : null,
       contextItemsGuidance,
       signatureGuidance,
       'Return JSON with subject, body, and contextNote. The body must be directly editable by the user.',

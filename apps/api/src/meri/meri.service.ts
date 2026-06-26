@@ -1552,6 +1552,18 @@ export class MeriService {
     const sources: MeriSourceAttribution[] = [];
     const trace: OrchestratorTraceStep[] = [];
 
+    // User voice/profile (memory files): standing context so Meri always writes
+    // in the caller's voice and knows their role — not just when it calls a tool.
+    try {
+      const voice = await this.loadUserVoiceContext(ctx, clientId);
+      if (voice) {
+        contextParts.push(voice);
+        trace.push({ tool: 'memory_files', action: 'selected', reason: 'Loaded user voice/profile (and client soul when client-linked).' });
+      }
+    } catch {
+      // best-effort; never block a turn on memory-file context
+    }
+
     if (clientId) {
       trace.push({ tool: 'client_profile', action: 'selected', reason: 'Client-linked conversation has priority context.' });
       // Always-on KB snapshot (F5): profile digest, top people, facility
@@ -2116,6 +2128,66 @@ export class MeriService {
   }
 
   // ── Memory: learn from conversations ──
+
+  /**
+   * Load the caller's voice/profile memory files (and the client's soul when the
+   * conversation is client-linked) as a compact standing-context block. This is
+   * what makes Meri write in the user's voice and respect the client's strategic
+   * read on every turn — not only when it opts to call search_memory.
+   * RLS-scoped to the caller (own user files + tenant-visible client files).
+   */
+  private async loadUserVoiceContext(
+    ctx: TenantContext,
+    clientId: string | null,
+  ): Promise<string | null> {
+    const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+      tx.$queryRaw<Array<{ type: string; title: string; sections: unknown }>>`
+        SELECT type, title, sections_jsonb AS sections
+        FROM memory_items
+        WHERE type IN ('user-voice', 'user-profile')
+          AND owner_user_id = ${ctx.userId}::uuid
+      `,
+    );
+    // Client soul/compass (tenant-visible) when this is a client conversation.
+    const clientRows = clientId
+      ? await this.prisma.withTenant(ctx.tenantId, (tx) =>
+          tx.$queryRaw<Array<{ type: string; title: string; sections: unknown }>>`
+            SELECT type, title, sections_jsonb AS sections
+            FROM memory_items
+            WHERE type IN ('client-soul', 'client-compass')
+              AND client_id = ${clientId}::uuid
+          `,
+        )
+      : [];
+
+    const blocks: string[] = [];
+    const render = (title: string, sections: unknown): string | null => {
+      if (!Array.isArray(sections)) return null;
+      const body = sections
+        .filter((s) => s && typeof s === 'object' && (s as { owner?: string }).owner === 'human')
+        .map((s) => {
+          const sec = s as { heading?: string; body?: string };
+          return sec.body?.trim() ? `${sec.heading}: ${sec.body.trim()}` : '';
+        })
+        .filter(Boolean)
+        .join('\n');
+      return body ? `${title}\n${body}` : null;
+    };
+
+    for (const r of rows) {
+      const label = r.type === 'user-voice'
+        ? "The user's writing style — draft in THIS voice; mirror the sample writings closely without inventing content"
+        : "About the user (their role and focus)";
+      const block = render(label, r.sections);
+      if (block) blocks.push(block);
+    }
+    for (const r of clientRows) {
+      const block = render(`Client memory (${r.title})`, r.sections);
+      if (block) blocks.push(block);
+    }
+    if (!blocks.length) return null;
+    return `User & client memory files (authoritative for voice and strategy):\n\n${blocks.join('\n\n')}`;
+  }
 
   private async loadRelevantMemories(
     tenantId: string,
