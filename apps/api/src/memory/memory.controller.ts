@@ -1,9 +1,12 @@
-import { Controller, Get, NotFoundException, Param, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { MemoryStoreService } from './memory-store.service.js';
+import { MemoryInterviewService } from './memory-interview.service.js';
 import type { MemoryItemType } from './memory.types.js';
 import { buildKnowledgeGraph, walkFrom, type FkRelation } from './memory-graph.helpers.js';
+import { MEMORY_CATALOG, fileDefForType, editableSectionKeys } from './memory-catalog.js';
+import { buildInterviewQuestions } from './memory-interview.helpers.js';
 
 /**
  * Memory retrieval surface (consumption path, criterion #10).
@@ -20,7 +23,16 @@ import { buildKnowledgeGraph, walkFrom, type FkRelation } from './memory-graph.h
 @UseGuards(RolesGuard)
 @Roles('standard_user')
 export class MemoryController {
-  constructor(private readonly store: MemoryStoreService) {}
+  constructor(
+    private readonly store: MemoryStoreService,
+    private readonly interview: MemoryInterviewService,
+  ) {}
+
+  /** Section catalog (help text + examples + interview questions source). */
+  @Get('catalog')
+  catalog() {
+    return MEMORY_CATALOG;
+  }
 
   @Get('items')
   async listItems(
@@ -50,6 +62,77 @@ export class MemoryController {
     const item = await this.store.getByTypeSlug(type, slug);
     if (!item) throw new NotFoundException('memory item not found');
     return this.store.project(item);
+  }
+
+  /**
+   * Structured read for the Settings editor: the item's sections plus the
+   * catalog help (prompt + example) joined per section, so the UI renders the
+   * editor + greyed guidance in one shot. 404 if not visible (RLS).
+   */
+  @Get('items/:type/:slug/sections')
+  async itemSections(
+    @Param('type') type: MemoryItemType,
+    @Param('slug') slug: string,
+  ) {
+    const item = await this.store.getByTypeSlug(type, slug);
+    if (!item) throw new NotFoundException('memory item not found');
+    const def = fileDefForType(type);
+    const helpByKey = new Map((def?.sections ?? []).map((s) => [s.key, s]));
+    return {
+      type: item.type,
+      slug: item.slug,
+      title: item.title,
+      visibility: item.visibility,
+      clientId: item.clientId,
+      updatedAt: item.updatedAt,
+      sections: item.sections.map((s) => ({
+        key: s.key,
+        heading: s.heading,
+        owner: s.owner,
+        body: s.body,
+        prompt: helpByKey.get(s.key)?.prompt ?? '',
+        example: helpByKey.get(s.key)?.example ?? '',
+      })),
+    };
+  }
+
+  /**
+   * Save edited human sections. Firm-scoped files require user_admin; engine
+   * sections are never writable (the store guards via the allowlist). RLS keeps
+   * writes within the caller's tenant.
+   */
+  @Put('items/:type/:slug/sections')
+  @Roles('user_admin')
+  async updateSections(
+    @Param('type') type: MemoryItemType,
+    @Param('slug') slug: string,
+    @Body() body: { sections: Array<{ key: string; body: string }> },
+  ) {
+    const updated = await this.store.updateSectionsForCurrentTenant(
+      type, slug, body?.sections ?? [], editableSectionKeys(type),
+    );
+    if (!updated) throw new NotFoundException('memory item not found');
+    return { ok: true, updatedAt: updated.updatedAt };
+  }
+
+  /** Interview questions for a memory type (the Meri-guided fill flow). */
+  @Get('interview/:type/questions')
+  interviewQuestions(@Param('type') type: MemoryItemType) {
+    return { type, questions: buildInterviewQuestions(type) };
+  }
+
+  /**
+   * Draft section text from collected Q&A answers (Meri polishes each answer
+   * into section prose, obeying Capiro AI rules). Returns the drafted sections
+   * for preview; saving is a separate PUT so the user can edit first.
+   */
+  @Post('interview/:type/draft')
+  async interviewDraft(
+    @Param('type') type: MemoryItemType,
+    @Body() body: { answers: Array<{ sectionKey: string; answer: string }> },
+  ) {
+    const sections = await this.interview.draftSections(type, body?.answers ?? []);
+    return { type, sections };
   }
 
   /**

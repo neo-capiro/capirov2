@@ -181,6 +181,47 @@ export class MemoryStoreService {
     });
   }
 
+  /**
+   * Update the human-authored sections of an existing item under RLS (the
+   * Settings editor + interview save path). Engine-owned sections and identity
+   * fields are preserved from the stored item; only human sections whose keys
+   * are in `edits` are replaced. Runs under withTenant so a caller can only
+   * write within their own tenant (and RLS blocks writing items they can't see).
+   * Returns the updated item, or null if the item does not exist / is not visible.
+   */
+  async updateSectionsForCurrentTenant(
+    type: MemoryItemType,
+    slug: string,
+    edits: Array<{ key: string; body: string }>,
+    allowedKeys: Set<string>,
+  ): Promise<MemoryItem | null> {
+    const ctx = this.tenantCtx.require();
+    const existing = await this.getByTypeSlug(type, slug);
+    if (!existing) return null;
+
+    const editByKey = new Map(
+      edits.filter((e) => allowedKeys.has(e.key)).map((e) => [e.key, e.body]),
+    );
+    const mergedSections: MemorySection[] = existing.sections.map((s) => {
+      if (s.owner === 'human' && editByKey.has(s.key)) {
+        return { ...s, body: editByKey.get(s.key) ?? s.body };
+      }
+      return s; // engine-owned or untouched human sections preserved as-is
+    });
+
+    const updated: MemoryItem = { ...existing, sections: mergedSections };
+
+    await this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      await tx.$executeRaw`
+        UPDATE memory_items
+        SET sections_jsonb = ${JSON.stringify(mergedSections)}::jsonb, updated_at = now()
+        WHERE tenant_id = ${ctx.tenantId}::uuid AND type = ${type} AND slug = ${slug}
+      `;
+      await this.deriveEdges(tx, updated, existing.id);
+    });
+    return { ...updated, updatedAt: new Date().toISOString() };
+  }
+
   /** Re-derive wikilink edges for an item (criterion #5). Replace-all per item. */
   private async deriveEdges(
     tx: Prisma.TransactionClient,
