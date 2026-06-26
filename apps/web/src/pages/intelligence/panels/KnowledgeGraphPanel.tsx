@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Card, Empty, Segmented, Select, Space, Spin, Tag, Typography } from 'antd';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { App, Button, Card, Empty, Popconfirm, Segmented, Select, Space, Spin, Tag, Typography } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import ForceGraph3D from 'react-force-graph-3d';
 import { useApi } from '../../../lib/use-api.js';
 
@@ -42,11 +43,27 @@ type ViewMode = 'full' | 'client' | 'path';
 
 export function KnowledgeGraphPanel() {
   const api = useApi();
+  const qc = useQueryClient();
+  const { message } = App.useApp();
   const fgRef = useRef<unknown>(null);
   const [originFilter, setOriginFilter] = useState<'all' | 'fk' | 'mention'>('all');
   const [view, setView] = useState<ViewMode>('full');
   const [clientId, setClientId] = useState<string | undefined>();
   const [target, setTarget] = useState<string | undefined>();
+
+  // Populate the graph from the tenant's DB data (idempotent backfill).
+  const populateMutation = useMutation({
+    mutationFn: async () =>
+      (await api.post<{ counts: { clients: number; clioMemories: number; meetings: number } }>(
+        '/api/memory/backfill', {},
+      )).data,
+    onSuccess: (d) => {
+      const c = d.counts;
+      message.success(`Graph populated: ${c.clients} clients, ${c.clioMemories} memories, ${c.meetings} meetings.`);
+      qc.invalidateQueries({ queryKey: ['memory-graph'] });
+    },
+    onError: (e: unknown) => message.error(e instanceof Error ? e.message : 'Populate failed'),
+  });
 
   // Client list for the selectors (clients appear as nodes in the full graph,
   // but we fetch the canonical list for stable labels).
@@ -140,6 +157,15 @@ export function KnowledgeGraphPanel() {
         onChange={(v) => setOriginFilter(v as 'all' | 'fk' | 'mention')}
         options={[{ label: 'All', value: 'all' }, { label: 'Facts', value: 'fk' }, { label: 'Mentions', value: 'mention' }]}
       />
+      <Popconfirm
+        title="Populate the knowledge graph?"
+        description="Builds graph nodes/links from your clients, memories, and meetings. Safe to run anytime."
+        okText="Populate" onConfirm={() => populateMutation.mutate()}
+      >
+        <Button size="small" icon={<ReloadOutlined />} loading={populateMutation.isPending}>
+          Populate graph
+        </Button>
+      </Popconfirm>
     </Space>
   );
 
@@ -153,7 +179,17 @@ export function KnowledgeGraphPanel() {
   } else if (view === 'path' && !target) {
     body = <Empty style={{ paddingTop: 80 }} description="Pick a target office or person to find routes from your clients." />;
   } else if (graphData.nodes.length === 0) {
-    body = <Empty style={{ paddingTop: 80 }} description="No memory connections yet. Run a backfill or add notes, meetings, and Meri sessions to grow the graph." />;
+    body = (
+      <Empty
+        style={{ paddingTop: 80 }}
+        description="No connections yet. Populate the graph from your clients, memories, and meetings to get started."
+      >
+        <Button type="primary" icon={<ReloadOutlined />} loading={populateMutation.isPending}
+          onClick={() => populateMutation.mutate()}>
+          Populate graph
+        </Button>
+      </Empty>
+    );
   } else {
     body = (
       <div style={{ height: 620, background: '#0b1220', borderRadius: 8, overflow: 'hidden' }}>

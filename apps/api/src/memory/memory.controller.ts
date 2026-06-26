@@ -171,9 +171,15 @@ export class MemoryController {
     return { ...sub, paths };
   }
 
-  /** Admin: populate the graph from DB sources (clients, ClioMemory, meetings). */
+  /**
+   * Populate the graph from DB sources (clients, ClioMemory, meetings) for the
+   * caller's tenant. Open to any viewer (standard_user): it is tenant-scoped and
+   * idempotent — reads only the caller's own tenant data and upserts by stable
+   * slug (no duplicates, no deletes, no cross-tenant access). Each projected
+   * item keeps its correct visibility/owner, so a non-admin trigger never leaks
+   * another user's private memory into the shared graph.
+   */
   @Post('backfill')
-  @Roles('user_admin')
   async backfill() {
     const counts = await this.ingest.backfillCurrentTenant();
     return { ok: true, counts };
