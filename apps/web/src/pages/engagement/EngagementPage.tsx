@@ -3297,8 +3297,9 @@ function groupMeetingsByLocalDate(meetings: Meeting[]): Array<{
       date: localDateFromInput(key),
       isToday: key === todayKey,
       isPast: key < todayKey,
+      // Chronological within the day: soonest meeting first → latest last.
       meetings: [...rows].sort(
-        (left, right) => new Date(right.startsAt).getTime() - new Date(left.startsAt).getTime(),
+        (left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime(),
       ),
     }));
 }
