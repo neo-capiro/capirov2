@@ -101,6 +101,13 @@ export interface DirectoryContact {
   officialLinks: DirectoryLink[];
   addresses: DirectoryAddress[];
   staff: DirectoryStaffMember[];
+  /**
+   * Populated ONLY by contacts search (`GET /contacts?q=…`) when the query
+   * matched this office via one or more STAFFERS rather than the member's own
+   * name/office — so the UI can explain why an office with a non-matching member
+   * name was returned ("matched via staffer X"). Omitted on every other read.
+   */
+  matchedStaff?: Array<{ fullName: string; title: string }>;
   bio: {
     dob: string;
     hometown: string;
@@ -1334,31 +1341,29 @@ export class DirectoryService {
     const normalizedQuery = String(query.q ?? '')
       .trim()
       .toLowerCase();
+    // Tokenize so multi-word queries match in any order ("cruz ted" == "ted cruz")
+    // and tolerate extra whitespace. A single token behaves exactly as before.
+    const queryTokens = normalizedQuery.split(/\s+/).filter((t) => t.length > 0);
     const sort = this.normalizeSort(query.sort);
 
-    const filtered = base.contacts.filter((contact) => {
-      const searchBlob = [
-        contact.fullName,
-        contact.memberName,
-        contact.title,
-        contact.office,
-        contact.state,
-        contact.district,
-        contact.partyName,
-        contact.phone,
-        contact.email,
-        contact.contactFormUrl,
-        contact.focusAreas.join(' '),
-        contact.committees.join(' '),
-        contact.leadershipPositions.join(' '),
-        contact.staff
-          .map((staff) => `${staff.fullName} ${staff.title} ${staff.email} ${staff.phone}`)
-          .join(' '),
-      ]
-        .join(' ')
-        .toLowerCase();
+    // A blob matches if it contains the full query as a contiguous substring
+    // (back-compat) OR — for multi-word queries — contains every token. Single-
+    // token queries reduce to the old `includes` behavior.
+    const blobMatches = (blob: string): boolean => {
+      if (queryTokens.length === 0) return true;
+      if (blob.includes(normalizedQuery)) return true;
+      return queryTokens.length > 1 && queryTokens.every((token) => blob.includes(token));
+    };
 
-      const matchesQuery = normalizedQuery.length === 0 || searchBlob.includes(normalizedQuery);
+    // Why a contact matched the query: by the member's own fields, and/or via
+    // specific staffers. `matchedStaff` lets the UI explain a result whose member
+    // name doesn't contain the query (e.g. searching a staffer's first name).
+    const matchInfo = new Map<
+      string,
+      { memberMatched: boolean; matchedStaff: Array<{ fullName: string; title: string }> }
+    >();
+
+    const filtered = base.contacts.filter((contact) => {
       const matchesFreshman =
         freshman === null ||
         (freshman === 'Freshman' && contact.isFreshman) ||
@@ -1381,28 +1386,98 @@ export class DirectoryService {
         education.length === 0 ||
         contact.educationInstitutions.some((institution) => education.includes(institution));
 
-      return (
-        matchesQuery &&
-        matchesFreshman &&
-        matchesChamber &&
-        matchesRegion &&
-        matchesGender &&
-        matchesParty &&
-        matchesState &&
-        matchesDistrict &&
-        matchesLeadership &&
-        matchesCommittee &&
-        matchesCaucus &&
-        matchesEducation
-      );
+      // Cheap structured filters first; only build search blobs if those pass.
+      if (
+        !(
+          matchesFreshman &&
+          matchesChamber &&
+          matchesRegion &&
+          matchesGender &&
+          matchesParty &&
+          matchesState &&
+          matchesDistrict &&
+          matchesLeadership &&
+          matchesCommittee &&
+          matchesCaucus &&
+          matchesEducation
+        )
+      ) {
+        return false;
+      }
+
+      // No free-text query → structured filters alone decide; no match metadata.
+      if (queryTokens.length === 0) return true;
+
+      const memberBlob = [
+        contact.fullName,
+        contact.memberName,
+        contact.title,
+        contact.office,
+        contact.state,
+        contact.district,
+        contact.partyName,
+        contact.phone,
+        contact.email,
+        contact.contactFormUrl,
+        contact.focusAreas.join(' '),
+        contact.committees.join(' '),
+        contact.leadershipPositions.join(' '),
+      ]
+        .join(' ')
+        .toLowerCase();
+
+      const staffBlobs = contact.staff.map((staff) => ({
+        staff,
+        blob: (
+          `${staff.fullName} ${staff.title} ${staff.email} ${staff.phone} ` +
+          `${staff.roles.join(' ')} ${staff.issueAreas.join(' ')}`
+        ).toLowerCase(),
+      }));
+
+      // Reproduces the legacy combined-blob `includes` match for member fields and
+      // within a single staffer's fields, and adds order-independent tokens plus
+      // staffer roles/issue-areas to the searchable text. (The one legacy match it
+      // does not reproduce is a contiguous substring that spanned two adjacent
+      // staffers — not a realistic free-text query.)
+      const combinedBlob = `${memberBlob} ${staffBlobs.map((s) => s.blob).join(' ')}`;
+      if (!blobMatches(combinedBlob)) return false;
+
+      const memberMatched = blobMatches(memberBlob);
+      const matchedStaff = staffBlobs
+        .filter((s) => blobMatches(s.blob))
+        .slice(0, 5)
+        .map((s) => ({ fullName: s.staff.fullName, title: s.staff.title }));
+      matchInfo.set(contact.id, { memberMatched, matchedStaff });
+      return true;
     });
 
-    const sorted = this.sortContacts(filtered, sort);
+    let sorted = this.sortContacts(filtered, sort);
+    // When searching, hoist offices whose own name/fields matched above offices
+    // that matched only via a staffer — the member you typed should come first.
+    // Array.prototype.sort is stable in V8, so the requested sort is preserved
+    // within each group.
+    if (queryTokens.length > 0) {
+      sorted = sorted
+        .slice()
+        .sort(
+          (a, b) =>
+            Number(matchInfo.get(b.id)?.memberMatched ?? false) -
+            Number(matchInfo.get(a.id)?.memberMatched ?? false),
+        );
+    }
     const total = sorted.length;
     const pageCount = Math.max(1, Math.ceil(total / pageSize));
     const safePage = Math.min(page, pageCount);
     const start = (safePage - 1) * pageSize;
-    const contacts = sorted.slice(start, start + pageSize);
+    // Attach the staffer match reason to the page slice only (shallow copy — the
+    // cached contact objects are shared and must not be mutated).
+    const contacts = sorted.slice(start, start + pageSize).map((contact) => {
+      const info = matchInfo.get(contact.id);
+      if (info && !info.memberMatched && info.matchedStaff.length > 0) {
+        return { ...contact, matchedStaff: info.matchedStaff };
+      }
+      return contact;
+    });
 
     return {
       sourceId: base.sourceId,

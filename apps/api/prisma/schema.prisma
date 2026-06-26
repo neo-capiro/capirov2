@@ -200,6 +200,7 @@ model Tenant {
   clientPeople                 ClientPerson[]
   clientFacilities             ClientFacility[]
   clientTargets                ClientTarget[]
+  clientTargetRecommendations  ClientTargetRecommendation[]
   strategies                   Strategy[]
   strategyTargets              StrategyTarget[]
   engagementCampaigns          EngagementCampaign[]
@@ -397,6 +398,7 @@ model Client {
   people                  ClientPerson[]
   facilities              ClientFacility[]
   targets                 ClientTarget[]
+  targetRecommendations   ClientTargetRecommendation[]
   strategies              Strategy[]
   engagementCampaigns     EngagementCampaign[]
   clioProactiveAlerts     ClioProactiveAlert[]
@@ -1609,6 +1611,32 @@ model ClientTarget {
   @@unique([clientId, memberId], map: "client_targets_client_member_key")
   @@index([tenantId, clientId], map: "client_targets_tenant_client_idx")
   @@map("client_targets")
+}
+
+/// Persisted Office Recommender ("Suggested by Meri") output for a client's
+/// Targets tab. Computing recommendations means resolving tracked bills +
+/// scoring every congressional office, which is too slow to run on every page
+/// view — so we compute once (lazily, on first view), store the result here, and
+/// serve the cache thereafter. A manual "Refresh" recomputes on demand. One row
+/// per client (firm-wide, tenant-scoped via RLS). tenant/client FK relations with
+/// ON DELETE CASCADE so a deleted client takes its cache with it (mirrors
+/// ClientTarget / ActionRecommendation).
+model ClientTargetRecommendation {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  clientId        String   @map("client_id") @db.Uuid
+  /// Array<OfficeRecommendation> (see office-recommender.service.ts) as JSON.
+  recommendations Json     @default("[]") @map("recommendations_jsonb")
+  computedAt      DateTime @default(now()) @map("computed_at") @db.Timestamptz(6)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId], map: "client_target_recommendations_client_key")
+  @@index([tenantId, clientId], map: "client_target_recommendations_tenant_client_idx")
+  @@map("client_target_recommendations")
 }
 
 /// Step 3.2 — materiality-gated, client-specific action card (plan §10 card spec,

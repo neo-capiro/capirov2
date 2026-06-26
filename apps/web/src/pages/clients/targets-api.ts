@@ -29,7 +29,7 @@ export interface ClientTarget {
   addedAt: string;
 }
 
-/** A single Meri office recommendation (read from the intel aggregate). */
+/** A single Meri office recommendation. */
 export interface OfficeRecommendation {
   memberId: string;
   office: string;
@@ -40,6 +40,44 @@ export interface OfficeRecommendation {
   score: number;
   tags: string[];
   billCount: number;
+}
+
+/**
+ * Persisted office-recommendations payload from
+ * /api/clients/:clientId/target-recommendations. Computing them is slow, so the
+ * server caches the result and serves it instantly on subsequent loads;
+ * `computedAt` is when this set was produced (null only if never computed).
+ */
+export interface OfficeRecommendationsResult {
+  recommendations: OfficeRecommendation[];
+  computedAt: string | null;
+}
+
+/**
+ * Read the cached office recommendations. The server computes-and-persists on the
+ * first ever request for a client (a few seconds), then serves the cache.
+ */
+export async function getOfficeRecommendations(
+  api: AxiosInstance,
+  clientId: string,
+): Promise<OfficeRecommendationsResult> {
+  return (
+    await api.get<OfficeRecommendationsResult>(
+      `/api/clients/${encodeURIComponent(clientId)}/target-recommendations`,
+    )
+  ).data;
+}
+
+/** Force a recompute of the office recommendations and overwrite the cache. */
+export async function refreshOfficeRecommendations(
+  api: AxiosInstance,
+  clientId: string,
+): Promise<OfficeRecommendationsResult> {
+  return (
+    await api.post<OfficeRecommendationsResult>(
+      `/api/clients/${encodeURIComponent(clientId)}/target-recommendations/refresh`,
+    )
+  ).data;
 }
 
 export async function getClientTargets(

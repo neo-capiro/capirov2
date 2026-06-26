@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App as AntApp } from 'antd';
 import { useApi } from '../../lib/use-api.js';
@@ -6,8 +6,11 @@ import type { DirectoryApiResponse, DirectoryEntry } from '../directory/director
 import {
   addClientTarget,
   getClientTargets,
+  getOfficeRecommendations,
+  refreshOfficeRecommendations,
   removeClientTarget,
   type ClientTarget,
+  type OfficeRecommendationsResult,
 } from './targets-api.js';
 
 /**
@@ -16,6 +19,11 @@ import {
  * Recommender (committee jurisdiction + issue overlap + facility geography).
  *
  * Targets are firm-wide per client. Add/remove are optimistic with rollback.
+ *
+ * The Meri recommendations are EXPENSIVE to compute, so the server persists them
+ * (computed lazily on the first view) and serves the cache thereafter — this tab
+ * reads the dedicated /target-recommendations endpoint rather than waiting on the
+ * full profile-v1 aggregate, and offers a manual "Refresh" to recompute.
  */
 
 interface MeriSuggestion {
@@ -31,8 +39,6 @@ interface MeriSuggestion {
 
 interface Props {
   clientId: string;
-  /** Top-6 Meri recommendations pulled from the intel aggregate (may be empty). */
-  meriSuggestions: MeriSuggestion[];
   /** Whether the user can mutate targets (read-only clients hide add/remove). */
   canManage: boolean;
   /** Navigate to the Intelligence tab (Relationships section). */
@@ -54,12 +60,34 @@ export function lastNameOf(name: string): string {
   return head.split(' ').pop() ?? head;
 }
 
-export function TargetsTab({ clientId, meriSuggestions, canManage, onViewIntelligence }: Props) {
+/** Compact "updated X ago" label for the recommendations timestamp. */
+function relativeTime(iso: string | null): string {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '';
+  const secs = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (secs < 60) return 'just now';
+  const mins = Math.round(secs / 60);
+  if (mins < 60) return `${mins} min${mins === 1 ? '' : 's'} ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs} hour${hrs === 1 ? '' : 's'} ago`;
+  const days = Math.round(hrs / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+export function TargetsTab({ clientId, canManage, onViewIntelligence }: Props) {
   const api = useApi();
   const qc = useQueryClient();
   const { message } = AntApp.useApp();
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  // Debounced search term — the directory search fires off this, not the raw
+  // input, so typing a name doesn't kick off a request on every keystroke.
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQuery(query.trim()), 250);
+    return () => clearTimeout(id);
+  }, [query]);
 
   const targetsQuery = useQuery<ClientTarget[]>({
     queryKey: ['client-targets', clientId],
@@ -67,21 +95,59 @@ export function TargetsTab({ clientId, meriSuggestions, canManage, onViewIntelli
   });
   const targets = targetsQuery.data ?? [];
 
-  const addedIds = useMemo(() => new Set(targets.map((t) => t.memberId)), [targets]);
-  const meriIds = useMemo(
-    () => new Set(meriSuggestions.map((m) => m.memberId)),
-    [meriSuggestions],
+  // Persisted Meri recommendations. The GET computes-and-stores on the first
+  // view (a few seconds) and is instant thereafter; staleTime keeps re-entry to
+  // the tab from re-fetching needlessly.
+  const recsQuery = useQuery<OfficeRecommendationsResult>({
+    queryKey: ['client-target-recommendations', clientId],
+    queryFn: async () => getOfficeRecommendations(api, clientId),
+    enabled: !!clientId,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  const refreshMutation = useMutation({
+    mutationFn: async () => refreshOfficeRecommendations(api, clientId),
+    onMutate: async () => {
+      // Cancel any in-flight background GET refetch so its (older) response can't
+      // land after — and clobber — the freshly recomputed result.
+      await qc.cancelQueries({ queryKey: ['client-target-recommendations', clientId] });
+    },
+    onSuccess: (data) => {
+      qc.setQueryData(['client-target-recommendations', clientId], data);
+    },
+    onError: () => message.error('Could not refresh recommendations. Please try again.'),
+  });
+
+  const meriSuggestions = useMemo<MeriSuggestion[]>(
+    () =>
+      (recsQuery.data?.recommendations ?? [])
+        // Only member-identified rows can be added as targets.
+        .filter((r) => typeof r?.memberId === 'string' && r.memberId.length > 0)
+        .slice(0, 6)
+        .map((r) => ({
+          memberId: r.memberId,
+          office: String(r.office ?? ''),
+          party: r.party ?? null,
+          state: r.state ?? null,
+          chamber: r.chamber ?? null,
+          committee: r.committee ?? null,
+          score: Number(r.score ?? 0),
+          billCount: Number(r.billCount ?? 0),
+        })),
+    [recsQuery.data],
   );
 
-  // Directory search (live, debounce-free for a directory of this size; the API
-  // is fast and the dropdown only renders the first page of hits).
+  const addedIds = useMemo(() => new Set(targets.map((t) => t.memberId)), [targets]);
+  const meriIds = useMemo(() => new Set(meriSuggestions.map((m) => m.memberId)), [meriSuggestions]);
+
   const search = useQuery<DirectoryApiResponse>({
-    queryKey: ['targets-directory-search', query.trim()],
-    enabled: query.trim().length > 0,
+    queryKey: ['targets-directory-search', debouncedQuery],
+    enabled: debouncedQuery.length > 0,
     queryFn: async () =>
       (
         await api.get<DirectoryApiResponse>('/api/directory/contacts', {
-          params: { q: query.trim(), pageSize: 25, sort: 'name-asc' },
+          params: { q: debouncedQuery, pageSize: 25, sort: 'name-asc' },
         })
       ).data,
   });
@@ -149,18 +215,34 @@ export function TargetsTab({ clientId, meriSuggestions, canManage, onViewIntelli
     removeMutation.mutate(memberId);
   };
 
-  const hits: DirectoryEntry[] = query.trim() && searchOpen ? search.data?.contacts ?? [] : [];
+  const trimmed = query.trim();
+  // True while the input is ahead of the last completed search (debounce pending
+  // or request in flight) — drives the "Searching…" label.
+  const searching = search.isFetching || trimmed !== debouncedQuery;
+  // Don't render rows while a new search is pending: search.data still holds the
+  // PREVIOUS query's results during the debounce window, which would otherwise
+  // show stale offices under the "Searching…" header.
+  const hits: DirectoryEntry[] =
+    trimmed && searchOpen && !searching ? (search.data?.contacts ?? []) : [];
+
+  const recsLoading = recsQuery.isLoading;
+  const recsError = recsQuery.isError;
+  const refreshing = refreshMutation.isPending;
+  const computedAt = recsQuery.data?.computedAt ?? null;
 
   return (
-    <div className="tg-layout" onClick={() => undefined}>
+    // Clicking anywhere outside the search wrap dismisses the results dropdown
+    // (the wrap itself stops propagation, so inside-clicks are preserved).
+    <div className="tg-layout" onClick={() => setSearchOpen(false)}>
       {/* Main column */}
       <div className="tg-main">
         <div className="help-box">
-          <span className="help-ico" aria-hidden="true">ⓘ</span>
+          <span className="help-ico" aria-hidden="true">
+            ⓘ
+          </span>
           <span className="help-txt">
-            Search the congressional directory to add target offices for this client.
-            Targets appear on the portfolio card and help your team track outreach
-            priorities at a glance.
+            Search the congressional directory to add target offices for this client. Targets appear
+            on the portfolio card and help your team track outreach priorities at a glance.
           </span>
         </div>
 
@@ -168,17 +250,22 @@ export function TargetsTab({ clientId, meriSuggestions, canManage, onViewIntelli
           <div className="srch-wrap" onClick={(e) => e.stopPropagation()}>
             <div className="srch-lbl">Search Congressional Directory</div>
             <div className="srch-row">
-              <span className="srch-ico" aria-hidden="true">🔍</span>
+              <span className="srch-ico" aria-hidden="true">
+                🔍
+              </span>
               <input
                 type="text"
                 className="srch-inp"
-                placeholder="Search by name, state, committee, or party…"
+                placeholder="Search by member, staffer, state, committee, or party…"
                 value={query}
                 onChange={(e) => {
                   setQuery(e.target.value);
                   setSearchOpen(true);
                 }}
                 onFocus={() => setSearchOpen(true)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') setSearchOpen(false);
+                }}
               />
               {query ? (
                 <button
@@ -194,20 +281,20 @@ export function TargetsTab({ clientId, meriSuggestions, canManage, onViewIntelli
               ) : null}
             </div>
 
-            {query.trim() && searchOpen ? (
+            {trimmed && searchOpen ? (
               <div className="results-drop">
                 <div className="res-count">
-                  {search.isLoading
+                  {searching
                     ? 'Searching…'
                     : hits.length === 0
-                      ? `No results for "${query.trim()}"`
+                      ? `No results for "${trimmed}"`
                       : `${hits.length} result${hits.length === 1 ? '' : 's'}`}
                 </div>
                 {hits.map((m) => {
                   const added = addedIds.has(m.id);
                   const isMeri = meriIds.has(m.id);
-                  const stateLabel =
-                    m.chamber === 'House' && m.district ? m.district : m.state;
+                  const stateLabel = m.chamber === 'House' && m.district ? m.district : m.state;
+                  const staffMatch = m.matchedStaff?.[0];
                   return (
                     <div className="res-row" key={m.id}>
                       <div
@@ -228,6 +315,15 @@ export function TargetsTab({ clientId, meriSuggestions, canManage, onViewIntelli
                           {m.committees?.[0] ? <span>· {m.committees[0]}</span> : null}
                           {isMeri ? <span className="meri-chip">⊙ Meri pick</span> : null}
                         </div>
+                        {staffMatch ? (
+                          <div className="res-staff-match">
+                            ↳ matched staffer: {staffMatch.fullName}
+                            {staffMatch.title ? ` · ${staffMatch.title}` : ''}
+                            {m.matchedStaff && m.matchedStaff.length > 1
+                              ? ` +${m.matchedStaff.length - 1} more`
+                              : ''}
+                          </div>
+                        ) : null}
                       </div>
                       <div>
                         {added ? (
@@ -235,7 +331,12 @@ export function TargetsTab({ clientId, meriSuggestions, canManage, onViewIntelli
                         ) : (
                           <button
                             className="btn-mini add"
-                            onClick={() => add(m.id, 'manual')}
+                            onClick={() => {
+                              add(m.id, 'manual');
+                              // Close the dropdown so it stops floating over the
+                              // target list once a selection is made.
+                              setSearchOpen(false);
+                            }}
                           >
                             + Add
                           </button>
@@ -259,11 +360,12 @@ export function TargetsTab({ clientId, meriSuggestions, canManage, onViewIntelli
 
           {targets.length === 0 ? (
             <div className="tgt-empty">
-              <div className="te-ico" aria-hidden="true">🎯</div>
+              <div className="te-ico" aria-hidden="true">
+                🎯
+              </div>
               <div className="te-title">No targets added yet</div>
               <div className="te-desc">
-                Search the congressional directory above to add target offices for
-                this client.
+                Search the congressional directory above to add target offices for this client.
               </div>
             </div>
           ) : (
@@ -317,20 +419,47 @@ export function TargetsTab({ clientId, meriSuggestions, canManage, onViewIntelli
             <div className="mp-title">
               <div className="mp-m">M</div> Suggested by Meri
             </div>
-            <span className="mp-sub">top 6 · weighted score</span>
+            {canManage ? (
+              <button
+                className="mp-refresh"
+                onClick={() => refreshMutation.mutate()}
+                disabled={refreshing || recsLoading}
+                title="Recompute recommendations from the latest tracked bills and facilities"
+              >
+                {refreshing ? '↻ Refreshing…' : '↻ Refresh'}
+              </button>
+            ) : (
+              <span className="mp-sub">top 6 · weighted score</span>
+            )}
           </div>
           <div className="mp-desc">
-            Ranked by committee jurisdiction over tracked bills, with issue overlap
-            and facility-district nexus layered in when available.
+            Ranked by committee jurisdiction over tracked bills, with issue overlap and
+            facility-district nexus layered in when available.
           </div>
+          {computedAt && !recsLoading ? (
+            <div className="mp-updated">Updated {relativeTime(computedAt)}</div>
+          ) : null}
 
-          {meriSuggestions.length === 0 ? (
+          {recsLoading ? (
             <div className="mp-empty" style={{ padding: '16px', fontSize: 12, color: '#9ca3af' }}>
-              No Meri suggestions yet. Confirm this client&apos;s LDA match and add
-              tracked bills in the Intelligence tab to get recommendations.
+              Computing recommendations… this runs once, then it&apos;s saved for instant loads.
+            </div>
+          ) : recsError ? (
+            <div className="mp-empty" style={{ padding: '16px', fontSize: 12, color: '#9ca3af' }}>
+              Couldn&apos;t load recommendations.{' '}
+              {canManage ? (
+                <button className="mp-inline-link" onClick={() => refreshMutation.mutate()}>
+                  Try again
+                </button>
+              ) : null}
+            </div>
+          ) : meriSuggestions.length === 0 ? (
+            <div className="mp-empty" style={{ padding: '16px', fontSize: 12, color: '#9ca3af' }}>
+              No Meri suggestions yet. Confirm this client&apos;s LDA match and add tracked bills in
+              the Intelligence tab, then Refresh to get recommendations.
             </div>
           ) : (
-            meriSuggestions.slice(0, 6).map((m, idx) => {
+            meriSuggestions.map((m, idx) => {
               const added = addedIds.has(m.memberId);
               return (
                 <div className="mp-row" key={m.memberId}>

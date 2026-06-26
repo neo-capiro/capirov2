@@ -9,6 +9,8 @@ import { ClientFacilitiesController } from './client-facilities.controller.js';
 import { ClientFacilitiesService } from './client-facilities.service.js';
 import { ClientTargetsController } from './client-targets.controller.js';
 import { ClientTargetsService } from './client-targets.service.js';
+import { ClientTargetRecommendationsController } from './client-target-recommendations.controller.js';
+import { ClientTargetRecommendationsService } from './client-target-recommendations.service.js';
 import { EmbeddingsModule } from '../embeddings/embeddings.module.js';
 import { IntelligenceModule } from '../intelligence/intelligence.module.js';
 import { DirectoryModule } from '../directory/directory.module.js';
@@ -21,6 +23,7 @@ import { DirectoryModule } from '../directory/directory.module.js';
     ClientPeopleController,
     ClientFacilitiesController,
     ClientTargetsController,
+    ClientTargetRecommendationsController,
   ],
   providers: [
     ClientsService,
@@ -28,6 +31,7 @@ import { DirectoryModule } from '../directory/directory.module.js';
     ClientPeopleService,
     ClientFacilitiesService,
     ClientTargetsService,
+    ClientTargetRecommendationsService,
   ],
   // Exported so Meri's get_client_context tool can read full client profiles
   // and update_client_profile can write approved values back.
