@@ -3,9 +3,23 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { TenantContextStore } from '../tenant/tenant-context.store.js';
 import { MemoryStoreService } from './memory-store.service.js';
 import { clioMemoryToItem, type ClioMemoryRow, type NameResolver } from './memory-clio-adapter.helpers.js';
-import { meetingToItem } from './memory-ingest.helpers.js';
+import { meetingToItem, emailThreadToItem, meriSessionToItem } from './memory-ingest.helpers.js';
 import type { MemoryItem } from './memory.types.js';
 import { MEMORY_SCHEMA_VERSION } from './memory.types.js';
+
+/** Distill a transcript to a short summary without an LLM (first/last user turns + counts).
+ *  Deliberately conservative: we never store the raw transcript in the graph. */
+function distillSession(turns: Array<{ role: string; content: string }>): string {
+  const userTurns = turns.filter((t) => t.role === 'user').map((t) => t.content.trim()).filter(Boolean);
+  if (userTurns.length === 0) return 'Meri session (no user prompts captured).';
+  const first = userTurns[0]!.slice(0, 240);
+  const topics = userTurns.slice(0, 5).map((t) => t.split(/[.?!\n]/)[0]!.slice(0, 80));
+  return [
+    `Opening ask: ${first}`,
+    topics.length > 1 ? `\nTopics touched: ${topics.join('; ')}` : '',
+    `\n_${turns.length} turns._`,
+  ].join('').trim();
+}
 
 /**
  * Backfill / ingestion service (Phases A-C).
@@ -29,9 +43,9 @@ export class MemoryIngestService {
   ) {}
 
   /** Run the full backfill for the current tenant. Returns per-phase counts. */
-  async backfillCurrentTenant(): Promise<{ clients: number; clioMemories: number; meetings: number }> {
+  async backfillCurrentTenant(): Promise<{ clients: number; clioMemories: number; meetings: number; emails: number; meriSessions: number }> {
     const ctx = this.tenantCtx.require();
-    const counts = { clients: 0, clioMemories: 0, meetings: 0 };
+    const counts = { clients: 0, clioMemories: 0, meetings: 0, emails: 0, meriSessions: 0 };
 
     // ---- Phase A: client entity nodes ----
     const clients = await this.prisma.withSystem((tx) =>
@@ -90,9 +104,101 @@ export class MemoryIngestService {
       counts.meetings++;
     }
 
+    // ---- Phase D: email threads (read-only; respects the product's existing
+    // client scoping via MailThread.clientId — null => user-private, no domain
+    // bleed). We summarize from snippet + participants; we do NOT read message
+    // bodies here. ----
+    const threads = await this.prisma.withSystem((tx) =>
+      tx.$queryRaw<Array<{
+        id: string; client_id: string | null; subject: string; snippet: string | null;
+        participants: unknown; last_message_at: Date | null; msg_count: bigint;
+        owner_user_id: string | null;
+      }>>`
+        SELECT t.id, t.client_id, t.subject, t.snippet, t.participants_jsonb AS participants,
+               t.last_message_at,
+               (SELECT count(*) FROM mail_messages m WHERE m.thread_id = t.id) AS msg_count,
+               (t.metadata_jsonb->>'ownerUserId')::uuid AS owner_user_id
+        FROM mail_threads t
+        WHERE t.tenant_id = ${ctx.tenantId}::uuid
+      `,
+    );
+    for (const th of threads) {
+      const domains = extractDomains(th.participants);
+      const ownerUserId = th.owner_user_id ?? ctx.userId ?? null;
+      // A thread with no resolvable owner and no client is skipped (cannot scope safely).
+      if (!th.client_id && !ownerUserId) continue;
+      await this.store.upsertSystem(
+        emailThreadToItem({
+          tenantId: ctx.tenantId,
+          threadId: th.id,
+          subject: th.subject || '(no subject)',
+          clientId: th.client_id,
+          ownerUserId: ownerUserId ?? 'system',
+          inScopeDomains: domains,
+          messageCount: Number(th.msg_count ?? 0),
+          lastMessageAt: (th.last_message_at ?? new Date()).toISOString(),
+          summary: th.snippet?.trim() || '(no preview available)',
+          wikilinks: th.client_id ? [`[[client:${th.client_id}]]`] : [],
+        }),
+      );
+      counts.emails++;
+    }
+
+    // ---- Phase E: Meri sessions (user-private, distilled — never raw
+    // transcripts; promotion to firm memory is human-gated). Group chat_message
+    // rows by session. ----
+    const sessions = await this.prisma.withSystem((tx) =>
+      tx.$queryRaw<Array<{
+        session_id: string; user_id: string; ended_at: Date; turns: bigint;
+      }>>`
+        SELECT session_id, (array_agg(user_id))[1] AS user_id,
+               max(created_at) AS ended_at, count(*) AS turns
+        FROM chat_message
+        WHERE tenant_id = ${ctx.tenantId}::uuid
+        GROUP BY session_id
+        HAVING count(*) >= 2
+      `,
+    );
+    for (const s of sessions) {
+      const turns = await this.prisma.withSystem((tx) =>
+        tx.$queryRaw<Array<{ role: string; content: string }>>`
+          SELECT role, content FROM chat_message
+          WHERE tenant_id = ${ctx.tenantId}::uuid AND session_id = ${s.session_id}
+          ORDER BY created_at ASC
+        `,
+      );
+      const summary = distillSession(turns);
+      const firstUser = turns.find((t) => t.role === 'user')?.content?.slice(0, 60) ?? 'Meri session';
+      await this.store.upsertSystem(
+        meriSessionToItem({
+          tenantId: ctx.tenantId,
+          sessionId: s.session_id,
+          ownerUserId: s.user_id,
+          clientId: null,
+          title: firstUser,
+          endedAt: new Date(s.ended_at).toISOString(),
+          transcriptSummary: summary,
+          wikilinks: [],
+        }),
+      );
+      counts.meriSessions++;
+    }
+
     this.logger.log(`backfill tenant=${ctx.tenantId} ${JSON.stringify(counts)}`);
     return counts;
   }
+}
+
+/** Pull unique email domains from a participants JSON array (best-effort). */
+function extractDomains(participants: unknown): string[] {
+  if (!Array.isArray(participants)) return [];
+  const out = new Set<string>();
+  for (const p of participants) {
+    const email = typeof p === 'string' ? p : (p && typeof p === 'object' && 'email' in p ? String((p as { email: unknown }).email) : '');
+    const at = email.indexOf('@');
+    if (at > -1) out.add(email.slice(at + 1).toLowerCase());
+  }
+  return [...out];
 }
 
 function clientToItem(tenantId: string, c: { id: string; name: string }): MemoryItem {

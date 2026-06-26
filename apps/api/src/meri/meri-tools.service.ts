@@ -48,6 +48,8 @@ import { MeriFeatureFlagsService } from './meri-feature-flags.service.js';
 import { buildSavedMemoryRecord } from './meri-memory.helpers.js';
 import { buildWebSearchRequest, normalizeWebResults } from './meri-websearch.helpers.js';
 import { looksLikePdf } from './meri-scrape.helpers.js';
+import { buildKnowledgeGraph, walkFrom, type FkRelation } from '../memory/memory-graph.helpers.js';
+import { extractWikiLinks } from '../memory/memory-parse.helpers.js';
 
 const PRODUCT_NAME = 'Meri';
 
@@ -72,6 +74,14 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'query_intelligence',
     description: 'Query federal lobbying intelligence: surging LDA issues, trending topics, recent congressional bills, federal spending data, and counts of available intelligence data sources (SEC filings, FARA registrations, GAO reports, grants, hearings, state bills, CRS reports, news articles, economic data). Optionally filter by a client name for contractor spending.',
+  },
+  {
+    name: 'query_knowledge_graph',
+    description: "Explore the firm's institutional-memory knowledge graph: the connected web of clients, bills, issues, people, offices, meetings, email threads, and memories. Use for relationship questions like \"what's our full history with this client/office\", \"what is everything connected to bill X\", or \"what do we know around issue Y\". Pass a seed node (e.g. 'client:<id>', 'bill:119-hr-1234', 'issue:SHIP') to get its neighborhood, or omit to get an overview. Edges are tagged fact (from firm data) vs mention (from analyst notes). Tenant + own-private scoped.",
+  },
+  {
+    name: 'find_path_to',
+    description: "Find the warm-introduction routes from your clients to a target office or person in the knowledge graph (\"who do we already know near the Senate Defense Approps subcommittee?\"). Pass a target node id (e.g. 'office:<id>' or 'person:<id>'); returns the shortest connection paths so you can see which client/person gets you there. Tenant + own-private scoped.",
   },
   {
     name: 'search_congress_bills',
@@ -415,6 +425,14 @@ export class MeriToolsService {
       query_intelligence: obj({
         clientName: str('Optional client name to add federal contracting context'),
       }),
+      query_knowledge_graph: obj({
+        seed: str("Optional seed node id, e.g. 'client:<uuid>', 'bill:119-hr-1234', 'issue:SHIP'. Omit for a firm-wide overview."),
+        depth: int('How many hops out from the seed (1-4, default 2)'),
+      }),
+      find_path_to: obj({
+        to: str("Target node id, e.g. 'office:<id>' or 'person:<id>'"),
+        depth: int('Max search depth (1-5, default 3)'),
+      }, ['to']),
       search_congress_bills: obj({
         query: str('Keyword search'),
         policyArea: str('Policy area filter'),
@@ -995,6 +1013,10 @@ export class MeriToolsService {
         return this.runAnalysis(ctx, input);
       case 'query_intelligence':
         return this.queryIntelligence(input);
+      case 'query_knowledge_graph':
+        return this.queryKnowledgeGraph(ctx, input);
+      case 'find_path_to':
+        return this.findPathTo(ctx, input);
       case 'search_congress_bills':
         return this.searchCongressBills(input);
       case 'search_lda_filings':
@@ -1253,6 +1275,82 @@ export class MeriToolsService {
   }
 
   // ── Intelligence tools (global data, no tenant scoping) ────────────
+
+  /**
+   * Build the tenant's knowledge graph from memory_items (+ wikilink edges) and
+   * DB foreign keys, scoped to the caller (tenant RLS + own-private). Pure
+   * builders (buildKnowledgeGraph/walkFrom) do the merge; this just gathers
+   * inputs under the passed ctx. Shared by query_knowledge_graph + find_path_to.
+   */
+  private async loadGraphForCtx(ctx: TenantContext) {
+    return this.prisma.withTenant(ctx.tenantId, async (tx) => {
+      // item nodes the caller may see (RLS: tenant + own-private), plus their wikilink edges
+      const items = await tx.$queryRaw<Array<{ id: string; type: string; slug: string; title: string; sections: unknown }>>`
+        SELECT id, type, slug, title, sections_jsonb AS sections
+        FROM memory_items
+        WHERE owner_user_id IS NULL OR owner_user_id = ${ctx.userId}::uuid
+      `;
+      const itemNodeById = new Map(items.map((i) => [i.id, { type: i.type, slug: i.slug, label: i.title }]));
+      const wikiEdges = await tx.$queryRaw<Array<{ src_item_id: string; relation: string; dst_type: string; dst_slug: string }>>`
+        SELECT e.src_item_id, e.relation, e.dst_type, e.dst_slug
+        FROM memory_edges e
+        JOIN memory_items i ON i.id = e.src_item_id
+        WHERE i.owner_user_id IS NULL OR i.owner_user_id = ${ctx.userId}::uuid
+      `;
+      // FK relations (structural backbone): client->bill/issue/person, meeting->client
+      const fk: FkRelation[] = [];
+      const bills = await tx.$queryRaw<Array<{ client_id: string; client_name: string; bill_id: string }>>`
+        SELECT tb.client_id, c.name AS client_name, tb.bill_id FROM tracked_bill tb JOIN clients c ON c.id = tb.client_id WHERE tb.tenant_id = ${ctx.tenantId}::uuid`;
+      for (const b of bills) fk.push({ srcType: 'client', srcSlug: b.client_id, srcLabel: b.client_name, dstType: 'bill', dstSlug: b.bill_id, dstLabel: b.bill_id, relation: 'tracks' });
+      const people = await tx.$queryRaw<Array<{ client_id: string; client_name: string; person_id: string; person_name: string }>>`
+        SELECT cp.client_id, c.name AS client_name, cp.id AS person_id, cp.name AS person_name FROM client_people cp JOIN clients c ON c.id = cp.client_id WHERE cp.tenant_id = ${ctx.tenantId}::uuid`;
+      for (const p of people) fk.push({ srcType: 'client', srcSlug: p.client_id, srcLabel: p.client_name, dstType: 'person', dstSlug: p.person_id, dstLabel: p.person_name, relation: 'contact' });
+      const wiki = wikiEdges.map((e) => ({ tenantId: ctx.tenantId, srcItemId: e.src_item_id, relation: e.relation, dstType: e.dst_type, dstSlug: e.dst_slug }));
+      return buildKnowledgeGraph(fk, wiki, itemNodeById);
+    });
+  }
+
+  private async queryKnowledgeGraph(ctx: TenantContext, input: Record<string, unknown>) {
+    const seed = optionalString(input, 'seed', 120);
+    const depthRaw = typeof input.depth === 'number' ? input.depth : parseInt(String(input.depth ?? ''), 10);
+    const depth = Number.isFinite(depthRaw) ? Math.min(4, Math.max(1, depthRaw)) : 2;
+    const full = await this.loadGraphForCtx(ctx);
+    const g = seed ? walkFrom(full, seed, depth) : full;
+    if (!g.nodes.length) {
+      return { summary: 'The knowledge graph is empty or has nothing connected to that seed. Run "Populate graph" on the Knowledge Graph page to build it from clients, memories, meetings, and email.', nodes: [], edges: [] };
+    }
+    // Compact, LLM-friendly projection
+    const nodeLabel = new Map(g.nodes.map((n) => [n.id, `${n.label} (${n.type})`]));
+    const edgeLines = g.edges.slice(0, 120).map((e) => `${nodeLabel.get(e.src) ?? e.src} --${e.relation}[${e.origin}]--> ${nodeLabel.get(e.dst) ?? e.dst}`);
+    return {
+      summary: `${g.nodes.length} nodes, ${g.edges.length} connections${seed ? ` within ${depth} hop(s) of ${seed}` : ''}. Edges tagged [fact]=from firm data, [mention]=from analyst notes.`,
+      nodes: g.nodes.map((n) => ({ id: n.id, type: n.type, label: n.label })),
+      connections: edgeLines,
+    };
+  }
+
+  private async findPathTo(ctx: TenantContext, input: Record<string, unknown>) {
+    const to = optionalString(input, 'to', 120);
+    if (!to) return { error: "Provide a target node id, e.g. 'office:<id>' or 'person:<id>'." };
+    const depthRaw = typeof input.depth === 'number' ? input.depth : parseInt(String(input.depth ?? ''), 10);
+    const depth = Number.isFinite(depthRaw) ? Math.min(5, Math.max(1, depthRaw)) : 3;
+    const full = await this.loadGraphForCtx(ctx);
+    if (!full.nodes.some((n) => n.id === to)) {
+      return { summary: `No node "${to}" in the knowledge graph. It may not be ingested yet, or the id is off.`, paths: [] };
+    }
+    const label = new Map(full.nodes.map((n) => [n.id, `${n.label} (${n.type})`]));
+    const clients = full.nodes.filter((n) => n.type === 'client').map((n) => n.id);
+    const paths: string[][] = [];
+    for (const c of clients) {
+      const p = shortestGraphPath(full, c, to, depth);
+      if (p) paths.push(p);
+    }
+    if (!paths.length) return { summary: `No connection path from any client to ${label.get(to) ?? to} within ${depth} hops.`, paths: [] };
+    return {
+      summary: `${paths.length} route(s) from your clients to ${label.get(to) ?? to}:`,
+      paths: paths.map((p) => p.map((id) => label.get(id) ?? id).join(' → ')),
+    };
+  }
 
   private async queryIntelligence(input: Record<string, unknown>) {
     const clientName = optionalString(input, 'clientName', 200);
@@ -3682,6 +3780,47 @@ export class MeriToolsService {
       }),
     );
   }
+}
+
+/** BFS shortest path between two node ids over the undirected knowledge graph. */
+function shortestGraphPath(
+  graph: { nodes: Array<{ id: string }>; edges: Array<{ src: string; dst: string }> },
+  from: string,
+  to: string,
+  maxDepth: number,
+): string[] | null {
+  if (from === to) return [from];
+  const adj = new Map<string, string[]>();
+  for (const e of graph.edges) {
+    (adj.get(e.src) ?? adj.set(e.src, []).get(e.src)!).push(e.dst);
+    (adj.get(e.dst) ?? adj.set(e.dst, []).get(e.dst)!).push(e.src);
+  }
+  const prev = new Map<string, string>();
+  const depthOf = new Map<string, number>([[from, 0]]);
+  const visited = new Set<string>([from]);
+  let frontier = [from];
+  while (frontier.length) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      const d = depthOf.get(id) ?? 0;
+      if (d >= maxDepth) continue;
+      for (const nb of adj.get(id) ?? []) {
+        if (visited.has(nb)) continue;
+        visited.add(nb);
+        prev.set(nb, id);
+        depthOf.set(nb, d + 1);
+        if (nb === to) {
+          const path = [nb];
+          let cur = nb;
+          while (prev.has(cur)) { cur = prev.get(cur)!; path.unshift(cur); }
+          return path;
+        }
+        next.push(nb);
+      }
+    }
+    frontier = next;
+  }
+  return null;
 }
 
 function normalizeToolName(value: string): MeriToolName {
