@@ -342,6 +342,8 @@ export function EngagementPage() {
   >('overview');
   const [meetingViewMode, setMeetingViewMode] = useState<'list' | 'calendar' | 'day'>('day');
   const [historyBatch, setHistoryBatch] = useState(0);
+  // Day picked from the week-nav date picker, so the Day view can highlight it.
+  const [meetingFocusDayKey, setMeetingFocusDayKey] = useState<string | null>(null);
   const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('current');
   const [reportStatusFilter, setReportStatusFilter] = useState<'all' | ReportStatus>('all');
   const [reportSort, setReportSort] = useState('member-asc');
@@ -1013,25 +1015,30 @@ export function EngagementPage() {
                     </div>
                   </div>
 
-                  <MeetingDateRangeSelector
+                  <MeetingWeekNav
                     rangeStart={rangeStart}
                     rangeEnd={rangeEnd}
-                    defaultRange={defaultRange}
-                    hasCustomRange={hasCustomMeetingRange}
-                    onRangeStart={(value) => {
+                    onShiftWeek={(delta) => {
                       setHistoryBatch(0);
-                      setRangeStart(value);
-                      if (value > rangeEnd) setRangeEnd(value);
+                      setRangeStart(
+                        inputValueFromDate(
+                          addLocalDays(localDateFromInput(rangeStart), delta * 7),
+                        ),
+                      );
+                      setRangeEnd(
+                        inputValueFromDate(addLocalDays(localDateFromInput(rangeEnd), delta * 7)),
+                      );
                     }}
-                    onRangeEnd={(value) => {
+                    onJump={(dateStr) => {
                       setHistoryBatch(0);
-                      setRangeEnd(value);
-                      if (value < rangeStart) setRangeStart(value);
-                    }}
-                    onClear={() => {
-                      setHistoryBatch(0);
-                      setRangeStart(defaultRange.start);
-                      setRangeEnd(defaultRange.end);
+                      // Snap to the Monday–Sunday week containing the picked date.
+                      const picked = localDateFromInput(dateStr);
+                      const daysSinceMonday = (picked.getDay() + 6) % 7; // Mon=0 … Sun=6
+                      const monday = addLocalDays(picked, -daysSinceMonday);
+                      setRangeStart(inputValueFromDate(monday));
+                      setRangeEnd(inputValueFromDate(addLocalDays(monday, 6)));
+                      // Highlight the picked day in the Day view.
+                      setMeetingFocusDayKey(dateStr);
                     }}
                   />
 
@@ -1060,6 +1067,7 @@ export function EngagementPage() {
                         selectedId={selectedMeeting?.id ?? null}
                         rangeStart={rangeStart}
                         rangeEnd={rangeEnd}
+                        focusDayKey={meetingFocusDayKey}
                         onSelect={(meetingId) => {
                           setSelectedMeetingId(meetingId);
                           setMeetingDetailTab('prep');
@@ -1393,46 +1401,55 @@ export function EngagementPage() {
   );
 }
 
-function MeetingDateRangeSelector({
+/**
+ * Week navigation shared across List / Calendar / Day (spec §3.1). Replaces the
+ * old two-input "Date Range … TO …" selector: ‹ caret · centred week label · ›
+ * caret · divider · a single date picker for arbitrary jumps. The carets step
+ * one Monday–Sunday week; the picker jumps to the week containing the picked
+ * date. Both ultimately set rangeStart/rangeEnd, so the meetings query and the
+ * three views are driven exactly as before.
+ */
+function MeetingWeekNav({
   rangeStart,
   rangeEnd,
-  defaultRange,
-  hasCustomRange,
-  onRangeStart,
-  onRangeEnd,
-  onClear,
+  onShiftWeek,
+  onJump,
 }: {
   rangeStart: string;
   rangeEnd: string;
-  defaultRange: { start: string; end: string };
-  hasCustomRange: boolean;
-  onRangeStart: (value: string) => void;
-  onRangeEnd: (value: string) => void;
-  onClear: () => void;
+  onShiftWeek: (delta: number) => void;
+  onJump: (dateStr: string) => void;
 }) {
+  const label = formatCalendarRange(localDateFromInput(rangeStart), localDateFromInput(rangeEnd));
   return (
-    <div className="engagement-date-filter" aria-label="Meetings date range">
-      <span className="engagement-date-filter-label">Date Range</span>
+    <div className="engagement-week-nav" aria-label="Week navigation">
+      <button
+        type="button"
+        className="engagement-week-nav-caret"
+        aria-label="Previous week"
+        onClick={() => onShiftWeek(-1)}
+      >
+        ‹
+      </button>
+      <span className="engagement-week-nav-label">{label}</span>
+      <button
+        type="button"
+        className="engagement-week-nav-caret"
+        aria-label="Next week"
+        onClick={() => onShiftWeek(1)}
+      >
+        ›
+      </button>
+      <span className="engagement-week-nav-divider" aria-hidden="true" />
       <Input
-        aria-label="Start date"
-        className="engagement-date-input"
+        aria-label="Jump to date"
+        className="engagement-week-nav-date"
         type="date"
         value={rangeStart}
-        onChange={(event) => onRangeStart(event.target.value || defaultRange.start)}
+        onChange={(event) => {
+          if (event.target.value) onJump(event.target.value);
+        }}
       />
-      <span className="engagement-date-filter-separator">To</span>
-      <Input
-        aria-label="End date"
-        className="engagement-date-input"
-        type="date"
-        value={rangeEnd}
-        onChange={(event) => onRangeEnd(event.target.value || defaultRange.end)}
-      />
-      {hasCustomRange ? (
-        <button type="button" onClick={onClear}>
-          Clear
-        </button>
-      ) : null}
     </div>
   );
 }
@@ -1524,6 +1541,7 @@ function MeetingListItem({
       className={`engagement-agenda-item engagement-agenda-item--${status.kind}${
         selected ? ' selected' : ''
       }`}
+      style={{ borderLeftColor: meetingBorderColor(meeting) }}
       role="button"
       tabIndex={0}
       onClick={() => onSelect('prep')}
@@ -1532,7 +1550,6 @@ function MeetingListItem({
       }}
     >
       <div className="engagement-agenda-time">{meetingListTime(meeting)}</div>
-      <div className="engagement-agenda-marker" />
       <div className="engagement-agenda-body">
         <Typography.Text strong title={meeting.subject}>
           {meeting.subject}
@@ -1543,26 +1560,7 @@ function MeetingListItem({
             .join(' | ')}
         </Typography.Text>
         <div className="engagement-agenda-tags">
-          {status.chips.map((chip) => (
-            <Tag
-              key={chip.label}
-              className={`engagement-chip engagement-chip--${chip.tone}${
-                chip.action ? ' engagement-chip--action' : ''
-              }`}
-              onClick={(event) => {
-                if (!chip.action) return;
-                event.stopPropagation();
-                if (chip.action === 'prep') {
-                  onSelect('prep');
-                  onGeneratePrep();
-                  return;
-                }
-                onSelect(chip.action);
-              }}
-            >
-              {chip.label}
-            </Tag>
-          ))}
+          <DebriefBadge meeting={meeting} />
         </div>
       </div>
       <Button
@@ -1654,7 +1652,7 @@ function MeetingCalendarList({
       </div>
       <div
         className="engagement-week-grid"
-        style={{ gridTemplateColumns: `repeat(${Math.max(days.length, 1)}, minmax(176px, 1fr))` }}
+        style={{ gridTemplateColumns: `repeat(${Math.max(days.length, 1)}, minmax(150px, 1fr))` }}
       >
         {days.map((day) => {
           const key = localDateKey(day);
@@ -1678,6 +1676,7 @@ function MeetingCalendarList({
                         className={`engagement-week-event engagement-week-event--${status.kind} engagement-week-event--tone-${status.tone}${
                           meeting.id === selectedId ? ' selected' : ''
                         }`}
+                        style={{ borderLeftColor: meetingBorderColor(meeting) }}
                         onClick={() => onSelect(meeting.id)}
                       >
                         <span>{formatTime(meeting.startsAt)}</span>
@@ -1685,18 +1684,10 @@ function MeetingCalendarList({
                         <small>
                           {meeting.client?.name ?? meeting.location ?? sourceLabel(meeting.source)}
                         </small>
-                        {status.kind === 'missing' ? (
-                          <em
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              onAction(meeting.id, 'debrief');
-                            }}
-                          >
-                            Debrief Missing -&gt;
-                          </em>
-                        ) : status.label ? (
-                          <em>{status.label}</em>
-                        ) : null}
+                        <DebriefBadge
+                          meeting={meeting}
+                          onAction={(tab) => onAction(meeting.id, tab)}
+                        />
                       </button>
                     );
                   })
@@ -1728,6 +1719,7 @@ function MeetingDayTimeline({
   selectedId,
   rangeStart,
   rangeEnd,
+  focusDayKey,
   onSelect,
   onAction,
 }: {
@@ -1735,6 +1727,7 @@ function MeetingDayTimeline({
   selectedId: string | null;
   rangeStart: string;
   rangeEnd: string;
+  focusDayKey: string | null;
   onSelect: (id: string) => void;
   onAction: (id: string, tab: string) => void;
 }) {
@@ -1754,6 +1747,13 @@ function MeetingDayTimeline({
     if (!hasDay) setSelectedDayKey(localDateKey(days[0] ?? new Date()));
   }, [days, selectedDayKey]);
 
+  // Picking a date in the week-nav highlights that day column (spec §3.1/§4.2).
+  // Defined after the range-reset effect so it wins when both fire on a jump.
+  useEffect(() => {
+    if (focusDayKey) setSelectedDayKey(focusDayKey);
+  }, [focusDayKey]);
+
+  const todayKey = localDateKey(new Date());
   const dayMeetings = grouped.get(selectedDayKey) ?? [];
   const selectedDayDate =
     days.find((day) => localDateKey(day) === selectedDayKey) ??
@@ -1781,7 +1781,7 @@ function MeetingDayTimeline({
                 aria-pressed={selected}
               >
                 <span>{weekdayShort(day)}</span>
-                <strong>{day.getDate()}</strong>
+                <strong className={key === todayKey ? 'today' : ''}>{day.getDate()}</strong>
                 <small>
                   {items.length
                     ? `${items.length} meeting${items.length === 1 ? '' : 's'}`
@@ -1803,6 +1803,7 @@ function MeetingDayTimeline({
                   key={meeting.id}
                   type="button"
                   className={`engagement-week-event engagement-week-event--${status.kind} engagement-week-event--tone-${status.tone}${meeting.id === selectedId ? ' selected' : ''}`}
+                  style={{ borderLeftColor: meetingBorderColor(meeting) }}
                   onClick={() => onSelect(meeting.id)}
                 >
                   <span>{formatTime(meeting.startsAt)}</span>
@@ -1810,18 +1811,10 @@ function MeetingDayTimeline({
                   <small>
                     {meeting.client?.name ?? meeting.location ?? sourceLabel(meeting.source)}
                   </small>
-                  {status.kind === 'missing' ? (
-                    <em
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        onAction(meeting.id, 'debrief');
-                      }}
-                    >
-                      Debrief Missing -&gt;
-                    </em>
-                  ) : status.label ? (
-                    <em>{status.label}</em>
-                  ) : null}
+                  <DebriefBadge
+                    meeting={meeting}
+                    onAction={(tab) => onAction(meeting.id, tab)}
+                  />
                 </button>
               );
             })
@@ -1943,6 +1936,9 @@ function MeetingDetailPanel({
               isInternal={meeting.isInternal ?? false}
             />
           </div>
+          <div className="engagement-detail-badge-row">
+            <DebriefBadge meeting={meeting} />
+          </div>
           {status.kind === 'missing' && !hasSavedDebrief ? (
             <Typography.Text className="engagement-detail-warning">
               Debrief Not Completed
@@ -2023,7 +2019,7 @@ function MeetingDetailPanel({
                       />
                       <Button
                         type="primary"
-                        disabled={!aiConfigured || !meeting.client}
+                        disabled={!aiConfigured || !meeting.client || !prepContext.trim()}
                         loading={generating}
                         onClick={() => onGeneratePrep(meeting, prepContext)}
                       >
@@ -3474,6 +3470,54 @@ function meetingStatusCounts(meetings: Meeting[]) {
     },
     { debriefMissing: 0, needsPrep: 0, prepped: 0 },
   );
+}
+
+/**
+ * Left-border colour coding, shared across List / Calendar / Day (spec §4.6):
+ * red = debrief missing, green = debrief complete, neutral = upcoming / no status.
+ * Derived from the existing meetingStatus() — no data-model change.
+ */
+function meetingBorderColor(meeting: Meeting): string {
+  const kind = meetingStatus(meeting).kind;
+  if (kind === 'missing') return '#f04438'; // red — debrief missing
+  if (kind === 'complete') return '#12b76a'; // green — debrief complete
+  return '#cfd8e6'; // neutral — upcoming / no status
+}
+
+/**
+ * Single status badge used identically in List, Calendar, Day, and the detail
+ * header (spec §4.5). Renders the existing meetingStatus() label so wording and
+ * the upcoming→prep / past→debrief logic are unchanged. The 'missing' case is
+ * the only actionable one (start debrief), preserving the prior click behaviour;
+ * all other meetings still select via the surrounding row/card and act via the
+ * row's action button.
+ */
+function DebriefBadge({
+  meeting,
+  onAction,
+}: {
+  meeting: Meeting;
+  onAction?: (tab: 'prep' | 'debrief') => void;
+}) {
+  const status = meetingStatus(meeting);
+  // "No Prep Yet" reads as muted (informational), everything else by tone.
+  const tone = status.kind === 'needs-prep' ? 'muted' : status.tone;
+  const cls = `engagement-debrief-badge engagement-debrief-badge--${tone}`;
+  if (status.kind === 'missing' && onAction) {
+    return (
+      <button
+        type="button"
+        className={`${cls} engagement-debrief-badge--action`}
+        onClick={(event) => {
+          event.stopPropagation();
+          onAction('debrief');
+        }}
+      >
+        {status.label} →
+      </button>
+    );
+  }
+  return <span className={cls}>{status.label}</span>;
 }
 
 function dateWindow(date: string) {
