@@ -1009,6 +1009,10 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname.startsWith('/engagement')) return 'engagement';
   if (pathname.startsWith('/workspace')) return 'workspace';
   if (pathname.startsWith('/actions')) return 'actions';
+  // Knowledge Graph has its own nav entry — match its specific route BEFORE the
+  // general /intelligence prefix, otherwise it falls through to 'intelligence'
+  // (Data Explorer) and the wrong child highlights.
+  if (pathname.startsWith('/intelligence/graph')) return 'knowledge-graph';
   if (pathname.startsWith('/explorer') || pathname.startsWith('/intelligence')) return 'intelligence';
   if (pathname.startsWith('/admin/analyst-console')) return 'analyst-console';
   if (pathname.startsWith('/program-elements')) return 'program-elements';

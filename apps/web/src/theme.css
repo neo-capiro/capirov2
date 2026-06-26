@@ -357,6 +357,28 @@ body {
   padding-left: 8px;
 }
 
+/* Indentation: parent (top-level) items sit flush — adding a submenu must NOT
+   push them in. AntD's inline mode sets padding-left per nesting level via an
+   inline style (24px for level 1, 48px for level 2); we override it so only the
+   submenu's CHILDREN are indented. !important is required to beat AntD's inline
+   style. Scoped to the expanded sider so the collapsed (icon-only) layout, which
+   has its own centering rules, is untouched. */
+.app-shell-sider:not(.ant-layout-sider-collapsed)
+  .app-nav-menu.ant-menu-inline
+  > .ant-menu-item,
+.app-shell-sider:not(.ant-layout-sider-collapsed)
+  .app-nav-menu.ant-menu-inline
+  > .ant-menu-submenu
+  > .ant-menu-submenu-title {
+  padding-left: 14px !important;
+}
+.app-shell-sider:not(.ant-layout-sider-collapsed)
+  .app-nav-menu
+  .ant-menu-sub
+  > .ant-menu-item {
+  padding-left: 34px !important;
+}
+
 /* Make the menu item's label row hold a count chip on the right.
    AntD renders the label content inside .ant-menu-title-content; we
    wrap label + count in .app-nav-label-row so flexbox spreads them. */
