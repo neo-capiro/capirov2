@@ -3158,26 +3158,30 @@ function linesToArray(value?: string): string[] {
 }
 
 function formatMeetingDay(value: string): string {
+  // value is a YYYY-MM-DD day key — parse as a LOCAL date (localDateFromInput)
+  // so it doesn't shift back a day in timezones behind UTC.
   return new Intl.DateTimeFormat(undefined, {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
-  }).format(new Date(value));
+  }).format(localDateFromInput(value));
 }
 
 function formatCalendarRange(start: Date, end: Date): string {
+  // Build the label explicitly: a partial Intl format with only {day, year}
+  // (no month) renders as locale garbage (e.g. "2026 (day: 28)") in some locales.
+  const monthFmt = new Intl.DateTimeFormat(undefined, { month: 'short' });
+  const dayFmt = new Intl.DateTimeFormat(undefined, { day: 'numeric' });
+  const year = end.getFullYear();
+  if (start.getTime() === end.getTime()) {
+    return `${monthFmt.format(start)} ${dayFmt.format(start)}, ${year}`;
+  }
   const sameMonth =
     start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
-  const startText = new Intl.DateTimeFormat(undefined, {
-    month: 'short',
-    day: 'numeric',
-  }).format(start);
-  const endText = new Intl.DateTimeFormat(undefined, {
-    ...(sameMonth ? {} : { month: 'short' as const }),
-    day: 'numeric',
-    year: 'numeric',
-  }).format(end);
-  return `${startText} - ${endText}`;
+  if (sameMonth) {
+    return `${monthFmt.format(start)} ${dayFmt.format(start)} – ${dayFmt.format(end)}, ${year}`;
+  }
+  return `${monthFmt.format(start)} ${dayFmt.format(start)} – ${monthFmt.format(end)} ${dayFmt.format(end)}, ${year}`;
 }
 
 function formatTimeRange(start: string, end: string): string {
