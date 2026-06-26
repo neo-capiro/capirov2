@@ -29,9 +29,9 @@ export class MemoryIngestService {
   ) {}
 
   /** Run the full backfill for the current tenant. Returns per-phase counts. */
-  async backfillCurrentTenant(): Promise<Record<string, number>> {
+  async backfillCurrentTenant(): Promise<{ clients: number; clioMemories: number; meetings: number }> {
     const ctx = this.tenantCtx.require();
-    const counts: Record<string, number> = { clients: 0, clioMemories: 0, meetings: 0 };
+    const counts = { clients: 0, clioMemories: 0, meetings: 0 };
 
     // ---- Phase A: client entity nodes ----
     const clients = await this.prisma.withSystem((tx) =>
