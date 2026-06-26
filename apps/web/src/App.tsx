@@ -32,6 +32,7 @@ import { StrategyDashboard } from './pages/workspace/StrategyDashboard.js';
 import { WhitePaperEditorPage } from './pages/workspace/WhitePaperEditorPage.js';
 import { ComingSoonIntelligence } from './pages/intelligence/ComingSoonIntelligence.js';
 import { ChangesInboxPage } from './pages/intelligence/ChangesInboxPage.js';
+import { KnowledgeGraphPage } from './pages/intelligence/KnowledgeGraphPage.js';
 import { IntelligenceMappingsPage } from './pages/settings/IntelligenceMappingsPage.js';
 import { SkillsPage } from './pages/settings/SkillsPage.js';
 import { IssueLeaderboardPage } from './pages/intelligence/IssueLeaderboardPage.js';
@@ -215,6 +216,7 @@ export function App() {
             stay reachable for now. The main /intelligence path redirects. */}
         <Route path="/intelligence" element={<Navigate to="/explorer" replace />} />
         <Route path="/intelligence/changes" element={<ChangesInboxPage />} />
+        <Route path="/intelligence/graph" element={<KnowledgeGraphPage />} />
         <Route path="/intelligence/issues/:code" element={<IssueLeaderboardPage />} />
         <Route path="/intelligence/bills/:bill" element={<BillDetailRedirectRoute />} />
         <Route path="/intelligence/client/:clientId" element={<Navigate to="/clients" replace />} />

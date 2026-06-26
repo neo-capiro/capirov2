@@ -16,6 +16,7 @@ import {
   MenuUnfoldOutlined,
   QuestionCircleOutlined,
   RadarChartOutlined,
+  DeploymentUnitOutlined,
   SearchOutlined,
   SettingOutlined,
   SyncOutlined,
@@ -137,6 +138,12 @@ const NAV: NavItem[] = [
         label: 'Data Explorer',
         path: '/explorer',
         icon: <RadarChartOutlined />,
+      },
+      {
+        key: 'knowledge-graph',
+        label: 'Knowledge Graph',
+        path: '/intelligence/graph',
+        icon: <DeploymentUnitOutlined />,
       },
       {
         key: 'program-elements',
