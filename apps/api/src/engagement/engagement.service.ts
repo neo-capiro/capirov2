@@ -1084,6 +1084,61 @@ export class EngagementService {
     });
   }
 
+  /**
+   * Few-shot voice grounding for AI drafting: the author's "My Writing Style"
+   * (+ profile) memory file, and the client's soul/compass when client-scoped.
+   * Returns a compact text block to drop into the draft context, or null.
+   * RLS-scoped (own user files + tenant-visible client files). Best-effort.
+   */
+  private async loadUserVoiceBlock(ctx: TenantContext, clientId: string | null): Promise<string | null> {
+    try {
+      const userRows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
+        tx.$queryRaw<Array<{ type: string; sections: unknown }>>`
+          SELECT type, sections_jsonb AS sections
+          FROM memory_items
+          WHERE type IN ('user-voice', 'user-profile') AND owner_user_id = ${ctx.userId}::uuid
+        `,
+      );
+      const clientRows = clientId
+        ? await this.prisma.withTenant(ctx.tenantId, (tx) =>
+            tx.$queryRaw<Array<{ type: string; sections: unknown }>>`
+              SELECT type, sections_jsonb AS sections
+              FROM memory_items
+              WHERE type IN ('client-soul', 'client-compass') AND client_id = ${clientId}::uuid
+            `,
+          )
+        : [];
+      const renderHuman = (sections: unknown): string => {
+        if (!Array.isArray(sections)) return '';
+        return sections
+          .filter((s) => s && typeof s === 'object' && (s as { owner?: string }).owner === 'human')
+          .map((s) => {
+            const sec = s as { heading?: string; body?: string };
+            return sec.body?.trim() ? `${sec.heading}: ${sec.body.trim()}` : '';
+          })
+          .filter(Boolean)
+          .join('\n');
+      };
+      const parts: string[] = [];
+      for (const r of userRows) {
+        const body = renderHuman(r.sections);
+        if (!body) continue;
+        parts.push(
+          r.type === 'user-voice'
+            ? `WRITE IN THIS AUTHOR'S VOICE (mirror the style and any sample writings below closely; do not invent facts):\n${body}`
+            : `About the author:\n${body}`,
+        );
+      }
+      for (const r of clientRows) {
+        const body = renderHuman(r.sections);
+        if (body) parts.push(`Client strategic memory (${r.type}):\n${body}`);
+      }
+      return parts.length ? parts.join('\n\n') : null;
+    } catch {
+      return null;
+    }
+  }
+
   async generateOutreachDraft(
     ctx: TenantContext,
     id: string,
@@ -1140,6 +1195,10 @@ export class EngagementService {
     );
     const promptTemplate =
       input.promptTemplate ?? readMetadataString(record.metadata, 'promptTemplate') ?? null;
+    // Few-shot voice grounding: the author's writing-style file + the client's
+    // soul/compass, so drafts sound like the user and respect client strategy.
+    const voiceBlock = await this.loadUserVoiceBlock(ctx, record.client?.id ?? null);
+    const contextWithVoice = voiceBlock ? { ...context, userWritingStyle: voiceBlock } : context;
     const generated = await this.ai.generateOutreachDraft(
       {
         workflow: record.type as OutreachType,
@@ -1147,7 +1206,7 @@ export class EngagementService {
         meeting: record.meeting ? pruneForAi(record.meeting) : null,
         objective: input.objective ?? readMetadataString(record.metadata, 'objective'),
         recipients: recipients.map(pruneForAi),
-        context,
+        context: contextWithVoice,
         promptTemplate,
         existingSubject: record.subject,
         existingBody: outboundTemplateBody(record, requestMetadata) ?? record.body,
