@@ -501,7 +501,7 @@ export function ClientProfilePage({
             />
           )}
           {activeTab === 'targets' && (
-            <TargetsTabContainer
+            <TargetsTab
               clientId={client.id}
               canManage={canManageClients}
               onViewIntelligence={() => setActiveTab('intelligence')}
@@ -578,60 +578,6 @@ export function ClientProfilePage({
         submitting={createPerson.isPending}
       />
     </div>
-  );
-}
-
-/* ── Targets Tab container ───────────────────────────────────────────────── */
-
-/**
- * Wraps TargetsTab with the Meri suggestions pulled from the client's intel
- * aggregate (relationships.officeRecommender, top 6). Read-only; the recommender
- * is computed server-side by OfficeRecommenderService.
- */
-function TargetsTabContainer({
-  clientId,
-  canManage,
-  onViewIntelligence,
-}: {
-  clientId: string;
-  canManage: boolean;
-  onViewIntelligence: () => void;
-}) {
-  const api = useApi();
-  const aggregate = useQuery({
-    queryKey: ['client-intel-v1-aggregate', clientId],
-    queryFn: async () =>
-      (await api.get<Record<string, any>>(`/api/intelligence/clients/${clientId}/profile-v1`))
-        .data,
-    enabled: !!clientId,
-    staleTime: 2 * 60 * 1000,
-    retry: 1,
-  });
-
-  const recs: any[] = aggregate.data?.sections?.relationships?.officeRecommender ?? [];
-  const meriSuggestions = recs
-    // Only member-identified rows can be added as targets (committee-only rows
-    // from a legacy cached aggregate have no memberId and are skipped).
-    .filter((r) => typeof r?.memberId === 'string' && r.memberId.length > 0)
-    .slice(0, 6)
-    .map((r) => ({
-      memberId: r.memberId as string,
-      office: String(r.office ?? ''),
-      party: (r.party ?? null) as 'R' | 'D' | 'I' | null,
-      state: (r.state ?? null) as string | null,
-      chamber: (r.chamber ?? null) as 'House' | 'Senate' | null,
-      committee: (r.committee ?? null) as string | null,
-      score: Number(r.score ?? 0),
-      billCount: Number(r.billCount ?? 0),
-    }));
-
-  return (
-    <TargetsTab
-      clientId={clientId}
-      meriSuggestions={meriSuggestions}
-      canManage={canManage}
-      onViewIntelligence={onViewIntelligence}
-    />
   );
 }
 

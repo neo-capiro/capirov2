@@ -74,6 +74,12 @@ export interface DirectoryEntry {
   officialLinks: DirectoryLink[];
   addresses: DirectoryAddress[];
   staff: DirectoryStaffMember[];
+  /**
+   * Set by contacts search when this office matched the query via one or more
+   * staffers rather than the member's own name — so the UI can show "matched via
+   * staffer X". Absent on non-search reads.
+   */
+  matchedStaff?: Array<{ fullName: string; title: string }>;
   bio: {
     dob: string;
     hometown: string;

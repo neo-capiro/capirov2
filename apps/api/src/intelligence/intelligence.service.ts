@@ -14,6 +14,7 @@ import { FEC_DISCLAIMER } from './fec-disclaimer.js';
 import { expandTerms, isKnownAcronym, MIN_KEYWORD_TOKEN_LENGTH } from './term-expansion.js';
 import { ClientPrepopulationService } from './client-prepopulation.service.js';
 import { OfficeRecommenderService } from './office-recommender.service.js';
+import type { OfficeRecommendation } from './office-recommender.service.js';
 
 /**
  * Normalized internal shape every "Top alerts" source emits. `_urgencyScore` and
@@ -3276,6 +3277,35 @@ export class IntelligenceService {
       capabilityTagCount,
       capabilityDescCount,
     };
+  }
+
+  /**
+   * Office Recommender ("Suggested by Meri") for a client, computed standalone —
+   * the same call the profile-v1 aggregate makes (tracked-bill resolution +
+   * office scoring), but WITHOUT the rest of the ~25-query aggregate. Lets the
+   * Targets tab get recommendations in seconds instead of waiting on the full
+   * profile. Returns up to 12 member-identified rows; empty when the recommender
+   * is unavailable (bare-constructed in a unit test) or the client has no signal.
+   */
+  async computeOfficeRecommendations(
+    clientId: string,
+    tenantId: string,
+  ): Promise<OfficeRecommendation[]> {
+    if (!this.officeRecommender) return [];
+    const tracked = await this.getTrackedBills(clientId, tenantId);
+    const trackedBillIds = tracked.bills
+      .map((b) => b.identifier)
+      .filter((v): v is string => typeof v === 'string' && v.length > 0);
+    return this.officeRecommender.recommend({
+      clientId,
+      tenantId,
+      trackedBillIds,
+      trackedBills: tracked.bills.map((b) => ({
+        identifier: b.identifier,
+        subjectNames: b.subjectNames ?? [],
+      })),
+      issueCodes: tracked.issueCodes ?? [],
+    });
   }
 
   async getTrackedBills(clientId: string, tenantId?: string) {
