@@ -293,7 +293,7 @@ export function LegislativeRegulatorySection({
   return (
     <section id="legislative-regulatory" className="iv1-section">
       <div className="iv1-sec-head">
-        <span className="iv1-sec-num">3</span>
+        <span className="iv1-sec-num">4</span>
         <h2>Legislative &amp; Regulatory</h2>
         <span className="iv1-sec-sub">Bill pipeline · regulation lifecycle rails</span>
       </div>

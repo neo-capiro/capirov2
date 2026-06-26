@@ -121,7 +121,7 @@ describe('IntelligenceService — district spend wiring + manual bill tracking',
       expect(top.some((d: { district: string }) => d.district === 'VA-02')).toBe(false);
     });
 
-    test('falls back to free-text capability districts when spend is unlinked', async () => {
+    test('returns no districts when spend is unlinked (free-text fallback retired)', async () => {
       const { service } = makeProfileService();
 
       jest.spyOn(service as any, 'getDistrictNexus').mockResolvedValue({
@@ -153,13 +153,13 @@ describe('IntelligenceService — district spend wiring + manual bill tracking',
       const payload = await service.getClientProfileV1(clientId, tenantId);
       const top = payload.sections.financialFootprint.districtNexus.topDistricts;
 
-      // Free-text builder composes `${state}-${district}` from the raw district
-      // number (no zero-padding), so the mock's district:'2' yields 'VA-2'.
-      expect(top.map((d: { district: string }) => d.district)).toEqual(['VA-2']);
-      expect(top[0]).toMatchObject({ district: 'VA-2', jobs: 500 });
+      // District Nexus is now spend-only: an unlinked client yields NO district
+      // rows in the aggregate (the dedicated section renders the unlinked state).
+      // The free-text capability district (VA-2) must NOT appear.
+      expect(top).toEqual([]);
     });
 
-    test('falls back to free-text when spend is linked but has zero-dollar districts', async () => {
+    test('returns no districts when spend is linked but every district is zero-dollar', async () => {
       const { service } = makeProfileService();
 
       jest.spyOn(service as any, 'getDistrictNexus').mockResolvedValue({
@@ -193,8 +193,9 @@ describe('IntelligenceService — district spend wiring + manual bill tracking',
       const payload = await service.getClientProfileV1(clientId, tenantId);
       const top = payload.sections.financialFootprint.districtNexus.topDistricts;
 
-      // Zero-dollar spend rows are filtered out → fall back to capability text.
-      expect(top.map((d: { district: string }) => d.district)).toEqual(['MD-3']);
+      // Zero-dollar spend rows are filtered out → spend-only yields no districts
+      // (no free-text fallback). The capability district (MD-3) must NOT appear.
+      expect(top).toEqual([]);
     });
   });
 

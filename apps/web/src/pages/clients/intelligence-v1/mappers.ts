@@ -20,6 +20,7 @@ export type {
 export type SectionId =
   | 'snapshot'
   | 'financial-footprint'
+  | 'district-nexus'
   | 'legislative-regulatory';
 
 export interface SectionMeta {
@@ -43,8 +44,14 @@ export const SECTION_ORDER: SectionMeta[] = [
     shortTitle: 'Financial',
   },
   {
-    id: 'legislative-regulatory',
+    id: 'district-nexus',
     num: 3,
+    title: 'District Nexus',
+    shortTitle: 'Districts',
+  },
+  {
+    id: 'legislative-regulatory',
+    num: 4,
     title: 'Legislative & Regulatory',
     shortTitle: 'Legislative',
   },

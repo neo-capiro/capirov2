@@ -1037,14 +1037,15 @@ export class IntelligenceService {
       // committee with jurisdiction over a tracked bill (isTracked).
       .filter((h) => h.isTracked);
 
-    // District rows for the Financial Footprint panel. Prefer the REAL
-    // USAspending spend-by-district path (getDistrictNexusSpend, index 18): when
-    // the client has a confirmed contracting mapping and enriched awards, those
-    // districts carry actual contract dollars + award counts. Fall back to the
-    // free-text capability/districtNexus parse (index 3) only when spend produced
-    // no district rows, so a client without enriched awards still shows whatever
-    // capability nexus text we have rather than a blank panel.
-    const spendDistrictRows =
+    // District rows for the aggregate. District Nexus is now a SINGLE
+    // data-driven engine: real USAspending spend-by-district
+    // (getDistrictNexusSpend, index 18). The old free-text capability parse was
+    // retired — it had no input column in prod and never produced data. When the
+    // client has a confirmed contracting mapping and enriched awards, these rows
+    // carry actual contract dollars + award counts; otherwise the section is
+    // empty (the dedicated DistrictNexusSection renders the honest unlinked /
+    // not-yet-enriched state).
+    const districtRows =
       districtSpend.linked && Array.isArray(districtSpend.districts)
         ? districtSpend.districts
             .filter((d) => d.totalAmount > 0)
@@ -1062,22 +1063,6 @@ export class IntelligenceService {
                   : 0,
             }))
         : [];
-
-    const capabilityDistrictRows = district.capabilities
-      .flatMap((cap) =>
-        cap.districts.map((d) => ({
-          district: `${d.state}-${d.district}`,
-          jobs: cap.totalSupportedJobs ?? 0,
-          spend: 0,
-          awardCount: 0,
-          capability: cap.capabilityName,
-          dataYear: d.dataYear,
-        })),
-      )
-      .sort((a, b) => b.jobs - a.jobs)
-      .slice(0, 5);
-
-    const districtRows = spendDistrictRows.length ? spendDistrictRows : capabilityDistrictRows;
     const exStafferNames = exStaffers.lobbyists.map((l) => l.name.toLowerCase());
 
     const committeeNames = Array.from(new Set(hearingsList.map((h) => h.committeeName).filter(Boolean))).slice(0, 12);
@@ -1186,6 +1171,9 @@ export class IntelligenceService {
         fecMoneyFlow: fec,
         districtNexus: {
           topDistricts: districtRows,
+          // Retained for response-shape back-compat; the free-text capability
+          // parse no longer drives topDistricts (now spend-only). Always [] in
+          // practice since prod has no capability districtNexus input.
           capabilities: district.capabilities,
         },
       },

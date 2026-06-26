@@ -14,6 +14,7 @@ import {
 } from './mappers.js';
 import { SnapshotSection } from './sections/SnapshotSection.js';
 import { FinancialFootprintSection } from './sections/FinancialFootprintSection.js';
+import { DistrictNexusSection } from './sections/DistrictNexusSection.js';
 import { LegislativeRegulatorySection } from './sections/LegislativeRegulatorySection.js';
 
 interface ClientIntelV1PageProps {
@@ -196,6 +197,8 @@ export function ClientIntelV1Page({ clientId, clientName }: ClientIntelV1PagePro
                 />
 
                 <FinancialFootprintSection clientId={clientId} />
+
+                <DistrictNexusSection clientId={clientId} />
 
                 <LegislativeRegulatorySection
                   aggregate={profileV1Query.data ?? undefined}
