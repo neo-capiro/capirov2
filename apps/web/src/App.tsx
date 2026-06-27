@@ -23,14 +23,6 @@ import { HomePage } from './pages/HomePage.js';
 import { EngagementPage } from './pages/engagement/EngagementPage.js';
 import { IntegrationsPage } from './pages/settings/IntegrationsPage.js';
 import { AiUsagePage } from './pages/settings/AiUsagePage.js';
-import { WorkspaceLayout } from './pages/workspace/WorkspaceLayout.js';
-import { CatalogView } from './pages/workspace/CatalogView.js';
-import { WorkflowsView } from './pages/workspace/WorkflowsView.js';
-import { WorkspaceOverview } from './pages/workspace/WorkspaceOverview.js';
-import { StrategiesList } from './pages/workspace/StrategiesList.js';
-import { StrategyWizard } from './pages/workspace/StrategyWizard.js';
-import { StrategyDashboard } from './pages/workspace/StrategyDashboard.js';
-import { WhitePaperEditorPage } from './pages/workspace/WhitePaperEditorPage.js';
 import { ComingSoonIntelligence } from './pages/intelligence/ComingSoonIntelligence.js';
 import { ChangesInboxPage } from './pages/intelligence/ChangesInboxPage.js';
 import { KnowledgeGraphPage } from './pages/intelligence/KnowledgeGraphPage.js';
@@ -82,6 +74,12 @@ const AnalystConsolePage = lazy(async () =>
   })),
 );
 
+const WorkspaceRoutes = lazy(async () =>
+  import('./pages/workspace/WorkspaceRoutes.js').then((m) => ({
+    default: m.WorkspaceRoutes,
+  })),
+);
+
 export function App() {
   const { isLoaded, isSignedIn } = useAuth();
 
@@ -109,18 +107,16 @@ export function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/clients" element={<ClientWorkspacePage />} />
         <Route path="/engagement/*" element={<EngagementPage />} />
-        <Route path="/workspace" element={<WorkspaceLayout />}>
-          <Route index element={<Navigate to="/workspace/overview" replace />} />
-          <Route path="overview" element={<WorkspaceOverview />} />
-          <Route path="library" element={<CatalogView />} />
-          <Route path="workflows" element={<WorkflowsView />} />
-          <Route path="strategies" element={<StrategiesList />} />
-          <Route path="strategy/new" element={<StrategyWizard />} />
-          <Route path="strategy/:id" element={<StrategyDashboard />} />
-          <Route path="strategy/:id/white-paper/:instanceId" element={<WhitePaperEditorPage />} />
-          <Route path="catalog" element={<Navigate to="/workspace/library" replace />} />
-          <Route path="kanban" element={<Navigate to="/workspace/workflows" replace />} />
-        </Route>
+        {/* Workspace — standalone document-builder engine (own ECR/Fargate
+            service at /workspace-api/*; this is the SPA UI). */}
+        <Route
+          path="/workspace/*"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading Workspace" description="Please wait..." />}>
+              <WorkspaceRoutes />
+            </Suspense>
+          }
+        />
         <Route path="/explorer" element={<DataExplorerPage />} />
         <Route path="/actions" element={<ActionBoardPage />} />
         <Route
