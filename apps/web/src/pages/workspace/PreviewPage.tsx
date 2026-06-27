@@ -3,7 +3,7 @@ import { App as AntApp, Button, Segmented, Spin } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined, FilePdfOutlined, FileWordOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import { StepsRail } from './StepsRail.js';
-import { useDraft } from './api.js';
+import { useDraft, useExportDocx } from './api.js';
 
 /** Preview & Save — paginated print preview + export options. */
 export function PreviewPage() {
@@ -11,6 +11,7 @@ export function PreviewPage() {
   const navigate = useNavigate();
   const { message } = AntApp.useApp();
   const { data: draft, isLoading } = useDraft(draftId ?? null);
+  const exportDocx = useExportDocx(draftId ?? '');
   const [bundle, setBundle] = useState<'Separate files' | 'Combined packet'>('Separate files');
 
   if (isLoading || !draft) {
@@ -44,14 +45,23 @@ export function PreviewPage() {
             />
           )}
           <div style={{ flex: 1 }} />
-          <Button icon={<FilePdfOutlined />} onClick={() => message.info('PDF export — wiring in Phase 6')}>
+          <Button icon={<FilePdfOutlined />} onClick={() => window.print()}>
             Export PDF
           </Button>
-          <Button icon={<FileWordOutlined />} onClick={() => message.info('Word export — wiring in Phase 6')}>
+          <Button
+            icon={<FileWordOutlined />}
+            loading={exportDocx.isPending}
+            onClick={() =>
+              exportDocx.mutate(draft.docTitle, {
+                onSuccess: () => message.success('Word document downloaded'),
+                onError: () => message.error('Export failed'),
+              })
+            }
+          >
             Export Word
           </Button>
-          <Button type="primary" icon={<DownloadOutlined />} onClick={() => message.info('Download — wiring in Phase 6')}>
-            Download
+          <Button type="primary" icon={<DownloadOutlined />} onClick={() => window.print()}>
+            Print / Save PDF
           </Button>
         </div>
 

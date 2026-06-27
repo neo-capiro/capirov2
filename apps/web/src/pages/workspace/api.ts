@@ -234,6 +234,29 @@ export function useGenerateSection(draftId: string) {
   });
 }
 
+/** Download the draft as a .docx (engine renders via the docx lib). */
+export function useExportDocx(draftId: string) {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (filenameHint?: string) => {
+      const res = await api.get<Blob>(`${BASE}/drafts/${draftId}/export/docx`, {
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], {
+        type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${(filenameHint || 'document').replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+  });
+}
+
 // ── Context Builder ─────────────────────────────────────────────────────────
 export function useContextSources(client: string | null, offices: string[]) {
   const api = useApi();

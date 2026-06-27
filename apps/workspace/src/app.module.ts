@@ -10,6 +10,7 @@ import { DocumentsModule } from './documents/documents.module.js';
 import { CommentsModule } from './comments/comments.module.js';
 import { ContextModule } from './context/context.module.js';
 import { GenerationModule } from './generation/generation.module.js';
+import { ExportModule } from './export/export.module.js';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { GenerationModule } from './generation/generation.module.js';
     CommentsModule,
     ContextModule,
     GenerationModule,
+    ExportModule,
   ],
 })
 export class AppModule {}

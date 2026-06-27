@@ -259,3 +259,35 @@
   background: var(--ws-accent-soft);
   color: var(--ws-accent-ink);
 }
+
+/* Print: emit only the document canvas (PDF via browser print). */
+@media print {
+  /* Hide the app shell chrome + the workspace rails/toolbars. */
+  .ws-steps-rail,
+  .ws-insert-rail,
+  .ws-meri-rail,
+  .ant-layout-sider,
+  .ant-layout-header,
+  .ws-card,
+  .ws-stage > div:first-child {
+    display: none !important;
+  }
+  .ws-root,
+  .ws-shell,
+  .ws-stage {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    display: block !important;
+  }
+  .ws-doc-canvas {
+    box-shadow: none !important;
+    border: none !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  @page {
+    margin: 1in;
+  }
+}

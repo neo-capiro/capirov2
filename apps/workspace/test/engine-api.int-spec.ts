@@ -6,6 +6,7 @@ import { DocumentsService } from '../src/documents/documents.service.js';
 import { CommentsService } from '../src/comments/comments.service.js';
 import { ContextService } from '../src/context/context.service.js';
 import { TemplatesService } from '../src/templates/templates.service.js';
+import { ExportService } from '../src/export/export.service.js';
 
 /**
  * Engine API integration (AC-3.2..3.6) against an isolated Postgres schema.
@@ -30,6 +31,7 @@ d('Workspace engine API integration', () => {
   let comments: CommentsService;
   let context: ContextService;
   let templates: TemplatesService;
+  let exportService: ExportService;
 
   beforeAll(async () => {
     process.env.DATABASE_URL = TEST_DB;
@@ -43,6 +45,7 @@ d('Workspace engine API integration', () => {
     comments = new CommentsService(prisma);
     context = new ContextService(prisma);
     templates = new TemplatesService(prisma);
+    exportService = new ExportService(prisma);
   }, 120_000);
 
   afterAll(async () => {
@@ -145,5 +148,26 @@ d('Workspace engine API integration', () => {
     expect(sources.groups.find((g) => g.type === 'client-profile')?.items.length).toBe(1);
     await context.removeItem(TENANT_A, draft.id, item.id);
     expect(await context.listItems(TENANT_A, draft.id)).toHaveLength(0);
+  });
+
+  test('AC-7.1 export docx returns a valid .docx (zip/OOXML) buffer', async () => {
+    const draft = await drafts.create(TENANT_A, OWNER, {
+      product: 'White paper',
+      docTitle: 'JaiaBot HYDRO White Paper',
+    });
+    await drafts.update(TENANT_A, draft.id, {
+      config: { sectionContent: { 'Problem statement': 'The Navy faces a coverage gap.' } },
+    });
+    const { filename, buffer } = await exportService.buildDocx(TENANT_A, draft.id);
+    expect(filename).toMatch(/\.docx$/);
+    // OOXML .docx is a ZIP archive — first two bytes are 'PK'.
+    expect(buffer.length).toBeGreaterThan(1000);
+    expect(buffer[0]).toBe(0x50); // P
+    expect(buffer[1]).toBe(0x4b); // K
+  });
+
+  test('AC-7.1 export rejects cross-tenant access', async () => {
+    const draft = await drafts.create(TENANT_A, OWNER, { product: 'White paper' });
+    await expect(exportService.buildDocx(TENANT_B, draft.id)).rejects.toThrow('Draft not found');
   });
 });
