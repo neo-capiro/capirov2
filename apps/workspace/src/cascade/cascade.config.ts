@@ -27,7 +27,10 @@ export const CASCADE: CascadeIndustry[] = [
     industry: 'Defense & Aerospace',
     products: [
       { name: 'NDAA Authorization Request', pathways: ['NDAA Authorization'] },
-      { name: 'Meeting Brief & Advocacy', pathways: ['NDAA Authorization', 'Defense Appropriations'] },
+      {
+        name: 'Meeting Brief & Advocacy',
+        pathways: ['NDAA Authorization', 'Defense Appropriations'],
+      },
       { name: 'Appropriations Justification', pathways: ['Defense Appropriations'] },
       { name: 'CDS / Earmark Application', pathways: ['Defense Appropriations'] },
     ],
@@ -40,7 +43,10 @@ export const CASCADE: CascadeIndustry[] = [
     industry: 'Health & Pharma',
     products: [
       { name: 'Appropriations Justification', pathways: ['Labor-HHS Appropriations'] },
-      { name: 'Meeting Brief & Advocacy', pathways: ['Labor-HHS Appropriations', 'HELP Authorization'] },
+      {
+        name: 'Meeting Brief & Advocacy',
+        pathways: ['Labor-HHS Appropriations', 'HELP Authorization'],
+      },
       { name: 'Authorization Bill Language', pathways: ['HELP Authorization'] },
     ],
     pathways: { 'Labor-HHS Appropriations': ['L-HHS'], 'HELP Authorization': ['HELP'] },
@@ -59,7 +65,10 @@ export const CASCADE: CascadeIndustry[] = [
       { name: 'Appropriations Justification', pathways: ['Agriculture Appropriations'] },
       { name: 'Authorization Bill Language', pathways: ['Farm Bill Authorization'] },
     ],
-    pathways: { 'Agriculture Appropriations': ['HAC-Ag'], 'Farm Bill Authorization': ['Senate Ag'] },
+    pathways: {
+      'Agriculture Appropriations': ['HAC-Ag'],
+      'Farm Bill Authorization': ['Senate Ag'],
+    },
   },
   {
     industry: 'Transportation',
@@ -97,7 +106,12 @@ export const CASCADE: CascadeIndustry[] = [
 
 // White paper is a universal work product (m0168); plus generic comms docs
 // always offered in the full list.
-export const UNIVERSAL_PRODUCTS = ['Member letter', 'Written testimony', 'One-pager', 'Strategy memo'];
+export const UNIVERSAL_PRODUCTS = [
+  'Member letter',
+  'Written testimony',
+  'One-pager',
+  'Strategy memo',
+];
 
 // The 10 canonical work products (Handoff Brief). White paper + the 6 formal
 // + the rest. Used by allLibraryProducts() for the "Other work product" picker.
@@ -132,17 +146,83 @@ export interface ProductMeta {
 
 // Work-product metadata: icon + personalization defaults (wsconfig.jsx PRODUCT_META).
 export const PRODUCT_META: Record<string, ProductMeta> = {
-  'White paper': { icon: 'FileText', personalize: false, office: true, cover: false, desc: 'Narrative program paper supporting authorization, appropriations, or policy asks.' },
-  'Appropriations Justification': { icon: 'Coins', personalize: false, office: true, cover: true, desc: "Detail a program's funding need and justification." },
-  'NDAA Authorization Request': { icon: 'TrendingUp', personalize: false, office: true, cover: true, desc: 'Request program authorization or a budget adjustment.' },
-  'Meeting Brief & Advocacy': { icon: 'Users', personalize: false, office: true, cover: false, desc: 'Leave-behind brief for a member or staff meeting.' },
-  'CDS / Earmark Application': { icon: 'Landmark', personalize: true, office: true, cover: true, desc: 'Community project funding application.' },
-  'Authorization Bill Language': { icon: 'Scale', personalize: false, office: false, cover: false, desc: 'Amendatory statutory / authorizing text.' },
-  'Report Language Request': { icon: 'FileSignature', personalize: false, office: false, cover: false, desc: 'Directive or encouraging committee report language.' },
-  'Member letter': { icon: 'Mail', personalize: true, office: true, cover: false, desc: 'Cosponsor request, support letter, or consolidated sign-on letter to a Member.' },
-  'Strategy memo': { icon: 'ClipboardList', personalize: false, office: false, cover: false, desc: 'Internal brief covering situation analysis and strategic recommendation.' },
-  'Written testimony': { icon: 'Mic', personalize: false, office: false, cover: false, desc: 'Statement for the record before a committee or agency.' },
-  'One-pager': { icon: 'File', personalize: false, office: true, cover: false, desc: 'Meeting leave-behind or fact sheet summarizing the program and ask.' },
+  'White paper': {
+    icon: 'FileText',
+    personalize: false,
+    office: true,
+    cover: false,
+    desc: 'Narrative program paper supporting authorization, appropriations, or policy asks.',
+  },
+  'Appropriations Justification': {
+    icon: 'Coins',
+    personalize: false,
+    office: true,
+    cover: true,
+    desc: "Detail a program's funding need and justification.",
+  },
+  'NDAA Authorization Request': {
+    icon: 'TrendingUp',
+    personalize: false,
+    office: true,
+    cover: true,
+    desc: 'Request program authorization or a budget adjustment.',
+  },
+  'Meeting Brief & Advocacy': {
+    icon: 'Users',
+    personalize: false,
+    office: true,
+    cover: false,
+    desc: 'Leave-behind brief for a member or staff meeting.',
+  },
+  'CDS / Earmark Application': {
+    icon: 'Landmark',
+    personalize: true,
+    office: true,
+    cover: true,
+    desc: 'Community project funding application.',
+  },
+  'Authorization Bill Language': {
+    icon: 'Scale',
+    personalize: false,
+    office: false,
+    cover: false,
+    desc: 'Amendatory statutory / authorizing text.',
+  },
+  'Report Language Request': {
+    icon: 'FileSignature',
+    personalize: false,
+    office: false,
+    cover: false,
+    desc: 'Directive or encouraging committee report language.',
+  },
+  'Member letter': {
+    icon: 'Mail',
+    personalize: true,
+    office: true,
+    cover: false,
+    desc: 'Cosponsor request, support letter, or consolidated sign-on letter to a Member.',
+  },
+  'Strategy memo': {
+    icon: 'ClipboardList',
+    personalize: false,
+    office: false,
+    cover: false,
+    desc: 'Internal brief covering situation analysis and strategic recommendation.',
+  },
+  'Written testimony': {
+    icon: 'Mic',
+    personalize: false,
+    office: false,
+    cover: false,
+    desc: 'Statement for the record before a committee or agency.',
+  },
+  'One-pager': {
+    icon: 'File',
+    personalize: false,
+    office: true,
+    cover: false,
+    desc: 'Meeting leave-behind or fact sheet summarizing the program and ask.',
+  },
 };
 
 // Relevant platform data per industry (wsdata INDUSTRY_DATA) — Defense budget
@@ -169,17 +249,88 @@ export const INDUSTRY_DATA: Record<string, IndustryDatum[]> = {
 
 // Suggested sections per work product (wsconfig.jsx SUGGESTED_SECTIONS).
 export const SUGGESTED_SECTIONS: Record<string, string[]> = {
-  'NDAA Authorization Request': ['Problem statement', 'Solution', 'Current status', 'Funding history & request', 'National security impact', 'Economic & district impact', 'The ask'],
-  'Appropriations Justification': ['Executive summary', 'Account & program line', 'Program description', 'Funding history', 'Justification & impact', 'Performance & outcomes', 'The ask'],
-  'CDS / Earmark Application': ['Requesting entity & recipient information', 'Project title', 'Project description', 'Requested amount & total cost', 'Federal nexus statement', 'Evidence of community support', 'Financial disclosure certification', 'Outcomes & metrics'],
-  'Authorization Bill Language': ['Short title', 'Findings & purpose', 'Definitions', 'Main operative provision', 'Exceptions & special rules', 'Conforming & transitional provisions', 'Authorization of appropriations', 'Effective date'],
-  'Report Language Request': ['Requesting entity & contact', 'Bill, account & subcommittee', 'Background & problem', 'Proposed report language', 'Justification', 'Relationship to existing law & PBR'],
-  'Meeting Brief & Advocacy': ['Meeting logistics', 'Member profile', 'Background', 'Objectives & the ask', 'Talking points', 'Anticipated questions & responses', 'Leave-behind summary', 'Follow-up plan'],
+  'NDAA Authorization Request': [
+    'Problem statement',
+    'Solution',
+    'Current status',
+    'Funding history & request',
+    'National security impact',
+    'Economic & district impact',
+    'The ask',
+  ],
+  'Appropriations Justification': [
+    'Executive summary',
+    'Account & program line',
+    'Program description',
+    'Funding history',
+    'Justification & impact',
+    'Performance & outcomes',
+    'The ask',
+  ],
+  'CDS / Earmark Application': [
+    'Requesting entity & recipient information',
+    'Project title',
+    'Project description',
+    'Requested amount & total cost',
+    'Federal nexus statement',
+    'Evidence of community support',
+    'Financial disclosure certification',
+    'Outcomes & metrics',
+  ],
+  'Authorization Bill Language': [
+    'Short title',
+    'Findings & purpose',
+    'Definitions',
+    'Main operative provision',
+    'Exceptions & special rules',
+    'Conforming & transitional provisions',
+    'Authorization of appropriations',
+    'Effective date',
+  ],
+  'Report Language Request': [
+    'Requesting entity & contact',
+    'Bill, account & subcommittee',
+    'Background & problem',
+    'Proposed report language',
+    'Justification',
+    'Relationship to existing law & PBR',
+  ],
+  'Meeting Brief & Advocacy': [
+    'Meeting logistics',
+    'Member profile',
+    'Background',
+    'Objectives & the ask',
+    'Talking points',
+    'Anticipated questions & responses',
+    'Leave-behind summary',
+    'Follow-up plan',
+  ],
   'Member letter': ['Opening', 'Program description', 'Request', 'Closing'],
-  'Written testimony': ['Disclosure & witness intro', 'Opening statement', 'Background', 'Position', 'Recommendations', 'Closing'],
-  'One-pager': ['Header & title', 'Background', 'Key facts & data', 'Our position & the ask', 'Contact information'],
+  'Written testimony': [
+    'Disclosure & witness intro',
+    'Opening statement',
+    'Background',
+    'Position',
+    'Recommendations',
+    'Closing',
+  ],
+  'One-pager': [
+    'Header & title',
+    'Background',
+    'Key facts & data',
+    'Our position & the ask',
+    'Contact information',
+  ],
   'Strategy memo': ['Situation', 'Background', 'Analysis', 'Recommendation', 'Next steps'],
-  'White paper': ['Problem statement', 'Solution', 'Current status', 'Funding history & request', 'National security impact', 'Economic & district impact', 'The ask'],
+  'White paper': [
+    'Problem statement',
+    'Solution',
+    'Current status',
+    'Funding history & request',
+    'National security impact',
+    'Economic & district impact',
+    'The ask',
+  ],
 };
 
 // Suggested page length per work product (wsconfig.jsx SUGGESTED_PAGES).
@@ -213,7 +364,8 @@ export const SECTION_LIBRARY = [
 // ── Cascade query helpers (wsconfig.jsx WSC) ────────────────────────────────
 export const WSC = {
   industries: (): string[] => CASCADE.map((c) => c.industry),
-  _ind: (industry: string): CascadeIndustry | undefined => CASCADE.find((c) => c.industry === industry),
+  _ind: (industry: string): CascadeIndustry | undefined =>
+    CASCADE.find((c) => c.industry === industry),
   productsFor(industry: string): string[] {
     const ind = this._ind(industry);
     if (!ind) return [];
@@ -230,12 +382,22 @@ export const WSC = {
     const ind = this._ind(industry);
     if (!ind) return [];
     const out: string[] = [];
-    (pathways || []).forEach((pw) => (ind.pathways[pw] || []).forEach((c) => out.includes(c) || out.push(c)));
+    (pathways || []).forEach((pw) =>
+      (ind.pathways[pw] || []).forEach((c) => out.includes(c) || out.push(c)),
+    );
     return out;
   },
   meta: (product: string): ProductMeta =>
-    PRODUCT_META[product] || { icon: 'FileText', personalize: false, office: true, cover: true, desc: '' },
-  allLibraryProducts: (): string[] => [...CANONICAL_PRODUCTS],
+    PRODUCT_META[product] || {
+      icon: 'FileText',
+      personalize: false,
+      office: true,
+      cover: true,
+      desc: '',
+    },
+  // Library grid + "other work product" picker. White paper is offered as its
+  // own card (product owner decision Q-LIB-A) alongside the 10 canonical.
+  allLibraryProducts: (): string[] => ['White paper', ...CANONICAL_PRODUCTS],
   dataFor: (industry: string): IndustryDatum[] => INDUSTRY_DATA[industry] || [],
   isFunding: (product: string): boolean => FUNDING_PRODUCTS.includes(product),
   suggestedSections(product: string): string[] {
