@@ -5,6 +5,7 @@ import { ChangesInboxBell } from './ChangesInboxBell.js';
 import { QuickLogButton } from './QuickLog.js';
 import {
   ApartmentOutlined,
+  FolderOpenOutlined,
   CalendarOutlined,
   CheckOutlined,
   DashboardOutlined,
@@ -62,6 +63,7 @@ type AppSection =
   | 'home'
   | 'clients'
   | 'engagement'
+  | 'workspace'
   | 'planner'
   | 'intelligence'
   | 'knowledge-graph'
@@ -116,6 +118,7 @@ const NAV: NavItem[] = [
     icon: <CalendarOutlined />,
   },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
+  { key: 'workspace', label: 'Workspace', path: '/workspace', icon: <FolderOpenOutlined /> },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
   // Intelligence group (kept LAST in the nav): the Intelligence Center (live
   // Explorer) plus Program Elements nested beneath it. The former PE sub-items
@@ -999,6 +1002,7 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname === '/') return 'home';
   if (pathname.startsWith('/clients')) return 'clients';
   if (pathname.startsWith('/engagement')) return 'engagement';
+  if (pathname.startsWith('/workspace')) return 'workspace';
   if (pathname.startsWith('/actions')) return 'actions';
   // Knowledge Graph has its own nav entry — match its specific route BEFORE the
   // general /intelligence prefix, otherwise it falls through to 'intelligence'
@@ -1020,6 +1024,7 @@ function pageConfigFor(pathname: string): PageConfig {
     home: 'Dashboard',
     clients: 'Portfolio',
     engagement: 'Engagement',
+    workspace: 'Workspace',
     planner: 'Planner',
     intelligence: 'Intelligence Center',
     'knowledge-graph': 'Knowledge Graph',

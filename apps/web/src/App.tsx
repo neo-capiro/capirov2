@@ -74,6 +74,12 @@ const AnalystConsolePage = lazy(async () =>
   })),
 );
 
+const WorkspaceRoutes = lazy(async () =>
+  import('./pages/workspace/WorkspaceRoutes.js').then((m) => ({
+    default: m.WorkspaceRoutes,
+  })),
+);
+
 export function App() {
   const { isLoaded, isSignedIn } = useAuth();
 
@@ -101,8 +107,16 @@ export function App() {
         <Route path="/" element={<HomePage />} />
         <Route path="/clients" element={<ClientWorkspacePage />} />
         <Route path="/engagement/*" element={<EngagementPage />} />
-        {/* Workspace feature removed; redirect legacy links to home. */}
-        <Route path="/workspace/*" element={<Navigate to="/" replace />} />
+        {/* Workspace — standalone document-builder engine (own ECR/Fargate
+            service at /workspace-api/*; this is the SPA UI). */}
+        <Route
+          path="/workspace/*"
+          element={
+            <Suspense fallback={<PlaceholderPage title="Loading Workspace" description="Please wait..." />}>
+              <WorkspaceRoutes />
+            </Suspense>
+          }
+        />
         <Route path="/explorer" element={<DataExplorerPage />} />
         <Route path="/actions" element={<ActionBoardPage />} />
         <Route
