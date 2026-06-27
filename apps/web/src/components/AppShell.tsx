@@ -9,7 +9,6 @@ import {
   CheckOutlined,
   DashboardOutlined,
   DownOutlined,
-  FolderOpenOutlined,
   FundOutlined,
   IdcardOutlined,
   MenuFoldOutlined,
@@ -63,7 +62,6 @@ type AppSection =
   | 'home'
   | 'clients'
   | 'engagement'
-  | 'workspace'
   | 'planner'
   | 'intelligence'
   | 'knowledge-graph'
@@ -116,12 +114,6 @@ const NAV: NavItem[] = [
     label: 'Engagement',
     path: '/engagement',
     icon: <CalendarOutlined />,
-  },
-  {
-    key: 'workspace',
-    label: 'Workspace',
-    path: '/workspace',
-    icon: <FolderOpenOutlined />,
   },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
@@ -1007,7 +999,6 @@ function pageKeyFor(pathname: string): AppSection {
   if (pathname === '/') return 'home';
   if (pathname.startsWith('/clients')) return 'clients';
   if (pathname.startsWith('/engagement')) return 'engagement';
-  if (pathname.startsWith('/workspace')) return 'workspace';
   if (pathname.startsWith('/actions')) return 'actions';
   // Knowledge Graph has its own nav entry — match its specific route BEFORE the
   // general /intelligence prefix, otherwise it falls through to 'intelligence'
@@ -1029,7 +1020,6 @@ function pageConfigFor(pathname: string): PageConfig {
     home: 'Dashboard',
     clients: 'Portfolio',
     engagement: 'Engagement',
-    workspace: 'Workspace',
     planner: 'Planner',
     intelligence: 'Intelligence Center',
     'knowledge-graph': 'Knowledge Graph',
@@ -1045,10 +1035,7 @@ function pageConfigFor(pathname: string): PageConfig {
     help: 'Help',
     'not-found': 'Not found',
   };
-  const showClientDropdown =
-    key === 'engagement' ||
-    pathname.startsWith('/workspace/library') ||
-    pathname.startsWith('/workspace/workflows');
+  const showClientDropdown = key === 'engagement';
   return { key, title: titleByKey[key], showClientDropdown };
 }
 

@@ -4,14 +4,10 @@ import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EngagementService, UpdateOutreachRecordInput } from '../engagement/engagement.service.js';
-import { WorkflowsService } from '../workflows/workflows.service.js';
-import { WhitePaperService } from '../workflows/whitepaper.service.js';
 import { ChatToolsService } from './chat-tools.service.js';
 import type {
   SendMessageDto,
   EditDraftDto,
-  EditWorkflowDto,
-  DraftWhitePaperSectionDto,
 } from './dto/chat-message.dto.js';
 
 const AI_TIMEOUT_MS = 90_000;
@@ -22,9 +18,7 @@ type ChatIntent =
   | 'query_intelligence'
   | 'query_clients'
   | 'query_engagement'
-  | 'query_workflow'
   | 'edit_draft'
-  | 'edit_workflow_field'
   | 'generate_draft'
   | 'generate_briefing'
   | 'general_question'
@@ -112,8 +106,6 @@ export class ChatService {
     private readonly prisma: PrismaService,
     private readonly tools: ChatToolsService,
     private readonly engagementService: EngagementService,
-    private readonly workflowsService: WorkflowsService,
-    private readonly whitePaperService: WhitePaperService,
   ) {
     this.openaiKey = config.get('OPENAI_API_KEY', { infer: true });
     this.anthropicKey = config.get('ANTHROPIC_API_KEY', { infer: true });
@@ -338,182 +330,6 @@ export class ChatService {
     return result;
   }
 
-  // ─── Edit workflow field (non-streaming, saves to DB) ─────────────────────
-
-  async editWorkflow(ctx: TenantContext, dto: EditWorkflowDto) {
-    const { instanceId, fieldKey, currentValue, instruction, context } = dto;
-
-    const pageContext = await this.tools.gatherPageContext(ctx.tenantId, context);
-
-    const prompt = [
-      'Edit the following workflow form field value per the instruction.',
-      'Preserve the factual content unless the instruction explicitly changes it.',
-      'Return valid JSON with "updatedValue" and "changesSummary" fields.',
-      '',
-      pageContext ? `Context:\n${pageContext}` : '',
-      `Field: ${fieldKey}`,
-      `Instruction: ${instruction}`,
-      `Current value:\n${currentValue}`,
-    ]
-      .filter(Boolean)
-      .join('\n');
-
-    const schema = {
-      type: 'object',
-      additionalProperties: false,
-      required: ['updatedValue', 'changesSummary'],
-      properties: {
-        updatedValue: { type: 'string' },
-        changesSummary: { type: 'string' },
-      },
-    };
-
-    const result = await this.callWithProviderFallback<{
-      updatedValue: string;
-      changesSummary: string;
-    }>('workflow field edit', async (provider) => {
-      if (provider === 'anthropic') {
-        if (!this.anthropicKey) throw new ServiceUnavailableException('ANTHROPIC_API_KEY not configured');
-        const res = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'x-api-key': this.anthropicKey,
-            'anthropic-version': '2023-06-01',
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: CHAT_SONNET_MODEL,
-            max_tokens: 2000,
-            system:
-              'You are an expert government affairs writer. Edit the provided field value per the instruction. Return only valid JSON.',
-            messages: [
-              { role: 'user', content: `${prompt}\n\nJSON schema:\n${JSON.stringify(schema)}` },
-            ],
-          }),
-        });
-        const json = (await res.json()) as Record<string, unknown>;
-        if (!res.ok)
-          throw new ServiceUnavailableException(`Anthropic workflow edit failed: HTTP ${res.status}`);
-        const parsed = parseJsonSafe(extractAnthropicText(json));
-        return {
-          updatedValue: typeof parsed.updatedValue === 'string' ? parsed.updatedValue : currentValue,
-          changesSummary:
-            typeof parsed.changesSummary === 'string' ? parsed.changesSummary : 'Changes applied.',
-        };
-      } else {
-        if (!this.openaiKey) throw new ServiceUnavailableException('OPENAI_API_KEY not configured');
-        const res = await fetchWithTimeout('https://api.openai.com/v1/responses', {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${this.openaiKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            model: this.openaiModel,
-            input: `${prompt}\n\nJSON schema:\n${JSON.stringify(schema)}`,
-            text: { format: { type: 'json_schema', name: 'workflow_edit', strict: true, schema } },
-          }),
-        });
-        const json = (await res.json()) as Record<string, unknown>;
-        if (!res.ok)
-          throw new ServiceUnavailableException(`OpenAI workflow edit failed: HTTP ${res.status}`);
-        const parsed = parseJsonSafe(extractOpenAiText(json));
-        return {
-          updatedValue: typeof parsed.updatedValue === 'string' ? parsed.updatedValue : currentValue,
-          changesSummary:
-            typeof parsed.changesSummary === 'string' ? parsed.changesSummary : 'Changes applied.',
-        };
-      }
-    });
-
-    // Persist the updated field via WorkflowsService
-    const instance = await this.workflowsService.getInstance(ctx.tenantId, instanceId);
-    const existingFormData = (instance.formData ?? {}) as Record<string, unknown>;
-    const updatedFormData: Record<string, unknown> = {
-      ...existingFormData,
-      [fieldKey]: result.updatedValue,
-    };
-    await this.workflowsService.updateInstance(ctx.tenantId, instanceId, {
-      formData: updatedFormData,
-    });
-
-    return result;
-  }
-
-  // ─── White paper: agentic section draft + write-back ─────────────────────
-  //
-  // Meri drafts or rewrites a single white-paper section through the shared
-  // WhitePaperService (provider fallback, tone/steer/context aware) and writes
-  // the result back into the structured `whitepaper_sections` array, keeping
-  // the flat `generated_document` mirror in sync. This is the write-back seam
-  // the guided/agentic flow uses.
-  async draftWhitePaperSection(ctx: TenantContext, dto: DraftWhitePaperSectionDto) {
-    const { instanceId, heading, mode, instruction } = dto;
-
-    const current = await this.whitePaperService.readSections(ctx.tenantId, instanceId);
-    // Resolve the target section by id or (case-insensitive) heading.
-    const target =
-      current.sections.find((s) => s.id === dto.sectionId) ??
-      current.sections.find(
-        (s) => s.heading.trim().toLowerCase() === heading.trim().toLowerCase(),
-      );
-
-    const sectionId = target?.id ?? `sec-${current.sections.length + 1}`;
-    const resolvedHeading = target?.heading ?? heading;
-
-    // Pull attached context items so Meri drafts grounded in the same context
-    // the editor uses.
-    let contextItems = dto.contextItems;
-    if (!contextItems) {
-      const instance = await this.workflowsService.getInstance(ctx.tenantId, instanceId);
-      const fd = (instance.formData ?? {}) as Record<string, unknown>;
-      const stored = fd.whitepaper_context_items;
-      if (Array.isArray(stored)) {
-        contextItems = stored.filter(
-          (item): item is NonNullable<DraftWhitePaperSectionDto['contextItems']>[number] =>
-            Boolean(item) && typeof item === 'object',
-        );
-      }
-    }
-
-    const drafted = await this.whitePaperService.generateSection(ctx.tenantId, instanceId, {
-      sectionId,
-      heading: resolvedHeading,
-      mode: mode ?? 'draft',
-      instruction,
-      currentBody: target?.body,
-      tone: current.tone,
-      steerNote: current.steerNote,
-      contextItems: contextItems as Parameters<
-        WhitePaperService['generateSection']
-      >[2]['contextItems'],
-    });
-
-    // Merge back into the structured sections + flat mirror.
-    const nextSections = target
-      ? current.sections.map((s) =>
-          s.id === sectionId ? { ...s, body: drafted.body, status: 'drafted' as const } : s,
-        )
-      : [
-          ...current.sections,
-          { id: sectionId, heading: resolvedHeading, body: drafted.body, status: 'drafted' as const },
-        ];
-
-    const { composeWhitePaperDocument } = await import('../workflows/whitepaper.types.js');
-    await this.whitePaperService.persist(ctx.tenantId, instanceId, {
-      whitepaper_sections: nextSections,
-      generated_document: composeWhitePaperDocument(nextSections),
-      whitepaper_generated_at: new Date().toISOString(),
-    });
-
-    return {
-      sectionId,
-      heading: resolvedHeading,
-      body: drafted.body,
-      changesSummary: `Updated the "${resolvedHeading}" section.`,
-    };
-  }
-
   // ─── Private: intent classification ──────────────────────────────────────
 
   private async classifyIntent(message: string, page?: string): Promise<ChatIntent> {
@@ -524,9 +340,7 @@ export class ChatService {
       'query_intelligence, questions about bills, lobbying data, federal spending, regulatory changes',
       'query_clients, questions about the user\'s CRM clients',
       'query_engagement, questions about meetings, emails, outreach records',
-      'query_workflow, questions about workflow instances or submission status',
       'edit_draft, editing an existing outreach email draft',
-      'edit_workflow_field, editing a specific workflow form field',
       'generate_draft, generating a new outreach email or communication',
       'generate_briefing, requesting a briefing or summary about a client or topic',
       'navigate, asking to navigate to a different page or section',
@@ -608,8 +422,6 @@ export class ChatService {
           return this.tools.queryClients(tenantId);
         case 'query_engagement':
           return this.tools.queryEngagementOutreach(tenantId, context?.clientId);
-        case 'query_workflow':
-          return this.tools.queryWorkflows(tenantId, context?.clientId);
         case 'query_intelligence':
         case 'generate_briefing':
           return this.tools.queryIntelligence(context?.clientName);
@@ -638,28 +450,18 @@ export class ChatService {
       query_clients: 'The user is asking about their clients. Use the client list provided.',
       query_engagement:
         'The user is asking about meetings or outreach activity. Use the engagement data provided.',
-      query_workflow:
-        'The user is asking about workflow submissions. Use the workflow data provided.',
       generate_draft:
         'Generate a professional government affairs outreach email using any context provided.',
       generate_briefing:
         'Synthesize the provided intelligence into a clear, actionable briefing with key points.',
       navigate:
-        'Explain where to find what the user is looking for within the Capiro platform: Engagement Manager (meetings, outreach), Workspace (workflows), Intelligence Center (lobbying/spending data), Clients.',
+        'Explain where to find what the user is looking for within the Capiro platform: Engagement Manager (meetings, outreach), Intelligence Center (lobbying/spending data), Clients.',
       general_question:
         "Answer the user's question about federal lobbying, government affairs, or the Capiro platform.",
     };
 
     const parts = [base];
     if (intentGuidance[intent]) parts.push(intentGuidance[intent]!);
-    if (pageContext && /white.?paper/i.test(pageContext)) {
-      parts.push(
-        '\nThe user is in the White Paper editor. You can draft or rewrite a specific section and it will be written back into the document. ' +
-          'White papers are structured into sections (e.g. Problem Statement, Solution, Current Status, Funding History and Request, National Security Impact, Economic and District Impact, The Ask). ' +
-          'When asked to draft or improve a section, name the section clearly. Offer the three formats when the user is starting: Congressional Program White Paper, Appropriations Request Brief, or Issue/Policy Position Paper. ' +
-          'Never invent facts or leave bracket placeholders.',
-      );
-    }
     if (pageContext) parts.push(`\nPage context:\n${pageContext}`);
     if (toolContext) parts.push(`\nRelevant data:\n${toolContext}`);
 

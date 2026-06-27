@@ -1,6 +1,4 @@
 import {
-  IsArray,
-  IsIn,
   IsObject,
   IsOptional,
   IsString,
@@ -50,77 +48,3 @@ export class EditDraftDto {
   context?: ChatContextDto;
 }
 
-export class EditWorkflowDto {
-  @IsString()
-  instanceId!: string;
-
-  @IsString()
-  fieldKey!: string;
-
-  @IsString()
-  currentValue!: string;
-
-  @IsString()
-  @MinLength(1)
-  instruction!: string;
-
-  @IsOptional()
-  @IsObject()
-  @ValidateNested()
-  @Type(() => ChatContextDto)
-  context?: ChatContextDto;
-}
-
-class DraftWhitePaperContextItemDto {
-  @IsString()
-  id!: string;
-
-  @IsString()
-  kind!: string;
-
-  @IsString()
-  title!: string;
-
-  @IsString()
-  content!: string;
-
-  @IsOptional()
-  @IsString()
-  refId?: string;
-
-  @IsOptional()
-  @IsString()
-  tag?: string;
-}
-
-export class DraftWhitePaperSectionDto {
-  @IsString()
-  instanceId!: string;
-
-  @IsString()
-  sectionId!: string;
-
-  @IsString()
-  @MinLength(1)
-  heading!: string;
-
-  @IsOptional()
-  @IsIn(['draft', 'rewrite', 'improve'])
-  mode?: 'draft' | 'rewrite' | 'improve';
-
-  @IsOptional()
-  @IsString()
-  instruction?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => DraftWhitePaperContextItemDto)
-  contextItems?: DraftWhitePaperContextItemDto[];
-
-  @IsOptional()
-  @IsObject()
-  @ValidateNested()
-  @Type(() => ChatContextDto)
-  context?: ChatContextDto;
-}

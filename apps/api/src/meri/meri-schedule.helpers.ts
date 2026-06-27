@@ -48,9 +48,7 @@ export const DEFAULT_SCHEDULED_TOOL_ALLOWLIST: readonly string[] = [
   'get_acquisition_person',
   // Firm operational data reads (tool-coverage expansion) — read-only, so
   // unattended scheduled research may use them.
-  'query_workflows',
   'query_tasks',
-  'query_strategies',
   'query_action_items',
   'search_tracked_bills',
   'query_regulatory_dockets',
@@ -76,7 +74,6 @@ export const FORBIDDEN_SCHEDULED_TOOLS: ReadonlySet<string> = new Set<string>([
   'scrape_web_page',
   'create_task',
   'update_task',
-  'update_workflow_field',
 ]);
 
 export interface ScheduleValidationResult {

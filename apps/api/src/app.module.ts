@@ -19,8 +19,6 @@ import { DirectoryModule } from './directory/directory.module.js';
 import { EngagementModule } from './engagement/engagement.module.js';
 import { DemoRequestsModule } from './demo-requests/demo-requests.module.js';
 import { MeriModule } from './meri/meri.module.js';
-import { WorkflowsModule } from './workflows/workflows.module.js';
-import { StrategiesModule } from './strategies/strategies.module.js';
 import { LobbyIntelModule } from './lobby-intel/lobby-intel.module.js';
 import { FederalSpendingModule } from './federal-spending/federal-spending.module.js';
 import { LdaIntelModule } from './lda-intel/lda-intel.module.js';
@@ -69,8 +67,6 @@ import { ApiLatencyMiddleware } from './observability/api-latency.middleware.js'
     EngagementModule,
     DemoRequestsModule,
     MeriModule,
-    WorkflowsModule,
-    StrategiesModule,
     LobbyIntelModule,
     FederalSpendingModule,
     LdaIntelModule,
