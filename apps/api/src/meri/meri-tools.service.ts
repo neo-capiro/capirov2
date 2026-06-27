@@ -6,10 +6,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EngagementTaskStatus, Prisma } from '@prisma/client';
+import { EngagementTaskStatus, Prisma, WorkflowStatus } from '@prisma/client';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { EngagementService } from '../engagement/engagement.service.js';
+import { WorkflowsService } from '../workflows/workflows.service.js';
+import { StrategiesService } from '../strategies/strategies.service.js';
 import { IntelligenceService } from '../intelligence/intelligence.service.js';
 import { ActionRecommendationReadService } from '../intelligence/actions/action-recommendation-read.service.js';
 import type { ActionStatus } from '../intelligence/actions/action-recommendation.types.js';
@@ -222,8 +224,16 @@ export const TOOL_DEFINITIONS = [
     description: 'Cancel (disable) a recurring scheduled Meri task by its id.',
   },
   {
+    name: 'query_workflows',
+    description: 'List or inspect the firm\'s workflow/submission instances (e.g. white papers, appropriations requests in progress) by client and status. Pass instanceId for full detail. Use for "where do our submissions stand / what\'s in flight".',
+  },
+  {
     name: 'query_tasks',
     description: 'List engagement tasks/to-dos for the firm or a client — filter by status and due date. Use for "what is due, overdue, or open".',
+  },
+  {
+    name: 'query_strategies',
+    description: 'List the firm\'s government-affairs strategies and their targets/deadlines, or upcoming strategy deadlines. Use to ground answers in the firm\'s actual game plan. Pass strategyId for full detail or deadlinesOnly for the deadline calendar.',
   },
   {
     name: 'query_action_items',
@@ -260,6 +270,10 @@ export const TOOL_DEFINITIONS = [
   {
     name: 'update_task',
     description: 'Update an engagement task\'s status, due date, or title (e.g. mark done). Requires user approval.',
+  },
+  {
+    name: 'update_workflow_field',
+    description: 'Write an approved value into a single field of a workflow/submission instance\'s form data. Requires user approval.',
   },
   {
     name: 'update_client_profile',
@@ -299,6 +313,7 @@ const SIDE_EFFECTING_TOOLS: ReadonlySet<string> = new Set<string>([
   'cancel_scheduled_task',
   'create_task',
   'update_task',
+  'update_workflow_field',
   'update_client_profile',
 ]);
 
@@ -339,6 +354,8 @@ export class MeriToolsService {
     private readonly programElement: ProgramElementReadService,
     private readonly acquisitionPersonnel: AcquisitionPersonnelReadService,
     private readonly docgen: MeriDocgenService,
+    private readonly workflows: WorkflowsService,
+    private readonly strategies: StrategiesService,
     private readonly actionRecommendations: ActionRecommendationReadService,
     private readonly intelligence: IntelligenceService,
     private readonly regulatoryDockets: RegulatoryDocketService,
@@ -636,10 +653,22 @@ export class MeriToolsService {
       }, ['name', 'prompt', 'intervalMinutes']),
       list_scheduled_tasks: obj({}),
       cancel_scheduled_task: obj({ taskId: str('Scheduled task UUID') }, ['taskId']),
+      query_workflows: obj({
+        instanceId: str('Optional workflow instance UUID for full detail'),
+        clientId: str('Optional client UUID filter'),
+        status: str('Optional status filter: triage | in_progress | review | submitted | complete | cancelled'),
+        limit: int('Max results (1-50)'),
+      }),
       query_tasks: obj({
         clientId: str('Optional client UUID'),
         status: str('Optional: open | overdue | todo | in_progress | done | blocked | canceled'),
         dueBefore: str('Optional ISO date upper bound on due date'),
+        limit: int('Max results (1-50)'),
+      }),
+      query_strategies: obj({
+        strategyId: str('Optional strategy UUID for full detail'),
+        clientId: str('Optional client UUID filter'),
+        deadlinesOnly: { type: 'boolean', description: 'Return upcoming deadlines across strategies (next 30 days)' },
         limit: int('Max results (1-50)'),
       }),
       query_action_items: obj({
@@ -688,6 +717,11 @@ export class MeriToolsService {
         dueDate: str('Optional new ISO due date'),
         title: str('Optional new title'),
       }, ['taskId']),
+      update_workflow_field: obj({
+        instanceId: str('Workflow instance UUID'),
+        fieldKey: str('Form-data field key to set'),
+        value: str('Approved value to write'),
+      }, ['instanceId', 'fieldKey', 'value']),
       update_client_profile: obj({
         clientId: str('Client UUID to update'),
         name: str('Organization/client name'),
@@ -1061,8 +1095,12 @@ export class MeriToolsService {
         return this.listScheduledTasks(ctx);
       case 'cancel_scheduled_task':
         return this.cancelScheduledTask(ctx, input);
+      case 'query_workflows':
+        return this.queryWorkflows(ctx, input);
       case 'query_tasks':
         return this.queryTasks(ctx, input);
+      case 'query_strategies':
+        return this.queryStrategies(ctx, input);
       case 'query_action_items':
         return this.queryActionItems(ctx, input);
       case 'search_tracked_bills':
@@ -1081,6 +1119,8 @@ export class MeriToolsService {
         return this.createEngagementTask(ctx, input);
       case 'update_task':
         return this.updateEngagementTask(ctx, input);
+      case 'update_workflow_field':
+        return this.updateWorkflowField(ctx, input);
       case 'update_client_profile':
         return this.updateClientProfile(ctx, input);
       default:
@@ -3074,6 +3114,53 @@ export class MeriToolsService {
     return { tool: 'cancel_scheduled_task', canceled: true, taskId };
   }
 
+  // ── Firm operational data (workflows / tasks / strategies / actions) ──
+
+  private async queryWorkflows(ctx: TenantContext, input: Record<string, unknown>) {
+    const instanceId = optionalString(input, 'instanceId', 80);
+    if (instanceId) {
+      const instance = await this.workflows.getInstance(ctx.tenantId, instanceId);
+      return {
+        tool: 'query_workflows',
+        generatedAt: new Date().toISOString(),
+        instance,
+      };
+    }
+
+    const clientId = optionalString(input, 'clientId', 80);
+    const status = optionalString(input, 'status', 40);
+    const limit = clampInt(input.limit, 1, 50, 20);
+    if (clientId) await this.ensureClientVisible(ctx, clientId);
+    if (status && !(Object.values(WorkflowStatus) as string[]).includes(status)) {
+      throw new BadRequestException(
+        `status must be one of: ${Object.values(WorkflowStatus).join(', ')}`,
+      );
+    }
+
+    const instances = await this.workflows.listInstances(ctx.tenantId, {
+      clientId: clientId ?? undefined,
+      status: status ?? undefined,
+    });
+
+    return {
+      tool: 'query_workflows',
+      generatedAt: new Date().toISOString(),
+      total: instances.length,
+      results: instances.slice(0, limit).map((instance) => ({
+        id: instance.id,
+        title: instance.title,
+        status: instance.status,
+        templateSlug: instance.template?.slug ?? null,
+        templateName: instance.template?.name ?? null,
+        clientId: instance.clientId,
+        clientName: instance.client?.name ?? null,
+        submissionDeadline: instance.submissionDeadline,
+        submissionMethod: instance.submissionMethod,
+        completedAt: instance.completedAt,
+        updatedAt: instance.updatedAt,
+      })),
+    };
+  }
 
   private async queryTasks(ctx: TenantContext, input: Record<string, unknown>) {
     const clientId = optionalString(input, 'clientId', 80);
@@ -3136,6 +3223,56 @@ export class MeriToolsService {
         meeting: task.meeting,
         description: summarizeText(task.description, 240),
         createdAt: task.createdAt,
+      })),
+    };
+  }
+
+  private async queryStrategies(ctx: TenantContext, input: Record<string, unknown>) {
+    const deadlinesOnly = optionalBoolean(input, 'deadlinesOnly');
+    if (deadlinesOnly) {
+      const deadlines = await this.strategies.getDeadlines(ctx.tenantId);
+      return {
+        tool: 'query_strategies',
+        generatedAt: new Date().toISOString(),
+        total: deadlines.length,
+        deadlines,
+      };
+    }
+
+    const strategyId = optionalString(input, 'strategyId', 80);
+    if (strategyId) {
+      const strategy = await this.strategies.get(ctx.tenantId, strategyId);
+      return {
+        tool: 'query_strategies',
+        generatedAt: new Date().toISOString(),
+        strategy,
+      };
+    }
+
+    const clientId = optionalString(input, 'clientId', 80);
+    const limit = clampInt(input.limit, 1, 50, 20);
+    if (clientId) await this.ensureClientVisible(ctx, clientId);
+
+    const strategies = await this.strategies.list(ctx.tenantId, {
+      clientId: clientId ?? undefined,
+    });
+
+    return {
+      tool: 'query_strategies',
+      generatedAt: new Date().toISOString(),
+      total: strategies.length,
+      results: strategies.slice(0, limit).map((strategy) => ({
+        id: strategy.id,
+        name: strategy.name,
+        status: strategy.status,
+        fiscalYear: strategy.fiscalYear,
+        clientId: strategy.clientId,
+        clientName: strategy.client?.name ?? null,
+        capability: strategy.capability,
+        targetsCount: strategy.targets.length,
+        instancesCount: strategy._count.instances,
+        description: summarizeText(strategy.description, 300),
+        createdAt: strategy.createdAt,
       })),
     };
   }
@@ -3349,7 +3486,7 @@ export class MeriToolsService {
     };
   }
 
-  // ── P2 write tools (approval-gated; engagement domain only) ──
+  // ── P2 write tools (approval-gated; engagement/workflow domain only) ──
 
   private async createEngagementTask(ctx: TenantContext, input: Record<string, unknown>) {
     const title = requiredString(input, 'title', 240);
@@ -3414,6 +3551,33 @@ export class MeriToolsService {
         clientId: task.clientId,
         updatedAt: task.updatedAt,
       },
+    };
+  }
+
+  private async updateWorkflowField(ctx: TenantContext, input: Record<string, unknown>) {
+    const instanceId = requiredString(input, 'instanceId', 80);
+    const fieldKey = requiredString(input, 'fieldKey', 120);
+    const value = requiredString(input, 'value', 20_000);
+
+    // getInstance 404s outside the tenant, so the read-merge-write below can
+    // never touch another tenant's instance.
+    const instance = await this.workflows.getInstance(ctx.tenantId, instanceId);
+    const existing =
+      instance.formData && typeof instance.formData === 'object' && !Array.isArray(instance.formData)
+        ? (instance.formData as Record<string, unknown>)
+        : {};
+    const formData = { ...existing, [fieldKey]: value };
+
+    const updated = await this.workflows.updateInstance(ctx.tenantId, instanceId, { formData });
+    return {
+      tool: 'update_workflow_field',
+      generatedAt: new Date().toISOString(),
+      updated: true,
+      instanceId,
+      fieldKey,
+      value,
+      instanceStatus: updated.status,
+      instanceTitle: updated.title,
     };
   }
 

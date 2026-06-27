@@ -59,20 +59,16 @@ export class ComputeStack extends cdk.Stack {
   public readonly apiRepo: ecr.IRepository;
   public readonly webRepo: ecr.IRepository;
   public readonly marketingRepo: ecr.IRepository;
-  public readonly workspaceRepo: ecr.IRepository;
   public readonly alb: elb.ApplicationLoadBalancer;
   public readonly apiService: ecs.FargateService;
   public readonly webService: ecs.FargateService;
   public readonly marketingService: ecs.FargateService;
-  public readonly workspaceService: ecs.FargateService;
   public readonly apiMigrateTaskDefinition: ecs.FargateTaskDefinition;
   public readonly apiBootstrapRolesTaskDefinition: ecs.FargateTaskDefinition;
   public readonly apiEmbedBackfillTaskDefinition: ecs.FargateTaskDefinition;
-  public readonly workspaceMigrateTaskDefinition: ecs.FargateTaskDefinition;
   public readonly apiTargetGroup: elb.ApplicationTargetGroup;
   public readonly webTargetGroup: elb.ApplicationTargetGroup;
   public readonly marketingTargetGroup: elb.ApplicationTargetGroup;
-  public readonly workspaceTargetGroup: elb.ApplicationTargetGroup;
 
   constructor(scope: Construct, id: string, props: ComputeStackProps) {
     super(scope, id, props);
@@ -223,11 +219,6 @@ export class ComputeStack extends cdk.Stack {
     // their `:latest` tag for the task definitions.
     this.apiRepo = ecr.Repository.fromRepositoryName(this, 'ApiRepo', `capiro/${cfg.envName}/api`);
     this.webRepo = ecr.Repository.fromRepositoryName(this, 'WebRepo', `capiro/${cfg.envName}/web`);
-    this.workspaceRepo = ecr.Repository.fromRepositoryName(
-      this,
-      'WorkspaceRepo',
-      `capiro/${cfg.envName}/workspace`,
-    );
 
     // ------------------------------------------------------------------ ECS cluster
     this.cluster = new ecs.Cluster(this, 'Cluster', {
@@ -651,174 +642,6 @@ export class ComputeStack extends cdk.Stack {
       targetUtilizationPercent: 60,
     });
 
-    // ------------------------------------------------------------------ Workspace engine service
-    // Standalone document-builder engine on its own ECR repo + Fargate service.
-    // Reuses the SHARED Aurora cluster (owns only ws_* tables) and the SAME
-    // Clerk JWT + AI provider secrets as the API. Routed via the ALB at
-    // /workspace-api/* (listener rule below). Web SPA stays in the web service.
-    const workspaceLogGroup = new logs.LogGroup(this, 'WorkspaceLogs', {
-      logGroupName: `/capiro/${cfg.envName}/workspace`,
-      retention: cfg.logRetentionDays as unknown as logs.RetentionDays,
-      removalPolicy: cdk.RemovalPolicy.RETAIN,
-    });
-    const workspaceMigrateLogGroup = new logs.LogGroup(this, 'WorkspaceMigrateLogs', {
-      logGroupName: `/capiro/${cfg.envName}/workspace-migrate`,
-      retention: logs.RetentionDays.ONE_YEAR,
-      removalPolicy: cfg.protectFromDestroy ? cdk.RemovalPolicy.RETAIN : cdk.RemovalPolicy.DESTROY,
-    });
-
-    const workspaceTaskRole = new iam.Role(this, 'WorkspaceTaskRole', {
-      assumedBy: new iam.ServicePrincipal('ecs-tasks.amazonaws.com'),
-      description: 'Capiro Workspace engine task role',
-    });
-    // Identity-only secret + KMS grants (same cycle-avoidance pattern as the
-    // API task role). The engine reads the same Clerk + AI provider secrets.
-    workspaceTaskRole.addToPolicy(
-      new iam.PolicyStatement({
-        actions: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
-        resources: [
-          dbSecretImported.secretArn,
-          appDbSecretImported.secretArn,
-          clerkSecretKeyImported.secretArn,
-          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
-          `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
-          aiCredentialEncryptionKeySecret.secretArn,
-        ],
-      }),
-    );
-    workspaceTaskRole.addToPolicy(
-      new iam.PolicyStatement({
-        actions: ['kms:Decrypt', 'kms:DescribeKey'],
-        resources: [dataKey.keyArn, secretsStack.secretsKey.keyArn],
-      }),
-    );
-
-    // Serve secrets: app DB user (least-privilege, no DDL) + Clerk + AI keys.
-    const workspaceServeSecrets = {
-      CLERK_SECRET_KEY: ecs.Secret.fromSecretsManager(clerkSecretKeyImported),
-      DB_HOST: ecs.Secret.fromSecretsManager(dbSecretImported, 'host'),
-      DB_PORT: ecs.Secret.fromSecretsManager(dbSecretImported, 'port'),
-      DB_USER: ecs.Secret.fromSecretsManager(appDbSecretImported, 'username'),
-      DB_PASSWORD: ecs.Secret.fromSecretsManager(appDbSecretImported, 'password'),
-      OPENAI_API_KEY: ecs.Secret.fromSecretsManager(openaiApiKeySecret),
-      ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(anthropicApiKeySecret),
-      // Tenant-scoped AI keys: decrypt BYO Anthropic keys from
-      // tenant_ai_credentials (same envelope scheme + key as the API).
-      AI_CREDENTIAL_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(aiCredentialEncryptionKeySecret),
-    };
-    // Migrate secrets: master DB role (needs DDL for prisma migrate deploy).
-    const workspaceMigrateSecrets = {
-      DB_HOST: ecs.Secret.fromSecretsManager(dbSecretImported, 'host'),
-      DB_PORT: ecs.Secret.fromSecretsManager(dbSecretImported, 'port'),
-      DB_USER: ecs.Secret.fromSecretsManager(dbSecretImported, 'username'),
-      DB_PASSWORD: ecs.Secret.fromSecretsManager(dbSecretImported, 'password'),
-    };
-    const workspaceSharedEnv: Record<string, string> = {
-      NODE_ENV: cfg.envName === 'dev' ? 'development' : 'production',
-      LOG_LEVEL: 'info',
-      WORKSPACE_PORT: '4200',
-      WORKSPACE_MODEL: 'claude-sonnet-4-6',
-      DB_NAME: databaseName,
-      ...(cfg.clerkJwtIssuer ? { CLERK_JWT_ISSUER: cfg.clerkJwtIssuer } : {}),
-      WEB_ORIGIN: `https://${cfg.appHost}`,
-    };
-
-    const workspaceTaskDef = new ecs.FargateTaskDefinition(this, 'WorkspaceTaskDef', {
-      family: `capiro-${cfg.envName}-workspace`,
-      cpu: cfg.workspaceCpu,
-      memoryLimitMiB: cfg.workspaceMemoryMib,
-      runtimePlatform: {
-        cpuArchitecture: ecs.CpuArchitecture.ARM64,
-        operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
-      },
-      taskRole: workspaceTaskRole,
-    });
-    grantSecretsAndKmsToExecutionRole(
-      workspaceTaskDef,
-      [
-        dbSecretImported.secretArn,
-        appDbSecretImported.secretArn,
-        clerkSecretKeyImported.secretArn,
-        `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
-        `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
-        aiCredentialEncryptionKeySecret.secretArn,
-      ],
-      [dataKey.keyArn, secretsStack.secretsKey.keyArn],
-    );
-    workspaceTaskDef.addContainer('workspace', {
-      image: ecs.ContainerImage.fromEcrRepository(this.workspaceRepo, 'latest'),
-      essential: true,
-      logging: ecs.LogDrivers.awsLogs({ logGroup: workspaceLogGroup, streamPrefix: 'workspace' }),
-      environment: workspaceSharedEnv,
-      secrets: workspaceServeSecrets,
-      readonlyRootFilesystem: false,
-      portMappings: [{ containerPort: 4200, protocol: ecs.Protocol.TCP }],
-      healthCheck: {
-        command: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:4200/health || exit 1'],
-        interval: cdk.Duration.seconds(30),
-        timeout: cdk.Duration.seconds(5),
-        retries: 3,
-        startPeriod: cdk.Duration.seconds(30),
-      },
-    });
-
-    this.workspaceService = new ecs.FargateService(this, 'WorkspaceService', {
-      cluster: this.cluster,
-      taskDefinition: workspaceTaskDef,
-      serviceName: `capiro-${cfg.envName}-workspace`,
-      desiredCount: cfg.workspaceDesiredCount,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [serviceSecurityGroup as ec2.SecurityGroup],
-      assignPublicIp: false,
-      enableExecuteCommand: cfg.envName !== 'prod',
-      cloudMapOptions: { name: 'workspace' },
-      circuitBreaker: { rollback: true },
-      minHealthyPercent: 100,
-      maxHealthyPercent: 200,
-    });
-    const workspaceScaling = this.workspaceService.autoScaleTaskCount({
-      minCapacity: cfg.workspaceDesiredCount,
-      maxCapacity: cfg.workspaceMaxCount,
-    });
-    workspaceScaling.scaleOnCpuUtilization('WorkspaceCpuScaling', {
-      targetUtilizationPercent: 60,
-      scaleInCooldown: cdk.Duration.seconds(60),
-      scaleOutCooldown: cdk.Duration.seconds(30),
-    });
-
-    // Workspace migrate task (run before rolling the service, like api-migrate).
-    this.workspaceMigrateTaskDefinition = new ecs.FargateTaskDefinition(
-      this,
-      'WorkspaceMigrateTaskDef',
-      {
-        family: `capiro-${cfg.envName}-workspace-migrate`,
-        cpu: 512,
-        memoryLimitMiB: 1024,
-        runtimePlatform: {
-          cpuArchitecture: ecs.CpuArchitecture.ARM64,
-          operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
-        },
-        taskRole: workspaceTaskRole,
-      },
-    );
-    grantSecretsAndKmsToExecutionRole(
-      this.workspaceMigrateTaskDefinition,
-      [dbSecretImported.secretArn],
-      [dataKey.keyArn, secretsStack.secretsKey.keyArn],
-    );
-    this.workspaceMigrateTaskDefinition.addContainer('workspace-migrate', {
-      image: ecs.ContainerImage.fromEcrRepository(this.workspaceRepo, 'latest'),
-      essential: true,
-      logging: ecs.LogDrivers.awsLogs({
-        logGroup: workspaceMigrateLogGroup,
-        streamPrefix: 'workspace-migrate',
-      }),
-      command: ['migrate'],
-      environment: { ...workspaceSharedEnv, MIGRATE_ONLY: '1' },
-      secrets: workspaceMigrateSecrets,
-      readonlyRootFilesystem: false,
-    });
-
     // ------------------------------------------------------------------ Migration task (run manually before API rollout)
     this.apiMigrateTaskDefinition = new ecs.FargateTaskDefinition(this, 'ApiMigrateTaskDef', {
       family: `capiro-${cfg.envName}-api-migrate`,
@@ -1150,28 +973,6 @@ export class ComputeStack extends cdk.Stack {
       deregistrationDelay: cdk.Duration.seconds(15),
     });
 
-    this.workspaceTargetGroup = new elb.ApplicationTargetGroup(this, 'WorkspaceTargetGroup', {
-      vpc,
-      port: 4200,
-      protocol: elb.ApplicationProtocol.HTTP,
-      targetType: elb.TargetType.IP,
-      targets: [
-        this.workspaceService.loadBalancerTarget({
-          containerName: 'workspace',
-          containerPort: 4200,
-        }),
-      ],
-      healthCheck: {
-        path: '/health',
-        healthyHttpCodes: '200',
-        interval: cdk.Duration.seconds(30),
-        timeout: cdk.Duration.seconds(5),
-        unhealthyThresholdCount: 3,
-        healthyThresholdCount: 2,
-      },
-      deregistrationDelay: cdk.Duration.seconds(15),
-    });
-
     // Listener rules, ORDER MATTERS, lower priority wins.
     //   3  /api/*, /webhooks/*, /health (any host) → api  [must beat marketing host rule]
     //   5  apex (capiro.ai) → marketing
@@ -1185,14 +986,6 @@ export class ComputeStack extends cdk.Stack {
       priority: 3,
       conditions: [elb.ListenerCondition.pathPatterns(['/api/*', '/webhooks/*', '/health'])],
       action: elb.ListenerAction.forward([this.apiTargetGroup]),
-    });
-    // Workspace engine: /workspace-api/* → workspace service. Priority 10 sits
-    // between ApiPaths (3) and WebDefault (20). The path is distinct from
-    // /api/* (the API) and from /workspace/* (which stays a WEB SPA route).
-    httpsListener.addAction('WorkspaceApi', {
-      priority: 10,
-      conditions: [elb.ListenerCondition.pathPatterns(['/workspace-api/*'])],
-      action: elb.ListenerAction.forward([this.workspaceTargetGroup]),
     });
     if (cfg.rootDomain !== cfg.appHost) {
       httpsListener.addAction('Marketing', {

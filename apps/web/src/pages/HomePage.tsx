@@ -5,6 +5,11 @@ import { Empty, Skeleton, Tag } from 'antd';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/use-api.js';
 import type { Client } from './clients/clientTypes.js';
+import {
+  STATUS_LABELS,
+  type WorkflowInstance,
+  type WorkflowStatus,
+} from './workspace/workflowTypes.js';
 import type {
   ComingUpItem,
   ComingUpResult,
@@ -123,6 +128,13 @@ export function HomePage() {
     staleTime: 2 * 60 * 1000,
   });
 
+  // Active workflows across ALL clients (cross-client view).
+  const workflows = useQuery<WorkflowInstance[]>({
+    queryKey: ['workflow-instances'],
+    queryFn: async () => (await api.get<WorkflowInstance[]>('/api/workflows/instances')).data,
+    staleTime: 30_000,
+  });
+
   // This-week meetings for the Client Engagement strip. Range = Mon 00:00
   // through Sun 23:59 of the current ET week.
   const week = useMemo(() => weekBounds(new Date()), []);
@@ -186,6 +198,13 @@ export function HomePage() {
         <OutreachDrafts records={outreach.data ?? []} loading={outreach.isLoading} />
       </div>
 
+      <div className="home-grid-2">
+        <OpenWorkflows workflows={workflows.data ?? []} loading={workflows.isLoading} />
+        <UpcomingDeadlines
+          workflows={workflows.data ?? []}
+          loading={workflows.isLoading}
+        />
+      </div>
     </section>
   );
 }
@@ -647,6 +666,207 @@ function OutreachDrafts({
       )}
     </div>
   );
+}
+
+/* ── Open workflows: half-width, grouped by client, progress stepper ─────── */
+
+// The lifecycle a request moves through. The stepper highlights where each
+// workflow currently sits.
+const WF_STAGES: WorkflowStatus[] = ['triage', 'in_progress', 'review', 'submitted', 'complete'];
+
+function OpenWorkflows({
+  workflows,
+  loading,
+}: {
+  workflows: WorkflowInstance[];
+  loading: boolean;
+}) {
+  // Group by client name (A–Z); workflows with no client fall under
+  // "Cross-client". Within a client, most-recently-updated first.
+  const groups = useMemo(() => {
+    const map = new Map<string, WorkflowInstance[]>();
+    for (const w of workflows) {
+      const name = w.client?.name?.trim() || 'Cross-client';
+      const arr = map.get(name) ?? [];
+      arr.push(w);
+      map.set(name, arr);
+    }
+    for (const arr of map.values()) {
+      arr.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [workflows]);
+
+  return (
+    <div className="home-panel home-panel--fixed">
+      <header className="home-panel-head">
+        <span className="home-panel-title">Open Workflows</span>
+        <span className="open">
+          <Link to="/workspace/workflows">Open Workspace →</Link>
+        </span>
+      </header>
+      {loading ? (
+        <div className="home-panel-list">
+          {[0, 1, 2].map((i) => (
+            <div className="home-panel-row" key={i}>
+              <Skeleton active paragraph={{ rows: 1 }} title={false} />
+            </div>
+          ))}
+        </div>
+      ) : workflows.length === 0 ? (
+        <div className="home-panel-empty">
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No active workflows. Kick one off from Workspace." />
+        </div>
+      ) : (
+        <div className="home-panel-list">
+          {groups.map(([client, items]) => (
+            <div className="home-wf-group" key={client}>
+              <div className="home-wf-group-head">
+                <span className="home-wf-group-name">{client}</span>
+                <span className="home-wf-group-count num">{items.length}</span>
+              </div>
+              {items.map((w) => (
+                <Link
+                  key={w.id}
+                  to={`/workspace/workflows?instance=${encodeURIComponent(w.id)}`}
+                  className="home-wf-row"
+                >
+                  <div className="home-wf-row-top">
+                    <span className="home-wf-row-title">{w.title}</span>
+                    <span className="home-wf-row-stage">{STATUS_LABELS[w.status]}</span>
+                  </div>
+                  <WorkflowProgress status={w.status} />
+                </Link>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkflowProgress({ status }: { status: WorkflowStatus }) {
+  const idx = WF_STAGES.indexOf(status);
+  return (
+    <div className="home-wfp" role="img" aria-label={`Stage: ${STATUS_LABELS[status]}`}>
+      {WF_STAGES.map((s, i) => (
+        <Fragment key={s}>
+          {i > 0 ? <span className={`home-wfp-bar${i <= idx ? ' is-done' : ''}`} aria-hidden /> : null}
+          <span
+            className={
+              'home-wfp-node' +
+              (i < idx ? ' is-done' : '') +
+              (i === idx ? ' is-current' : '')
+            }
+            title={STATUS_LABELS[s]}
+            aria-hidden
+          />
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+/* ── Upcoming deadlines (half-width, what's due & when) ──────────────────── */
+
+interface DeadlineItem {
+  id: string;
+  kind: 'Submission';
+  title: string;
+  client: string;
+  due: Date;
+  href: string;
+}
+
+function UpcomingDeadlines({
+  workflows,
+  loading,
+}: {
+  workflows: WorkflowInstance[];
+  loading: boolean;
+}) {
+  const items = useMemo<DeadlineItem[]>(() => {
+    const out: DeadlineItem[] = [];
+
+    // Submission deadlines the team OWES (filings, drafts, deliverables),
+    // excluding already-submitted/complete work. Regulatory comment-period
+    // closings are intentionally NOT shown here — those are external events and
+    // live in Needs Attention so this panel stays a clean "what I owe and when"
+    // list rather than duplicating comment alerts across three surfaces.
+    for (const w of workflows) {
+      if (!w.submissionDeadline) continue;
+      if (w.status === 'submitted' || w.status === 'complete') continue;
+      const due = new Date(w.submissionDeadline);
+      if (Number.isNaN(due.getTime())) continue;
+      out.push({
+        id: `wf-${w.id}`,
+        kind: 'Submission',
+        title: w.title,
+        client: w.client?.name?.trim() || 'Cross-client',
+        due,
+        href: `/workspace/workflows?instance=${encodeURIComponent(w.id)}`,
+      });
+    }
+
+    // Hide anything more than a day past due; soonest first; cap at 10.
+    return out
+      .filter((d) => dayDiff(d.due.toISOString()) >= -1)
+      .sort((a, b) => a.due.getTime() - b.due.getTime())
+      .slice(0, 10);
+  }, [workflows]);
+
+  return (
+    <div className="home-panel home-panel--fixed">
+      <header className="home-panel-head">
+        <span className="home-panel-title">Upcoming Deadlines</span>
+        <span className="open">
+          <Link to="/workspace/workflows">Open Workspace →</Link>
+        </span>
+      </header>
+      {loading ? (
+        <div className="home-panel-list">
+          {[0, 1, 2].map((i) => (
+            <div className="home-panel-row" key={i}>
+              <Skeleton active paragraph={{ rows: 1 }} title={false} />
+            </div>
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <div className="home-panel-empty">
+          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing due in the near term." />
+        </div>
+      ) : (
+        <div className="home-panel-list">
+          {items.map((d) => {
+            const days = dayDiff(d.due.toISOString());
+            const sev = days < 0 ? 'critical' : commentSeverity(days);
+            const color = sev === 'critical' ? 'red' : sev === 'notable' ? 'gold' : 'default';
+            return (
+              <Link key={d.id} to={d.href} className="home-panel-row">
+                <div className="home-panel-row-main">
+                  <span className="home-panel-row-title">{d.title}</span>
+                  <span className="home-panel-row-sub">
+                    {[d.client, d.kind].filter(Boolean).join(' · ')}
+                  </span>
+                </div>
+                <Tag color={color} className="home-panel-tag">
+                  {dueCountdown(days)}
+                </Tag>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function dueCountdown(days: number): string {
+  if (days < 0) return `${Math.abs(days)}d overdue`;
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  return `${days}d`;
 }
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */

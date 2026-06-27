@@ -5,11 +5,11 @@ import { ChangesInboxBell } from './ChangesInboxBell.js';
 import { QuickLogButton } from './QuickLog.js';
 import {
   ApartmentOutlined,
-  FolderOpenOutlined,
   CalendarOutlined,
   CheckOutlined,
   DashboardOutlined,
   DownOutlined,
+  FolderOpenOutlined,
   FundOutlined,
   IdcardOutlined,
   MenuFoldOutlined,
@@ -117,8 +117,13 @@ const NAV: NavItem[] = [
     path: '/engagement',
     icon: <CalendarOutlined />,
   },
+  {
+    key: 'workspace',
+    label: 'Workspace',
+    path: '/workspace',
+    icon: <FolderOpenOutlined />,
+  },
   { key: 'clients', label: 'Portfolio', path: '/clients', icon: <ApartmentOutlined /> },
-  { key: 'workspace', label: 'Workspace', path: '/workspace', icon: <FolderOpenOutlined /> },
   { key: 'directory', label: 'Directory', path: '/directory', icon: <IdcardOutlined /> },
   // Intelligence group (kept LAST in the nav): the Intelligence Center (live
   // Explorer) plus Program Elements nested beneath it. The former PE sub-items
@@ -1040,7 +1045,10 @@ function pageConfigFor(pathname: string): PageConfig {
     help: 'Help',
     'not-found': 'Not found',
   };
-  const showClientDropdown = key === 'engagement';
+  const showClientDropdown =
+    key === 'engagement' ||
+    pathname.startsWith('/workspace/library') ||
+    pathname.startsWith('/workspace/workflows');
   return { key, title: titleByKey[key], showClientDropdown };
 }
 

@@ -5,6 +5,8 @@ import { LobbyIntelModule } from '../lobby-intel/lobby-intel.module.js';
 import { FederalSpendingModule } from '../federal-spending/federal-spending.module.js';
 import { ProgramElementModule } from '../program-element/program-element.module.js';
 import { AcquisitionPersonnelModule } from '../acquisition-personnel/acquisition-personnel.module.js';
+import { WorkflowsModule } from '../workflows/workflows.module.js';
+import { StrategiesModule } from '../strategies/strategies.module.js';
 import { IntelligenceModule } from '../intelligence/intelligence.module.js';
 import { ClientsModule } from '../clients/clients.module.js';
 import { RegulatoryDocketModule } from '../regulatory-docket/regulatory-docket.module.js';
@@ -26,6 +28,8 @@ import { MeriFeatureFlagsService } from './meri-feature-flags.service.js';
     FederalSpendingModule,
     ProgramElementModule,
     AcquisitionPersonnelModule,
+    WorkflowsModule,
+    StrategiesModule,
     IntelligenceModule,
     ClientsModule,
     RegulatoryDocketModule,
