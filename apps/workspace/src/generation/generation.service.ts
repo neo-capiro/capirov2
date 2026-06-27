@@ -76,14 +76,14 @@ export class GenerationService {
     });
 
     // Strip client/office names from the prompt when anonymizing.
-    const finalPrompt = anonymize
-      ? anonymizeText(prompt, { client, offices }).text
-      : prompt;
+    const finalPrompt = anonymize ? anonymizeText(prompt, { client, offices }).text : prompt;
 
     const raw = await this.callAnthropic(cred.secret, cred.model, finalPrompt);
 
     // Strip any client/office names the model may have echoed back.
-    const result = anonymize ? anonymizeText(raw, { client, offices }) : { text: raw, map: { legend: {} } };
+    const result = anonymize
+      ? anonymizeText(raw, { client, offices })
+      : { text: raw, map: { legend: {} } };
 
     return {
       section: sectionName,
@@ -92,6 +92,163 @@ export class GenerationService {
       usedTenantKey: cred.usedTenantKey,
       anonymized: anonymize,
       legend: anonymize ? result.map.legend : undefined,
+    };
+  }
+
+  /**
+   * "Start with Meri" intake (handoff Q-LIB-3). Resolves a free-text prompt to a
+   * work product + cascade, creates the draft, and auto-drafts every section.
+   * The product is chosen from the canonical catalog only; pathways/committees
+   * are DERIVED from the cascade (never trusted from the model). Section drafting
+   * is best-effort + concurrent — a failed section is left empty for the editor.
+   * Returns the drafted draft to open directly in the editor.
+   */
+  async meriIntake(tenantId: string, ownerId: string, prompt: string, clientHint?: string) {
+    const cred = await this.creds.resolveAnthropic(tenantId);
+    if (!cred) {
+      throw new ServiceUnavailableException(
+        'No Anthropic credential available (tenant or global). Configure an AI key.',
+      );
+    }
+
+    const industries = WSC.industries();
+    const products = WSC.allLibraryProducts();
+    const resolvePrompt = [
+      'You are Meri, a government-affairs intake assistant. A lobbyist described a document they need.',
+      'Map it to exactly one work product and its setup. Respond with ONLY a JSON object — no prose, no code fences.',
+      '',
+      `Request: "${prompt}"`,
+      clientHint ? `Known client: ${clientHint}` : '',
+      '',
+      `"product" MUST be exactly one of: ${products.join(' | ')}.`,
+      `"industry" MUST be exactly one of: ${industries.join(' | ')}.`,
+      'JSON shape: {"product": string, "industry": string, "client": string|null, ' +
+        '"docTitle": string (<=80 chars, specific to the request), ' +
+        '"confidence": "high"|"medium"|"low", "notes": string (one line naming any low-confidence guesses)}.',
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const raw = await this.callAnthropic(cred.secret, cred.model, resolvePrompt);
+    const parsed = this.parseIntakeJson(raw, products, industries);
+
+    const product = parsed.product;
+    const industry = parsed.industry;
+    const client = clientHint || parsed.client || null;
+    const meta = WSC.meta(product);
+    const pathways = WSC.pathwaysFor(industry, product);
+    const committees = WSC.committeesFor(industry, pathways);
+    const sections = WSC.suggestedSections(product);
+    const pages = WSC.suggestedPages(product);
+    const funding = WSC.isFunding(product);
+
+    const config: Record<string, unknown> = {
+      industry,
+      product,
+      client,
+      pathways,
+      committees,
+      personalize: meta.personalize,
+      officeAssociated: meta.office,
+      offices: [],
+      clientAssociated: false,
+      clientPersons: [],
+      coverLetter: meta.cover,
+      selectedTemplate: null,
+      sections,
+      pages,
+      tone: 'Formal',
+      toneContext: '',
+      linkedData: WSC.dataFor(industry).map((d) => d.label),
+      anonymize: false,
+      letterhead: { custom: false, firmName: '', firmAddr: '' },
+      // Provenance for the editor: flag low-confidence guesses for review.
+      meriOrigin: { prompt, confidence: parsed.confidence, notes: parsed.notes },
+    };
+
+    const draft = await this.prisma.wsDraft.create({
+      data: {
+        tenantId,
+        ownerId,
+        docTitle: parsed.docTitle || `${product} draft`,
+        industry,
+        product,
+        client,
+        config: config as never,
+        ask: funding ? { amount: '', pb: '', delta: '' } : 'n/a',
+        isPacket: meta.cover,
+        docCount: 1,
+      },
+    });
+    await this.prisma.wsDocument.create({
+      data: { tenantId, draftId: draft.id, name: product, ordinal: 0, body: { blocks: [] } },
+    });
+
+    // Auto-draft each section concurrently (best-effort). Statuses default to
+    // "review" so the user signs off before the doc is treated as final (Q-ED-9).
+    const sectionContent: Record<string, string> = {};
+    const sectionMeta: Record<string, { status: string }> = {};
+    await Promise.all(
+      sections.map(async (section) => {
+        try {
+          const r = await this.generateSection(tenantId, draft.id, section);
+          sectionContent[section] = r.content;
+          sectionMeta[section] = { status: 'review' };
+        } catch (e) {
+          this.logger.warn(`Meri intake: section "${section}" failed: ${(e as Error).message}`);
+        }
+      }),
+    );
+
+    await this.prisma.wsDraft.update({
+      where: { id: draft.id },
+      data: { config: { ...config, sectionContent, sectionMeta } as never },
+    });
+
+    return this.prisma.wsDraft.findFirst({
+      where: { id: draft.id, tenantId },
+      include: { documents: { orderBy: { ordinal: 'asc' } } },
+    });
+  }
+
+  private parseIntakeJson(
+    raw: string,
+    products: string[],
+    industries: string[],
+  ): {
+    product: string;
+    industry: string;
+    client: string | null;
+    docTitle: string;
+    confidence: string;
+    notes: string;
+  } {
+    let obj: Record<string, unknown> = {};
+    try {
+      const m = raw.match(/\{[\s\S]*\}/);
+      if (m) obj = JSON.parse(m[0]) as Record<string, unknown>;
+    } catch {
+      obj = {};
+    }
+    const product =
+      typeof obj.product === 'string' && products.includes(obj.product)
+        ? obj.product
+        : 'White paper';
+    const industry =
+      typeof obj.industry === 'string' && industries.includes(obj.industry)
+        ? obj.industry
+        : (industries[0] ?? 'Defense & Aerospace');
+    const confidence =
+      obj.confidence === 'high' || obj.confidence === 'medium' || obj.confidence === 'low'
+        ? obj.confidence
+        : 'low';
+    return {
+      product,
+      industry,
+      client: typeof obj.client === 'string' && obj.client.trim() ? obj.client : null,
+      docTitle: typeof obj.docTitle === 'string' ? obj.docTitle.slice(0, 80) : '',
+      confidence,
+      notes: typeof obj.notes === 'string' ? obj.notes : '',
     };
   }
 
@@ -145,7 +302,9 @@ export class GenerationService {
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
-        this.logger.warn(`Anthropic generation failed: HTTP ${res.status} ${body.error?.message ?? ''}`);
+        this.logger.warn(
+          `Anthropic generation failed: HTTP ${res.status} ${body.error?.message ?? ''}`,
+        );
         throw new ServiceUnavailableException(
           body.error?.message ?? `Generation failed (HTTP ${res.status})`,
         );

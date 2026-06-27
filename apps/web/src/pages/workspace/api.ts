@@ -18,7 +18,8 @@ export function useIndustries() {
   const api = useApi();
   return useQuery({
     queryKey: ['ws', 'industries'],
-    queryFn: async () => (await api.get<{ industries: string[] }>(`${BASE}/cascade`)).data.industries,
+    queryFn: async () =>
+      (await api.get<{ industries: string[] }>(`${BASE}/cascade`)).data.industries,
   });
 }
 
@@ -71,7 +72,11 @@ export function useProductDefaults(product: string | null) {
     queryKey: ['ws', 'defaults', product],
     enabled: !!product,
     queryFn: async () =>
-      (await api.get<WsProductDefaults>(`${BASE}/products/${encodeURIComponent(product!)}/defaults`)).data,
+      (
+        await api.get<WsProductDefaults>(
+          `${BASE}/products/${encodeURIComponent(product!)}/defaults`,
+        )
+      ).data,
   });
 }
 
@@ -83,9 +88,11 @@ export function useTemplatesFor(product: string | null) {
     enabled: !!product,
     queryFn: async () =>
       (
-        await api.get<{ primary: WsTemplate | null; secondary: WsTemplate | null; all: WsTemplate[] }>(
-          `${BASE}/templates?product=${encodeURIComponent(product!)}`,
-        )
+        await api.get<{
+          primary: WsTemplate | null;
+          secondary: WsTemplate | null;
+          all: WsTemplate[];
+        }>(`${BASE}/templates?product=${encodeURIComponent(product!)}`)
       ).data,
   });
 }
@@ -118,8 +125,12 @@ export function useCreateDraft() {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { industry?: string; product?: string; client?: string; docTitle?: string }) =>
-      (await api.post<WsDraft>(`${BASE}/drafts`, body)).data,
+    mutationFn: async (body: {
+      industry?: string;
+      product?: string;
+      client?: string;
+      docTitle?: string;
+    }) => (await api.post<WsDraft>(`${BASE}/drafts`, body)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ws', 'drafts'] }),
   });
 }
@@ -128,19 +139,37 @@ export function useUpdateDraft(id: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: Partial<{
-      docTitle: string;
-      industry: string;
-      product: string;
-      client: string;
-      status: 'draft' | 'complete';
-      config: Partial<WsConfig>;
-      ask: { amount?: string; pb?: string; delta?: string };
-    }>) => (await api.patch<WsDraft>(`${BASE}/drafts/${id}`, body)).data,
+    mutationFn: async (
+      body: Partial<{
+        docTitle: string;
+        industry: string;
+        product: string;
+        client: string;
+        status: 'draft' | 'complete';
+        config: Partial<WsConfig>;
+        ask: { amount?: string; pb?: string; delta?: string };
+      }>,
+    ) => (await api.patch<WsDraft>(`${BASE}/drafts/${id}`, body)).data,
     onSuccess: (data) => {
       qc.setQueryData(['ws', 'draft', id], data);
       qc.invalidateQueries({ queryKey: ['ws', 'drafts'] });
     },
+  });
+}
+
+/**
+ * "Start with Meri" intake: resolves a free-text prompt to a work product +
+ * cascade, creates the draft, and auto-drafts its sections. Returns the drafted
+ * WsDraft to open directly in the editor (handoff Q-LIB-3). Slow (LLM) — show a
+ * "Meri is drafting…" state on the caller.
+ */
+export function useMeriIntake() {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body: { prompt: string; client?: string }) =>
+      (await api.post<WsDraft>(`${BASE}/meri/intake`, body)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ws', 'drafts'] }),
   });
 }
 
@@ -168,8 +197,13 @@ export function useUpdateDocument(draftId: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ docId, body }: { docId: string; body: Partial<{ name: string; ordinal: number; body: Record<string, unknown> }> }) =>
-      (await api.patch<WsDocument>(`${BASE}/drafts/${draftId}/documents/${docId}`, body)).data,
+    mutationFn: async ({
+      docId,
+      body,
+    }: {
+      docId: string;
+      body: Partial<{ name: string; ordinal: number; body: Record<string, unknown> }>;
+    }) => (await api.patch<WsDocument>(`${BASE}/drafts/${draftId}/documents/${docId}`, body)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ws', 'draft', draftId] }),
   });
 }
@@ -190,7 +224,8 @@ export function useComments(documentId: string | null) {
   return useQuery({
     queryKey: ['ws', 'comments', documentId],
     enabled: !!documentId,
-    queryFn: async () => (await api.get<WsComment[]>(`${BASE}/documents/${documentId}/comments`)).data,
+    queryFn: async () =>
+      (await api.get<WsComment[]>(`${BASE}/documents/${documentId}/comments`)).data,
   });
 }
 
@@ -198,8 +233,12 @@ export function useCreateComment(documentId: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { body: string; quote?: string; anchor?: Record<string, unknown>; parentId?: string }) =>
-      (await api.post<WsComment>(`${BASE}/documents/${documentId}/comments`, body)).data,
+    mutationFn: async (body: {
+      body: string;
+      quote?: string;
+      anchor?: Record<string, unknown>;
+      parentId?: string;
+    }) => (await api.post<WsComment>(`${BASE}/documents/${documentId}/comments`, body)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ws', 'comments', documentId] }),
   });
 }
@@ -208,8 +247,15 @@ export function useUpdateComment(documentId: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ commentId, body }: { commentId: string; body: Partial<{ body: string; resolved: boolean }> }) =>
-      (await api.patch<WsComment>(`${BASE}/documents/${documentId}/comments/${commentId}`, body)).data,
+    mutationFn: async ({
+      commentId,
+      body,
+    }: {
+      commentId: string;
+      body: Partial<{ body: string; resolved: boolean }>;
+    }) =>
+      (await api.patch<WsComment>(`${BASE}/documents/${documentId}/comments/${commentId}`, body))
+        .data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ws', 'comments', documentId] }),
   });
 }
@@ -229,7 +275,9 @@ export function useGenerateSection(draftId: string) {
   return useMutation({
     mutationFn: async (section: string) =>
       (
-        await api.post<GenerateSectionResult>(`${BASE}/drafts/${draftId}/generate-section`, { section })
+        await api.post<GenerateSectionResult>(`${BASE}/drafts/${draftId}/generate-section`, {
+          section,
+        })
       ).data,
   });
 }
@@ -297,8 +345,10 @@ export function useAddContextItem(draftId: string) {
   const api = useApi();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (body: { kind: 'source' | 'news' | 'free-text'; payload: Record<string, unknown> }) =>
-      (await api.post<WsContextItem>(`${BASE}/drafts/${draftId}/context`, body)).data,
+    mutationFn: async (body: {
+      kind: 'source' | 'news' | 'free-text';
+      payload: Record<string, unknown>;
+    }) => (await api.post<WsContextItem>(`${BASE}/drafts/${draftId}/context`, body)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ws', 'ctx-items', draftId] }),
   });
 }

@@ -115,7 +115,7 @@ export class DraftsService {
       ...(dto.config ?? {}),
     };
 
-    const product = dto.product ?? existing.product ?? '' ?? '';
+    const product = dto.product ?? existing.product ?? '';
     const funding = product ? WSC.isFunding(product) : false;
     const coverLetter = Boolean(
       (mergedConfig.coverLetter as boolean | undefined) ?? existing.isPacket,
