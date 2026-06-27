@@ -5,6 +5,7 @@ module.exports = {
     '<rootDir>/src/**/*.spec.ts',
     '<rootDir>/test/**/*.spec.ts',
     '<rootDir>/test/**/*.e2e-spec.ts',
+    '<rootDir>/test/**/*.int-spec.ts',
   ],
   setupFiles: ['<rootDir>/jest.setup.ts'],
   transform: {

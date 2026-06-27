@@ -8,7 +8,7 @@ CREATE TYPE "ws_role" AS ENUM ('editor', 'reviewer', 'viewer', 'commenter');
 CREATE TABLE "ws_draft" (
     "id" UUID NOT NULL,
     "tenant_id" UUID NOT NULL,
-    "owner_id" UUID NOT NULL,
+    "owner_id" TEXT NOT NULL,
     "doc_title" TEXT NOT NULL,
     "industry" TEXT,
     "product" TEXT,
@@ -64,7 +64,7 @@ CREATE TABLE "ws_comment" (
     "id" UUID NOT NULL,
     "tenant_id" UUID NOT NULL,
     "document_id" UUID NOT NULL,
-    "author_id" UUID NOT NULL,
+    "author_id" TEXT NOT NULL,
     "role" "ws_role" NOT NULL DEFAULT 'editor',
     "quote" TEXT,
     "anchor" JSONB,

@@ -54,7 +54,10 @@ enum WsRole {
 model WsDraft {
   id        String      @id @default(uuid()) @db.Uuid
   tenantId  String      @map("tenant_id") @db.Uuid
-  ownerId   String      @map("owner_id") @db.Uuid // resolved user id (from JWT)
+  // Owner identity is the Clerk user id (e.g. "user_2abc..."). The engine does
+  // not own the Capiro user table, so it stores the verified Clerk subject
+  // rather than a Capiro user UUID. (Resolved by TenantGuard from the JWT.)
+  ownerId   String      @map("owner_id")
   docTitle  String      @map("doc_title")
   // Cascade hot-fields (promoted from config for indexed filtering).
   industry  String?
@@ -139,7 +142,8 @@ model WsComment {
   id         String    @id @default(uuid()) @db.Uuid
   tenantId   String    @map("tenant_id") @db.Uuid
   documentId String    @map("document_id") @db.Uuid
-  authorId   String    @map("author_id") @db.Uuid
+  // Clerk user id of the comment author (engine doesn't own the user table).
+  authorId   String    @map("author_id")
   role       WsRole    @default(editor)
   // Quoted text snapshot + serialized range anchor (start/end offsets, path).
   quote      String?
