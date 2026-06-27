@@ -1052,6 +1052,37 @@ export class ComputeStack extends cdk.Stack {
     });
 
     // ------------------------------------------------------------------ ALB + listeners
+    // ⚠️⚠️ PROD ROUTING DRIFT — READ BEFORE `cdk deploy Capiro-dev-Compute` ⚠️⚠️
+    // -----------------------------------------------------------------------------
+    // The live app (app.capiro.ai, the `Capiro-dev-*` lineage = REAL prod for the
+    // core product) is NO LONGER served by THIS CDK-managed ALB. As of
+    // 2026-06-27 the production topology is:
+    //
+    //   app.capiro.ai  (Route53 alias, zone Z085985135X6Q5QT98ZBK)
+    //     └─► capiro-prod-alb  (capiro-prod-alb-57164953.us-east-1.elb.amazonaws.com)
+    //          • UNMANAGED — no CloudFormation stack, NO tags, hand-created.
+    //          • HTTPS:443 rules:
+    //              /api/*  +  /webhooks/*   → capiro-prod-api-tg
+    //              host capiro.ai           → capiro-prod-marketing-tg
+    //              default                  → capiro-prod-web-tg
+    //          • Backends = ECS cluster `capiro-dev` services
+    //            (capiro-dev-api / -web / -marketing / -clio-sandbox).
+    //
+    // The CDK-managed ALB this construct creates (logical id `Alb`, formerly
+    // app/Capiro-Alb16-PWSBu59pPfLj) was DELETED out-of-band. Because the stack
+    // still references it, `Capiro-dev-Compute` is wedged in UPDATE_ROLLBACK_FAILED
+    // and `cdk deploy` FAILS with "Load balancer ... not found". A naive deploy
+    // does NOT touch live traffic (the manual capiro-prod-alb keeps serving), it
+    // just errors. DO NOT assume this CDK ALB / its target groups / its listener
+    // rules are what production uses — they are not.
+    //
+    // To wire the WORKSPACE engine into real prod, add a target group +
+    // `/workspace-api/*` rule (priority < 20) to the MANUAL `capiro-prod-alb`
+    // HTTPS:443 listener pointing at the workspace Fargate service — NOT here.
+    // Reconciling the wedged stack (recreate ALB / continue-update-rollback /
+    // import the manual ALB) is a separate supervised effort.
+    // (Note added during the 2026-06-27 workspace deploy attempt.)
+    // -----------------------------------------------------------------------------
     this.alb = new elb.ApplicationLoadBalancer(this, 'Alb', {
       vpc,
       internetFacing: true,
@@ -1189,6 +1220,12 @@ export class ComputeStack extends cdk.Stack {
     // Workspace engine: /workspace-api/* → workspace service. Priority 10 sits
     // between ApiPaths (3) and WebDefault (20). The path is distinct from
     // /api/* (the API) and from /workspace/* (which stays a WEB SPA route).
+    // ⚠️ This rule is added to the CDK-managed `Alb` — which is NOT what serves
+    // live prod (see the PROD ROUTING DRIFT note at the ALB definition above).
+    // Until the wedged stack is reconciled, the EFFECTIVE prod wiring for the
+    // workspace must be added to the MANUAL `capiro-prod-alb` HTTPS:443 listener
+    // (e.g. `aws elbv2 create-rule --priority 12 --conditions path-pattern
+    // /workspace-api/* --actions forward capiro-prod-workspace-tg`).
     httpsListener.addAction('WorkspaceApi', {
       priority: 10,
       conditions: [elb.ListenerCondition.pathPatterns(['/workspace-api/*'])],
