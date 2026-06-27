@@ -245,7 +245,10 @@
   border-radius: 14px;
   padding: 20px;
   cursor: pointer;
-  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+  transition:
+    border-color 0.12s,
+    box-shadow 0.12s,
+    transform 0.12s;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -455,6 +458,45 @@
 .ws-pill.info {
   background: var(--ws-accent-soft);
   color: var(--ws-accent-ink);
+}
+
+/* ── Editor (Phase 5 core) ────────────────────────────────────────────────── */
+/* Full-height editor shell: toolbar + formatting bar pinned, the 4-col grid
+ * (StepsRail · canvas · InsertRail · MeriPanel) scrolls inside. */
+.ws-editor-shell {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 56px);
+  min-height: 520px;
+  background: var(--bg-surface);
+}
+.ws-editor-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+}
+.ws-editor-cols {
+  display: grid;
+  grid-template-columns: 208px 1fr 74px 300px;
+  min-height: 520px;
+}
+.ws-editor-canvas {
+  overflow: auto;
+  padding: 22px 30px 30px;
+  background: var(--bg-canvas);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Controlled rich-text body placeholder (shown when empty + not focused). */
+.ws-rte-body:empty::before {
+  content: attr(data-placeholder);
+  color: var(--ink-4);
+  pointer-events: none;
+}
+.ws-rte-body:focus {
+  outline: none;
 }
 
 /* Print: emit only the document canvas (PDF via browser print). */
