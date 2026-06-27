@@ -5,7 +5,16 @@ import { json } from 'express';
 import { AppModule } from './app.module.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    // Surface debug logs (e.g. the tenant guard's "Clerk verifyToken failed"
+    // diagnostics) so auth/tenant rejections are visible in CloudWatch. Set
+    // WORKSPACE_LOG_LEVEL=log to quiet debug once stable.
+    logger:
+      (process.env.WORKSPACE_LOG_LEVEL ?? 'debug') === 'debug'
+        ? ['error', 'warn', 'log', 'debug']
+        : ['error', 'warn', 'log'],
+  });
   const logger = new Logger('Bootstrap');
 
   // Mount everything under `/workspace-api/*` to match the ALB listener rule
@@ -36,6 +45,7 @@ async function bootstrap() {
   const allowedOrigins = new Set(
     [
       ...(process.env.WEB_ORIGIN?.split(',') ?? ['http://localhost:5173']),
+      'https://app.capiro.ai',
       'https://capiro.ai',
       'https://www.capiro.ai',
     ]
@@ -49,7 +59,12 @@ async function bootstrap() {
         callback(null, true);
         return;
       }
-      callback(new Error('Origin is not allowed by CORS'));
+      // Log the rejected origin so misconfig is diagnosable (the default
+      // message hides which origin failed), then reject without throwing a
+      // 500 — a CORS denial should surface as a blocked request, not an
+      // ExceptionsHandler error.
+      logger.warn(`CORS: rejected origin ${origin}`);
+      callback(null, false);
     },
     credentials: true,
   });
