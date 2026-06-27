@@ -42,9 +42,13 @@ RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
 COPY packages/shared/src packages/shared/src
 COPY packages/shared/tsconfig.json packages/shared/tsconfig.json
 COPY apps/workspace/src apps/workspace/src
+COPY apps/workspace/prisma apps/workspace/prisma
 COPY apps/workspace/tsconfig.json apps/workspace/tsconfig.build.json apps/workspace/nest-cli.json apps/workspace/
 
 RUN pnpm --filter @capiro/shared build
+# Generate the Prisma client (outputs to apps/workspace/generated/prisma-client)
+# BEFORE the Nest build, since src imports the generated client.
+RUN cd apps/workspace && pnpm exec prisma generate
 RUN pnpm --filter @capiro/workspace build
 
 # Prune dev dependencies in place (matches the apps/api pattern; keeps the
@@ -75,6 +79,10 @@ COPY --chown=capiro:capiro --from=build /workspace/packages/shared/package.json 
 COPY --chown=capiro:capiro --from=build /workspace/apps/workspace/dist /app/apps/workspace/dist
 COPY --chown=capiro:capiro --from=build /workspace/apps/workspace/node_modules /app/apps/workspace/node_modules
 COPY --chown=capiro:capiro --from=build /workspace/apps/workspace/package.json /app/apps/workspace/package.json
+# Generated Prisma client + schema + migrations (the migrate verb runs
+# `prisma migrate deploy` against prisma/migrations at task launch).
+COPY --chown=capiro:capiro --from=build /workspace/apps/workspace/generated /app/apps/workspace/generated
+COPY --chown=capiro:capiro --from=build /workspace/apps/workspace/prisma /app/apps/workspace/prisma
 COPY --chown=capiro:capiro --from=build /workspace/tsconfig.base.json /app/tsconfig.base.json
 COPY --chown=capiro:capiro --from=build /workspace/apps/workspace/tsconfig.json /app/apps/workspace/tsconfig.json
 COPY --chown=capiro:capiro apps/workspace/scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
