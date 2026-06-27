@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { WSC } from './cascade.config.js';
+import { WSC, SECTION_LIBRARY, type IndustryDatum } from './cascade.config.js';
 
 /**
  * Thin service wrapper around the ported cascade config (cascade.config.ts).
@@ -26,6 +26,16 @@ export class CascadeService {
 
   committeesFor(industry: string, pathways: string[]): string[] {
     return WSC.committeesFor(industry, pathways);
+  }
+
+  /** Platform data rows for an industry (INDUSTRY_DATA), toggled into cfg.linkedData. */
+  dataFor(industry: string): IndustryDatum[] {
+    return WSC.dataFor(industry);
+  }
+
+  /** The shared "add from library" section names for OwnSectionBuilder. */
+  sectionLibrary(): string[] {
+    return SECTION_LIBRARY.slice();
   }
 
   defaultsFor(product: string): {

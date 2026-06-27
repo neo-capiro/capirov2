@@ -1,21 +1,366 @@
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { App as AntApp, Button, Input, InputNumber, Segmented, Select, Spin, Switch } from 'antd';
-import { ArrowRightOutlined } from '@ant-design/icons';
+import { Spin } from 'antd';
+import { useQuery } from '@tanstack/react-query';
+import { useApi } from '../../lib/use-api.js';
 import { StepsRail } from './StepsRail.js';
+import { Icon } from './kit.js';
 import {
   useDraft,
   useUpdateDraft,
-  usePathwaysFor,
-  useCommitteesFor,
   useTemplatesFor,
+  useProductDefaults,
+  useIndustryData,
+  useSectionLibrary,
 } from './api.js';
 import type { WsConfig, WsTemplate } from './types.js';
 
-/** Setup — the cascade qualifier + secondary qualifiers (6 cards). */
+/**
+ * Setup — the cascade qualifier + secondary qualifiers, ported near-verbatim from
+ * the locked prototype (asset_13 `SetupForm` + helpers). Renders inside the real
+ * app shell (.ws-root) using the prototype's scoped DS classes (workspace-ds.css).
+ *
+ * All config edits autosave via useUpdateDraft(draftId).mutate({ config }) — the
+ * engine merges the partial. Cascade reseeds are computed client-side (the WSC
+ * mirror below) so each reseed lands in ONE atomic patch (never an invalid combo).
+ */
+
+// ── Client-side cascade mirror (asset_04 WSC / CASCADE / PRODUCT_META) ─────────
+// Used ONLY to compute atomic reseed patches synchronously on industry/product
+// change. The authoritative copy lives server-side (apps/workspace cascade.config).
+interface CascadeIndustry {
+  industry: string;
+  products: { name: string; pathways: string[] }[];
+  pathways: Record<string, string[]>;
+}
+const CASCADE: CascadeIndustry[] = [
+  {
+    industry: 'Defense & Aerospace',
+    products: [
+      { name: 'NDAA Authorization Request', pathways: ['NDAA Authorization'] },
+      {
+        name: 'Meeting Brief & Advocacy',
+        pathways: ['NDAA Authorization', 'Defense Appropriations'],
+      },
+      { name: 'Appropriations Justification', pathways: ['Defense Appropriations'] },
+      { name: 'CDS / Earmark Application', pathways: ['Defense Appropriations'] },
+    ],
+    pathways: {
+      'NDAA Authorization': ['HASC', 'SASC'],
+      'Defense Appropriations': ['HAC-D', 'SAC-D'],
+    },
+  },
+  {
+    industry: 'Health & Pharma',
+    products: [
+      { name: 'Appropriations Justification', pathways: ['Labor-HHS Appropriations'] },
+      {
+        name: 'Meeting Brief & Advocacy',
+        pathways: ['Labor-HHS Appropriations', 'HELP Authorization'],
+      },
+      { name: 'Authorization Bill Language', pathways: ['HELP Authorization'] },
+    ],
+    pathways: { 'Labor-HHS Appropriations': ['L-HHS'], 'HELP Authorization': ['HELP'] },
+  },
+  {
+    industry: 'Energy & Resources',
+    products: [
+      { name: 'Appropriations Justification', pathways: ['Energy & Water Appropriations'] },
+      { name: 'Authorization Bill Language', pathways: ['ENR Authorization'] },
+    ],
+    pathways: { 'Energy & Water Appropriations': ['E&W'], 'ENR Authorization': ['ENR'] },
+  },
+  {
+    industry: 'Agriculture',
+    products: [
+      { name: 'Appropriations Justification', pathways: ['Agriculture Appropriations'] },
+      { name: 'Authorization Bill Language', pathways: ['Farm Bill Authorization'] },
+    ],
+    pathways: {
+      'Agriculture Appropriations': ['HAC-Ag'],
+      'Farm Bill Authorization': ['Senate Ag'],
+    },
+  },
+  {
+    industry: 'Transportation',
+    products: [
+      { name: 'Appropriations Justification', pathways: ['T-HUD Appropriations'] },
+      { name: 'CDS / Earmark Application', pathways: ['T-HUD Appropriations'] },
+    ],
+    pathways: { 'T-HUD Appropriations': ['T-HUD', 'T&I'] },
+  },
+  {
+    industry: 'Homeland Security',
+    products: [
+      { name: 'Appropriations Justification', pathways: ['Homeland Security Appropriations'] },
+      { name: 'Authorization Bill Language', pathways: ['Homeland Security Appropriations'] },
+    ],
+    pathways: { 'Homeland Security Appropriations': ['HAC-HS', 'SAC-HS'] },
+  },
+  {
+    industry: 'Environment',
+    products: [
+      { name: 'Appropriations Justification', pathways: ['Interior & Environment Appropriations'] },
+      { name: 'CDS / Earmark Application', pathways: ['Interior & Environment Appropriations'] },
+    ],
+    pathways: { 'Interior & Environment Appropriations': ['Int/Env', 'EPW'] },
+  },
+  {
+    industry: 'Commerce & Tech',
+    products: [
+      { name: 'Appropriations Justification', pathways: ['CJS Appropriations'] },
+      { name: 'Report Language Request', pathways: ['CJS Appropriations'] },
+    ],
+    pathways: { 'CJS Appropriations': ['CJS', 'Commerce', 'Science'] },
+  },
+];
+const UNIVERSAL_PRODUCTS = ['Member letter', 'Written testimony', 'One-pager', 'Strategy memo'];
+const ALL_PRODUCTS = (() => {
+  const set: string[] = [];
+  CASCADE.forEach((c) =>
+    c.products.forEach((p) => (set.includes(p.name) ? null : set.push(p.name))),
+  );
+  UNIVERSAL_PRODUCTS.forEach((p) => (set.includes(p) ? null : set.push(p)));
+  return set;
+})();
+
+interface ProductMetaRow {
+  icon: string;
+  personalize: boolean;
+  office: boolean;
+  cover: boolean;
+  desc: string;
+}
+const PRODUCT_META: Record<string, ProductMetaRow> = {
+  'White paper': {
+    icon: 'FileText',
+    personalize: false,
+    office: true,
+    cover: false,
+    desc: 'Narrative program paper supporting authorization, appropriations, or policy asks.',
+  },
+  'Appropriations Justification': {
+    icon: 'Coins',
+    personalize: false,
+    office: true,
+    cover: true,
+    desc: "Detail a program's funding need and justification.",
+  },
+  'NDAA Authorization Request': {
+    icon: 'TrendingUp',
+    personalize: false,
+    office: true,
+    cover: true,
+    desc: 'Request program authorization or a budget adjustment.',
+  },
+  'Meeting Brief & Advocacy': {
+    icon: 'Users',
+    personalize: false,
+    office: true,
+    cover: false,
+    desc: 'Leave-behind brief for a member or staff meeting.',
+  },
+  'CDS / Earmark Application': {
+    icon: 'Landmark',
+    personalize: true,
+    office: true,
+    cover: true,
+    desc: 'Community project funding application.',
+  },
+  'Authorization Bill Language': {
+    icon: 'Scale',
+    personalize: false,
+    office: false,
+    cover: false,
+    desc: 'Amendatory statutory / authorizing text.',
+  },
+  'Report Language Request': {
+    icon: 'FileSignature',
+    personalize: false,
+    office: false,
+    cover: false,
+    desc: 'Directive or encouraging committee report language.',
+  },
+  'Member letter': {
+    icon: 'Mail',
+    personalize: true,
+    office: true,
+    cover: false,
+    desc: 'Cosponsor request, support letter, or consolidated sign-on letter to a Member.',
+  },
+  'Strategy memo': {
+    icon: 'ClipboardList',
+    personalize: false,
+    office: false,
+    cover: false,
+    desc: 'Internal brief covering situation analysis and strategic recommendation.',
+  },
+  'Written testimony': {
+    icon: 'Mic',
+    personalize: false,
+    office: false,
+    cover: false,
+    desc: 'Statement for the record before a committee or agency.',
+  },
+  'One-pager': {
+    icon: 'File',
+    personalize: false,
+    office: true,
+    cover: false,
+    desc: 'Meeting leave-behind or fact sheet summarizing the program and ask.',
+  },
+};
+const SUGGESTED_SECTIONS: Record<string, string[]> = {
+  'NDAA Authorization Request': [
+    'Problem statement',
+    'Solution',
+    'Current status',
+    'Funding history & request',
+    'National security impact',
+    'Economic & district impact',
+    'The ask',
+  ],
+  'Appropriations Justification': [
+    'Executive summary',
+    'Account & program line',
+    'Program description',
+    'Funding history',
+    'Justification & impact',
+    'Performance & outcomes',
+    'The ask',
+  ],
+  'CDS / Earmark Application': [
+    'Requesting entity & recipient information',
+    'Project title',
+    'Project description',
+    'Requested amount & total cost',
+    'Federal nexus statement',
+    'Evidence of community support',
+    'Financial disclosure certification',
+    'Outcomes & metrics',
+  ],
+  'Authorization Bill Language': [
+    'Short title',
+    'Findings & purpose',
+    'Definitions',
+    'Main operative provision',
+    'Exceptions & special rules',
+    'Conforming & transitional provisions',
+    'Authorization of appropriations',
+    'Effective date',
+  ],
+  'Report Language Request': [
+    'Requesting entity & contact',
+    'Bill, account & subcommittee',
+    'Background & problem',
+    'Proposed report language',
+    'Justification',
+    'Relationship to existing law & PBR',
+  ],
+  'Meeting Brief & Advocacy': [
+    'Meeting logistics',
+    'Member profile',
+    'Background',
+    'Objectives & the ask',
+    'Talking points',
+    'Anticipated questions & responses',
+    'Leave-behind summary',
+    'Follow-up plan',
+  ],
+  'Member letter': ['Opening', 'Program description', 'Request', 'Closing'],
+  'Written testimony': [
+    'Disclosure & witness intro',
+    'Opening statement',
+    'Background',
+    'Position',
+    'Recommendations',
+    'Closing',
+  ],
+  'One-pager': [
+    'Header & title',
+    'Background',
+    'Key facts & data',
+    'Our position & the ask',
+    'Contact information',
+  ],
+  'Strategy memo': ['Situation', 'Background', 'Analysis', 'Recommendation', 'Next steps'],
+  'White paper': [
+    'Problem statement',
+    'Solution',
+    'Current status',
+    'Funding history & request',
+    'National security impact',
+    'Economic & district impact',
+    'The ask',
+  ],
+};
+const SUGGESTED_PAGES: Record<string, number> = {
+  'White paper': 2,
+  'Appropriations Justification': 2,
+  'NDAA Authorization Request': 2,
+  'Meeting Brief & Advocacy': 1,
+  'Strategy memo': 2,
+  'Member letter': 1,
+  'Written testimony': 5,
+  'One-pager': 1,
+  'CDS / Earmark Application': 2,
+  'Authorization Bill Language': 3,
+  'Report Language Request': 1,
+};
+const WSC = {
+  industries: (): string[] => CASCADE.map((c) => c.industry),
+  _ind: (industry: string | null) => CASCADE.find((c) => c.industry === industry),
+  productsFor(industry: string | null): string[] {
+    const ind = this._ind(industry);
+    if (!ind) return [];
+    return [...new Set([...ind.products.map((p) => p.name), ...UNIVERSAL_PRODUCTS])];
+  },
+  allProducts: (): string[] => ALL_PRODUCTS,
+  pathwaysFor(industry: string | null, product: string | null): string[] {
+    const ind = this._ind(industry);
+    if (!ind) return [];
+    if (product && UNIVERSAL_PRODUCTS.includes(product)) return Object.keys(ind.pathways);
+    const p = ind.products.find((x) => x.name === product);
+    return p ? p.pathways : Object.keys(ind.pathways);
+  },
+  committeesFor(industry: string | null, pathways: string[]): string[] {
+    const ind = this._ind(industry);
+    if (!ind) return [];
+    const out: string[] = [];
+    (pathways || []).forEach((pw) =>
+      (ind.pathways[pw] || []).forEach((c) => (out.includes(c) ? null : out.push(c))),
+    );
+    return out;
+  },
+  meta: (product: string | null): ProductMetaRow =>
+    (product && PRODUCT_META[product]) || {
+      icon: 'FileText',
+      personalize: false,
+      office: true,
+      cover: true,
+      desc: '',
+    },
+};
+const suggestedSections = (product: string | null): string[] =>
+  ((product && SUGGESTED_SECTIONS[product]) || ['Summary', 'Background', 'The ask']).slice();
+const suggestedPages = (product: string | null): number =>
+  (product && SUGGESTED_PAGES[product]) || 2;
+
+// Patch shape carried into update.mutate({ config }). Partial<WsConfig> + ask.
+type ConfigPatch = Partial<WsConfig> & { ask?: { amount?: string; pb?: string; delta?: string } };
+
+const SECTION_LABEL: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.07em',
+  color: 'var(--ink-3)',
+  marginBottom: 8,
+};
+
+// ── Page ──────────────────────────────────────────────────────────────────────
 export function SetupPage() {
   const { draftId } = useParams();
-  const navigate = useNavigate();
-  const { message } = AntApp.useApp();
   const { data: draft, isLoading } = useDraft(draftId ?? null);
   const update = useUpdateDraft(draftId ?? '');
 
@@ -31,325 +376,2180 @@ export function SetupPage() {
   }
 
   const cfg = draft.config;
-  const patchConfig = (partial: Partial<WsConfig>) => update.mutate({ config: partial });
+  const patch = (p: ConfigPatch) => update.mutate({ config: p });
 
   return (
     <div className="ws-shell">
       <StepsRail active="setup" draftId={draftId} product={draft.product} />
-      <div className="ws-stage" style={{ maxWidth: 820, margin: '0 auto' }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, marginTop: 0 }}>Set up your {draft.product}</h1>
+      <div className="ws-stage" style={{ padding: 0 }}>
+        <SetupForm cfg={cfg} draftId={draftId!} client={draft.client} update={patch} />
+      </div>
+    </div>
+  );
+}
 
-        {/* 1. Work product cascade */}
-        <Card title="Work product setup">
-          <CascadeCard
-            industry={cfg.industry}
-            product={draft.product}
-            pathways={cfg.pathways}
-            committees={cfg.committees}
-            onPathways={(pathways) => patchConfig({ pathways })}
-            onCommittees={(committees) => patchConfig({ committees })}
-          />
-        </Card>
+// ── SetupForm (asset_13) ───────────────────────────────────────────────────────
+function SetupForm({
+  cfg,
+  draftId,
+  client,
+  update,
+}: {
+  cfg: WsConfig;
+  draftId: string;
+  client: string | null;
+  update: (p: ConfigPatch) => void;
+}) {
+  const navigate = useNavigate();
+  const [showAll, setShowAll] = useState(false);
 
-        {/* 2. Templates */}
-        <Card title="Templates" subtitle="Everything can be modified later in the editor.">
-          <TemplatesCard
-            product={draft.product}
-            selected={cfg.selectedTemplate}
-            onSelect={(tpl) => patchConfig({ selectedTemplate: tpl.id, sections: tpl.sections })}
-          />
-        </Card>
+  const pickIndustry = (industry: string) => {
+    const products = WSC.productsFor(industry);
+    const product =
+      cfg.product && products.includes(cfg.product) ? cfg.product : (products[0] ?? null);
+    const pathways = WSC.pathwaysFor(industry, product).slice(0, 1);
+    update({ industry, product, pathways, committees: WSC.committeesFor(industry, pathways) });
+  };
+  const pickProduct = (product: string) => {
+    const m = WSC.meta(product);
+    const pathways = WSC.pathwaysFor(cfg.industry, product).slice(0, 1);
+    update({
+      product,
+      pathways,
+      committees: WSC.committeesFor(cfg.industry, pathways),
+      personalize: m.personalize,
+      officeAssociated: m.office,
+      coverLetter: m.cover,
+      sections: suggestedSections(product),
+      pages: suggestedPages(product),
+    });
+  };
+  const togglePathway = (pw: string) => {
+    const pathways = cfg.pathways.includes(pw)
+      ? cfg.pathways.filter((x) => x !== pw)
+      : [...cfg.pathways, pw];
+    update({ pathways, committees: WSC.committeesFor(cfg.industry, pathways) });
+  };
+  const toggleCommittee = (c: string) =>
+    update({
+      committees: cfg.committees.includes(c)
+        ? cfg.committees.filter((x) => x !== c)
+        : [...cfg.committees, c],
+    });
 
-        {/* 3. Personalization */}
-        <Card title="Personalization">
-          <PersonalizationCard
-            personalize={cfg.personalize}
-            officeAssociated={cfg.officeAssociated}
-            offices={cfg.offices}
-            onPersonalize={(personalize) => patchConfig({ personalize })}
-            onOfficeAssociated={(officeAssociated) => patchConfig({ officeAssociated })}
-            onOffices={(offices) => patchConfig({ offices })}
-          />
-        </Card>
+  const presets = WSC.productsFor(cfg.industry);
+  const extra = WSC.allProducts().filter((p) => !presets.includes(p));
+  const pathways = WSC.pathwaysFor(cfg.industry, cfg.product);
+  const committees = WSC.committeesFor(cfg.industry, cfg.pathways);
+  const m = WSC.meta(cfg.product);
 
-        {/* 4. Links & data */}
-        <Card title="Links & data">
-          <LinksDataCard
-            industry={cfg.industry}
-            linkedData={cfg.linkedData}
-            onLinkedData={(linkedData) => patchConfig({ linkedData })}
-          />
-        </Card>
+  return (
+    <div style={{ maxWidth: 840, margin: '0 auto', padding: '26px 30px 40px' }}>
+      <h1
+        style={{
+          fontFamily: 'var(--font-serif)',
+          fontWeight: 500,
+          fontSize: 26,
+          letterSpacing: '-0.01em',
+          margin: '0 0 4px',
+        }}
+      >
+        Set up the work product
+      </h1>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 10,
+          padding: '11px 14px',
+          background: 'var(--accent-soft)',
+          border: '1px solid var(--accent-glow, rgba(59,91,219,0.2))',
+          borderRadius: 9,
+          marginBottom: 20,
+          maxWidth: 620,
+        }}
+      >
+        <Icon
+          name="Sparkles"
+          size={15}
+          style={{ color: 'var(--accent)', flexShrink: 0, marginTop: 1 }}
+        />
+        <span style={{ fontSize: 12.5, color: 'var(--accent-ink)', lineHeight: 1.5 }}>
+          The more context you provide here, the better Meri's draft will be. You can always adjust
+          in the editor.
+        </span>
+      </div>
 
-        {/* 5. Document options */}
-        <Card title="Document options">
-          <DocOptionsCard
-            pages={cfg.pages}
-            tone={cfg.tone}
-            toneContext={cfg.toneContext ?? ''}
-            onPages={(pages) => patchConfig({ pages })}
-            onTone={(tone) => patchConfig({ tone })}
-            onToneContext={(toneContext) => patchConfig({ toneContext })}
-          />
-        </Card>
+      <QCard title="Work product setup">
+        {/* Step 1: Industry */}
+        <div>
+          <div style={SECTION_LABEL}>Industry</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+            {WSC.industries().map((ind) => (
+              <Chip key={ind} on={cfg.industry === ind} onClick={() => pickIndustry(ind)}>
+                {ind}
+              </Chip>
+            ))}
+          </div>
+        </div>
+        {/* Step 2: Work product */}
+        {cfg.industry && (
+          <div style={{ paddingTop: 14, borderTop: '1px solid var(--border-1)', marginTop: 14 }}>
+            <div style={SECTION_LABEL}>Work product</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {presets.map((p) => {
+                const pm = WSC.meta(p);
+                return (
+                  <Chip
+                    key={p}
+                    icon={pm.icon}
+                    on={cfg.product === p}
+                    onClick={() => pickProduct(p)}
+                  >
+                    {p}
+                  </Chip>
+                );
+              })}
+              <button
+                onClick={() => setShowAll((s) => !s)}
+                className="btn sm btn-ghost"
+                style={{ color: 'var(--accent)' }}
+              >
+                <Icon name={showAll ? 'ChevronUp' : 'Plus'} size={13} />
+                {showAll ? 'Less' : 'Other work product'}
+              </button>
+            </div>
+            {showAll && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  marginTop: 9,
+                  paddingTop: 11,
+                  borderTop: '1px dashed var(--border-1)',
+                }}
+              >
+                {extra.map((p) => {
+                  const pm = WSC.meta(p);
+                  return (
+                    <Chip
+                      key={p}
+                      icon={pm.icon}
+                      on={cfg.product === p}
+                      onClick={() => pickProduct(p)}
+                    >
+                      {p}
+                    </Chip>
+                  );
+                })}
+              </div>
+            )}
+            {m.desc && (
+              <div
+                style={{
+                  fontSize: 11.5,
+                  color: 'var(--ink-3)',
+                  marginTop: 11,
+                  fontStyle: 'italic',
+                }}
+              >
+                {m.desc}
+              </div>
+            )}
+          </div>
+        )}
+        {/* Step 3: Legislative pathway */}
+        {cfg.product && (
+          <div style={{ paddingTop: 14, borderTop: '1px solid var(--border-1)', marginTop: 14 }}>
+            <div style={SECTION_LABEL}>Legislative pathway</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+              {pathways.map((pw) => (
+                <Chip key={pw} on={cfg.pathways.includes(pw)} onClick={() => togglePathway(pw)}>
+                  {pw}
+                </Chip>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* Step 4: Committee / subcommittee */}
+        {cfg.pathways.length > 0 && (
+          <div style={{ paddingTop: 14, borderTop: '1px solid var(--border-1)', marginTop: 14 }}>
+            <div style={SECTION_LABEL}>Committee / subcommittee</div>
+            {committees.length ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+                {committees.map((c) => (
+                  <Chip key={c} on={cfg.committees.includes(c)} onClick={() => toggleCommittee(c)}>
+                    {c}
+                  </Chip>
+                ))}
+              </div>
+            ) : (
+              <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                Select a pathway above to see committees.
+              </div>
+            )}
+          </div>
+        )}
+      </QCard>
 
-        {/* 6. Letterhead */}
-        <Card title="Letterhead">
-          <LetterheadCard
-            letterhead={cfg.letterhead}
-            onChange={(letterhead) => patchConfig({ letterhead })}
-          />
-        </Card>
+      {/* Templates: Meri suggests a starting structure; user picks or builds their own */}
+      <TemplatesPicker cfg={cfg} update={update} />
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
-          <Button
-            type="primary"
-            size="large"
-            icon={<ArrowRightOutlined />}
-            onClick={() => navigate(`/workspace/context/${draftId}`)}
+      {/* Personalization — above Links & Data so offices/contacts are known before linking */}
+      <QCard title="Personalization">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 15 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 14,
+              flexWrap: 'wrap',
+            }}
           >
-            Continue to Build context
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Card({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
-  return (
-    <div className="ws-card" style={{ padding: 18, marginBottom: 16 }}>
-      <div style={{ fontWeight: 700, fontSize: 14.5, marginBottom: subtitle ? 2 : 12 }}>{title}</div>
-      {subtitle && <div style={{ fontSize: 12, color: 'var(--ws-ink-3)', marginBottom: 12 }}>{subtitle}</div>}
-      {children}
-    </div>
-  );
-}
-
-function CascadeCard({
-  industry,
-  product,
-  pathways,
-  committees,
-  onPathways,
-  onCommittees,
-}: {
-  industry: string | null;
-  product: string | null;
-  pathways: string[];
-  committees: string[];
-  onPathways: (p: string[]) => void;
-  onCommittees: (c: string[]) => void;
-}) {
-  const { data: pathwayOpts } = usePathwaysFor(industry, product);
-  const { data: committeeOpts } = useCommitteesFor(industry, pathways);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <Field label="Industry">
-        <Input disabled value={industry ?? ''} />
-      </Field>
-      <Field label="Work product">
-        <Input disabled value={product ?? ''} />
-      </Field>
-      <Field label="Legislative pathway">
-        <Select
-          mode="multiple"
-          style={{ width: '100%' }}
-          value={pathways}
-          onChange={onPathways}
-          options={(pathwayOpts ?? []).map((p) => ({ value: p, label: p }))}
-          placeholder="Select pathway(s)"
-        />
-      </Field>
-      <Field label="Committee / Subcommittee">
-        <Select
-          mode="multiple"
-          style={{ width: '100%' }}
-          value={committees}
-          onChange={onCommittees}
-          options={(committeeOpts ?? []).map((c) => ({ value: c, label: c }))}
-          placeholder="Derived from pathways — prune as needed"
-        />
-      </Field>
-    </div>
-  );
-}
-
-function TemplatesCard({
-  product,
-  selected,
-  onSelect,
-}: {
-  product: string | null;
-  selected: string | null;
-  onSelect: (t: WsTemplate) => void;
-}) {
-  const { data } = useTemplatesFor(product);
-  const cards = [data?.primary, data?.secondary].filter(Boolean) as WsTemplate[];
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
-      {cards.map((t) => (
-        <div
-          key={t.id}
-          className="ws-product-card"
-          style={{ borderColor: selected === t.id ? 'var(--ws-accent)' : undefined, boxShadow: selected === t.id ? '0 0 0 2px var(--ws-accent-soft)' : undefined }}
-          onClick={() => onSelect(t)}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className="ws-pill info">{t.meriPrimary ? 'Recommended' : 'Alternative'}</span>
+            <div style={{ fontSize: 12.5, fontWeight: 600 }}>
+              Does this work product require personalization for an office, client, or other
+              contact?
+            </div>
+            <Seg
+              options={[
+                ['std', 'Standardized'],
+                ['pers', 'Personalized'],
+              ]}
+              value={cfg.personalize ? 'pers' : 'std'}
+              onChange={(v) => update({ personalize: v === 'pers' })}
+            />
           </div>
-          <div style={{ fontWeight: 700, fontSize: 13.5 }}>{t.name}</div>
-          <div style={{ fontSize: 12, color: 'var(--ws-ink-3)' }}>{t.description}</div>
-          <div style={{ fontSize: 11, color: 'var(--ws-ink-4)', marginTop: 4 }}>
-            {t.sections.length} sections
-          </div>
+          {cfg.personalize && (
+            <>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 14,
+                  flexWrap: 'wrap',
+                  paddingTop: 14,
+                  borderTop: '1px solid var(--border-1)',
+                }}
+              >
+                <div style={{ fontSize: 12.5, fontWeight: 600 }}>Tied to a specific office?</div>
+                <Seg
+                  options={[
+                    ['no', 'No'],
+                    ['yes', 'Yes'],
+                  ]}
+                  value={cfg.officeAssociated ? 'yes' : 'no'}
+                  onChange={(v) => update({ officeAssociated: v === 'yes' })}
+                />
+              </div>
+              {cfg.officeAssociated && <OfficePicker cfg={cfg} client={client} update={update} />}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 14,
+                  flexWrap: 'wrap',
+                  paddingTop: 14,
+                  borderTop: '1px solid var(--border-1)',
+                }}
+              >
+                <div style={{ fontSize: 12.5, fontWeight: 600 }}>
+                  Tied to a specific client contact?
+                </div>
+                <Seg
+                  options={[
+                    ['no', 'No'],
+                    ['yes', 'Yes'],
+                  ]}
+                  value={cfg.clientAssociated ? 'yes' : 'no'}
+                  onChange={(v) =>
+                    update({
+                      clientAssociated: v === 'yes',
+                      clientPersons: v === 'no' ? [] : (cfg.clientPersons as string[] | undefined),
+                    })
+                  }
+                />
+              </div>
+              {cfg.clientAssociated && <ClientPicker cfg={cfg} client={client} update={update} />}
+            </>
+          )}
         </div>
-      ))}
-      <div className="ws-product-card" style={{ borderStyle: 'dashed', justifyContent: 'center' }}>
-        <div style={{ fontWeight: 700, fontSize: 13.5 }}>Create your own</div>
-        <div style={{ fontSize: 12, color: 'var(--ws-ink-3)' }}>Build the section list from scratch.</div>
-      </div>
-    </div>
-  );
-}
+      </QCard>
 
-function PersonalizationCard({
-  personalize,
-  officeAssociated,
-  offices,
-  onPersonalize,
-  onOfficeAssociated,
-  onOffices,
-}: {
-  personalize: boolean;
-  officeAssociated: boolean;
-  offices: string[];
-  onPersonalize: (v: boolean) => void;
-  onOfficeAssociated: (v: boolean) => void;
-  onOffices: (v: string[]) => void;
-}) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <Field label="Does this work product require personalization for an office, client, or other contact?">
-        <Segmented
-          value={personalize ? 'Personalized' : 'Standardized'}
-          options={['Standardized', 'Personalized']}
-          onChange={(v) => onPersonalize(v === 'Personalized')}
-        />
-      </Field>
-      {/* Office row shows ONLY when Personalized (Neo decision #2, §12.14). */}
-      {personalize && (
-        <>
-          <Field label="Tied to a specific office?">
-            <Switch checked={officeAssociated} onChange={onOfficeAssociated} />
-          </Field>
-          {officeAssociated && (
-            <Field label="Offices">
-              <Select
-                mode="tags"
-                style={{ width: '100%' }}
-                value={offices}
-                onChange={onOffices}
-                placeholder="Search the congressional or client directory"
+      <LinkedDataCard cfg={cfg} client={client} update={update} />
+
+      {/* Document options */}
+      <QCard title="Document options">
+        <OptRow
+          label="Length target"
+          first
+          hint={
+            'Suggested ' +
+            suggestedPages(cfg.product) +
+            ' page' +
+            (suggestedPages(cfg.product) > 1 ? 's' : '') +
+            ' for a ' +
+            cfg.product +
+            '. Set any length.'
+          }
+          control={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+              <button
+                className="btn sm btn-ghost"
+                onClick={() => update({ pages: Math.max(1, (cfg.pages || 1) - 1) })}
+                style={{ padding: '6px 9px' }}
+              >
+                <Icon name="Minus" size={13} />
+              </button>
+              <input
+                type="number"
+                min="1"
+                value={cfg.pages}
+                onChange={(e) =>
+                  update({ pages: Math.max(1, parseInt(e.target.value || '1', 10)) })
+                }
+                className="field num"
+                style={{
+                  width: 52,
+                  textAlign: 'center',
+                  padding: '7px 6px',
+                  fontSize: 13,
+                  fontFamily: 'var(--font-mono)',
+                  background: 'var(--bg-surface)',
+                }}
               />
-            </Field>
+              <button
+                className="btn sm btn-ghost"
+                onClick={() => update({ pages: (cfg.pages || 1) + 1 })}
+                style={{ padding: '6px 9px' }}
+              >
+                <Icon name="Plus" size={13} />
+              </button>
+            </div>
+          }
+        />
+        <OptRow
+          label="Writing tone"
+          control={
+            <Seg
+              options={[
+                ['Formal', 'Formal'],
+                ['Plain', 'Plain'],
+                ['Persuasive', 'Persuasive'],
+              ]}
+              value={cfg.tone}
+              onChange={(v) => update({ tone: v })}
+            />
+          }
+        />
+        <div
+          style={{
+            padding: '10px 13px',
+            background: 'var(--accent-soft)',
+            border: '1px solid var(--accent-glow, rgba(59,91,219,0.2))',
+            borderRadius: 8,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+            <Icon name="Sparkles" size={13} style={{ color: 'var(--accent)' }} />
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--accent-ink)' }}>
+              Key focus or goal for Meri{' '}
+              <span style={{ fontWeight: 400, fontSize: 11 }}>(optional)</span>
+            </span>
+          </div>
+          <textarea
+            value={cfg.toneContext || ''}
+            onChange={(e) => update({ toneContext: e.target.value })}
+            placeholder="e.g. Emphasize ROI and job creation. Focus on bipartisan appeal and economic impact."
+            rows={2}
+            className="field"
+            style={{
+              width: '100%',
+              padding: '8px 12px',
+              fontSize: 12.5,
+              fontFamily: 'var(--font-sans)',
+              background: 'rgba(255,255,255,0.7)',
+              resize: 'vertical',
+              lineHeight: 1.5,
+              boxSizing: 'border-box',
+              border: '1px solid var(--accent-glow, rgba(59,91,219,0.25))',
+            }}
+          />
+        </div>
+        <OptRow
+          label="Cover letter"
+          hint="Add a firm-letterhead transmittal letter to this packet — draft it in the editor."
+          control={
+            <Seg
+              options={[
+                ['no', 'No'],
+                ['yes', 'Yes'],
+              ]}
+              value={cfg.coverLetter ? 'yes' : 'no'}
+              onChange={(v) => update({ coverLetter: v === 'yes' })}
+            />
+          }
+        />
+      </QCard>
+
+      <LetterheadCard cfg={cfg} update={update} />
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
+        <button
+          className="btn btn-accent"
+          onClick={() => navigate(`/workspace/context/${draftId}`)}
+        >
+          Continue · Build context
+          <Icon name="ArrowRight" size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── small primitives (asset_13) ────────────────────────────────────────────────
+function Chip({
+  on,
+  onClick,
+  children,
+  icon,
+  disabled,
+  style,
+}: {
+  on?: boolean;
+  onClick?: () => void;
+  children: React.ReactNode;
+  icon?: string;
+  disabled?: boolean;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <button
+      onClick={disabled ? undefined : onClick}
+      className="btn sm"
+      style={{
+        borderColor: on ? 'var(--accent)' : 'var(--border-1)',
+        background: on ? 'var(--accent-soft)' : 'var(--bg-surface)',
+        color: on ? 'var(--accent-ink)' : 'var(--ink-2)',
+        opacity: disabled ? 0.45 : 1,
+        cursor: disabled ? 'default' : 'pointer',
+        ...style,
+      }}
+    >
+      {icon ? <Icon name={icon} size={13} /> : on ? <Icon name="Check" size={12} /> : null}
+      {children}
+    </button>
+  );
+}
+
+function Seg({
+  options,
+  value,
+  onChange,
+}: {
+  options: [string, string][];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        border: '1px solid var(--border-1)',
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: 'var(--bg-surface)',
+      }}
+    >
+      {options.map(([v, l], i) => (
+        <button
+          key={v}
+          onClick={() => onChange(v)}
+          style={{
+            padding: '7px 15px',
+            border: 'none',
+            borderLeft: i ? '1px solid var(--border-1)' : 'none',
+            background: value === v ? 'var(--accent)' : 'transparent',
+            color: value === v ? '#fff' : 'var(--ink-2)',
+            fontSize: 12.5,
+            fontWeight: 600,
+            cursor: 'pointer',
+            fontFamily: 'var(--font-sans)',
+          }}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function QCard({
+  n,
+  title,
+  hint,
+  children,
+  accent,
+}: {
+  n?: number | string;
+  title: string;
+  hint?: string;
+  children: React.ReactNode;
+  accent?: boolean;
+}) {
+  return (
+    <div
+      className="card"
+      style={{
+        padding: 18,
+        marginBottom: 14,
+        borderColor: accent ? 'var(--accent)' : 'var(--border-1)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: hint ? 6 : 12 }}>
+        {n != null && (
+          <span
+            className="num"
+            style={{
+              width: 22,
+              height: 22,
+              borderRadius: '50%',
+              flex: 'none',
+              display: 'grid',
+              placeItems: 'center',
+              fontSize: 11,
+              fontWeight: 700,
+              background: 'var(--accent-soft)',
+              color: 'var(--accent)',
+            }}
+          >
+            {n}
+          </span>
+        )}
+        <div style={{ fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>{title}</div>
+      </div>
+      {hint && (
+        <p
+          style={{
+            fontSize: 12,
+            color: 'var(--ink-3)',
+            margin: '0 0 12px',
+            paddingLeft: n != null ? 32 : 0,
+            lineHeight: 1.45,
+          }}
+        >
+          {hint}
+        </p>
+      )}
+      <div style={{ paddingLeft: n != null ? 32 : 0 }}>{children}</div>
+    </div>
+  );
+}
+
+function OptRow({
+  label,
+  hint,
+  control,
+  first,
+}: {
+  label: string;
+  hint?: string;
+  control: React.ReactNode;
+  first?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 14,
+        flexWrap: 'wrap',
+        padding: '13px 0',
+        borderTop: first ? 'none' : '1px solid var(--border-1)',
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600 }}>{label}</div>
+        {hint && <div style={{ fontSize: 11.5, color: 'var(--ink-3)', marginTop: 2 }}>{hint}</div>}
+      </div>
+      {control}
+    </div>
+  );
+}
+
+// ── Document thumbnail — rendered page at scale (asset_13) ──────────────────────
+function DocThumbnail({ tpl, scale }: { tpl: WsTemplate; scale?: number }) {
+  const sc = scale || 0.38;
+  const W = 420,
+    H = 560;
+  const accent = tpl.accentColor || '#1B2D5B';
+  const isSerif = tpl.style === 'serif-formal';
+  const fontFamily = tpl.fontFamily || undefined;
+  const L = ({ w, h, mt, bg }: { w?: number | string; h?: number; mt?: number; bg?: string }) => (
+    <div
+      style={{
+        height: h || 4,
+        width: w || '100%',
+        borderRadius: 2,
+        background: bg || '#d1d5db',
+        marginTop: mt || 0,
+        flexShrink: 0,
+      }}
+    />
+  );
+  const pageContent = isSerif ? (
+    <div
+      style={{
+        width: W,
+        height: H,
+        background: '#fff',
+        fontFamily,
+        padding: '0 0 24px',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div style={{ height: 5, background: accent, flexShrink: 0 }} />
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '10px 28px 9px',
+          borderBottom: '1px solid ' + accent,
+          flexShrink: 0,
+        }}
+      >
+        <div
+          style={{ width: 20, height: 20, borderRadius: 3, background: accent, flexShrink: 0 }}
+        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+          <div style={{ width: 90, height: 5, borderRadius: 1.5, background: accent }} />
+          <div style={{ width: 65, height: 3, borderRadius: 1.5, background: '#9ca3af' }} />
+        </div>
+      </div>
+      <div style={{ padding: '14px 28px 0', flexShrink: 0 }}>
+        <div
+          style={{ width: '80%', height: 11, borderRadius: 2, background: accent, marginBottom: 5 }}
+        />
+        <div
+          style={{
+            width: '52%',
+            height: 6,
+            borderRadius: 2,
+            background: '#6b7280',
+            marginBottom: 3,
+          }}
+        />
+        <div
+          style={{
+            width: '38%',
+            height: 3.5,
+            borderRadius: 1.5,
+            background: '#d1d5db',
+            marginBottom: 16,
+          }}
+        />
+      </div>
+      <div
+        style={{
+          flex: 1,
+          padding: '0 28px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 12,
+          overflow: 'hidden',
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: 6.5,
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              color: accent,
+              marginBottom: 5,
+            }}
+          >
+            Executive Summary
+          </div>
+          <L />
+          <L w="91%" mt={3} />
+          <L w="97%" mt={3} />
+          <L w="68%" mt={3} />
+        </div>
+        <div>
+          <div
+            style={{
+              fontSize: 6.5,
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              color: accent,
+              marginBottom: 6,
+            }}
+          >
+            Budget Context
+          </div>
+          <div style={{ border: '1px solid #e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '4px 8px',
+                  background: i % 2 === 0 ? '#f9fafb' : '#fff',
+                  borderTop: i ? '1px solid #e5e7eb' : 'none',
+                  gap: 6,
+                }}
+              >
+                <div style={{ flex: 1, height: 3.5, borderRadius: 1.5, background: '#d1d5db' }} />
+                <div
+                  style={{
+                    width: 22,
+                    height: 4.5,
+                    borderRadius: 1.5,
+                    background: i === 2 ? accent : '#9ca3af',
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div
+            style={{
+              fontSize: 6.5,
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              color: accent,
+              marginBottom: 5,
+            }}
+          >
+            Program Overview
+          </div>
+          <L />
+          <L w="88%" mt={3} />
+          <L w="93%" mt={3} />
+        </div>
+        <div>
+          <div
+            style={{
+              fontSize: 6.5,
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              textTransform: 'uppercase',
+              color: accent,
+              marginBottom: 5,
+            }}
+          >
+            The Ask
+          </div>
+          <div
+            style={{
+              padding: '7px 9px',
+              background: '#f0f4ff',
+              border: '1px solid #c7d3f5',
+              borderRadius: 3,
+            }}
+          >
+            <div
+              style={{
+                width: '60%',
+                height: 5,
+                borderRadius: 2,
+                background: accent,
+                opacity: 0.65,
+                marginBottom: 3,
+              }}
+            />
+            <L w="80%" bg="#94a3b8" />
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : (
+    <div
+      style={{
+        width: W,
+        height: H,
+        background: '#fff',
+        fontFamily,
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      <div
+        style={{
+          height: 44,
+          background: accent,
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 20px',
+          gap: 8,
+        }}
+      >
+        <div
+          style={{ width: 110, height: 6, borderRadius: 2, background: 'rgba(255,255,255,0.9)' }}
+        />
+        <div style={{ flex: 1 }} />
+        <div
+          style={{ width: 40, height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.5)' }}
+        />
+      </div>
+      <div style={{ padding: '16px 24px 0', flexShrink: 0 }}>
+        <div
+          style={{
+            width: '74%',
+            height: 13,
+            borderRadius: 2,
+            background: '#1e293b',
+            marginBottom: 5,
+          }}
+        />
+        <div
+          style={{
+            width: '48%',
+            height: 5,
+            borderRadius: 2,
+            background: '#64748b',
+            marginBottom: 14,
+          }}
+        />
+      </div>
+      <div
+        style={{
+          flex: 1,
+          padding: '0 24px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 11,
+          overflow: 'hidden',
+        }}
+      >
+        <div
+          style={{
+            padding: '8px 11px',
+            background: 'rgba(42,111,219,0.08)',
+            borderLeft: '3px solid ' + accent,
+            borderRadius: '0 4px 4px 0',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 6.5,
+              fontWeight: 800,
+              color: accent,
+              letterSpacing: '0.1em',
+              marginBottom: 5,
+            }}
+          >
+            THE BOTTOM LINE
+          </div>
+          <L bg="#94a3b8" />
+          <L w="84%" mt={3} bg="#94a3b8" />
+        </div>
+        {['Background', 'The Ask', 'Why Now'].map((sec, i) => (
+          <div key={sec} style={{ paddingLeft: 9, borderLeft: '2px solid #e2e8f0' }}>
+            <div style={{ fontSize: 7, fontWeight: 700, color: '#334155', marginBottom: 4 }}>
+              {sec}
+            </div>
+            <L bg="#cbd5e1" />
+            <L w={i === 1 ? '68%' : '89%'} mt={3} bg="#cbd5e1" />
+            {i === 0 && <L w="82%" mt={3} bg="#cbd5e1" />}
+          </div>
+        ))}
+        <div
+          style={{
+            padding: '7px 10px',
+            background: '#f8fafc',
+            borderRadius: 4,
+            border: '1px solid #e2e8f0',
+          }}
+        >
+          <div
+            style={{
+              fontSize: 6.5,
+              fontWeight: 700,
+              color: '#64748b',
+              marginBottom: 6,
+              letterSpacing: '0.08em',
+            }}
+          >
+            SUPPORTING DATA
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 5, height: 28 }}>
+            {[38, 55, 52, 72, 88].map((h, i) => (
+              <div
+                key={i}
+                style={{
+                  flex: 1,
+                  height: h + '%',
+                  background: i === 4 ? accent : '#cbd5e1',
+                  borderRadius: '2px 2px 0 0',
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+  return (
+    <div
+      style={{
+        width: Math.round(W * sc),
+        height: Math.round(H * sc),
+        overflow: 'hidden',
+        borderRadius: 5,
+        boxShadow: '0 1px 6px rgba(0,0,0,0.13)',
+        flexShrink: 0,
+      }}
+    >
+      <div
+        style={{ transform: 'scale(' + sc + ')', transformOrigin: 'top left', width: W, height: H }}
+      >
+        {pageContent}
+      </div>
+    </div>
+  );
+}
+
+// ── TemplatesPicker (asset_13) ─────────────────────────────────────────────────
+function TemplatesPicker({ cfg, update }: { cfg: WsConfig; update: (p: ConfigPatch) => void }) {
+  const [mode, setMode] = useState<'predefined' | 'own'>('predefined');
+  const [modalTpl, setModalTpl] = useState<WsTemplate | null>(null);
+  const [showAll, setShowAll] = useState(false);
+  const [search, setSearch] = useState('');
+  const { data: tpls } = useTemplatesFor(cfg.product);
+  const allTemplates = useMemo(() => tpls?.all ?? [], [tpls]);
+  const meriPrimary = tpls?.primary ?? null;
+  const meriSecondary = tpls?.secondary ?? null;
+  const searchResults = search.trim()
+    ? allTemplates.filter((t) =>
+        (t.name + ' ' + (t.description ?? '') + ' ' + t.product)
+          .toLowerCase()
+          .includes(search.toLowerCase()),
+      )
+    : allTemplates;
+  const applyTemplate = (tpl: WsTemplate) => {
+    update({ selectedTemplate: tpl.id, sections: tpl.sections });
+    setModalTpl(null);
+  };
+  const ModeBtn = ({ m, label }: { m: 'predefined' | 'own'; label: string }) => (
+    <button
+      onClick={() => {
+        setMode(m);
+        if (m === 'own') update({ selectedTemplate: null });
+      }}
+      style={{
+        flex: 1,
+        padding: '7px 0',
+        border: '1px solid',
+        fontFamily: 'var(--font-sans)',
+        borderColor: mode === m ? 'var(--accent)' : 'var(--border-1)',
+        background: mode === m ? 'var(--accent-soft)' : 'var(--bg-surface)',
+        color: mode === m ? 'var(--accent-ink)' : 'var(--ink-2)',
+        borderRadius: 7,
+        fontWeight: 600,
+        fontSize: 12,
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+    </button>
+  );
+  const SuggestionCard = ({ tpl, label }: { tpl: WsTemplate; label?: string }) => {
+    const isActive = cfg.selectedTemplate === tpl.id;
+    return (
+      <div
+        onClick={() => setModalTpl(tpl)}
+        style={{ display: 'flex', flexDirection: 'column', gap: 10, cursor: 'pointer', flex: 1 }}
+      >
+        <div
+          style={{
+            border: '2px solid',
+            borderColor: isActive ? 'var(--accent)' : 'var(--border-1)',
+            borderRadius: 8,
+            overflow: 'hidden',
+            transition: 'border-color 0.15s',
+          }}
+        >
+          <DocThumbnail tpl={tpl} scale={0.41} />
+        </div>
+        <div>
+          {label && (
+            <div
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.09em',
+                color: 'var(--accent)',
+                marginBottom: 3,
+              }}
+            >
+              {label}
+            </div>
+          )}
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink-1)', marginBottom: 3 }}>
+            {tpl.name}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.45 }}>
+            {tpl.description}
+          </div>
+          {isActive && (
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                marginTop: 5,
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'var(--accent)',
+              }}
+            >
+              <Icon name="Check" size={12} />
+              Applied
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+  return (
+    <QCard title="Templates">
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        <ModeBtn m="predefined" label="Choose a template" />
+        <ModeBtn m="own" label="Create your own" />
+      </div>
+      {mode === 'predefined' && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 14 }}>
+            <Icon name="Sparkles" size={13} style={{ color: 'var(--accent)' }} />
+            <span style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>
+              Meri suggests for <b>{cfg.product}</b>.{' '}
+              <span style={{ color: 'var(--ink-3)' }}>
+                Everything can be modified in the editor.
+              </span>
+            </span>
+          </div>
+          {!showAll ? (
+            <>
+              <div style={{ display: 'flex', gap: 14, marginBottom: 14, alignItems: 'flex-start' }}>
+                {meriPrimary && <SuggestionCard tpl={meriPrimary} label="Recommended" />}
+                {meriSecondary && <SuggestionCard tpl={meriSecondary} label="Alternative" />}
+              </div>
+              {modalTpl && (
+                <div
+                  style={{
+                    position: 'fixed',
+                    inset: 0,
+                    zIndex: 200,
+                    background: 'rgba(0,0,0,0.5)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                  onClick={() => setModalTpl(null)}
+                >
+                  <div
+                    className="card"
+                    style={{
+                      display: 'flex',
+                      gap: 0,
+                      maxWidth: 820,
+                      width: '92vw',
+                      maxHeight: '90vh',
+                      overflow: 'hidden',
+                      boxShadow: 'var(--shadow-3)',
+                      padding: 0,
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div
+                      style={{
+                        background: '#f1f5f9',
+                        padding: 28,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <DocThumbnail tpl={modalTpl} scale={0.72} />
+                    </div>
+                    <div
+                      style={{
+                        flex: 1,
+                        padding: 28,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 14,
+                        minWidth: 0,
+                        overflow: 'auto',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>
+                            {modalTpl.name}
+                          </div>
+                          <div style={{ fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.55 }}>
+                            {modalTpl.description}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setModalTpl(null)}
+                          style={{
+                            border: 'none',
+                            background: 'none',
+                            cursor: 'pointer',
+                            color: 'var(--ink-3)',
+                            flexShrink: 0,
+                            padding: 4,
+                          }}
+                        >
+                          <Icon name="X" size={18} />
+                        </button>
+                      </div>
+                      <div style={{ paddingTop: 14, borderTop: '1px solid var(--border-1)' }}>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.08em',
+                            color: 'var(--ink-3)',
+                            marginBottom: 10,
+                          }}
+                        >
+                          Included sections
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {modalTpl.sections.map((s, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                              <div
+                                style={{
+                                  width: 20,
+                                  height: 20,
+                                  borderRadius: 5,
+                                  background: modalTpl.accentColor || 'var(--accent)',
+                                  display: 'grid',
+                                  placeItems: 'center',
+                                  flexShrink: 0,
+                                  opacity: 0.15 + i * 0.12,
+                                }}
+                              />
+                              <span style={{ fontSize: 13, fontWeight: 500 }}>{s}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {modalTpl.elements && modalTpl.elements.length > 0 && (
+                        <div style={{ paddingTop: 14, borderTop: '1px solid var(--border-1)' }}>
+                          <div
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              textTransform: 'uppercase',
+                              letterSpacing: '0.08em',
+                              color: 'var(--ink-3)',
+                              marginBottom: 8,
+                            }}
+                          >
+                            Supported elements
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {modalTpl.elements.map((el) => (
+                              <span
+                                key={el}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 5,
+                                  padding: '3px 9px',
+                                  borderRadius: 20,
+                                  background: 'var(--bg-surface-2)',
+                                  border: '1px solid var(--border-1)',
+                                  fontSize: 11.5,
+                                  fontWeight: 500,
+                                  color: 'var(--ink-2)',
+                                }}
+                              >
+                                <Icon
+                                  name={
+                                    el === 'Tables'
+                                      ? 'Table'
+                                      : el === 'Charts'
+                                        ? 'BarChart2'
+                                        : el === 'Logos'
+                                          ? 'Building2'
+                                          : el === 'Photos'
+                                            ? 'Image'
+                                            : el === 'Budget exhibit'
+                                              ? 'DollarSign'
+                                              : el === 'Cover letter'
+                                                ? 'Mail'
+                                                : 'File'
+                                  }
+                                  size={11}
+                                />
+                                {el}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      <div
+                        style={{
+                          marginTop: 'auto',
+                          display: 'flex',
+                          gap: 8,
+                          paddingTop: 14,
+                          borderTop: '1px solid var(--border-1)',
+                        }}
+                      >
+                        <button
+                          className="btn btn-accent"
+                          onClick={() => applyTemplate(modalTpl)}
+                          style={{ flex: 1, justifyContent: 'center' }}
+                        >
+                          <Icon name="Check" size={14} />
+                          Use this template
+                        </button>
+                        <button className="btn" onClick={() => setModalTpl(null)}>
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <button
+                onClick={() => setShowAll(true)}
+                style={{
+                  fontSize: 11.5,
+                  color: 'var(--accent)',
+                  fontWeight: 600,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '2px 0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                }}
+              >
+                <Icon name="Search" size={12} />
+                Search all templates ({allTemplates.length})
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{ position: 'relative', marginBottom: 12 }}>
+                <div
+                  className="field"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '8px 11px',
+                    background: 'var(--bg-surface)',
+                  }}
+                >
+                  <Icon name="Search" size={14} style={{ color: 'var(--ink-3)' }} />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search all templates…"
+                    style={{
+                      flex: 1,
+                      border: 'none',
+                      outline: 'none',
+                      background: 'transparent',
+                      fontSize: 12.5,
+                      fontFamily: 'var(--font-sans)',
+                    }}
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => {
+                      setShowAll(false);
+                      setSearch('');
+                    }}
+                    style={{
+                      border: 'none',
+                      background: 'none',
+                      cursor: 'pointer',
+                      color: 'var(--ink-4)',
+                    }}
+                  >
+                    <Icon name="X" size={13} />
+                  </button>
+                </div>
+              </div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 9,
+                  maxHeight: 320,
+                  overflow: 'auto',
+                }}
+              >
+                {searchResults.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => {
+                      applyTemplate(t);
+                      setShowAll(false);
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: '8px 10px',
+                      border: '1px solid',
+                      borderColor:
+                        cfg.selectedTemplate === t.id ? 'var(--accent)' : 'var(--border-1)',
+                      background:
+                        cfg.selectedTemplate === t.id ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                      borderRadius: 8,
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 7,
+                        background: t.accentColor || 'var(--bg-surface-2)',
+                        display: 'grid',
+                        placeItems: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Icon name={t.icon || 'File'} size={15} style={{ color: '#fff' }} />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600 }}>{t.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{t.product}</div>
+                    </div>
+                    {cfg.selectedTemplate === t.id && (
+                      <Icon
+                        name="Check"
+                        size={14}
+                        style={{ color: 'var(--accent)', flexShrink: 0 }}
+                      />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </>
           )}
         </>
       )}
-    </div>
+      {mode === 'own' && <OwnSectionBuilder cfg={cfg} update={update} />}
+    </QCard>
   );
 }
 
-function LinksDataCard({
-  industry,
-  linkedData,
-  onLinkedData,
-}: {
-  industry: string | null;
-  linkedData: string[];
-  onLinkedData: (v: string[]) => void;
-}) {
-  // Industry platform data toggles (Defense → PE/R-1/UPL). For v1 we surface a
-  // free-tag selector; real wiring pulls WSC.dataFor(industry) labels.
+// ── OwnSectionBuilder (asset_13) ───────────────────────────────────────────────
+function OwnSectionBuilder({ cfg, update }: { cfg: WsConfig; update: (p: ConfigPatch) => void }) {
+  const [custom, setCustom] = useState('');
+  const { data: library } = useSectionLibrary();
+  const lib = (library ?? []).filter((s) => !cfg.sections.includes(s));
+  const removeSec = (name: string) => update({ sections: cfg.sections.filter((x) => x !== name) });
+  const addSec = (name: string) => {
+    const v = (name || '').trim();
+    if (v && !cfg.sections.includes(v)) update({ sections: [...cfg.sections, v] });
+  };
   return (
-    <Field label={`Platform data${industry ? ` for ${industry}` : ''}`}>
-      <Select
-        mode="tags"
-        style={{ width: '100%' }}
-        value={linkedData}
-        onChange={onLinkedData}
-        placeholder="Program Element, R-1 budget line, Navy UPL…"
-      />
-    </Field>
-  );
-}
-
-function DocOptionsCard({
-  pages,
-  tone,
-  toneContext,
-  onPages,
-  onTone,
-  onToneContext,
-}: {
-  pages: number;
-  tone: string;
-  toneContext: string;
-  onPages: (v: number) => void;
-  onTone: (v: string) => void;
-  onToneContext: (v: string) => void;
-}) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <Field label="Target length (pages)">
-        <InputNumber min={1} max={30} value={pages} onChange={(v) => onPages(v ?? 1)} />
-      </Field>
-      <Field label="Tone">
-        <Segmented value={tone} options={['Formal', 'Plain', 'Persuasive']} onChange={(v) => onTone(String(v))} />
-      </Field>
-      <Field label="Key focus / strategic goal (optional)">
-        <Input.TextArea
-          rows={2}
-          value={toneContext}
-          onChange={(e) => onToneContext(e.target.value)}
-          placeholder="e.g. emphasize ROI over technical feasibility"
-        />
-      </Field>
-    </div>
-  );
-}
-
-function LetterheadCard({
-  letterhead,
-  onChange,
-}: {
-  letterhead: { custom: boolean; firmName: string; firmAddr: string };
-  onChange: (v: { custom: boolean; firmName: string; firmAddr: string }) => void;
-}) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <Field label="Custom letterhead">
-        <Switch checked={letterhead.custom} onChange={(custom) => onChange({ ...letterhead, custom })} />
-      </Field>
-      {letterhead.custom && (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+        <Icon name="Sparkles" size={13} style={{ color: 'var(--accent)' }} />
+        <span style={{ fontSize: 11.5, color: 'var(--ink-2)' }}>
+          Build your own structure. Meri drafts each section from your context.
+        </span>
+        <a
+          onClick={() => update({ sections: suggestedSections(cfg.product) })}
+          style={{
+            marginLeft: 'auto',
+            fontSize: 11,
+            color: 'var(--accent)',
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          Reset
+        </a>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: lib.length ? 12 : 8 }}>
+        {cfg.sections.map((name) => (
+          <span
+            key={name}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 7,
+              padding: '6px 8px 6px 11px',
+              borderRadius: 7,
+              border: '1px solid var(--accent)',
+              background: 'var(--accent-soft)',
+              color: 'var(--accent-ink)',
+              fontSize: 12.5,
+              fontWeight: 600,
+            }}
+          >
+            {name}
+            <button
+              onClick={() => removeSec(name)}
+              style={{
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                display: 'grid',
+                placeItems: 'center',
+                color: 'var(--accent-ink)',
+                padding: 0,
+              }}
+            >
+              <Icon name="X" size={13} />
+            </button>
+          </span>
+        ))}
+      </div>
+      {lib.length > 0 && (
         <>
-          <Field label="Firm name">
-            <Input value={letterhead.firmName} onChange={(e) => onChange({ ...letterhead, firmName: e.target.value })} />
-          </Field>
-          <Field label="Firm address">
-            <Input value={letterhead.firmAddr} onChange={(e) => onChange({ ...letterhead, firmAddr: e.target.value })} />
-          </Field>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 7 }}>
+            Add from library
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7, marginBottom: 12 }}>
+            {lib.map((s) => (
+              <button
+                key={s}
+                onClick={() => addSec(s)}
+                className="btn sm"
+                style={{ borderStyle: 'dashed', color: 'var(--ink-2)' }}
+              >
+                <Icon name="Plus" size={12} />
+                {s}
+              </button>
+            ))}
+          </div>
         </>
       )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              addSec(custom);
+              setCustom('');
+            }
+          }}
+          placeholder="Write your own section name"
+          className="field"
+          style={{
+            flex: 1,
+            padding: '8px 12px',
+            fontSize: 12.5,
+            fontFamily: 'var(--font-sans)',
+            background: 'var(--bg-surface)',
+          }}
+        />
+        <button
+          className="btn sm"
+          onClick={() => {
+            addSec(custom);
+            setCustom('');
+          }}
+          disabled={!custom.trim()}
+          style={{ opacity: custom.trim() ? 1 : 0.5 }}
+        >
+          <Icon name="Plus" size={12} />
+          Add
+        </button>
+      </div>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+// ── shared picker helpers ──────────────────────────────────────────────────────
+/** Initials from a person's name (matches the prototype's Ava fallback). */
+function initialsOf(name: string): string {
+  return name
+    .split(/\s+/)
+    .map((x) => x[0])
+    .filter(Boolean)
+    .slice(-2)
+    .join('')
+    .toUpperCase();
+}
+function MiniAva({ x, size = 26 }: { x: string; size?: number }) {
   return (
-    <label style={{ display: 'block' }}>
-      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--ws-ink-2)', marginBottom: 6 }}>{label}</div>
-      {children}
-    </label>
+    <span
+      className="num"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: 'linear-gradient(135deg,#4E78D8,#1A3F9F)',
+        color: '#fff',
+        display: 'inline-grid',
+        placeItems: 'center',
+        fontSize: size * 0.4,
+        fontWeight: 600,
+        flex: 'none',
+        boxShadow: '0 0 0 1.5px var(--bg-surface)',
+      }}
+    >
+      {x}
+    </span>
+  );
+}
+
+// ── OfficePicker — searches OUR congressional directory (GET /api/directory/contacts) ─
+interface DirContact {
+  id: string;
+  fullName: string;
+  memberName: string;
+  chamber: string;
+  state: string;
+  district: string;
+  party: string;
+}
+interface DirContactsResponse {
+  contacts: DirContact[];
+}
+function OfficePicker({
+  cfg,
+  client,
+  update,
+}: {
+  cfg: WsConfig;
+  client: string | null;
+  update: (p: ConfigPatch) => void;
+}) {
+  const api = useApi();
+  const [q, setQ] = useState('');
+  const offices = cfg.offices ?? [];
+
+  // Members directory search — live against our directory contacts endpoint.
+  const { data } = useQuery({
+    queryKey: ['ws-office-search', q.trim()],
+    enabled: q.trim().length > 0,
+    queryFn: async () =>
+      (
+        await api.get<DirContactsResponse>('/api/directory/contacts', {
+          params: { q: q.trim(), pageSize: 6, sort: 'name-asc' },
+        })
+      ).data,
+  });
+  const results = (data?.contacts ?? []).filter((o) => !offices.includes(o.fullName)).slice(0, 6);
+
+  const removeOffice = (who: string) => update({ offices: offices.filter((x) => x !== who) });
+  const addOffice = (who: string) => {
+    if (!offices.includes(who)) update({ offices: [...offices, who] });
+    setQ('');
+  };
+
+  return (
+    <div style={{ paddingTop: 14, borderTop: '1px solid var(--border-1)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)' }}>Target offices</div>
+        {client && (
+          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+            members of Congress for {client}
+          </span>
+        )}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 10 }}>
+        {offices.map((who) => (
+          <div
+            key={who}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              padding: '9px 11px',
+              border: '1px solid var(--border-1)',
+              background: 'var(--bg-surface)',
+              borderRadius: 8,
+            }}
+          >
+            <MiniAva x={initialsOf(who)} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12.5, fontWeight: 600 }}>{who}</div>
+            </div>
+            <button
+              onClick={() => removeOffice(who)}
+              title="Remove"
+              style={{
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                color: 'var(--ink-4)',
+                display: 'grid',
+                placeItems: 'center',
+                padding: 2,
+              }}
+            >
+              <Icon name="X" size={14} />
+            </button>
+          </div>
+        ))}
+        {offices.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: '8px 0' }}>
+            No offices selected. Search the directory below.
+          </div>
+        )}
+      </div>
+      <div style={{ position: 'relative' }}>
+        <div
+          className="field"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 11px',
+            background: 'var(--bg-surface)',
+          }}
+        >
+          <Icon name="Search" size={14} style={{ color: 'var(--ink-3)' }} />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search by name, district, or committee"
+            style={{
+              flex: 1,
+              border: 'none',
+              outline: 'none',
+              background: 'transparent',
+              fontSize: 12.5,
+              fontFamily: 'var(--font-sans)',
+            }}
+          />
+        </div>
+        {results.length > 0 && (
+          <div
+            className="card"
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + 4px)',
+              left: 0,
+              right: 0,
+              zIndex: 20,
+              padding: 5,
+              boxShadow: 'var(--shadow-2)',
+            }}
+          >
+            {results.map((o) => (
+              <button
+                key={o.id}
+                onClick={() => addOffice(o.fullName)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '7px 8px',
+                  border: 'none',
+                  background: 'transparent',
+                  borderRadius: 6,
+                  cursor: 'pointer',
+                  font: 'inherit',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-surface-2)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              >
+                <MiniAva x={initialsOf(o.fullName)} size={22} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600 }}>{o.fullName}</div>
+                  <div style={{ fontSize: 10.5, color: 'var(--ink-3)' }} className="num">
+                    {[o.state, o.district ? 'Dist ' + o.district : '', o.chamber]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </div>
+                </div>
+                <Icon name="Plus" size={13} style={{ color: 'var(--accent)' }} />
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── ClientPicker — lists the client's contacts (GET /api/clients/:id/people) ────
+interface ClientRow {
+  id: string;
+  name: string;
+}
+interface ClientPersonRow {
+  id: string;
+  fullName: string | null;
+  email: string | null;
+  title: string | null;
+  role: string | null;
+}
+function ClientPicker({
+  cfg,
+  client,
+  update,
+}: {
+  cfg: WsConfig;
+  client: string | null;
+  update: (p: ConfigPatch) => void;
+}) {
+  const api = useApi();
+  const [q, setQ] = useState('');
+  const selected = (cfg.clientPersons as string[] | undefined) ?? [];
+
+  // The draft stores the client as a NAME; resolve it to an id, then list people.
+  const { data: clients } = useQuery({
+    queryKey: ['ws-clients-list'],
+    enabled: !!client,
+    queryFn: async () => (await api.get<ClientRow[]>('/api/clients')).data,
+  });
+  const clientId = useMemo(
+    () => (clients ?? []).find((c) => c.name === client)?.id ?? null,
+    [clients, client],
+  );
+  const { data: people } = useQuery({
+    queryKey: ['ws-client-people', clientId],
+    enabled: !!clientId,
+    queryFn: async () => (await api.get<ClientPersonRow[]>(`/api/clients/${clientId}/people`)).data,
+  });
+  const contacts = people ?? [];
+  const labelOf = (p: ClientPersonRow) =>
+    p.fullName?.trim() || p.email?.trim() || 'Unnamed contact';
+  const roleOf = (p: ClientPersonRow) => [p.role || p.title, client].filter(Boolean).join(' · ');
+
+  const remove = (who: string) => update({ clientPersons: selected.filter((x) => x !== who) });
+  const add = (who: string) => {
+    if (!selected.includes(who)) update({ clientPersons: [...selected, who] });
+    setQ('');
+  };
+  const results = q.trim()
+    ? contacts
+        .filter((c) => !selected.includes(labelOf(c)))
+        .filter((c) =>
+          (labelOf(c) + ' ' + (c.role || c.title || '')).toLowerCase().includes(q.toLowerCase()),
+        )
+        .slice(0, 6)
+    : [];
+
+  return (
+    <div style={{ paddingTop: 14, borderTop: '1px solid var(--border-1)' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, marginBottom: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)' }}>Client contacts</div>
+        {client && (
+          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>from {client} profile</span>
+        )}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 10 }}>
+        {selected.map((who) => {
+          const c = contacts.find((x) => labelOf(x) === who);
+          return (
+            <div
+              key={who}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '9px 11px',
+                border: '1px solid var(--border-1)',
+                background: 'var(--bg-surface)',
+                borderRadius: 8,
+              }}
+            >
+              <MiniAva x={initialsOf(who)} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 600 }}>{who}</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{c ? roleOf(c) : client}</div>
+              </div>
+              <button
+                onClick={() => remove(who)}
+                title="Remove"
+                style={{
+                  border: 'none',
+                  background: 'none',
+                  cursor: 'pointer',
+                  color: 'var(--ink-4)',
+                  display: 'grid',
+                  placeItems: 'center',
+                  padding: 2,
+                }}
+              >
+                <Icon name="X" size={14} />
+              </button>
+            </div>
+          );
+        })}
+        {selected.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: '4px 0' }}>
+            No contacts selected. Search below.
+          </div>
+        )}
+      </div>
+      <div style={{ position: 'relative' }}>
+        <div
+          className="field"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 11px',
+            background: 'var(--bg-surface)',
+          }}
+        >
+          <Icon name="Search" size={14} style={{ color: 'var(--ink-3)' }} />
+          <input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search by name or role"
+            style={{
+              flex: 1,
+              border: 'none',
+              outline: 'none',
+              background: 'transparent',
+              fontSize: 12.5,
+              fontFamily: 'var(--font-sans)',
+            }}
+          />
+        </div>
+        {results.length > 0 && (
+          <div
+            className="card"
+            style={{
+              position: 'absolute',
+              top: 'calc(100% + 4px)',
+              left: 0,
+              right: 0,
+              zIndex: 20,
+              padding: 5,
+              boxShadow: 'var(--shadow-2)',
+            }}
+          >
+            {results.map((c) => {
+              const lbl = labelOf(c);
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => add(lbl)}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    width: '100%',
+                    textAlign: 'left',
+                    padding: '7px 8px',
+                    border: 'none',
+                    background: 'transparent',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    font: 'inherit',
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-surface-2)')}
+                  onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                >
+                  <MiniAva x={initialsOf(lbl)} size={22} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>{lbl}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>{roleOf(c)}</div>
+                  </div>
+                  <Icon name="Plus" size={13} style={{ color: 'var(--accent)' }} />
+                </button>
+              );
+            })}
+          </div>
+        )}
+        {q.trim() && results.length === 0 && (
+          <div
+            style={{
+              fontSize: 11.5,
+              color: 'var(--ink-3)',
+              padding: '10px 12px',
+              fontStyle: 'italic',
+            }}
+          >
+            {/* TODO(phase): wire client contacts — shown when the client has no people on file or no client is linked. */}
+            No contacts found{client ? ` in ${client} profile.` : '.'}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── LinkedDataCard (asset_13) — NO strategy row (Strategies deleted) ───────────
+function LinkedDataCard({
+  cfg,
+  client,
+  update,
+}: {
+  cfg: WsConfig;
+  client: string | null;
+  update: (p: ConfigPatch) => void;
+}) {
+  const { data: industryData } = useIndustryData(cfg.industry);
+  const { data: defaults } = useProductDefaults(cfg.product);
+  const data = industryData ?? [];
+  const linked = (cfg.linkedData as string[] | undefined) ?? [];
+  const ask = (cfg.ask as { amount?: string; pb?: string; delta?: string } | undefined) ?? {};
+  const isFunding = !!defaults?.funding;
+  const toggle = (label: string) =>
+    update({
+      linkedData: linked.includes(label) ? linked.filter((x) => x !== label) : [...linked, label],
+    });
+  return (
+    <QCard title="Links & data">
+      <div>
+        <div style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)', marginBottom: 5 }}>
+          Client
+        </div>
+        <div
+          className="field"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 9,
+            padding: '9px 12px',
+            cursor: 'pointer',
+            background: 'var(--bg-surface)',
+          }}
+        >
+          <Icon name="Building2" size={15} style={{ color: 'var(--ink-3)' }} />
+          <span style={{ flex: 1, fontSize: 13 }}>{client || 'No client linked'}</span>
+          <Icon name="ChevronDown" size={15} style={{ color: 'var(--ink-3)' }} />
+        </div>
+      </div>
+      {data.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 11.5,
+              fontWeight: 600,
+              color: 'var(--ink-2)',
+              marginBottom: 7,
+            }}
+          >
+            <Icon name="Sparkles" size={12} style={{ color: 'var(--accent)' }} />
+            Pull from {cfg.industry} on the platform
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+            {data.map((d) => {
+              const on = linked.includes(d.label);
+              return (
+                <button
+                  key={d.label}
+                  onClick={() => toggle(d.label)}
+                  className="btn sm"
+                  style={{
+                    borderColor: on ? 'var(--accent)' : 'var(--border-1)',
+                    background: on ? 'var(--accent-soft)' : 'var(--bg-surface)',
+                    color: on ? 'var(--accent-ink)' : 'var(--ink-2)',
+                  }}
+                >
+                  <Icon name={on ? 'Check' : d.icon} size={12} />
+                  {d.label}
+                  {d.value && d.value !== '—' ? (
+                    <span className="num" style={{ opacity: 0.65 }}>
+                      {' '}
+                      · {d.value}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <button
+        className="btn sm"
+        style={{ borderStyle: 'dashed', color: 'var(--ink-2)', marginTop: 12 }}
+      >
+        <Icon name="UserPlus" size={12} />
+        Import key contacts / program elements
+      </button>
+      {isFunding && (
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border-1)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
+            <span style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)' }}>
+              Funding ask
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--ink-3)', fontStyle: 'italic' }}>
+              optional — pre-fills the budget block in the editor
+            </span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            {(
+              [
+                ['Amount', 'amount', '$18.0M'],
+                ['PB', 'pb', '$8.0M'],
+                ['Delta', 'delta', '+$10.0M'],
+              ] as const
+            ).map(([label, key, placeholder]) => (
+              <div key={key}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    color: 'var(--ink-3)',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    marginBottom: 5,
+                  }}
+                >
+                  {label}
+                </div>
+                <input
+                  value={ask[key] || ''}
+                  onChange={(e) => update({ ask: { ...ask, [key]: e.target.value } })}
+                  placeholder={placeholder}
+                  className="field num"
+                  style={{
+                    width: '100%',
+                    padding: '7px 10px',
+                    fontSize: 12.5,
+                    fontFamily: 'var(--font-mono)',
+                    background: 'var(--bg-surface)',
+                    boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </QCard>
+  );
+}
+
+// ── LetterheadCard (asset_13) ──────────────────────────────────────────────────
+function LetterheadCard({ cfg, update }: { cfg: WsConfig; update: (p: ConfigPatch) => void }) {
+  const lh = cfg.letterhead || { custom: false, firmName: '', firmAddr: '' };
+  const setLh = (patch: Partial<typeof lh>) => update({ letterhead: { ...lh, ...patch } });
+  const field: React.CSSProperties = {
+    padding: '8px 12px',
+    fontSize: 13,
+    fontFamily: 'var(--font-sans)',
+    background: 'var(--bg-surface)',
+    width: '100%',
+  };
+  return (
+    <QCard title="Letterhead">
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 14,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ fontSize: 12.5, fontWeight: 600 }}>Use a custom branded letterhead?</div>
+        <Seg
+          options={[
+            ['no', 'No'],
+            ['yes', 'Yes'],
+          ]}
+          value={lh.custom ? 'yes' : 'no'}
+          onChange={(v) => setLh({ custom: v === 'yes' })}
+        />
+      </div>
+      {lh.custom && (
+        <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <div
+              style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)', marginBottom: 6 }}
+            >
+              Logo
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 13 }}>
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 8,
+                  flex: 'none',
+                  border: '1px solid var(--border-1)',
+                  background:
+                    'repeating-linear-gradient(135deg, var(--bg-surface-2) 0 8px, var(--bg-sunken) 8px 16px)',
+                  display: 'grid',
+                  placeItems: 'center',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 9,
+                  color: 'var(--ink-3)',
+                }}
+              >
+                LOGO
+              </div>
+              {/* Logo upload is a stub in Setup — the editor handles the real asset upload. */}
+              <button className="btn sm">
+                <Icon name="Upload" size={13} />
+                Upload logo
+              </button>
+              <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                PNG or SVG, transparent background
+              </span>
+            </div>
+          </div>
+          <div>
+            <div
+              style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)', marginBottom: 6 }}
+            >
+              Firm name
+            </div>
+            <input
+              value={lh.firmName || ''}
+              onChange={(e) => setLh({ firmName: e.target.value })}
+              className="field"
+              style={field}
+            />
+          </div>
+          <div>
+            <div
+              style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-2)', marginBottom: 6 }}
+            >
+              Address
+            </div>
+            <input
+              value={lh.firmAddr || ''}
+              onChange={(e) => setLh({ firmAddr: e.target.value })}
+              className="field"
+              style={field}
+            />
+          </div>
+        </div>
+      )}
+    </QCard>
   );
 }

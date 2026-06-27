@@ -126,6 +126,13 @@ export interface WsComment {
   replies?: WsComment[];
 }
 
+/** A platform-data row offered in Setup's Links & data card (INDUSTRY_DATA). */
+export interface WsIndustryDatum {
+  label: string;
+  value: string;
+  icon: string;
+}
+
 export interface WsProductDefaults {
   product: string;
   personalize: boolean;
