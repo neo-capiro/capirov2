@@ -58,7 +58,14 @@ case "${1:-serve}" in
         }
       })();
     " || true
-    exec node node_modules/prisma/build/index.js migrate deploy
+    node node_modules/prisma/build/index.js migrate deploy
+    # Seed the global template catalog (idempotent upsert) after migrating.
+    echo "Seeding global template catalog"
+    exec node dist/seed.js
+    ;;
+  seed)
+    echo "Seeding global template catalog (workspace engine)"
+    exec node dist/seed.js
     ;;
   serve)
     echo "Starting Capiro Workspace"
