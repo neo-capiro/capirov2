@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { TenantGuard } from '../auth/tenant.guard.js';
 import { CascadeService } from './cascade.service.js';
+import type { IndustryDatum } from './cascade.config.js';
 
 /**
  * Cascade + product-catalog endpoints (Phase 3, AC-3.1).
@@ -24,6 +25,16 @@ export class CascadeController {
   }
 
   /**
+   * GET /workspace-api/cascade/section-library → the shared section names offered
+   * in OwnSectionBuilder's "add from library". Static route — declared before the
+   * `:industry/*` routes so it is never shadowed by the param matcher.
+   */
+  @Get('section-library')
+  sectionLibrary(): { sections: string[] } {
+    return { sections: this.cascade.sectionLibrary() };
+  }
+
+  /**
    * GET /workspace-api/cascade/:industry/products → products for an industry
    * (industry presets + universal comms docs). ?all=1 returns the 10 canonical.
    */
@@ -36,6 +47,15 @@ export class CascadeController {
       return { products: this.cascade.allLibraryProducts() };
     }
     return { products: this.cascade.productsFor(industry) };
+  }
+
+  /**
+   * GET /workspace-api/cascade/:industry/data → platform data rows for the
+   * industry (label/value/icon), toggled into cfg.linkedData[] in Setup.
+   */
+  @Get(':industry/data')
+  data(@Param('industry') industry: string): { data: IndustryDatum[] } {
+    return { data: this.cascade.dataFor(decodeURIComponent(industry)) };
   }
 
   /** GET /workspace-api/cascade/:industry/products/:product/pathways */
@@ -56,7 +76,10 @@ export class CascadeController {
     @Param('industry') industry: string,
     @Query('pathways') pathways?: string,
   ): { committees: string[] } {
-    const list = (pathways ?? '').split(',').map((p) => p.trim()).filter(Boolean);
+    const list = (pathways ?? '')
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
     return { committees: this.cascade.committeesFor(industry, list) };
   }
 }

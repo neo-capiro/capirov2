@@ -6,6 +6,7 @@ import type {
   WsContextItem,
   WsDocument,
   WsDraft,
+  WsIndustryDatum,
   WsProductDefaults,
   WsTemplate,
 } from './types.js';
@@ -63,6 +64,31 @@ export function useCommitteesFor(industry: string | null, pathways: string[]) {
       );
       return data.committees;
     },
+  });
+}
+
+/** Platform-data rows for an industry (INDUSTRY_DATA) — Links & data toggles. */
+export function useIndustryData(industry: string | null) {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['ws', 'industry-data', industry],
+    enabled: !!industry,
+    queryFn: async () =>
+      (
+        await api.get<{ data: WsIndustryDatum[] }>(
+          `${BASE}/cascade/${encodeURIComponent(industry!)}/data`,
+        )
+      ).data.data,
+  });
+}
+
+/** The shared section-name library for OwnSectionBuilder's "add from library". */
+export function useSectionLibrary() {
+  const api = useApi();
+  return useQuery({
+    queryKey: ['ws', 'section-library'],
+    queryFn: async () =>
+      (await api.get<{ sections: string[] }>(`${BASE}/cascade/section-library`)).data.sections,
   });
 }
 
