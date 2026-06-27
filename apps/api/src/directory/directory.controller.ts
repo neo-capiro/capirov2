@@ -112,6 +112,20 @@ export class DirectoryController {
     return this.service.getMemberFecSummary(ctx, contactId);
   }
 
+  // Recent press items from the member's RSS feed (last 30 days). Global
+  // directory data — auth-gated by the class guard, no tenant scope needed.
+  @Get('contacts/:contactId/news')
+  contactNews(@Param('contactId') contactId: string) {
+    return this.service.getMemberNews(contactId);
+  }
+
+  // Full article body for one news item, extracted from the member's linked
+  // press page. `url` must belong to the member's own press/feed host.
+  @Get('contacts/:contactId/news/article')
+  contactNewsArticle(@Param('contactId') contactId: string, @Query('url') url?: string) {
+    return this.service.getMemberNewsArticle(contactId, url ?? '');
+  }
+
   @Post('contacts/:contactId/notes')
   createContactNote(
     @CurrentTenant() ctx: TenantContext,

@@ -3539,6 +3539,59 @@ body {
   border-radius: 8px;
 }
 
+/* News tab: collapsible press-release list + extracted full-article body. */
+.directory-news-item-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 12px;
+}
+
+.directory-news-article {
+  max-width: 760px;
+}
+
+.directory-news-article-body {
+  font-size: 14px;
+  line-height: 1.65;
+  color: #1f2937;
+  word-break: break-word;
+}
+
+.directory-news-article-body p {
+  margin: 0 0 12px;
+}
+
+.directory-news-article-body h1,
+.directory-news-article-body h2,
+.directory-news-article-body h3,
+.directory-news-article-body h4 {
+  margin: 18px 0 8px;
+  line-height: 1.3;
+}
+
+.directory-news-article-body a {
+  color: #1d4ed8;
+}
+
+.directory-news-article-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.directory-news-article-body table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.directory-news-article-body ul,
+.directory-news-article-body ol {
+  padding-left: 22px;
+}
+
 .client-page {
   display: flex;
   flex-direction: column;
