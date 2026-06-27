@@ -257,6 +257,9 @@ case "${1:-serve}" in
   sync-fara-enrichment)   shift; exec ./node_modules/.bin/tsx scripts/sync-fara-enrichment.ts "$@" ;;
   sync-sec-edgar)         exec ./node_modules/.bin/tsx scripts/sync-sec-edgar.ts ;;
   sync-rss-intel)         exec ./node_modules/.bin/tsx scripts/sync-rss-intel.ts ;;
+  # Member press/RSS items for the directory News tab (every 3 days). A dispatched
+  # task passes --commit; bare invocation is a dry run for local review.
+  sync-member-press)      shift; exec ./node_modules/.bin/tsx scripts/sync-member-press.ts "$@" ;;
   sync-openstates)        exec ./node_modules/.bin/tsx scripts/sync-openstates.ts ;;
   sync-bls)               exec ./node_modules/.bin/tsx scripts/sync-bls.ts ;;
   sync-bea)               exec ./node_modules/.bin/tsx scripts/sync-bea.ts ;;

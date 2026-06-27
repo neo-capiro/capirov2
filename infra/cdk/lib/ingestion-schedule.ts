@@ -52,6 +52,8 @@ export const INGESTION_JOBS: ScheduledIngestionJob[] = [
   { id: 'SyncGrants', command: ['sync-grants'], cron: { minute: '30', hour: '7', weekDay: 'MON' }, tier: 'weekly', description: 'Federal grants (weekly Mon)' },
   { id: 'SyncOpenstates', command: ['sync-openstates'], cron: { minute: '0', hour: '8', weekDay: 'MON' }, tier: 'weekly', description: 'State bills/legislators (weekly Mon)' },
   { id: 'SyncSecEdgar', command: ['sync-sec-edgar'], cron: { minute: '30', hour: '8', weekDay: 'MON' }, tier: 'weekly', description: 'SEC EDGAR filings (weekly Mon)' },
+  // Every ~3 days at 06:00 UTC (~2am ET; 1am EST in winter). Live rule `capiro-dev-sync-member-press` created out-of-band — see docs/plans/member-press-feed-ingestion.md.
+  { id: 'SyncMemberPress', command: ['sync-member-press', '--commit'], cron: { minute: '0', hour: '6', day: '1/3' }, tier: 'weekly', description: 'Member press/RSS items for the directory News tab (every 3 days ~02:00 ET)' },
   { id: 'SyncPeoRosters', command: ['sync-peo-rosters'], cron: { minute: '0', hour: '9', weekDay: 'TUE' }, tier: 'weekly', description: 'PEO rosters (weekly Tue)' },
   { id: 'SyncDodOrgcharts', command: ['sync-dod-orgcharts'], cron: { minute: '30', hour: '9', weekDay: 'TUE' }, tier: 'weekly', description: 'DoD org charts (weekly Tue)' },
   { id: 'SyncDodPressPersonnel', command: ['sync-dod-press-personnel'], cron: { minute: '0', hour: '10', weekDay: 'TUE' }, tier: 'weekly', description: 'DoD press personnel (weekly Tue)' },

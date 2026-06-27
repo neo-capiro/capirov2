@@ -3266,6 +3266,25 @@ model IntelArticle {
   @@map("intel_article")
 }
 
+/// Member press/news items ingested from each congressional member's RSS feed by
+/// scripts/sync-member-press.ts (scheduled, every 3 days). GLOBAL table, no
+/// tenant_id, no RLS. Powers the directory member-profile "News" tab; keyed by
+/// bioguide_id (the directory member key), deduped per (bioguide_id, link).
+model MemberPressItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  bioguideId  String    @map("bioguide_id")
+  title       String    @db.Text
+  link        String    @db.Text
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+  summary     String?   @db.Text
+  source      String? // rss source tag / feed host
+  syncedAt    DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+
+  @@unique([bioguideId, link], map: "member_press_item_bioguide_link_key")
+  @@index([bioguideId, publishedAt(sort: Desc)], map: "member_press_item_bioguide_published_idx")
+  @@map("member_press_item")
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // Congressional Committee Activity (hearings, markups)
 // GLOBAL table, no tenant_id, no RLS.
