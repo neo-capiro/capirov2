@@ -15,7 +15,7 @@ import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { ChatService } from './chat.service.js';
-import { EditDraftDto, EditWorkflowDto, SendMessageDto, DraftWhitePaperSectionDto } from './dto/chat-message.dto.js';
+import { EditDraftDto, SendMessageDto } from './dto/chat-message.dto.js';
 
 @Controller('chat')
 @UseGuards(RolesGuard)
@@ -68,16 +68,4 @@ export class ChatController {
     return this.chatService.editDraft(ctx, body);
   }
 
-  @Post('edit-workflow')
-  editWorkflow(@CurrentTenant() ctx: TenantContext, @Body() body: EditWorkflowDto) {
-    return this.chatService.editWorkflow(ctx, body);
-  }
-
-  @Post('draft-whitepaper-section')
-  draftWhitePaperSection(
-    @CurrentTenant() ctx: TenantContext,
-    @Body() body: DraftWhitePaperSectionDto,
-  ) {
-    return this.chatService.draftWhitePaperSection(ctx, body);
-  }
 }

@@ -1,0 +1,184 @@
+// Capiro Workspace engine schema.
+// Scope: the document-builder engine. Owns ONLY ws_* tables in the shared
+// Aurora cluster. Tenant-scoped: every row carries tenant_id NOT NULL and is
+// filtered in application code by the TenantGuard-resolved tenantId.
+//
+// This is a SEPARATE Prisma schema from apps/api. The engine service
+// (@capiro/workspace) is the only writer of these tables. It does NOT define
+// or migrate any apps/api-owned table (tenants, users, clients, etc.); it
+// references them by id only (no cross-schema FKs).
+//
+// State model mirrors the Hermes Handoff Brief (ws-config-v4): the full engine
+// config is persisted as JSONB on ws_draft, with hot filter fields promoted to
+// columns for indexed listing.
+
+generator client {
+  provider        = "prisma-client-js"
+  // Custom output isolates the engine's client from apps/api's @prisma/client
+  // in the shared pnpm monorepo. Import via `../generated/prisma-client`.
+  output          = "../generated/prisma-client"
+  previewFeatures = ["postgresqlExtensions"]
+  // Bookworm slim runtime is OpenSSL 3.x on linux-arm64. `native` covers the
+  // build host; the explicit target covers cross-arch buildx builds.
+  binaryTargets   = ["native", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Visual organize-only status on a document row (handoff §12.10). Purely a
+// label the user flips; gates nothing.
+enum WsDocStatus {
+  draft
+  complete
+
+  @@map("ws_doc_status")
+}
+
+// Collaboration roles (handoff §7 / WsCollab). Any role may comment;
+// commenter is comment-only.
+enum WsRole {
+  editor
+  reviewer
+  viewer
+  commenter
+
+  @@map("ws_role")
+}
+
+// A draft = one work product (or packet of documents) produced by the engine.
+// The full intake config lives in `config` (JSONB, ws-config-v4 shape). Hot
+// fields are promoted to columns for the Documents library filters.
+model WsDraft {
+  id        String      @id @default(uuid()) @db.Uuid
+  tenantId  String      @map("tenant_id") @db.Uuid
+  // Owner identity is the Clerk user id (e.g. "user_2abc..."). The engine does
+  // not own the Capiro user table, so it stores the verified Clerk subject
+  // rather than a Capiro user UUID. (Resolved by TenantGuard from the JWT.)
+  ownerId   String      @map("owner_id")
+  docTitle  String      @map("doc_title")
+  // Cascade hot-fields (promoted from config for indexed filtering).
+  industry  String?
+  product   String?
+  client    String?
+  status    WsDocStatus @default(draft)
+  // Packet derivation (handoff §12.10): isPacket = coverLetter || documents>1.
+  isPacket  Boolean     @default(false) @map("is_packet")
+  docCount  Int         @default(1) @map("doc_count")
+  // Dollar ask (handoff §12.11): { amount, pb, delta } for funding products,
+  // else null. Human-set + lobbyist-gated; never auto-populated.
+  ask       Json?
+  // The full engine config (industry, product, pathways[], committees[],
+  // personalize, officeAssociated, offices[], selectedTemplate, sections[],
+  // pages, tone, linkedData[], anonymize, coverLetter, letterhead, ...).
+  config    Json        @default("{}")
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  documents WsDocument[]
+  context   WsContextItem[]
+
+  @@index([tenantId])
+  @@index([tenantId, ownerId])
+  @@index([tenantId, updatedAt])
+  @@map("ws_draft")
+}
+
+// A document is one tab within a draft/packet. A simple draft has exactly one;
+// a packet has 2+ (cover letter, fact sheet, appendix, ...). (handoff §12.12)
+model WsDocument {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  draftId   String   @map("draft_id") @db.Uuid
+  name      String
+  ordinal   Int      @default(0)
+  // Rich document body: ordered blocks (sections, photo, table, logo).
+  // Stored as JSONB so the editor's block model round-trips losslessly.
+  body      Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  draft    WsDraft     @relation(fields: [draftId], references: [id], onDelete: Cascade)
+  comments WsComment[]
+
+  @@index([tenantId])
+  @@index([draftId])
+  @@map("ws_document")
+}
+
+// A reusable document structure (handoff Templates, §12.15). 2 per product
+// (primary + secondary) seeded globally; tenants may add their own later.
+model WsTemplate {
+  id            String   @id @default(uuid()) @db.Uuid
+  // GLOBAL templates have tenantId null; tenant-authored templates carry it.
+  tenantId      String?  @map("tenant_id") @db.Uuid
+  name          String
+  icon          String?
+  description    String?
+  // exact work-product name string the template applies to (must match).
+  product       String
+  style         String?  // "serif-formal" | "sans-open"
+  fontFamily    String?  @map("font_family")
+  accentColor   String?  @map("accent_color")
+  meriPrimary   Boolean  @default(false) @map("meri_primary")
+  meriSecondary Boolean  @default(false) @map("meri_secondary")
+  // subset of Photos · Tables · Logos · Cover letter · Budget exhibit · Charts
+  elements      String[] @default([])
+  // ordered section names — seeds cfg.sections[] on apply.
+  sections      String[] @default([])
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([product])
+  @@index([tenantId])
+  @@map("ws_template")
+}
+
+// In-editor comment (handoff §12.7). Anchored to a document range so the
+// highlight survives re-render. Threaded via parentId. Resolvable.
+model WsComment {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  documentId String    @map("document_id") @db.Uuid
+  // Clerk user id of the comment author (engine doesn't own the user table).
+  authorId   String    @map("author_id")
+  role       WsRole    @default(editor)
+  // Quoted text snapshot + serialized range anchor (start/end offsets, path).
+  quote      String?
+  anchor     Json?
+  body       String
+  resolved   Boolean   @default(false)
+  parentId   String?   @map("parent_id") @db.Uuid
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  document WsDocument  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  parent   WsComment?  @relation("WsCommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  WsComment[] @relation("WsCommentThread")
+
+  @@index([tenantId])
+  @@index([documentId])
+  @@index([parentId])
+  @@map("ws_comment")
+}
+
+// A piece of context attached to a draft for Meri grounding (handoff §12.16 +
+// Build Context). kind = source | news | free-text. Payload carries the item.
+model WsContextItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  draftId   String   @map("draft_id") @db.Uuid
+  kind      String // "source" | "news" | "free-text"
+  // For news: { headline, source, date, url, relevantClients, relevantOffices }.
+  // For source: { sourceType, refId, label }. For free-text: { text }.
+  payload   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  draft WsDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([draftId])
+  @@map("ws_context_item")
+}

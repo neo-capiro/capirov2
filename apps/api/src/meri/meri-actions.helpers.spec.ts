@@ -12,7 +12,7 @@ describe('classifyToolAction', () => {
     }
   });
   test('P2 engagement/workflow write tools are write (confirm-gated), never read', () => {
-    for (const t of ['create_task', 'update_task', 'update_workflow_field']) {
+    for (const t of ['create_task', 'update_task']) {
       expect(classifyToolAction(t)).toBe('write');
       expect(classifyToolAction(t)).not.toBe('read');
       expect(isSideEffectingTool(t)).toBe(true);
@@ -44,7 +44,6 @@ describe('actionVerb', () => {
     expect(actionVerb('save_note')).toBe('saved a note');
     expect(actionVerb('create_task')).toBe('created an engagement task');
     expect(actionVerb('update_task')).toBe('updated an engagement task');
-    expect(actionVerb('update_workflow_field')).toBe('updated a workflow field');
     expect(actionVerb('mystery_tool')).toBe('ran mystery_tool');
   });
 });
