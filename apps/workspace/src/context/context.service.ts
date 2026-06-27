@@ -20,7 +20,10 @@ export class ContextService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Catalog of pullable source types (mock for v1; real wiring deferred). */
-  sources(client?: string, offices?: string[]): {
+  sources(
+    client?: string,
+    offices?: string[],
+  ): {
     mock: true;
     client: string | null;
     offices: string[];
@@ -37,10 +40,15 @@ export class ContextService {
           label: 'Client profile',
           items: c ? [{ id: 'cp-overview', label: `${c} — overview & capabilities` }] : [],
         },
-        { type: 'intel', label: 'Intelligence', items: [{ id: 'intel-budget', label: 'Budget identifiers (R-1 / PE / UPL)' }] },
-        { type: 'prior-docs', label: 'Prior documents', items: [] },
-        { type: 'bills', label: 'Tracked bills', items: [] },
+        {
+          type: 'intel',
+          label: 'Intelligence',
+          items: [{ id: 'intel-budget', label: 'Budget identifiers (R-1 / PE / UPL)' }],
+        },
+        { type: 'prior-docs', label: 'Prior docs', items: [] },
+        { type: 'bills', label: 'Bills', items: [] },
         { type: 'meeting-preps', label: 'Meeting preps', items: [] },
+        { type: 'docs-notes', label: 'Docs & notes', items: [] },
       ],
     };
   }
@@ -50,7 +58,10 @@ export class ContextService {
    * filter logic). v1 = empty mock array; live API replaces it. Strictly
    * client/office-scoped — no unrelated context.
    */
-  news(client?: string, offices?: string[]): {
+  news(
+    client?: string,
+    offices?: string[],
+  ): {
     mock: true;
     client: string | null;
     offices: string[];

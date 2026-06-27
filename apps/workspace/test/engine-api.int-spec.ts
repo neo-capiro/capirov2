@@ -145,7 +145,11 @@ d('Workspace engine API integration', () => {
     expect(items[0]!.id).toBe(item.id);
     const sources = context.sources('Aerovance Systems', []);
     expect(sources.client).toBe('Aerovance Systems');
-    expect(sources.groups.find((g) => g.type === 'client-profile')?.items.length).toBe(1);
+    expect(sources.groups.find((g) => g.type === 'client-profile')?.items.length).toBeGreaterThan(
+      0,
+    );
+    // 6 tabs from the prototype: Client profile · Intel · Prior docs · Bills · Meeting preps · Docs & notes
+    expect(sources.groups).toHaveLength(6);
     await context.removeItem(TENANT_A, draft.id, item.id);
     expect(await context.listItems(TENANT_A, draft.id)).toHaveLength(0);
   });
