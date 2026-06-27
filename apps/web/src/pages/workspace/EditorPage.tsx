@@ -18,6 +18,7 @@ import {
   useComments,
   useCreateComment,
   useUpdateComment,
+  useGenerateSection,
 } from './api.js';
 import type { WsConfig } from './types.js';
 
@@ -110,18 +111,21 @@ export function EditorPage() {
                 {draft.docTitle}
               </h1>
               {sections.map((s, i) => (
-                <div key={i}>
-                  <h3
-                    contentEditable
-                    suppressContentEditableWarning
-                    onBlur={(e) => renameSection(i, e.currentTarget.textContent ?? s)}
-                  >
-                    {s}
-                  </h3>
-                  <p style={{ color: 'var(--ws-ink-3)', fontStyle: 'italic', fontSize: 13 }}>
-                    Draft with Meri — this section will be generated from your setup and context.
-                  </p>
-                </div>
+                <SectionBlock
+                  key={i}
+                  name={s}
+                  content={(cfg.sectionContent as Record<string, string> | undefined)?.[s] ?? ''}
+                  draftId={draftId!}
+                  onRename={(name) => renameSection(i, name)}
+                  onGenerated={(content) =>
+                    patchConfig({
+                      sectionContent: {
+                        ...((cfg.sectionContent as Record<string, string> | undefined) ?? {}),
+                        [s]: content,
+                      },
+                    })
+                  }
+                />
               ))}
             </div>
           </div>
@@ -130,6 +134,75 @@ export function EditorPage() {
           <MeriCommentsRail documentId={activeTab} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function SectionBlock({
+  name,
+  content,
+  draftId,
+  onRename,
+  onGenerated,
+}: {
+  name: string;
+  content: string;
+  draftId: string;
+  onRename: (name: string) => void;
+  onGenerated: (content: string) => void;
+}) {
+  const { message } = AntApp.useApp();
+  const generate = useGenerateSection(draftId);
+  return (
+    <div>
+      <h3
+        contentEditable
+        suppressContentEditableWarning
+        onBlur={(e) => onRename(e.currentTarget.textContent ?? name)}
+      >
+        {name}
+      </h3>
+      {content ? (
+        <p
+          contentEditable
+          suppressContentEditableWarning
+          style={{ fontSize: 14, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}
+          onBlur={(e) => onGenerated(e.currentTarget.textContent ?? content)}
+        >
+          {content}
+        </p>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <p style={{ color: 'var(--ws-ink-3)', fontStyle: 'italic', fontSize: 13, margin: 0 }}>
+            Draft with Meri — generated from your setup and context.
+          </p>
+          <Button
+            size="small"
+            type="primary"
+            ghost
+            loading={generate.isPending}
+            icon={<ThunderboltOutlined />}
+            onClick={() =>
+              generate.mutate(name, {
+                onSuccess: (r) => {
+                  onGenerated(r.content);
+                  message.success(
+                    `Drafted with ${r.model}${r.usedTenantKey ? ' (your key)' : ''}${r.anonymized ? ' · anonymized' : ''}`,
+                  );
+                },
+                onError: (e: unknown) => {
+                  const msg =
+                    (e as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+                    'Generation failed';
+                  message.error(msg);
+                },
+              })
+            }
+          >
+            Draft with Meri
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

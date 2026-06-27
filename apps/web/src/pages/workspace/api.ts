@@ -214,6 +214,26 @@ export function useUpdateComment(documentId: string) {
   });
 }
 
+// ── Generation (Meri) ───────────────────────────────────────────────────────
+export interface GenerateSectionResult {
+  section: string;
+  content: string;
+  model: string;
+  usedTenantKey: boolean;
+  anonymized: boolean;
+  legend?: Record<string, string>;
+}
+
+export function useGenerateSection(draftId: string) {
+  const api = useApi();
+  return useMutation({
+    mutationFn: async (section: string) =>
+      (
+        await api.post<GenerateSectionResult>(`${BASE}/drafts/${draftId}/generate-section`, { section })
+      ).data,
+  });
+}
+
 // ── Context Builder ─────────────────────────────────────────────────────────
 export function useContextSources(client: string | null, offices: string[]) {
   const api = useApi();

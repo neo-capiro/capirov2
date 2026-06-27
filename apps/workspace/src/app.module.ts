@@ -9,6 +9,7 @@ import { DraftsModule } from './drafts/drafts.module.js';
 import { DocumentsModule } from './documents/documents.module.js';
 import { CommentsModule } from './comments/comments.module.js';
 import { ContextModule } from './context/context.module.js';
+import { GenerationModule } from './generation/generation.module.js';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { ContextModule } from './context/context.module.js';
     DocumentsModule,
     CommentsModule,
     ContextModule,
+    GenerationModule,
   ],
 })
 export class AppModule {}

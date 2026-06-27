@@ -67,8 +67,8 @@ export function PreviewPage() {
           {(cfg.sections ?? []).map((s, i) => (
             <div key={i}>
               <h3>{s}</h3>
-              <p style={{ color: 'var(--ws-ink-3)', fontSize: 13 }}>
-                [{s} content]
+              <p style={{ color: 'var(--ws-ink-2)', fontSize: 13.5, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                {(cfg.sectionContent as Record<string, string> | undefined)?.[s] || `[${s} content]`}
               </p>
             </div>
           ))}

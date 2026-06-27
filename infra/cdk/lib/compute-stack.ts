@@ -682,6 +682,7 @@ export class ComputeStack extends cdk.Stack {
           clerkSecretKeyImported.secretArn,
           `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
           `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
+          aiCredentialEncryptionKeySecret.secretArn,
         ],
       }),
     );
@@ -701,6 +702,9 @@ export class ComputeStack extends cdk.Stack {
       DB_PASSWORD: ecs.Secret.fromSecretsManager(appDbSecretImported, 'password'),
       OPENAI_API_KEY: ecs.Secret.fromSecretsManager(openaiApiKeySecret),
       ANTHROPIC_API_KEY: ecs.Secret.fromSecretsManager(anthropicApiKeySecret),
+      // Tenant-scoped AI keys: decrypt BYO Anthropic keys from
+      // tenant_ai_credentials (same envelope scheme + key as the API).
+      AI_CREDENTIAL_ENCRYPTION_KEY: ecs.Secret.fromSecretsManager(aiCredentialEncryptionKeySecret),
     };
     // Migrate secrets: master DB role (needs DDL for prisma migrate deploy).
     const workspaceMigrateSecrets = {
@@ -713,6 +717,7 @@ export class ComputeStack extends cdk.Stack {
       NODE_ENV: cfg.envName === 'dev' ? 'development' : 'production',
       LOG_LEVEL: 'info',
       WORKSPACE_PORT: '4200',
+      WORKSPACE_MODEL: 'claude-sonnet-4-6',
       DB_NAME: databaseName,
       ...(cfg.clerkJwtIssuer ? { CLERK_JWT_ISSUER: cfg.clerkJwtIssuer } : {}),
       WEB_ORIGIN: `https://${cfg.appHost}`,
@@ -736,6 +741,7 @@ export class ComputeStack extends cdk.Stack {
         clerkSecretKeyImported.secretArn,
         `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/openai-api-key*`,
         `arn:aws:secretsmanager:${this.region}:${this.account}:secret:capiro/${cfg.envName}/anthropic-api-key*`,
+        aiCredentialEncryptionKeySecret.secretArn,
       ],
       [dataKey.keyArn, secretsStack.secretsKey.keyArn],
     );
