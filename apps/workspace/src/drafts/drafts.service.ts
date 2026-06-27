@@ -34,11 +34,14 @@ export class DraftsService {
       personalize: meta?.personalize ?? false,
       officeAssociated: meta?.office ?? false,
       offices: [],
+      clientAssociated: false,
+      clientPersons: [],
       coverLetter: meta?.cover ?? false,
       selectedTemplate: null,
       sections,
       pages,
       tone: 'Formal',
+      toneContext: '',
       linkedData: [],
       anonymize: false,
       letterhead: { custom: false, firmName: '', firmAddr: '' },
@@ -112,7 +115,7 @@ export class DraftsService {
       ...(dto.config ?? {}),
     };
 
-    const product = dto.product ?? (existing.product ?? '') ?? '';
+    const product = dto.product ?? existing.product ?? '' ?? '';
     const funding = product ? WSC.isFunding(product) : false;
     const coverLetter = Boolean(
       (mergedConfig.coverLetter as boolean | undefined) ?? existing.isPacket,

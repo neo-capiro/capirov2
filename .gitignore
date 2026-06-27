@@ -51,6 +51,9 @@ docker-compose.override.yml
 .deploy-logs/
 
 # Transient build/extraction artifacts (not source)
+.cache/gap/
+.cache/mockup_src/
+.cache/mockup_template.html
 __pycache__/
 *.pyc
 apps/api/scripts/**/extract_err.txt

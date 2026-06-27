@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { useLocation } from 'react-router-dom';
 import {
   CloseOutlined,
@@ -21,7 +28,6 @@ import {
   type MeriCitation,
   type MeriVerification,
   getActiveDraft,
-  getActiveWhitePaper,
   removeConversation,
   setAlerts,
   dismissAlert,
@@ -52,10 +58,17 @@ import './chat.css';
 
 type SseEvent =
   | { type: 'start'; intent: string; tier?: 'fast' | 'deep' }
-  | { type: 'trace'; trace?: Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>; policy?: { tier?: 'fast' | 'deep' } }
+  | {
+      type: 'trace';
+      trace?: Array<{ tool: string; action: 'selected' | 'skipped'; reason: string }>;
+      policy?: { tier?: 'fast' | 'deep' };
+    }
   | { type: 'plan'; steps?: string[] }
   | { type: 'suggestions'; suggestions?: string[] }
-  | { type: 'artifact'; artifact?: { id?: string; title?: string; kind?: string; bodyText?: string } }
+  | {
+      type: 'artifact';
+      artifact?: { id?: string; title?: string; kind?: string; bodyText?: string };
+    }
   | { type: 'tool_call'; tool: string; label?: string; input?: Record<string, unknown> }
   | { type: 'template'; template?: { heading: string; sections: string[] } }
   | { type: 'conflict'; conflict?: { title: string; detail: string } }
@@ -71,9 +84,23 @@ type SseEvent =
   | { type: 'thinking'; text: string }
   | { type: 'done' }
   | { type: 'error'; message: string }
-  | { type: 'draft_updated'; engagementId: string; recipientId?: string; subject: string; body: string }
+  | {
+      type: 'draft_updated';
+      engagementId: string;
+      recipientId?: string;
+      subject: string;
+      body: string;
+    }
   | { type: 'workflow_updated'; instanceId: string; fieldKey: string; updatedValue: string }
-  | { type: 'page_write'; target: 'outreach_draft'; engagementId?: string; recipientId?: string; subject?: string; body?: string; note?: string };
+  | {
+      type: 'page_write';
+      target: 'outreach_draft';
+      engagementId?: string;
+      recipientId?: string;
+      subject?: string;
+      body?: string;
+      note?: string;
+    };
 
 // Deep Research SSE events (from /api/clio/research/:id/plan|stream).
 type ResearchSseEvent =
@@ -84,7 +111,16 @@ type ResearchSseEvent =
   | { type: 'text'; text: string }
   | { type: 'thinking'; text: string }
   | { type: 'step'; tool: string; label?: string }
-  | { type: 'source'; source: { tool: string; label: string; count?: number | null; summary: string; confidence: 'low' | 'high' } }
+  | {
+      type: 'source';
+      source: {
+        tool: string;
+        label: string;
+        count?: number | null;
+        summary: string;
+        confidence: 'low' | 'high';
+      };
+    }
   | { type: 'report'; artifactId?: string; body?: string }
   | { type: 'error'; message: string }
   | { type: 'done' };
@@ -144,10 +180,6 @@ function contextLabelFor(pathname: string): string {
     return `Editing: ${name}`;
   }
   if (pathname.startsWith('/engagement')) return 'Engagement Manager';
-  if (pathname.includes('/white-paper/')) {
-    const wp = getActiveWhitePaper();
-    return wp ? `White Paper: ${wp.title}` : 'White Paper editor';
-  }
   if (pathname.startsWith('/intelligence')) return 'Intelligence Center';
   if (pathname.startsWith('/workspace')) return 'Workspace';
   if (pathname.startsWith('/directory')) return 'Directory';
@@ -166,7 +198,16 @@ interface ChatDrawerProps {
 }
 
 export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
-  const { isOpen, messages, sessionId, isStreaming, alertsBadge, alerts, conversations, activeConversationId } = useChatStore();
+  const {
+    isOpen,
+    messages,
+    sessionId,
+    isStreaming,
+    alertsBadge,
+    alerts,
+    conversations,
+    activeConversationId,
+  } = useChatStore();
   // Only undismissed briefings are ever rendered. dismissAlert removes items from
   // the store outright, so this also makes them vanish on click without a refetch.
   const pendingAlerts = alerts.filter((a) => a.status === 'pending');
@@ -193,8 +234,14 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const [stagedAttachments, setStagedAttachments] = useState<StagedAttachment[]>([]);
   const [attachmentNotice, setAttachmentNotice] = useState<string | null>(null);
   const [activeArtifact, setActiveArtifact] = useState<CanvasArtifact | null>(null);
-  const [orchestratorConflict, setOrchestratorConflict] = useState<{ title: string; detail: string } | null>(null);
-  const [orchestratorTemplate, setOrchestratorTemplate] = useState<{ heading: string; sections: string[] } | null>(null);
+  const [orchestratorConflict, setOrchestratorConflict] = useState<{
+    title: string;
+    detail: string;
+  } | null>(null);
+  const [orchestratorTemplate, setOrchestratorTemplate] = useState<{
+    heading: string;
+    sections: string[];
+  } | null>(null);
   const [isSavingMeta, setIsSavingMeta] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [writeMode, setWriteMode] = useState(false);
@@ -209,7 +256,9 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   // Map of assistant message id -> completed research session id, so a finished
   // report can show Download Word / Open as page actions.
   const [researchReports, setResearchReports] = useState<Record<string, string>>({});
-  const [learnedMemories, setLearnedMemories] = useState<Array<{ id: string; key: string; value: string; scope: string }>>([]);
+  const [learnedMemories, setLearnedMemories] = useState<
+    Array<{ id: string; key: string; value: string; scope: string }>
+  >([]);
   // Learned-memory panel is collapsed by default so it doesn't dominate the
   // drawer; the user can expand to review/acknowledge what Meri remembers.
   const [learnedExpanded, setLearnedExpanded] = useState(false);
@@ -238,17 +287,14 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     void doCreateSession();
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const authHeaders = useCallback(
-    async (): Promise<Record<string, string>> => {
-      const token = await getToken({ template: 'capiro' });
-      return {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(actAsTenantSlug ? { 'x-capiro-impersonate-tenant': actAsTenantSlug } : {}),
-      };
-    },
-    [getToken, actAsTenantSlug],
-  );
+  const authHeaders = useCallback(async (): Promise<Record<string, string>> => {
+    const token = await getToken({ template: 'capiro' });
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(actAsTenantSlug ? { 'x-capiro-impersonate-tenant': actAsTenantSlug } : {}),
+    };
+  }, [getToken, actAsTenantSlug]);
 
   // Fetch alerts when drawer opens
   useEffect(() => {
@@ -262,20 +308,27 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           const data = await res.json();
           if (Array.isArray(data)) setAlerts(data);
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     })();
   }, [isOpen, authHeaders]);
 
   // Dismiss (mark read) a delivered alert — optimistic store update + persist.
-  const handleDismissAlert = useCallback(async (id: string) => {
-    dismissAlert(id);
-    try {
-      await fetch(`${config.apiBaseUrl}/api/clio/alerts/${id}/dismiss`, {
-        method: 'POST',
-        headers: await authHeaders(),
-      });
-    } catch { /* optimistic; ignore network error */ }
-  }, [authHeaders]);
+  const handleDismissAlert = useCallback(
+    async (id: string) => {
+      dismissAlert(id);
+      try {
+        await fetch(`${config.apiBaseUrl}/api/clio/alerts/${id}/dismiss`, {
+          method: 'POST',
+          headers: await authHeaders(),
+        });
+      } catch {
+        /* optimistic; ignore network error */
+      }
+    },
+    [authHeaders],
+  );
 
   // Dismiss every currently-visible briefing in one click.
   const handleClearAllAlerts = useCallback(async () => {
@@ -293,7 +346,9 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     if (!isOpen) return;
     void (async () => {
       try {
-        const res = await fetch(`${config.apiBaseUrl}/api/clients`, { headers: await authHeaders() });
+        const res = await fetch(`${config.apiBaseUrl}/api/clients`, {
+          headers: await authHeaders(),
+        });
         if (!res.ok) return;
         const data = await res.json();
         if (Array.isArray(data)) {
@@ -309,7 +364,8 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   }, [isOpen, authHeaders]);
 
   useEffect(() => {
-    const active = conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
+    const active =
+      conversations.find((conversation) => conversation.id === activeConversationId) ?? null;
     setSessionTitle(active?.title ?? '');
     setSessionClientId(active?.clientId ?? selectedClientId ?? '');
     setMetaError(null);
@@ -336,11 +392,14 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
       if (trimmedTitle) payload.title = trimmedTitle;
       payload.clientId = selectedClientValue || null;
 
-      const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${activeConversationId}`, {
-        method: 'PATCH',
-        headers: await authHeaders(),
-        body: JSON.stringify(payload),
-      });
+      const res = await fetch(
+        `${config.apiBaseUrl}/api/clio/conversations/${activeConversationId}`,
+        {
+          method: 'PATCH',
+          headers: await authHeaders(),
+          body: JSON.stringify(payload),
+        },
+      );
 
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -371,10 +430,13 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   const archiveConversation = useCallback(async () => {
     if (!activeConversationId) return;
     try {
-      const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${activeConversationId}/archive`, {
-        method: 'PATCH',
-        headers: await authHeaders(),
-      });
+      const res = await fetch(
+        `${config.apiBaseUrl}/api/clio/conversations/${activeConversationId}/archive`,
+        {
+          method: 'PATCH',
+          headers: await authHeaders(),
+        },
+      );
       if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(text || `HTTP ${res.status}`);
@@ -398,7 +460,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         }),
       });
       if (res.ok) {
-        const data = await res.json() as { id: string };
+        const data = (await res.json()) as { id: string };
         setChatSession(data.id);
         setActiveConversation(data.id);
         return data.id;
@@ -619,7 +681,10 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         await executeResearchRun(controller, assistantId);
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return;
-        updateChatMessage(assistantId, `Research failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+        updateChatMessage(
+          assistantId,
+          `Research failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+        );
         researchSessionRef.current = null;
         setResearchAwaitingAnswers(false);
         setResearchQuestions([]);
@@ -640,7 +705,12 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
       if (!id) return;
       const assistantId = existingAssistantId ?? generateId();
       if (!existingAssistantId) {
-        appendChatMessage({ id: assistantId, role: 'assistant', content: '', createdAt: new Date() });
+        appendChatMessage({
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          createdAt: new Date(),
+        });
       }
       setTrustSteps([]);
       setReasoningText('');
@@ -716,242 +786,259 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     [authHeaders, executeResearchRun, isStreaming],
   );
 
-  const sendMessage = useCallback(async (content: string, opts?: { mode?: 'regenerate' | 'resend' }) => {
-    if (isStreaming) return;
+  const sendMessage = useCallback(
+    async (content: string, opts?: { mode?: 'regenerate' | 'resend' }) => {
+      if (isStreaming) return;
 
-    const mode = opts?.mode;
+      const mode = opts?.mode;
 
-    // Deep Research mode is handled by a dedicated multi-phase flow (new turns only).
-    if (researchMode && !mode) {
-      await runResearch(content);
-      return;
-    }
+      // Deep Research mode is handled by a dedicated multi-phase flow (new turns only).
+      if (researchMode && !mode) {
+        await runResearch(content);
+        return;
+      }
 
-    const writePrefix = 'write on this page:';
-    const outgoing = mode ? content : writeMode ? `${writePrefix} ${content}` : content;
+      const writePrefix = 'write on this page:';
+      const outgoing = mode ? content : writeMode ? `${writePrefix} ${content}` : content;
 
-    // Ensure we have a session ID (create one if missing)
-    let sid = sessionId;
-    if (!sid) {
-      sid = await doCreateSession();
-    }
-    if (!sid) return;
+      // Ensure we have a session ID (create one if missing)
+      let sid = sessionId;
+      if (!sid) {
+        sid = await doCreateSession();
+      }
+      if (!sid) return;
 
-    // Staged attachments ride along on new turns only (regenerate/resend re-run
-    // the already-persisted user turn server-side). Unusable chips (id === null)
-    // are never sent.
-    const turnAttachments = mode ? [] : stagedAttachments.filter(isUsableAttachment);
-    const attachmentIds = turnAttachments
-      .map((att) => att.id)
-      .filter((id): id is string => Boolean(id));
+      // Staged attachments ride along on new turns only (regenerate/resend re-run
+      // the already-persisted user turn server-side). Unusable chips (id === null)
+      // are never sent.
+      const turnAttachments = mode ? [] : stagedAttachments.filter(isUsableAttachment);
+      const attachmentIds = turnAttachments
+        .map((att) => att.id)
+        .filter((id): id is string => Boolean(id));
 
-    // A new turn appends the user message. For regenerate/edit-and-resend the
-    // caller has already trimmed (and for resend, edited) the local messages,
-    // and the server re-runs the last user turn (P0-4).
-    if (!mode) {
-      appendChatMessage({
-        id: generateId(),
-        role: 'user',
-        content,
-        createdAt: new Date(),
-        ...(turnAttachments.length > 0
-          ? {
-              attachments: turnAttachments.map((att) => ({
-                id: att.id as string,
-                filename: att.filename,
-                kind: att.kind,
-                status: att.status,
-              })),
+      // A new turn appends the user message. For regenerate/edit-and-resend the
+      // caller has already trimmed (and for resend, edited) the local messages,
+      // and the server re-runs the last user turn (P0-4).
+      if (!mode) {
+        appendChatMessage({
+          id: generateId(),
+          role: 'user',
+          content,
+          createdAt: new Date(),
+          ...(turnAttachments.length > 0
+            ? {
+                attachments: turnAttachments.map((att) => ({
+                  id: att.id as string,
+                  filename: att.filename,
+                  kind: att.kind,
+                  status: att.status,
+                })),
+              }
+            : {}),
+        });
+        // Clear the staging row (including any failed chips) as the send starts.
+        setStagedAttachments([]);
+        setAttachmentNotice(null);
+      }
+
+      const assistantId = generateId();
+      appendChatMessage({ id: assistantId, role: 'assistant', content: '', createdAt: new Date() });
+
+      setStreaming(true);
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        const streamPayload: Record<string, unknown> = mode
+          ? { body: outgoing, mode }
+          : { body: outgoing };
+        if (!mode && attachmentIds.length > 0) streamPayload.attachmentIds = attachmentIds;
+        const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${sid}/stream`, {
+          method: 'POST',
+          headers: await authHeaders(),
+          body: JSON.stringify(streamPayload),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          updateChatMessage(assistantId, `Error ${res.status}: ${text || res.statusText}`);
+          return;
+        }
+
+        if (!res.body) {
+          updateChatMessage(assistantId, 'No response body received.');
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let accumulated = '';
+
+        outer: while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const jsonStr = line.slice(6).trim();
+            if (!jsonStr) continue;
+            let event: SseEvent;
+            try {
+              event = JSON.parse(jsonStr) as SseEvent;
+            } catch {
+              continue;
             }
-          : {}),
-      });
-      // Clear the staging row (including any failed chips) as the send starts.
-      setStagedAttachments([]);
-      setAttachmentNotice(null);
-    }
 
-    const assistantId = generateId();
-    appendChatMessage({ id: assistantId, role: 'assistant', content: '', createdAt: new Date() });
-
-    setStreaming(true);
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    try {
-      const streamPayload: Record<string, unknown> = mode
-        ? { body: outgoing, mode }
-        : { body: outgoing };
-      if (!mode && attachmentIds.length > 0) streamPayload.attachmentIds = attachmentIds;
-      const res = await fetch(`${config.apiBaseUrl}/api/clio/conversations/${sid}/stream`, {
-        method: 'POST',
-        headers: await authHeaders(),
-        body: JSON.stringify(streamPayload),
-        signal: controller.signal,
-      });
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        updateChatMessage(assistantId, `Error ${res.status}: ${text || res.statusText}`);
-        return;
-      }
-
-      if (!res.body) {
-        updateChatMessage(assistantId, 'No response body received.');
-        return;
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let accumulated = '';
-
-      outer: while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const jsonStr = line.slice(6).trim();
-          if (!jsonStr) continue;
-          let event: SseEvent;
-          try {
-            event = JSON.parse(jsonStr) as SseEvent;
-          } catch {
-            continue;
-          }
-
-          if (event.type === 'start') {
-            setOrchestratorTier(event.tier ?? null);
-            setOrchestratorIntent(event.intent ?? null);
-            setTrustSteps([]);
-            setPlanSteps([]);
-            setReasoningText('');
-          } else if (event.type === 'trace') {
-            if (event.policy?.tier) setOrchestratorTier(event.policy.tier);
-          } else if (event.type === 'plan') {
-            setPlanSteps(Array.isArray(event.steps) ? event.steps : []);
-          } else if (event.type === 'tool_call') {
-            // Live agentic tool call — push a "running" step into the trust
-            // timeline; the matching `sources` event flips it to done/error.
-            const label = event.label || event.tool;
-            setTrustSteps((prev) => [
-              ...prev,
-              { tool: event.tool, label, status: 'running' as const },
-            ]);
-          } else if (event.type === 'template') {
-            setOrchestratorTemplate(event.template ?? null);
-          } else if (event.type === 'conflict') {
-            setOrchestratorConflict(event.conflict ?? null);
-          } else if (event.type === 'text') {
-            accumulated += event.text;
-            updateChatMessage(assistantId, accumulated);
-          } else if (event.type === 'thinking') {
-            // Deep-tier reasoning delta — feeds the ThoughtProcess accordion.
-            setReasoningText((prev) => prev + event.text);
-          } else if (event.type === 'sources') {
-            const sources = Array.isArray(event.sources) ? event.sources : [];
-            // Resolve the most recent running step (the tool that just finished)
-            // with the real result detail/count/confidence.
-            const src = sources[0];
-            if (src) {
-              setTrustSteps((prev) => {
-                const next = [...prev];
-                for (let i = next.length - 1; i >= 0; i -= 1) {
-                  if (next[i]!.status === 'running' && next[i]!.tool === src.tool) {
-                    next[i] = {
-                      ...next[i]!,
-                      label: src.label || next[i]!.label,
-                      detail: src.summary,
-                      count: typeof src.count === 'number' ? src.count : next[i]!.count,
-                      confidence: src.confidence,
-                      status: src.confidence === 'low' ? 'error' : 'done',
-                    };
-                    return next;
+            if (event.type === 'start') {
+              setOrchestratorTier(event.tier ?? null);
+              setOrchestratorIntent(event.intent ?? null);
+              setTrustSteps([]);
+              setPlanSteps([]);
+              setReasoningText('');
+            } else if (event.type === 'trace') {
+              if (event.policy?.tier) setOrchestratorTier(event.policy.tier);
+            } else if (event.type === 'plan') {
+              setPlanSteps(Array.isArray(event.steps) ? event.steps : []);
+            } else if (event.type === 'tool_call') {
+              // Live agentic tool call — push a "running" step into the trust
+              // timeline; the matching `sources` event flips it to done/error.
+              const label = event.label || event.tool;
+              setTrustSteps((prev) => [
+                ...prev,
+                { tool: event.tool, label, status: 'running' as const },
+              ]);
+            } else if (event.type === 'template') {
+              setOrchestratorTemplate(event.template ?? null);
+            } else if (event.type === 'conflict') {
+              setOrchestratorConflict(event.conflict ?? null);
+            } else if (event.type === 'text') {
+              accumulated += event.text;
+              updateChatMessage(assistantId, accumulated);
+            } else if (event.type === 'thinking') {
+              // Deep-tier reasoning delta — feeds the ThoughtProcess accordion.
+              setReasoningText((prev) => prev + event.text);
+            } else if (event.type === 'sources') {
+              const sources = Array.isArray(event.sources) ? event.sources : [];
+              // Resolve the most recent running step (the tool that just finished)
+              // with the real result detail/count/confidence.
+              const src = sources[0];
+              if (src) {
+                setTrustSteps((prev) => {
+                  const next = [...prev];
+                  for (let i = next.length - 1; i >= 0; i -= 1) {
+                    if (next[i]!.status === 'running' && next[i]!.tool === src.tool) {
+                      next[i] = {
+                        ...next[i]!,
+                        label: src.label || next[i]!.label,
+                        detail: src.summary,
+                        count: typeof src.count === 'number' ? src.count : next[i]!.count,
+                        confidence: src.confidence,
+                        status: src.confidence === 'low' ? 'error' : 'done',
+                      };
+                      return next;
+                    }
                   }
-                }
-                return next;
-              });
-            }
-          } else if (event.type === 'citations') {
-            setChatMessageCitations(assistantId, Array.isArray(event.citations) ? event.citations : []);
-          } else if (event.type === 'verification') {
-            if (event.verification)
-              setChatMessageVerification(assistantId, {
-                ...event.verification,
-                confidence: event.confidence,
-              });
-          } else if (event.type === 'suggestions') {
-            setChatMessageSuggestions(
-              assistantId,
-              Array.isArray(event.suggestions) ? event.suggestions : [],
-            );
-          } else if (event.type === 'artifact') {
-            if (event.artifact?.kind === 'analysis_chart') {
-              // F4 analysis charts stream with an empty bodyText and render
-              // inline under the assistant turn; the card lazy-fetches the
-              // PNG from /api/clio/artifacts/:id/image.
-              if (event.artifact.id) {
-                addChatMessageChartArtifact(assistantId, {
-                  id: event.artifact.id,
-                  title: event.artifact.title?.trim() || 'Analysis chart',
+                  return next;
                 });
               }
-            } else if (event.artifact?.bodyText) {
-              setActiveArtifact(event.artifact);
+            } else if (event.type === 'citations') {
+              setChatMessageCitations(
+                assistantId,
+                Array.isArray(event.citations) ? event.citations : [],
+              );
+            } else if (event.type === 'verification') {
+              if (event.verification)
+                setChatMessageVerification(assistantId, {
+                  ...event.verification,
+                  confidence: event.confidence,
+                });
+            } else if (event.type === 'suggestions') {
+              setChatMessageSuggestions(
+                assistantId,
+                Array.isArray(event.suggestions) ? event.suggestions : [],
+              );
+            } else if (event.type === 'artifact') {
+              if (event.artifact?.kind === 'analysis_chart') {
+                // F4 analysis charts stream with an empty bodyText and render
+                // inline under the assistant turn; the card lazy-fetches the
+                // PNG from /api/clio/artifacts/:id/image.
+                if (event.artifact.id) {
+                  addChatMessageChartArtifact(assistantId, {
+                    id: event.artifact.id,
+                    title: event.artifact.title?.trim() || 'Analysis chart',
+                  });
+                }
+              } else if (event.artifact?.bodyText) {
+                setActiveArtifact(event.artifact);
+              }
+            } else if (event.type === 'done') {
+              break outer;
+            } else if (event.type === 'error') {
+              updateChatMessage(assistantId, `Error: ${event.message}`);
+              break outer;
+            } else if (event.type === 'draft_updated') {
+              window.dispatchEvent(
+                new CustomEvent('capiro:draft-updated', {
+                  detail: {
+                    engagementId: event.engagementId,
+                    recipientId: event.recipientId,
+                    subject: event.subject,
+                    body: event.body,
+                  },
+                }),
+              );
+            } else if (event.type === 'workflow_updated') {
+              window.dispatchEvent(
+                new CustomEvent('capiro:workflow-field-updated', {
+                  detail: {
+                    instanceId: event.instanceId,
+                    fieldKey: event.fieldKey,
+                    updatedValue: event.updatedValue,
+                  },
+                }),
+              );
+            } else if (event.type === 'page_write') {
+              window.dispatchEvent(
+                new CustomEvent('capiro:page-write', {
+                  detail: {
+                    target: event.target,
+                    engagementId: event.engagementId,
+                    recipientId: event.recipientId,
+                    subject: event.subject,
+                    body: event.body,
+                    note: event.note,
+                  },
+                }),
+              );
             }
-          } else if (event.type === 'done') {
-            break outer;
-          } else if (event.type === 'error') {
-            updateChatMessage(assistantId, `Error: ${event.message}`);
-            break outer;
-          } else if (event.type === 'draft_updated') {
-            window.dispatchEvent(
-              new CustomEvent('capiro:draft-updated', {
-                detail: {
-                  engagementId: event.engagementId,
-                  recipientId: event.recipientId,
-                  subject: event.subject,
-                  body: event.body,
-                },
-              }),
-            );
-          } else if (event.type === 'workflow_updated') {
-            window.dispatchEvent(
-              new CustomEvent('capiro:workflow-field-updated', {
-                detail: {
-                  instanceId: event.instanceId,
-                  fieldKey: event.fieldKey,
-                  updatedValue: event.updatedValue,
-                },
-              }),
-            );
-          } else if (event.type === 'page_write') {
-            window.dispatchEvent(
-              new CustomEvent('capiro:page-write', {
-                detail: {
-                  target: event.target,
-                  engagementId: event.engagementId,
-                  recipientId: event.recipientId,
-                  subject: event.subject,
-                  body: event.body,
-                  note: event.note,
-                },
-              }),
-            );
           }
         }
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return;
+        updateChatMessage(assistantId, 'Failed to get a response. Please try again.');
+      } finally {
+        setStreaming(false);
       }
-    } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return;
-      updateChatMessage(assistantId, 'Failed to get a response. Please try again.');
-    } finally {
-      setStreaming(false);
-    }
-  }, [isStreaming, sessionId, doCreateSession, authHeaders, selectedClientId, selectedClientName, location.pathname, researchMode, writeMode, stagedAttachments]); // eslint-disable-line react-hooks/exhaustive-deps
+    },
+    [
+      isStreaming,
+      sessionId,
+      doCreateSession,
+      authHeaders,
+      selectedClientId,
+      selectedClientName,
+      location.pathname,
+      researchMode,
+      writeMode,
+      stagedAttachments,
+    ],
+  ); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleClose = () => setChatOpen(false);
 
@@ -1017,10 +1104,17 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         setLearnedMemories(
           data
             .filter((m) => m && typeof m.id === 'string')
-            .map((m) => ({ id: String(m.id), key: String(m.key ?? ''), value: String(m.value ?? ''), scope: String(m.scope ?? '') })),
+            .map((m) => ({
+              id: String(m.id),
+              key: String(m.key ?? ''),
+              value: String(m.value ?? ''),
+              scope: String(m.scope ?? ''),
+            })),
         );
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }, [authHeaders]);
 
   const submitMemoryEdit = useCallback(
@@ -1043,15 +1137,20 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     [authHeaders, fetchLearnedMemories],
   );
 
-  const forgetMemory = useCallback(async (id: string) => {
-    setLearnedMemories((prev) => prev.filter((m) => m.id !== id)); // optimistic
-    try {
-      await fetch(`${config.apiBaseUrl}/api/clio/memory/${id}`, {
-        method: 'DELETE',
-        headers: await authHeaders(),
-      });
-    } catch { /* ignore — already removed from UI */ }
-  }, [authHeaders]);
+  const forgetMemory = useCallback(
+    async (id: string) => {
+      setLearnedMemories((prev) => prev.filter((m) => m.id !== id)); // optimistic
+      try {
+        await fetch(`${config.apiBaseUrl}/api/clio/memory/${id}`, {
+          method: 'DELETE',
+          headers: await authHeaders(),
+        });
+      } catch {
+        /* ignore — already removed from UI */
+      }
+    },
+    [authHeaders],
+  );
 
   // Fetch an authenticated research export (Word .doc or printable HTML) and
   // either download it or open it in a new browser tab via a blob URL.
@@ -1059,12 +1158,15 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
     async (researchId: string, kind: 'word' | 'html') => {
       try {
         const token = await getToken({ template: 'capiro' });
-        const res = await fetch(`${config.apiBaseUrl}/api/clio/research/${researchId}/export/${kind}`, {
-          headers: {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            ...(actAsTenantSlug ? { 'x-capiro-impersonate-tenant': actAsTenantSlug } : {}),
+        const res = await fetch(
+          `${config.apiBaseUrl}/api/clio/research/${researchId}/export/${kind}`,
+          {
+            headers: {
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+              ...(actAsTenantSlug ? { 'x-capiro-impersonate-tenant': actAsTenantSlug } : {}),
+            },
           },
-        });
+        );
         if (!res.ok) throw new Error(`Export failed (HTTP ${res.status})`);
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
@@ -1078,7 +1180,9 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
           a.click();
           URL.revokeObjectURL(url);
         }
-      } catch { /* surfaced as a no-op; report text is still in the chat */ }
+      } catch {
+        /* surfaced as a no-op; report text is still in the chat */
+      }
     },
     [getToken, actAsTenantSlug],
   );
@@ -1109,19 +1213,24 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
   // backend extracts memories fire-and-forget post-stream, so delay slightly.
   useEffect(() => {
     if (isStreaming || !sessionId) return;
-    const t = setTimeout(() => { void fetchLearnedMemories(); }, 1500);
+    const t = setTimeout(() => {
+      void fetchLearnedMemories();
+    }, 1500);
     return () => clearTimeout(t);
   }, [isStreaming, sessionId, fetchLearnedMemories]);
 
-  const startResize = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
-    const currentWidth = drawerRef.current?.getBoundingClientRect().width ?? drawerWidth;
-    resizingRef.current = { startX: event.clientX, startWidth: currentWidth };
-    event.currentTarget.classList.add('is-dragging');
-    event.currentTarget.setPointerCapture(event.pointerId);
-    window.addEventListener('pointermove', handleResizePointerMove);
-    window.addEventListener('pointerup', stopResize);
-    window.addEventListener('pointercancel', stopResize);
-  }, [drawerWidth, handleResizePointerMove, stopResize]);
+  const startResize = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      const currentWidth = drawerRef.current?.getBoundingClientRect().width ?? drawerWidth;
+      resizingRef.current = { startX: event.clientX, startWidth: currentWidth };
+      event.currentTarget.classList.add('is-dragging');
+      event.currentTarget.setPointerCapture(event.pointerId);
+      window.addEventListener('pointermove', handleResizePointerMove);
+      window.addEventListener('pointerup', stopResize);
+      window.addEventListener('pointercancel', stopResize);
+    },
+    [drawerWidth, handleResizePointerMove, stopResize],
+  );
   const showTypingIndicator =
     isStreaming &&
     messages.length > 0 &&
@@ -1130,13 +1239,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
 
   return (
     <>
-      {isOpen && (
-        <div
-          className="chat-backdrop"
-          onClick={handleClose}
-          aria-hidden="true"
-        />
-      )}
+      {isOpen && <div className="chat-backdrop" onClick={handleClose} aria-hidden="true" />}
 
       <div
         ref={drawerRef}
@@ -1192,7 +1295,9 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         </div>
 
         <div className="chat-context-bar">
-          <span className="chat-context-icon" aria-hidden="true">●</span>
+          <span className="chat-context-icon" aria-hidden="true">
+            ●
+          </span>
           <span className="chat-context-value">{contextLabel}</span>
         </div>
 
@@ -1212,7 +1317,9 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
             >
               <option value="">General (no client)</option>
               {clients.map((client) => (
-                <option key={client.id} value={client.id}>{client.name}</option>
+                <option key={client.id} value={client.id}>
+                  {client.name}
+                </option>
               ))}
             </select>
             <button
@@ -1246,8 +1353,11 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                 aria-expanded={learnedExpanded}
               >
                 <span className="chat-learned-header-label">
-                  <span className="chat-learned-spark" aria-hidden="true">✦</span>
-                  Meri learned {learnedMemories.length} thing{learnedMemories.length === 1 ? '' : 's'}
+                  <span className="chat-learned-spark" aria-hidden="true">
+                    ✦
+                  </span>
+                  Meri learned {learnedMemories.length} thing
+                  {learnedMemories.length === 1 ? '' : 's'}
                 </span>
                 <span className="chat-learned-chevron" aria-hidden="true">
                   {learnedExpanded ? '▾' : '▸'}
@@ -1310,11 +1420,15 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                 aria-expanded={alertsOpen}
               >
                 <span className="chat-alerts-title">
-                  <span className="chat-alerts-icon" aria-hidden="true">🔔</span>
+                  <span className="chat-alerts-icon" aria-hidden="true">
+                    🔔
+                  </span>
                   Scheduled briefings
                   {alertsBadge > 0 && <span className="chat-alerts-count">{alertsBadge}</span>}
                 </span>
-                <span className="chat-alerts-chevron" aria-hidden="true">{alertsOpen ? '▾' : '▸'}</span>
+                <span className="chat-alerts-chevron" aria-hidden="true">
+                  {alertsOpen ? '▾' : '▸'}
+                </span>
               </button>
               {pendingAlerts.length > 1 && (
                 <button
@@ -1357,10 +1471,12 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         <div className="chat-messages" role="log" aria-live="polite" aria-label="Conversation">
           {messages.length === 0 && !isStreaming && (
             <div className="chat-empty">
-              <div className="chat-empty-icon" aria-hidden="true">✦</div>
+              <div className="chat-empty-icon" aria-hidden="true">
+                ✦
+              </div>
               <p className="chat-empty-text">
-                Hello! I&rsquo;m Meri, your workspace assistant. Ask me about your clients, intelligence,
-                engagements, or workflows &mdash; or ask me to edit a draft.
+                Hello! I&rsquo;m Meri, your workspace assistant. Ask me about your clients,
+                intelligence, engagements, or workflows &mdash; or ask me to edit a draft.
               </p>
             </div>
           )}
@@ -1392,13 +1508,19 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     msg.content !== ''
                   }
                 />
-                {msg.role === 'assistant' && msg.chartArtifacts && msg.chartArtifacts.length > 0 && (
-                  <div className="chat-chart-cards" aria-label="Analysis charts">
-                    {msg.chartArtifacts.map((chart) => (
-                      <AnalysisChartCard key={chart.id} artifactId={chart.id} title={chart.title} />
-                    ))}
-                  </div>
-                )}
+                {msg.role === 'assistant' &&
+                  msg.chartArtifacts &&
+                  msg.chartArtifacts.length > 0 && (
+                    <div className="chat-chart-cards" aria-label="Analysis charts">
+                      {msg.chartArtifacts.map((chart) => (
+                        <AnalysisChartCard
+                          key={chart.id}
+                          artifactId={chart.id}
+                          title={chart.title}
+                        />
+                      ))}
+                    </div>
+                  )}
                 {msg.role === 'assistant' &&
                   msg.content !== '' &&
                   !(isStreaming && i === messages.length - 1) && (
@@ -1451,29 +1573,32 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
                     </button>
                   </div>
                 )}
-                {isLastAssistant && !isStreaming && msg.suggestions && msg.suggestions.length > 0 && (
-                  <div
-                    style={{
-                      marginLeft: 40,
-                      marginTop: 6,
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      gap: 6,
-                    }}
-                  >
-                    {msg.suggestions.map((s, si) => (
-                      <button
-                        key={si}
-                        type="button"
-                        onClick={() => sendMessage(s)}
-                        aria-label={`Ask: ${s}`}
-                        className="chat-suggestion-chip"
-                      >
-                        {s}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {isLastAssistant &&
+                  !isStreaming &&
+                  msg.suggestions &&
+                  msg.suggestions.length > 0 && (
+                    <div
+                      style={{
+                        marginLeft: 40,
+                        marginTop: 6,
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 6,
+                      }}
+                    >
+                      {msg.suggestions.map((s, si) => (
+                        <button
+                          key={si}
+                          type="button"
+                          onClick={() => sendMessage(s)}
+                          aria-label={`Ask: ${s}`}
+                          className="chat-suggestion-chip"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 {msg.role === 'user' &&
                   msg.id === lastUserMessageId &&
                   !isStreaming &&
@@ -1633,9 +1758,7 @@ export function ChatDrawer({ selectedClientName }: ChatDrawerProps) {
         aria-expanded={isOpen}
       >
         <img src={meriBubbleImage} alt="" className="chat-toggle-fab-logo" />
-        {alertsBadge > 0 && (
-          <span className="chat-fab-badge">{alertsBadge}</span>
-        )}
+        {alertsBadge > 0 && <span className="chat-fab-badge">{alertsBadge}</span>}
       </button>
     </>
   );

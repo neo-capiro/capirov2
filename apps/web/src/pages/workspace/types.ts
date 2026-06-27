@@ -14,6 +14,27 @@ export interface WsLetterhead {
   firmAddr: string;
 }
 
+/**
+ * Per-section status (handoff Q-ED-9):
+ * - `empty`    — outline only, nothing drafted
+ * - `auto`     — auto-populated from structured platform data (budget block etc.)
+ * - `draft`    — Meri prose, not yet reviewed
+ * - `review`   — needs human sign-off or low-confidence (default for new Meri content)
+ * - `done`     — reviewed / accepted
+ * - `tailored` — customized for a specific office
+ */
+export type WsSectionStatus = 'empty' | 'auto' | 'draft' | 'review' | 'done' | 'tailored';
+
+export interface WsSectionMeta {
+  status?: WsSectionStatus;
+  /** Auto-populated / budget-style section (renders the BudgetBlock, Meri sparkle). */
+  smart?: boolean;
+  /** Tailored per office. */
+  tailor?: boolean;
+  /** Live word count for this section. */
+  words?: number;
+}
+
 /** The persisted engine config blob (ws-config-v4). */
 export interface WsConfig {
   industry: string | null;
@@ -24,15 +45,24 @@ export interface WsConfig {
   personalize: boolean;
   officeAssociated: boolean;
   offices: string[];
+  /** Tied to specific client contact(s)? (personalization sub-question) */
+  clientAssociated: boolean;
+  /** Selected client contacts (names) when clientAssociated. */
+  clientPersons: string[];
   coverLetter: boolean;
   selectedTemplate: string | null;
   sections: string[];
   pages: number;
   tone: string;
+  /** Setup "key focus or goal for Meri" free-text. */
   toneContext?: string;
   linkedData: string[];
   anonymize: boolean;
   letterhead: WsLetterhead;
+  /** Per-section body text, keyed by section name. */
+  sectionContent?: Record<string, string>;
+  /** Per-section status/flags, keyed by section name. */
+  sectionMeta?: Record<string, WsSectionMeta>;
   [key: string]: unknown;
 }
 
