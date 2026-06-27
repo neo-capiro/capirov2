@@ -3,10 +3,15 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  NotFoundException,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { XMLParser } from 'fast-xml-parser';
+import sanitizeHtml from 'sanitize-html';
+import { JSDOM, VirtualConsole } from 'jsdom';
+import { Readability } from '@mozilla/readability';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -98,6 +103,11 @@ export interface DirectoryContact {
   fax: string;
   email: string;
   contactFormUrl: string;
+  // Press/RSS overlay (member-press-v1.json, keyed by bioguide_id). Out-of-band
+  // overlay merged at read-time — empty string when the member has no entry.
+  newsPressUrl: string;
+  rssFeedUrl: string;
+  rssSource: string;
   officialLinks: DirectoryLink[];
   addresses: DirectoryAddress[];
   staff: DirectoryStaffMember[];
@@ -130,6 +140,48 @@ export interface DirectoryContact {
     channel: 'Call' | 'Email' | 'Meeting' | 'Dinner' | 'Briefing';
     summary: string;
   }>;
+}
+
+// Press/RSS overlay entry (member-press-v1.json), keyed by bioguide_id.
+interface MemberPressOverlay {
+  newsPressUrl?: string;
+  rssFeedUrl?: string;
+  rssSource?: string;
+}
+
+// One recent press item parsed from a member's RSS/Atom feed.
+export interface MemberNewsItem {
+  id: string;
+  title: string;
+  link: string;
+  publishedAt: string | null; // ISO 8601, or null when the feed gives no date
+  summary: string; // plain-text excerpt from the feed (NOT the full article)
+}
+
+// Payload for GET /directory/contacts/:id/news — the recent-window item list
+// plus the member's press/RSS URLs and any soft error so the UI can degrade.
+export interface MemberNewsPayload {
+  contactId: string;
+  memberName: string;
+  newsPressUrl: string | null;
+  rssFeedUrl: string | null;
+  rssSource: string | null;
+  windowDays: number;
+  items: MemberNewsItem[];
+  fetchedAt: string;
+  stale: boolean; // served from a stale cache because the live refresh failed
+  feedError: 'no_feed' | 'blocked_url' | 'fetch_failed' | null;
+}
+
+// Payload for GET /directory/contacts/:id/news/article — the full article body
+// extracted from the linked press page (feeds carry only a summary + link).
+export interface MemberNewsArticle {
+  url: string;
+  title: string | null;
+  byline: string | null;
+  html: string | null; // sanitized; null when extraction failed (use the link)
+  extracted: boolean;
+  reason: 'ok' | 'no_content' | 'blocked_url' | 'fetch_failed';
 }
 
 type DirectorySort = 'recent' | 'name-asc' | 'name-desc' | 'state-asc' | 'chamber' | 'party';
@@ -389,6 +441,9 @@ const TEST_DIRECTORY_CONTACT: DirectoryContact = {
   fax: '202-555-0199',
   email: 'avery.testwell@example.invalid',
   contactFormUrl: 'https://example.invalid/contact/avery-testwell',
+  newsPressUrl: 'https://example.invalid/avery-testwell/press-releases',
+  rssFeedUrl: '',
+  rssSource: '',
   officialLinks: [
     {
       label: 'Website, official',
@@ -493,6 +548,193 @@ interface MemberBioOverlay {
   wikipedia?: string;
 }
 
+// ---- Member news (RSS feed + linked-article extraction) -------------------
+const NEWS_WINDOW_DAYS = 30; // "up to a month of content"
+const NEWS_CACHE_TTL_MS = 30 * 60_000; // per-feed item list
+const ARTICLE_CACHE_TTL_MS = 6 * 60 * 60_000; // per-article extracted body
+const NEWS_FETCH_TIMEOUT_MS = 10_000;
+const ARTICLE_FETCH_TIMEOUT_MS = 12_000;
+const NEWS_MAX_ITEMS = 40;
+const ARTICLE_MAX_HTML_BYTES = 4_000_000; // bound before building a DOM
+const FEED_MAX_BYTES = 5_000_000; // bound the feed body before XML parse
+const MAX_FEED_FIELD_CHARS = 200_000; // bound one title/body before regex (DoS)
+const MAX_REDIRECTS = 5; // hops we follow, re-validating each target (SSRF)
+const NEWS_CACHE_MAX = 1_000; // bounded in-memory feed entries
+const ARTICLE_CACHE_MAX = 500; // bounded in-memory article entries
+// Browser-like UA — several House/Senate feeds 403 a bare server fetcher.
+const NEWS_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
+
+// Article sanitizer: a read-only content allowlist (no styles, classes, scripts,
+// iframes, event handlers). sanitize-html drops script/style tag+content by
+// default; links are forced to safe, noopener, nofollow new-tab.
+const ARTICLE_SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
+  allowedTags: [
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'p',
+    'br',
+    'hr',
+    'span',
+    'div',
+    'b',
+    'strong',
+    'i',
+    'em',
+    'u',
+    's',
+    'sub',
+    'sup',
+    'blockquote',
+    'q',
+    'cite',
+    'a',
+    'ul',
+    'ol',
+    'li',
+    'dl',
+    'dt',
+    'dd',
+    'figure',
+    'figcaption',
+    'img',
+    'table',
+    'thead',
+    'tbody',
+    'tfoot',
+    'tr',
+    'td',
+    'th',
+    'pre',
+    'code',
+    'small',
+  ],
+  allowedAttributes: {
+    a: ['href', 'target', 'rel'],
+    img: ['src', 'alt', 'title'],
+    td: ['colspan', 'rowspan'],
+    th: ['colspan', 'rowspan'],
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowedSchemesByTag: { img: ['http', 'https'] },
+  allowedSchemesAppliedToAttributes: ['href', 'src'],
+  transformTags: {
+    a: (_tag, attribs) => {
+      const href = (attribs.href ?? '').trim();
+      const safeHref = /^(?:https?:|mailto:)/i.test(href);
+      return {
+        tagName: 'a',
+        attribs: {
+          ...(safeHref ? { href } : {}),
+          target: '_blank',
+          rel: 'noopener noreferrer nofollow',
+        },
+      };
+    },
+  },
+  // Drop <img> whose src was stripped (relative srcs are absolutized by JSDOM's
+  // base url before sanitizing; anything left without a src is dead weight).
+  exclusiveFilter: (frame) => frame.tag === 'img' && !frame.attribs.src,
+};
+
+/** http(s) only, and never an internal/reserved host or IP literal (SSRF guard). */
+function isSafePublicHttpUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+  const host = url.hostname.toLowerCase();
+  if (!host) return false;
+  if (host === 'localhost' || host.endsWith('.localhost')) return false;
+  return !isPrivateOrReservedIp(host);
+}
+
+/** Block private/reserved IPv4+IPv6 literals (incl. 169.254.169.254 metadata). */
+function isPrivateOrReservedIp(host: string): boolean {
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (v4) {
+    const a = Number(v4[1]);
+    const b = Number(v4[2]);
+    const c = Number(v4[3]);
+    const d = Number(v4[4]);
+    if ([a, b, c, d].some((n) => Number.isNaN(n) || n > 255)) return true;
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true; // link-local incl. cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a >= 224) return true; // multicast / reserved
+    return false;
+  }
+  if (host.includes(':')) {
+    const h = host.replace(/^\[|\]$/g, '');
+    if (h === '::1' || h === '::') return true;
+    if (/^(?:fc|fd)/.test(h)) return true; // unique-local
+    if (/^fe80/.test(h)) return true; // link-local
+    if (/^::ffff:/.test(h)) return true; // ipv4-mapped (may embed a private v4)
+    return false;
+  }
+  return false;
+}
+
+function hostOf(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    return new URL(raw).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function stripWww(host: string): string {
+  return host.replace(/^www\./, '');
+}
+
+function toIsoDate(raw: string): string | null {
+  if (!raw) return null;
+  const d = new Date(raw);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function decodeBasicEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+}
+
+// House Drupal (evo-theme) feeds set <link> to a /node/N alias that frequently
+// 404s, while embedding the real article URL in the item body. Prefer that
+// canonical URL when the <link> is a bare node alias (or empty).
+function canonicalArticleLink(link: string, body: string): string {
+  if (link && !/\/node\/\d+\/?$/i.test(link)) return link;
+  const hrefs = [...String(body ?? '').matchAll(/href=["']([^"']+)["']/gi)].map((m) => m[1] ?? '');
+  const canonical = hrefs.find(
+    (h) => /^https?:\/\//i.test(h) && /\/(media|news|press)[-/]/i.test(h),
+  );
+  return canonical ? decodeBasicEntities(canonical).trim() : link;
+}
+
+function plainExcerpt(html: string, max: number): string {
+  // Cap before the tag-strip regex so a pathological feed field (megabytes of
+  // text) can't burn CPU/memory even though the regex itself is linear.
+  const capped = String(html ?? '').slice(0, MAX_FEED_FIELD_CHARS);
+  const text = decodeBasicEntities(capped.replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length > max ? `${text.slice(0, max).trimEnd()}…` : text;
+}
+
 @Injectable()
 export class DirectoryService {
   private static readonly DEFAULT_PAGE_SIZE = 24;
@@ -502,7 +744,18 @@ export class DirectoryService {
   private readonly bucket: string;
   private readonly prefix: string;
   private readonly bioOverlayKey: string;
+  private readonly pressOverlayKey: string;
   private cache: CachedContacts | null = null;
+  private readonly xml = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '@_',
+    // Disable DTD/custom entity expansion — guards against XML-bomb feeds.
+    // Standard entities (&amp; etc.) are decoded downstream via decodeBasicEntities.
+    processEntities: false,
+  });
+  // Per-feed and per-article caches keyed by URL (TTL'd, stale-fallback on feed).
+  private readonly newsCache = new Map<string, { items: MemberNewsItem[]; at: number }>();
+  private readonly articleCache = new Map<string, { data: MemberNewsArticle; at: number }>();
 
   constructor(
     config: ConfigService<AppConfig, true>,
@@ -515,8 +768,9 @@ export class DirectoryService {
       process.env.DIRECTORY_S3_PREFIX ??
       'UPDATED DIRECTORY/snapshots/active-current-20260501T024354Z';
     this.bioOverlayKey =
-      process.env.DIRECTORY_BIO_OVERLAY_KEY ??
-      'UPDATED DIRECTORY/overlays/member-bios-v1.json';
+      process.env.DIRECTORY_BIO_OVERLAY_KEY ?? 'UPDATED DIRECTORY/overlays/member-bios-v1.json';
+    this.pressOverlayKey =
+      process.env.DIRECTORY_PRESS_OVERLAY_KEY ?? 'UPDATED DIRECTORY/overlays/member-press-v1.json';
   }
 
   async getContacts(query: DirectoryQuery = {}): Promise<DirectoryPayload> {
@@ -952,8 +1206,11 @@ export class DirectoryService {
         this.fetchGzipJson<unknown>(`${this.prefix}/combined/office-list-current.json.gz`),
       ]);
 
-      const bioOverlay = await this.loadBioOverlay();
-      const contacts = this.buildContacts(members, staff, bioOverlay);
+      const [bioOverlay, pressOverlay] = await Promise.all([
+        this.loadBioOverlay(),
+        this.loadPressOverlay(),
+      ]);
+      const contacts = this.buildContacts(members, staff, bioOverlay, pressOverlay);
       const staffers = this.buildStafferIndex(contacts);
       const { committees, committeeStaff } = this.buildCommitteeIndex(offices, staff, members);
       const availableStates = uniqueSorted(contacts.map((contact) => contact.state));
@@ -1289,9 +1546,7 @@ export class DirectoryService {
   // failure so a missing/broken overlay can never take down the directory.
   private async fetchJsonSafe<T>(key: string): Promise<T | null> {
     try {
-      const out = await this.s3.send(
-        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
-      );
+      const out = await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
       if (!out.Body) return null;
       const text = await out.Body.transformToString();
       return JSON.parse(text) as T;
@@ -1319,6 +1574,328 @@ export class DirectoryService {
       }
     }
     return map;
+  }
+
+  // Member press/RSS overlay (member-press-v1.json), keyed by bioguide_id. Same
+  // out-of-band mechanism as the bio overlay — stored OUTSIDE the LegiStorm
+  // snapshot so snapshot rotation never clobbers it. Failure is non-fatal.
+  private async loadPressOverlay(): Promise<Map<string, MemberPressOverlay>> {
+    const overlay = await this.fetchJsonSafe<{
+      members?: Record<string, MemberPressOverlay>;
+    }>(this.pressOverlayKey);
+    const map = new Map<string, MemberPressOverlay>();
+    if (overlay?.members) {
+      for (const [bioguideId, entry] of Object.entries(overlay.members)) {
+        if (bioguideId && entry) map.set(bioguideId, entry);
+      }
+    }
+    return map;
+  }
+
+  // ---- Member news (RSS feed + linked-article extraction) -----------------
+
+  private async resolveContact(contactId: string): Promise<DirectoryContact> {
+    const id = normalizeContactId(contactId);
+    const contacts = await this.getAllContacts();
+    const contact = contacts.find((c) => c.id === id);
+    if (!contact) throw new NotFoundException('Directory member not found');
+    return contact;
+  }
+
+  /**
+   * Recent press items (last {@link NEWS_WINDOW_DAYS} days) parsed from the
+   * member's RSS/Atom feed. The feed carries a summary + link only — the full
+   * article is fetched separately via {@link getMemberNewsArticle}. Cached per
+   * feed URL with a stale-but-served fallback so a flaky feed never blanks the
+   * tab. Feed URL comes from the curated press overlay, not user input.
+   */
+  async getMemberNews(contactId: string): Promise<MemberNewsPayload> {
+    const contact = await this.resolveContact(contactId);
+    const rssFeedUrl = contact.rssFeedUrl?.trim() ?? '';
+    const newsPressUrl = contact.newsPressUrl?.trim() ?? '';
+    const base: MemberNewsPayload = {
+      contactId: contact.id,
+      memberName: contact.memberName,
+      newsPressUrl: newsPressUrl || null,
+      rssFeedUrl: rssFeedUrl || null,
+      rssSource: contact.rssSource?.trim() || null,
+      windowDays: NEWS_WINDOW_DAYS,
+      items: [],
+      fetchedAt: new Date().toISOString(),
+      stale: false,
+      feedError: null,
+    };
+
+    if (!rssFeedUrl) return { ...base, feedError: 'no_feed' };
+    if (!isSafePublicHttpUrl(rssFeedUrl)) return { ...base, feedError: 'blocked_url' };
+
+    const now = Date.now();
+    const cached = this.newsCache.get(rssFeedUrl);
+    if (cached && now - cached.at < NEWS_CACHE_TTL_MS) {
+      return { ...base, items: cached.items, fetchedAt: new Date(cached.at).toISOString() };
+    }
+
+    try {
+      const items = await this.fetchFeedItems(rssFeedUrl);
+      this.cachePut(this.newsCache, rssFeedUrl, { items, at: now }, NEWS_CACHE_MAX);
+      return { ...base, items };
+    } catch (err) {
+      this.logger.warn(
+        `Member news feed failed for ${contact.id} (${rssFeedUrl}): ${(err as Error).message}`,
+      );
+      if (cached) {
+        return {
+          ...base,
+          items: cached.items,
+          stale: true,
+          fetchedAt: new Date(cached.at).toISOString(),
+        };
+      }
+      return { ...base, feedError: 'fetch_failed' };
+    }
+  }
+
+  /**
+   * The full article body for one news item, extracted from the linked press
+   * page (feeds give only a summary). The URL MUST resolve to the member's own
+   * press/feed host — that allowlist plus the IP-literal block in
+   * {@link isSafePublicHttpUrl} is the SSRF boundary, since the URL is caller-
+   * supplied. Returns extracted:false (use the source link) when extraction
+   * fails or yields too little text.
+   */
+  async getMemberNewsArticle(contactId: string, rawUrl: string): Promise<MemberNewsArticle> {
+    const contact = await this.resolveContact(contactId);
+    const url = (rawUrl ?? '').trim();
+    const fail = (reason: MemberNewsArticle['reason']): MemberNewsArticle => ({
+      url,
+      title: null,
+      byline: null,
+      html: null,
+      extracted: false,
+      reason,
+    });
+
+    if (!url || !isSafePublicHttpUrl(url)) return fail('blocked_url');
+    if (!this.articleHostAllowed(contact, url)) return fail('blocked_url');
+
+    const now = Date.now();
+    const cached = this.articleCache.get(url);
+    if (cached && now - cached.at < ARTICLE_CACHE_TTL_MS) return cached.data;
+
+    try {
+      const html = await this.fetchExternalText(
+        url,
+        ARTICLE_FETCH_TIMEOUT_MS,
+        'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        // Re-check BOTH the private-IP guard and the member host-allowlist on
+        // every redirect hop, so a 30x can't escape the member's own domain.
+        (hopUrl) => isSafePublicHttpUrl(hopUrl) && this.articleHostAllowed(contact, hopUrl),
+        ARTICLE_MAX_HTML_BYTES,
+      );
+      const data = this.extractArticle(url, html);
+      this.cachePut(this.articleCache, url, { data, at: now }, ARTICLE_CACHE_MAX);
+      return data;
+    } catch (err) {
+      this.logger.warn(
+        `Member article extract failed for ${contact.id} (${url}): ${(err as Error).message}`,
+      );
+      return fail('fetch_failed');
+    }
+  }
+
+  // The requested article host must equal one of the member's own press/feed
+  // hosts, or be a subdomain of one — confines fetches to that member's domain.
+  // (Deliberately NOT the reverse: a feed at press.x.gov must not authorize the
+  // parent x.gov or its sibling subdomains.)
+  private articleHostAllowed(contact: DirectoryContact, url: string): boolean {
+    const allowed = [contact.rssFeedUrl, contact.newsPressUrl]
+      .map((u) => hostOf(u))
+      .filter((h): h is string => Boolean(h))
+      .map(stripWww);
+    const target = stripWww(hostOf(url) ?? '');
+    if (!target || allowed.length === 0) return false;
+    return allowed.some((h) => target === h || target.endsWith(`.${h}`));
+  }
+
+  // Bounded insert: cap the cache so a user fetching many distinct articles
+  // can't grow it without limit (oldest-inserted entry is evicted past `max`).
+  private cachePut<T>(map: Map<string, T>, key: string, value: T, max: number): void {
+    map.set(key, value);
+    if (map.size > max) {
+      const oldest = map.keys().next().value;
+      if (oldest !== undefined) map.delete(oldest);
+    }
+  }
+
+  // Fetch external text with a total-time abort, MANUAL redirects re-validated
+  // per hop (post-redirect SSRF guard), and a response-size bound. `validateHop`
+  // is checked against the initial URL and every redirect target.
+  private async fetchExternalText(
+    url: string,
+    timeoutMs: number,
+    accept: string,
+    validateHop: (candidate: string) => boolean = isSafePublicHttpUrl,
+    maxBytes = FEED_MAX_BYTES,
+  ): Promise<string> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      let current = url;
+      for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+        if (!validateHop(current)) throw new Error(`blocked url: ${current}`);
+        const res = await fetch(current, {
+          redirect: 'manual',
+          headers: { 'User-Agent': NEWS_USER_AGENT, Accept: accept },
+          signal: controller.signal,
+        });
+        if (res.status >= 300 && res.status < 400 && res.status !== 304) {
+          const loc = res.headers.get('location');
+          if (!loc) throw new Error(`redirect ${res.status} without location`);
+          current = new URL(loc, current).toString(); // resolve relative redirects
+          continue;
+        }
+        if (!res.ok) throw new Error(`responded ${res.status}`);
+        const declared = Number(res.headers.get('content-length') ?? '');
+        if (Number.isFinite(declared) && declared > maxBytes) {
+          throw new Error(`response too large (${declared} bytes)`);
+        }
+        const text = await res.text();
+        return text.length > maxBytes ? text.slice(0, maxBytes) : text;
+      }
+      throw new Error('too many redirects');
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async fetchFeedItems(feedUrl: string): Promise<MemberNewsItem[]> {
+    const xml = await this.fetchExternalText(
+      feedUrl,
+      NEWS_FETCH_TIMEOUT_MS,
+      'application/rss+xml,application/atom+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.7',
+    );
+    const parsed = this.xml.parse(xml) as Record<string, any>;
+    const channel = parsed?.rss?.channel ?? parsed?.['rdf:RDF'] ?? null;
+    const atomFeed = parsed?.feed ?? null;
+    // If the response wasn't actually RSS/Atom/RDF (e.g. an HTML error page that
+    // still returned 200), treat it as a fetch failure rather than silently
+    // reporting "no recent items" — the caller maps this to a proper error state.
+    if (!channel && !atomFeed) {
+      throw new Error('response is not a recognized RSS/Atom/RDF feed');
+    }
+
+    let raw: any[] = [];
+    let isAtom = false;
+    if (channel?.item) {
+      raw = Array.isArray(channel.item) ? channel.item : [channel.item];
+    } else if (atomFeed?.entry) {
+      raw = Array.isArray(atomFeed.entry) ? atomFeed.entry : [atomFeed.entry];
+      isAtom = true;
+    }
+
+    const cutoff = Date.now() - NEWS_WINDOW_DAYS * 24 * 60 * 60_000;
+    const items: MemberNewsItem[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const item = isAtom ? this.mapAtomEntry(raw[i], i) : this.mapRssItem(raw[i], i);
+      if (!item) continue;
+      const t = item.publishedAt ? Date.parse(item.publishedAt) : Number.NaN;
+      // Keep items inside the window; keep undated items (they sort to the end).
+      if (!Number.isNaN(t) && t < cutoff) continue;
+      items.push(item);
+    }
+    items.sort(
+      (a, b) => (Date.parse(b.publishedAt ?? '') || 0) - (Date.parse(a.publishedAt ?? '') || 0),
+    );
+    return items.slice(0, NEWS_MAX_ITEMS);
+  }
+
+  private mapRssItem(it: Record<string, any>, idx: number): MemberNewsItem | null {
+    const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
+    const title = decodeBasicEntities(
+      str(it.title)
+        .slice(0, MAX_FEED_FIELD_CHARS)
+        .replace(/<[^>]+>/g, ' '),
+    ).trim();
+    // processEntities is off, so &amp; survives in URLs — decode it here.
+    let link = decodeBasicEntities(str(it.link)).trim();
+    const guid = typeof it.guid === 'object' ? str(it.guid?.['#text']) : str(it.guid);
+    if (!link && /^https?:\/\//i.test(guid)) link = decodeBasicEntities(guid).trim();
+    const pub = str(it.pubDate ?? it['dc:date'] ?? it.date ?? it.published).trim();
+    const rawBody = str(it['content:encoded'] ?? it.description ?? it.summary);
+    link = canonicalArticleLink(link, rawBody);
+    if (!title && !link) return null;
+    return {
+      id: guid.trim() || link || `item-${idx}`,
+      title: title || '(untitled)',
+      link,
+      publishedAt: toIsoDate(pub),
+      summary: plainExcerpt(rawBody, 320),
+    };
+  }
+
+  private mapAtomEntry(it: Record<string, any>, idx: number): MemberNewsItem | null {
+    const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v));
+    const title = decodeBasicEntities(
+      str(typeof it.title === 'object' ? it.title?.['#text'] : it.title)
+        .slice(0, MAX_FEED_FIELD_CHARS)
+        .replace(/<[^>]+>/g, ' '),
+    ).trim();
+    let link = '';
+    const l = it.link;
+    if (Array.isArray(l)) {
+      const alt =
+        l.find((x: any) => x?.['@_rel'] === 'alternate') ?? l.find((x: any) => x?.['@_href']);
+      link = str(alt?.['@_href']);
+    } else if (l && typeof l === 'object') {
+      link = str(l['@_href']);
+    } else {
+      link = str(l);
+    }
+    link = decodeBasicEntities(link).trim();
+    const pub = str(it.published ?? it.updated).trim();
+    const content = typeof it.content === 'object' ? str(it.content?.['#text']) : str(it.content);
+    const summary = typeof it.summary === 'object' ? str(it.summary?.['#text']) : str(it.summary);
+    if (!title && !link) return null;
+    return {
+      id: str(it.id).trim() || link || `entry-${idx}`,
+      title: title || '(untitled)',
+      link,
+      publishedAt: toIsoDate(pub),
+      summary: plainExcerpt(content || summary, 320),
+    };
+  }
+
+  private extractArticle(url: string, html: string): MemberNewsArticle {
+    const bounded =
+      html.length > ARTICLE_MAX_HTML_BYTES ? html.slice(0, ARTICLE_MAX_HTML_BYTES) : html;
+    // JSDOM here does NOT run scripts and does NOT fetch subresources (both are
+    // opt-in and left off) — it only builds a static DOM for Readability. A
+    // silent VirtualConsole keeps malformed-page noise out of the API logs.
+    const virtualConsole = new VirtualConsole();
+    const dom = new JSDOM(bounded, { url, contentType: 'text/html', virtualConsole });
+    try {
+      const parsed = new Readability(dom.window.document).parse();
+      const content = parsed?.content ?? '';
+      const textLen = (parsed?.textContent ?? '').trim().length;
+      const title = (parsed?.title ?? '').trim() || null;
+      if (!content || textLen < 200) {
+        return { url, title, byline: null, html: null, extracted: false, reason: 'no_content' };
+      }
+      const safe = sanitizeHtml(content, ARTICLE_SANITIZE_OPTIONS).trim();
+      if (!safe) {
+        return { url, title, byline: null, html: null, extracted: false, reason: 'no_content' };
+      }
+      return {
+        url,
+        title,
+        byline: (parsed?.byline ?? '').trim() || null,
+        html: safe,
+        extracted: true,
+        reason: 'ok',
+      };
+    } finally {
+      dom.window.close();
+    }
   }
 
   private toPagedPayload(
@@ -1612,6 +2189,7 @@ export class DirectoryService {
     membersRaw: unknown[],
     staffRaw: unknown[],
     bioOverlay: Map<string, MemberBioOverlay> = new Map(),
+    pressOverlay: Map<string, MemberPressOverlay> = new Map(),
   ): DirectoryContact[] {
     const members = Array.isArray(membersRaw) ? membersRaw : [];
     const staffById = this.buildStaffDetailsById(staffRaw);
@@ -1671,6 +2249,7 @@ export class DirectoryService {
       const outgoingStatus = currentOffice.outgoing_status
         ? String(currentOffice.outgoing_status)
         : null;
+      const press = pressOverlay.get(String(member?.bioguide_id ?? ''));
 
       contacts.push({
         id: `member-${memberId}`,
@@ -1705,6 +2284,9 @@ export class DirectoryService {
         fax: mainAddress?.fax ?? '',
         email,
         contactFormUrl,
+        newsPressUrl: press?.newsPressUrl ?? '',
+        rssFeedUrl: press?.rssFeedUrl ?? '',
+        rssSource: press?.rssSource ?? '',
         officialLinks,
         addresses,
         staff,
@@ -1716,18 +2298,10 @@ export class DirectoryService {
           race: String(profile?.bio_details?.race_name ?? ''),
           religion: String(profile?.bio_details?.religion_name ?? ''),
           pronunciation: String(profile?.bio_details?.pronunciation ?? ''),
-          narrative: String(
-            bioOverlay.get(String(member?.bioguide_id ?? ''))?.narrative ?? '',
-          ),
-          education: String(
-            bioOverlay.get(String(member?.bioguide_id ?? ''))?.education ?? '',
-          ),
-          military: String(
-            bioOverlay.get(String(member?.bioguide_id ?? ''))?.military ?? '',
-          ),
-          relatives: String(
-            bioOverlay.get(String(member?.bioguide_id ?? ''))?.relatives ?? '',
-          ),
+          narrative: String(bioOverlay.get(String(member?.bioguide_id ?? ''))?.narrative ?? ''),
+          education: String(bioOverlay.get(String(member?.bioguide_id ?? ''))?.education ?? ''),
+          military: String(bioOverlay.get(String(member?.bioguide_id ?? ''))?.military ?? ''),
+          relatives: String(bioOverlay.get(String(member?.bioguide_id ?? ''))?.relatives ?? ''),
         },
         lastTouchpoint: this.latestDate([
           currentOffice.updated_at,

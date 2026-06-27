@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
+  Alert,
   App,
   Avatar,
   Button,
   Card,
   Col,
+  Collapse,
   Drawer,
   Dropdown,
   Empty,
@@ -1268,6 +1270,11 @@ export function DirectoryPage() {
                     </div>
                   ),
                 },
+                {
+                  key: 'news',
+                  label: 'News',
+                  children: <DirectoryNewsPanel entry={selectedEntry} />,
+                },
               ]}
             />
           </>
@@ -2280,6 +2287,263 @@ function DirectoryNotesPanel({ entry }: { entry: DirectoryEntry }) {
         </div>
       </Space>
     </Card>
+  );
+}
+
+interface MemberNewsItem {
+  id: string;
+  title: string;
+  link: string;
+  publishedAt: string | null;
+  summary: string;
+}
+
+interface MemberNewsPayload {
+  contactId: string;
+  memberName: string;
+  newsPressUrl: string | null;
+  rssFeedUrl: string | null;
+  rssSource: string | null;
+  windowDays: number;
+  items: MemberNewsItem[];
+  fetchedAt: string;
+  stale: boolean;
+  feedError: 'no_feed' | 'blocked_url' | 'fetch_failed' | null;
+}
+
+interface MemberNewsArticle {
+  url: string;
+  title: string | null;
+  byline: string | null;
+  html: string | null;
+  extracted: boolean;
+  reason: 'ok' | 'no_content' | 'blocked_url' | 'fetch_failed';
+}
+
+function formatNewsDate(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+}
+
+/**
+ * News tab: the member's recent press releases (last ~30 days) pulled from their
+ * RSS feed. The feed carries only a headline + summary + link, so expanding an
+ * item lazily fetches the linked press page and the server returns the extracted,
+ * sanitized full article (see {@link ArticleBody}). Degrades to the press-page
+ * link when there's no feed, the feed is empty/stale, or extraction fails.
+ */
+function DirectoryNewsPanel({ entry }: { entry: DirectoryEntry }) {
+  const api = useApi();
+  const [activeKeys, setActiveKeys] = useState<string[]>([]);
+
+  const query = useQuery<MemberNewsPayload>({
+    queryKey: ['directory-contact-news', entry.id],
+    queryFn: async () =>
+      (
+        await api.get<MemberNewsPayload>(
+          `/api/directory/contacts/${encodeURIComponent(entry.id)}/news`,
+        )
+      ).data,
+    staleTime: 5 * 60_000,
+  });
+
+  const data = query.data;
+  const items = data?.items ?? [];
+
+  const links = (
+    <Space size={8} wrap style={{ marginBottom: 12 }}>
+      {data?.newsPressUrl ? (
+        <Button
+          size="small"
+          icon={<LinkOutlined />}
+          href={data.newsPressUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
+          Press page
+        </Button>
+      ) : null}
+      {data?.rssFeedUrl ? (
+        <Button
+          size="small"
+          icon={<LinkOutlined />}
+          href={data.rssFeedUrl}
+          target="_blank"
+          rel="noreferrer"
+        >
+          RSS feed
+        </Button>
+      ) : null}
+    </Space>
+  );
+
+  if (query.isLoading) {
+    return (
+      <div style={{ padding: 24, textAlign: 'center' }}>
+        <Spin />
+      </div>
+    );
+  }
+
+  if (data?.feedError === 'no_feed') {
+    return (
+      <>
+        {links}
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            data.newsPressUrl
+              ? 'No RSS feed on file for this member — open their press page for the latest.'
+              : 'No news feed or press page on file for this member.'
+          }
+        >
+          {data.newsPressUrl ? (
+            <Button type="primary" href={data.newsPressUrl} target="_blank" rel="noreferrer">
+              Open press page
+            </Button>
+          ) : null}
+        </Empty>
+      </>
+    );
+  }
+
+  if (data?.feedError === 'fetch_failed' || data?.feedError === 'blocked_url') {
+    return (
+      <>
+        {links}
+        <Alert
+          type="warning"
+          showIcon
+          message="Couldn't load this member's news feed right now."
+          description={data?.newsPressUrl ? 'Try their press page instead.' : undefined}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      {links}
+      {data?.stale ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Showing the last cached results — live refresh is temporarily unavailable."
+        />
+      ) : null}
+      {items.length === 0 ? (
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={`No press releases in the last ${data?.windowDays ?? 30} days.`}
+        >
+          {data?.newsPressUrl ? (
+            <Button href={data.newsPressUrl} target="_blank" rel="noreferrer">
+              Open press page
+            </Button>
+          ) : null}
+        </Empty>
+      ) : (
+        <Collapse
+          accordion
+          destroyInactivePanel
+          activeKey={activeKeys}
+          onChange={(key) => setActiveKeys(Array.isArray(key) ? key : [key])}
+          items={items.map((item) => ({
+            key: item.id,
+            label: (
+              <div className="directory-news-item-head">
+                <Typography.Text strong>{item.title}</Typography.Text>
+                {item.publishedAt ? (
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    {formatNewsDate(item.publishedAt)}
+                  </Typography.Text>
+                ) : null}
+              </div>
+            ),
+            children: <ArticleBody entry={entry} item={item} />,
+          }))}
+        />
+      )}
+    </>
+  );
+}
+
+/**
+ * Lazily loads + renders one full press release. Mounts only when its Collapse
+ * panel is expanded (destroyInactivePanel), so the fetch is on-demand. The
+ * server returns HTML already sanitized through a strict allowlist (the XSS
+ * trust boundary), so it is rendered directly; on extraction failure we show the
+ * feed summary plus a link to the original release.
+ */
+function ArticleBody({ entry, item }: { entry: DirectoryEntry; item: MemberNewsItem }) {
+  const api = useApi();
+  const query = useQuery<MemberNewsArticle>({
+    queryKey: ['directory-news-article', entry.id, item.link],
+    enabled: Boolean(item.link),
+    queryFn: async () =>
+      (
+        await api.get<MemberNewsArticle>(
+          `/api/directory/contacts/${encodeURIComponent(entry.id)}/news/article`,
+          { params: { url: item.link } },
+        )
+      ).data,
+    staleTime: 30 * 60_000,
+  });
+
+  const sourceLink = item.link ? (
+    <div style={{ marginTop: 12 }}>
+      <a href={item.link} target="_blank" rel="noreferrer">
+        <LinkOutlined /> Read full release on the member&apos;s site
+      </a>
+    </div>
+  ) : null;
+
+  if (!item.link) {
+    return (
+      <Typography.Paragraph type="secondary">
+        {item.summary || 'No link available for this item.'}
+      </Typography.Paragraph>
+    );
+  }
+
+  if (query.isLoading) {
+    return (
+      <div style={{ padding: 16, textAlign: 'center' }}>
+        <Spin size="small" />
+      </div>
+    );
+  }
+
+  const article = query.data;
+  if (article?.extracted && article.html) {
+    return (
+      <div className="directory-news-article">
+        {article.byline ? (
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+            {article.byline}
+          </Typography.Text>
+        ) : null}
+        {/* Server-sanitized (sanitize-html strict allowlist) — safe to render. */}
+        <div
+          className="directory-news-article-body"
+          dangerouslySetInnerHTML={{ __html: article.html }}
+        />
+        {sourceLink}
+      </div>
+    );
+  }
+
+  return (
+    <div className="directory-news-article">
+      {item.summary ? <Typography.Paragraph>{item.summary}</Typography.Paragraph> : null}
+      <Typography.Text type="secondary">
+        Full article couldn&apos;t be loaded inline.
+      </Typography.Text>
+      {sourceLink}
+    </div>
   );
 }
 
