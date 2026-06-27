@@ -48,6 +48,24 @@ export class ChatToolsService {
       }
     }
 
+    if (context?.workflowInstanceId) {
+      try {
+        const instance = await this.prisma.withTenant(tenantId, (tx) =>
+          tx.workflowInstance.findFirst({
+            where: { id: context.workflowInstanceId },
+            include: { template: true },
+          }),
+        );
+        if (instance) {
+          parts.push(
+            `Active workflow: "${instance.title}" (template: ${instance.template?.name ?? 'unknown'}, status: ${instance.status})`,
+          );
+        }
+      } catch (err) {
+        this.logger.warn(`Workflow context fetch failed: ${(err as Error).message}`);
+      }
+    }
+
     return parts.join('\n');
   }
 
@@ -116,6 +134,28 @@ export class ChatToolsService {
       .map(
         (r: Record<string, unknown>) =>
           `- [${r.type}/${r.status}] ${r.title}${r.subject ? ', "' + r.subject + '"' : ''}`,
+      )
+      .join('\n')}`;
+  }
+
+  async queryWorkflows(tenantId: string, clientId?: string): Promise<string> {
+    const where: Record<string, unknown> = {};
+    if (clientId) where.clientId = clientId;
+
+    const instances = await this.prisma.withTenant(tenantId, (tx) =>
+      tx.workflowInstance.findMany({
+        where,
+        include: { template: true },
+        take: 15,
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
+
+    if (!instances.length) return 'No workflow instances found.';
+    return `Workflow instances (${instances.length}):\n${instances
+      .map(
+        (i: Record<string, unknown>) =>
+          `- [${i.status}] ${i.title} (${(i as Record<string, Record<string, unknown>>).template?.name ?? 'unknown template'}, created ${(i.createdAt as Date).toISOString().slice(0, 10)})`,
       )
       .join('\n')}`;
   }

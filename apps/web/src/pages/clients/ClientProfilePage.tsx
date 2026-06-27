@@ -1030,6 +1030,17 @@ function CapabilitiesTab({
             <div className="cap-card-actions" onClick={(e) => e.stopPropagation()}>
               <Button
                 size="small"
+                type="default"
+                onClick={() =>
+                  navigate(
+                    `/workspace/strategy/new?clientId=${encodeURIComponent(clientId)}&capabilityId=${encodeURIComponent(cap.id)}`,
+                  )
+                }
+              >
+                Start FY Strategy
+              </Button>
+              <Button
+                size="small"
                 type="text"
                 icon={<DeleteOutlined />}
                 danger

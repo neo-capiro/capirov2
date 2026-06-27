@@ -32,10 +32,6 @@ export interface EnvConfig {
   marketingMemoryMib: number;
   marketingDesiredCount: number;
   marketingMaxCount: number;
-  workspaceCpu: number;
-  workspaceMemoryMib: number;
-  workspaceDesiredCount: number;
-  workspaceMaxCount: number;
   // Hardening
   protectFromDestroy: boolean; // true for prod, false for dev to allow iteration
   logRetentionDays: number;
@@ -74,10 +70,6 @@ const BASE: Omit<EnvConfig, 'envName' | 'account' | 'region'> = {
   marketingMemoryMib: 512,
   marketingDesiredCount: 2,
   marketingMaxCount: 4,
-  workspaceCpu: 256,
-  workspaceMemoryMib: 512,
-  workspaceDesiredCount: 2,
-  workspaceMaxCount: 4,
   protectFromDestroy: false,
   logRetentionDays: 90,
 };
@@ -154,8 +146,6 @@ export function loadConfig(app: cdk.App): EnvConfig {
             webMaxCount: 2,
             marketingDesiredCount: 1,
             marketingMaxCount: 2,
-            workspaceDesiredCount: 1,
-            workspaceMaxCount: 2,
             auroraMinAcu: 0.5,
             auroraMaxAcu: 2,
             auroraBackupRetentionDays: 7,

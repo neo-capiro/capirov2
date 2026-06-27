@@ -61,7 +61,9 @@ const EXPECTED_TOOLS = [
   'list_scheduled_tasks',
   'cancel_scheduled_task',
   // Firm operational data (tool-coverage expansion)
+  'query_workflows',
   'query_tasks',
+  'query_strategies',
   'query_action_items',
   'search_tracked_bills',
   'query_regulatory_dockets',
@@ -72,6 +74,7 @@ const EXPECTED_TOOLS = [
   // Approval-gated writes (tool-coverage expansion)
   'create_task',
   'update_task',
+  'update_workflow_field',
   'update_client_profile',
 ] as const;
 
@@ -106,6 +109,7 @@ const REQUIRED_INPUTS: Record<string, string[]> = {
   read_client_documents: ['clientId'],
   create_task: ['title'],
   update_task: ['taskId'],
+  update_workflow_field: ['instanceId', 'fieldKey', 'value'],
   update_client_profile: ['clientId'],
 };
 

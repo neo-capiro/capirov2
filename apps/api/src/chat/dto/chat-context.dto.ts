@@ -27,5 +27,13 @@ export class ChatContextDto {
 
   @IsOptional()
   @IsString()
+  workflowInstanceId?: string;
+
+  @IsOptional()
+  @IsString()
+  workflowTemplateSlug?: string;
+
+  @IsOptional()
+  @IsString()
   intelligenceTab?: string;
 }
