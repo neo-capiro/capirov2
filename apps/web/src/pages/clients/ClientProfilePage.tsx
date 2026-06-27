@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeftOutlined,
   CloudUploadOutlined,
@@ -62,14 +61,6 @@ import { DefenseBudgetExposureCard } from './DefenseBudgetExposureCard.js';
 import { getRelevantPesForClient } from './relevance-api.js';
 import type { ClientFacility } from './facilities-api.js';
 
-interface WorkflowInstance {
-  id: string;
-  title: string;
-  status: string;
-  createdAt: string;
-  template?: { name: string; category: string };
-}
-
 interface ClientPerson {
   id: string;
   clientId: string;
@@ -89,7 +80,6 @@ type ProfileTab =
   | 'targets'
   | 'people'
   | 'facilities'
-  | 'workflows'
   | 'documents'
   | 'intelligence';
 
@@ -99,7 +89,6 @@ const PROFILE_TABS: ProfileTab[] = [
   'targets',
   'people',
   'facilities',
-  'workflows',
   'documents',
   'intelligence',
 ];
@@ -168,16 +157,6 @@ export function ClientProfilePage({
     queryFn: async () => (await api.get<ClientPerson[]>(`/api/clients/${client.id}/people`)).data,
     // Eager-load for tab badge counts; cheap query and lets the tab strip
     // show "(N)" without waiting for the user to click in.
-  });
-
-  const workflows = useQuery<WorkflowInstance[]>({
-    queryKey: ['workflow-instances', { clientId: client.id }],
-    queryFn: async () =>
-      (
-        await api.get<WorkflowInstance[]>('/api/workflows/instances', {
-          params: { clientId: client.id },
-        })
-      ).data,
   });
 
   const docsCount = useQuery<{ id: string }[]>({
@@ -387,11 +366,9 @@ export function ClientProfilePage({
                 ? people.data?.length
                 : tab === 'facilities'
                   ? facilitiesCount.data?.length
-                  : tab === 'workflows'
-                    ? workflows.data?.length
-                    : tab === 'documents'
-                      ? docsCount.data?.length
-                      : null;
+                  : tab === 'documents'
+                    ? docsCount.data?.length
+                    : null;
           return (
             <div
               key={tab}
@@ -438,11 +415,9 @@ export function ClientProfilePage({
                         ? 'People'
                         : tab === 'facilities'
                           ? 'Facilities'
-                          : tab === 'workflows'
-                            ? 'Workflows'
-                            : tab === 'documents'
-                              ? 'Documents'
-                              : 'Intelligence'}
+                          : tab === 'documents'
+                            ? 'Documents'
+                            : 'Intelligence'}
               </span>
               {badge != null && badge > 0 ? (
                 <span className="cp-tab-badge num">{badge}</span>
@@ -483,7 +458,6 @@ export function ClientProfilePage({
           )}
           {activeTab === 'capabilities' && (
             <CapabilitiesTab
-              clientId={client.id}
               capabilities={capabilities.data ?? []}
               loading={capabilities.isLoading}
               onCapClick={(cap) => setSelectedCapabilityId(cap.id)}
@@ -524,9 +498,6 @@ export function ClientProfilePage({
           )}
           {activeTab === 'facilities' && (
             <FacilitiesEditor clientId={client.id} canManage={canManageClients} />
-          )}
-          {activeTab === 'workflows' && (
-            <WorkflowsTab workflows={workflows.data ?? []} loading={workflows.isLoading} />
           )}
           {activeTab === 'documents' && (
             <DocumentsTab
@@ -991,21 +962,18 @@ function avatarColor(seed: string): string {
 /* ── Capabilities Tab ────────────────────────────────────────────────────── */
 
 function CapabilitiesTab({
-  clientId,
   capabilities,
   loading,
   onCapClick,
   onAddCap,
   onDeleteCap,
 }: {
-  clientId: string;
   capabilities: Capability[];
   loading: boolean;
   onCapClick: (c: Capability) => void;
   onAddCap: () => void;
   onDeleteCap: (id: string) => void;
 }) {
-  const navigate = useNavigate();
   if (loading) return <Skeleton active paragraph={{ rows: 5 }} />;
 
   return (
@@ -1028,17 +996,6 @@ function CapabilitiesTab({
           <div key={cap.id} className="cap-card-row">
             <CapabilityCard cap={cap} onClick={() => onCapClick(cap)} large />
             <div className="cap-card-actions" onClick={(e) => e.stopPropagation()}>
-              <Button
-                size="small"
-                type="default"
-                onClick={() =>
-                  navigate(
-                    `/workspace/strategy/new?clientId=${encodeURIComponent(clientId)}&capabilityId=${encodeURIComponent(cap.id)}`,
-                  )
-                }
-              >
-                Start FY Strategy
-              </Button>
               <Button
                 size="small"
                 type="text"
@@ -1109,87 +1066,6 @@ function PeopleTab({
           </Button>
         </div>
       )}
-    </>
-  );
-}
-
-/* ── Workflows Tab ──────────────────────────────────────────────────────── */
-
-function WorkflowsTab({ workflows, loading }: { workflows: WorkflowInstance[]; loading: boolean }) {
-  if (loading) return <Skeleton active paragraph={{ rows: 6 }} />;
-
-  // Group workflow statuses into 3 spec columns. The backend has more granular
-  // statuses (triage, in_progress, review, submitted, complete, cancelled);
-  // we collapse review+submitted into "In Progress" and complete+cancelled
-  // into "Done" so the column count matches the spec.
-  const cols: Array<{ key: 'triage' | 'in-progress' | 'done'; title: string; statuses: string[] }> =
-    [
-      { key: 'triage', title: 'Triage', statuses: ['triage'] },
-      {
-        key: 'in-progress',
-        title: 'In Progress',
-        statuses: ['in_progress', 'review', 'submitted'],
-      },
-      { key: 'done', title: 'Done', statuses: ['complete', 'cancelled'] },
-    ];
-
-  const grouped = new Map<string, WorkflowInstance[]>();
-  for (const c of cols) grouped.set(c.key, []);
-  for (const wf of workflows) {
-    const col = cols.find((c) => c.statuses.includes(wf.status))?.key ?? 'triage';
-    grouped.get(col)!.push(wf);
-  }
-
-  return (
-    <>
-      <header className="cp-tab-header">
-        <div>
-          <h3 className="cp-tab-h3">Workflows</h3>
-          <p className="cp-tab-dek">
-            Active engagement work, drafts, requests, outreach, intel runs. Status moves the card.
-          </p>
-        </div>
-        <Tooltip title="Workflow creation is coming to client profiles — use the Workspace catalog for now.">
-          {/* span wrapper: disabled buttons swallow pointer events, so the tooltip needs it */}
-          <span>
-            <Button type="primary" icon={<PlusOutlined />} size="small" disabled>
-              New workflow
-            </Button>
-          </span>
-        </Tooltip>
-      </header>
-
-      <div className="kanban">
-        {cols.map((col) => {
-          const cards = grouped.get(col.key) ?? [];
-          return (
-            <div key={col.key} className="kb-col" data-status={col.key}>
-              <div className="kb-col-head">
-                <span className="kb-col-dot" aria-hidden />
-                <span className="kb-col-title">{col.title}</span>
-                <span className="kb-col-count num">{cards.length}</span>
-              </div>
-              {cards.length === 0 ? (
-                <div className="kb-col-empty">Nothing here yet</div>
-              ) : (
-                cards.map((wf) => {
-                  const category = (wf.template?.category ?? 'supporting').toLowerCase();
-                  return (
-                    <div className="kb-card" key={wf.id} data-cat={category}>
-                      <span className="cat">{wf.template?.category ?? 'Workflow'}</span>
-                      <div className="title">{wf.title}</div>
-                      <div className="foot">
-                        <span className="num">{formatDate(wf.createdAt)}</span>
-                        <span className="owner">{wf.title.charAt(0).toUpperCase()}</span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          );
-        })}
-      </div>
     </>
   );
 }

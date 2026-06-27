@@ -37,16 +37,6 @@ function makeMocks() {
     createTask: jest.fn(),
     updateTask: jest.fn(),
   };
-  const workflows = {
-    listInstances: jest.fn().mockResolvedValue([]),
-    getInstance: jest.fn(),
-    updateInstance: jest.fn(),
-  };
-  const strategies = {
-    list: jest.fn().mockResolvedValue([]),
-    get: jest.fn(),
-    getDeadlines: jest.fn().mockResolvedValue([]),
-  };
   const actionRecommendations = {
     list: jest.fn().mockResolvedValue({ data: [], total: 0, page: 1, limit: 20 }),
   };
@@ -61,10 +51,12 @@ function makeMocks() {
   const clientCapabilities = {
     listCapabilities: jest.fn().mockResolvedValue([]),
     listClientHistory: jest.fn().mockResolvedValue([]),
-    createCapability: jest.fn(async (_ctx: unknown, _clientId: string, input: { name: string }) => ({
-      id: 'cap-1',
-      name: input.name,
-    })),
+    createCapability: jest.fn(
+      async (_ctx: unknown, _clientId: string, input: { name: string }) => ({
+        id: 'cap-1',
+        name: input.name,
+      }),
+    ),
   };
   const clientPeople = { listPeople: jest.fn().mockResolvedValue([]) };
   const clientFacilities = {
@@ -99,8 +91,6 @@ function makeMocks() {
     programElement as never,
     {} as never, // acquisitionPersonnel
     docgen as never,
-    workflows as never,
-    strategies as never,
     actionRecommendations as never,
     intelligence as never,
     regulatoryDockets as never,
@@ -117,8 +107,6 @@ function makeMocks() {
     tx,
     prisma,
     engagement,
-    workflows,
-    strategies,
     actionRecommendations,
     intelligence,
     regulatoryDockets,
@@ -130,61 +118,6 @@ function makeMocks() {
     clients,
   };
 }
-
-describe('query_workflows', () => {
-  it('lists instances (slimmed) and passes tenant + filters through', async () => {
-    const m = makeMocks();
-    m.workflows.listInstances.mockResolvedValue([
-      {
-        id: 'wf-1',
-        title: 'FY27 White Paper',
-        status: 'in_progress',
-        template: { slug: 'white-paper', name: 'White Paper' },
-        clientId: 'client-1',
-        client: { id: 'client-1', name: 'Acme' },
-        submissionDeadline: new Date('2026-07-01'),
-        submissionMethod: 'portal',
-        completedAt: null,
-        updatedAt: new Date('2026-06-01'),
-        formData: { secret: 'big blob that must not leak into list rows' },
-      },
-    ]);
-    const result = (await m.service.execute(ctx, 'query_workflows', {
-      clientId: 'client-1',
-      status: 'in_progress',
-    })) as { total: number; results: Array<Record<string, unknown>> };
-
-    expect(m.workflows.listInstances).toHaveBeenCalledWith('tenant-1', {
-      clientId: 'client-1',
-      status: 'in_progress',
-    });
-    expect(result.total).toBe(1);
-    expect(result.results[0]).toMatchObject({
-      id: 'wf-1',
-      templateSlug: 'white-paper',
-      clientName: 'Acme',
-      status: 'in_progress',
-    });
-    expect(result.results[0]!.formData).toBeUndefined();
-  });
-
-  it('returns full detail when instanceId is given', async () => {
-    const m = makeMocks();
-    m.workflows.getInstance.mockResolvedValue({ id: 'wf-9', formData: { a: 1 } });
-    const result = (await m.service.execute(ctx, 'query_workflows', {
-      instanceId: 'wf-9',
-    })) as { instance: { id: string } };
-    expect(m.workflows.getInstance).toHaveBeenCalledWith('tenant-1', 'wf-9');
-    expect(result.instance.id).toBe('wf-9');
-  });
-
-  it('rejects an invalid status', async () => {
-    const m = makeMocks();
-    await expect(
-      m.service.execute(ctx, 'query_workflows', { status: 'bogus' }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-  });
-});
 
 describe('query_tasks', () => {
   it('derives overdue from past due date on open tasks only', async () => {
@@ -234,52 +167,6 @@ describe('query_tasks', () => {
     await expect(
       m.service.execute(ctx, 'query_tasks', { status: 'nonsense' }),
     ).rejects.toBeInstanceOf(BadRequestException);
-  });
-});
-
-describe('query_strategies', () => {
-  it('list branch maps targets/instances counts', async () => {
-    const m = makeMocks();
-    m.strategies.list.mockResolvedValue([
-      {
-        id: 'strat-1',
-        name: 'FY27 approps push',
-        status: 'active',
-        fiscalYear: 2027,
-        clientId: 'client-1',
-        client: { id: 'client-1', name: 'Acme' },
-        capability: { id: 'cap-1', name: 'Radar', fundingAsk: 5 },
-        targets: [{ id: 'target-1' }, { id: 'target-2' }],
-        _count: { instances: 3 },
-        description: 'desc',
-        createdAt: new Date('2026-01-01'),
-      },
-    ]);
-    const result = (await m.service.execute(ctx, 'query_strategies', {})) as {
-      results: Array<Record<string, unknown>>;
-    };
-    expect(m.strategies.list).toHaveBeenCalledWith('tenant-1', { clientId: undefined });
-    expect(result.results[0]).toMatchObject({ targetsCount: 2, instancesCount: 3 });
-  });
-
-  it('detail branch uses get()', async () => {
-    const m = makeMocks();
-    m.strategies.get.mockResolvedValue({ id: 'strat-9' });
-    const result = (await m.service.execute(ctx, 'query_strategies', {
-      strategyId: 'strat-9',
-    })) as { strategy: { id: string } };
-    expect(m.strategies.get).toHaveBeenCalledWith('tenant-1', 'strat-9');
-    expect(result.strategy.id).toBe('strat-9');
-  });
-
-  it('deadlinesOnly branch uses getDeadlines()', async () => {
-    const m = makeMocks();
-    m.strategies.getDeadlines.mockResolvedValue([{ strategyId: 'strat-1', daysUntil: 5 }]);
-    const result = (await m.service.execute(ctx, 'query_strategies', {
-      deadlinesOnly: true,
-    })) as { deadlines: unknown[] };
-    expect(m.strategies.getDeadlines).toHaveBeenCalledWith('tenant-1');
-    expect(result.deadlines).toHaveLength(1);
   });
 });
 
@@ -506,35 +393,12 @@ describe('P2 write tools', () => {
     await m.service.execute(ctx, 'update_task', { taskId: 'task-9', status: 'open' });
     expect(m.engagement.updateTask).toHaveBeenCalledWith(ctx, 'task-9', { status: 'todo' });
 
-    await expect(m.service.execute(ctx, 'update_task', { taskId: 'task-9' })).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      m.service.execute(ctx, 'update_task', { taskId: 'task-9' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
     await expect(
       m.service.execute(ctx, 'update_task', { taskId: 'task-9', status: 'bogus' }),
     ).rejects.toBeInstanceOf(BadRequestException);
-  });
-
-  it('update_workflow_field merges one key into existing formData', async () => {
-    const m = makeMocks();
-    m.workflows.getInstance.mockResolvedValue({
-      id: 'wf-1',
-      formData: { program: 'Radar', amount: 5 },
-    });
-    m.workflows.updateInstance.mockResolvedValue({
-      id: 'wf-1',
-      status: 'in_progress',
-      title: 'FY27 White Paper',
-    });
-    const result = (await m.service.execute(ctx, 'update_workflow_field', {
-      instanceId: 'wf-1',
-      fieldKey: 'justification',
-      value: 'Approved justification text',
-    })) as { updated: boolean; fieldKey: string };
-    expect(m.workflows.updateInstance).toHaveBeenCalledWith('tenant-1', 'wf-1', {
-      formData: { program: 'Radar', amount: 5, justification: 'Approved justification text' },
-    });
-    expect(result.updated).toBe(true);
-    expect(result.fieldKey).toBe('justification');
   });
 });
 
@@ -587,7 +451,11 @@ describe('update_client_profile (Meri writes to the web app)', () => {
     })) as { updated: boolean; fieldsWritten: string[]; clientName: string };
 
     expect(m.clients.update).toHaveBeenCalledTimes(1);
-    const [, id, data] = m.clients.update.mock.calls[0] as [unknown, string, Record<string, unknown>];
+    const [, id, data] = m.clients.update.mock.calls[0] as [
+      unknown,
+      string,
+      Record<string, unknown>,
+    ];
     expect(id).toBe('client-1');
     expect(data).toMatchObject({
       name: 'Acme Robotics',
@@ -596,9 +464,7 @@ describe('update_client_profile (Meri writes to the web app)', () => {
     });
     expect(data).not.toHaveProperty('bogusField');
     expect(result.updated).toBe(true);
-    expect(result.fieldsWritten).toEqual(
-      expect.arrayContaining(['name', 'website', 'issueCodes']),
-    );
+    expect(result.fieldsWritten).toEqual(expect.arrayContaining(['name', 'website', 'issueCodes']));
   });
 
   it('merges per-field provenance into intakeData.__webImport without clobbering', async () => {
@@ -644,12 +510,16 @@ describe('update_client_profile (Meri writes to the web app)', () => {
     const result = (await m.service.execute(ctx, 'update_client_profile', {
       clientId: 'client-1',
       facilities: [
-        { name: 'HQ', city: 'Jacksonville', state: 'fl', congressionalDistrict: '5', employeeCount: 25 },
+        {
+          name: 'HQ',
+          city: 'Jacksonville',
+          state: 'fl',
+          congressionalDistrict: '5',
+          employeeCount: 25,
+        },
         { notUseful: true }, // dropped: no name
       ],
-      capabilities: [
-        { name: 'Autonomous ISR', type: 'product', sector: 'DEFENSE' },
-      ],
+      capabilities: [{ name: 'Autonomous ISR', type: 'product', sector: 'DEFENSE' }],
     })) as {
       updated: boolean;
       facilitiesCreated: string[];
@@ -712,9 +582,9 @@ describe('client visibility gate', () => {
   it('rejects when the client is not visible in the tenant', async () => {
     const m = makeMocks();
     m.tx.client.findFirst.mockResolvedValue(null);
-    await expect(
-      m.service.execute(ctx, 'query_tasks', { clientId: 'client-x' }),
-    ).rejects.toThrow('Client not found');
+    await expect(m.service.execute(ctx, 'query_tasks', { clientId: 'client-x' })).rejects.toThrow(
+      'Client not found',
+    );
     expect(m.engagement.listTasks).not.toHaveBeenCalled();
   });
 });

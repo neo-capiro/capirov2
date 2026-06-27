@@ -1958,118 +1958,12 @@ body {
 .home-kanban-card-title { font-size: 13px; font-weight: 600; color: var(--ink-1); line-height: 1.3; }
 .home-kanban-card-sub { font-size: 11px; color: var(--ink-3); }
 
-.home-wf-stat { display: flex; align-items: center; gap: 14px; margin-left: 20px; flex: 1; max-width: 440px; }
-.home-wf-stat-bar {
-  display: flex;
-  height: 7px;
-  flex: 1;
-  min-width: 80px;
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--bg-sunken);
-}
-.home-wf-stat-bar .seg { height: 100%; }
-.home-wf-stat-bar .seg.triage { background: var(--ink-3); }
-.home-wf-stat-bar .seg.prog { background: var(--info); }
-.home-wf-stat-bar .seg.done { background: var(--success); }
-.home-wf-stat-legend { display: flex; gap: 12px; font-size: 11px; color: var(--ink-2); white-space: nowrap; }
-.home-wf-stat-legend span { display: inline-flex; align-items: center; gap: 5px; }
-.home-wf-stat-legend .dot { width: 7px; height: 7px; }
-
-/* Open Workflows: client-grouped list with a progression stepper */
-.home-wf-group { border-bottom: 1px solid var(--border-1); }
-.home-wf-group:last-child { border-bottom: none; }
-.home-wf-group-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 18px 4px;
-  position: sticky;
-  top: 0;
-  background: var(--bg-surface);
-  z-index: 1;
-}
-.home-wf-group-name {
-  font-size: 10.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
-}
-.home-wf-group-count {
-  font-size: 10.5px;
-  font-weight: 600;
-  color: var(--ink-3);
-  background: var(--bg-sunken);
-  border-radius: 10px;
-  padding: 0 7px;
-}
-.home-wf-row {
-  display: block;
-  padding: 8px 18px 12px;
-  text-decoration: none;
-  border-radius: 8px;
-  margin: 0 6px;
-  transition: background 0.12s ease;
-}
-.home-wf-row:hover { background: var(--bg-sunken); }
-.home-wf-row-top { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
-.home-wf-row-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink-1);
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.home-wf-row-stage {
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent, #2563eb);
-}
-
-/* Progression stepper */
-.home-wfp { display: flex; align-items: center; }
-.home-wfp-node {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--bg-sunken);
-  border: 1.5px solid var(--border-2, var(--border-1));
-  box-sizing: border-box;
-}
-.home-wfp-node.is-done {
-  background: var(--success, #16a34a);
-  border-color: var(--success, #16a34a);
-}
-.home-wfp-node.is-current {
-  background: var(--accent, #2563eb);
-  border-color: var(--accent, #2563eb);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #2563eb) 22%, transparent);
-}
-.home-wfp-bar {
-  flex: 1;
-  height: 2px;
-  min-width: 14px;
-  background: var(--border-1);
-}
-.home-wfp-bar.is-done { background: var(--success, #16a34a); }
-
 @media (max-width: 1100px) {
   .home-grid-2 { grid-template-columns: 1fr; }
   .home-attention-body--four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
-@media (max-width: 980px) {
-  .home-wf-stat-legend { display: none; }
-}
 @media (max-width: 760px) {
   .home-kanban { grid-template-columns: repeat(2, 1fr); height: auto; }
-  .home-wf-stat { display: none; }
 }
 @media (max-width: 640px) {
   .home-attention-body--four { grid-template-columns: 1fr; }
@@ -7841,9 +7735,7 @@ button.engagement-debrief-badge--action:hover {
 .workspace-layout > .workspace-overview,
 .workspace-layout > .catalog-view,
 .workspace-layout > .workflows-view,
-.workspace-layout > .strategy-wizard,
-.workspace-layout > .strategy-list,
-.workspace-layout > .strategy-dashboard-wrapper {
+.workspace-layout > .strategy-list {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -9541,18 +9433,6 @@ button.engagement-debrief-badge--action:hover {
 .cap-field-key { color: #8c8c8c; font-weight: 500; width: 160px; flex-shrink: 0; padding-top: 2px; }
 .cap-field-val { flex: 1; color: #262626; }
 
-.cp-workflow-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  background: #fff;
-  border: 1px solid #f0f0f0;
-  border-radius: 8px;
-  margin-bottom: 8px;
-}
-.cp-workflow-title { font-size: 13px; font-weight: 600; color: #262626; flex: 1; }
-
 .cp-tab-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px; gap: 12px; }
 
 .cp-doc-placeholder {
@@ -10574,30 +10454,6 @@ button.engagement-debrief-badge--action:hover {
   font-weight: 400;
 }
 
-/* ── Workflow rows (WorkflowsTab in ClientProfilePage) ─────────────────── */
-.cp-workflow-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  background: #fff;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  margin-bottom: 6px;
-  flex-wrap: wrap;
-}
-
-.cp-workflow-title {
-  flex: 1;
-  font-size: 13px;
-  font-weight: 600;
-  color: #111827;
-  min-width: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 /* ── Documents tab ──────────────────────────────────────────────────────── */
 .doc-drop-zone {
   border: 2px dashed var(--line-soft);
@@ -10691,57 +10547,6 @@ button.engagement-debrief-badge--action:hover {
   margin-top: 4px;
 }
 
-/* ─── Strategy Wizard ────────────────────────────────────────────────────── */
-
-.strategy-wizard {
-  max-width: 860px;
-  padding: 32px 0;
-}
-
-.strategy-wizard-header {
-  margin-bottom: 8px;
-}
-
-.strategy-wizard-step {
-  background: var(--app-bg-1);
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  padding: 32px 36px;
-  min-height: 360px;
-}
-
-.strategy-submission-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.strategy-submission-item {
-  padding: 8px 12px;
-  border-radius: 6px;
-  transition: background 0.12s;
-}
-
-.strategy-submission-item:hover {
-  background: var(--app-bg-0);
-}
-
-.strategy-target-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 160px 200px 36px;
-  gap: 8px;
-  align-items: center;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--line-soft);
-}
-
-/* ─── Strategy Dashboard ─────────────────────────────────────────────────── */
-
-.strategy-dashboard {
-  padding: 32px;
-  max-width: 1100px;
-}
-
 .strategy-header {
   margin-bottom: 36px;
 }
@@ -10753,31 +10558,6 @@ button.engagement-debrief-badge--action:hover {
 .strategy-progress-bar {
   max-width: 500px;
   margin-top: 12px;
-}
-
-.strategy-submissions {
-  margin-bottom: 40px;
-}
-
-.strategy-submission-row {
-  display: grid;
-  grid-template-columns: 80px 1fr 130px 100px 160px;
-  gap: 12px;
-  align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.strategy-targets {
-  margin-bottom: 40px;
-}
-
-.strategy-target-card {
-  padding: 12px 16px;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  margin-bottom: 8px;
-  background: var(--app-bg-1);
 }
 
 .strategy-outreach-status {
@@ -10860,54 +10640,6 @@ button.engagement-debrief-badge--action:hover {
 .deadline-item--more {
   font-weight: 500;
   background: #fef3c7;
-}
-
-/* ─── Strategy Banner (WorkflowDrawer) ───────────────────────────────────── */
-
-.workflow-drawer-strategy-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 12px;
-  background: #eff6ff;
-  border: 1px solid #bfdbfe;
-  border-radius: 6px;
-  margin-bottom: 12px;
-  font-size: 13px;
-  color: #1e40af;
-}
-
-.workflow-drawer-strategy-banner a {
-  color: #2563eb;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.workflow-drawer-strategy-banner a:hover {
-  text-decoration: underline;
-}
-
-/* ─── Generated Document Preview ─────────────────────────────────────────── */
-
-.generated-doc-preview {
-  background: #fff;
-  border: 1px solid var(--line-soft, #e4e8f0);
-  border-radius: 8px;
-  padding: 24px;
-  font-size: 13px;
-  line-height: 1.7;
-  white-space: pre-wrap;
-  max-height: 500px;
-  overflow-y: auto;
-  color: var(--ink-900, #111827);
-  font-family: Georgia, Cambria, 'Times New Roman', Times, serif;
-}
-
-.generated-doc-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 12px;
 }
 
 /* ===== CAMPAIGNS TAB ===== */

@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import './workspace-ds.css';
 import './workspace.css';
 import { LibraryPage } from './LibraryPage.js';
 import { DocumentsPage } from './DocumentsPage.js';

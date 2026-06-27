@@ -6,18 +6,22 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { EngagementTaskStatus, Prisma, WorkflowStatus } from '@prisma/client';
+import { EngagementTaskStatus, Prisma } from '@prisma/client';
 import type { TenantContext } from '@capiro/shared';
 import type { AppConfig } from '../config/config.schema.js';
 import { EngagementService } from '../engagement/engagement.service.js';
-import { WorkflowsService } from '../workflows/workflows.service.js';
-import { StrategiesService } from '../strategies/strategies.service.js';
 import { IntelligenceService } from '../intelligence/intelligence.service.js';
 import { ActionRecommendationReadService } from '../intelligence/actions/action-recommendation-read.service.js';
 import type { ActionStatus } from '../intelligence/actions/action-recommendation.types.js';
-import { ClientCapabilitiesService, type CreateCapabilityInput } from '../clients/client-capabilities.service.js';
+import {
+  ClientCapabilitiesService,
+  type CreateCapabilityInput,
+} from '../clients/client-capabilities.service.js';
 import { ClientPeopleService } from '../clients/client-people.service.js';
-import { ClientFacilitiesService, type CreateFacilityInput } from '../clients/client-facilities.service.js';
+import {
+  ClientFacilitiesService,
+  type CreateFacilityInput,
+} from '../clients/client-facilities.service.js';
 import { ClientsService } from '../clients/clients.service.js';
 import { RegulatoryDocketService } from '../regulatory-docket/regulatory-docket.service.js';
 import { MicrosoftGraphSyncService } from '../engagement/microsoft/microsoft-graph-sync.service.js';
@@ -57,7 +61,8 @@ const PRODUCT_NAME = 'Meri';
 export const TOOL_DEFINITIONS = [
   {
     name: 'get_client_context',
-    description: 'Load authorized Capiro client context: recent meetings, threads, contacts, and tasks, plus the client profile (capabilities, key people, facilities, submission history).',
+    description:
+      'Load authorized Capiro client context: recent meetings, threads, contacts, and tasks, plus the client profile (capabilities, key people, facilities, submission history).',
   },
   {
     name: 'search_research_sources',
@@ -65,87 +70,108 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'run_analysis',
-    description: 'Execute Python (pandas/numpy/matplotlib) in a locked-down sandbox for real computation: aggregations, year-over-year deltas, joins, and charts over data you already retrieved with other tools. Pass small datasets inline as rows; read them in code from ./data/<name>.csv. print() findings, assign a `results` dict/list/DataFrame for tables, and matplotlib figures are returned as chart artifacts. No network, no filesystem outside the working directory.',
+    description:
+      'Execute Python (pandas/numpy/matplotlib) in a locked-down sandbox for real computation: aggregations, year-over-year deltas, joins, and charts over data you already retrieved with other tools. Pass small datasets inline as rows; read them in code from ./data/<name>.csv. print() findings, assign a `results` dict/list/DataFrame for tables, and matplotlib figures are returned as chart artifacts. No network, no filesystem outside the working directory.',
   },
   {
     name: 'search_client_knowledge',
-    description: 'Semantic search over one client\'s knowledge base: profile/overview facts, key people (titles, roles, contact history), facilities (locations, congressional districts, headcount), and uploaded document contents. Use this FIRST for questions about a specific client ("who at X handles Y", "summarize the uploaded doc", "which districts have X facilities"). Returns typed, citable knowledge-base entries.',
+    description:
+      'Semantic search over one client\'s knowledge base: profile/overview facts, key people (titles, roles, contact history), facilities (locations, congressional districts, headcount), and uploaded document contents. Use this FIRST for questions about a specific client ("who at X handles Y", "summarize the uploaded doc", "which districts have X facilities"). Returns typed, citable knowledge-base entries.',
   },
   {
     name: 'query_intelligence',
-    description: 'Query federal lobbying intelligence: surging LDA issues, trending topics, recent congressional bills, federal spending data, and counts of available intelligence data sources (SEC filings, FARA registrations, GAO reports, grants, hearings, state bills, CRS reports, news articles, economic data). Optionally filter by a client name for contractor spending.',
+    description:
+      'Query federal lobbying intelligence: surging LDA issues, trending topics, recent congressional bills, federal spending data, and counts of available intelligence data sources (SEC filings, FARA registrations, GAO reports, grants, hearings, state bills, CRS reports, news articles, economic data). Optionally filter by a client name for contractor spending.',
   },
   {
     name: 'query_knowledge_graph',
-    description: "Explore the firm's institutional-memory knowledge graph: the connected web of clients, bills, issues, people, offices, meetings, email threads, and memories. Use for relationship questions like \"what's our full history with this client/office\", \"what is everything connected to bill X\", or \"what do we know around issue Y\". Pass a seed node (e.g. 'client:<id>', 'bill:119-hr-1234', 'issue:SHIP') to get its neighborhood, or omit to get an overview. Edges are tagged fact (from firm data) vs mention (from analyst notes). Tenant + own-private scoped.",
+    description:
+      "Explore the firm's institutional-memory knowledge graph: the connected web of clients, bills, issues, people, offices, meetings, email threads, and memories. Use for relationship questions like \"what's our full history with this client/office\", \"what is everything connected to bill X\", or \"what do we know around issue Y\". Pass a seed node (e.g. 'client:<id>', 'bill:119-hr-1234', 'issue:SHIP') to get its neighborhood, or omit to get an overview. Edges are tagged fact (from firm data) vs mention (from analyst notes). Tenant + own-private scoped.",
   },
   {
     name: 'find_path_to',
-    description: "Find the warm-introduction routes from your clients to a target office or person in the knowledge graph (\"who do we already know near the Senate Defense Approps subcommittee?\"). Pass a target node id (e.g. 'office:<id>' or 'person:<id>'); returns the shortest connection paths so you can see which client/person gets you there. Tenant + own-private scoped.",
+    description:
+      "Find the warm-introduction routes from your clients to a target office or person in the knowledge graph (\"who do we already know near the Senate Defense Approps subcommittee?\"). Pass a target node id (e.g. 'office:<id>' or 'person:<id>'); returns the shortest connection paths so you can see which client/person gets you there. Tenant + own-private scoped.",
   },
   {
     name: 'search_memory',
-    description: "Semantic search over the firm's institutional memory (memory items: client hubs, meetings, email threads, distilled Meri sessions, analyst notes). Finds relevant memory by MEANING, not just keywords — use for \"what do we know about X\", \"have we discussed Y before\", \"find past context on Z\". Returns the top matching memory items with a relevance score. Tenant + own-private scoped.",
+    description:
+      'Semantic search over the firm\'s institutional memory (memory items: client hubs, meetings, email threads, distilled Meri sessions, analyst notes). Finds relevant memory by MEANING, not just keywords — use for "what do we know about X", "have we discussed Y before", "find past context on Z". Returns the top matching memory items with a relevance score. Tenant + own-private scoped.',
   },
   {
     name: 'search_congress_bills',
-    description: 'Search congressional bills in the Capiro database (118th and 119th Congress). Filter by keyword, policy area, congress number, or recent activity date. Returns bill title, sponsor, latest action, policy area, and cosponsors count.',
+    description:
+      'Search congressional bills in the Capiro database (118th and 119th Congress). Filter by keyword, policy area, congress number, or recent activity date. Returns bill title, sponsor, latest action, policy area, and cosponsors count.',
   },
   {
     name: 'search_lda_filings',
-    description: 'Search LDA lobbying disclosure filings in the Capiro database. Filter by client name, registrant, issue area, or keyword.',
+    description:
+      'Search LDA lobbying disclosure filings in the Capiro database. Filter by client name, registrant, issue area, or keyword.',
   },
   {
     name: 'search_sec_filings',
-    description: 'Search SEC EDGAR filings (10-K, 10-Q, 8-K, DEF14A, S-1, etc.) in the Capiro database. Filter by company name, form type, CIK, or date range. Returns company, form type, filing date, and description.',
+    description:
+      'Search SEC EDGAR filings (10-K, 10-Q, 8-K, DEF14A, S-1, etc.) in the Capiro database. Filter by company name, form type, CIK, or date range. Returns company, form type, filing date, and description.',
   },
   {
     name: 'search_fara_registrations',
-    description: 'Search FARA (Foreign Agents Registration Act) registrations. Filter by registrant name, foreign principal, country, or status. Returns registrant, foreign principal, country, and status.',
+    description:
+      'Search FARA (Foreign Agents Registration Act) registrations. Filter by registrant name, foreign principal, country, or status. Returns registrant, foreign principal, country, and status.',
   },
   {
     name: 'search_federal_grants',
-    description: 'Search federal grant opportunities (NOFOs) from Grants.gov. Filter by agency, keyword, status (posted/closed/forecasted), or date range. Returns title, agency, funding amounts, eligibility, and deadlines.',
+    description:
+      'Search federal grant opportunities (NOFOs) from Grants.gov. Filter by agency, keyword, status (posted/closed/forecasted), or date range. Returns title, agency, funding amounts, eligibility, and deadlines.',
   },
   {
     name: 'search_federal_awards',
-    description: 'Search federal contract awards/obligations (USAspending) the firm has synced. Filter by keyword, awarding agency, or Program Element (PE) code. Returns contractor, agency, amount, description, PE code, and place-of-performance — useful for defense-contracting and PE-linked questions.',
+    description:
+      'Search federal contract awards/obligations (USAspending) the firm has synced. Filter by keyword, awarding agency, or Program Element (PE) code. Returns contractor, agency, amount, description, PE code, and place-of-performance — useful for defense-contracting and PE-linked questions.',
   },
   {
     name: 'search_gao_reports',
-    description: 'Search GAO (Government Accountability Office) reports and testimonies. Filter by keyword, report type, topic, or agency. Returns title, report type, date, topics, and recommendations count.',
+    description:
+      'Search GAO (Government Accountability Office) reports and testimonies. Filter by keyword, report type, topic, or agency. Returns title, report type, date, topics, and recommendations count.',
   },
   {
     name: 'search_state_bills',
-    description: 'Search state legislature bills via OpenStates data. Filter by state (2-letter code), keyword, subject, or session. Returns identifier, title, sponsor, latest action, and subjects.',
+    description:
+      'Search state legislature bills via OpenStates data. Filter by state (2-letter code), keyword, subject, or session. Returns identifier, title, sponsor, latest action, and subjects.',
   },
   {
     name: 'search_intel_articles',
-    description: 'Search aggregated policy news and intelligence articles from sources like Roll Call, The Hill, Axios, Politico, Brookings, and agency press. Filter by keyword, source, or topic.',
+    description:
+      'Search aggregated policy news and intelligence articles from sources like Roll Call, The Hill, Axios, Politico, Brookings, and agency press. Filter by keyword, source, or topic.',
   },
   {
     name: 'search_committee_hearings',
-    description: 'Search congressional committee hearings, markups, and meetings. Filter by committee name, chamber (House/Senate/Joint), keyword, or date range.',
+    description:
+      'Search congressional committee hearings, markups, and meetings. Filter by committee name, chamber (House/Senate/Joint), keyword, or date range.',
   },
   {
     name: 'search_crs_reports',
-    description: 'Search Congressional Research Service (CRS) reports and analyses. Filter by keyword, topic, or author.',
+    description:
+      'Search Congressional Research Service (CRS) reports and analyses. Filter by keyword, topic, or author.',
   },
   {
     name: 'query_economic_data',
-    description: 'Query economic indicators from BLS (Bureau of Labor Statistics), Census (ACS district demographics), and BEA (Bureau of Economic Analysis GDP/industry data). Specify data source and parameters like state, district, series, or year.',
+    description:
+      'Query economic indicators from BLS (Bureau of Labor Statistics), Census (ACS district demographics), and BEA (Bureau of Economic Analysis GDP/industry data). Specify data source and parameters like state, district, series, or year.',
   },
   {
     name: 'search_public_web',
-    description: 'Search the public web (general results and news) for recent developments. Use this only as supplemental context after Capiro internal data tools for government-affairs answers.',
+    description:
+      'Search the public web (general results and news) for recent developments. Use this only as supplemental context after Capiro internal data tools for government-affairs answers.',
   },
   {
     name: 'scrape_web_page',
-    description: 'Fetch and extract readable text from a public webpage or PDF URL for grounded analysis (gov sources are PDF-heavy). Blocks localhost/private-network targets.',
+    description:
+      'Fetch and extract readable text from a public webpage or PDF URL for grounded analysis (gov sources are PDF-heavy). Blocks localhost/private-network targets.',
   },
   {
     name: 'create_meeting_brief',
-    description: 'Create and persist a deterministic meeting brief artifact from authorized Capiro data.',
+    description:
+      'Create and persist a deterministic meeting brief artifact from authorized Capiro data.',
   },
   {
     name: 'draft_policy_memo',
@@ -157,123 +183,137 @@ export const TOOL_DEFINITIONS = [
   },
   {
     name: 'send_email',
-    description: 'Send an email via the tenant\'s connected Microsoft 365 account on behalf of Meri.',
+    description:
+      "Send an email via the tenant's connected Microsoft 365 account on behalf of Meri.",
   },
   {
     name: 'list_emails',
-    description: 'List recent email threads from the tenant\'s connected Microsoft 365 inbox, optionally filtered by client.',
+    description:
+      "List recent email threads from the tenant's connected Microsoft 365 inbox, optionally filtered by client.",
   },
   {
     name: 'reply_email',
-    description: 'Reply to an email thread via the tenant\'s connected Microsoft 365 account on behalf of Meri.',
+    description:
+      "Reply to an email thread via the tenant's connected Microsoft 365 account on behalf of Meri.",
   },
   {
     name: 'save_memory',
-    description: 'Persist a durable fact or preference the user shares (a nickname, reporting style, ongoing priority, etc.) to Meri\'s long-term memory so it is recalled in future conversations. Use this whenever the user asks you to remember something.',
+    description:
+      "Persist a durable fact or preference the user shares (a nickname, reporting style, ongoing priority, etc.) to Meri's long-term memory so it is recalled in future conversations. Use this whenever the user asks you to remember something.",
   },
   {
     name: 'search_program_elements',
-    description: 'Search DoD Program Elements (PEs) — the RDT&E/procurement budget lines from the Pentagon J-books. Filter by military service, budget activity, or title keyword. Returns PE code, title, service, budget activity, appropriation type, status, and whether the PE has budget/award/bill data. Use get_program_element / get_pe_budget_timeline for detail.',
+    description:
+      'Search DoD Program Elements (PEs) — the RDT&E/procurement budget lines from the Pentagon J-books. Filter by military service, budget activity, or title keyword. Returns PE code, title, service, budget activity, appropriation type, status, and whether the PE has budget/award/bill data. Use get_program_element / get_pe_budget_timeline for detail.',
   },
   {
     name: 'get_program_element',
-    description: 'Get a single DoD Program Element\'s full detail by PE code: title, description, service, appropriation type, status, ACAT level, program of record, source-document URLs, and complete fiscal-year budget history.',
+    description:
+      "Get a single DoD Program Element's full detail by PE code: title, description, service, appropriation type, status, ACAT level, program of record, source-document URLs, and complete fiscal-year budget history.",
   },
   {
     name: 'get_pe_budget_timeline',
-    description: 'Get a Program Element\'s fiscal-year budget timeline by PE code: per-FY president\'s request, House/Senate authorization and appropriations marks (HASC/SASC/HAC-D/SAC-D), conference, and enacted amounts, plus milestones and conference-probability predictions.',
+    description:
+      "Get a Program Element's fiscal-year budget timeline by PE code: per-FY president's request, House/Senate authorization and appropriations marks (HASC/SASC/HAC-D/SAC-D), conference, and enacted amounts, plus milestones and conference-probability predictions.",
   },
   {
     name: 'get_pe_contractors',
-    description: 'Get the top contractors linked to a Program Element over the last ~24 months, by direct PE tag or DoD acquisition-program code. Note: PE-to-contractor linkage is sparse — many PEs return no contractors.',
+    description:
+      'Get the top contractors linked to a Program Element over the last ~24 months, by direct PE tag or DoD acquisition-program code. Note: PE-to-contractor linkage is sparse — many PEs return no contractors.',
   },
   {
     name: 'get_pe_bills',
-    description: 'Get congressional bills that reference a Program Element (by PE code), with sponsor, lead committee, and latest action.',
+    description:
+      'Get congressional bills that reference a Program Element (by PE code), with sponsor, lead committee, and latest action.',
   },
   {
     name: 'search_acquisition_personnel',
-    description: 'Search DoD acquisition personnel — the program managers, contracting officers, PEOs, and program leads who run defense programs. Filter by name (query), military service, organization, role, or linked Program Element (peCode). Returns name, service, organization, title, role, linked PE(s), and source count.',
+    description:
+      'Search DoD acquisition personnel — the program managers, contracting officers, PEOs, and program leads who run defense programs. Filter by name (query), military service, organization, role, or linked Program Element (peCode). Returns name, service, organization, title, role, linked PE(s), and source count.',
   },
   {
     name: 'get_acquisition_person',
-    description: 'Get a single DoD acquisition person\'s full detail by id: name, service, organization, title, role, program of record, linked Program Elements, public profile, and the source citations behind each fact.',
+    description:
+      "Get a single DoD acquisition person's full detail by id: name, service, organization, title, role, program of record, linked Program Elements, public profile, and the source citations behind each fact.",
   },
   {
     name: 'create_word',
-    description: 'Generate a downloadable Microsoft Word (.docx) document from a structured spec (title, optional subtitle, and sections with paragraphs, bullets, and tables). Use when the user asks for a Word doc, memo, report, or briefing as a file.',
+    description:
+      'Generate a downloadable Microsoft Word (.docx) document from a structured spec (title, optional subtitle, and sections with paragraphs, bullets, and tables). Use when the user asks for a Word doc, memo, report, or briefing as a file.',
   },
   {
     name: 'create_excel',
-    description: 'Generate a downloadable Microsoft Excel (.xlsx) workbook from a structured spec (one or more sheets, each with headers and rows). Use when the user asks for a spreadsheet, data export, or table as a file. Numeric-looking cells are stored as numbers.',
+    description:
+      'Generate a downloadable Microsoft Excel (.xlsx) workbook from a structured spec (one or more sheets, each with headers and rows). Use when the user asks for a spreadsheet, data export, or table as a file. Numeric-looking cells are stored as numbers.',
   },
   {
     name: 'create_powerpoint',
-    description: 'Generate a downloadable Microsoft PowerPoint (.pptx) deck from a structured spec (title slide plus content slides with bullets and an optional table per slide). Use when the user asks for a slide deck or presentation.',
+    description:
+      'Generate a downloadable Microsoft PowerPoint (.pptx) deck from a structured spec (title slide plus content slides with bullets and an optional table per slide). Use when the user asks for a slide deck or presentation.',
   },
   {
     name: 'schedule_task',
-    description: 'Schedule a recurring task for Meri to run automatically on a cadence (e.g. a weekly research brief). Requires a name, an instruction prompt, and intervalMinutes (>=60). Scheduled runs are READ-ONLY research only — they cannot send email or write data. Use when the user asks Meri to do something "every week / daily / on a schedule".',
+    description:
+      'Schedule a recurring task for Meri to run automatically on a cadence (e.g. a weekly research brief). Requires a name, an instruction prompt, and intervalMinutes (>=60). Scheduled runs are READ-ONLY research only — they cannot send email or write data. Use when the user asks Meri to do something "every week / daily / on a schedule".',
   },
   {
     name: 'list_scheduled_tasks',
-    description: 'List the caller\'s recurring scheduled Meri tasks (name, cadence, next run, enabled state).',
+    description:
+      "List the caller's recurring scheduled Meri tasks (name, cadence, next run, enabled state).",
   },
   {
     name: 'cancel_scheduled_task',
     description: 'Cancel (disable) a recurring scheduled Meri task by its id.',
   },
   {
-    name: 'query_workflows',
-    description: 'List or inspect the firm\'s workflow/submission instances (e.g. white papers, appropriations requests in progress) by client and status. Pass instanceId for full detail. Use for "where do our submissions stand / what\'s in flight".',
-  },
-  {
     name: 'query_tasks',
-    description: 'List engagement tasks/to-dos for the firm or a client — filter by status and due date. Use for "what is due, overdue, or open".',
-  },
-  {
-    name: 'query_strategies',
-    description: 'List the firm\'s government-affairs strategies and their targets/deadlines, or upcoming strategy deadlines. Use to ground answers in the firm\'s actual game plan. Pass strategyId for full detail or deadlinesOnly for the deadline calendar.',
+    description:
+      'List engagement tasks/to-dos for the firm or a client — filter by status and due date. Use for "what is due, overdue, or open".',
   },
   {
     name: 'query_action_items',
-    description: 'List the firm\'s "Needs Attention" action recommendations for a client or across all clients — each card says what changed, why it matters, and the recommended action with deadline and priority.',
+    description:
+      'List the firm\'s "Needs Attention" action recommendations for a client or across all clients — each card says what changed, why it matters, and the recommended action with deadline and priority.',
   },
   {
     name: 'search_tracked_bills',
-    description: 'List the bills the firm is actively tracking for a client, with each bill\'s latest status and the note attached when it was pinned.',
+    description:
+      "List the bills the firm is actively tracking for a client, with each bill's latest status and the note attached when it was pinned.",
   },
   {
     name: 'query_regulatory_dockets',
-    description: 'List regulatory dockets / rulemaking documents from Regulations.gov, or upcoming open comment-period deadlines. Filter by agency or document type. Use for "what comment periods are closing soon".',
+    description:
+      'List regulatory dockets / rulemaking documents from Regulations.gov, or upcoming open comment-period deadlines. Filter by agency or document type. Use for "what comment periods are closing soon".',
   },
   {
     name: 'search_sam_opportunities',
-    description: 'Search SAM.gov federal contract opportunities (solicitations, sources sought, presolicitations) by keyword or NAICS code. Active notices by default, newest first, with response deadlines and points of contact.',
+    description:
+      'Search SAM.gov federal contract opportunities (solicitations, sources sought, presolicitations) by keyword or NAICS code. Active notices by default, newest first, with response deadlines and points of contact.',
   },
   {
     name: 'query_debriefs',
-    description: 'List post-meeting debriefs for a client — outcomes, follow-ups, and commitments captured after meetings. Restricted (confidential) debrief bodies are withheld.',
+    description:
+      'List post-meeting debriefs for a client — outcomes, follow-ups, and commitments captured after meetings. Restricted (confidential) debrief bodies are withheld.',
   },
   {
     name: 'query_outreach',
-    description: 'List outreach campaigns and their status (draft, sent, responses) for the firm or a client, or fetch a single outreach record\'s full detail by outreachId.',
+    description:
+      "List outreach campaigns and their status (draft, sent, responses) for the firm or a client, or fetch a single outreach record's full detail by outreachId.",
   },
   {
     name: 'read_client_documents',
-    description: 'List the documents uploaded in a client\'s Documents tab, and (when documentId is given) extract and return the text content of one document so you can read, summarize, or quote it. Supports .txt, .csv, .docx, .pdf, .xlsx, .pptx, and audio/video transcription. Use when the user references "the document/file I uploaded", a contract, a brief, a deck, or asks you to read/summarize an attached file for a client.',
+    description:
+      'List the documents uploaded in a client\'s Documents tab, and (when documentId is given) extract and return the text content of one document so you can read, summarize, or quote it. Supports .txt, .csv, .docx, .pdf, .xlsx, .pptx, and audio/video transcription. Use when the user references "the document/file I uploaded", a contract, a brief, a deck, or asks you to read/summarize an attached file for a client.',
   },
   {
     name: 'create_task',
-    description: 'Create an engagement task/follow-up (title, optional client, due date, description). Requires user approval.',
+    description:
+      'Create an engagement task/follow-up (title, optional client, due date, description). Requires user approval.',
   },
   {
     name: 'update_task',
-    description: 'Update an engagement task\'s status, due date, or title (e.g. mark done). Requires user approval.',
-  },
-  {
-    name: 'update_workflow_field',
-    description: 'Write an approved value into a single field of a workflow/submission instance\'s form data. Requires user approval.',
+    description:
+      "Update an engagement task's status, due date, or title (e.g. mark done). Requires user approval.",
   },
   {
     name: 'update_client_profile',
@@ -283,7 +323,7 @@ export const TOOL_DEFINITIONS = [
       'primaryContactPhone, sectorTag, issueCodes, uei, cageCode, naicsCodes, pscCodes. ' +
       'You may ALSO append facilities (locations: name, address, city, state, ZIP, ' +
       'congressionalDistrict, employeeCount) and capabilities (products/technologies the ' +
-      'organization offers: name, type, description, sector) discovered on the client\'s ' +
+      "organization offers: name, type, description, sector) discovered on the client's " +
       'website or in filings -- pass them as the facilities[] and capabilities[] arrays. ' +
       'Each facility/capability in those arrays is APPENDED (new rows), never used to delete ' +
       'existing ones. Only call this AFTER you have shown the user the proposed values (ideally ' +
@@ -313,7 +353,6 @@ const SIDE_EFFECTING_TOOLS: ReadonlySet<string> = new Set<string>([
   'cancel_scheduled_task',
   'create_task',
   'update_task',
-  'update_workflow_field',
   'update_client_profile',
 ]);
 
@@ -333,7 +372,12 @@ interface MeetingForBrief {
   location: string | null;
   startsAt: Date;
   endsAt: Date;
-  client: { id: string; name: string; website: string | null; productDescription: string | null } | null;
+  client: {
+    id: string;
+    name: string;
+    website: string | null;
+    productDescription: string | null;
+  } | null;
   attendees: Array<{ name: string | null; email: string | null }>;
   preps: Array<{ summary: string | null; talkingPoints: Prisma.JsonValue }>;
   tasks: Array<{ title: string; dueDate: Date | null }>;
@@ -354,8 +398,6 @@ export class MeriToolsService {
     private readonly programElement: ProgramElementReadService,
     private readonly acquisitionPersonnel: AcquisitionPersonnelReadService,
     private readonly docgen: MeriDocgenService,
-    private readonly workflows: WorkflowsService,
-    private readonly strategies: StrategiesService,
     private readonly actionRecommendations: ActionRecommendationReadService,
     private readonly intelligence: IntelligenceService,
     private readonly regulatoryDockets: RegulatoryDocketService,
@@ -380,28 +422,42 @@ export class MeriToolsService {
    * Schema; descriptions come from TOOL_DEFINITIONS so the manifest and the
    * tool-use schemas never drift apart.
    */
-  anthropicToolSchemas(): Array<{ name: string; description: string; input_schema: Record<string, unknown> }> {
+  anthropicToolSchemas(): Array<{
+    name: string;
+    description: string;
+    input_schema: Record<string, unknown>;
+  }> {
     const obj = (
       properties: Record<string, unknown>,
       required: string[] = [],
     ): Record<string, unknown> => ({ type: 'object', properties, required });
 
-    const str = (description?: string) => (description ? { type: 'string', description } : { type: 'string' });
-    const int = (description?: string) => (description ? { type: 'integer', description } : { type: 'integer' });
+    const str = (description?: string) =>
+      description ? { type: 'string', description } : { type: 'string' };
+    const int = (description?: string) =>
+      description ? { type: 'integer', description } : { type: 'integer' };
 
     const schemas: Record<MeriToolName, Record<string, unknown>> = {
       get_client_context: obj({ clientId: str('Client UUID') }, ['clientId']),
-      search_research_sources: obj({
-        query: str('Free-text search across clients, meetings, mail, notes'),
-        clientId: str('Optional client UUID to scope the search'),
-        limit: int('Max records (1-25)'),
-      }, ['query']),
-      search_client_knowledge: obj({
-        query: str('What to look up in the client knowledge base'),
-        clientId: str('Client UUID (defaults to the conversation client)'),
-        kind: str('Optional filter: client_profile | client_person | client_facility | client_doc_chunk'),
-        limit: int('Max results (1-20)'),
-      }, ['query']),
+      search_research_sources: obj(
+        {
+          query: str('Free-text search across clients, meetings, mail, notes'),
+          clientId: str('Optional client UUID to scope the search'),
+          limit: int('Max records (1-25)'),
+        },
+        ['query'],
+      ),
+      search_client_knowledge: obj(
+        {
+          query: str('What to look up in the client knowledge base'),
+          clientId: str('Client UUID (defaults to the conversation client)'),
+          kind: str(
+            'Optional filter: client_profile | client_person | client_facility | client_doc_chunk',
+          ),
+          limit: int('Max results (1-20)'),
+        },
+        ['query'],
+      ),
       run_analysis: {
         type: 'object',
         properties: {
@@ -417,7 +473,11 @@ export class MeriToolsService {
               type: 'object',
               properties: {
                 name: { type: 'string', description: 'File name (without extension)' },
-                rows: { type: 'array', items: { type: 'object' }, description: 'Row objects (<=5000)' },
+                rows: {
+                  type: 'array',
+                  items: { type: 'object' },
+                  description: 'Row objects (<=5000)',
+                },
               },
               required: ['name', 'rows'],
             },
@@ -430,17 +490,25 @@ export class MeriToolsService {
         clientName: str('Optional client name to add federal contracting context'),
       }),
       query_knowledge_graph: obj({
-        seed: str("Optional seed node id, e.g. 'client:<uuid>', 'bill:119-hr-1234', 'issue:SHIP'. Omit for a firm-wide overview."),
+        seed: str(
+          "Optional seed node id, e.g. 'client:<uuid>', 'bill:119-hr-1234', 'issue:SHIP'. Omit for a firm-wide overview.",
+        ),
         depth: int('How many hops out from the seed (1-4, default 2)'),
       }),
-      find_path_to: obj({
-        to: str("Target node id, e.g. 'office:<id>' or 'person:<id>'"),
-        depth: int('Max search depth (1-5, default 3)'),
-      }, ['to']),
-      search_memory: obj({
-        query: str('What to look for in firm memory (natural language)'),
-        k: int('Max results (1-15, default 8)'),
-      }, ['query']),
+      find_path_to: obj(
+        {
+          to: str("Target node id, e.g. 'office:<id>' or 'person:<id>'"),
+          depth: int('Max search depth (1-5, default 3)'),
+        },
+        ['to'],
+      ),
+      search_memory: obj(
+        {
+          query: str('What to look for in firm memory (natural language)'),
+          k: int('Max results (1-15, default 8)'),
+        },
+        ['query'],
+      ),
       search_congress_bills: obj({
         query: str('Keyword search'),
         policyArea: str('Policy area filter'),
@@ -515,56 +583,85 @@ export class MeriToolsService {
         district: str('Congressional district'),
         limit: int('Max results (1-50)'),
       }),
-      search_public_web: obj({
-        query: str('Search query'),
-        limit: int('Max results'),
-      }, ['query']),
-      scrape_web_page: obj({
-        url: str('Public http(s) URL to fetch readable text from'),
-      }, ['url']),
-      create_meeting_brief: obj({
-        meetingId: str('Meeting UUID'),
-        title: str('Optional brief title'),
-      }, ['meetingId']),
-      draft_policy_memo: obj({
-        clientId: str('Client UUID'),
-        title: str('Memo title'),
-        objective: str('Memo objective'),
-        body: str('Optional pre-written body'),
-      }, ['clientId']),
-      save_note: obj({
-        body: str('Note body'),
-        title: str('Optional note title'),
-        clientId: str('Optional client UUID'),
-        meetingId: str('Optional meeting UUID for an encrypted meeting note'),
-        confidential: { type: 'boolean' },
-        accessLevel: str('Optional access level'),
-      }, ['body']),
-      send_email: obj({
-        to: str('Recipient email address'),
-        subject: str('Subject line'),
-        body: str('Email body'),
-        clientId: str('Optional client UUID to associate with'),
-      }, ['to', 'subject', 'body']),
+      search_public_web: obj(
+        {
+          query: str('Search query'),
+          limit: int('Max results'),
+        },
+        ['query'],
+      ),
+      scrape_web_page: obj(
+        {
+          url: str('Public http(s) URL to fetch readable text from'),
+        },
+        ['url'],
+      ),
+      create_meeting_brief: obj(
+        {
+          meetingId: str('Meeting UUID'),
+          title: str('Optional brief title'),
+        },
+        ['meetingId'],
+      ),
+      draft_policy_memo: obj(
+        {
+          clientId: str('Client UUID'),
+          title: str('Memo title'),
+          objective: str('Memo objective'),
+          body: str('Optional pre-written body'),
+        },
+        ['clientId'],
+      ),
+      save_note: obj(
+        {
+          body: str('Note body'),
+          title: str('Optional note title'),
+          clientId: str('Optional client UUID'),
+          meetingId: str('Optional meeting UUID for an encrypted meeting note'),
+          confidential: { type: 'boolean' },
+          accessLevel: str('Optional access level'),
+        },
+        ['body'],
+      ),
+      send_email: obj(
+        {
+          to: str('Recipient email address'),
+          subject: str('Subject line'),
+          body: str('Email body'),
+          clientId: str('Optional client UUID to associate with'),
+        },
+        ['to', 'subject', 'body'],
+      ),
       list_emails: obj({
         clientId: str('Optional client UUID filter'),
         limit: int('Max threads (default 15, max 50)'),
       }),
-      reply_email: obj({
-        threadId: str('Mail thread ID to reply to'),
-        body: str('Reply body'),
-        clientId: str('Optional client UUID'),
-      }, ['threadId', 'body']),
-      save_memory: obj({
-        content: str('The fact to remember, as a concise self-contained statement (e.g., "The user prefers to be called Ninja").'),
-        key: str('Optional short topic/key, e.g. "nickname" or "reporting-style".'),
-        scope: str('"personal" (default — this user only) or "firm" (shared across the firm).'),
-      }, ['content']),
+      reply_email: obj(
+        {
+          threadId: str('Mail thread ID to reply to'),
+          body: str('Reply body'),
+          clientId: str('Optional client UUID'),
+        },
+        ['threadId', 'body'],
+      ),
+      save_memory: obj(
+        {
+          content: str(
+            'The fact to remember, as a concise self-contained statement (e.g., "The user prefers to be called Ninja").',
+          ),
+          key: str('Optional short topic/key, e.g. "nickname" or "reporting-style".'),
+          scope: str('"personal" (default — this user only) or "firm" (shared across the firm).'),
+        },
+        ['content'],
+      ),
       search_program_elements: obj({
         query: str('Keyword search on PE title'),
         service: str('Military service filter, e.g. Army, Navy, Air Force, Space Force'),
         budgetActivity: str('Budget activity filter'),
-        hasData: { type: 'boolean', description: 'Only return PEs that have budget/award/bill data' },
+        hasData: {
+          type: 'boolean',
+          description: 'Only return PEs that have budget/award/bill data',
+        },
         limit: int('Max results (1-50)'),
         page: int('Page number'),
       }),
@@ -582,98 +679,116 @@ export class MeriToolsService {
         page: int('Page number'),
       }),
       get_acquisition_person: obj({ id: str('Acquisition personnel UUID') }, ['id']),
-      create_word: obj({
-        title: str('Document title'),
-        subtitle: str('Optional subtitle'),
-        sections: {
-          type: 'array',
-          description: 'Document sections, each with a heading and content',
-          items: obj({
-            heading: str('Section heading'),
-            paragraphs: { type: 'array', items: { type: 'string' }, description: 'Prose paragraphs' },
-            bullets: { type: 'array', items: { type: 'string' }, description: 'Bulleted list items' },
-            tables: {
-              type: 'array',
-              description: 'Tables in this section',
-              items: obj({
-                headers: { type: 'array', items: { type: 'string' } },
-                rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
-              }),
-            },
-          }),
+      create_word: obj(
+        {
+          title: str('Document title'),
+          subtitle: str('Optional subtitle'),
+          sections: {
+            type: 'array',
+            description: 'Document sections, each with a heading and content',
+            items: obj({
+              heading: str('Section heading'),
+              paragraphs: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Prose paragraphs',
+              },
+              bullets: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Bulleted list items',
+              },
+              tables: {
+                type: 'array',
+                description: 'Tables in this section',
+                items: obj({
+                  headers: { type: 'array', items: { type: 'string' } },
+                  rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+                }),
+              },
+            }),
+          },
+          clientId: str('Optional client UUID to associate'),
         },
-        clientId: str('Optional client UUID to associate'),
-      }, ['title', 'sections']),
-      create_excel: obj({
-        title: str('Workbook title'),
-        sheets: {
-          type: 'array',
-          description: 'Worksheets, each with headers and rows',
-          items: obj({
-            name: str('Sheet name (<=31 chars)'),
-            headers: { type: 'array', items: { type: 'string' } },
-            rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
-          }),
-        },
-        clientId: str('Optional client UUID to associate'),
-      }, ['title', 'sheets']),
-      create_powerpoint: obj({
-        title: str('Deck title'),
-        subtitle: str('Optional subtitle for the title slide'),
-        slides: {
-          type: 'array',
-          description: 'Content slides',
-          items: obj({
-            title: str('Slide title'),
-            bullets: { type: 'array', items: { type: 'string' } },
-            table: obj({
+        ['title', 'sections'],
+      ),
+      create_excel: obj(
+        {
+          title: str('Workbook title'),
+          sheets: {
+            type: 'array',
+            description: 'Worksheets, each with headers and rows',
+            items: obj({
+              name: str('Sheet name (<=31 chars)'),
               headers: { type: 'array', items: { type: 'string' } },
               rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
             }),
-          }),
+          },
+          clientId: str('Optional client UUID to associate'),
         },
-        clientId: str('Optional client UUID to associate'),
-      }, ['title', 'slides']),
-      schedule_task: obj({
-        name: str('Short name for the recurring task'),
-        prompt: str('The instruction Meri runs each time the task fires'),
-        intervalMinutes: int('Minutes between runs (minimum 60). Use 1440 for daily, 10080 for weekly.'),
-        dailyAtUtc: str('Optional clock-anchored run time as "HH:MM" in 24h UTC (e.g. "13:00" for 8am ET). When set with intervalMinutes=1440, the task runs every day at that wall-clock time instead of drifting.'),
-        clientId: str('Optional client UUID to scope every run to one client'),
-        emailBriefing: {
-          type: 'boolean',
-          description: 'When true, each finished briefing is ALSO emailed (in addition to the in-app inbox). The email goes to a fixed address set now (deliverEmailTo, or the owner\'s connected Microsoft 365 address by default) — the task never composes or sends arbitrary email, it only delivers its own briefing to this one pre-set recipient.',
+        ['title', 'sheets'],
+      ),
+      create_powerpoint: obj(
+        {
+          title: str('Deck title'),
+          subtitle: str('Optional subtitle for the title slide'),
+          slides: {
+            type: 'array',
+            description: 'Content slides',
+            items: obj({
+              title: str('Slide title'),
+              bullets: { type: 'array', items: { type: 'string' } },
+              table: obj({
+                headers: { type: 'array', items: { type: 'string' } },
+                rows: { type: 'array', items: { type: 'array', items: { type: 'string' } } },
+              }),
+            }),
+          },
+          clientId: str('Optional client UUID to associate'),
         },
-        deliverEmailTo: str('Optional fixed recipient email for the briefing when emailBriefing is true. Defaults to the owner\'s own connected Microsoft 365 address. Must be a single address the user controls.'),
-        toolAllowList: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'Optional read-only research tools the task may call; defaults to all read-only tools. Side-effecting tools are rejected.',
+        ['title', 'slides'],
+      ),
+      schedule_task: obj(
+        {
+          name: str('Short name for the recurring task'),
+          prompt: str('The instruction Meri runs each time the task fires'),
+          intervalMinutes: int(
+            'Minutes between runs (minimum 60). Use 1440 for daily, 10080 for weekly.',
+          ),
+          dailyAtUtc: str(
+            'Optional clock-anchored run time as "HH:MM" in 24h UTC (e.g. "13:00" for 8am ET). When set with intervalMinutes=1440, the task runs every day at that wall-clock time instead of drifting.',
+          ),
+          clientId: str('Optional client UUID to scope every run to one client'),
+          emailBriefing: {
+            type: 'boolean',
+            description:
+              "When true, each finished briefing is ALSO emailed (in addition to the in-app inbox). The email goes to a fixed address set now (deliverEmailTo, or the owner's connected Microsoft 365 address by default) — the task never composes or sends arbitrary email, it only delivers its own briefing to this one pre-set recipient.",
+          },
+          deliverEmailTo: str(
+            "Optional fixed recipient email for the briefing when emailBriefing is true. Defaults to the owner's own connected Microsoft 365 address. Must be a single address the user controls.",
+          ),
+          toolAllowList: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Optional read-only research tools the task may call; defaults to all read-only tools. Side-effecting tools are rejected.',
+          },
         },
-      }, ['name', 'prompt', 'intervalMinutes']),
+        ['name', 'prompt', 'intervalMinutes'],
+      ),
       list_scheduled_tasks: obj({}),
       cancel_scheduled_task: obj({ taskId: str('Scheduled task UUID') }, ['taskId']),
-      query_workflows: obj({
-        instanceId: str('Optional workflow instance UUID for full detail'),
-        clientId: str('Optional client UUID filter'),
-        status: str('Optional status filter: triage | in_progress | review | submitted | complete | cancelled'),
-        limit: int('Max results (1-50)'),
-      }),
       query_tasks: obj({
         clientId: str('Optional client UUID'),
         status: str('Optional: open | overdue | todo | in_progress | done | blocked | canceled'),
         dueBefore: str('Optional ISO date upper bound on due date'),
         limit: int('Max results (1-50)'),
       }),
-      query_strategies: obj({
-        strategyId: str('Optional strategy UUID for full detail'),
-        clientId: str('Optional client UUID filter'),
-        deadlinesOnly: { type: 'boolean', description: 'Return upcoming deadlines across strategies (next 30 days)' },
-        limit: int('Max results (1-50)'),
-      }),
       query_action_items: obj({
         clientId: str('Optional client UUID filter'),
-        status: str('Optional status: new | triaged | assigned | drafting | ready_for_review | sent_to_client | outreach_completed | monitoring | dismissed | archived'),
+        status: str(
+          'Optional status: new | triaged | assigned | drafting | ready_for_review | sent_to_client | outreach_completed | monitoring | dismissed | archived',
+        ),
         sort: str('Sort order: deadline (default) | priority'),
         limit: int('Max results (1-50)'),
       }),
@@ -681,21 +796,29 @@ export class MeriToolsService {
       query_regulatory_dockets: obj({
         agencyId: str('Optional agency identifier filter, e.g. DOD, EPA'),
         documentType: str('Optional document type filter, e.g. Proposed Rule, Rule, Notice'),
-        upcomingOnly: { type: 'boolean', description: 'Only open comment periods closing within the window (default 30 days)' },
+        upcomingOnly: {
+          type: 'boolean',
+          description: 'Only open comment periods closing within the window (default 30 days)',
+        },
         days: int('Window in days for upcomingOnly (1-365, default 30)'),
         limit: int('Max results (1-50)'),
       }),
       search_sam_opportunities: obj({
         query: str('Keyword search across title/description/agency/solicitation number'),
         naics: str('Optional NAICS code prefix filter, e.g. 3364'),
-        includeInactive: { type: 'boolean', description: 'Include archived/inactive notices (default false)' },
+        includeInactive: {
+          type: 'boolean',
+          description: 'Include archived/inactive notices (default false)',
+        },
         limit: int('Max results (1-50)'),
       }),
       query_debriefs: obj({ clientId: str('Client UUID') }, ['clientId']),
       read_client_documents: obj(
         {
           clientId: str('Client UUID whose Documents-tab files to list/read'),
-          documentId: str('Optional attachment UUID. When provided, extract and return that document\'s text content instead of just listing.'),
+          documentId: str(
+            "Optional attachment UUID. When provided, extract and return that document's text content instead of just listing.",
+          ),
         },
         ['clientId'],
       ),
@@ -705,97 +828,105 @@ export class MeriToolsService {
         status: str('Optional status filter, e.g. draft | sent'),
         limit: int('Max results (1-50)'),
       }),
-      create_task: obj({
-        title: str('Task title'),
-        clientId: str('Optional client UUID'),
-        dueDate: str('Optional ISO due date'),
-        description: str('Optional task description'),
-      }, ['title']),
-      update_task: obj({
-        taskId: str('Task UUID'),
-        status: str('Optional new status: todo | in_progress | done | blocked | canceled'),
-        dueDate: str('Optional new ISO due date'),
-        title: str('Optional new title'),
-      }, ['taskId']),
-      update_workflow_field: obj({
-        instanceId: str('Workflow instance UUID'),
-        fieldKey: str('Form-data field key to set'),
-        value: str('Approved value to write'),
-      }, ['instanceId', 'fieldKey', 'value']),
-      update_client_profile: obj({
-        clientId: str('Client UUID to update'),
-        name: str('Organization/client name'),
-        website: str('Primary website URL'),
-        description: str('Short description of the organization'),
-        productDescription: str('What the organization makes/does'),
-        primaryContactName: str('Primary contact full name'),
-        primaryContactEmail: str('Primary contact email'),
-        primaryContactPhone: str('Primary contact phone'),
-        sectorTag: str('Sector/industry tag'),
-        uei: str('SAM.gov Unique Entity ID (12 chars)'),
-        cageCode: str('CAGE code (5 chars)'),
-        issueCodes: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'LDA issue codes (replaces the existing list)',
+      create_task: obj(
+        {
+          title: str('Task title'),
+          clientId: str('Optional client UUID'),
+          dueDate: str('Optional ISO due date'),
+          description: str('Optional task description'),
         },
-        naicsCodes: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'NAICS codes (replaces the existing list)',
+        ['title'],
+      ),
+      update_task: obj(
+        {
+          taskId: str('Task UUID'),
+          status: str('Optional new status: todo | in_progress | done | blocked | canceled'),
+          dueDate: str('Optional new ISO due date'),
+          title: str('Optional new title'),
         },
-        pscCodes: {
-          type: 'array',
-          items: { type: 'string' },
-          description: 'PSC codes (replaces the existing list)',
-        },
-        provenance: {
-          type: 'object',
-          description:
-            'Optional per-field source metadata, e.g. { "website": { "sourceUrl": "https://...", "confidence": "high" } }. ' +
-            'Stored on the client for auditability; not shown as a profile field.',
-        },
-        facilities: {
-          type: 'array',
-          description:
-            'Facilities/locations to APPEND to the client (each becomes a new row on the Facilities tab). ' +
-            'Only include what you found and the user approved.',
-          items: {
+        ['taskId'],
+      ),
+      update_client_profile: obj(
+        {
+          clientId: str('Client UUID to update'),
+          name: str('Organization/client name'),
+          website: str('Primary website URL'),
+          description: str('Short description of the organization'),
+          productDescription: str('What the organization makes/does'),
+          primaryContactName: str('Primary contact full name'),
+          primaryContactEmail: str('Primary contact email'),
+          primaryContactPhone: str('Primary contact phone'),
+          sectorTag: str('Sector/industry tag'),
+          uei: str('SAM.gov Unique Entity ID (12 chars)'),
+          cageCode: str('CAGE code (5 chars)'),
+          issueCodes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'LDA issue codes (replaces the existing list)',
+          },
+          naicsCodes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'NAICS codes (replaces the existing list)',
+          },
+          pscCodes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'PSC codes (replaces the existing list)',
+          },
+          provenance: {
             type: 'object',
-            properties: {
-              name: { type: 'string', description: 'Facility/site name (required)' },
-              addressLine: { type: 'string', description: 'Street address' },
-              city: { type: 'string', description: 'City' },
-              state: { type: 'string', description: 'Two-letter state code, e.g. "TX"' },
-              zip: { type: 'string', description: 'ZIP code' },
-              congressionalDistrict: {
-                type: 'string',
-                description: 'Bare district number, e.g. "12" (state goes in `state`, not "TX-12")',
+            description:
+              'Optional per-field source metadata, e.g. { "website": { "sourceUrl": "https://...", "confidence": "high" } }. ' +
+              'Stored on the client for auditability; not shown as a profile field.',
+          },
+          facilities: {
+            type: 'array',
+            description:
+              'Facilities/locations to APPEND to the client (each becomes a new row on the Facilities tab). ' +
+              'Only include what you found and the user approved.',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'Facility/site name (required)' },
+                addressLine: { type: 'string', description: 'Street address' },
+                city: { type: 'string', description: 'City' },
+                state: { type: 'string', description: 'Two-letter state code, e.g. "TX"' },
+                zip: { type: 'string', description: 'ZIP code' },
+                congressionalDistrict: {
+                  type: 'string',
+                  description:
+                    'Bare district number, e.g. "12" (state goes in `state`, not "TX-12")',
+                },
+                employeeCount: {
+                  type: 'integer',
+                  description: 'Approximate headcount at this site',
+                },
+                notes: { type: 'string', description: 'Optional notes' },
               },
-              employeeCount: { type: 'integer', description: 'Approximate headcount at this site' },
-              notes: { type: 'string', description: 'Optional notes' },
+              required: ['name'],
             },
-            required: ['name'],
+          },
+          capabilities: {
+            type: 'array',
+            description:
+              'Capabilities (products/technologies/services the organization offers) to APPEND ' +
+              '(each becomes a new row on the Capabilities tab). Only include what you found and the user approved.',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'Capability/product name (required)' },
+                type: { type: 'string', description: 'e.g. "product", "technology", "service"' },
+                description: { type: 'string', description: 'What it is / what it does' },
+                sector: { type: 'string', description: 'Sector/domain, e.g. "DEFENSE"' },
+                notes: { type: 'string', description: 'Optional notes' },
+              },
+              required: ['name'],
+            },
           },
         },
-        capabilities: {
-          type: 'array',
-          description:
-            'Capabilities (products/technologies/services the organization offers) to APPEND ' +
-            '(each becomes a new row on the Capabilities tab). Only include what you found and the user approved.',
-          items: {
-            type: 'object',
-            properties: {
-              name: { type: 'string', description: 'Capability/product name (required)' },
-              type: { type: 'string', description: 'e.g. "product", "technology", "service"' },
-              description: { type: 'string', description: 'What it is / what it does' },
-              sector: { type: 'string', description: 'Sector/domain, e.g. "DEFENSE"' },
-              notes: { type: 'string', description: 'Optional notes' },
-            },
-            required: ['name'],
-          },
-        },
-      }, ['clientId']),
+        ['clientId'],
+      ),
     };
 
     return TOOL_DEFINITIONS.map((tool) => ({
@@ -1095,12 +1226,8 @@ export class MeriToolsService {
         return this.listScheduledTasks(ctx);
       case 'cancel_scheduled_task':
         return this.cancelScheduledTask(ctx, input);
-      case 'query_workflows':
-        return this.queryWorkflows(ctx, input);
       case 'query_tasks':
         return this.queryTasks(ctx, input);
-      case 'query_strategies':
-        return this.queryStrategies(ctx, input);
       case 'query_action_items':
         return this.queryActionItems(ctx, input);
       case 'search_tracked_bills':
@@ -1119,8 +1246,6 @@ export class MeriToolsService {
         return this.createEngagementTask(ctx, input);
       case 'update_task':
         return this.updateEngagementTask(ctx, input);
-      case 'update_workflow_field':
-        return this.updateWorkflowField(ctx, input);
       case 'update_client_profile':
         return this.updateClientProfile(ctx, input);
       default:
@@ -1295,13 +1420,19 @@ export class MeriToolsService {
   private async loadGraphForCtx(ctx: TenantContext) {
     return this.prisma.withTenant(ctx.tenantId, async (tx) => {
       // item nodes the caller may see (RLS: tenant + own-private), plus their wikilink edges
-      const items = await tx.$queryRaw<Array<{ id: string; type: string; slug: string; title: string; sections: unknown }>>`
+      const items = await tx.$queryRaw<
+        Array<{ id: string; type: string; slug: string; title: string; sections: unknown }>
+      >`
         SELECT id, type, slug, title, sections_jsonb AS sections
         FROM memory_items
         WHERE owner_user_id IS NULL OR owner_user_id = ${ctx.userId}::uuid
       `;
-      const itemNodeById = new Map(items.map((i) => [i.id, { type: i.type, slug: i.slug, label: i.title }]));
-      const wikiEdges = await tx.$queryRaw<Array<{ src_item_id: string; relation: string; dst_type: string; dst_slug: string }>>`
+      const itemNodeById = new Map(
+        items.map((i) => [i.id, { type: i.type, slug: i.slug, label: i.title }]),
+      );
+      const wikiEdges = await tx.$queryRaw<
+        Array<{ src_item_id: string; relation: string; dst_type: string; dst_slug: string }>
+      >`
         SELECT e.src_item_id, e.relation, e.dst_type, e.dst_slug
         FROM memory_edges e
         JOIN memory_items i ON i.id = e.src_item_id
@@ -1309,29 +1440,68 @@ export class MeriToolsService {
       `;
       // FK relations (structural backbone): client->bill/issue/person, meeting->client
       const fk: FkRelation[] = [];
-      const bills = await tx.$queryRaw<Array<{ client_id: string; client_name: string; bill_id: string }>>`
+      const bills = await tx.$queryRaw<
+        Array<{ client_id: string; client_name: string; bill_id: string }>
+      >`
         SELECT tb.client_id, c.name AS client_name, tb.bill_id FROM tracked_bill tb JOIN clients c ON c.id = tb.client_id WHERE tb.tenant_id = ${ctx.tenantId}::uuid`;
-      for (const b of bills) fk.push({ srcType: 'client', srcSlug: b.client_id, srcLabel: b.client_name, dstType: 'bill', dstSlug: b.bill_id, dstLabel: b.bill_id, relation: 'tracks' });
-      const people = await tx.$queryRaw<Array<{ client_id: string; client_name: string; person_id: string; person_name: string }>>`
+      for (const b of bills)
+        fk.push({
+          srcType: 'client',
+          srcSlug: b.client_id,
+          srcLabel: b.client_name,
+          dstType: 'bill',
+          dstSlug: b.bill_id,
+          dstLabel: b.bill_id,
+          relation: 'tracks',
+        });
+      const people = await tx.$queryRaw<
+        Array<{ client_id: string; client_name: string; person_id: string; person_name: string }>
+      >`
         SELECT cp.client_id, c.name AS client_name, cp.id AS person_id, cp.name AS person_name FROM client_people cp JOIN clients c ON c.id = cp.client_id WHERE cp.tenant_id = ${ctx.tenantId}::uuid`;
-      for (const p of people) fk.push({ srcType: 'client', srcSlug: p.client_id, srcLabel: p.client_name, dstType: 'person', dstSlug: p.person_id, dstLabel: p.person_name, relation: 'contact' });
-      const wiki = wikiEdges.map((e) => ({ tenantId: ctx.tenantId, srcItemId: e.src_item_id, relation: e.relation, dstType: e.dst_type, dstSlug: e.dst_slug }));
+      for (const p of people)
+        fk.push({
+          srcType: 'client',
+          srcSlug: p.client_id,
+          srcLabel: p.client_name,
+          dstType: 'person',
+          dstSlug: p.person_id,
+          dstLabel: p.person_name,
+          relation: 'contact',
+        });
+      const wiki = wikiEdges.map((e) => ({
+        tenantId: ctx.tenantId,
+        srcItemId: e.src_item_id,
+        relation: e.relation,
+        dstType: e.dst_type,
+        dstSlug: e.dst_slug,
+      }));
       return buildKnowledgeGraph(fk, wiki, itemNodeById);
     });
   }
 
   private async queryKnowledgeGraph(ctx: TenantContext, input: Record<string, unknown>) {
     const seed = optionalString(input, 'seed', 120);
-    const depthRaw = typeof input.depth === 'number' ? input.depth : parseInt(String(input.depth ?? ''), 10);
+    const depthRaw =
+      typeof input.depth === 'number' ? input.depth : parseInt(String(input.depth ?? ''), 10);
     const depth = Number.isFinite(depthRaw) ? Math.min(4, Math.max(1, depthRaw)) : 2;
     const full = await this.loadGraphForCtx(ctx);
     const g = seed ? walkFrom(full, seed, depth) : full;
     if (!g.nodes.length) {
-      return { summary: 'The knowledge graph is empty or has nothing connected to that seed. Run "Populate graph" on the Knowledge Graph page to build it from clients, memories, meetings, and email.', nodes: [], edges: [] };
+      return {
+        summary:
+          'The knowledge graph is empty or has nothing connected to that seed. Run "Populate graph" on the Knowledge Graph page to build it from clients, memories, meetings, and email.',
+        nodes: [],
+        edges: [],
+      };
     }
     // Compact, LLM-friendly projection
     const nodeLabel = new Map(g.nodes.map((n) => [n.id, `${n.label} (${n.type})`]));
-    const edgeLines = g.edges.slice(0, 120).map((e) => `${nodeLabel.get(e.src) ?? e.src} --${e.relation}[${e.origin}]--> ${nodeLabel.get(e.dst) ?? e.dst}`);
+    const edgeLines = g.edges
+      .slice(0, 120)
+      .map(
+        (e) =>
+          `${nodeLabel.get(e.src) ?? e.src} --${e.relation}[${e.origin}]--> ${nodeLabel.get(e.dst) ?? e.dst}`,
+      );
     return {
       summary: `${g.nodes.length} nodes, ${g.edges.length} connections${seed ? ` within ${depth} hop(s) of ${seed}` : ''}. Edges tagged [fact]=from firm data, [mention]=from analyst notes.`,
       nodes: g.nodes.map((n) => ({ id: n.id, type: n.type, label: n.label })),
@@ -1342,11 +1512,15 @@ export class MeriToolsService {
   private async findPathTo(ctx: TenantContext, input: Record<string, unknown>) {
     const to = optionalString(input, 'to', 120);
     if (!to) return { error: "Provide a target node id, e.g. 'office:<id>' or 'person:<id>'." };
-    const depthRaw = typeof input.depth === 'number' ? input.depth : parseInt(String(input.depth ?? ''), 10);
+    const depthRaw =
+      typeof input.depth === 'number' ? input.depth : parseInt(String(input.depth ?? ''), 10);
     const depth = Number.isFinite(depthRaw) ? Math.min(5, Math.max(1, depthRaw)) : 3;
     const full = await this.loadGraphForCtx(ctx);
     if (!full.nodes.some((n) => n.id === to)) {
-      return { summary: `No node "${to}" in the knowledge graph. It may not be ingested yet, or the id is off.`, paths: [] };
+      return {
+        summary: `No node "${to}" in the knowledge graph. It may not be ingested yet, or the id is off.`,
+        paths: [],
+      };
     }
     const label = new Map(full.nodes.map((n) => [n.id, `${n.label} (${n.type})`]));
     const clients = full.nodes.filter((n) => n.type === 'client').map((n) => n.id);
@@ -1355,7 +1529,11 @@ export class MeriToolsService {
       const p = shortestGraphPath(full, c, to, depth);
       if (p) paths.push(p);
     }
-    if (!paths.length) return { summary: `No connection path from any client to ${label.get(to) ?? to} within ${depth} hops.`, paths: [] };
+    if (!paths.length)
+      return {
+        summary: `No connection path from any client to ${label.get(to) ?? to} within ${depth} hops.`,
+        paths: [],
+      };
     return {
       summary: `${paths.length} route(s) from your clients to ${label.get(to) ?? to}:`,
       paths: paths.map((p) => p.map((id) => label.get(id) ?? id).join(' → ')),
@@ -1372,10 +1550,21 @@ export class MeriToolsService {
       literal = vectorLiteral(await embedText(normalize(query)));
     } catch (err) {
       this.logger.warn(`search_memory embed failed: ${(err as Error).message}`);
-      return { summary: 'Memory search is temporarily unavailable (embedding service error).', results: [] };
+      return {
+        summary: 'Memory search is temporarily unavailable (embedding service error).',
+        results: [],
+      };
     }
     const rows = await this.prisma.withTenant(ctx.tenantId, (tx) =>
-      tx.$queryRawUnsafe<Array<{ type: string; slug: string; title: string; client_id: string | null; score: number }>>(
+      tx.$queryRawUnsafe<
+        Array<{
+          type: string;
+          slug: string;
+          title: string;
+          client_id: string | null;
+          score: number;
+        }>
+      >(
         `SELECT mi.type, mi.slug, mi.title, mi.client_id,
                 1 - (ce.embedding <=> '${literal}'::vector) AS score
            FROM context_embeddings ce
@@ -1390,7 +1579,11 @@ export class MeriToolsService {
       ),
     );
     if (!rows.length) {
-      return { summary: 'No memory matched — the graph may not be populated yet (run "Populate graph" on the Knowledge Graph page).', results: [] };
+      return {
+        summary:
+          'No memory matched — the graph may not be populated yet (run "Populate graph" on the Knowledge Graph page).',
+        results: [],
+      };
     }
     return {
       summary: `${rows.length} memory item(s) most relevant to "${query}":`,
@@ -1440,10 +1633,13 @@ export class MeriToolsService {
         undefined, // search
         undefined, // policyArea
         undefined, // congress
-        1,         // page
-        15,        // limit
+        1, // page
+        15, // limit
       );
-      const billsAny = bills as unknown as { data?: Array<Record<string, unknown>>; total?: number };
+      const billsAny = bills as unknown as {
+        data?: Array<Record<string, unknown>>;
+        total?: number;
+      };
       if (billsAny.data && billsAny.data.length) {
         const billSummary = billsAny.data
           .slice(0, 12)
@@ -1452,7 +1648,9 @@ export class MeriToolsService {
               `- ${b.billType ?? ''}${b.billNumber ?? ''}: ${summarizeText(b.title, 120)} [${b.policyArea ?? 'N/A'}] (Sponsor: ${b.sponsorName ?? 'N/A'}, ${b.sponsorParty ?? ''}${b.sponsorState ? '-' + b.sponsorState : ''}) Latest: ${summarizeText(b.latestActionText, 100)} (${b.latestActionDate ?? 'no date'})`,
           )
           .join('\n');
-        parts.push(`Recent congressional bills (${billsAny.total ?? 0} total in database):\n${billSummary}`);
+        parts.push(
+          `Recent congressional bills (${billsAny.total ?? 0} total in database):\n${billSummary}`,
+        );
       }
     } catch (err) {
       this.logger.warn(`Congress bills fetch failed: ${(err as Error).message}`);
@@ -1464,14 +1662,18 @@ export class MeriToolsService {
         const spend = await this.federalSpending.getAiContext(clientName);
         if (spend.matchedContractor) {
           const mc = spend.matchedContractor;
-          const amt = mc.totalContracts != null ? `$${(mc.totalContracts / 1e9).toFixed(1)}B` : 'unknown';
+          const amt =
+            mc.totalContracts != null ? `$${(mc.totalContracts / 1e9).toFixed(1)}B` : 'unknown';
           parts.push(
             `Federal contracting for ${mc.name}: ${amt} in contracts${mc.rankByContracts ? ' (rank #' + mc.rankByContracts + ' nationally)' : ''}`,
           );
           if (mc.topAgencies.length) {
             const agencies = mc.topAgencies
               .slice(0, 5)
-              .map((a: Record<string, unknown>) => `${a.name} ($${Math.round((a.amount as number) / 1e9)}B)`)
+              .map(
+                (a: Record<string, unknown>) =>
+                  `${a.name} ($${Math.round((a.amount as number) / 1e9)}B)`,
+              )
               .join(', ');
             parts.push(`Top awarding agencies: ${agencies}`);
           }
@@ -1483,17 +1685,25 @@ export class MeriToolsService {
 
     // Intelligence data source counts
     try {
-      const [secCount, faraCount, gaoCount, grantCount, stateBillCount, intelArticleCount, hearingCount, crsCount] =
-        await Promise.all([
-          this.prisma.withSystem((tx) => tx.secFiling.count()).catch(() => 0),
-          this.prisma.withSystem((tx) => tx.faraRegistration.count()).catch(() => 0),
-          this.prisma.withSystem((tx) => tx.gaoReport.count()).catch(() => 0),
-          this.prisma.withSystem((tx) => tx.federalGrant.count()).catch(() => 0),
-          this.prisma.withSystem((tx) => tx.stateBill.count()).catch(() => 0),
-          this.prisma.withSystem((tx) => tx.intelArticle.count()).catch(() => 0),
-          this.prisma.withSystem((tx) => tx.committeeHearing.count()).catch(() => 0),
-          this.prisma.withSystem((tx) => tx.crsReport.count()).catch(() => 0),
-        ]);
+      const [
+        secCount,
+        faraCount,
+        gaoCount,
+        grantCount,
+        stateBillCount,
+        intelArticleCount,
+        hearingCount,
+        crsCount,
+      ] = await Promise.all([
+        this.prisma.withSystem((tx) => tx.secFiling.count()).catch(() => 0),
+        this.prisma.withSystem((tx) => tx.faraRegistration.count()).catch(() => 0),
+        this.prisma.withSystem((tx) => tx.gaoReport.count()).catch(() => 0),
+        this.prisma.withSystem((tx) => tx.federalGrant.count()).catch(() => 0),
+        this.prisma.withSystem((tx) => tx.stateBill.count()).catch(() => 0),
+        this.prisma.withSystem((tx) => tx.intelArticle.count()).catch(() => 0),
+        this.prisma.withSystem((tx) => tx.committeeHearing.count()).catch(() => 0),
+        this.prisma.withSystem((tx) => tx.crsReport.count()).catch(() => 0),
+      ]);
       const sourceSummary = [
         secCount && `SEC filings: ${secCount}`,
         faraCount && `FARA registrations: ${faraCount}`,
@@ -1543,9 +1753,12 @@ export class MeriToolsService {
   }
 
   private async searchLdaFilings(input: Record<string, unknown>) {
-    const clientName = optionalString(input, 'clientName', 200) ?? optionalString(input, 'query', 200);
-    const issueCode = optionalString(input, 'issueCode', 120) ?? optionalString(input, 'issue', 120);
-    const registrantName = optionalString(input, 'registrantName', 200) ?? optionalString(input, 'registrant', 200);
+    const clientName =
+      optionalString(input, 'clientName', 200) ?? optionalString(input, 'query', 200);
+    const issueCode =
+      optionalString(input, 'issueCode', 120) ?? optionalString(input, 'issue', 120);
+    const registrantName =
+      optionalString(input, 'registrantName', 200) ?? optionalString(input, 'registrant', 200);
     const year = input.year ? Number(input.year) : undefined;
     const limit = clampInt(input.limit, 1, 50, 15);
     const page = clampInt(input.page, 1, 100, 1);
@@ -1609,7 +1822,8 @@ export class MeriToolsService {
 
   private async searchFaraRegistrations(input: Record<string, unknown>) {
     const query = optionalString(input, 'query', 240);
-    const registrantName = optionalString(input, 'registrantName', 240) ?? optionalString(input, 'registrant', 240);
+    const registrantName =
+      optionalString(input, 'registrantName', 240) ?? optionalString(input, 'registrant', 240);
     const foreignPrincipal = optionalString(input, 'foreignPrincipal', 240);
     const country = optionalString(input, 'country', 120);
     const status = optionalString(input, 'status', 20);
@@ -1624,7 +1838,8 @@ export class MeriToolsService {
       ];
     }
     if (registrantName) where.registrantName = { contains: registrantName, mode: 'insensitive' };
-    if (foreignPrincipal) where.foreignPrincipal = { contains: foreignPrincipal, mode: 'insensitive' };
+    if (foreignPrincipal)
+      where.foreignPrincipal = { contains: foreignPrincipal, mode: 'insensitive' };
     if (country) where.country = { contains: country, mode: 'insensitive' };
     if (status) where.status = status;
 
@@ -2003,7 +2218,8 @@ export class MeriToolsService {
   private async searchCommitteeHearings(input: Record<string, unknown>) {
     const query = optionalString(input, 'query', 240);
     const chamber = optionalString(input, 'chamber', 20);
-    const committeeName = optionalString(input, 'committeeName', 200) ?? optionalString(input, 'committee', 200);
+    const committeeName =
+      optionalString(input, 'committeeName', 200) ?? optionalString(input, 'committee', 200);
     const limit = clampInt(input.limit, 1, 50, 20);
 
     const where: Record<string, unknown> = {};
@@ -2175,7 +2391,8 @@ export class MeriToolsService {
       }
 
       case 'bea': {
-        const datasetName = optionalString(input, 'datasetName', 60) ?? optionalString(input, 'dataset', 60);
+        const datasetName =
+          optionalString(input, 'datasetName', 60) ?? optionalString(input, 'dataset', 60);
         const query = optionalString(input, 'query', 240);
         const year = input.year ? Number(input.year) : undefined;
 
@@ -2267,14 +2484,18 @@ export class MeriToolsService {
     const maxChars = clampInt(input.maxChars, 500, 20000, mode === 'extract' ? 12000 : 4000);
 
     const parsed = parseAndValidatePublicUrl(rawUrl);
-    const response = await fetchWithTimeout(parsed.toString(), {
-      method: 'GET',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; Capiro-Meri/1.0; +https://capiro.ai)',
-        Accept: 'text/html,application/xhtml+xml,application/pdf',
+    const response = await fetchWithTimeout(
+      parsed.toString(),
+      {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (compatible; Capiro-Meri/1.0; +https://capiro.ai)',
+          Accept: 'text/html,application/xhtml+xml,application/pdf',
+        },
+        redirect: 'follow',
       },
-      redirect: 'follow',
-    }, 10000);
+      10000,
+    );
 
     if (!response.ok) {
       throw new BadGatewayException(`Web scrape failed (${response.status})`);
@@ -2290,7 +2511,9 @@ export class MeriToolsService {
     }
 
     if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
-      throw new BadRequestException(`Unsupported content type for scraping: ${contentType || 'unknown'}`);
+      throw new BadRequestException(
+        `Unsupported content type for scraping: ${contentType || 'unknown'}`,
+      );
     }
 
     const html = await response.text();
@@ -2509,7 +2732,10 @@ export class MeriToolsService {
           id: meeting.id,
           clientId: meeting.clientId,
           title: meeting.subject,
-          snippet: summarizeText(meeting.description || meeting.organizerName || meeting.organizerEmail, 360),
+          snippet: summarizeText(
+            meeting.description || meeting.organizerName || meeting.organizerEmail,
+            360,
+          ),
           occurredAt: meeting.startsAt,
         })),
         ...threads.map((thread) => ({
@@ -2756,7 +2982,8 @@ export class MeriToolsService {
     const connection = await this.findUserEmailConnection(ctx);
     if (!connection) {
       return {
-        error: 'No connected Microsoft 365 account found. Please connect one in Settings → Integrations.',
+        error:
+          'No connected Microsoft 365 account found. Please connect one in Settings → Integrations.',
       };
     }
 
@@ -2869,11 +3096,21 @@ export class MeriToolsService {
         title: `Reply: ${replySubject}`,
         kind: 'email_reply',
         bodyText: `Reply to: ${lastMsg.fromEmail}\nSubject: ${replySubject}\n\n${body}`,
-        metadata: { to: lastMsg.fromEmail, subject: replySubject, sentFrom: connection.accountEmail, threadId },
+        metadata: {
+          to: lastMsg.fromEmail,
+          subject: replySubject,
+          sentFrom: connection.accountEmail,
+          threadId,
+        },
       });
     }
 
-    return { ok: true, sentFrom: connection.accountEmail, to: lastMsg.fromEmail, subject: replySubject };
+    return {
+      ok: true,
+      sentFrom: connection.accountEmail,
+      to: lastMsg.fromEmail,
+      subject: replySubject,
+    };
   }
 
   // ── Artifact persistence ────────────────────────────────────────────
@@ -2933,7 +3170,11 @@ export class MeriToolsService {
     const toolName =
       format === 'docx' ? 'create_word' : format === 'xlsx' ? 'create_excel' : 'create_powerpoint';
     const kind =
-      format === 'docx' ? 'word_document' : format === 'xlsx' ? 'excel_workbook' : 'powerpoint_deck';
+      format === 'docx'
+        ? 'word_document'
+        : format === 'xlsx'
+          ? 'excel_workbook'
+          : 'powerpoint_deck';
     const filename = `${slugifyDocName(title)}.${format}`;
     const artifact = await this.persistArtifact(ctx, {
       conversationId,
@@ -3018,9 +3259,10 @@ export class MeriToolsService {
     const allowList = validation.allowList!;
     // Optional clock-anchored time-of-day (UTC) + client scope.
     const runAtMinutesUtc = parseTimeOfDayUtc(input.dailyAtUtc);
-    const clientId = typeof input.clientId === 'string' && input.clientId.trim()
-      ? input.clientId.trim()
-      : undefined;
+    const clientId =
+      typeof input.clientId === 'string' && input.clientId.trim()
+        ? input.clientId.trim()
+        : undefined;
     const metadata: Record<string, string | number> = { createdVia: 'schedule_task_tool' };
     if (runAtMinutesUtc != null) metadata.runAtMinutesUtc = runAtMinutesUtc;
     if (clientId) metadata.clientId = clientId;
@@ -3068,9 +3310,10 @@ export class MeriToolsService {
         select: { id: true, name: true, intervalMinutes: true, nextRunAt: true },
       }),
     );
-    const cadence = runAtMinutesUtc != null
-      ? `daily at ${String(Math.floor(runAtMinutesUtc / 60)).padStart(2, '0')}:${String(runAtMinutesUtc % 60).padStart(2, '0')} UTC`
-      : `every ${intervalMinutes} minutes`;
+    const cadence =
+      runAtMinutesUtc != null
+        ? `daily at ${String(Math.floor(runAtMinutesUtc / 60)).padStart(2, '0')}:${String(runAtMinutesUtc % 60).padStart(2, '0')} UTC`
+        : `every ${intervalMinutes} minutes`;
     return {
       tool: 'schedule_task',
       scheduled: true,
@@ -3114,53 +3357,7 @@ export class MeriToolsService {
     return { tool: 'cancel_scheduled_task', canceled: true, taskId };
   }
 
-  // ── Firm operational data (workflows / tasks / strategies / actions) ──
-
-  private async queryWorkflows(ctx: TenantContext, input: Record<string, unknown>) {
-    const instanceId = optionalString(input, 'instanceId', 80);
-    if (instanceId) {
-      const instance = await this.workflows.getInstance(ctx.tenantId, instanceId);
-      return {
-        tool: 'query_workflows',
-        generatedAt: new Date().toISOString(),
-        instance,
-      };
-    }
-
-    const clientId = optionalString(input, 'clientId', 80);
-    const status = optionalString(input, 'status', 40);
-    const limit = clampInt(input.limit, 1, 50, 20);
-    if (clientId) await this.ensureClientVisible(ctx, clientId);
-    if (status && !(Object.values(WorkflowStatus) as string[]).includes(status)) {
-      throw new BadRequestException(
-        `status must be one of: ${Object.values(WorkflowStatus).join(', ')}`,
-      );
-    }
-
-    const instances = await this.workflows.listInstances(ctx.tenantId, {
-      clientId: clientId ?? undefined,
-      status: status ?? undefined,
-    });
-
-    return {
-      tool: 'query_workflows',
-      generatedAt: new Date().toISOString(),
-      total: instances.length,
-      results: instances.slice(0, limit).map((instance) => ({
-        id: instance.id,
-        title: instance.title,
-        status: instance.status,
-        templateSlug: instance.template?.slug ?? null,
-        templateName: instance.template?.name ?? null,
-        clientId: instance.clientId,
-        clientName: instance.client?.name ?? null,
-        submissionDeadline: instance.submissionDeadline,
-        submissionMethod: instance.submissionMethod,
-        completedAt: instance.completedAt,
-        updatedAt: instance.updatedAt,
-      })),
-    };
-  }
+  // ── Firm operational data (tasks / actions) ──
 
   private async queryTasks(ctx: TenantContext, input: Record<string, unknown>) {
     const clientId = optionalString(input, 'clientId', 80);
@@ -3214,65 +3411,15 @@ export class MeriToolsService {
         dueDate: task.dueDate,
         overdue: Boolean(
           task.dueDate &&
-            task.dueDate.getTime() < now &&
-            task.status !== EngagementTaskStatus.done &&
-            task.status !== EngagementTaskStatus.canceled,
+          task.dueDate.getTime() < now &&
+          task.status !== EngagementTaskStatus.done &&
+          task.status !== EngagementTaskStatus.canceled,
         ),
         clientId: task.clientId,
         clientName: task.client?.name ?? null,
         meeting: task.meeting,
         description: summarizeText(task.description, 240),
         createdAt: task.createdAt,
-      })),
-    };
-  }
-
-  private async queryStrategies(ctx: TenantContext, input: Record<string, unknown>) {
-    const deadlinesOnly = optionalBoolean(input, 'deadlinesOnly');
-    if (deadlinesOnly) {
-      const deadlines = await this.strategies.getDeadlines(ctx.tenantId);
-      return {
-        tool: 'query_strategies',
-        generatedAt: new Date().toISOString(),
-        total: deadlines.length,
-        deadlines,
-      };
-    }
-
-    const strategyId = optionalString(input, 'strategyId', 80);
-    if (strategyId) {
-      const strategy = await this.strategies.get(ctx.tenantId, strategyId);
-      return {
-        tool: 'query_strategies',
-        generatedAt: new Date().toISOString(),
-        strategy,
-      };
-    }
-
-    const clientId = optionalString(input, 'clientId', 80);
-    const limit = clampInt(input.limit, 1, 50, 20);
-    if (clientId) await this.ensureClientVisible(ctx, clientId);
-
-    const strategies = await this.strategies.list(ctx.tenantId, {
-      clientId: clientId ?? undefined,
-    });
-
-    return {
-      tool: 'query_strategies',
-      generatedAt: new Date().toISOString(),
-      total: strategies.length,
-      results: strategies.slice(0, limit).map((strategy) => ({
-        id: strategy.id,
-        name: strategy.name,
-        status: strategy.status,
-        fiscalYear: strategy.fiscalYear,
-        clientId: strategy.clientId,
-        clientName: strategy.client?.name ?? null,
-        capability: strategy.capability,
-        targetsCount: strategy.targets.length,
-        instancesCount: strategy._count.instances,
-        description: summarizeText(strategy.description, 300),
-        createdAt: strategy.createdAt,
       })),
     };
   }
@@ -3431,7 +3578,7 @@ export class MeriToolsService {
       generatedAt: new Date().toISOString(),
       clientId,
       total: attachments.length,
-      note: 'Pass a documentId to read a specific file\'s contents.',
+      note: "Pass a documentId to read a specific file's contents.",
       documents: attachments.map((a) => ({
         id: a.id,
         fileName: a.fileName,
@@ -3554,33 +3701,6 @@ export class MeriToolsService {
     };
   }
 
-  private async updateWorkflowField(ctx: TenantContext, input: Record<string, unknown>) {
-    const instanceId = requiredString(input, 'instanceId', 80);
-    const fieldKey = requiredString(input, 'fieldKey', 120);
-    const value = requiredString(input, 'value', 20_000);
-
-    // getInstance 404s outside the tenant, so the read-merge-write below can
-    // never touch another tenant's instance.
-    const instance = await this.workflows.getInstance(ctx.tenantId, instanceId);
-    const existing =
-      instance.formData && typeof instance.formData === 'object' && !Array.isArray(instance.formData)
-        ? (instance.formData as Record<string, unknown>)
-        : {};
-    const formData = { ...existing, [fieldKey]: value };
-
-    const updated = await this.workflows.updateInstance(ctx.tenantId, instanceId, { formData });
-    return {
-      tool: 'update_workflow_field',
-      generatedAt: new Date().toISOString(),
-      updated: true,
-      instanceId,
-      fieldKey,
-      value,
-      instanceStatus: updated.status,
-      instanceTitle: updated.title,
-    };
-  }
-
   /**
    * Write approved values into a client profile (the "Meri writes to the web
    * app" path). Only whitelisted scalar/array fields are accepted; anything
@@ -3642,11 +3762,15 @@ export class MeriToolsService {
     if (writtenFields.length > 0 && Object.keys(provenance).length > 0) {
       const current = await this.clients.get(ctx, clientId);
       const intake =
-        current.intakeData && typeof current.intakeData === 'object' && !Array.isArray(current.intakeData)
+        current.intakeData &&
+        typeof current.intakeData === 'object' &&
+        !Array.isArray(current.intakeData)
           ? (current.intakeData as Record<string, unknown>)
           : {};
       const priorImport =
-        intake.__webImport && typeof intake.__webImport === 'object' && !Array.isArray(intake.__webImport)
+        intake.__webImport &&
+        typeof intake.__webImport === 'object' &&
+        !Array.isArray(intake.__webImport)
           ? (intake.__webImport as Record<string, unknown>)
           : {};
       update.intakeData = {
@@ -3766,7 +3890,9 @@ export class MeriToolsService {
           attendees: { orderBy: { createdAt: 'asc' } },
           preps: { orderBy: { createdAt: 'desc' }, take: 1 },
           tasks: {
-            where: { status: { notIn: [EngagementTaskStatus.done, EngagementTaskStatus.canceled] } },
+            where: {
+              status: { notIn: [EngagementTaskStatus.done, EngagementTaskStatus.canceled] },
+            },
             orderBy: [{ dueDate: 'asc' }, { createdAt: 'desc' }],
             take: 8,
           },
@@ -3864,7 +3990,10 @@ function shortestGraphPath(
         if (nb === to) {
           const path = [nb];
           let cur = nb;
-          while (prev.has(cur)) { cur = prev.get(cur)!; path.unshift(cur); }
+          while (prev.has(cur)) {
+            cur = prev.get(cur)!;
+            path.unshift(cur);
+          }
           return path;
         }
         next.push(nb);
@@ -3882,7 +4011,8 @@ function normalizeToolName(value: string): MeriToolName {
 }
 
 function objectInput(value: unknown): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>;
+  if (value && typeof value === 'object' && !Array.isArray(value))
+    return value as Record<string, unknown>;
   return {};
 }
 
@@ -3929,7 +4059,8 @@ function optionalStringArray(
 }
 
 function clampInt(value: unknown, min: number, max: number, fallback: number): number {
-  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  const parsed =
+    typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(min, Math.min(max, Math.trunc(parsed)));
 }
@@ -4025,7 +4156,9 @@ function renderMeetingBrief(input: {
     .filter(Boolean)
     .join(', ');
   const prep = meeting.preps[0];
-  const tasks = meeting.tasks.map((task) => `- ${task.title}${task.dueDate ? ` (due ${formatDate(task.dueDate)})` : ''}`);
+  const tasks = meeting.tasks.map(
+    (task) => `- ${task.title}${task.dueDate ? ` (due ${formatDate(task.dueDate)})` : ''}`,
+  );
 
   return [
     `# Meeting Brief: ${meeting.subject}`,
@@ -4040,11 +4173,15 @@ function renderMeetingBrief(input: {
     '',
     '## Latest Prep',
     prep
-      ? [prep.summary, ...jsonStringArray(prep.talkingPoints).map((item) => `- ${item}`)].filter(Boolean).join('\n')
+      ? [prep.summary, ...jsonStringArray(prep.talkingPoints).map((item) => `- ${item}`)]
+          .filter(Boolean)
+          .join('\n')
       : 'No saved prep is available for this meeting.',
     '',
     '## Visible Notes',
-    notes.length ? notes.map((note) => `- ${summarizeText(note.body, 500)}`).join('\n') : 'No visible notes.',
+    notes.length
+      ? notes.map((note) => `- ${summarizeText(note.body, 500)}`).join('\n')
+      : 'No visible notes.',
     '',
     '## Visible Debriefs',
     debriefs.length
@@ -4056,7 +4193,9 @@ function renderMeetingBrief(input: {
     '',
     '## Recent Client Threads',
     recentThreads.length
-      ? recentThreads.map((thread) => `- ${thread.subject}: ${summarizeText(thread.snippet, 240)}`).join('\n')
+      ? recentThreads
+          .map((thread) => `- ${thread.subject}: ${summarizeText(thread.snippet, 240)}`)
+          .join('\n')
       : 'No recent authorized mail threads are linked to this client.',
   ]
     .filter((line): line is string => line !== null)
@@ -4075,7 +4214,10 @@ function renderPolicyMemo(input: {
   const summary = objectInput(context.summary);
   const sources = input.researchResults
     .map((result) => objectInput(result))
-    .map((result) => `- ${String(result.title ?? result.id ?? 'Source')}: ${summarizeText(String(result.snippet ?? ''), 280)}`)
+    .map(
+      (result) =>
+        `- ${String(result.title ?? result.id ?? 'Source')}: ${summarizeText(String(result.snippet ?? ''), 280)}`,
+    )
     .join('\n');
 
   return [
@@ -4104,7 +4246,9 @@ function renderPolicyMemo(input: {
 }
 
 function jsonStringArray(value: Prisma.JsonValue): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
 }
 
 function summarizeText(value: unknown, max = 500): string {
@@ -4139,7 +4283,12 @@ function isPrivateOrLocalHost(host: string): boolean {
 
   if (host.startsWith('[') && host.endsWith(']')) {
     const inner = host.slice(1, -1).toLowerCase();
-    return inner === '::1' || inner.startsWith('fc') || inner.startsWith('fd') || inner.startsWith('fe80:');
+    return (
+      inner === '::1' ||
+      inner.startsWith('fc') ||
+      inner.startsWith('fd') ||
+      inner.startsWith('fe80:')
+    );
   }
 
   if (/^\d+\.\d+\.\d+\.\d+$/.test(host)) {
@@ -4199,7 +4348,12 @@ function extractTopLinks(html: string, origin: string, limit: number) {
   let match: RegExpExecArray | null;
   while ((match = regex.exec(html)) && links.length < limit) {
     const href = decodeHtmlEntities((match[1] ?? '').trim());
-    if (!href || href.startsWith('#') || href.startsWith('javascript:') || href.startsWith('mailto:')) {
+    if (
+      !href ||
+      href.startsWith('#') ||
+      href.startsWith('javascript:') ||
+      href.startsWith('mailto:')
+    ) {
       continue;
     }
     let resolved: URL;
@@ -4235,7 +4389,8 @@ async function queryDuckDuckGoNews(query: string, limit: number) {
   const html = await response.text();
 
   const results: Array<{ title: string; url: string; snippet: string | null; source: string }> = [];
-  const resultRegex = /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>|<div[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/div>)?/g;
+  const resultRegex =
+    /<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?(?:<a[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/a>|<div[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/div>)?/g;
   let match: RegExpExecArray | null;
   while ((match = resultRegex.exec(html)) && results.length < limit) {
     const rawHref = decodeHtmlEntities(match[1] ?? '').trim();

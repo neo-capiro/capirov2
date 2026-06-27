@@ -1,15 +1,10 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useUser } from '@clerk/clerk-react';
 import { useQuery } from '@tanstack/react-query';
 import { Empty, Skeleton, Tag } from 'antd';
 import { Link } from 'react-router-dom';
 import { useApi } from '../lib/use-api.js';
 import type { Client } from './clients/clientTypes.js';
-import {
-  STATUS_LABELS,
-  type WorkflowInstance,
-  type WorkflowStatus,
-} from './workspace/workflowTypes.js';
 import type {
   ComingUpItem,
   ComingUpResult,
@@ -118,21 +113,16 @@ export function HomePage() {
     queryKey: ['portfolio-alerts'],
     queryFn: async () => {
       try {
-        return (await api.get<PortfolioAlertsResponse>('/api/intelligence/portfolio-alerts', {
-          params: { limit: 30 },
-        })).data;
+        return (
+          await api.get<PortfolioAlertsResponse>('/api/intelligence/portfolio-alerts', {
+            params: { limit: 30 },
+          })
+        ).data;
       } catch {
         return { alerts: [], total: 0, clientCount: 0, generatedAt: new Date().toISOString() };
       }
     },
     staleTime: 2 * 60 * 1000,
-  });
-
-  // Active workflows across ALL clients (cross-client view).
-  const workflows = useQuery<WorkflowInstance[]>({
-    queryKey: ['workflow-instances'],
-    queryFn: async () => (await api.get<WorkflowInstance[]>('/api/workflows/instances')).data,
-    staleTime: 30_000,
   });
 
   // This-week meetings for the Client Engagement strip. Range = Mon 00:00
@@ -158,9 +148,8 @@ export function HomePage() {
 
   const overnightCount = useMemo(() => {
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    return (recentChanges.data ?? []).filter(
-      (c) => new Date(c.detectedAt).getTime() >= cutoff,
-    ).length;
+    return (recentChanges.data ?? []).filter((c) => new Date(c.detectedAt).getTime() >= cutoff)
+      .length;
   }, [recentChanges.data, recentChanges.dataUpdatedAt]);
 
   const criticalTodayCount = useMemo(
@@ -197,14 +186,6 @@ export function HomePage() {
         <ClientEngagement meetings={meetings.data ?? []} loading={meetings.isLoading} />
         <OutreachDrafts records={outreach.data ?? []} loading={outreach.isLoading} />
       </div>
-
-      <div className="home-grid-2">
-        <OpenWorkflows workflows={workflows.data ?? []} loading={workflows.isLoading} />
-        <UpcomingDeadlines
-          workflows={workflows.data ?? []}
-          loading={workflows.isLoading}
-        />
-      </div>
     </section>
   );
 }
@@ -223,7 +204,13 @@ function GreetingRow({
   const now = new Date();
   const hour = now.getHours();
   const greeting =
-    hour < 5 ? 'Good Evening' : hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
+    hour < 5
+      ? 'Good Evening'
+      : hour < 12
+        ? 'Good Morning'
+        : hour < 17
+          ? 'Good Afternoon'
+          : 'Good Evening';
   const dateLabel = now.toLocaleDateString('en-US', {
     weekday: 'long',
     month: 'long',
@@ -236,15 +223,18 @@ function GreetingRow({
     <header className="home-greet-row">
       <div>
         <h1 className="home-greet">
-          {greeting}{firstName ? `, ${firstName}` : ''}.
+          {greeting}
+          {firstName ? `, ${firstName}` : ''}.
         </h1>
         <p className="home-greet-meta">
-          {dateLabel} · {congress} ·{' '}
-          <b className="num">{overnightCount}</b> new signal{overnightCount === 1 ? '' : 's'} overnight
+          {dateLabel} · {congress} · <b className="num">{overnightCount}</b> new signal
+          {overnightCount === 1 ? '' : 's'} overnight
           {criticalToday > 0 ? (
             <>
               {' · '}
-              <span className="critical">{criticalToday} critical action{criticalToday === 1 ? '' : 's'} today</span>
+              <span className="critical">
+                {criticalToday} critical action{criticalToday === 1 ? '' : 's'} today
+              </span>
             </>
           ) : null}
         </p>
@@ -341,7 +331,9 @@ function NeedsAttention({
     // 3. Program-element budget moves, per-bill stage alerts, high-sev reg/FEC
     for (const c of changes) {
       const sev = c.severity === 'critical' || c.severity === 'notable' ? c.severity : 'info';
-      const names = c.relatedClientIds.map((id) => clientNameById.get(id)).filter(Boolean) as string[];
+      const names = c.relatedClientIds
+        .map((id) => clientNameById.get(id))
+        .filter(Boolean) as string[];
       if (c.source === 'program_element') {
         const pe = c.relatedPeCodes?.[0];
         out.push({
@@ -349,7 +341,7 @@ function NeedsAttention({
           sev,
           eyebrow: `Budget · ${peChangeLabel(c.changeType)}`,
           title: c.title,
-          context: pe ? `PE ${pe}` : names[0] ?? 'Tracked program',
+          context: pe ? `PE ${pe}` : (names[0] ?? 'Tracked program'),
           href: pe ? `/program-elements/${encodeURIComponent(pe)}` : '/intelligence/changes',
           rank: hoursSince(c.detectedAt),
         });
@@ -359,7 +351,8 @@ function NeedsAttention({
           sev,
           eyebrow: `Bill · ${relativeTime(c.detectedAt)}`,
           title: c.title,
-          context: names[0] ?? (c.relatedIssues[0] ? `Issue ${c.relatedIssues[0]}` : 'Tracked bill'),
+          context:
+            names[0] ?? (c.relatedIssues[0] ? `Issue ${c.relatedIssues[0]}` : 'Tracked bill'),
           href: '/intelligence/changes',
           rank: hoursSince(c.detectedAt),
         });
@@ -393,7 +386,10 @@ function NeedsAttention({
         <span className="home-attention-title">Needs Attention</span>
         <span className="meta">
           {items.length} item{items.length === 1 ? '' : 's'} ·{' '}
-          <Link to="/intelligence/changes" style={{ color: 'var(--ink-2)', textDecoration: 'underline' }}>
+          <Link
+            to="/intelligence/changes"
+            style={{ color: 'var(--ink-2)', textDecoration: 'underline' }}
+          >
             see all →
           </Link>
         </span>
@@ -408,7 +404,10 @@ function NeedsAttention({
         </div>
       ) : items.length === 0 ? (
         <div style={{ padding: 24 }}>
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing needs your attention right now." />
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="Nothing needs your attention right now."
+          />
         </div>
       ) : (
         <div className="home-attention-scroll">
@@ -439,10 +438,14 @@ function MeriBrief({
   loading: boolean;
   isError: boolean;
 }) {
-  const dateLabel = (brief?.generatedAt ? new Date(brief.generatedAt) : new Date()).toLocaleDateString(
-    'en-US',
-    { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' },
-  );
+  const dateLabel = (
+    brief?.generatedAt ? new Date(brief.generatedAt) : new Date()
+  ).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
 
   return (
     <div className="home-brief">
@@ -451,7 +454,10 @@ function MeriBrief({
         <span className="home-brief-avatar" aria-hidden>
           <svg viewBox="0 0 24 24" width="22" height="22" fill="#fff" aria-hidden>
             <path d="M12 2.2l1.9 5.6 5.6 1.9-5.6 1.9L12 17.2l-1.9-5.6L4.5 9.7l5.6-1.9z" />
-            <path d="M18.2 13.4l.85 2.45 2.45.85-2.45.85-.85 2.45-.85-2.45-2.45-.85 2.45-.85z" opacity="0.85" />
+            <path
+              d="M18.2 13.4l.85 2.45 2.45.85-2.45.85-.85 2.45-.85-2.45-2.45-.85 2.45-.85z"
+              opacity="0.85"
+            />
           </svg>
         </span>
         <div className="home-brief-id">
@@ -490,25 +496,31 @@ function MeriBrief({
 // The daily-brief API returns plain prose, so this is a best-effort pass;
 // structured highlight spans would require a backend change.
 function renderBrief(text: string): ReactNode[] {
-  const urgent = /comment period|deadline|\bcloses?\b|\bdue\b|in \d+ days?\b|\btoday\b|\btomorrow\b|before EOD/i;
-  const legis = /\badvanced\b|\bpassed\b|\breported\b|\bmark(ed)? ?up\b|to (the )?floor|\bcleared\b|became law|\bvote\b|\bcosponsor/i;
+  const urgent =
+    /comment period|deadline|\bcloses?\b|\bdue\b|in \d+ days?\b|\btoday\b|\btomorrow\b|before EOD/i;
+  const legis =
+    /\badvanced\b|\bpassed\b|\breported\b|\bmark(ed)? ?up\b|to (the )?floor|\bcleared\b|became law|\bvote\b|\bcosponsor/i;
   const sentences = text.match(/[^.!?]+[.!?]*\s*/g) ?? [text];
   return sentences.map((s, i) => {
-    if (urgent.test(s)) return <mark key={i} className="hl-urgent">{s}</mark>;
-    if (legis.test(s)) return <mark key={i} className="hl-note">{s}</mark>;
+    if (urgent.test(s))
+      return (
+        <mark key={i} className="hl-urgent">
+          {s}
+        </mark>
+      );
+    if (legis.test(s))
+      return (
+        <mark key={i} className="hl-note">
+          {s}
+        </mark>
+      );
     return <span key={i}>{s}</span>;
   });
 }
 
 /* ── Client engagement: week strip + per-day meetings (fixed height) ─────── */
 
-function ClientEngagement({
-  meetings,
-  loading,
-}: {
-  meetings: DashMeeting[];
-  loading: boolean;
-}) {
+function ClientEngagement({ meetings, loading }: { meetings: DashMeeting[]; loading: boolean }) {
   const now = useMemo(() => new Date(), []);
   const days = useMemo(() => weekDays(now), [now]);
   const todayKey = dayKey(now);
@@ -576,7 +588,8 @@ function ClientEngagement({
           {dayMeetings.map((m) => {
             const status = meetingStatus(m, now);
             const channel = m.location || (m.source ? prettySource(m.source) : null);
-            const who = m.organizerName || m.attendees.find((a) => a.name)?.name || m.client?.name || '';
+            const who =
+              m.organizerName || m.attendees.find((a) => a.name)?.name || m.client?.name || '';
             return (
               <Link
                 key={m.id}
@@ -584,7 +597,9 @@ function ClientEngagement({
                 className="home-panel-row"
               >
                 <div className="home-panel-row-main">
-                  <span className="home-meeting-when num">{formatCompactTime(new Date(m.startsAt))}</span>
+                  <span className="home-meeting-when num">
+                    {formatCompactTime(new Date(m.startsAt))}
+                  </span>
                   <span className="home-panel-row-title">{m.subject}</span>
                   <span className="home-panel-row-sub">
                     {[who, channel].filter(Boolean).join(' · ') || ' '}
@@ -604,13 +619,7 @@ function ClientEngagement({
 
 /* ── Outreach drafts (fixed height) ─────────────────────────────────────── */
 
-function OutreachDrafts({
-  records,
-  loading,
-}: {
-  records: DashOutreach[];
-  loading: boolean;
-}) {
+function OutreachDrafts({ records, loading }: { records: DashOutreach[]; loading: boolean }) {
   const drafts = useMemo(
     () =>
       [...records]
@@ -637,13 +646,20 @@ function OutreachDrafts({
         </div>
       ) : drafts.length === 0 ? (
         <div className="home-panel-empty">
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No outreach drafts in progress." />
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description="No outreach drafts in progress."
+          />
         </div>
       ) : (
         <div className="home-panel-list">
           {drafts.map((r) => {
             const ready = Boolean(r.body && r.body.trim() && r.recipientCount > 0);
-            const sub = r.subject || (r.recipientCount ? `${r.recipientCount} recipient${r.recipientCount === 1 ? '' : 's'}` : 'No recipients yet');
+            const sub =
+              r.subject ||
+              (r.recipientCount
+                ? `${r.recipientCount} recipient${r.recipientCount === 1 ? '' : 's'}`
+                : 'No recipients yet');
             return (
               <Link
                 key={r.id}
@@ -666,207 +682,6 @@ function OutreachDrafts({
       )}
     </div>
   );
-}
-
-/* ── Open workflows: half-width, grouped by client, progress stepper ─────── */
-
-// The lifecycle a request moves through. The stepper highlights where each
-// workflow currently sits.
-const WF_STAGES: WorkflowStatus[] = ['triage', 'in_progress', 'review', 'submitted', 'complete'];
-
-function OpenWorkflows({
-  workflows,
-  loading,
-}: {
-  workflows: WorkflowInstance[];
-  loading: boolean;
-}) {
-  // Group by client name (A–Z); workflows with no client fall under
-  // "Cross-client". Within a client, most-recently-updated first.
-  const groups = useMemo(() => {
-    const map = new Map<string, WorkflowInstance[]>();
-    for (const w of workflows) {
-      const name = w.client?.name?.trim() || 'Cross-client';
-      const arr = map.get(name) ?? [];
-      arr.push(w);
-      map.set(name, arr);
-    }
-    for (const arr of map.values()) {
-      arr.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt));
-    }
-    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [workflows]);
-
-  return (
-    <div className="home-panel home-panel--fixed">
-      <header className="home-panel-head">
-        <span className="home-panel-title">Open Workflows</span>
-        <span className="open">
-          <Link to="/workspace/workflows">Open Workspace →</Link>
-        </span>
-      </header>
-      {loading ? (
-        <div className="home-panel-list">
-          {[0, 1, 2].map((i) => (
-            <div className="home-panel-row" key={i}>
-              <Skeleton active paragraph={{ rows: 1 }} title={false} />
-            </div>
-          ))}
-        </div>
-      ) : workflows.length === 0 ? (
-        <div className="home-panel-empty">
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No active workflows. Kick one off from Workspace." />
-        </div>
-      ) : (
-        <div className="home-panel-list">
-          {groups.map(([client, items]) => (
-            <div className="home-wf-group" key={client}>
-              <div className="home-wf-group-head">
-                <span className="home-wf-group-name">{client}</span>
-                <span className="home-wf-group-count num">{items.length}</span>
-              </div>
-              {items.map((w) => (
-                <Link
-                  key={w.id}
-                  to={`/workspace/workflows?instance=${encodeURIComponent(w.id)}`}
-                  className="home-wf-row"
-                >
-                  <div className="home-wf-row-top">
-                    <span className="home-wf-row-title">{w.title}</span>
-                    <span className="home-wf-row-stage">{STATUS_LABELS[w.status]}</span>
-                  </div>
-                  <WorkflowProgress status={w.status} />
-                </Link>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function WorkflowProgress({ status }: { status: WorkflowStatus }) {
-  const idx = WF_STAGES.indexOf(status);
-  return (
-    <div className="home-wfp" role="img" aria-label={`Stage: ${STATUS_LABELS[status]}`}>
-      {WF_STAGES.map((s, i) => (
-        <Fragment key={s}>
-          {i > 0 ? <span className={`home-wfp-bar${i <= idx ? ' is-done' : ''}`} aria-hidden /> : null}
-          <span
-            className={
-              'home-wfp-node' +
-              (i < idx ? ' is-done' : '') +
-              (i === idx ? ' is-current' : '')
-            }
-            title={STATUS_LABELS[s]}
-            aria-hidden
-          />
-        </Fragment>
-      ))}
-    </div>
-  );
-}
-
-/* ── Upcoming deadlines (half-width, what's due & when) ──────────────────── */
-
-interface DeadlineItem {
-  id: string;
-  kind: 'Submission';
-  title: string;
-  client: string;
-  due: Date;
-  href: string;
-}
-
-function UpcomingDeadlines({
-  workflows,
-  loading,
-}: {
-  workflows: WorkflowInstance[];
-  loading: boolean;
-}) {
-  const items = useMemo<DeadlineItem[]>(() => {
-    const out: DeadlineItem[] = [];
-
-    // Submission deadlines the team OWES (filings, drafts, deliverables),
-    // excluding already-submitted/complete work. Regulatory comment-period
-    // closings are intentionally NOT shown here — those are external events and
-    // live in Needs Attention so this panel stays a clean "what I owe and when"
-    // list rather than duplicating comment alerts across three surfaces.
-    for (const w of workflows) {
-      if (!w.submissionDeadline) continue;
-      if (w.status === 'submitted' || w.status === 'complete') continue;
-      const due = new Date(w.submissionDeadline);
-      if (Number.isNaN(due.getTime())) continue;
-      out.push({
-        id: `wf-${w.id}`,
-        kind: 'Submission',
-        title: w.title,
-        client: w.client?.name?.trim() || 'Cross-client',
-        due,
-        href: `/workspace/workflows?instance=${encodeURIComponent(w.id)}`,
-      });
-    }
-
-    // Hide anything more than a day past due; soonest first; cap at 10.
-    return out
-      .filter((d) => dayDiff(d.due.toISOString()) >= -1)
-      .sort((a, b) => a.due.getTime() - b.due.getTime())
-      .slice(0, 10);
-  }, [workflows]);
-
-  return (
-    <div className="home-panel home-panel--fixed">
-      <header className="home-panel-head">
-        <span className="home-panel-title">Upcoming Deadlines</span>
-        <span className="open">
-          <Link to="/workspace/workflows">Open Workspace →</Link>
-        </span>
-      </header>
-      {loading ? (
-        <div className="home-panel-list">
-          {[0, 1, 2].map((i) => (
-            <div className="home-panel-row" key={i}>
-              <Skeleton active paragraph={{ rows: 1 }} title={false} />
-            </div>
-          ))}
-        </div>
-      ) : items.length === 0 ? (
-        <div className="home-panel-empty">
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Nothing due in the near term." />
-        </div>
-      ) : (
-        <div className="home-panel-list">
-          {items.map((d) => {
-            const days = dayDiff(d.due.toISOString());
-            const sev = days < 0 ? 'critical' : commentSeverity(days);
-            const color = sev === 'critical' ? 'red' : sev === 'notable' ? 'gold' : 'default';
-            return (
-              <Link key={d.id} to={d.href} className="home-panel-row">
-                <div className="home-panel-row-main">
-                  <span className="home-panel-row-title">{d.title}</span>
-                  <span className="home-panel-row-sub">
-                    {[d.client, d.kind].filter(Boolean).join(' · ')}
-                  </span>
-                </div>
-                <Tag color={color} className="home-panel-tag">
-                  {dueCountdown(days)}
-                </Tag>
-              </Link>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function dueCountdown(days: number): string {
-  if (days < 0) return `${Math.abs(days)}d overdue`;
-  if (days === 0) return 'Today';
-  if (days === 1) return 'Tomorrow';
-  return `${days}d`;
 }
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
@@ -921,12 +736,18 @@ function deadlineLabel(days: number): string {
 
 function peChangeLabel(changeType: string): string {
   switch (changeType) {
-    case 'pe_mark_added': return 'New mark';
-    case 'pe_mark_changed': return 'Mark changed';
-    case 'pe_value_increased': return 'Value up';
-    case 'pe_value_decreased': return 'Value down';
-    case 'pe_milestone_slip': return 'Milestone slip';
-    default: return 'Budget update';
+    case 'pe_mark_added':
+      return 'New mark';
+    case 'pe_mark_changed':
+      return 'Mark changed';
+    case 'pe_value_increased':
+      return 'Value up';
+    case 'pe_value_decreased':
+      return 'Value down';
+    case 'pe_milestone_slip':
+      return 'Milestone slip';
+    default:
+      return 'Budget update';
   }
 }
 
@@ -996,7 +817,11 @@ function dayKey(d: Date): string {
 function selectedDayLabel(key: string): string {
   const [y, m, d] = key.split('-').map((n) => Number.parseInt(n, 10));
   if (y == null || m == null || d == null) return 'this day';
-  return new Date(y, m, d).toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  return new Date(y, m, d).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 function formatCompactTime(d: Date): string {
@@ -1007,17 +832,16 @@ function formatCompactTime(d: Date): string {
   return m === 0 ? `${h12}${mer}` : `${h12}:${String(m).padStart(2, '0')}${mer}`;
 }
 
-function meetingStatus(
-  m: DashMeeting,
-  now: Date,
-): { label: string; color: string } {
+function meetingStatus(m: DashMeeting, now: Date): { label: string; color: string } {
   const ended = new Date(m.endsAt).getTime() < now.getTime();
   if (ended) {
     return m.debriefs.length > 0
       ? { label: 'Debriefed', color: 'green' }
       : { label: 'Debrief needed', color: 'red' };
   }
-  const prepped = m.preps.some((p) => p.status === 'approved' || p.status === 'edited' || p.status === 'generated');
+  const prepped = m.preps.some(
+    (p) => p.status === 'approved' || p.status === 'edited' || p.status === 'generated',
+  );
   return prepped ? { label: 'Prepped', color: 'green' } : { label: 'Prep needed', color: 'red' };
 }
 

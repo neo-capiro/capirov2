@@ -62,13 +62,6 @@ export interface ActiveDraftContext {
   body: string;
 }
 
-/** White-paper editing context so Meri (global drawer) can target the open paper. */
-export interface ActiveWhitePaperContext {
-  instanceId: string;
-  title: string;
-  strategyId?: string | null;
-}
-
 export interface MeriAlert {
   id: string;
   alertType: string;
@@ -121,7 +114,6 @@ let state: ChatState = {
 };
 
 let activeDraft: ActiveDraftContext | null = null;
-let activeWhitePaper: ActiveWhitePaperContext | null = null;
 let listeners: Array<() => void> = [];
 
 function notify(): void {
@@ -213,14 +205,6 @@ export function getActiveDraft(): ActiveDraftContext | null {
   return activeDraft;
 }
 
-export function setActiveWhitePaper(wp: ActiveWhitePaperContext | null): void {
-  activeWhitePaper = wp;
-}
-
-export function getActiveWhitePaper(): ActiveWhitePaperContext | null {
-  return activeWhitePaper;
-}
-
 export function setConversations(conversations: MeriConversation[]): void {
   state = { ...state, conversations };
   notify();
@@ -237,7 +221,8 @@ export function upsertConversation(conversation: MeriConversation): void {
 
 export function removeConversation(conversationId: string): void {
   const conversations = state.conversations.filter((c) => c.id !== conversationId);
-  const activeConversationId = state.activeConversationId === conversationId ? null : state.activeConversationId;
+  const activeConversationId =
+    state.activeConversationId === conversationId ? null : state.activeConversationId;
   const sessionId = state.sessionId === conversationId ? null : state.sessionId;
   const messages = state.activeConversationId === conversationId ? [] : state.messages;
   state = { ...state, conversations, activeConversationId, sessionId, messages };
@@ -255,7 +240,7 @@ export function toggleSessionRail(): void {
 }
 
 export function setAlerts(alerts: MeriAlert[]): void {
-  state = { ...state, alerts, alertsBadge: alerts.filter(a => a.status === 'pending').length };
+  state = { ...state, alerts, alertsBadge: alerts.filter((a) => a.status === 'pending').length };
   notify();
 }
 
@@ -263,8 +248,12 @@ export function dismissAlert(id: string): void {
   // Remove the dismissed alert from the list outright so it disappears
   // immediately (the previous version only relabeled status to 'read', which
   // left it rendered until a full refetch). Badge tracks remaining pending.
-  const remaining = state.alerts.filter(a => a.id !== id);
-  state = { ...state, alerts: remaining, alertsBadge: remaining.filter(a => a.status === 'pending').length };
+  const remaining = state.alerts.filter((a) => a.id !== id);
+  state = {
+    ...state,
+    alerts: remaining,
+    alertsBadge: remaining.filter((a) => a.status === 'pending').length,
+  };
   notify();
 }
 

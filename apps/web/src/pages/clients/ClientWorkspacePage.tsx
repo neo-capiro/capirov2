@@ -342,10 +342,9 @@ export function ClientWorkspacePage() {
               {portfolioSummary.data ? (
                 <>
                   {' · '}
-                  <b className="num">{portfolioSummary.data.openWorkflows}</b> open workflow
-                  {portfolioSummary.data.openWorkflows === 1 ? '' : 's'}
-                  {' · '}
-                  <b className="num">{formatCompactMoney(portfolioSummary.data.ldaSpendQtd)}</b>{' '}
+                  <b className="num">
+                    {formatCompactMoney(portfolioSummary.data.ldaSpendQtd)}
+                  </b>{' '}
                   tracked LDA spend this quarter
                 </>
               ) : null}
@@ -457,10 +456,7 @@ export function ClientWorkspacePage() {
         }}
       />
 
-      <BulkImportClientsModal
-        open={bulkImportOpen}
-        onClose={() => setBulkImportOpen(false)}
-      />
+      <BulkImportClientsModal open={bulkImportOpen} onClose={() => setBulkImportOpen(false)} />
 
       <FirmOnboardingWizard
         open={firmImportOpen}
@@ -541,7 +537,9 @@ const STATUS_PILL_LABEL: Record<string, string> = {
 /** Small status chip shown bottom-left of each client card. */
 function StatusPill({ status }: { status: string }) {
   const key = (status || '').toLowerCase();
-  const label = STATUS_PILL_LABEL[key] ?? (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown');
+  const label =
+    STATUS_PILL_LABEL[key] ??
+    (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown');
   return (
     <span className={`client-status-pill status-${key || 'unknown'}`}>
       <span className="client-status-dot" aria-hidden="true" />
@@ -551,7 +549,10 @@ function StatusPill({ status }: { status: string }) {
 }
 
 /** "Sarah Kim, VP Gov't Affairs", falls back to whichever piece we have. */
-function formatPoc(intake: Record<string, unknown>, fallbackName: string | null): string | undefined {
+function formatPoc(
+  intake: Record<string, unknown>,
+  fallbackName: string | null,
+): string | undefined {
   const name = readText(intake, ['pocName']) ?? fallbackName ?? undefined;
   const title = readText(intake, ['pocTitle']);
   if (name && title) return `${name}, ${title}`;
@@ -608,7 +609,6 @@ function PortfolioStrip({
 }) {
   const cells: Array<{ label: string; value: string; tone?: 'accent' | 'notable' | 'critical' }> = [
     { label: 'Active clients', value: String(summary?.activeClients ?? activeClientsFallback) },
-    { label: 'Open workflows', value: String(summary?.openWorkflows ?? 0), tone: 'accent' },
     {
       label: 'Need attention',
       value: String(summary?.needAttention ?? 0),
@@ -679,8 +679,7 @@ function TargetsDetailRow({ clientId }: { clientId: string }) {
 
   const shown = targets.slice(0, 3);
   const extra = targets.length - shown.length;
-  const titleFor = (chamber: string | null): string =>
-    chamber === 'Senate' ? 'Sen.' : 'Rep.';
+  const titleFor = (chamber: string | null): string => (chamber === 'Senate' ? 'Sen.' : 'Rep.');
   const lastName = (name: string | null, memberId: string): string => {
     const n = name ?? memberId;
     const head = n.includes(', ') ? n.split(', ')[0]! : n;
@@ -717,8 +716,7 @@ function portfolioTags(client: Client): string[] {
   const sectorLabel = sectorLabelFor(client);
   if (sectorLabel) tags.push(sectorLabel);
   for (const track of client.submissionTracks ?? []) {
-    const label =
-      SUBMISSION_TRACK_LABELS[track as SubmissionTrack] ?? track;
+    const label = SUBMISSION_TRACK_LABELS[track as SubmissionTrack] ?? track;
     if (label) tags.push(label);
   }
   const explicit = readList(intake, ['portfolio', 'tags']);

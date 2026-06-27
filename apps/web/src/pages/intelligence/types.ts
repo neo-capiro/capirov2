@@ -6,10 +6,22 @@ export interface LdaDashboard {
   totalRegistrants: number;
   totalLobbyists: number;
   totalIssueCodes: number;
-  topIssueCodes: { code: string; name: string; totalFilings5y: number; totalSpending5y: number | null }[];
+  topIssueCodes: {
+    code: string;
+    name: string;
+    totalFilings5y: number;
+    totalSpending5y: number | null;
+  }[];
   topClients: { id: number; name: string; totalFilings: number; totalSpending: number | null }[];
   topRegistrants: { id: number; name: string; totalFilings: number; totalClients: number }[];
-  recentFilings: { filingUuid: string; filingYear: number; clientName: string; registrantName: string; income: number | null; issueCodes: string[] }[];
+  recentFilings: {
+    filingUuid: string;
+    filingYear: number;
+    clientName: string;
+    registrantName: string;
+    income: number | null;
+    issueCodes: string[];
+  }[];
 }
 
 export interface LdaTrend {
@@ -28,7 +40,13 @@ export interface LdaIssueCode {
 }
 
 export interface LdaIssueDetail extends LdaIssueCode {
-  topClients: { id: number; name: string; state: string | null; totalFilings: number; totalSpending: number | null }[];
+  topClients: {
+    id: number;
+    name: string;
+    state: string | null;
+    totalFilings: number;
+    totalSpending: number | null;
+  }[];
 }
 
 export interface LdaClient {
@@ -120,49 +138,106 @@ export interface PagedResult<T> {
 /* ── Existing lobby-intel / federal-spending types ──────────────────────── */
 
 export interface LobbyIntelSummary {
-  id: string; slug: string; name: string; state: string | null;
-  totalSpending: number | null; filings: number | null; issues: string[];
-  years: number[]; trajectory: string | null; growthRate: number | null;
+  id: string;
+  slug: string;
+  name: string;
+  state: string | null;
+  totalSpending: number | null;
+  filings: number | null;
+  issues: string[];
+  years: number[];
+  trajectory: string | null;
+  growthRate: number | null;
   yearlySpend: { year: number; amount: number }[];
 }
 export interface LobbyIssue {
-  code: string; name: string; totalSpending: number | null;
-  totalFilings: number | null; surgeTrend: string | null;
-  surgePct: number | null; latestQuarter: string | null; latestIncome: number | null;
+  code: string;
+  name: string;
+  totalSpending: number | null;
+  totalFilings: number | null;
+  surgeTrend: string | null;
+  surgePct: number | null;
+  latestQuarter: string | null;
+  latestIncome: number | null;
 }
-export interface LobbyTrendingTopic { word: string; latestCount: number; avgPrior: number | null; growthPct: number | null; kind: string; }
+export interface LobbyTrendingTopic {
+  word: string;
+  latestCount: number;
+  avgPrior: number | null;
+  growthPct: number | null;
+  kind: string;
+}
 export interface LobbyOverview {
-  totalClients: number; totalIssues: number;
-  topSpenders: LobbyIntelSummary[]; exploding: LobbyIntelSummary[];
-  hotIssues: LobbyIssue[]; surgingIssues: LobbyIssue[];
-  trendingTopics: LobbyTrendingTopic[]; lastSyncedAt: string | null;
+  totalClients: number;
+  totalIssues: number;
+  topSpenders: LobbyIntelSummary[];
+  exploding: LobbyIntelSummary[];
+  hotIssues: LobbyIssue[];
+  surgingIssues: LobbyIssue[];
+  trendingTopics: LobbyTrendingTopic[];
+  lastSyncedAt: string | null;
 }
 export interface FederalContractor {
-  id: string; name: string; slug: string | null; uei: string | null;
-  totalContracts: number | null; pctOfAllContracts: number | null;
-  costPerTaxpayer: number | null; category: string | null; subsidiaries: number | null;
+  id: string;
+  name: string;
+  slug: string | null;
+  uei: string | null;
+  totalContracts: number | null;
+  pctOfAllContracts: number | null;
+  costPerTaxpayer: number | null;
+  category: string | null;
+  subsidiaries: number | null;
   rankByContracts: number | null;
   yearlySpend: { year: number; amount: number }[];
   topAgencies: { slug?: string; name: string; amount: number }[];
-  topAwards: { awardId: string; recipient: string; amount: number; agency: string; description?: string; startDate?: string }[];
-  noBidAwards: { awardId: string; recipient: string; amount: number; agency: string; description?: string }[];
+  topAwards: {
+    awardId: string;
+    recipient: string;
+    amount: number;
+    agency: string;
+    description?: string;
+    startDate?: string;
+  }[];
+  noBidAwards: {
+    awardId: string;
+    recipient: string;
+    amount: number;
+    agency: string;
+    description?: string;
+  }[];
   noBidTotal: number | null;
 }
 export interface FederalAgency {
-  slug: string; name: string; abbreviation: string | null; displayName: string | null;
-  budgetAuthority: number | null; obligated: number | null; outlays: number | null;
-  pctOfTotal: number | null; pctContracts: number | null; costPerAmerican: number | null;
-  rankBySpending: number | null; contractsTotal: number | null; grantsTotal: number | null;
+  slug: string;
+  name: string;
+  abbreviation: string | null;
+  displayName: string | null;
+  budgetAuthority: number | null;
+  obligated: number | null;
+  outlays: number | null;
+  pctOfTotal: number | null;
+  pctContracts: number | null;
+  costPerAmerican: number | null;
+  rankBySpending: number | null;
+  contractsTotal: number | null;
+  grantsTotal: number | null;
   yearlyBudget: { year: number; amount: number }[];
   topContractors: { name: string; amount: number }[];
 }
 export interface FederalIndustry {
-  code: string; name: string; slug: string | null;
-  totalSpending: number | null; rank: number | null; pctOfTotal: number | null;
+  code: string;
+  name: string;
+  slug: string | null;
+  totalSpending: number | null;
+  rank: number | null;
+  pctOfTotal: number | null;
 }
 export interface FederalSpendingOverview {
-  totalContractors: number; totalAgencies: number; totalIndustries: number;
-  topContractors: FederalContractor[]; topAgencies: FederalAgency[];
+  totalContractors: number;
+  totalAgencies: number;
+  totalIndustries: number;
+  topContractors: FederalContractor[];
+  topAgencies: FederalAgency[];
   topIndustries: FederalIndustry[];
   topNoBidContractors: { name: string; total: number; count: number }[];
   lastSyncedAt: string | null;
@@ -237,17 +312,30 @@ export interface ClientIntelProfile {
     capabilities: ClientCapabilityRef[];
   };
   lda: {
-    matched: boolean; ldaClientId: number | null; confidence: number;
-    totalFilings: number; totalSpending: number | null; issueCodes: string[];
-    recentFilings: LdaFiling[]; yearlySpend: { year: number; amount: number }[];
+    matched: boolean;
+    ldaClientId: number | null;
+    confidence: number;
+    totalFilings: number;
+    totalSpending: number | null;
+    issueCodes: string[];
+    recentFilings: LdaFiling[];
+    yearlySpend: { year: number; amount: number }[];
   };
   contracting: {
-    matched: boolean; contractorName: string | null; totalContracts: number | null;
-    rankByContracts: number | null; noBidTotal: number | null;
+    matched: boolean;
+    contractorName: string | null;
+    totalContracts: number | null;
+    rankByContracts: number | null;
+    noBidTotal: number | null;
     topAgencies: { name: string; amount: number }[];
     yearlySpend: { year: number; amount: number }[];
   };
-  lobbyIntel: { matched: boolean; trajectory: string | null; growthRate: number | null; totalSpending: number | null };
+  lobbyIntel: {
+    matched: boolean;
+    trajectory: string | null;
+    growthRate: number | null;
+    totalSpending: number | null;
+  };
   relevantBills: { total: number; bills: CongressBill[] };
   activeRegulations: { total: number; documents: FederalRegisterDoc[] };
   competitors: {
@@ -259,10 +347,17 @@ export interface ClientIntelProfile {
 }
 
 export interface IntelligenceChange {
-  id: string; source: string; changeType: string; severity: string;
-  title: string; description: string; relatedClientIds: string[];
-  relatedIssues: string[]; relatedPeCodes?: string[];
-  data: Record<string, unknown>; detectedAt: string;
+  id: string;
+  source: string;
+  changeType: string;
+  severity: string;
+  title: string;
+  description: string;
+  relatedClientIds: string[];
+  relatedIssues: string[];
+  relatedPeCodes?: string[];
+  data: Record<string, unknown>;
+  detectedAt: string;
   consumed?: boolean;
 }
 
@@ -305,7 +400,10 @@ export const PORTFOLIO_ALERT_CATEGORY_LABELS: Record<string, string> = {
 };
 
 export interface CrmClient {
-  id: string; name: string; status: string; description: string | null;
+  id: string;
+  name: string;
+  status: string;
+  description: string | null;
 }
 
 export interface GeneratedBriefing {
@@ -487,7 +585,6 @@ export interface ComingUpResult {
 
 export interface PortfolioSummary {
   activeClients: number;
-  openWorkflows: number;
   needAttention: number;
   ldaSpendQtd: number;
   billsTracked: number;
@@ -501,16 +598,27 @@ export interface ReportCardData {
   tenant: { name: string; logoS3Key: string | null };
   period: { start: string; end: string; label: string };
   activity: {
-    meetings: number; uniqueOffices: string[]; outreachSent: number;
-    outreachOpenRate: number; tasksCompleted: number; debriefsFiled: number; mailThreads: number;
+    meetings: number;
+    uniqueOffices: string[];
+    outreachSent: number;
+    outreachOpenRate: number;
+    tasksCompleted: number;
+    debriefsFiled: number;
+    mailThreads: number;
   };
   intelligence: {
-    billsTracked: number; billsByStatus: Record<string, number>;
-    competitorCount: number; lobbySpend: number; contractWins: number;
+    billsTracked: number;
+    billsByStatus: Record<string, number>;
+    competitorCount: number;
+    lobbySpend: number;
+    contractWins: number;
   };
   outcomes: Array<{
-    title: string; fiscalYear: string; outcomeType: string;
-    capability: string | null; notes: string | null;
+    title: string;
+    fiscalYear: string;
+    outcomeType: string;
+    capability: string | null;
+    notes: string | null;
   }>;
   healthTrend: Array<{ week: string; score: number }>;
   aiForwardLook: string;

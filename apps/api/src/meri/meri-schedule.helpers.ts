@@ -48,9 +48,7 @@ export const DEFAULT_SCHEDULED_TOOL_ALLOWLIST: readonly string[] = [
   'get_acquisition_person',
   // Firm operational data reads (tool-coverage expansion) — read-only, so
   // unattended scheduled research may use them.
-  'query_workflows',
   'query_tasks',
-  'query_strategies',
   'query_action_items',
   'search_tracked_bills',
   'query_regulatory_dockets',
@@ -76,7 +74,6 @@ export const FORBIDDEN_SCHEDULED_TOOLS: ReadonlySet<string> = new Set<string>([
   'scrape_web_page',
   'create_task',
   'update_task',
-  'update_workflow_field',
 ]);
 
 export interface ScheduleValidationResult {
@@ -200,10 +197,7 @@ export function normalizeDeliveryEmail(value: unknown): string | null {
 }
 
 /** Whether a task is due at `now` (enabled + nextRunAt <= now). */
-export function isDue(
-  task: { enabled: boolean; nextRunAt: Date },
-  now: Date,
-): boolean {
+export function isDue(task: { enabled: boolean; nextRunAt: Date }, now: Date): boolean {
   return task.enabled && task.nextRunAt.getTime() <= now.getTime();
 }
 
@@ -216,7 +210,10 @@ export function validateScheduleRequest(input: {
   existingTaskCount: number;
 }): ScheduleValidationResult {
   if (input.existingTaskCount >= MAX_TASKS_PER_TENANT) {
-    return { ok: false, error: `Tenant has reached the maximum of ${MAX_TASKS_PER_TENANT} scheduled tasks.` };
+    return {
+      ok: false,
+      error: `Tenant has reached the maximum of ${MAX_TASKS_PER_TENANT} scheduled tasks.`,
+    };
   }
   const name = typeof input.name === 'string' ? input.name.trim() : '';
   if (!name) return { ok: false, error: 'A task name is required.' };

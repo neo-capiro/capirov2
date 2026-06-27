@@ -64,10 +64,7 @@ export class IntelligenceService {
   // keyed by tenant+user (worklist state is per-user) keeps repeat loads cheap
   // without serving stale alerts for long. Process-local is fine: it is a
   // best-effort read cache, not a source of truth.
-  private readonly portfolioAlertsCache = new Map<
-    string,
-    { expiresAt: number; value: unknown }
-  >();
+  private readonly portfolioAlertsCache = new Map<string, { expiresAt: number; value: unknown }>();
   private static readonly PORTFOLIO_ALERTS_TTL_MS = 2 * 60 * 1000;
 
   // In-flight dedupe: concurrent callers with the same cache key share ONE
@@ -117,7 +114,9 @@ export class IntelligenceService {
       ...sections.snapshot,
       changes7dCount: Math.max(0, Math.trunc(this.asFinite(sections.snapshot.changes7dCount, 0))),
       activity14d: Array.isArray(sections.snapshot.activity14d)
-        ? [...sections.snapshot.activity14d].sort((a, b) => String(a?.date ?? '').localeCompare(String(b?.date ?? '')))
+        ? [...sections.snapshot.activity14d].sort((a, b) =>
+            String(a?.date ?? '').localeCompare(String(b?.date ?? '')),
+          )
         : [],
       topAlerts: Array.isArray(sections.snapshot.topAlerts)
         ? sections.snapshot.topAlerts.map((a: Record<string, unknown>) => ({
@@ -127,7 +126,10 @@ export class IntelligenceService {
             state: a.state === 'acknowledged' ? 'acknowledged' : null,
           }))
         : [],
-      alertsHiddenCount: Math.max(0, Math.trunc(this.asFinite(sections.snapshot.alertsHiddenCount, 0))),
+      alertsHiddenCount: Math.max(
+        0,
+        Math.trunc(this.asFinite(sections.snapshot.alertsHiddenCount, 0)),
+      ),
     };
 
     const financialFootprint = {
@@ -154,7 +156,9 @@ export class IntelligenceService {
                 ...c,
                 count: Math.max(0, Math.trunc(this.asFinite(c?.count, 0))),
                 bills: Array.isArray(c?.bills)
-                  ? [...c.bills].sort((x, y) => this.asFinite(y?.probability, 0) - this.asFinite(x?.probability, 0))
+                  ? [...c.bills].sort(
+                      (x, y) => this.asFinite(y?.probability, 0) - this.asFinite(x?.probability, 0),
+                    )
                   : [],
               }))
           : [],
@@ -168,7 +172,10 @@ export class IntelligenceService {
 
     const relationships = {
       ...sections.relationships,
-      exStafferCount: Math.max(0, Math.trunc(this.asFinite(sections.relationships.exStafferCount, 0))),
+      exStafferCount: Math.max(
+        0,
+        Math.trunc(this.asFinite(sections.relationships.exStafferCount, 0)),
+      ),
       officeRecommender: Array.isArray(sections.relationships.officeRecommender)
         ? [...sections.relationships.officeRecommender]
             .sort((a, b) => this.asFinite(b?.score, 0) - this.asFinite(a?.score, 0))
@@ -445,7 +452,9 @@ export class IntelligenceService {
               select: { alertId: true, state: true, snoozedUntil: true },
             }),
           )
-        : Promise.resolve([] as Array<{ alertId: string; state: string; snoozedUntil: Date | null }>),
+        : Promise.resolve(
+            [] as Array<{ alertId: string; state: string; snoozedUntil: Date | null }>,
+          ),
       // [23] Upcoming hearings & markups matched to this client (next 21d). The
       // legacy Hearings panel was removed from the UI; this surfaces the same
       // signal as time-sensitive alert rows on the Top alerts card.
@@ -453,14 +462,33 @@ export class IntelligenceService {
     ]);
 
     const settledSourceLabels = [
-      'profile', 'lobbyingRoi', 'fecMoneyFlow', 'districtNexus', 'trackedBills',
-      'billRegulationLinks', 'knowledgeGraph', 'engagementHealth', 'exStaffers',
-      'commentAlerts', 'changes', 'hearings', 'meetings', 'mailThreads',
-      'doneTasks', 'debriefs', 'outreachRecords', 'mappingRows', 'districtNexusSpend',
-      'overdueComments', 'competitorLda', 'contractAwards', 'alertStates', 'hearingAlerts',
+      'profile',
+      'lobbyingRoi',
+      'fecMoneyFlow',
+      'districtNexus',
+      'trackedBills',
+      'billRegulationLinks',
+      'knowledgeGraph',
+      'engagementHealth',
+      'exStaffers',
+      'commentAlerts',
+      'changes',
+      'hearings',
+      'meetings',
+      'mailThreads',
+      'doneTasks',
+      'debriefs',
+      'outreachRecords',
+      'mappingRows',
+      'districtNexusSpend',
+      'overdueComments',
+      'competitorLda',
+      'contractAwards',
+      'alertStates',
+      'hearingAlerts',
     ] as const;
 
-    const settle = <T,>(index: number, fallback: T): T => {
+    const settle = <T>(index: number, fallback: T): T => {
       const result = settled[index];
       if (result && result.status === 'fulfilled') return result.value as T;
       const reason = result && result.status === 'rejected' ? result.reason : 'unknown';
@@ -477,39 +505,113 @@ export class IntelligenceService {
     if (settled[0].status === 'rejected') throw settled[0].reason;
     const profile = settled[0].value as Awaited<ReturnType<typeof this.getClientProfile>>;
 
-    const roi = settle(1, { clientId, clientName: client.name, mappedLdaClientId: null, mappedLdaClientIds: [], mappedContractorId: null, lobbySpend: 0, contractWins: 0, roi: null, gap: 0 } as Awaited<ReturnType<typeof this.getLobbyingRoi>>);
-    const fec = settle(2, { clientId, clientName: client.name, mappedEmployer: null, contributionType: 'individual_employer_linked' as const, summary: { totalContributions: 0, totalAmount: 0, committeeCount: 0, candidateCount: 0, memberCount: 0, billCount: 0 }, committees: [], pacGiving: { tracked: false, committees: [], summary: { totalAmount: 0, disbursementCount: 0, recipientCount: 0 } }, disclaimer: FEC_DISCLAIMER } as unknown as Awaited<ReturnType<typeof this.getFecMoneyFlow>>);
-    const district = settle(3, { capabilities: [] } as unknown as Awaited<ReturnType<typeof this.getDistrictNexus>>);
-    const trackedBills = settle(4, { total: 0, issueCodes: [], bills: [] } as Awaited<ReturnType<typeof this.getTrackedBills>>);
-    const regLinks = settle(5, { totalBills: 0, totalRegulations: 0, rails: [] } as unknown as Awaited<ReturnType<typeof this.getBillRegulationLinks>>);
-    const graph = settle(6, { nodes: [], edges: [], resolutionQuality: { avgConfidence: 0, confirmedCount: 0, unconfirmedCount: 0 } } as unknown as Awaited<ReturnType<typeof this.getKnowledgeGraph>>);
-    const health = settle(7, null as unknown as Awaited<ReturnType<typeof this.computeEngagementHealth>>);
-    const exStaffers = settle(8, { lobbyists: [] } as unknown as Awaited<ReturnType<typeof this.getExStaffers>>);
-    const commentAlerts = settle(9, { alerts: [] } as Awaited<ReturnType<typeof this.getCommentPeriodAlerts>>);
+    const roi = settle(1, {
+      clientId,
+      clientName: client.name,
+      mappedLdaClientId: null,
+      mappedLdaClientIds: [],
+      mappedContractorId: null,
+      lobbySpend: 0,
+      contractWins: 0,
+      roi: null,
+      gap: 0,
+    } as Awaited<ReturnType<typeof this.getLobbyingRoi>>);
+    const fec = settle(2, {
+      clientId,
+      clientName: client.name,
+      mappedEmployer: null,
+      contributionType: 'individual_employer_linked' as const,
+      summary: {
+        totalContributions: 0,
+        totalAmount: 0,
+        committeeCount: 0,
+        candidateCount: 0,
+        memberCount: 0,
+        billCount: 0,
+      },
+      committees: [],
+      pacGiving: {
+        tracked: false,
+        committees: [],
+        summary: { totalAmount: 0, disbursementCount: 0, recipientCount: 0 },
+      },
+      disclaimer: FEC_DISCLAIMER,
+    } as unknown as Awaited<ReturnType<typeof this.getFecMoneyFlow>>);
+    const district = settle(3, { capabilities: [] } as unknown as Awaited<
+      ReturnType<typeof this.getDistrictNexus>
+    >);
+    const trackedBills = settle(4, { total: 0, issueCodes: [], bills: [] } as Awaited<
+      ReturnType<typeof this.getTrackedBills>
+    >);
+    const regLinks = settle(5, {
+      totalBills: 0,
+      totalRegulations: 0,
+      rails: [],
+    } as unknown as Awaited<ReturnType<typeof this.getBillRegulationLinks>>);
+    const graph = settle(6, {
+      nodes: [],
+      edges: [],
+      resolutionQuality: { avgConfidence: 0, confirmedCount: 0, unconfirmedCount: 0 },
+    } as unknown as Awaited<ReturnType<typeof this.getKnowledgeGraph>>);
+    const health = settle(
+      7,
+      null as unknown as Awaited<ReturnType<typeof this.computeEngagementHealth>>,
+    );
+    const exStaffers = settle(8, { lobbyists: [] } as unknown as Awaited<
+      ReturnType<typeof this.getExStaffers>
+    >);
+    const commentAlerts = settle(9, { alerts: [] } as Awaited<
+      ReturnType<typeof this.getCommentPeriodAlerts>
+    >);
     const changes = settle(10, [] as Awaited<ReturnType<typeof this.getChanges>>);
-    const hearings = settle(11, [] as Awaited<ReturnType<typeof this.prisma.committeeHearing.findMany>>);
+    const hearings = settle(
+      11,
+      [] as Awaited<ReturnType<typeof this.prisma.committeeHearing.findMany>>,
+    );
     const meetings = settle(12, [] as Array<{ startsAt: Date }>);
     const threads = settle(13, [] as Array<{ lastMessageAt: Date | null }>);
     const doneTasks = settle(14, [] as Array<{ updatedAt: Date }>);
     const debriefs = settle(15, [] as Array<{ createdAt: Date }>);
     const outreachRows = settle(16, [] as Array<{ sentAt: Date }>);
-    const mappingRows = settle(17, [] as Array<{ source: string; confirmed: boolean; externalId: string | null }>);
+    const mappingRows = settle(
+      17,
+      [] as Array<{ source: string; confirmed: boolean; externalId: string | null }>,
+    );
     const districtSpend = settle(18, {
       linked: false as const,
       reason: 'no_confirmed_contracting_mapping',
       contractorNames: [] as string[],
       totalAwards: 0,
       totalAmount: 0,
-      districts: [] as Array<{ district: string; state: string; districtNumber: string; awardCount: number; totalAmount: number; demographics: unknown }>,
+      districts: [] as Array<{
+        district: string;
+        state: string;
+        districtNumber: string;
+        awardCount: number;
+        totalAmount: number;
+        demographics: unknown;
+      }>,
       unmappedAmount: 0,
     } as unknown as Awaited<ReturnType<typeof this.getDistrictNexusSpend>>);
 
     // New alert-source reads (indices 19–22). Each defaults to empty so a failed
     // feeder simply omits its alert type rather than blanking the card.
-    const overdueCommentAlerts = settle(19, [] as Awaited<ReturnType<typeof this.getOverdueCommentAlerts>>);
-    const competitorLdaAlerts = settle(20, [] as Awaited<ReturnType<typeof this.getCompetitorLdaAlerts>>);
-    const contractAwardAlerts = settle(21, [] as Awaited<ReturnType<typeof this.getContractAwardAlerts>>);
-    const alertStateRows = settle(22, [] as Array<{ alertId: string; state: string; snoozedUntil: Date | null }>);
+    const overdueCommentAlerts = settle(
+      19,
+      [] as Awaited<ReturnType<typeof this.getOverdueCommentAlerts>>,
+    );
+    const competitorLdaAlerts = settle(
+      20,
+      [] as Awaited<ReturnType<typeof this.getCompetitorLdaAlerts>>,
+    );
+    const contractAwardAlerts = settle(
+      21,
+      [] as Awaited<ReturnType<typeof this.getContractAwardAlerts>>,
+    );
+    const alertStateRows = settle(
+      22,
+      [] as Array<{ alertId: string; state: string; snoozedUntil: Date | null }>,
+    );
     const hearingAlerts = settle(23, [] as Awaited<ReturnType<typeof this.getHearingAlerts>>);
 
     // Freshness + unresolved metadata derived from the tenant-scoped mapping query.
@@ -596,13 +698,20 @@ export class IntelligenceService {
       .filter((b) => {
         if (!b.latestActionDate) return false;
         const d = new Date(b.latestActionDate);
-        return !Number.isNaN(d.getTime()) && d.getTime() >= day14.getTime() && d.getTime() <= now.getTime();
+        return (
+          !Number.isNaN(d.getTime()) &&
+          d.getTime() >= day14.getTime() &&
+          d.getTime() <= now.getTime()
+        );
       })
       .map((b) => {
         const actionText = (b.latestActionText ?? '').toLowerCase();
         const isHot = /\b(vote|floor|passed|enacted|markup|reported|signed)\b/.test(actionText);
         const whenIso = new Date(b.latestActionDate as Date).toISOString();
-        const daysAgo = Math.max(0, Math.floor((now.getTime() - new Date(whenIso).getTime()) / (1000 * 60 * 60 * 24)));
+        const daysAgo = Math.max(
+          0,
+          Math.floor((now.getTime() - new Date(whenIso).getTime()) / (1000 * 60 * 60 * 24)),
+        );
         return {
           id: `bill:${b.identifier}`,
           type: 'bill_movement',
@@ -639,7 +748,10 @@ export class IntelligenceService {
         };
       }),
       ...changes.map((c) => {
-        const daysAgo = Math.max(0, Math.floor((now.getTime() - c.detectedAt.getTime()) / (1000 * 60 * 60 * 24)));
+        const daysAgo = Math.max(
+          0,
+          Math.floor((now.getTime() - c.detectedAt.getTime()) / (1000 * 60 * 60 * 24)),
+        );
         return {
           id: `change:${c.id}`,
           type: c.changeType,
@@ -708,8 +820,9 @@ export class IntelligenceService {
       .slice(0, 20)
       .map(({ _urgencyScore, _typeRank, ...alert }) => alert);
 
-
-    const criticalDeadlines = commentAlertsForClient.filter((a) => (a.daysToDeadline ?? 999) <= 7).length;
+    const criticalDeadlines = commentAlertsForClient.filter(
+      (a) => (a.daysToDeadline ?? 999) <= 7,
+    ).length;
     const briefingHighlights: Array<{
       label: string;
       value: string | number | null;
@@ -755,10 +868,14 @@ export class IntelligenceService {
 
     const fallbackSummaryParts: string[] = [];
     if (criticalDeadlines > 0) {
-      fallbackSummaryParts.push(`${criticalDeadlines} comment deadline${criticalDeadlines === 1 ? '' : 's'} due within 7 days.`);
+      fallbackSummaryParts.push(
+        `${criticalDeadlines} comment deadline${criticalDeadlines === 1 ? '' : 's'} due within 7 days.`,
+      );
     }
     if (trackedBills.total > 0) {
-      fallbackSummaryParts.push(`${trackedBills.total} bill${trackedBills.total === 1 ? '' : 's'} currently tracked.`);
+      fallbackSummaryParts.push(
+        `${trackedBills.total} bill${trackedBills.total === 1 ? '' : 's'} currently tracked.`,
+      );
     }
     fallbackSummaryParts.push(
       changes.length > 0
@@ -783,7 +900,9 @@ export class IntelligenceService {
       ctaHref: changesInboxHref,
     };
 
-    const billStage = (latestActionText: string | null | undefined): 'introduced' | 'committee' | 'passed' | 'enacted' => {
+    const billStage = (
+      latestActionText: string | null | undefined,
+    ): 'introduced' | 'committee' | 'passed' | 'enacted' => {
       const txt = (latestActionText ?? '').toLowerCase();
       if (/signed|enacted|public law|pl\s+\d/.test(txt)) return 'enacted';
       if (/passed|agreed to/.test(txt)) return 'passed';
@@ -794,15 +913,34 @@ export class IntelligenceService {
     // over real per-bill signals so it varies bill-to-bill instead of one flat number
     // per stage: stage base rate (rough real-world odds of becoming law), a boost for
     // must-pass vehicles (NDAA / appropriations), and momentum (recent action vs stalled).
-    const passageProbability = (bill: { latestActionText: string | null; title?: string | null; latestActionDate?: Date | null }): number => {
+    const passageProbability = (bill: {
+      latestActionText: string | null;
+      title?: string | null;
+      latestActionDate?: Date | null;
+    }): number => {
       const stage = billStage(bill.latestActionText);
       if (stage === 'enacted') return 0.99;
-      const mustPass = /national defense authorization|consolidated appropriations|making appropriations|defense appropriation|continuing appropriations|further (consolidated |additional )?appropriations/i.test(bill.title ?? '');
-      let p = stage === 'passed' ? (mustPass ? 0.85 : 0.4) : stage === 'committee' ? (mustPass ? 0.55 : 0.12) : mustPass ? 0.3 : 0.04;
+      const mustPass =
+        /national defense authorization|consolidated appropriations|making appropriations|defense appropriation|continuing appropriations|further (consolidated |additional )?appropriations/i.test(
+          bill.title ?? '',
+        );
+      let p =
+        stage === 'passed'
+          ? mustPass
+            ? 0.85
+            : 0.4
+          : stage === 'committee'
+            ? mustPass
+              ? 0.55
+              : 0.12
+            : mustPass
+              ? 0.3
+              : 0.04;
       const actionMs = bill.latestActionDate ? bill.latestActionDate.getTime() : null;
       if (actionMs != null) {
         const days = (Date.now() - actionMs) / 86_400_000;
-        if (days > 270) p *= 0.6; // stalled ~9+ months
+        if (days > 270)
+          p *= 0.6; // stalled ~9+ months
         else if (days < 45) p = Math.min(0.95, p * 1.15); // fresh momentum
       }
       return Math.max(0.02, Math.min(0.97, p));
@@ -907,7 +1045,8 @@ export class IntelligenceService {
       effectiveDate: Date | null;
     }): string => {
       const type = (reg.type ?? '').toUpperCase();
-      const commentClosed = reg.commentEndDate != null && reg.commentEndDate.getTime() < now.getTime();
+      const commentClosed =
+        reg.commentEndDate != null && reg.commentEndDate.getTime() < now.getTime();
       const isEffective = reg.effectiveDate != null && reg.effectiveDate.getTime() <= now.getTime();
 
       switch (type) {
@@ -1059,14 +1198,18 @@ export class IntelligenceService {
               awardCount: d.awardCount,
               capability: 'Federal contract spend',
               dataYear:
-                d.demographics && typeof d.demographics === 'object' && 'dataYear' in (d.demographics as Record<string, unknown>)
+                d.demographics &&
+                typeof d.demographics === 'object' &&
+                'dataYear' in (d.demographics as Record<string, unknown>)
                   ? Number((d.demographics as Record<string, unknown>).dataYear) || 0
                   : 0,
             }))
         : [];
     const exStafferNames = exStaffers.lobbyists.map((l) => l.name.toLowerCase());
 
-    const committeeNames = Array.from(new Set(hearingsList.map((h) => h.committeeName).filter(Boolean))).slice(0, 12);
+    const committeeNames = Array.from(
+      new Set(hearingsList.map((h) => h.committeeName).filter(Boolean)),
+    ).slice(0, 12);
 
     // Office Recommender v2 (see OfficeRecommenderService). Ranks congressional
     // offices by committee jurisdiction over the client's tracked bills, issue
@@ -1092,10 +1235,12 @@ export class IntelligenceService {
       : [];
     const recommendedMemberCount = officeRecommendations.length;
 
-
     const scopedGraph = {
       nodes: graph.nodes
-        .filter((n) => ['lobbyist', 'agency', 'registrant'].includes(n.type) || n.id.startsWith('member:'))
+        .filter(
+          (n) =>
+            ['lobbyist', 'agency', 'registrant'].includes(n.type) || n.id.startsWith('member:'),
+        )
         .slice(0, 40),
       edges: graph.edges.slice(0, 80),
       resolutionQuality: graph.resolutionQuality,
@@ -1198,7 +1343,9 @@ export class IntelligenceService {
       },
     });
 
-    const primaryIssueCode = trackedBills.issueCodes.find((code) => typeof code === 'string' && code.trim().length > 0)?.trim();
+    const primaryIssueCode = trackedBills.issueCodes
+      .find((code) => typeof code === 'string' && code.trim().length > 0)
+      ?.trim();
     const competitorIssueHref = primaryIssueCode
       ? `/intelligence/issues/${encodeURIComponent(primaryIssueCode)}`
       : '';
@@ -1514,7 +1661,10 @@ export class IntelligenceService {
 
     let totalIncome = 0;
     let totalExpenses = 0;
-    const byYear = new Map<number, { year: number; income: number; expenses: number; filings: number }>();
+    const byYear = new Map<
+      number,
+      { year: number; income: number; expenses: number; filings: number }
+    >();
     const registrants = new Map<string, { name: string; filings: number; income: number }>();
 
     const filings = rows.map((r) => {
@@ -1523,7 +1673,12 @@ export class IntelligenceService {
       totalIncome += income;
       totalExpenses += expenses;
 
-      const y = byYear.get(r.filingYear) ?? { year: r.filingYear, income: 0, expenses: 0, filings: 0 };
+      const y = byYear.get(r.filingYear) ?? {
+        year: r.filingYear,
+        income: 0,
+        expenses: 0,
+        filings: 0,
+      };
       y.income += income;
       y.expenses += expenses;
       y.filings += 1;
@@ -1562,7 +1717,9 @@ export class IntelligenceService {
       totalExpenses,
       firstFilingYear: years.length ? Math.min(...years) : null,
       latestFilingYear: years.length ? Math.max(...years) : null,
-      registrants: Array.from(registrants.values()).sort((a, b) => b.income - a.income).slice(0, 10),
+      registrants: Array.from(registrants.values())
+        .sort((a, b) => b.income - a.income)
+        .slice(0, 10),
       byYear: Array.from(byYear.values()).sort((a, b) => b.year - a.year),
       filings,
     };
@@ -1655,9 +1812,7 @@ export class IntelligenceService {
       take: 10,
     });
     // Get yearly spend trend
-    const yearlySpend = await this.prisma.$queryRaw<
-      Array<{ year: number; amount: number }>
-    >`
+    const yearlySpend = await this.prisma.$queryRaw<Array<{ year: number; amount: number }>>`
       SELECT filing_year as year, COALESCE(SUM(income), 0)::float as amount
       FROM lda_filing WHERE client_id = ${match.id}
       GROUP BY filing_year ORDER BY filing_year
@@ -1774,10 +1929,7 @@ export class IntelligenceService {
     return terms;
   }
 
-  private async findRelevantBills(
-    issueCodes: string[],
-    fallbackTerms: string[] = [],
-  ) {
+  private async findRelevantBills(issueCodes: string[], fallbackTerms: string[] = []) {
     // Resolve LDA issue codes -> English issue names once, then run
     // embeddings-first bill retrieval with transparent keyword fallback.
     const issueNames: string[] = [];
@@ -1799,29 +1951,24 @@ export class IntelligenceService {
     return this.findRelevantBillsByKeyword(allTerms);
   }
 
-  private async findRelevantBillsByEmbeddings(
-    allTerms: string[],
-  ): Promise<
-    | {
-        total: number;
-        bills: Array<{
-          id: string;
-          congress: number;
-          billType: string;
-          billNumber: string;
-          title: string;
-          introducedDate: Date | null;
-          sponsorName: string | null;
-          sponsorParty: string | null;
-          sponsorState: string | null;
-          latestActionText: string | null;
-          latestActionDate: Date | null;
-          policyArea: string | null;
-          subjects: string[];
-        }>;
-      }
-    | null
-  > {
+  private async findRelevantBillsByEmbeddings(allTerms: string[]): Promise<{
+    total: number;
+    bills: Array<{
+      id: string;
+      congress: number;
+      billType: string;
+      billNumber: string;
+      title: string;
+      introducedDate: Date | null;
+      sponsorName: string | null;
+      sponsorParty: string | null;
+      sponsorState: string | null;
+      latestActionText: string | null;
+      latestActionDate: Date | null;
+      policyArea: string | null;
+      subjects: string[];
+    }>;
+  } | null> {
     const query = normalize(allTerms.join('. '));
     if (query.length < 10) return null;
 
@@ -1831,7 +1978,9 @@ export class IntelligenceService {
       // Relevance floor (cosine similarity): drop weakly-related bills so the
       // linker doesn't surface tangential matches. Mirrors the tracked-bills floor.
       const SIMILARITY_FLOOR = 0.65;
-      const candidateRows = await this.prisma.$queryRawUnsafe<Array<{ source_id: string; score: number }>>(
+      const candidateRows = await this.prisma.$queryRawUnsafe<
+        Array<{ source_id: string; score: number }>
+      >(
         `SELECT ce.source_id,
                 (1 - (ce.embedding <=> $1::vector))::float8 AS score
            FROM context_embeddings ce
@@ -1912,9 +2061,7 @@ export class IntelligenceService {
     // Whole-word keyword fallback (legacy source). Keeps behavior stable when
     // embeddings are unavailable or backfill has not populated bill vectors.
     const lowerTerms = allTerms.map((n) => n.toLowerCase());
-    const wordPatterns = lowerTerms.map(
-      (n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`,
-    );
+    const wordPatterns = lowerTerms.map((n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`);
 
     const countRows = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
       SELECT COUNT(DISTINCT cb.id)::bigint AS total
@@ -1989,10 +2136,7 @@ export class IntelligenceService {
    * names like "Defense" rarely equal FR topic strings like "Defense department"
    * verbatim, so it returned zero rows even for clients with obvious matches.
    */
-  private async findActiveRegulations(
-    issueCodes: string[],
-    fallbackTerms: string[] = [],
-  ) {
+  private async findActiveRegulations(issueCodes: string[], fallbackTerms: string[] = []) {
     const issueNames: string[] = [];
     if (issueCodes.length) {
       const nameRows = await this.prisma.$queryRaw<Array<{ name: string }>>`
@@ -2004,9 +2148,7 @@ export class IntelligenceService {
     if (!allTerms.length) return { total: 0, documents: [] };
 
     const lowerTerms = allTerms.map((n) => n.toLowerCase());
-    const wordPatterns = lowerTerms.map(
-      (n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`,
-    );
+    const wordPatterns = lowerTerms.map((n) => `\\m${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\M`);
 
     // Separate COUNT so total isn't truncated by the LIMIT 50 page.
     const countRows = await this.prisma.$queryRaw<Array<{ total: bigint }>>`
@@ -2180,10 +2322,7 @@ export class IntelligenceService {
     } else {
       // Either touches one of this tenant's clients, or is tenant-neutral
       // (no related clients at all = general market signal).
-      where.OR = [
-        { relatedClientIds: { hasSome: ids } },
-        { relatedClientIds: { isEmpty: true } },
-      ];
+      where.OR = [{ relatedClientIds: { hasSome: ids } }, { relatedClientIds: { isEmpty: true } }];
     }
 
     return this.prisma.intelligenceChange.findMany({
@@ -2551,7 +2690,10 @@ export class IntelligenceService {
   /** Lobbying $ vs Contract $ ROI for a client via confirmed mappings */
   async getLobbyingRoi(clientId: string, tenantId: string) {
     const client = await this.prisma.withTenant(tenantId, (tx) =>
-      tx.client.findFirst({ where: { id: clientId }, select: { id: true, name: true, ldaClientIds: true } }),
+      tx.client.findFirst({
+        where: { id: clientId },
+        select: { id: true, name: true, ldaClientIds: true },
+      }),
     );
     if (!client) {
       return {
@@ -2628,14 +2770,21 @@ export class IntelligenceService {
    * tracked:false when no committee is mapped yet, so the UI distinguishes
    * "no PAC mapped" from "PAC mapped, no giving". Read-only, tenant-scoped via mapping.
    */
-  private async getPacGiving(clientId: string, tenantId: string): Promise<{
+  private async getPacGiving(
+    clientId: string,
+    tenantId: string,
+  ): Promise<{
     tracked: boolean;
     committees: Array<{
       committeeId: string;
       committeeName: string | null;
       totalAmount: number;
       disbursementCount: number;
-      recipients: Array<{ recipientName: string; candidateName: string | null; totalAmount: number }>;
+      recipients: Array<{
+        recipientName: string;
+        candidateName: string | null;
+        totalAmount: number;
+      }>;
     }>;
     summary: { totalAmount: number; disbursementCount: number; recipientCount: number };
   }> {
@@ -2645,9 +2794,15 @@ export class IntelligenceService {
         select: { externalId: true },
       }),
     );
-    const committeeIds = Array.from(new Set(committeeMappings.map((m) => m.externalId.trim()).filter(Boolean)));
+    const committeeIds = Array.from(
+      new Set(committeeMappings.map((m) => m.externalId.trim()).filter(Boolean)),
+    );
     if (committeeIds.length === 0) {
-      return { tracked: false, committees: [], summary: { totalAmount: 0, disbursementCount: 0, recipientCount: 0 } };
+      return {
+        tracked: false,
+        committees: [],
+        summary: { totalAmount: 0, disbursementCount: 0, recipientCount: 0 },
+      };
     }
 
     const rows = await this.prisma.$queryRaw<
@@ -2681,7 +2836,11 @@ export class IntelligenceService {
         committeeName: string | null;
         totalAmount: number;
         disbursementCount: number;
-        recipients: Array<{ recipientName: string; candidateName: string | null; totalAmount: number }>;
+        recipients: Array<{
+          recipientName: string;
+          candidateName: string | null;
+          totalAmount: number;
+        }>;
       }
     >();
     for (const r of rows) {
@@ -2695,7 +2854,11 @@ export class IntelligenceService {
       g.totalAmount += r.total_amount;
       g.disbursementCount += r.disbursement_count;
       if (r.recipient_name) {
-        g.recipients.push({ recipientName: r.recipient_name, candidateName: r.candidate_name, totalAmount: r.total_amount });
+        g.recipients.push({
+          recipientName: r.recipient_name,
+          candidateName: r.candidate_name,
+          totalAmount: r.total_amount,
+        });
       }
       grouped.set(r.committee_id, g);
     }
@@ -2819,7 +2982,9 @@ export class IntelligenceService {
     const candidateNamesLower = candidateNames.map((n) => n.toLowerCase());
 
     const memberRows = candidateNames.length
-      ? await this.prisma.$queryRaw<Array<{ candidate_name: string; member_name: string; bill_count: number }>>`
+      ? await this.prisma.$queryRaw<
+          Array<{ candidate_name: string; member_name: string; bill_count: number }>
+        >`
           SELECT
             x.candidate_name,
             cb.sponsor_name AS member_name,
@@ -2840,7 +3005,9 @@ export class IntelligenceService {
     // always 0.) Keyed by sponsor name so bills attach to the committees that
     // funded that member.
     const sponsoredBillRows = candidateNamesLower.length
-      ? await this.prisma.$queryRaw<Array<{ sponsor_name: string; bill_id: string; bill_title: string }>>`
+      ? await this.prisma.$queryRaw<
+          Array<{ sponsor_name: string; bill_id: string; bill_title: string }>
+        >`
           SELECT cb.sponsor_name, cb.id AS bill_id, cb.title AS bill_title
           FROM congress_bill cb
           WHERE LOWER(cb.sponsor_name) = ANY(${candidateNamesLower}::text[])
@@ -2857,7 +3024,10 @@ export class IntelligenceService {
       memberByCandidate.set(key, arr);
     }
 
-    const billsBySponsor = new Map<string, Array<{ billId: string; billTitle: string; sponsorName: string | null }>>();
+    const billsBySponsor = new Map<
+      string,
+      Array<{ billId: string; billTitle: string; sponsorName: string | null }>
+    >();
     for (const r of sponsoredBillRows) {
       const key = (r.sponsor_name ?? '').toLowerCase();
       if (!key) continue;
@@ -2922,7 +3092,10 @@ export class IntelligenceService {
       .map((g) => {
         // A committee's associated bills = the bills sponsored by the candidates
         // it funded (deduped across this committee's candidates).
-        const billsForCommittee = new Map<string, { billId: string; billTitle: string; sponsorName: string | null }>();
+        const billsForCommittee = new Map<
+          string,
+          { billId: string; billTitle: string; sponsorName: string | null }
+        >();
         for (const cand of g.candidates) {
           for (const b of billsBySponsor.get(cand.candidateName.toLowerCase()) ?? []) {
             billsForCommittee.set(b.billId, b);
@@ -3145,7 +3318,8 @@ export class IntelligenceService {
         label: 'Specific capability tags',
         done: capWithTags > 0,
         weight: 2,
-        impact: 'Specific tags (e.g. "hypersonics") sharpen which bills surface; vague tags add noise.',
+        impact:
+          'Specific tags (e.g. "hypersonics") sharpen which bills surface; vague tags add noise.',
         hint: 'Add specific tags to each capability; acronyms like EW/C2/ISR auto-expand.',
       },
       {
@@ -3209,9 +3383,7 @@ export class IntelligenceService {
         select: { externalId: true, externalName: true },
       }),
     );
-    const ldaIds = ldaMappings
-      .map((m) => Number(m.externalId))
-      .filter((n) => Number.isFinite(n));
+    const ldaIds = ldaMappings.map((m) => Number(m.externalId)).filter((n) => Number.isFinite(n));
 
     const ldaCodes: string[] = [];
     if (ldaIds.length) {
@@ -3271,7 +3443,8 @@ export class IntelligenceService {
       codes: allCodes.map((code) => ({
         code,
         name: names[code] ?? null,
-        source: ldaSet.has(code) && overrideSet.has(code) ? 'both' : ldaSet.has(code) ? 'lda' : 'manual',
+        source:
+          ldaSet.has(code) && overrideSet.has(code) ? 'both' : ldaSet.has(code) ? 'lda' : 'manual',
       })),
       overrideCodeCount: overrideSet.size,
       capabilityTagCount,
@@ -3333,9 +3506,7 @@ export class IntelligenceService {
 
     const ldaCodes: string[] = [];
     if (ldaMappings.length) {
-      const ldaIds = ldaMappings
-        .map((m) => Number(m.externalId))
-        .filter((n) => Number.isFinite(n));
+      const ldaIds = ldaMappings.map((m) => Number(m.externalId)).filter((n) => Number.isFinite(n));
       if (ldaIds.length) {
         // DISTINCT unnest = the union of issue codes across every confirmed
         // registrant variant for this client.
@@ -3591,7 +3762,13 @@ export class IntelligenceService {
       tx.trackedBill.upsert({
         where: { clientId_billId: { clientId, billId: trimmedId } },
         update: { note: note ?? undefined },
-        create: { tenantId, clientId, billId: trimmedId, note: note ?? null, createdBy: createdBy ?? null },
+        create: {
+          tenantId,
+          clientId,
+          billId: trimmedId,
+          note: note ?? null,
+          createdBy: createdBy ?? null,
+        },
       }),
     );
   }
@@ -3607,21 +3784,18 @@ export class IntelligenceService {
   private async findTrackedBillsByEmbeddings(
     allTerms: string[],
     similarityFloor: number = TRACKED_BILL_SIMILARITY_FLOOR,
-  ): Promise<
-    | {
-        total: number;
-        bills: Array<{
-          identifier: string;
-          title: string;
-          latestActionDate: Date | null;
-          latestActionText: string | null;
-          sponsorName: string | null;
-          sponsorParty: string | null;
-          subjectNames: string[];
-        }>;
-      }
-    | null
-  > {
+  ): Promise<{
+    total: number;
+    bills: Array<{
+      identifier: string;
+      title: string;
+      latestActionDate: Date | null;
+      latestActionText: string | null;
+      sponsorName: string | null;
+      sponsorParty: string | null;
+      subjectNames: string[];
+    }>;
+  } | null> {
     const query = normalize(allTerms.join('. '));
     if (query.length < 10) return null;
 
@@ -3635,7 +3809,9 @@ export class IntelligenceService {
       // default keeps genuinely on-topic bills while dropping tangential matches,
       // and a tighter floor is used for thin-signal (no-capability) clients.
       const SIMILARITY_FLOOR = similarityFloor;
-      const candidateRows = await this.prisma.$queryRawUnsafe<Array<{ source_id: string; score: number }>>(
+      const candidateRows = await this.prisma.$queryRawUnsafe<
+        Array<{ source_id: string; score: number }>
+      >(
         `SELECT ce.source_id,
                 (1 - (ce.embedding <=> $1::vector))::float8 AS score
            FROM context_embeddings ce
@@ -3836,7 +4012,7 @@ export class IntelligenceService {
       `;
 
       for (const row of sharedRows) {
-        for (const regId of (row.shared_registrant_ids ?? [])) {
+        for (const regId of row.shared_registrant_ids ?? []) {
           if (!sharedByRegistrantId.has(regId)) sharedByRegistrantId.set(regId, []);
           sharedByRegistrantId.get(regId)!.push(row.lobbyist_name);
         }
@@ -3853,7 +4029,8 @@ export class IntelligenceService {
         totalIncome: r.total_income ?? 0,
         isNewEntrant: r.first_filing_date !== null && r.first_filing_date >= ninetyDaysAgo,
         firstFilingDate: r.first_filing_date?.toISOString() ?? null,
-        sharedLobbyists: r.registrant_id != null ? (sharedByRegistrantId.get(r.registrant_id) ?? []) : [],
+        sharedLobbyists:
+          r.registrant_id != null ? (sharedByRegistrantId.get(r.registrant_id) ?? []) : [],
       })),
     };
   }
@@ -3866,37 +4043,85 @@ export class IntelligenceService {
 
     const meetingWhere: Record<string, unknown> = { clientId, startsAt: { gte: sevenDaysAgo } };
     const mailWhere: Record<string, unknown> = { clientId, lastMessageAt: { gte: sevenDaysAgo } };
-    const taskWhere: Record<string, unknown> = { clientId, status: EngagementTaskStatus.done, updatedAt: { gte: sevenDaysAgo } };
+    const taskWhere: Record<string, unknown> = {
+      clientId,
+      status: EngagementTaskStatus.done,
+      updatedAt: { gte: sevenDaysAgo },
+    };
     const debriefWhere: Record<string, unknown> = { clientId, createdAt: { gte: sevenDaysAgo } };
     const outreachWhere: Record<string, unknown> = { clientId, sentAt: { gte: sevenDaysAgo } };
 
-    const priorMeetingWhere: Record<string, unknown> = { clientId, startsAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } };
-    const priorMailWhere: Record<string, unknown> = { clientId, lastMessageAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } };
-    const priorTaskWhere: Record<string, unknown> = { clientId, status: EngagementTaskStatus.done, updatedAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } };
-    const priorDebriefWhere: Record<string, unknown> = { clientId, createdAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } };
-    const priorOutreachWhere: Record<string, unknown> = { clientId, sentAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo } };
+    const priorMeetingWhere: Record<string, unknown> = {
+      clientId,
+      startsAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo },
+    };
+    const priorMailWhere: Record<string, unknown> = {
+      clientId,
+      lastMessageAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo },
+    };
+    const priorTaskWhere: Record<string, unknown> = {
+      clientId,
+      status: EngagementTaskStatus.done,
+      updatedAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo },
+    };
+    const priorDebriefWhere: Record<string, unknown> = {
+      clientId,
+      createdAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo },
+    };
+    const priorOutreachWhere: Record<string, unknown> = {
+      clientId,
+      sentAt: { gte: fourteenDaysAgo, lt: sevenDaysAgo },
+    };
 
-    const [meetings, emails, tasksCompleted, debriefs, outreachSent, priorMeetings, priorEmails, priorTasks, priorDebriefs, priorOutreach] =
-      await Promise.all([
-        this.prisma.withTenant(tenantId, (tx) => tx.meeting.count({ where: meetingWhere })),
-        this.prisma.withTenant(tenantId, (tx) => tx.mailThread.count({ where: mailWhere })),
-        this.prisma.withTenant(tenantId, (tx) => tx.engagementTask.count({ where: taskWhere })),
-        this.prisma.withTenant(tenantId, (tx) => tx.meetingDebrief.count({ where: debriefWhere })),
-        this.prisma.withTenant(tenantId, (tx) => tx.outreachRecord.count({ where: outreachWhere })),
-        this.prisma.withTenant(tenantId, (tx) => tx.meeting.count({ where: priorMeetingWhere })),
-        this.prisma.withTenant(tenantId, (tx) => tx.mailThread.count({ where: priorMailWhere })),
-        this.prisma.withTenant(tenantId, (tx) => tx.engagementTask.count({ where: priorTaskWhere })),
-        this.prisma.withTenant(tenantId, (tx) => tx.meetingDebrief.count({ where: priorDebriefWhere })),
-        this.prisma.withTenant(tenantId, (tx) => tx.outreachRecord.count({ where: priorOutreachWhere })),
-      ]);
+    const [
+      meetings,
+      emails,
+      tasksCompleted,
+      debriefs,
+      outreachSent,
+      priorMeetings,
+      priorEmails,
+      priorTasks,
+      priorDebriefs,
+      priorOutreach,
+    ] = await Promise.all([
+      this.prisma.withTenant(tenantId, (tx) => tx.meeting.count({ where: meetingWhere })),
+      this.prisma.withTenant(tenantId, (tx) => tx.mailThread.count({ where: mailWhere })),
+      this.prisma.withTenant(tenantId, (tx) => tx.engagementTask.count({ where: taskWhere })),
+      this.prisma.withTenant(tenantId, (tx) => tx.meetingDebrief.count({ where: debriefWhere })),
+      this.prisma.withTenant(tenantId, (tx) => tx.outreachRecord.count({ where: outreachWhere })),
+      this.prisma.withTenant(tenantId, (tx) => tx.meeting.count({ where: priorMeetingWhere })),
+      this.prisma.withTenant(tenantId, (tx) => tx.mailThread.count({ where: priorMailWhere })),
+      this.prisma.withTenant(tenantId, (tx) => tx.engagementTask.count({ where: priorTaskWhere })),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.meetingDebrief.count({ where: priorDebriefWhere }),
+      ),
+      this.prisma.withTenant(tenantId, (tx) =>
+        tx.outreachRecord.count({ where: priorOutreachWhere }),
+      ),
+    ]);
 
     const expectedWeeklyPace = 100;
-    const score = Math.min(100, Math.round(
-      (meetings * 15 + emails * 2 + tasksCompleted * 10 + debriefs * 20 + outreachSent * 5) / expectedWeeklyPace * 100,
-    ));
-    const priorScore = Math.min(100, Math.round(
-      (priorMeetings * 15 + priorEmails * 2 + priorTasks * 10 + priorDebriefs * 20 + priorOutreach * 5) / expectedWeeklyPace * 100,
-    ));
+    const score = Math.min(
+      100,
+      Math.round(
+        ((meetings * 15 + emails * 2 + tasksCompleted * 10 + debriefs * 20 + outreachSent * 5) /
+          expectedWeeklyPace) *
+          100,
+      ),
+    );
+    const priorScore = Math.min(
+      100,
+      Math.round(
+        ((priorMeetings * 15 +
+          priorEmails * 2 +
+          priorTasks * 10 +
+          priorDebriefs * 20 +
+          priorOutreach * 5) /
+          expectedWeeklyPace) *
+          100,
+      ),
+    );
 
     const trend: 'improving' | 'stable' | 'declining' =
       score > priorScore + 5 ? 'improving' : score < priorScore - 5 ? 'declining' : 'stable';
@@ -3965,7 +4190,9 @@ export class IntelligenceService {
     }> = [];
 
     for (const doc of docs) {
-      const daysToDeadline = Math.ceil((doc.commentEndDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+      const daysToDeadline = Math.ceil(
+        (doc.commentEndDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+      );
       const urgencyMultiplier = daysToDeadline < 3 ? 2.0 : daysToDeadline <= 7 ? 1.5 : 1.0;
       const severity = daysToDeadline < 3 ? 'critical' : daysToDeadline <= 7 ? 'notable' : 'info';
       const agencies = doc.agencyNames as string[];
@@ -4007,14 +4234,18 @@ export class IntelligenceService {
           const capKeywords = new Set<string>();
           for (const cap of client.capabilities) {
             if (cap.sector) capKeywords.add(cap.sector.toLowerCase());
-            if (cap.name) cap.name.split(/\s+/).filter((w) => w.length > 3).forEach((w) => capKeywords.add(w.toLowerCase()));
+            if (cap.name)
+              cap.name
+                .split(/\s+/)
+                .filter((w) => w.length > 3)
+                .forEach((w) => capKeywords.add(w.toLowerCase()));
             const tags = Array.isArray(cap.tags) ? (cap.tags as unknown[]) : [];
             for (const t of tags) {
               if (typeof t === 'string' && t.length > 3) capKeywords.add(t.toLowerCase());
             }
           }
 
-          for (const topic of (doc.topics as string[])) {
+          for (const topic of doc.topics as string[]) {
             const topicLower = topic.toLowerCase();
             for (const kw of capKeywords) {
               if (topicLower.includes(kw) || kw.includes(topicLower)) {
@@ -4102,7 +4333,9 @@ export class IntelligenceService {
     tenantId: string,
     now: Date,
     until: Date,
-    precomputedTracked?: Promise<Awaited<ReturnType<typeof this.getTrackedBills>>> | Awaited<ReturnType<typeof this.getTrackedBills>>,
+    precomputedTracked?:
+      | Promise<Awaited<ReturnType<typeof this.getTrackedBills>>>
+      | Awaited<ReturnType<typeof this.getTrackedBills>>,
   ): Promise<AlertRow[]> {
     try {
       // Tracked bills give us the bill identifiers + the committees of jurisdiction
@@ -4151,7 +4384,9 @@ export class IntelligenceService {
       }
       return out;
     } catch (err) {
-      this.logger.warn(`getHearingAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn(
+        `getHearingAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return [];
     }
   }
@@ -4195,7 +4430,11 @@ export class IntelligenceService {
       if (client.sectorTag) capKeywords.add(String(client.sectorTag).toLowerCase());
       for (const cap of client.capabilities) {
         if (cap.sector) capKeywords.add(cap.sector.toLowerCase());
-        if (cap.name) cap.name.split(/\s+/).filter((w) => w.length > 3).forEach((w) => capKeywords.add(w.toLowerCase()));
+        if (cap.name)
+          cap.name
+            .split(/\s+/)
+            .filter((w) => w.length > 3)
+            .forEach((w) => capKeywords.add(w.toLowerCase()));
         const tags = Array.isArray(cap.tags) ? (cap.tags as unknown[]) : [];
         for (const t of tags) {
           if (typeof t === 'string' && t.length > 3) capKeywords.add(t.toLowerCase());
@@ -4217,14 +4456,19 @@ export class IntelligenceService {
           for (const topic of topics) {
             const tl = topic.toLowerCase();
             for (const kw of capKeywords) {
-              if (tl.includes(kw) || kw.includes(tl)) { relevant = true; break; }
+              if (tl.includes(kw) || kw.includes(tl)) {
+                relevant = true;
+                break;
+              }
             }
             if (relevant) break;
           }
         }
         if (!relevant) continue;
 
-        const days = Math.ceil((doc.commentEndDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)); // negative
+        const days = Math.ceil(
+          (doc.commentEndDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+        ); // negative
         out.push({
           id: `comment_overdue:${doc.id}`,
           type: 'comment_overdue',
@@ -4241,7 +4485,9 @@ export class IntelligenceService {
       }
       return out.slice(0, 5);
     } catch (err) {
-      this.logger.warn(`getOverdueCommentAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn(
+        `getOverdueCommentAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return [];
     }
   }
@@ -4305,7 +4551,9 @@ export class IntelligenceService {
       }
       return out;
     } catch (err) {
-      this.logger.warn(`getCompetitorLdaAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn(
+        `getCompetitorLdaAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return [];
     }
   }
@@ -4360,7 +4608,9 @@ export class IntelligenceService {
       }
       return out;
     } catch (err) {
-      this.logger.warn(`getContractAwardAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`);
+      this.logger.warn(
+        `getContractAwardAlerts failed for ${clientId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return [];
     }
   }
@@ -4414,8 +4664,14 @@ export class IntelligenceService {
         where: { clientId },
         orderBy: { createdAt: 'desc' },
         select: {
-          id: true, title: true, body: true, sourceAlertId: true,
-          sourceType: true, createdBy: true, createdAt: true, updatedAt: true,
+          id: true,
+          title: true,
+          body: true,
+          sourceAlertId: true,
+          sourceType: true,
+          createdBy: true,
+          createdAt: true,
+          updatedAt: true,
         },
       }),
     );
@@ -4425,7 +4681,12 @@ export class IntelligenceService {
     tenantId: string,
     clientId: string,
     userId: string,
-    input: { title: string; body: string; sourceAlertId?: string | null; sourceType?: string | null },
+    input: {
+      title: string;
+      body: string;
+      sourceAlertId?: string | null;
+      sourceType?: string | null;
+    },
   ) {
     const client = await this.prisma.withTenant(tenantId, (tx) =>
       tx.client.findFirst({ where: { id: clientId }, select: { id: true } }),
@@ -4443,8 +4704,14 @@ export class IntelligenceService {
           sourceType: input.sourceType ?? 'manual',
         },
         select: {
-          id: true, title: true, body: true, sourceAlertId: true,
-          sourceType: true, createdBy: true, createdAt: true, updatedAt: true,
+          id: true,
+          title: true,
+          body: true,
+          sourceAlertId: true,
+          sourceType: true,
+          createdBy: true,
+          createdAt: true,
+          updatedAt: true,
         },
       }),
     );
@@ -4456,7 +4723,6 @@ export class IntelligenceService {
     );
     return { ok: true };
   }
-
 
   /** Knowledge graph nodes + edges for hub-and-spoke visualization (powered by kg_walk view/function layer) */
   async getKnowledgeGraph(clientId: string, tenantId: string) {
@@ -4547,13 +4813,11 @@ export class IntelligenceService {
       .filter((n) => Number.isFinite(n));
     if (ldaClientIds.length) {
       lookups.push(
-        this.prisma
-          .$queryRaw<Array<{ id: number; name: string }>>`
+        this.prisma.$queryRaw<Array<{ id: number; name: string }>>`
             SELECT id, name FROM lda_client WHERE id = ANY(${ldaClientIds}::int[])
-          `
-          .then((rows) => {
-            for (const r of rows) labelByNodeKey.set(`lda_client:${r.id}`, r.name);
-          }),
+          `.then((rows) => {
+          for (const r of rows) labelByNodeKey.set(`lda_client:${r.id}`, r.name);
+        }),
       );
     }
 
@@ -4562,13 +4826,11 @@ export class IntelligenceService {
       .filter((n) => Number.isFinite(n));
     if (ldaRegistrantIds.length) {
       lookups.push(
-        this.prisma
-          .$queryRaw<Array<{ id: number; name: string }>>`
+        this.prisma.$queryRaw<Array<{ id: number; name: string }>>`
             SELECT id, name FROM lda_registrant WHERE id = ANY(${ldaRegistrantIds}::int[])
-          `
-          .then((rows) => {
-            for (const r of rows) labelByNodeKey.set(`lda_registrant:${r.id}`, r.name);
-          }),
+          `.then((rows) => {
+          for (const r of rows) labelByNodeKey.set(`lda_registrant:${r.id}`, r.name);
+        }),
       );
     }
 
@@ -4577,47 +4839,42 @@ export class IntelligenceService {
       .filter((n) => Number.isFinite(n));
     if (ldaLobbyistIds.length) {
       lookups.push(
-        this.prisma
-          .$queryRaw<Array<{ id: number; first_name: string; last_name: string }>>`
+        this.prisma.$queryRaw<Array<{ id: number; first_name: string; last_name: string }>>`
             SELECT id, first_name, last_name FROM lda_lobbyist WHERE id = ANY(${ldaLobbyistIds}::int[])
-          `
-          .then((rows) => {
-            for (const r of rows) {
-              const name = `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim();
-              labelByNodeKey.set(`lda_lobbyist:${r.id}`, name || `Lobbyist ${r.id}`);
-            }
-          }),
+          `.then((rows) => {
+          for (const r of rows) {
+            const name = `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim();
+            labelByNodeKey.set(`lda_lobbyist:${r.id}`, name || `Lobbyist ${r.id}`);
+          }
+        }),
       );
     }
 
     const contractorIds = Array.from(idsByKind.get('federal_contractor') ?? []);
     if (contractorIds.length) {
       lookups.push(
-        this.prisma
-          .$queryRaw<Array<{ id: string; name: string }>>`
+        this.prisma.$queryRaw<Array<{ id: string; name: string }>>`
             SELECT id, name FROM federal_contractor WHERE id::text = ANY(${contractorIds}::text[])
-          `
-          .then((rows) => {
-            for (const r of rows) labelByNodeKey.set(`federal_contractor:${r.id}`, r.name);
-          }),
+          `.then((rows) => {
+          for (const r of rows) labelByNodeKey.set(`federal_contractor:${r.id}`, r.name);
+        }),
       );
     }
 
     const fecCommitteeIds = Array.from(idsByKind.get('fec_committee') ?? []);
     if (fecCommitteeIds.length) {
       lookups.push(
-        this.prisma
-          .$queryRaw<Array<{ committee_id: string; committee_name: string | null }>>`
+        this.prisma.$queryRaw<Array<{ committee_id: string; committee_name: string | null }>>`
             SELECT DISTINCT committee_id, committee_name
             FROM fec_contribution
             WHERE committee_id = ANY(${fecCommitteeIds}::text[])
               AND committee_name IS NOT NULL
-          `
-          .then((rows) => {
-            for (const r of rows) {
-              if (r.committee_name) labelByNodeKey.set(`fec_committee:${r.committee_id}`, r.committee_name);
-            }
-          }),
+          `.then((rows) => {
+          for (const r of rows) {
+            if (r.committee_name)
+              labelByNodeKey.set(`fec_committee:${r.committee_id}`, r.committee_name);
+          }
+        }),
       );
     }
 
@@ -4641,7 +4898,9 @@ export class IntelligenceService {
 
     // Step 3, expand kindToUiType so distinct kinds get distinct visual
     // treatment instead of all collapsing onto "AGENCY".
-    const kindToUiType = (kind: string): 'client' | 'registrant' | 'lobbyist' | 'contractor' | 'bill' | 'pac' | 'agency' => {
+    const kindToUiType = (
+      kind: string,
+    ): 'client' | 'registrant' | 'lobbyist' | 'contractor' | 'bill' | 'pac' | 'agency' => {
       switch (kind) {
         case 'client':
           return 'client';
@@ -4714,8 +4973,14 @@ export class IntelligenceService {
       return `(${kind.replace(/_/g, ' ')}) ${id.length > 24 ? id.slice(0, 24) + '…' : id}`;
     };
 
-    const nodeMap = new Map<string, { id: string; type: string; label: string; metadata: Record<string, unknown> }>();
-    const edgeMap = new Map<string, { source: string; target: string; type: string; label: string }>();
+    const nodeMap = new Map<
+      string,
+      { id: string; type: string; label: string; metadata: Record<string, unknown> }
+    >();
+    const edgeMap = new Map<
+      string,
+      { source: string; target: string; type: string; label: string }
+    >();
 
     nodeMap.set(centerNodeId, {
       id: centerNodeId,
@@ -4776,11 +5041,7 @@ export class IntelligenceService {
   }
 
   /** Outreach intelligence context, formatted text block for AI prompt injection */
-  async getOutreachContext(
-    clientId: string,
-    tenantId: string,
-    recipientOffice?: string,
-  ) {
+  async getOutreachContext(clientId: string, tenantId: string, recipientOffice?: string) {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const fourteenDaysOut = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
@@ -4836,7 +5097,9 @@ export class IntelligenceService {
     if (hearings.length) {
       const hearingList = hearings
         .map((h) => {
-          const daysOut = Math.ceil((new Date(h.date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          const daysOut = Math.ceil(
+            (new Date(h.date).getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+          );
           return `- ${h.committeeName}: "${h.title.slice(0, 60)}" (in ${daysOut}d, ${h.chamber})`;
         })
         .join('\n');
@@ -4844,16 +5107,16 @@ export class IntelligenceService {
     }
 
     if (recentChanges.length) {
-      const changeList = recentChanges
-        .map((c) => `- [${c.changeType}] ${c.title}`)
-        .join('\n');
+      const changeList = recentChanges.map((c) => `- [${c.changeType}] ${c.title}`).join('\n');
       parts.push(`RECENT INTELLIGENCE (7d):\n${changeList}`);
     }
 
     if (commentPeriods.length) {
       const deadlineList = commentPeriods
         .map((d) => {
-          const days = Math.ceil((d.commentEndDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          const days = Math.ceil(
+            (d.commentEndDate!.getTime() - now.getTime()) / (1000 * 60 * 60 * 24),
+          );
           return `- "${d.title.slice(0, 60)}", ${days}d left (${(d.agencyNames as string[]).slice(0, 2).join('/')})`;
         })
         .join('\n');
@@ -4880,8 +5143,7 @@ export class IntelligenceService {
         const matched = lobbyists.filter((l) => {
           const positions = Array.isArray(l.covered_positions) ? l.covered_positions : [];
           return (positions as unknown[]).some((p) => {
-            const pos =
-              p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
+            const pos = p && typeof p === 'object' ? (p as Record<string, unknown>) : {};
             const posTitle = typeof pos.position === 'string' ? pos.position.toLowerCase() : '';
             const posDept = typeof pos.department === 'string' ? pos.department.toLowerCase() : '';
             return posTitle.includes(officeLower) || posDept.includes(officeLower);
@@ -4905,7 +5167,10 @@ export class IntelligenceService {
   async getAllMappingsForTenant(tenantId: string) {
     const clients = await this.prisma.withTenant(tenantId, (tx) =>
       // Exclude soft-archived ("deleted") clients from the mappings admin view.
-      tx.client.findMany({ where: { status: { not: 'archived' } }, select: { id: true, name: true } }),
+      tx.client.findMany({
+        where: { status: { not: 'archived' } },
+        select: { id: true, name: true },
+      }),
     );
 
     const clientIds = clients.map((c) => c.id);
@@ -5034,14 +5299,17 @@ export class IntelligenceService {
             dataYear: d.data_year,
           }));
 
-        const explicitJobs = extractJobs(cap.existingContracts ?? null) ?? extractJobs(cap.districtNexus ?? null);
-        const jobsPerDistrict = explicitJobs != null
-          ? Math.max(1, Math.round(explicitJobs / Math.max(districts.length, 1)))
-          : null;
+        const explicitJobs =
+          extractJobs(cap.existingContracts ?? null) ?? extractJobs(cap.districtNexus ?? null);
+        const jobsPerDistrict =
+          explicitJobs != null
+            ? Math.max(1, Math.round(explicitJobs / Math.max(districts.length, 1)))
+            : null;
         const talkingPoints = districts.map((d) => {
-          const headline = jobsPerDistrict != null
-            ? `${cap.name} supports ~${jobsPerDistrict.toLocaleString()} jobs in ${d.state}-${d.district}.`
-            : `${cap.name} has district nexus in ${d.state}-${d.district} with labor force ${d.laborForceSize ? d.laborForceSize.toLocaleString() : 'N/A'}.`;
+          const headline =
+            jobsPerDistrict != null
+              ? `${cap.name} supports ~${jobsPerDistrict.toLocaleString()} jobs in ${d.state}-${d.district}.`
+              : `${cap.name} has district nexus in ${d.state}-${d.district} with labor force ${d.laborForceSize ? d.laborForceSize.toLocaleString() : 'N/A'}.`;
           return {
             district: `${d.state}-${d.district}`,
             headline,
@@ -5111,7 +5379,12 @@ export class IntelligenceService {
 
     // 2. Aggregate award spend by place-of-performance district (global table, read-only).
     const spendRows = await this.prisma.$queryRaw<
-      Array<{ pop_state: string | null; pop_district: string | null; award_count: bigint; total_amount: number | null }>
+      Array<{
+        pop_state: string | null;
+        pop_district: string | null;
+        award_count: bigint;
+        total_amount: number | null;
+      }>
     >`
       SELECT pop_state, pop_congressional_district AS pop_district,
              COUNT(*)::bigint AS award_count,
@@ -5210,7 +5483,9 @@ export class IntelligenceService {
   async getBillRegulationLinks(
     clientId: string,
     tenantId: string,
-    precomputedTracked?: Promise<Awaited<ReturnType<typeof this.getTrackedBills>>> | Awaited<ReturnType<typeof this.getTrackedBills>>,
+    precomputedTracked?:
+      | Promise<Awaited<ReturnType<typeof this.getTrackedBills>>>
+      | Awaited<ReturnType<typeof this.getTrackedBills>>,
   ) {
     const tracked = await (precomputedTracked ?? this.getTrackedBills(clientId, tenantId));
     if (!tracked.bills.length) {
@@ -5259,42 +5534,44 @@ export class IntelligenceService {
     `;
 
     // Group regulations back to bills by topic overlap or identifier mention.
-    const links = tracked.bills.map((bill) => {
-      const billSubjects = new Set(bill.subjectNames);
-      const billIdentVariants = (() => {
-        const parts = bill.identifier.split('-');
-        if (parts.length !== 3 || !parts[1] || !parts[2]) return [];
-        const upper = parts[1].toUpperCase();
-        const num = parts[2];
-        return [`${upper} ${num}`, `${upper}${num}`];
-      })().map((s) => s.toLowerCase());
+    const links = tracked.bills
+      .map((bill) => {
+        const billSubjects = new Set(bill.subjectNames);
+        const billIdentVariants = (() => {
+          const parts = bill.identifier.split('-');
+          if (parts.length !== 3 || !parts[1] || !parts[2]) return [];
+          const upper = parts[1].toUpperCase();
+          const num = parts[2];
+          return [`${upper} ${num}`, `${upper}${num}`];
+        })().map((s) => s.toLowerCase());
 
-      const matched = regulations.filter((r) => {
-        if (r.topics.some((t) => billSubjects.has(t))) return true;
-        const haystack = r.title.toLowerCase();
-        return billIdentVariants.some((v) => haystack.includes(v));
-      });
+        const matched = regulations.filter((r) => {
+          if (r.topics.some((t) => billSubjects.has(t))) return true;
+          const haystack = r.title.toLowerCase();
+          return billIdentVariants.some((v) => haystack.includes(v));
+        });
 
-      return {
-        bill: {
-          identifier: bill.identifier,
-          title: bill.title,
-          latestActionDate: bill.latestActionDate,
-        },
-        regulations: matched.slice(0, 10).map((r) => ({
-          documentNumber: r.document_number,
-          type: r.type,
-          title: r.title,
-          agencyNames: r.agency_names,
-          publicationDate: r.publication_date,
-          commentEndDate: r.comment_end_date,
-          effectiveDate: r.effective_date,
-          significantRule: r.significant_rule,
-          htmlUrl: r.html_url,
-          matchedTopics: r.topics.filter((t) => billSubjects.has(t)),
-        })),
-      };
-    }).filter((l) => l.regulations.length > 0);
+        return {
+          bill: {
+            identifier: bill.identifier,
+            title: bill.title,
+            latestActionDate: bill.latestActionDate,
+          },
+          regulations: matched.slice(0, 10).map((r) => ({
+            documentNumber: r.document_number,
+            type: r.type,
+            title: r.title,
+            agencyNames: r.agency_names,
+            publicationDate: r.publication_date,
+            commentEndDate: r.comment_end_date,
+            effectiveDate: r.effective_date,
+            significantRule: r.significant_rule,
+            htmlUrl: r.html_url,
+            matchedTopics: r.topics.filter((t) => billSubjects.has(t)),
+          })),
+        };
+      })
+      .filter((l) => l.regulations.length > 0);
 
     return {
       links,
@@ -5359,41 +5636,43 @@ export class IntelligenceService {
       `,
     ]);
 
-    const attachments = tracked.bills.map((bill) => {
-      const billSubjects = new Set(bill.subjectNames);
-      const gao = gaoRows
-        .filter((r) => r.topics.some((t) => billSubjects.has(t)))
-        .slice(0, 8)
-        .map((r) => ({
-          id: r.id,
-          title: r.title,
-          publishDate: r.publish_date,
-          topics: r.topics.filter((t) => billSubjects.has(t)),
-          reportType: r.report_type,
-          recommendations: r.recommendations,
-          url: r.url,
-        }));
-      const crs = crsRows
-        .filter((r) => r.topics.some((t) => billSubjects.has(t)))
-        .slice(0, 8)
-        .map((r) => ({
-          id: r.id,
-          title: r.title,
-          date: r.date,
-          topics: r.topics.filter((t) => billSubjects.has(t)),
-          authors: r.authors,
-          htmlUrl: r.html_url,
-        }));
-      return {
-        bill: {
-          identifier: bill.identifier,
-          title: bill.title,
-          latestActionDate: bill.latestActionDate,
-        },
-        gao,
-        crs,
-      };
-    }).filter((a) => a.gao.length > 0 || a.crs.length > 0);
+    const attachments = tracked.bills
+      .map((bill) => {
+        const billSubjects = new Set(bill.subjectNames);
+        const gao = gaoRows
+          .filter((r) => r.topics.some((t) => billSubjects.has(t)))
+          .slice(0, 8)
+          .map((r) => ({
+            id: r.id,
+            title: r.title,
+            publishDate: r.publish_date,
+            topics: r.topics.filter((t) => billSubjects.has(t)),
+            reportType: r.report_type,
+            recommendations: r.recommendations,
+            url: r.url,
+          }));
+        const crs = crsRows
+          .filter((r) => r.topics.some((t) => billSubjects.has(t)))
+          .slice(0, 8)
+          .map((r) => ({
+            id: r.id,
+            title: r.title,
+            date: r.date,
+            topics: r.topics.filter((t) => billSubjects.has(t)),
+            authors: r.authors,
+            htmlUrl: r.html_url,
+          }));
+        return {
+          bill: {
+            identifier: bill.identifier,
+            title: bill.title,
+            latestActionDate: bill.latestActionDate,
+          },
+          gao,
+          crs,
+        };
+      })
+      .filter((a) => a.gao.length > 0 || a.crs.length > 0);
 
     return {
       attachments,
@@ -5495,8 +5774,7 @@ export class IntelligenceService {
       //   foreign     = relatedClientIds only references other tenants → EXCLUDE
       //                 (descriptions can include the matched client's name)
       const isNeutral = c.relatedClientIds.length === 0;
-      const touchesTenant =
-        !isNeutral && c.relatedClientIds.some((id) => tenantClientIds.has(id));
+      const touchesTenant = !isNeutral && c.relatedClientIds.some((id) => tenantClientIds.has(id));
       if (!isNeutral && !touchesTenant) continue;
       events.push({
         id: `change-${c.id}`,
@@ -5722,9 +6000,7 @@ export class IntelligenceService {
       })
       .slice(0, Math.max(0, 6 - meetingItems.length));
 
-    const top = [...meetingItems, ...nonMeetingPicks].sort((a, b) =>
-      a.date.localeCompare(b.date),
-    );
+    const top = [...meetingItems, ...nonMeetingPicks].sort((a, b) => a.date.localeCompare(b.date));
 
     return { items: top, totalThisWeek: items.length };
   }
@@ -5763,12 +6039,7 @@ export class IntelligenceService {
       (c) => c.profileStatus === 'PAUSED' || c.profileStatus === 'MONITORING',
     ).length;
 
-    const [workflowsOpen, ldaSpendRows, billsTracked, regulationsTracked] = await Promise.all([
-      // workflow_instance has no RLS policy; explicit tenantId filter required
-      // even inside withTenant(). Mirrors workflows.service.ts list() pattern.
-      this.prisma.workflowInstance.count({
-        where: { tenantId, status: { notIn: ['complete', 'cancelled'] } },
-      }),
+    const [ldaSpendRows, billsTracked, regulationsTracked] = await Promise.all([
       tenantLdaIds.length
         ? this.prisma.$queryRaw<Array<{ total: string | null }>>`
             SELECT COALESCE(SUM(income), 0)::text AS total
@@ -5811,7 +6082,6 @@ export class IntelligenceService {
 
     return {
       activeClients: clients.length,
-      openWorkflows: workflowsOpen,
       needAttention,
       ldaSpendQtd: ldaSpendDollars,
       billsTracked: billsTrackedCount,
@@ -6085,10 +6355,15 @@ function startOfQuarter(now: Date): Date {
 function normalizeDistrict(code: string | null): string {
   if (!code) return 'AL';
   const trimmed = code.trim().toUpperCase();
-  if (trimmed === 'AL' || trimmed === '00' || trimmed === '98' || trimmed === '90' || trimmed === 'ZZ') {
+  if (
+    trimmed === 'AL' ||
+    trimmed === '00' ||
+    trimmed === '98' ||
+    trimmed === '90' ||
+    trimmed === 'ZZ'
+  ) {
     return 'AL';
   }
   const n = parseInt(trimmed, 10);
   return Number.isFinite(n) ? String(n) : 'AL';
 }
-

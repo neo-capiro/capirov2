@@ -24,7 +24,6 @@ const WRITE_TOOLS = new Set([
   'cancel_scheduled_task',
   'create_task',
   'update_task',
-  'update_workflow_field',
 ]);
 
 export function classifyToolAction(tool: string): ToolActionKind {
@@ -52,7 +51,6 @@ const VERBS: Record<string, string> = {
   cancel_scheduled_task: 'canceled a scheduled task',
   create_task: 'created an engagement task',
   update_task: 'updated an engagement task',
-  update_workflow_field: 'updated a workflow field',
 };
 
 /** Human-readable past-tense description of an action, for surfacing/audit. */

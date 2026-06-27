@@ -31,7 +31,6 @@ const GENERATION_URL_PATTERNS: RegExp[] = [
   /artifacts/i, // POST .../artifacts (artifact generation)
   /extract-text/i, // attachment text extraction / transcription
   /clio\/research/i, // deep-research create / clarify (non-stream POSTs)
-  /draft-whitepaper-section/i,
 ];
 
 export function isGenerationUrl(url: string | undefined): boolean {
